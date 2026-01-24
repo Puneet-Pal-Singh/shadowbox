@@ -1,0 +1,41 @@
+// src/interfaces/types.ts
+import { Sandbox } from "@cloudflare/sandbox";
+
+// Definition for the callback function
+export type LogCallback = (log: string) => void;
+
+export interface PluginResult {
+  success: boolean;
+  output?: any;
+  error?: string;
+  logs?: string[];
+}
+
+// OpenAI Tool Definition Schema
+export interface ToolDefinition {
+  name: string;
+  description: string;
+  parameters: {
+    type: "object";
+    properties: Record<string, any>;
+    required?: string[];
+  };
+}
+
+// The Contract: Every feature (Redis, Python, Git) must follow this
+export interface IPlugin {
+  // The unique name (e.g., "python", "redis", "fs")
+  name: string;
+  
+  // New: Plugins must describe their capabilities
+  tools: ToolDefinition[]; 
+  
+  // Logic to run when the sandbox first boots (optional)
+  // e.g., "Compile Go binary" or "pip install pandas"
+  setup?(sandbox: Sandbox): Promise<void>;
+
+  // The actual action
+  // execute(sandbox: Sandbox, payload: any): Promise<PluginResult>;
+  // UPDATED: Accept the optional callback
+  execute(sandbox: Sandbox, payload: any, onLog?: LogCallback): Promise<PluginResult>;
+}

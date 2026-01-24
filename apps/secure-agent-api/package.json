@@ -1,0 +1,26 @@
+{
+	"name": "@shadowbox/secure-agent-api",
+	"version": "1.0.0",
+	"type": "module",
+	"private": true,
+	"description": "A minimal example of using the Sandbox SDK",
+	"scripts": {
+		"deploy": "wrangler deploy",
+		"dev": "wrangler dev",
+		"start": "wrangler dev",
+		"cf-typegen": "wrangler types",
+		"typecheck": "tsc --noEmit",
+		"test": "node --test test/**/*.test.js"
+	},
+	"devDependencies": {
+		"@cloudflare/sandbox": "*",
+		"@cloudflare/workers-types": "^4.20260118.0",
+		"@types/node": "^24.10.9",
+		"typescript": "^5.9.3",
+		"wrangler": "^4.59.2",
+		"ws": "^8.19.0",
+		"@repo/typescript-config": "workspace:*"
+	},
+	"author": "",
+	"license": "MIT"
+}
