@@ -36,3 +36,12 @@ yarn-error.log*
 # Misc
 .DS_Store
 *.pem
+
+# Cloudflare/Wrangler local state
+.wrangler/
+*.sqlite
+*.sqlite-journal
+
+# Build artifacts
+dist/
+.turbo/
