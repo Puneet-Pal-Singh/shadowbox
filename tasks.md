@@ -19,7 +19,18 @@
 - [x] **Git Plugin**: Enable cloning public repositories for agent analysis.
 - [x] **Monorepo Migration**: Structure project using Turborepo and pnpm workspaces.
 
-## 🚀 Phase 4: Productization (The "Superset" Experience)
+## ✅ Phase 3.5: Infrastructure & Sync (CURRENT)
+- [ ] **Optimized Dockerfile**: Multi-stage build for Python, Node, Rust, and Go-Redis.
+- [ ] **Clean API Entrypoint**: Implement CORS and robust routing in `index.ts`.
+- [ ] **Command Processor**: Refactor Terminal logic to be SOLID (Strategy Pattern).
+- [ ] **OSS Sync Action**: Automate folder sync to `agent-runtime-cf`.
+
+## 🚀 Phase 4: The "multi agent" Experience
+- [ ] **LLM Gateway**: Add `/chat` endpoint to bridge UI prompts to Sandbox tools.
+- [ ] **Git Workflow**: Implement `git_diff`, `git_commit`, and `git_push`.
+- [ ] **Task UI**: side-by-side Terminal (Logs) and Diff View (Changes).
+
+## 🚀 Phase 4.5: Productization (The "multi agent" Experience)
 - [ ] **Multi-Session UI**: Refactor React frontend to support multiple terminal tabs/agents.
 - [ ] **Dynamic Layout**: Implement a dashboard with a sidebar and main execution area.
 - [ ] **Visual File Explorer**: Create a UI tree-view that syncs with the Sandbox filesystem.
