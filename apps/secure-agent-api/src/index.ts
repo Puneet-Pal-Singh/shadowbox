@@ -64,7 +64,6 @@
 //   },
 // };
 
-
 // src/index.ts
 import { AgentRuntime } from "./core/AgentRuntime";
 import { Sandbox } from '@cloudflare/sandbox';
@@ -72,28 +71,29 @@ import { Sandbox } from '@cloudflare/sandbox';
 export { Sandbox, AgentRuntime };
 
 const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Origin": "http://localhost:5173", // Tighten this later
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type",
+  "Access-Control-Allow-Credentials": "true"
 };
 
 export default {
   async fetch(request: Request, env: any): Promise<Response> {
     const url = new URL(request.url);
 
-    // 1. Handle CORS
+    // 1. Handle CORS Preflight
     if (request.method === "OPTIONS") {
       return new Response(null, { headers: corsHeaders });
     }
 
-    // 2. Route WebSocket (Real-time Stream)
+    // 2. Route WebSocket
     if (url.pathname === "/connect") {
       const sessionId = url.searchParams.get("session") || "default";
       const id = env.AGENT_RUNTIME.idFromName(sessionId);
       return env.AGENT_RUNTIME.get(id).fetch(request);
     }
 
-    // 3. Command Routing
+    // 3. Handle Routes
     let response: Response;
     try {
       if (url.pathname === "/tools") {
@@ -104,10 +104,8 @@ export default {
       else if (request.method === "POST") {
         const sessionId = url.searchParams.get("session") || "default";
         const body = await request.json() as { plugin: string; payload: any };
-        
-        if (!body.plugin) return new Response("Missing plugin", { status: 400 });
-
-        const result = await env.AGENT_RUNTIME.get(env.AGENT_RUNTIME.idFromName(sessionId)).run(body.plugin, body.payload);
+        const id = env.AGENT_RUNTIME.idFromName(sessionId);
+        const result = await env.AGENT_RUNTIME.get(id).run(body.plugin, body.payload);
         response = Response.json(result);
       } 
       else {
@@ -117,7 +115,7 @@ export default {
       response = Response.json({ error: e.message }, { status: 500 });
     }
 
-    // Apply CORS to all responses
+    // Apply CORS headers to all responses
     Object.entries(corsHeaders).forEach(([k, v]) => response.headers.set(k, v));
     return response;
   },

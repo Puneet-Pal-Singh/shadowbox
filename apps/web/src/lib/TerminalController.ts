@@ -12,9 +12,12 @@ export class TerminalController {
   private currentLine: string = "";
   private sessionId: string;
   private isExecuting: boolean = false;
+  private isDisposed: boolean = false; // Safety Flag
+  private resizeObserver: ResizeObserver | null = null;
 
   constructor(sessionId: string) {
     this.sessionId = sessionId;
+    
     this.term = new XTerm({
       cursorBlink: true,
       fontSize: 14,
@@ -24,7 +27,8 @@ export class TerminalController {
         foreground: '#f4f4f5', 
         cursor: '#22c55e',
         selectionBackground: '#3f3f46'
-      }
+      },
+      allowProposedApi: true
     });
 
     this.fitAddon = new FitAddon();
@@ -35,20 +39,37 @@ export class TerminalController {
   }
 
   mount(container: HTMLDivElement) {
+    if (this.isDisposed) return;
+
     this.term.open(container);
-    // Timeout ensures the DOM has dimensions before fitting
-    setTimeout(() => this.fitAddon.fit(), 0);
-    this.term.writeln(`\x1b[32m[System]\x1b[0m Session ID: ${this.sessionId}`);
+    
+    // Only observe if we successfully opened
+    if (this.term.element) {
+      this.resizeObserver = new ResizeObserver(() => {
+          // Debounce slightly to allow layout to settle
+          requestAnimationFrame(() => this.safeFit());
+      });
+      this.resizeObserver.observe(container);
+    }
+    // Initial fit
+    setTimeout(() => this.safeFit(), 50);
+    
+    this.term.writeln(`\x1b[32m[System]\x1b[0m Session: ${this.sessionId}`);
   }
 
   connect() {
+    if (this.isDisposed || this.ws) return;
+
     this.ws = new WebSocket(`ws://localhost:8787/connect?session=${this.sessionId}`);
     
     this.ws.onopen = () => {
+      if (!this.isDisposed) {
         this.term.writeln('\x1b[32m✔ Connected to Edge Runtime\x1b[0m\r\n$ ');
+      }
     };
 
     this.ws.onmessage = (e: MessageEvent<string>) => {
+      if (this.isDisposed) return;
       const msg: WSEvent = JSON.parse(e.data);
       
       switch (msg.type) {
@@ -56,10 +77,10 @@ export class TerminalController {
           this.term.write(msg.data.replace(/\n/g, '\r\n'));
           break;
         case 'system':
-          this.term.writeln(`\r\n\x1b[90m[sys] ${msg.data}\x1b[0m`);
+          this.term.write(`\r\n\x1b[90m[sys] ${msg.data}\x1b[0m\r\n$ `);
           break;
         case 'error':
-          this.term.writeln(`\r\n\x1b[31m[err] ${msg.data}\x1b[0m`);
+          this.term.write(`\r\n\x1b[31m[err] ${msg.data}\x1b[0m\r\n$ `);
           break;
         case 'finish':
           this.isExecuting = false;
@@ -68,14 +89,37 @@ export class TerminalController {
       }
     };
 
-    this.ws.onclose = () => this.term.writeln('\r\n\x1b[31m✖ Connection Lost\x1b[0m');
+    this.ws.onclose = (e) => {
+      if (this.isDisposed) return;
+      // 1000 = Normal Closure (Component unmount), 1006 = Error
+      if (e.code !== 1000 && !e.wasClean) {
+        this.term.writeln('\r\n\x1b[31m✖ Connection Lost\x1b[0m');
+      }
+      this.ws = null;
+    };
+  }
+
+  private safeFit() {
+    if (this.isDisposed) return;
+    
+    // 🔥 FIX: Strict check for DOM presence and dimensions
+    const el = this.term.element;
+    if (!el || !el.isConnected || el.clientWidth === 0 || el.clientHeight === 0) {
+      return;
+    }
+
+    try {
+      this.fitAddon.fit();
+    } catch {
+      // Suppress internal xterm errors during layout shifts
+    }
   }
 
   private async handleInput(data: string) {
-    if (this.isExecuting) return; // Block input while waiting for previous command result
+    if (this.isExecuting || this.isDisposed) return; 
 
     const code = data.charCodeAt(0);
-    if (code === 13) { // Enter
+    if (code === 13) { 
       this.term.write('\r\n');
       const cmd = this.currentLine.trim();
       if (cmd) {
@@ -85,7 +129,7 @@ export class TerminalController {
         this.term.write('$ ');
       }
       this.currentLine = "";
-    } else if (code === 127) { // Backspace
+    } else if (code === 127) { 
       if (this.currentLine.length > 0) {
         this.currentLine = this.currentLine.slice(0, -1);
         this.term.write('\b \b');
@@ -97,28 +141,31 @@ export class TerminalController {
   }
 
   private async executeRemote(input: string) {
+    if (this.isDisposed) return;
     const request = CommandService.parse(input);
     try {
-      const response = await fetch(`http://localhost:8787/?session=${this.sessionId}`, {
+      await fetch(`http://localhost:8787/?session=${this.sessionId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(request)
       });
-      
-      if (!response.ok) {
-        const err = await response.json() as { error: string };
-        throw new Error(err.error || 'Execution failed');
-      }
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Unknown error';
-      this.term.writeln(`\r\n\x1b[31m[Error] ${message}\x1b[0m`);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      this.term.writeln(`\r\n\x1b[31m[Error] ${errorMessage}\x1b[0m`);
       this.isExecuting = false;
       this.term.write('$ ');
     }
   }
 
   destroy() {
-    this.ws?.close();
+    this.isDisposed = true; // Block all future ops
+    this.resizeObserver?.disconnect();
+    
+    if (this.ws) {
+      this.ws.close(1000, "Component Unmounted"); // Clean close code
+      this.ws = null;
+    }
+    
     this.term.dispose();
   }
 }
