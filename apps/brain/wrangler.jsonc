@@ -1,0 +1,20 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "shadowbox-brain",
+  "main": "src/index.ts",
+  "compatibility_date": "2024-09-23",
+  
+  // 1. Enable Cloudflare Workers AI (Free Tier Llama-3)
+  "ai": {
+    "binding": "AI"
+  },
+
+  // 2. Connect to the Secure Runtime Worker
+  // The 'service' name must match the 'name' in apps/secure-agent-api/wrangler.jsonc
+  "services": [
+    {
+      "binding": "SECURE_API",
+      "service": "shadowbox-api" 
+    }
+  ]
+}

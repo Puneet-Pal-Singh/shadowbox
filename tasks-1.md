@@ -22,7 +22,7 @@
 
 - [ ] **Brain Worker Setup**: Initialize `apps/brain` with Cloudflare Workers AI bindings.
 - [ ] **Provider Pattern**: Create `AIProvider` interface to support multiple LLMs.
-- [ ] **Anthropic Integration**: Implement `AnthropicProvider` for Claude 3.5 Sonnet (Tool Calling).
+- [ ] **Anthropic Integration**: Implement `AnthropicProvider` for Claude 4.5 Sonnet (Tool Calling).
 - [ ] **Cloudflare AI Integration**: Implement `CloudflareProvider` for free models (Llama-3).
 - [ ] **Tool Discovery Bridge**: Connect `apps/brain` to `apps/secure-agent-api` via Service Bindings to fetch available tools dynamically.
 - [ ] **Chat API Endpoint**: Build `POST /chat` that accepts prompts + API keys and returns structured tool calls.
