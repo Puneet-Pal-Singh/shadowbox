@@ -6,7 +6,8 @@
 
   // 1. Enable Cloudflare Workers AI (Free Tier Llama-3)
   "ai": {
-    "binding": "AI"
+    "binding": "AI",
+    "remote": true // Use Cloudflare's hosted AI service
   },
 
   // 2. Connect to the Secure Runtime Worker

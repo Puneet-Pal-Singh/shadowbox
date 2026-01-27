@@ -1,7 +1,7 @@
-import { Env, Tool } from "./types/ai";
+import { Env, Tool, ToolCall } from "./types/ai";
 import { MODEL_REGISTRY } from "./registry";
+import { AgentOrchestrator } from "./orchestrator/executor";
 
-// 1. Define Request/Response Contracts (DTOs)
 interface ChatRequestBody {
   messages: Array<{ role: string; content: string }>;
   modelId: string;
@@ -9,93 +9,86 @@ interface ChatRequestBody {
   apiKey?: string;
 }
 
-interface ToolsResponse {
-  tools: Tool[];
-}
-
-// 2. Constant Configuration
 const CORS_HEADERS = {
-  "Access-Control-Allow-Origin": "http://localhost:5173", // Locked to your Frontend port
+  "Access-Control-Allow-Origin": "http://localhost:5173",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type",
 };
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
-    // Handle Preflight
-    if (request.method === "OPTIONS") {
-      return new Response(null, { headers: CORS_HEADERS });
-    }
-
+    if (request.method === "OPTIONS") return new Response(null, { headers: CORS_HEADERS });
     const url = new URL(request.url);
 
-    // Route: /chat
     if (request.method === "POST" && url.pathname === "/chat") {
       return handleChatRequest(request, env);
     }
 
-    // Default 404
     return new Response("Not Found", { status: 404, headers: CORS_HEADERS });
   }
 };
 
 /**
- * Controller Logic for Chat Requests
- * Separated from main fetch for readability (SRP)
+ * SRP: Autonomous Chat Controller
  */
 async function handleChatRequest(request: Request, env: Env): Promise<Response> {
   try {
     const body = await request.json() as ChatRequestBody;
-    const { messages, modelId, apiKey } = body;
+    const { messages, modelId, apiKey, sessionId } = body;
 
-    if (!messages || !modelId) {
-      return new Response(JSON.stringify({ error: "Missing messages or modelId" }), {
-        status: 400,
-        headers: CORS_HEADERS
-      });
-    }
-
-    // 1. Dynamic Tool Discovery (Ask the Muscle what it can do)
-    const toolsRes = await env.SECURE_API.fetch("http://internal/tools");
+    // 1. Discovery: Request tools from the Sandbox
+    // We use a generic 'fetchable' to handle the type mismatch between standard/CF fetch
+    console.log(`[Brain] 🧠 Discovering tools for session: ${sessionId}`);
     
-    if (!toolsRes.ok) {
-      throw new Error(`Failed to fetch tools from Secure API: ${toolsRes.statusText}`);
+    let toolsData: { tools: Tool[] };
+    try {
+      // Attempt A: Service Binding (Production/Internal Cloudflare Network)
+      const bindingRes = await env.SECURE_API.fetch("http://muscle/tools");
+      toolsData = await bindingRes.json() as { tools: Tool[] };
+    } catch (e) {
+      // Attempt B: Localhost Fallback (Development Mixed-Mode)
+      console.log("[Brain] ⚠️ Service binding failed, trying localhost:8787...");
+      const localRes = await fetch(`http://localhost:8787/tools?session=${sessionId}`);
+      if (!localRes.ok) throw new Error("Could not reach Secure API via binding or localhost.");
+      toolsData = await localRes.json() as { tools: Tool[] };
     }
 
-    const toolsData = await toolsRes.json() as ToolsResponse;
-    const tools = toolsData.tools;
-
-    // 2. Resolve Provider using Registry (Strategy Pattern)
-    // We cast the key to ensure TS knows it matches the registry keys
+    // 2. Select Provider
     const modelKey = modelId as keyof typeof MODEL_REGISTRY;
-    const providerFactory = MODEL_REGISTRY[modelKey];
-
-    if (!providerFactory) {
-      return new Response(JSON.stringify({ error: `Model '${modelId}' not supported` }), {
-        status: 400,
-        headers: CORS_HEADERS
-      });
-    }
-
-    // Instantiate the specific provider
+    const providerFactory = MODEL_REGISTRY[modelKey] || MODEL_REGISTRY["claude-4.5-sonnet"];
     const provider = providerFactory(modelId, env);
 
-    // 3. Generate Response
-    const result = await provider.generate(
-      messages,
-      tools,
-      apiKey || ""
-    );
+    // 3. Inference: Ask AI what to do
+    const aiResponse = await provider.generate(messages, toolsData.tools, apiKey || "");
 
-    return Response.json(result, { headers: CORS_HEADERS });
+    // 4. Orchestration: Auto-Execute Tool Calls (The "Agent" Magic)
+    // This allows the AI to run code without user clicking 'Run'
+    const toolExecutions: Array<{ tool: string; result: unknown }> = [];
+    
+    if (aiResponse.toolCalls && aiResponse.toolCalls.length > 0) {
+      const executor = new AgentOrchestrator(env, sessionId);
+      
+      for (const call of aiResponse.toolCalls) {
+        console.log(`[Brain] ⚡️ Autonomous Execution: ${call.name}`);
+        const result = await executor.executeTool(call);
+        toolExecutions.push({
+          tool: call.name,
+          result: result
+        });
+      }
+    }
+
+    // 5. Final Payload
+    return Response.json({
+      modelId: aiResponse.modelId,
+      modelName: aiResponse.modelName,
+      content: aiResponse.content,
+      toolResults: toolExecutions.length > 0 ? toolExecutions : undefined
+    }, { headers: CORS_HEADERS });
 
   } catch (error: unknown) {
-    const errorMessage = error instanceof Error ? error.message : "Unknown Internal Error";
-    console.error("[Brain] Error:", errorMessage);
-    
-    return Response.json(
-      { error: errorMessage }, 
-      { status: 500, headers: CORS_HEADERS }
-    );
+    const msg = error instanceof Error ? error.message : "Unknown Brain Error";
+    console.error("[Brain] ❌ Error:", msg);
+    return Response.json({ error: msg }, { status: 500, headers: CORS_HEADERS });
   }
 }

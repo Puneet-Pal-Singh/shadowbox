@@ -2,116 +2,100 @@
 import { DurableObject } from "cloudflare:workers";
 import { getSandbox, type Sandbox } from "@cloudflare/sandbox";
 import { IPlugin, PluginResult, LogCallback } from "../interfaces/types";
-
-// New import for streaming logs
-import { StreamHandler } from "./StreamHandler"; // Import new helper
-
-// Plugins
+import { StreamHandler } from "./StreamHandler";
 import { PythonPlugin } from "../plugins/PythonPlugin";
 import { RedisPlugin } from "../plugins/RedisPlugin";
 import { FileSystemPlugin } from "../plugins/FileSystemPlugin";
 import { GitPlugin } from "../plugins/GitPlugin";
-import { NodePlugin } from "../plugins/NodePlugin"; // Create this similarly to Python
+import { NodePlugin } from "../plugins/NodePlugin";
 import { RustPlugin } from "../plugins/RustPlugin";
 
 export class AgentRuntime extends DurableObject {
   private sandbox: Sandbox | null = null;
   private plugins: Map<string, IPlugin> = new Map();
-  private stream = new StreamHandler(); // Init StreamHandler
+  private stream = new StreamHandler();
 
   constructor(ctx: DurableObjectState, env: any) {
     super(ctx, env);
-    this.registerPlugin(new PythonPlugin());
-    this.registerPlugin(new RedisPlugin());
-    this.registerPlugin(new FileSystemPlugin());
-    this.registerPlugin(new GitPlugin());
-    this.registerPlugin(new NodePlugin());
-    this.registerPlugin(new RustPlugin());
+    this.setupRegistry();
   }
 
-  private registerPlugin(plugin: IPlugin) {
-    this.plugins.set(plugin.name, plugin);
+  // 1. SRP: Separate Registry logic
+  private setupRegistry() {
+    [
+      new PythonPlugin(),
+      new RedisPlugin(),
+      new FileSystemPlugin(),
+      new GitPlugin(),
+      new NodePlugin(),
+      new RustPlugin()
+    ].forEach(p => this.plugins.set(p.name, p));
   }
 
-  private async getSandbox(env: any): Promise<Sandbox> {
+  // 2. SRP: Sandbox Lifecycle only
+  private async ensureSandbox(): Promise<Sandbox> {
     if (!this.sandbox) {
       const shortId = this.ctx.id.toString().substring(0, 50);
-      this.stream.broadcast("system", `Initializing Sandbox: ${shortId}`); // Stream event
-      console.log(`[AgentRuntime] Initializing Sandbox: ${shortId}`);
+      this.sandbox = getSandbox(this.env.Sandbox, shortId);
       
-      this.sandbox = getSandbox(env.Sandbox, shortId);
-
-      // This allows the WebSocket to return 101 immediately.
-      this.initializePlugins().catch(e => {
-        this.stream.broadcast("error", `Initialization failed: ${e.message}`);
-      }); // Setup plugins in background
+      // Async boot - don't block the caller
+      this.bootPlugins();
     }
     return this.sandbox;
   }
 
-  // private async initializePlugins() {
-  //   if (!this.sandbox) return;
-    
-  //   for (const plugin of this.plugins.values()) {
-  //     if (plugin.setup) {
-  //       this.stream.broadcast("system", `Starting ${plugin.name}...`);
-  //       // Setup runs in background
-  //       plugin.setup(this.sandbox).catch(e => {
-  //           this.stream.broadcast("error", `${plugin.name} failed: ${e.message}`);
-  //       });
-  //     }
-  //   }
-  // }
-  private async initializePlugins() {
+  private async bootPlugins() {
     if (!this.sandbox) return;
-    for (const plugin of this.plugins.values()) {
+    
+    // Log to terminal console for you, but don't spam the user's UI terminal
+    console.log("[AgentRuntime] Booting plugins in background...");
+    
+    const promises = Array.from(this.plugins.values()).map(async (plugin) => {
       if (plugin.setup) {
-        this.stream.broadcast("system", `Starting ${plugin.name}...`);
-        await plugin.setup(this.sandbox);
+        await plugin.setup(this.sandbox!);
       }
-    }
-    this.stream.broadcast("system", "All systems ready.");
+    });
+
+    await Promise.all(promises).catch(e => {
+        this.stream.broadcast("error", "One or more background services failed to start.");
+    });
+    
+    // Only one clean message to the user
+    this.stream.broadcast("system", "Environment Optimized & Ready");
   }
 
+  // 3. SRP: Pure Protocol Handling (WebSocket Upgrade)
   async fetch(request: Request) {
     const url = new URL(request.url);
 
-    // 1. WebSocket Upgrade Route
-    if (url.pathname === "/connect") {
-      if (request.headers.get("Upgrade") !== "websocket") {
-        return new Response("Expected Upgrade: websocket", { status: 426 });
-      }
-      
+    if (url.pathname === "/connect" && request.headers.get("Upgrade") === "websocket") {
       const pair = new WebSocketPair();
       const [client, server] = Object.values(pair);
-      
-      // Accept the connection
       this.stream.add(server as unknown as WebSocket);
       (server as unknown as WebSocket).accept();
-
       return new Response(null, { status: 101, webSocket: client });
     }
 
-    // Default fetch behavior (handled by index.ts via stub, or internal calls)
-    return new Response("Durable Object Active");
+    return new Response("Not Found", { status: 404 });
   }
 
+  // 4. SRP: Pure Execution Engine
   async run(pluginName: string, payload: any): Promise<PluginResult> {
-    const sb = await this.getSandbox(this.env);
-    
+    const sb = await this.ensureSandbox();
     const plugin = this.plugins.get(pluginName);
-    if (!plugin) {
-      return { success: false, error: `Plugin '${pluginName}' not installed.` };
-    }
+    
+    if (!plugin) return { success: false, error: "Plugin not found" };
 
-    // Define the logging callback
-    const onLog: LogCallback = (text: string) => {
-      this.stream.broadcast("log", text);
+    const onLog: LogCallback = (text) => {
+        // Clean the text before broadcasting
+        this.stream.broadcast("log", text);
     };
 
     try {
-      this.stream.broadcast("start", { plugin: pluginName });
+      // Optional: don't broadcast "start" unless you want a UI spinner
       const result = await plugin.execute(sb, payload, onLog);
+      
+      // Crucial: The "finish" event tells the UI to return the prompt
       this.stream.broadcast("finish", { success: result.success });
       return result;
     } catch (e: any) {
@@ -121,10 +105,6 @@ export class AgentRuntime extends DurableObject {
   }
 
   getManifest() {
-    const manifest = [];
-    for (const plugin of this.plugins.values()) {
-      manifest.push(...plugin.tools);
-    }
-    return manifest;
+    return Array.from(this.plugins.values()).flatMap(p => p.tools);
   }
 }

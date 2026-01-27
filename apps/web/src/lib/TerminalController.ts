@@ -64,7 +64,9 @@ export class TerminalController {
     
     this.ws.onopen = () => {
       if (!this.isDisposed) {
-        this.term.writeln('\x1b[32m✔ Connected to Edge Runtime\x1b[0m\r\n$ ');
+        // this.term.writeln('\x1b[32m✔ Connected to Edge Runtime\x1b[0m\r\n$ ');
+        // Just show a clean status, the first prompt comes from the 'system' event
+        this.term.writeln('\x1b[32m✔ Terminal Uplink Established\x1b[0m');
       }
     };
 
