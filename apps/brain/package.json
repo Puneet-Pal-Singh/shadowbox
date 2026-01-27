@@ -4,15 +4,15 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "wrangler dev --port 8788",
+    "dev": "wrangler dev --port 8788 --inspector-port 9230",
     "deploy": "wrangler deploy",
     "type-check": "tsc --noEmit"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20240208.0",
+    "@repo/typescript-config": "workspace:*",
     "@types/node": "^20.0.0",
     "typescript": "^5.0.0",
-    "wrangler": "^3.0.0",
-    "@repo/typescript-config": "workspace:*"
+    "wrangler": "^4.61.0"
   }
 }
