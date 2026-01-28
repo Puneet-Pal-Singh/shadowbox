@@ -1,25 +1,20 @@
-import { Env } from "./types/ai";
 import { ChatController } from "./controllers/ChatController";
-
-const CORS_HEADERS = {
-  "Access-Control-Allow-Origin": "http://localhost:5173",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
-};
+import { handleOptions, CORS_HEADERS } from "./lib/cors";
+import { Env } from "./types/ai";
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
-    if (request.method === "OPTIONS") return new Response(null, { headers: CORS_HEADERS });
-    
+    // 1. Handle Preflight
+    const optionsResponse = handleOptions(request);
+    if (optionsResponse) return optionsResponse;
+
     const url = new URL(request.url);
 
-    if (request.method === "POST" && url.pathname === "/chat") {
-      return ChatController.handle(request, env, CORS_HEADERS);
+    // 2. Route to Chat
+    if (url.pathname === "/api/chat" || url.pathname === "/chat") {
+      return ChatController.handle(request, env);
     }
 
-    return new Response("Shadowbox Brain: Endpoint not found", { 
-      status: 404, 
-      headers: CORS_HEADERS 
-    });
-  }
+    return new Response("Not Found", { status: 404, headers: CORS_HEADERS });
+  },
 };
