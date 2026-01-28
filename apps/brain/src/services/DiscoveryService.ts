@@ -1,3 +1,4 @@
+// apps/brain/src/services/DiscoveryService.ts
 import { Env, Tool } from "../types/ai";
 
 export class DiscoveryService {
