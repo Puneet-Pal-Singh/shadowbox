@@ -1,63 +1,48 @@
-import { useState, useCallback } from 'react';
-import { ChatMessage, ActionStatus } from '../types/chat';
+// apps/web/src/hooks/useChat.ts
+import { useChat as useVercelChat } from "@ai-sdk/react";
+import { useState } from "react";
 
-interface BrainResponse {
+// Define the shape of our artifact
+export interface ArtifactData {
+  path: string;
   content: string;
-  toolResults?: Array<{ tool: string; result: unknown }>;
 }
 
 export function useChat(sessionId: string) {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
+  const [artifact, setArtifact] = useState<ArtifactData | null>(null);
+  const [isArtifactOpen, setIsArtifactOpen] = useState(false);
 
-  const sendMessage = useCallback(async (content: string) => {
-    if (!content.trim()) return;
+  // Configuration for the Vercel AI Hook
+  const { messages, input, handleInputChange, handleSubmit, isLoading, stop } = useVercelChat({
+    api: "http://localhost:8788/chat", // Point to Brain port (8788)
+    body: { sessionId },
 
-    const userMsg: ChatMessage = {
-      id: crypto.randomUUID(),
-      role: 'user',
-      content,
-      timestamp: Date.now()
-    };
+    // Auto-open artifact panel when the AI creates code
+    onToolCall: ({ toolCall }) => {
+      if (toolCall.toolName === "create_code_artifact") {
+        const args = toolCall.args as ArtifactData;
+        setArtifact(args);
+        setIsArtifactOpen(true);
+      }
+    },
 
-    setMessages(prev => [...prev, userMsg]);
-    setIsLoading(true);
+    onError: (error: Error) => {
+      console.error("Chat Error:", error);
+    },
+  });
 
-    try {
-      const response = await fetch("http://localhost:8788/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          messages: [...messages, { role: 'user', content }].map(m => ({ 
-            role: m.role, 
-            content: m.content 
-          })),
-          sessionId,
-          modelId: "llama-3" // This will be dynamic soon
-        })
-      });
-
-      const data = await response.json() as BrainResponse;
-
-      const aiMsg: ChatMessage = {
-        id: crypto.randomUUID(),
-        role: 'assistant',
-        content: data.content,
-        executions: data.toolResults?.map(t => ({
-          tool: t.tool,
-          status: 'success' as ActionStatus,
-          result: t.result
-        })),
-        timestamp: Date.now()
-      };
-
-      setMessages(prev => [...prev, aiMsg]);
-    } catch (e) {
-      console.error("Chat Error:", e);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [messages, sessionId]);
-
-  return { messages, isLoading, sendMessage };
+  return {
+    messages,
+    input,
+    handleInputChange,
+    handleSubmit,
+    isLoading,
+    stop,
+    // Return artifact state so Workspace.tsx can render the Side Pane
+    artifactState: {
+      artifact,
+      isArtifactOpen,
+      setIsArtifactOpen,
+    },
+  };
 }
