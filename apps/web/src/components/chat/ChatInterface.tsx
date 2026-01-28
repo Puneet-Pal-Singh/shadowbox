@@ -1,11 +1,10 @@
 import { useRef, useEffect } from 'react';
 import { ChatMessage } from './ChatMessage';
-import { ChatInput } from './ChatInput';
 import { useChat } from '../../hooks/useChat';
-import { Bot } from 'lucide-react';
+import { Bot, Send, Settings } from 'lucide-react';
 
 export function ChatInterface({ sessionId }: { sessionId: string }) {
-  const { messages, isLoading, sendMessage } = useChat(sessionId);
+  const { messages, input, handleInputChange, handleSubmit, isLoading } = useChat(sessionId);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -28,7 +27,39 @@ export function ChatInterface({ sessionId }: { sessionId: string }) {
       </div>
 
       {/* Input Layer */}
-      <ChatInput onSend={sendMessage} disabled={isLoading} />
+      <div className="p-4 bg-[#0c0c0e] border-t border-zinc-800">
+        <form onSubmit={handleSubmit} className="relative flex items-end gap-2 bg-zinc-900/50 border border-zinc-800 rounded-xl p-2 focus-within:border-zinc-700 transition-colors">
+          <button type="button" className="p-2 text-zinc-500 hover:text-zinc-300 transition-colors">
+            <Settings size={18} />
+          </button>
+          
+          <textarea
+            value={input}
+            onChange={handleInputChange}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                handleSubmit();
+              }
+            }}
+            disabled={isLoading}
+            placeholder="Ask Shadowbox to write code..."
+            className="flex-1 bg-transparent border-none focus:ring-0 resize-none text-sm text-zinc-200 placeholder-zinc-600 h-10 py-2.5 max-h-32"
+            rows={1}
+          />
+          
+          <button 
+            type="submit"
+            disabled={isLoading || !input.trim()}
+            className="p-2 bg-white text-black rounded-lg hover:bg-zinc-200 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+          >
+            <Send size={16} />
+          </button>
+        </form>
+        <div className="text-[10px] text-zinc-600 mt-2 text-center">
+          AI Agents can make mistakes. Review generated code.
+        </div>
+      </div>
     </div>
   );
 }
