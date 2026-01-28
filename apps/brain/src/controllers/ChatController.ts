@@ -1,53 +1,109 @@
 // apps/brain/src/controllers/ChatController.ts
-import { Env } from "../types/ai";
-import { DiscoveryService } from "../services/DiscoveryService";
-import { AIService } from "../services/AIService";
-import { ExecutionService } from "../services/ExecutionService";
+import { createGoogleGenerativeAI } from '@ai-sdk/google';
+import { 
+  streamText, 
+  tool, 
+  convertToCoreMessages, 
+  type CoreMessage, 
+  type CoreTool 
+} from 'ai';
+import { z } from 'zod';
+import { Env } from '../types/ai';
+import { CORS_HEADERS } from "../lib/cors";
 
 export class ChatController {
-  static async handle(request: Request, env: Env, corsHeaders: Record<string, string>): Promise<Response> {
+  static async handle(req: Request, env: Env): Promise<Response> {
     try {
-      const { messages, modelId, apiKey, sessionId } = await request.json() as any;
+      const body = await req.json() as { messages: CoreMessage[]; sessionId: string };
+      const { messages, sessionId } = body;
 
-      // 1. Discover capabilities
-      const tools = await DiscoveryService.getAvailableTools(env, sessionId);
+      // 1. Google Gemini 2.5 Flash-Lite (The "Speed & Cost King")
+      const apiKey = env.GOOGLE_GENERATIVE_AI_API_KEY || "";
+      if (!apiKey) throw new Error("Missing GOOGLE_GENERATIVE_AI_API_KEY");
+      
+      const google = createGoogleGenerativeAI({ apiKey });
 
-      // inside the handle function
-      const systemPrompt = `You are Shadowbox Agent. You live INSIDE a Linux Sandbox.
-        You are NOT a text-based AI; you are a SYSTEM OPERATOR.
+      // 2. Load Custom System Prompt from Env (or use Default)
+      const systemPrompt = env.SYSTEM_PROMPT || `You are Shadowbox. Expert Engineer.
+        - If asked to write code, YOU MUST use 'create_code_artifact'.
+        - Act inside the sandbox. session: ${sessionId}
+        - Be concise and action-oriented.`;
 
-        AVAILABLE TOOLS:
-        1. 'list_files': Use this whenever the user mentions files or current directory.
-        2. 'write_file': Use this to save code.
-        3. 'git_clone': Use this to download repos.
+      // 3. Define Tools (Strictly Typed)
+      const tools: Record<string, CoreTool> = {
+        list_files: tool({
+          description: 'List files in the directory',
+          parameters: z.object({ path: z.string().default('.') }),
+          execute: async ({ path }: { path: string }) => {
+            const res = await env.SECURE_API.fetch(`http://internal/exec?session=${sessionId}`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ plugin: 'filesystem', action: 'list_files', path })
+            });
+            return await res.json();
+          },
+        }),
 
-        RULES:
-        - If a user asks "What files are here?", you MUST call 'list_files'.
-        - Never say "I don't have access to files." You DO have access via tools.
-        - Execute the tool first, then explain what you did.`;
+        read_file: tool({
+          description: 'Read a file content',
+          parameters: z.object({ path: z.string() }),
+          execute: async ({ path }: { path: string }) => {
+            const res = await env.SECURE_API.fetch(`http://internal/exec?session=${sessionId}`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ plugin: 'filesystem', action: 'read_file', path })
+            });
+            return await res.json();
+          },
+        }),
 
-      // 2. Think
-      // const aiResponse = await AIService.getCompletion(env, modelId, messages, tools, apiKey);
-      const aiResponse = await AIService.getCompletion(env, modelId, [
-        { role: 'system', content: systemPrompt },
-        ...messages
-        ], tools, apiKey);
+        create_code_artifact: tool({
+          description: 'Write code to a file.',
+          parameters: z.object({ 
+            path: z.string(), 
+            content: z.string(),
+            description: z.string().optional()
+          }),
+          execute: async ({ path, content }: { path: string; content: string; description?: string }) => {
+            const res = await env.SECURE_API.fetch(`http://internal/exec?session=${sessionId}`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ 
+                plugin: 'filesystem', 
+                action: 'write_file', 
+                path, 
+                content 
+              })
+            });
+            return await res.json();
+          },
+        }),
+      };
 
-      // 3. Act (Execute tool calls if they exist)
-      let toolResults;
-      if (aiResponse.toolCalls && aiResponse.toolCalls.length > 0) {
-        toolResults = await ExecutionService.runToolCalls(env, sessionId, aiResponse.toolCalls);
-      }
+      // 4. Run the Agent Loop
+      const result = await streamText({
+        model: google('gemini-2.5-flash-lite'), // ✅ Updated to latest model
+        messages: convertToCoreMessages(messages),
+        system: systemPrompt,
+        tools,
+        maxSteps: 10,
+      });
 
-      // 4. Respond
-      return Response.json({
-        ...aiResponse,
-        toolResults
-      }, { headers: corsHeaders });
+      // ✅ Correct way to send the stream with CORS
+      return result.toDataStreamResponse({
+        headers: CORS_HEADERS
+      });
 
     } catch (error: unknown) {
-      const msg = error instanceof Error ? error.message : "Internal Controller Error";
-      return Response.json({ error: msg }, { status: 500, headers: corsHeaders });
+      console.error("Brain Error:", error);
+      const message = error instanceof Error ? error.message : "Unknown error";
+      return new Response(JSON.stringify({ error: message }), { 
+        status: 500,
+        headers: { 
+          ...CORS_HEADERS,
+          'Content-Type': 'application/json' 
+        }
+      });
     }
   }
 }

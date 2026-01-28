@@ -1,22 +1,77 @@
 // apps/brain/src/orchestrator/executor.ts
-import { Env, ToolCall } from "../types/ai";
+import { Env, ToolCall, ChatMessage } from "../types/ai";
+import { AIService } from "../services/AIService";
+import { DiscoveryService } from "../services/DiscoveryService";
 
 export class AgentOrchestrator {
+  private MAX_TURNS = 5;
+
   constructor(private env: Env, private sessionId: string) {}
 
-  async executeTool(call: ToolCall) {
-    console.log(`[Brain] 🧠 -> ⚡️ Executing Tool: ${call.name}`);
-    
-    // Map LLM tool names to Shadowbox Plugins
-    const mapping = this.mapToolToPlugin(call.name, call.arguments);
+  /**
+   * The core autonomous loop. 
+   * Think -> Act -> Observe -> Repeat
+   */
+  async orchestrate(
+    messages: ChatMessage[], 
+    modelId: string, 
+    apiKey?: string
+  ): Promise<ChatMessage[]> {
+    let currentHistory = [...messages];
+    let turns = 0;
 
-    if (!mapping) {
-      return { error: `Unknown tool: ${call.name}` };
+    // 1. Fetch available tools dynamically from the Muscle
+    const tools = await DiscoveryService.getAvailableTools(this.env, this.sessionId);
+
+    while (turns < this.MAX_TURNS) {
+      // 2. Ask the LLM what to do
+      const aiResponse = await AIService.getCompletion(
+        this.env, 
+        modelId, 
+        currentHistory, 
+        tools, 
+        apiKey
+      );
+
+      const assistantMsg: ChatMessage = {
+        role: 'assistant',
+        content: aiResponse.content || "",
+        tool_calls: aiResponse.toolCalls
+      };
+
+      currentHistory.push(assistantMsg);
+
+      // 3. Exit condition: No tool calls mean the agent is done
+      if (!aiResponse.toolCalls || aiResponse.toolCalls.length === 0) {
+        break;
+      }
+
+      // 4. Execute all tool calls in parallel
+      const toolResults = await Promise.all(
+        aiResponse.toolCalls.map(async (call) => {
+          const result = await this.executeTool(call);
+          return {
+            role: 'tool' as const,
+            tool_call_id: call.id,
+            name: call.name,
+            content: typeof result === 'string' ? result : JSON.stringify(result)
+          };
+        })
+      );
+
+      // 5. Add results to history and increment turn
+      currentHistory.push(...toolResults);
+      turns++;
     }
 
+    return currentHistory;
+  }
+
+  async executeTool(call: ToolCall): Promise<any> {
+    const mapping = this.mapToolToPlugin(call.name, call.arguments);
+    if (!mapping) return { error: `Tool ${call.name} not mapped` };
+
     try {
-      // Call the Secure API via Service Binding (Internal Network)
-      // We pass the sessionId so it routes to the correct Durable Object
       const res = await this.env.SECURE_API.fetch(`http://internal/?session=${this.sessionId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -25,54 +80,29 @@ export class AgentOrchestrator {
           payload: mapping.payload 
         })
       });
-
-      const data = await res.json();
-      return data;
-
+      return await res.json();
     } catch (e: any) {
-      console.error(`[Brain] Execution Failed:`, e);
-      return { error: e.message || "Internal Execution Error" };
+      return { error: e.message };
     }
   }
 
-  // SRP: Separate mapping logic from execution logic
-  private mapToolToPlugin(toolName: string, args: any): { plugin: string, payload: any } | null {
-    
-    // 1. FileSystem Tools
-    if (toolName === "list_files") {
-      return { plugin: "filesystem", payload: { action: "list_files", path: args.path || "." } };
-    }
-    if (toolName === "read_file") {
-      return { plugin: "filesystem", payload: { action: "read_file", path: args.path } };
-    }
-    if (toolName === "write_file") {
-      return { plugin: "filesystem", payload: { action: "write_file", path: args.path, content: args.content } };
-    }
-    if (toolName === "make_dir") {
-      return { plugin: "filesystem", payload: { action: "make_dir", path: args.path } };
-    }
+  private mapToolToPlugin(toolName: string, args: any) {
+    const registry: Record<string, { plugin: string, action: string }> = {
+      'list_files': { plugin: 'filesystem', action: 'list_files' },
+      'read_file': { plugin: 'filesystem', action: 'read_file' },
+      'write_file': { plugin: 'filesystem', action: 'write_file' },
+      'make_dir': { plugin: 'filesystem', action: 'make_dir' },
+      'git_clone': { plugin: 'git', action: 'clone' },
+      'run_node': { plugin: 'node', action: 'run' },
+      'run_python': { plugin: 'python', action: 'run' }
+    };
 
-    // 2. Git Tools
-    if (toolName === "git_clone") {
-      return { plugin: "git", payload: { url: args.url } };
-    }
+    const target = registry[toolName];
+    if (!target) return null;
 
-    // 3. Runtime Tools
-    if (toolName === "run_python") {
-      return { plugin: "python", payload: { code: args.code, requirements: args.requirements } };
-    }
-    if (toolName === "run_node") {
-      return { plugin: "node", payload: { code: args.code, isTypeScript: args.isTypeScript } };
-    }
-    if (toolName === "run_rust") {
-      return { plugin: "rust", payload: { code: args.code } };
-    }
-
-    // 4. Redis Tools
-    if (toolName === "check_kv_store") {
-      return { plugin: "redis", payload: {} };
-    }
-
-    return null;
+    return {
+      plugin: target.plugin,
+      payload: { action: target.action, ...args }
+    };
   }
 }
