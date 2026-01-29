@@ -30,9 +30,14 @@ export class AIService {
     onFinish?: (result: any) => Promise<void> | void;
     onChunk?: (event: { chunk: any }) => void;
   }) {
+    // Determine if messages need conversion (raw client messages vs internal CoreMessages)
+    const coreMessages = messages.length > 0 && 'role' in messages[0] && !('toolInvocations' in messages[0]) 
+      ? messages 
+      : convertToCoreMessages(messages);
+
     return streamText({
       model: this.groq(model) as any,
-      messages: convertToCoreMessages(messages),
+      messages: coreMessages,
       system: systemPrompt,
       tools,
       maxSteps: 10,

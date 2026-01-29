@@ -36,30 +36,32 @@ export class ChatController {
       // --- NEW: Context Hydration & Pruning ---
       console.log(`[Brain:${correlationId}] Pruning and Hydrating context...`);
       
-      // 1. Keep only last 2 tool results to prevent "Context Dumping"
-      const toolMessages = messages.filter(m => m.role === 'tool');
-      const messagesToKeep = messages.filter(m => {
+      // 1. Convert to CoreMessages first to standardize format
+      const coreMessages = convertToCoreMessages(messages);
+
+      // 2. Keep only last 2 tool results to prevent "Context Dumping"
+      const toolMessages = coreMessages.filter(m => m.role === 'tool');
+      const messagesToKeep = coreMessages.filter(m => {
         if (m.role !== 'tool') return true;
-        // Keep only if it's one of the last 2 tool results
         const index = toolMessages.indexOf(m);
         return index >= toolMessages.length - 2;
       });
 
-      // 2. Hydrate R2 Artifacts so the AI "remembers" the code it wrote
+      // 3. Hydrate R2 Artifacts so the AI "remembers" the code it wrote
       const hydratedMessages = await Promise.all(messagesToKeep.map(async (msg) => {
-        if (msg.role === 'assistant' && msg.tool_calls) {
-          for (const call of msg.tool_calls) {
-            if (call.function?.name === 'create_code_artifact') {
-              try {
-                const args = JSON.parse(call.function.arguments);
-                if (args.content && typeof args.content === 'object' && args.content.type === 'r2_ref') {
-                  console.log(`[Brain] Hydrating artifact: ${args.content.key}`);
+        if (msg.role === 'assistant' && msg.toolCalls) {
+          for (const call of msg.toolCalls) {
+            if (call.toolName === 'create_code_artifact') {
+              const args = call.args as any;
+              if (args.content && typeof args.content === 'object' && args.content.type === 'r2_ref') {
+                console.log(`[Brain] Hydrating artifact: ${args.content.key}`);
+                try {
                   const actualContent = await executionService.getArtifact(args.content.key);
                   args.content = actualContent;
-                  call.function.arguments = JSON.stringify(args);
+                } catch (e) {
+                  console.error("[Brain] R2 Hydration failed", e);
+                  args.content = "// [Error: Could not load code from cold storage]";
                 }
-              } catch (e) {
-                console.error("[Brain] Hydration failed for message", e);
               }
             }
           }
@@ -105,7 +107,7 @@ export class ChatController {
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ 
                   messages: [
-                    ...messages, 
+                    ...hydratedMessages, 
                     { role: 'assistant', content: accumulatedAssistantContent + " ▌" }
                   ] 
                 }),
@@ -119,12 +121,12 @@ export class ChatController {
           
           try {
             const fullHistory = [
-              ...messages,
+              ...hydratedMessages,
               ...finalResult.responseMessages
             ];
 
             // Task 2: Prune technical noise before saving to permanent DO storage
-            const prunedHistory = pruneToolResults(convertToCoreMessages(fullHistory));
+            const prunedHistory = pruneToolResults(fullHistory);
 
             await env.SECURE_API.fetch(
               `http://internal/history?session=${sessionId}&agentId=${agentId}`,
