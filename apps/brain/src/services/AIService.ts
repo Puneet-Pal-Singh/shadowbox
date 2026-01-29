@@ -20,13 +20,15 @@ export class AIService {
     systemPrompt,
     tools,
     model = "llama-3.3-70b-versatile",
-    onFinish
+    onFinish,
+    onChunk
   }: {
     messages: any[];
     systemPrompt: string;
     tools: Record<string, CoreTool>;
     model?: string;
     onFinish?: (result: any) => Promise<void> | void;
+    onChunk?: (event: { chunk: any }) => void;
   }) {
     return streamText({
       model: this.groq(model) as any,
@@ -34,7 +36,8 @@ export class AIService {
       system: systemPrompt,
       tools,
       maxSteps: 10,
-      onFinish
+      onFinish,
+      onChunk
     });
   }
 }

@@ -47,10 +47,40 @@ export class ChatController {
         - STYLE: Be extremely concise. No yapping.`;
 
       // 3. Generate Stream
+      let accumulatedAssistantContent = "";
+      let lastSyncTime = Date.now();
+
       const result = await aiService.createChatStream({
         messages,
         systemPrompt,
         tools,
+        onChunk: ({ chunk }) => {
+          if (chunk.type === 'text-delta') {
+            accumulatedAssistantContent += chunk.textDelta;
+          }
+          
+          // Task 5: Heartbeat Persistence (Every 5 seconds)
+          const now = Date.now();
+          if (now - lastSyncTime > 5000) {
+            lastSyncTime = now;
+            const agentId = body.agentId || "default";
+            
+            // Sync partial history so user doesn't lose state on refresh
+            env.SECURE_API.fetch(
+              `http://internal/history?session=${sessionId}&agentId=${agentId}`,
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ 
+                  messages: [
+                    ...messages, 
+                    { role: 'assistant', content: accumulatedAssistantContent + " ▌" }
+                  ] 
+                }),
+              }
+            ).catch(() => {}); // Silent fail for heartbeat
+          }
+        },
         onFinish: async (finalResult) => {
           const agentId = body.agentId || "default";
           console.log(`[Brain:${correlationId}] Saving history for agent: ${agentId}`);
