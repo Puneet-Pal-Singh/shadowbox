@@ -14,33 +14,57 @@ import { CORS_HEADERS } from "../lib/cors";
 export class ChatController {
   static async handle(req: Request, env: Env): Promise<Response> {
     try {
-      const body = await req.json() as { messages: CoreMessage[]; sessionId: string };
+      // 1. Robust Body Parsing
+      const body = await req.json().catch(() => ({})) as { messages?: any[]; sessionId?: string };
       const { messages, sessionId } = body;
 
-      // 1. Google Gemini 2.5 Flash-Lite (The "Speed & Cost King")
+      if (!messages || !Array.isArray(messages)) {
+        return new Response(JSON.stringify({ error: "Missing or invalid 'messages' array" }), {
+          status: 400,
+          headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' }
+        });
+      }
+
+      // 2. Google Gemini 1.5 Flash (Reliable & Fast)
       const apiKey = env.GOOGLE_GENERATIVE_AI_API_KEY || "";
       if (!apiKey) throw new Error("Missing GOOGLE_GENERATIVE_AI_API_KEY");
       
       const google = createGoogleGenerativeAI({ apiKey });
 
-      // 2. Load Custom System Prompt from Env (or use Default)
-      const systemPrompt = env.SYSTEM_PROMPT || `You are Shadowbox. Expert Engineer.
-        - If asked to write code, YOU MUST use 'create_code_artifact'.
-        - Act inside the sandbox. session: ${sessionId}
-        - Be concise and action-oriented.`;
+      // 3. Load Custom System Prompt from Env (or use Default)
+      const systemPrompt = env.SYSTEM_PROMPT || `You are Shadowbox, an expert software engineer.
+        - Act inside the secure sandbox session: ${sessionId || 'default'}.
+        - If asked to write code, ALWAYS use 'create_code_artifact'.
+        - After using any tool, ALWAYS provide a concise summary of the result and ask the user for the next step.
+        - Be proactive but keep your responses concise and action-oriented.`;
 
-      // 3. Define Tools (Strictly Typed)
+      // 4. Define Tools (Strictly Typed)
       const tools: Record<string, CoreTool> = {
         list_files: tool({
           description: 'List files in the directory',
           parameters: z.object({ path: z.string().default('.') }),
           execute: async ({ path }: { path: string }) => {
-            const res = await env.SECURE_API.fetch(`http://internal/exec?session=${sessionId}`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ plugin: 'filesystem', action: 'list_files', path })
-            });
-            return await res.json();
+            try {
+              const res = await env.SECURE_API.fetch(`http://internal/exec?session=${sessionId}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                  plugin: 'filesystem', 
+                  payload: { action: 'list_files', path } 
+                })
+              });
+              
+              const text = await res.text();
+              if (!res.ok) return { success: false, error: `Sandbox Error (${res.status}): ${text}` };
+              
+              try {
+                return { success: true, data: JSON.parse(text) };
+              } catch {
+                return { success: true, data: text };
+              }
+            } catch (e: any) {
+              return { success: false, error: e.message };
+            }
           },
         }),
 
@@ -48,12 +72,27 @@ export class ChatController {
           description: 'Read a file content',
           parameters: z.object({ path: z.string() }),
           execute: async ({ path }: { path: string }) => {
-            const res = await env.SECURE_API.fetch(`http://internal/exec?session=${sessionId}`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ plugin: 'filesystem', action: 'read_file', path })
-            });
-            return await res.json();
+            try {
+              const res = await env.SECURE_API.fetch(`http://internal/exec?session=${sessionId}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                  plugin: 'filesystem', 
+                  payload: { action: 'read_file', path } 
+                })
+              });
+              
+              const text = await res.text();
+              if (!res.ok) return { success: false, error: `Sandbox Error (${res.status}): ${text}` };
+              
+              try {
+                return { success: true, data: JSON.parse(text) };
+              } catch {
+                return { success: true, data: text };
+              }
+            } catch (e: any) {
+              return { success: false, error: e.message };
+            }
           },
         }),
 
@@ -71,45 +110,33 @@ export class ChatController {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                   plugin: 'filesystem',
-                  action: 'write_file',
-                  path,
-                  content,
+                  payload: {
+                    action: 'write_file',
+                    path,
+                    content,
+                  }
                 }),
               });
 
-              // Handle non-OK responses from the sandbox immediately
-              if (!res.ok) {
-                return { 
-                  success: false, 
-                  error: `Sandbox failed with status: ${res.status}` 
-                };
+              const text = await res.text();
+              if (!res.ok) return { success: false, error: `Sandbox Error (${res.status}): ${text}` };
+              
+              try {
+                return { success: true, path, data: JSON.parse(text) };
+              } catch {
+                return { success: true, path, data: text };
               }
-
-              const data = await res.json();
-              
-              // Return a clean, serializable object for the Vercel AI SDK
-              return { 
-                success: true, 
-                path, 
-                data 
-              };
             } catch (error: unknown) {
-              // CS Practice: Avoid 'any'. Use 'unknown' and narrow the error.
               const errorMessage = error instanceof Error ? error.message : "Failed to execute tool";
-              console.error("Tool Execution Error:", errorMessage);
-              
-              return { 
-                success: false, 
-                error: errorMessage 
-              };
+              return { success: false, error: errorMessage };
             }
           },
         }),
       };
 
-      // 4. Run the Agent Loop
+      // 5. Run the Agent Loop
       const result = await streamText({
-        model: google('gemini-2.5-flash-lite'), // ✅ Updated to latest model
+        model: google('gemini-2.0-flash-exp'), // Upgraded to 2.0 Flash
         messages: convertToCoreMessages(messages),
         system: systemPrompt,
         tools,
@@ -118,10 +145,7 @@ export class ChatController {
 
       // ✅ Correct way to send the stream with CORS
       return result.toDataStreamResponse({
-        headers: {
-          ...CORS_HEADERS,
-          'Content-Type': 'text/plain; charset=utf-8', // Explicitly set for Cloudflare
-        }
+        headers: CORS_HEADERS
       });
 
     } catch (error: unknown) {

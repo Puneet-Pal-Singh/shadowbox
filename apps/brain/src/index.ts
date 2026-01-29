@@ -10,8 +10,8 @@ export default {
 
     const url = new URL(request.url);
 
-    // Standardize on /api/chat
-    if (url.pathname === "/api/chat" || url.pathname === "/chat") {
+    // Flexible routing for development
+    if (url.pathname.includes("/chat")) {
       try {
         return await ChatController.handle(request, env);
       } catch (e: any) {
@@ -22,9 +22,9 @@ export default {
       }
     }
 
-    return new Response("Not Found", { 
+    return new Response(JSON.stringify({ error: "Not Found", path: url.pathname }), { 
       status: 404, 
-      headers: CORS_HEADERS 
+      headers: { ...CORS_HEADERS, "Content-Type": "application/json" }
     });
   },
 };

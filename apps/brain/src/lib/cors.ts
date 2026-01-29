@@ -1,8 +1,8 @@
 export const CORS_HEADERS = {
-  "Access-Control-Allow-Origin": "http://localhost:5173", // Tighten this in production
+  "Access-Control-Allow-Origin": "*", // Permissive for development
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization, x-vercel-ai-data-stream",
-  "Access-Control-Expose-Headers": "x-vercel-ai-data-stream",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization, x-vercel-ai-data-stream, x-ai-sdk-data-stream",
+  "Access-Control-Expose-Headers": "x-vercel-ai-data-stream, x-ai-sdk-data-stream",
   "X-Content-Type-Options": "nosniff",
 };
 
