@@ -48,7 +48,7 @@ export function ArtifactView({ isOpen, onClose, title, content, language }: Arti
       <div className="h-14 border-b border-border flex items-center justify-between px-4 bg-zinc-900/50 backdrop-blur shrink-0">
         <div className="flex items-center gap-2 text-sm font-medium text-zinc-200">
           <Code2 size={16} className="text-emerald-500" />
-          <span className="font-mono text-xs truncate max-w-[200px]">{title}</span>
+          <span className="font-mono text-xs truncate max-w-50">{title}</span>
         </div>
         <div className="flex items-center gap-2">
           <button 
