@@ -3,6 +3,8 @@ import { ExecutionService } from "../services/ExecutionService";
 import { createToolRegistry } from "../orchestrator/tools";
 import { Env } from "../types/ai";
 import { CORS_HEADERS } from "../lib/cors";
+import { convertToCoreMessages } from "ai";
+import { pruneToolResults } from "@shadowbox/context-pruner";
 
 interface ChatRequestBody {
   messages?: any[];
@@ -59,12 +61,15 @@ export class ChatController {
               ...finalResult.responseMessages
             ];
 
+            // Task 2: Prune technical noise before saving to permanent DO storage
+            const prunedHistory = pruneToolResults(convertToCoreMessages(fullHistory));
+
             await env.SECURE_API.fetch(
               `http://internal/history?session=${sessionId}&agentId=${agentId}`,
               {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ messages: fullHistory }),
+                body: JSON.stringify({ messages: prunedHistory }),
               }
             );
           } catch (e) {
