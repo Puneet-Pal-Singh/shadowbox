@@ -145,10 +145,12 @@ export class AgentRuntime extends DurableObject {
     await this.ctx.storage.delete(`history:${agentId}`);
 
     // Save new messages incrementally
-    for (let i = 0; i < messages.length; i++) {
-      const processedMessage = await this.storageService.processMessage(agentId, sessionId, messages[i]);
-      const timestamp = (Date.now() + i).toString().padStart(15, '0');
+    for (const msg of messages) {
+      const processedMessage = await this.storageService.processMessage(agentId, sessionId, msg);
+      const timestamp = Date.now().toString().padStart(15, '0');
       await this.ctx.storage.put(`history:${agentId}:${timestamp}`, processedMessage);
+      // Small sleep to ensure unique timestamps if processing is too fast
+      await new Promise(resolve => setTimeout(resolve, 1));
     }
   }
 
