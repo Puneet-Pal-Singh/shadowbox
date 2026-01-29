@@ -3,6 +3,7 @@ import { FileExplorer, FileExplorerHandle } from '../FileExplorer';
 import { ChatInterface } from '../chat/ChatInterface';
 import { ArtifactView } from '../chat/ArtifactView';
 import { useChat } from '../../hooks/useChat';
+import { cn } from '../../lib/utils';
 
 export function Workspace({ sessionId }: { sessionId: string }) {
   const explorerRef = useRef<FileExplorerHandle>(null);
@@ -23,7 +24,6 @@ export function Workspace({ sessionId }: { sessionId: string }) {
 
   const handleFileClick = async (path: string) => {
     try {
-      // Fetch file content from secure API
       const res = await fetch(`http://localhost:8787/?session=${sessionId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -43,16 +43,9 @@ export function Workspace({ sessionId }: { sessionId: string }) {
   };
 
   return (
-    <div className="flex-1 flex bg-black overflow-hidden relative">
-      {/* 1. Main Chat */}
-      <div className="flex-1 flex flex-col bg-background">
-        <ChatInterface 
-          chatProps={{ messages, input, handleInputChange, handleSubmit, isLoading }}
-        />
-      </div>
-
-      {/* 2. File Context (Right Sidebar) */}
-      <aside className="w-64 border-l border-border bg-background flex flex-col">
+    <div className="flex-1 flex bg-background overflow-hidden relative">
+      {/* 1. Left Sidebar: File Explorer */}
+      <aside className="w-64 border-r border-border bg-background flex flex-col shrink-0">
         <FileExplorer 
           ref={explorerRef}
           sessionId={sessionId} 
@@ -60,13 +53,31 @@ export function Workspace({ sessionId }: { sessionId: string }) {
         />
       </aside>
 
-      {/* 3. Artifact Overlay (Slide-over) */}
-      <ArtifactView
-        isOpen={isArtifactOpen}
-        onClose={() => setIsArtifactOpen(false)}
-        title={artifact?.path || 'Untitled'}
-        content={artifact?.content || ''}
-      />
+      {/* 2. Center: Main Chat */}
+      <main className="flex-1 flex flex-col min-w-0 bg-background border-r border-border">
+        <ChatInterface 
+          chatProps={{ messages, input, handleInputChange, handleSubmit, isLoading }}
+        />
+      </main>
+
+      {/* 3. Right Pane: Artifact Editor / Preview */}
+      <aside 
+        className={cn(
+          "bg-[#1e1e1e] border-l border-border transition-all duration-300 ease-in-out relative shrink-0 overflow-hidden",
+          isArtifactOpen ? "w-[45vw]" : "w-0 border-none"
+        )}
+      >
+        {isArtifactOpen && (
+          <div className="w-[45vw] h-full flex flex-col">
+            <ArtifactView
+              isOpen={isArtifactOpen}
+              onClose={() => setIsArtifactOpen(false)}
+              title={artifact?.path || 'Untitled'}
+              content={artifact?.content || ''}
+            />
+          </div>
+        )}
+      </aside>
     </div>
   );
 }

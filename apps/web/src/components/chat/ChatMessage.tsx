@@ -1,6 +1,9 @@
 import { type Message } from "ai";
 import { User, Bot } from "lucide-react";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { ActionBlock } from "./ActionBlock";
 import { cn } from "../../lib/utils";
 
@@ -42,7 +45,31 @@ export function ChatMessage({ message }: ChatMessageProps) {
               isUser ? "text-zinc-100" : "text-zinc-300",
             )}
           >
-            <ReactMarkdown>{message.content}</ReactMarkdown>
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              components={{
+                code({ node, inline, className, children, ...props }: any) {
+                  const match = /language-(\w+)/.exec(className || '');
+                  return !inline && match ? (
+                    <SyntaxHighlighter
+                      style={vscDarkPlus}
+                      language={match[1]}
+                      PreTag="div"
+                      className="rounded-md my-4"
+                      {...props}
+                    >
+                      {String(children).replace(/\n$/, '')}
+                    </SyntaxHighlighter>
+                  ) : (
+                    <code className={cn("bg-zinc-800 px-1 py-0.5 rounded text-xs", className)} {...props}>
+                      {children}
+                    </code>
+                  );
+                }
+              }}
+            >
+              {message.content}
+            </ReactMarkdown>
           </div>
         )}
 

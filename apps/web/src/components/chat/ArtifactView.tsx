@@ -43,12 +43,12 @@ export function ArtifactView({ isOpen, onClose, title, content, language }: Arti
   };
 
   return (
-    <div className="fixed inset-y-0 right-0 w-[60vw] bg-background border-l border-border shadow-2xl z-[100] flex flex-col transform transition-transform duration-300 ease-in-out">
+    <div className="flex flex-col h-full bg-[#1e1e1e]">
       {/* Header */}
-      <div className="h-14 border-b border-border flex items-center justify-between px-4 bg-zinc-900/50 backdrop-blur">
+      <div className="h-14 border-b border-border flex items-center justify-between px-4 bg-zinc-900/50 backdrop-blur shrink-0">
         <div className="flex items-center gap-2 text-sm font-medium text-zinc-200">
           <Code2 size={16} className="text-emerald-500" />
-          <span className="font-mono text-xs">{title}</span>
+          <span className="font-mono text-xs truncate max-w-[200px]">{title}</span>
         </div>
         <div className="flex items-center gap-2">
           <button 
@@ -65,7 +65,7 @@ export function ArtifactView({ isOpen, onClose, title, content, language }: Arti
       </div>
 
       {/* Code Editor View */}
-      <div className="flex-1 overflow-auto bg-[#1e1e1e] scrollbar-hide">
+      <div className="flex-1 overflow-auto scrollbar-hide">
         <SyntaxHighlighter
           language={getLanguage(title)}
           style={vscDarkPlus}
