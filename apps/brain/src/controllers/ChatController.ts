@@ -7,6 +7,7 @@ import { CORS_HEADERS } from "../lib/cors";
 interface ChatRequestBody {
   messages?: any[];
   sessionId?: string;
+  agentId?: string;
 }
 
 export class ChatController {
@@ -47,6 +48,28 @@ export class ChatController {
         messages,
         systemPrompt,
         tools,
+        onFinish: async (finalResult) => {
+          const agentId = body.agentId || "default";
+          console.log(`[Brain:${correlationId}] Saving history for agent: ${agentId}`);
+          
+          try {
+            const fullHistory = [
+              ...messages,
+              ...finalResult.responseMessages
+            ];
+
+            await env.SECURE_API.fetch(
+              `http://internal/history?session=${sessionId}&agentId=${agentId}`,
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ messages: fullHistory }),
+              }
+            );
+          } catch (e) {
+            console.error(`[Brain:${correlationId}] History Sync Failed:`, e);
+          }
+        }
       });
 
       return result.toDataStreamResponse({
