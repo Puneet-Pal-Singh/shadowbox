@@ -1,10 +1,20 @@
 import { useRef, useEffect } from 'react';
 import { ChatMessage } from './ChatMessage';
-import { useChat } from '../../hooks/useChat';
 import { Bot, Send, Settings } from 'lucide-react';
+import { Message } from 'ai';
 
-export function ChatInterface({ sessionId }: { sessionId: string }) {
-  const { messages, input, handleInputChange, handleSubmit, isLoading } = useChat(sessionId);
+interface ChatInterfaceProps {
+  chatProps: {
+    messages: Message[];
+    input: string;
+    handleInputChange: (e: any) => void;
+    handleSubmit: (e?: any) => void;
+    isLoading: boolean;
+  };
+}
+
+export function ChatInterface({ chatProps }: ChatInterfaceProps) {
+  const { messages, input, handleInputChange, handleSubmit, isLoading } = chatProps;
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -28,7 +38,13 @@ export function ChatInterface({ sessionId }: { sessionId: string }) {
 
       {/* Input Layer */}
       <div className="p-4 bg-[#0c0c0e] border-t border-zinc-800">
-        <form onSubmit={handleSubmit} className="relative flex items-end gap-2 bg-zinc-900/50 border border-zinc-800 rounded-xl p-2 focus-within:border-zinc-700 transition-colors">
+        <form 
+          onSubmit={(e) => {
+            e.preventDefault();
+            handleSubmit();
+          }} 
+          className="relative flex items-end gap-2 bg-zinc-900/50 border border-zinc-800 rounded-xl p-2 focus-within:border-zinc-700 transition-colors"
+        >
           <button type="button" className="p-2 text-zinc-500 hover:text-zinc-300 transition-colors">
             <Settings size={18} />
           </button>
