@@ -123,7 +123,7 @@
 
 
 // solid compliant
-
+// apps/secure-agent-api/src/index.ts
 import { AgentRuntime } from "./core/AgentRuntime";
 import { Sandbox } from '@cloudflare/sandbox';
 
@@ -150,7 +150,6 @@ const corsHeaders = {
   "Access-Control-Allow-Origin": "*", // Allow Brain (8788) and Web (5173)
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type",
-  "Access-Control-Allow-Credentials": "true"
 };
 
 export default {
