@@ -33,25 +33,57 @@ export class ChatController {
       const executionService = new ExecutionService(env, sessionId);
       const tools = createToolRegistry(executionService);
 
+      // --- NEW: Context Hydration & Pruning ---
+      console.log(`[Brain:${correlationId}] Pruning and Hydrating context...`);
+      
+      // 1. Keep only last 2 tool results to prevent "Context Dumping"
+      const toolMessages = messages.filter(m => m.role === 'tool');
+      const messagesToKeep = messages.filter(m => {
+        if (m.role !== 'tool') return true;
+        // Keep only if it's one of the last 2 tool results
+        const index = toolMessages.indexOf(m);
+        return index >= toolMessages.length - 2;
+      });
+
+      // 2. Hydrate R2 Artifacts so the AI "remembers" the code it wrote
+      const hydratedMessages = await Promise.all(messagesToKeep.map(async (msg) => {
+        if (msg.role === 'assistant' && msg.tool_calls) {
+          for (const call of msg.tool_calls) {
+            if (call.function?.name === 'create_code_artifact') {
+              try {
+                const args = JSON.parse(call.function.arguments);
+                if (args.content && typeof args.content === 'object' && args.content.type === 'r2_ref') {
+                  console.log(`[Brain] Hydrating artifact: ${args.content.key}`);
+                  const actualContent = await executionService.getArtifact(args.content.key);
+                  args.content = actualContent;
+                  call.function.arguments = JSON.stringify(args);
+                }
+              } catch (e) {
+                console.error("[Brain] Hydration failed for message", e);
+              }
+            }
+          }
+        }
+        return msg;
+      }));
+
       // 2. Prepare Context
       const systemPrompt = env.SYSTEM_PROMPT || 
         `You are Shadowbox, an autonomous expert software engineer.
         
         ### Rules:
         - PERSISTENCE: You act inside a persistent Linux sandbox (Session: ${sessionId}).
-        - AUTONOMY: Be proactive. If a task requires multiple steps (e.g., create file, then run it), do them.
+        - AUTONOMY: You have a 'run_command' tool. If you create or modify a file, ALWAYS run it to verify it works correctly. Do not say "I am a text model"; use your tools.
         - ARTIFACTS: ALWAYS use 'create_code_artifact' to write code to files.
-        - EXECUTION: Use 'run_command' to execute scripts or shell commands.
-        - FEEDBACK: After running a tool, analyze the output. If it failed, fix it. If it succeeded, tell the user the result.
-        - EFFICIENCY: Do not use 'list_files' or 'read_file' unless you actually need to see what's there. You should keep track of what you've created.
-        - STYLE: Be extremely concise. No yapping.`;
+        - FEEDBACK: Analyze tool outputs. If a command fails, fix the code and try again.
+        - STYLE: Be extremely concise. Do not summarize previous steps unless asked.`;
 
       // 3. Generate Stream
       let accumulatedAssistantContent = "";
       let lastSyncTime = Date.now();
 
       const result = await aiService.createChatStream({
-        messages,
+        messages: hydratedMessages,
         systemPrompt,
         tools,
         onChunk: ({ chunk }) => {

@@ -30,4 +30,12 @@ export class ExecutionService {
       throw error;
     }
   }
+
+  async getArtifact(key: string): Promise<string> {
+    const res = await this.env.SECURE_API.fetch(
+      `http://internal/artifact?key=${encodeURIComponent(key)}`
+    );
+    if (!res.ok) return "[Error: Artifact not found]";
+    return await res.text();
+  }
 }
