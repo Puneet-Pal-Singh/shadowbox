@@ -50,37 +50,45 @@ export function useChat(sessionId: string, agentId: string = "default", onFileCr
     }
   }, [messages, agentId]);
 
-  // 2. Hydration logic: Fetch history from DO if local store is empty
+  // 2. Optimistic Sync: Hydrate from cache immediately, then sync from server in background
   useEffect(() => {
-    async function hydrate() {
-      const existingMessages = agentStore.getMessages(agentId);
-      console.log(`🧬 [Shadowbox] Checking cache for ${agentId}:`, existingMessages.length);
+    async function sync() {
+      const cache = agentStore.getMessages(agentId);
+      console.log(`🧬 [Shadowbox] Checking cache for ${agentId}:`, cache.length);
       
-      if (existingMessages.length > 0) {
+      // Optimistic UI: If we have cache, show it immediately
+      if (cache.length > 0) {
+        setMessages(cache);
         setIsHydrating(false);
-        return;
+      } else {
+        setIsHydrating(true);
       }
 
-      setIsHydrating(true);
-      console.log(`🧬 [Shadowbox] Hydrating ${agentId} from server...`);
+      console.log(`🧬 [Shadowbox] Syncing ${agentId} from server...`);
       try {
         const res = await fetch(`http://localhost:8787/history?session=${sessionId}&agentId=${agentId}`);
         if (!res.ok) throw new Error("History fetch failed");
         const data = await res.json();
+        
         if (data.history && data.history.length > 0) {
-          console.log(`🧬 [Shadowbox] Hydrated ${data.history.length} messages`);
-          setMessages(data.history);
-          agentStore.setMessages(agentId, data.history);
-        } else {
-          console.log(`🧬 [Shadowbox] No server history for ${agentId}`);
+          // Silent merge: only update if server has new info (simplistic length check)
+          if (data.history.length !== cache.length) {
+            console.log(`🧬 [Shadowbox] Server has updates (${data.history.length} vs ${cache.length}). Merging...`);
+            setMessages(data.history);
+            agentStore.setMessages(agentId, data.history);
+          } else {
+            console.log(`🧬 [Shadowbox] Cache is up to date`);
+          }
+        } else if (cache.length > 0) {
+          console.log(`🧬 [Shadowbox] Warning: Server history empty but cache has data`);
         }
       } catch (e) {
-        console.error("🧬 [Shadowbox] Hydration Failed:", e);
+        console.error("🧬 [Shadowbox] Sync Failed:", e);
       } finally {
         setIsHydrating(false);
       }
     }
-    hydrate();
+    sync();
   }, [sessionId, agentId, setMessages]);
 
   return {
