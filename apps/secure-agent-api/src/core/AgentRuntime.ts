@@ -3,6 +3,7 @@ import { DurableObject } from "cloudflare:workers";
 import { getSandbox, type Sandbox } from "@cloudflare/sandbox";
 import { IPlugin, PluginResult, LogCallback, Message } from "../interfaces/types";
 import { StreamHandler } from "./StreamHandler";
+import { StorageService } from "../services/StorageService";
 import { PythonPlugin } from "../plugins/PythonPlugin";
 import { RedisPlugin } from "../plugins/RedisPlugin";
 import { FileSystemPlugin } from "../plugins/FileSystemPlugin";
@@ -14,9 +15,11 @@ export class AgentRuntime extends DurableObject {
   private sandbox: Sandbox | null = null;
   private plugins: Map<string, IPlugin> = new Map();
   private stream = new StreamHandler();
+  private storageService: StorageService;
 
   constructor(ctx: DurableObjectState, env: any) {
     super(ctx, env);
+    this.storageService = new StorageService(env.ARTIFACTS);
     this.setupRegistry();
   }
 
@@ -119,13 +122,18 @@ export class AgentRuntime extends DurableObject {
   }
 
   async appendMessage(agentId: string, message: Message): Promise<void> {
+    const sessionId = this.ctx.id.toString();
+    const processedMessage = await this.storageService.processMessage(agentId, sessionId, message);
+    
     // Use padded timestamp for reliable lexicographical sorting
     const timestamp = Date.now().toString().padStart(15, '0');
     const key = `history:${agentId}:${timestamp}`;
-    await this.ctx.storage.put(key, message);
+    await this.ctx.storage.put(key, processedMessage);
   }
 
   async saveHistory(agentId: string, messages: Message[]): Promise<void> {
+    const sessionId = this.ctx.id.toString();
+    
     // Delete existing incremental keys first to avoid duplication/bloat
     const existing = await this.ctx.storage.list({ prefix: `history:${agentId}:` });
     const keysToDelete = Array.from(existing.keys());
@@ -138,8 +146,13 @@ export class AgentRuntime extends DurableObject {
 
     // Save new messages incrementally
     for (let i = 0; i < messages.length; i++) {
+      const processedMessage = await this.storageService.processMessage(agentId, sessionId, messages[i]);
       const timestamp = (Date.now() + i).toString().padStart(15, '0');
-      await this.ctx.storage.put(`history:${agentId}:${timestamp}`, messages[i]);
+      await this.ctx.storage.put(`history:${agentId}:${timestamp}`, processedMessage);
     }
+  }
+
+  async getArtifact(key: string): Promise<string | null> {
+    return await this.storageService.getArtifact(key);
   }
 }

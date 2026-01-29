@@ -39,6 +39,12 @@
 			"new_classes": ["AgentRuntime"],
 			"new_sqlite_classes": ["Sandbox"]
 		}
+	],
+	"r2_buckets": [
+		{
+			"binding": "ARTIFACTS",
+			"bucket_name": "shadowbox-artifacts"
+		}
 	]
 	/**
 	 * Smart Placement

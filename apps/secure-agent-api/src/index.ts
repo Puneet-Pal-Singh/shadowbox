@@ -200,6 +200,19 @@ export default {
           response = new Response("Method Not Allowed", { status: 405 });
         }
       }
+      else if (url.pathname === "/artifact") {
+        const key = url.searchParams.get("key");
+        if (!key) {
+          response = new Response("Missing artifact key", { status: 400 });
+        } else {
+          const content = await stub.getArtifact(key);
+          if (content === null) {
+            response = new Response("Artifact not found", { status: 404 });
+          } else {
+            response = new Response(content, { status: 200 });
+          }
+        }
+      }
       else if (request.method === "POST") {
         // Command Execution
         const body = await request.json() as ExecutionBody;

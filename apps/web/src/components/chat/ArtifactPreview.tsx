@@ -1,17 +1,39 @@
-import { Maximize2, FileCode } from "lucide-react";
+import { Maximize2, FileCode, Loader2 } from "lucide-react";
+import { useEffect, useState } from "react";
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { cn } from "../../lib/utils";
 
 interface ArtifactPreviewProps {
   title: string;
-  content: string;
-  onOpen: () => void;
+  content: string | { type: 'r2_ref'; key: string };
+  onOpen: (path: string, content: string) => void;
   status: 'submitted' | 'call' | 'result' | 'partial-call';
 }
 
-export function ArtifactPreview({ title, content, onOpen, status }: ArtifactPreviewProps) {
+export function ArtifactPreview({ title, content: initialContent, onOpen, status }: ArtifactPreviewProps) {
+  const [content, setContent] = useState<string>("");
+  const [isLoadingContent, setIsLoadingContent] = useState(false);
   const isRunning = status === 'call' || status === 'partial-call';
+
+  useEffect(() => {
+    if (typeof initialContent === 'object' && initialContent?.type === 'r2_ref') {
+      setIsLoadingContent(true);
+      fetch(`http://localhost:8787/artifact?key=${initialContent.key}`)
+        .then(res => res.text())
+        .then(text => {
+          setContent(text);
+          setIsLoadingContent(false);
+        })
+        .catch(err => {
+          console.error("Failed to fetch artifact content:", err);
+          setContent("// Error loading code from cold storage");
+          setIsLoadingContent(false);
+        });
+    } else if (typeof initialContent === 'string') {
+      setContent(initialContent);
+    }
+  }, [initialContent]);
 
   return (
     <div className={cn(
@@ -24,9 +46,9 @@ export function ArtifactPreview({ title, content, onOpen, status }: ArtifactPrev
           <FileCode size={14} className="text-emerald-500 shrink-0" />
           <span className="text-[11px] font-mono text-zinc-300 truncate">{title}</span>
         </div>
-        {!isRunning && (
+        {!isRunning && !isLoadingContent && (
           <button 
-            onClick={onOpen}
+            onClick={() => onOpen(title, content)}
             className="p-1.5 hover:bg-zinc-800 rounded-md text-zinc-400 hover:text-zinc-200 transition-colors"
             title="Open Full View"
           >
@@ -36,34 +58,42 @@ export function ArtifactPreview({ title, content, onOpen, status }: ArtifactPrev
       </div>
 
       {/* Code Glimpse */}
-      <div className="relative max-h-48 overflow-hidden group">
-        <SyntaxHighlighter
-          language={title.split('.').pop() || 'typescript'}
-          style={vscDarkPlus}
-          PreTag="div"
-          showLineNumbers={true}
-          customStyle={{
-            margin: 0,
-            width: '100%',
-            background: 'transparent',
-            padding: '1rem',
-            fontSize: '11px',
-            fontFamily: 'JetBrains Mono, Menlo, Monaco, Consolas, monospace',
-          }}
-        >
-          {content}
-        </SyntaxHighlighter>
-        
-        {/* Fade overlay for long code */}
-        {!isRunning && content.split('\n').length > 10 && (
-          <div className="absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-zinc-950/80 to-transparent flex items-end justify-center pb-2">
-            <button 
-              onClick={onOpen}
-              className="text-[10px] font-bold text-zinc-400 hover:text-white uppercase tracking-wider bg-zinc-900/80 px-3 py-1 rounded-full border border-zinc-800 backdrop-blur-sm"
-            >
-              Show Full File
-            </button>
+      <div className="relative max-h-48 overflow-hidden group min-h-[100px] flex flex-col">
+        {isLoadingContent ? (
+          <div className="flex-1 flex items-center justify-center bg-zinc-950/20">
+            <Loader2 size={16} className="animate-spin text-zinc-600" />
           </div>
+        ) : (
+          <>
+            <SyntaxHighlighter
+              language={title.split('.').pop() || 'typescript'}
+              style={vscDarkPlus}
+              PreTag="div"
+              showLineNumbers={true}
+              customStyle={{
+                margin: 0,
+                width: '100%',
+                background: 'transparent',
+                padding: '1rem',
+                fontSize: '11px',
+                fontFamily: 'JetBrains Mono, Menlo, Monaco, Consolas, monospace',
+              }}
+            >
+              {content}
+            </SyntaxHighlighter>
+            
+            {/* Fade overlay for long code */}
+            {!isRunning && content.split('\n').length > 8 && (
+              <div className="absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-zinc-950/80 to-transparent flex items-end justify-center pb-2">
+                <button 
+                  onClick={() => onOpen(title, content)}
+                  className="text-[10px] font-bold text-zinc-400 hover:text-white uppercase tracking-wider bg-zinc-900/80 px-3 py-1 rounded-full border border-zinc-800 backdrop-blur-sm"
+                >
+                  Show Full File
+                </button>
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>
