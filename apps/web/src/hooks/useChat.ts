@@ -13,7 +13,7 @@ export function useChat(sessionId: string) {
 
   // Configuration for the Vercel AI Hook
   const { messages, input, handleInputChange, handleSubmit, isLoading, stop } = useVercelChat({
-    api: "http://localhost:8788/chat", // Point to Brain port (8788)
+    api: "http://localhost:8788/api/chat", // Use localhost and /api/chat
     body: { sessionId },
 
     // Combined Logic: Single occurrence of onError
