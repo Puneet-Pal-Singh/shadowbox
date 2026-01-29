@@ -39,13 +39,9 @@ export class ChatController {
       // 1. Convert to CoreMessages first to standardize format
       const coreMessages = convertToCoreMessages(messages);
 
-      // 2. Keep only last 2 tool results to prevent "Context Dumping"
-      const toolMessages = coreMessages.filter(m => m.role === 'tool');
-      const messagesToKeep = coreMessages.filter(m => {
-        if (m.role !== 'tool') return true;
-        const index = toolMessages.indexOf(m);
-        return index >= toolMessages.length - 2;
-      });
+      // 2. Refined Pruning: Keep the last 15 messages only to stay within token limits and prevent loops
+      // This ensures we have enough context for the current task but don't carry the entire history of every file ever created.
+      const messagesToKeep = coreMessages.length > 15 ? coreMessages.slice(-15) : coreMessages;
 
       // 3. Hydrate R2 Artifacts so the AI "remembers" the code it wrote
       const hydratedMessages = await Promise.all(messagesToKeep.map(async (msg) => {
