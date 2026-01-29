@@ -1,5 +1,5 @@
 // apps/web/src/hooks/useSessionManager.ts
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 
 export interface AgentSession {
   id: string;
@@ -7,8 +7,26 @@ export interface AgentSession {
 }
 
 export function useSessionManager() {
-  const [sessions, setSessions] = useState<AgentSession[]>([]);
-  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [sessions, setSessions] = useState<AgentSession[]>(() => {
+    const saved = localStorage.getItem('shadowbox_sessions');
+    return saved ? JSON.parse(saved) : [];
+  });
+  
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(() => {
+    return localStorage.getItem('shadowbox_active_id');
+  });
+
+  useEffect(() => {
+    localStorage.setItem('shadowbox_sessions', JSON.stringify(sessions));
+  }, [sessions]);
+
+  useEffect(() => {
+    if (activeSessionId) {
+      localStorage.setItem('shadowbox_active_id', activeSessionId);
+    } else {
+      localStorage.removeItem('shadowbox_active_id');
+    }
+  }, [activeSessionId]);
 
   // FIX: Make 'name' optional so it doesn't conflict with React Event objects
   const createSession = useCallback((name?: string) => {

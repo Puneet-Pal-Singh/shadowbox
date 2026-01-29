@@ -50,6 +50,6 @@
 ---
 
 ## 🚀 Phase 8: Launch Prep
-- [ ] **Domain Setup**: Purchase/Connect `nullbox.sh` (or `shadowbox.sh`).
+- [ ] **Domain Setup**: Purchase/Connect domain (or `shadowbox.sh`).
 - [ ] **Landing Page**: Deploy `apps/www` (Astro) with feature breakdown.
 - [ ] **Documentation**: Write a solid `README.md` explaining how to self-host.

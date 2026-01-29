@@ -54,19 +54,25 @@ export function useChat(sessionId: string, agentId: string = "default", onFileCr
   useEffect(() => {
     async function hydrate() {
       const existingMessages = agentStore.getMessages(agentId);
+      console.log(`🧬 [Shadowbox] Checking cache for ${agentId}:`, existingMessages.length);
+      
       if (existingMessages.length > 0) {
         setIsHydrating(false);
         return;
       }
 
       setIsHydrating(true);
+      console.log(`🧬 [Shadowbox] Hydrating ${agentId} from server...`);
       try {
         const res = await fetch(`http://localhost:8787/history?session=${sessionId}&agentId=${agentId}`);
         if (!res.ok) throw new Error("History fetch failed");
         const data = await res.json();
-        if (data.history) {
+        if (data.history && data.history.length > 0) {
+          console.log(`🧬 [Shadowbox] Hydrated ${data.history.length} messages`);
           setMessages(data.history);
           agentStore.setMessages(agentId, data.history);
+        } else {
+          console.log(`🧬 [Shadowbox] No server history for ${agentId}`);
         }
       } catch (e) {
         console.error("🧬 [Shadowbox] Hydration Failed:", e);

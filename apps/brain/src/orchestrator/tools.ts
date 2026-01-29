@@ -35,5 +35,25 @@ export function createToolRegistry(execution: ExecutionService): Record<string, 
         }
       },
     }),
+
+    run_command: tool({
+      description: "Run a shell command in the sandbox (e.g., 'node hello.js', 'python3 script.py').",
+      parameters: z.object({
+        command: z.string().describe("The command to execute"),
+      }),
+      execute: async ({ command }) => {
+        try {
+          const data = await execution.execute("node", "run", { command });
+          // Ensure we return a structured object the AI can understand
+          return { 
+            success: data.success, 
+            output: data.output || "", 
+            error: data.error || "" 
+          };
+        } catch (error: any) {
+          return { success: false, error: error.message };
+        }
+      },
+    }),
   };
 }
