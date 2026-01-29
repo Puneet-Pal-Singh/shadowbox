@@ -1,20 +1,37 @@
-// apps/brain/src/services/AIService.ts
-import { Env, Tool, AgentResult } from "../types/ai";
-import { MODEL_REGISTRY } from "../registry";
+import { createOpenAI } from "@ai-sdk/openai";
+import { streamText, convertToCoreMessages, type CoreTool } from "ai";
+import { Env } from "../types/ai";
 
 export class AIService {
-  static async getCompletion(
-    env: Env,
-    modelId: string,
-    messages: Array<{ role: string; content: string }>,
-    tools: Tool[],
-    apiKey?: string
-  ): Promise<AgentResult> {
-    const modelKey = modelId as keyof typeof MODEL_REGISTRY;
-    const providerFactory = MODEL_REGISTRY[modelKey] || MODEL_REGISTRY["claude-4.5-sonnet"];
-    
-    const provider = providerFactory(modelId, env);
-    
-    return await provider.generate(messages, tools, apiKey || "");
+  private groq;
+
+  constructor(private env: Env) {
+    const apiKey = env.GROQ_API_KEY;
+    if (!apiKey) throw new Error("Missing GROQ_API_KEY");
+
+    this.groq = createOpenAI({
+      baseURL: 'https://api.groq.com/openai/v1',
+      apiKey: apiKey,
+    });
+  }
+
+  async createChatStream({
+    messages,
+    systemPrompt,
+    tools,
+    model = "llama-3.3-70b-versatile"
+  }: {
+    messages: any[];
+    systemPrompt: string;
+    tools: Record<string, CoreTool>;
+    model?: string;
+  }) {
+    return streamText({
+      model: this.groq(model) as any,
+      messages: convertToCoreMessages(messages),
+      system: systemPrompt,
+      tools,
+      maxSteps: 10,
+    });
   }
 }

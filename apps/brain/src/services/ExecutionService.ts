@@ -1,26 +1,33 @@
-// apps/brain/src/services/ExecutionService.ts
-import { Env, ToolCall } from "../types/ai";
-import { AgentOrchestrator } from "../orchestrator/executor";
-
-export interface ToolExecutionResult {
-  tool: string;
-  result: unknown;
-}
+import { Env } from "../types/ai";
 
 export class ExecutionService {
-  static async runToolCalls(
-    env: Env, 
-    sessionId: string, 
-    toolCalls: ToolCall[]
-  ): Promise<ToolExecutionResult[]> {
-    const executor = new AgentOrchestrator(env, sessionId);
-    const results: ToolExecutionResult[] = [];
+  constructor(private env: Env, private sessionId: string) {}
 
-    for (const call of toolCalls) {
-      const result = await executor.executeTool(call);
-      results.push({ tool: call.name, result });
+  async execute(plugin: string, action: string, payload: Record<string, any>) {
+    console.log(`[ExecutionService] ${plugin}:${action}`, payload);
+    try {
+      const res = await this.env.SECURE_API.fetch(
+        `http://internal/exec?session=${this.sessionId}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ plugin, payload: { action, ...payload } }),
+        }
+      );
+
+      const text = await res.text();
+      if (!res.ok) {
+        throw new Error(text || `Failed to execute ${action}`);
+      }
+
+      try {
+        return JSON.parse(text);
+      } catch {
+        return text;
+      }
+    } catch (error) {
+      console.error(`[ExecutionService] Error:`, error);
+      throw error;
     }
-
-    return results;
   }
 }
