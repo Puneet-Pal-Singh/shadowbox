@@ -19,9 +19,17 @@ export function useChat(sessionId: string) {
     // Combined Logic: Single occurrence of onError
     onError: (error: Error) => {
       console.error("🧬 [Shadowbox] Chat Stream Broken");
-      console.error("Error Details:", error.message);
+      console.error("Error Message:", error.message);
+      console.error("Error Stack:", error.stack);
+      console.error("Error Object:", error);
       // For deep debugging in console
       console.dir(error); 
+    },
+    // Enable error logging from the stream
+    onResponse: (response) => {
+      if (!response.ok) {
+        console.error("🧬 [Shadowbox] HTTP Error:", response.status, response.statusText);
+      }
     },
 
     // Auto-open artifact panel when the AI creates code

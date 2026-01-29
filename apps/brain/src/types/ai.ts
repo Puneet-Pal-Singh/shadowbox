@@ -9,6 +9,7 @@ export interface Env {
   // ✅ New Keys required for Vercel AI SDK
   GOOGLE_GENERATIVE_AI_API_KEY?: string;
   ANTHROPIC_API_KEY?: string;
+  GROQ_API_KEY?: string;
   SYSTEM_PROMPT?: string;
 }
 

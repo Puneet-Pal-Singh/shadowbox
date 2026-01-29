@@ -12,6 +12,7 @@
   "dependencies": {
     "@ai-sdk/react": "1.1.0",
     "@tailwindcss/vite": "^4.1.18",
+    "zod": "^3.22.4",
     "clsx": "^2.1.1",
     "lucide-react": "^0.563.0",
     "react": "^19.2.0",

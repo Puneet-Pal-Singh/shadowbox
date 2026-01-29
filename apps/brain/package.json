@@ -17,6 +17,9 @@
   },
   "dependencies": {
     "@ai-sdk/anthropic": "1.1.0",
-    "@ai-sdk/google": "1.1.0"
+    "@ai-sdk/google": "1.1.0",
+    "@ai-sdk/openai": "^1.1.0",
+    "ai": "4.1.0",
+    "zod": "^3.25.1"
   }
 }
