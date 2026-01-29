@@ -110,19 +110,36 @@ export class AgentRuntime extends DurableObject {
 
   // 5. SRP: History Management
   async getHistory(agentId: string): Promise<Message[]> {
-    return (await this.ctx.storage.get<Message[]>(`history:${agentId}`)) || [];
+    // Fetch all messages for this agent, sorted by timestamp (lexicographical order)
+    const list = await this.ctx.storage.list<Message>({ 
+      prefix: `history:${agentId}:`,
+      limit: 100 // Load last 100 messages
+    });
+    return Array.from(list.values());
   }
 
   async appendMessage(agentId: string, message: Message): Promise<void> {
-    await this.ctx.blockConcurrencyWhile(async () => {
-      const history = await this.getHistory(agentId);
-      history.push(message);
-      // Keep only last 100 messages to prevent storage bloat
-      await this.ctx.storage.put(`history:${agentId}`, history.slice(-100));
-    });
+    // Use padded timestamp for reliable lexicographical sorting
+    const timestamp = Date.now().toString().padStart(15, '0');
+    const key = `history:${agentId}:${timestamp}`;
+    await this.ctx.storage.put(key, message);
   }
 
   async saveHistory(agentId: string, messages: Message[]): Promise<void> {
-    await this.ctx.storage.put(`history:${agentId}`, messages.slice(-100));
+    // Delete existing incremental keys first to avoid duplication/bloat
+    const existing = await this.ctx.storage.list({ prefix: `history:${agentId}:` });
+    const keysToDelete = Array.from(existing.keys());
+    if (keysToDelete.length > 0) {
+      await this.ctx.storage.delete(keysToDelete);
+    }
+
+    // Also delete any old "blob" style key
+    await this.ctx.storage.delete(`history:${agentId}`);
+
+    // Save new messages incrementally
+    for (let i = 0; i < messages.length; i++) {
+      const timestamp = (Date.now() + i).toString().padStart(15, '0');
+      await this.ctx.storage.put(`history:${agentId}:${timestamp}`, messages[i]);
+    }
   }
 }
