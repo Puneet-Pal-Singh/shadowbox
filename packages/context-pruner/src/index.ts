@@ -5,7 +5,7 @@ import { CoreMessage, ToolResultPart } from 'ai';
  */
 export function pruneToolResults(messages: CoreMessage[]): CoreMessage[] {
   return messages.map((message) => {
-    if (message.role !== 'tool') return message;
+    if (message.role !== 'tool' || !Array.isArray(message.content)) return message;
 
     // In AI SDK 4.x, tool message content is ToolResultPart[]
     const content = message.content.map((part: ToolResultPart) => {

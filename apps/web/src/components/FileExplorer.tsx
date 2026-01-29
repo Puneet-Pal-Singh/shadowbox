@@ -73,13 +73,12 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(
           {files.length === 0 && !loading && (
             <div className="text-[10px] text-zinc-600 text-center mt-4">Empty Directory</div>
           )}
-          {files.map((file, i) => (
-            <div 
-              key={i} 
-              onClick={() => file.type === 'file' && onFileClick?.(file.name)}
-              className={`flex items-center gap-2 p-1.5 hover:bg-surface rounded group ${file.type === 'file' ? 'cursor-pointer' : 'cursor-default'}`}
-            >
-              {file.type === 'directory' ? (
+                  {files.map((file) => (
+                    <div 
+                      key={file.name} 
+                      onClick={() => file.type === 'file' && onFileClick?.(file.name)}
+                      className={`flex items-center gap-2 p-1.5 hover:bg-surface rounded group ${file.type === 'file' ? 'cursor-pointer' : 'cursor-default'}`}
+                    >              {file.type === 'directory' ? (
                 <Folder size={14} className="text-blue-500" />
               ) : (
                 <File size={14} className="text-zinc-500 group-hover:text-emerald-500" />

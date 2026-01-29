@@ -76,15 +76,16 @@ export function ChatMessage({ message, onArtifactOpen }: ChatMessageProps) {
         )}
 
         {/* Render Tool Calls */}
-        {message.toolInvocations?.map((toolInvocation) => {
+        {message.toolInvocations?.map((toolInvocation, index) => {
           const toolName = toolInvocation.toolName;
           const status = toolInvocation.state;
           const args = toolInvocation.args as any;
+          const key = toolInvocation.toolCallId || `tool-${index}`;
 
           if (toolName === 'create_code_artifact' && args?.content) {
             return (
               <ArtifactPreview
-                key={toolInvocation.toolCallId}
+                key={key}
                 title={args.path || 'untitled'}
                 content={args.content}
                 status={status}
@@ -95,7 +96,7 @@ export function ChatMessage({ message, onArtifactOpen }: ChatMessageProps) {
 
           return (
             <div
-              key={toolInvocation.toolCallId}
+              key={key}
               className={cn("w-full", isUser && "flex justify-end")}
             >
               <div className="max-w-md w-full text-left">
