@@ -39,3 +39,10 @@ export interface IPlugin {
   // UPDATED: Accept the optional callback
   execute(sandbox: Sandbox, payload: any, onLog?: LogCallback): Promise<PluginResult>;
 }
+
+export interface Message {
+  role: 'system' | 'user' | 'assistant' | 'tool';
+  content: string;
+  tool_calls?: any[];
+  tool_call_id?: string;
+}

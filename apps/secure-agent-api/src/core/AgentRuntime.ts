@@ -1,7 +1,7 @@
 // apps/secure-agent-api/src/core/AgentRuntime.ts
 import { DurableObject } from "cloudflare:workers";
 import { getSandbox, type Sandbox } from "@cloudflare/sandbox";
-import { IPlugin, PluginResult, LogCallback } from "../interfaces/types";
+import { IPlugin, PluginResult, LogCallback, Message } from "../interfaces/types";
 import { StreamHandler } from "./StreamHandler";
 import { PythonPlugin } from "../plugins/PythonPlugin";
 import { RedisPlugin } from "../plugins/RedisPlugin";
@@ -106,5 +106,23 @@ export class AgentRuntime extends DurableObject {
 
   getManifest() {
     return Array.from(this.plugins.values()).flatMap(p => p.tools);
+  }
+
+  // 5. SRP: History Management
+  async getHistory(agentId: string): Promise<Message[]> {
+    return (await this.ctx.storage.get<Message[]>(`history:${agentId}`)) || [];
+  }
+
+  async appendMessage(agentId: string, message: Message): Promise<void> {
+    await this.ctx.blockConcurrencyWhile(async () => {
+      const history = await this.getHistory(agentId);
+      history.push(message);
+      // Keep only last 100 messages to prevent storage bloat
+      await this.ctx.storage.put(`history:${agentId}`, history.slice(-100));
+    });
+  }
+
+  async saveHistory(agentId: string, messages: Message[]): Promise<void> {
+    await this.ctx.storage.put(`history:${agentId}`, messages.slice(-100));
   }
 }
