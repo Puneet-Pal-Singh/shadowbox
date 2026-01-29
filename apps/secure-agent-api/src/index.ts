@@ -180,6 +180,26 @@ export default {
         const tools = await stub.getManifest();
         response = Response.json({ tools });
       } 
+      else if (url.pathname === "/history") {
+        const agentId = url.searchParams.get("agentId") || "default";
+        
+        if (request.method === "GET") {
+          const history = await stub.getHistory(agentId);
+          response = Response.json({ history });
+        } 
+        else if (request.method === "POST") {
+          const body = await request.json() as { message?: any, messages?: any[] };
+          if (body.message) {
+            await stub.appendMessage(agentId, body.message);
+          } else if (body.messages) {
+            await stub.saveHistory(agentId, body.messages);
+          }
+          response = Response.json({ success: true });
+        }
+        else {
+          response = new Response("Method Not Allowed", { status: 405 });
+        }
+      }
       else if (request.method === "POST") {
         // Command Execution
         const body = await request.json() as ExecutionBody;
