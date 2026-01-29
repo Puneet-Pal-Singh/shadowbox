@@ -1,5 +1,6 @@
 import { useChat as useVercelChat } from "@ai-sdk/react";
 import { useState, useEffect } from "react";
+import { agentStore } from "../store/agentStore";
 
 // Define the shape of our artifact
 export interface ArtifactData {
@@ -10,12 +11,13 @@ export interface ArtifactData {
 export function useChat(sessionId: string, agentId: string = "default", onFileCreated?: () => void) {
   const [artifact, setArtifact] = useState<ArtifactData | null>(null);
   const [isArtifactOpen, setIsArtifactOpen] = useState(false);
-  const [isHydrating, setIsHydrating] = useState(true);
+  const [isHydrating, setIsHydrating] = useState(false);
 
   // Configuration for the Vercel AI Hook
   const { messages, input, handleInputChange, handleSubmit, isLoading, stop, setMessages } = useVercelChat({
     api: "http://localhost:8788/chat", // Point to the brain worker /chat endpoint
     body: { sessionId, agentId },
+    initialMessages: agentStore.getMessages(agentId),
 
     onError: (error: Error) => {
       console.error("🧬 [Shadowbox] Chat Stream Broken", error);
@@ -41,9 +43,22 @@ export function useChat(sessionId: string, agentId: string = "default", onFileCr
     },
   });
 
-  // Hydration logic: Fetch history when session or agent changes
+  // 1. Sync local messages to global store for tab switching
+  useEffect(() => {
+    if (messages.length > 0) {
+      agentStore.setMessages(agentId, messages);
+    }
+  }, [messages, agentId]);
+
+  // 2. Hydration logic: Fetch history from DO if local store is empty
   useEffect(() => {
     async function hydrate() {
+      const existingMessages = agentStore.getMessages(agentId);
+      if (existingMessages.length > 0) {
+        setIsHydrating(false);
+        return;
+      }
+
       setIsHydrating(true);
       try {
         const res = await fetch(`http://localhost:8787/history?session=${sessionId}&agentId=${agentId}`);
@@ -51,12 +66,10 @@ export function useChat(sessionId: string, agentId: string = "default", onFileCr
         const data = await res.json();
         if (data.history) {
           setMessages(data.history);
-        } else {
-          setMessages([]);
+          agentStore.setMessages(agentId, data.history);
         }
       } catch (e) {
         console.error("🧬 [Shadowbox] Hydration Failed:", e);
-        setMessages([]);
       } finally {
         setIsHydrating(false);
       }
