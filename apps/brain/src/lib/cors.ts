@@ -3,6 +3,7 @@ export const CORS_HEADERS = {
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, Authorization, x-vercel-ai-data-stream",
   "Access-Control-Expose-Headers": "x-vercel-ai-data-stream",
+  "X-Content-Type-Options": "nosniff",
 };
 
 /**

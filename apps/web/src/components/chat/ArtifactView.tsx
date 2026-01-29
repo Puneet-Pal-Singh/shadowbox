@@ -28,21 +28,21 @@ export function ArtifactView({ isOpen, onClose, title, content, language = 'type
       </div>
 
       {/* Code Editor View */}
-      <div className="flex-1 overflow-auto relative bg-[#1e1e1e]">
-         <SyntaxHighlighter
-            language={language}
-            style={vscDarkPlus}
-            customStyle={{
-              margin: 0,
-              padding: '1.5rem',
-              fontSize: '14px',
-              lineHeight: '1.6',
-              background: 'transparent'
-            }}
-            showLineNumbers={true}
-          >
-            {content}
-          </SyntaxHighlighter>
+      <div className="flex-1 overflow-auto bg-[#1e1e1e]">
+        <SyntaxHighlighter
+          language={language}
+          style={vscDarkPlus}
+          PreTag="div" // Critical for layout
+          customStyle={{
+            margin: 0,
+            width: '100%',
+            background: 'transparent',
+            padding: '1.5rem',
+            fontSize: '13px',
+          }}
+        >
+          {content}
+        </SyntaxHighlighter>
       </div>
 
       {/* Footer Actions */}

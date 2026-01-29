@@ -1,4 +1,3 @@
-// apps/web/src/hooks/useChat.ts
 import { useChat as useVercelChat } from "@ai-sdk/react";
 import { useState } from "react";
 
@@ -17,17 +16,26 @@ export function useChat(sessionId: string) {
     api: "http://localhost:8788/chat", // Point to Brain port (8788)
     body: { sessionId },
 
-    // Auto-open artifact panel when the AI creates code
-    onToolCall: ({ toolCall }) => {
-      if (toolCall.toolName === "create_code_artifact") {
-        const args = toolCall.args as ArtifactData;
-        setArtifact(args);
-        setIsArtifactOpen(true);
-      }
+    // Combined Logic: Single occurrence of onError
+    onError: (error: Error) => {
+      console.error("🧬 [Shadowbox] Chat Stream Broken");
+      console.error("Error Details:", error.message);
+      // For deep debugging in console
+      console.dir(error); 
     },
 
-    onError: (error: Error) => {
-      console.error("Chat Error:", error);
+    // Auto-open artifact panel when the AI creates code
+    onToolCall: ({ toolCall }) => {
+      if (toolCall.toolName === 'create_code_artifact') {
+        // Cast args safely using the interface
+        const args = toolCall.args as ArtifactData;
+        
+        // Logic: Only trigger if the AI has actually provided content/path
+        if (args && args.path && args.content) {
+          setArtifact(args);
+          setIsArtifactOpen(true);
+        }
+      }
     },
   });
 

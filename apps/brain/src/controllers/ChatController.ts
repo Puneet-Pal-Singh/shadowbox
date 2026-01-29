@@ -58,24 +58,51 @@ export class ChatController {
         }),
 
         create_code_artifact: tool({
-          description: 'Write code to a file.',
-          parameters: z.object({ 
-            path: z.string(), 
+          description: 'Write code to a file. This opens the side-pane editor for the user.',
+          parameters: z.object({
+            path: z.string(),
             content: z.string(),
-            description: z.string().optional()
+            description: z.string().optional(),
           }),
           execute: async ({ path, content }: { path: string; content: string; description?: string }) => {
-            const res = await env.SECURE_API.fetch(`http://internal/exec?session=${sessionId}`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ 
-                plugin: 'filesystem', 
-                action: 'write_file', 
+            try {
+              const res = await env.SECURE_API.fetch(`http://internal/exec?session=${sessionId}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  plugin: 'filesystem',
+                  action: 'write_file',
+                  path,
+                  content,
+                }),
+              });
+
+              // Handle non-OK responses from the sandbox immediately
+              if (!res.ok) {
+                return { 
+                  success: false, 
+                  error: `Sandbox failed with status: ${res.status}` 
+                };
+              }
+
+              const data = await res.json();
+              
+              // Return a clean, serializable object for the Vercel AI SDK
+              return { 
+                success: true, 
                 path, 
-                content 
-              })
-            });
-            return await res.json();
+                data 
+              };
+            } catch (error: unknown) {
+              // CS Practice: Avoid 'any'. Use 'unknown' and narrow the error.
+              const errorMessage = error instanceof Error ? error.message : "Failed to execute tool";
+              console.error("Tool Execution Error:", errorMessage);
+              
+              return { 
+                success: false, 
+                error: errorMessage 
+              };
+            }
           },
         }),
       };
@@ -91,7 +118,10 @@ export class ChatController {
 
       // ✅ Correct way to send the stream with CORS
       return result.toDataStreamResponse({
-        headers: CORS_HEADERS
+        headers: {
+          ...CORS_HEADERS,
+          'Content-Type': 'text/plain; charset=utf-8', // Explicitly set for Cloudflare
+        }
       });
 
     } catch (error: unknown) {
