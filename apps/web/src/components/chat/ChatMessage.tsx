@@ -5,19 +5,21 @@ import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { ActionBlock } from "./ActionBlock";
+import { ArtifactPreview } from "./ArtifactPreview";
 import { cn } from "../../lib/utils";
 
 interface ChatMessageProps {
   message: Message;
+  onArtifactOpen?: (path: string, content: string) => void;
 }
 
-export function ChatMessage({ message }: ChatMessageProps) {
+export function ChatMessage({ message, onArtifactOpen }: ChatMessageProps) {
   const isUser = message.role === "user";
 
   return (
     <div
       className={cn(
-        "group flex gap-4 w-full mb-6",
+        "group flex gap-4 w-full mb-8",
         isUser && "flex-row-reverse",
       )}
     >
@@ -61,7 +63,7 @@ export function ChatMessage({ message }: ChatMessageProps) {
                       {String(children).replace(/\n$/, '')}
                     </SyntaxHighlighter>
                   ) : (
-                    <code className={cn("bg-zinc-800 px-1 py-0.5 rounded text-xs", className)} {...props}>
+                    <code className={cn("bg-zinc-800 px-1 py-0.5 rounded text-xs font-mono", className)} {...props}>
                       {children}
                     </code>
                   );
@@ -75,7 +77,21 @@ export function ChatMessage({ message }: ChatMessageProps) {
 
         {/* Render Tool Calls */}
         {message.toolInvocations?.map((toolInvocation) => {
-          const args = toolInvocation.args;
+          const toolName = toolInvocation.toolName;
+          const status = toolInvocation.state;
+          const args = toolInvocation.args as any;
+
+          if (toolName === 'create_code_artifact' && args?.content) {
+            return (
+              <ArtifactPreview
+                key={toolInvocation.toolCallId}
+                title={args.path || 'untitled'}
+                content={args.content}
+                status={status}
+                onOpen={() => onArtifactOpen?.(args.path, args.content)}
+              />
+            );
+          }
 
           return (
             <div
@@ -84,8 +100,8 @@ export function ChatMessage({ message }: ChatMessageProps) {
             >
               <div className="max-w-md w-full text-left">
                 <ActionBlock
-                  tool={toolInvocation.toolName}
-                  status={toolInvocation.state}
+                  tool={toolName}
+                  status={status}
                   args={args}
                 />
               </div>

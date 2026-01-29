@@ -26,14 +26,13 @@ export function useChat(sessionId: string, onFileCreated?: () => void) {
       }
     },
 
-    // Auto-open artifact panel when the AI creates code
+    // Auto-update artifact data but don't force open the side-pane automatically
     onToolCall: ({ toolCall }) => {
       if (toolCall.toolName === 'create_code_artifact') {
         const args = toolCall.args as ArtifactData;
         
         if (args && args.path && args.content) {
           setArtifact(args);
-          setIsArtifactOpen(true);
           // Trigger file explorer refresh
           onFileCreated?.();
         }

@@ -11,9 +11,10 @@ interface ChatInterfaceProps {
     handleSubmit: (e?: any) => void;
     isLoading: boolean;
   };
+  onArtifactOpen?: (path: string, content: string) => void;
 }
 
-export function ChatInterface({ chatProps }: ChatInterfaceProps) {
+export function ChatInterface({ chatProps, onArtifactOpen }: ChatInterfaceProps) {
   const { messages, input, handleInputChange, handleSubmit, isLoading } = chatProps;
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -32,7 +33,11 @@ export function ChatInterface({ chatProps }: ChatInterfaceProps) {
           </div>
         )}
         {messages.map((msg) => (
-          <ChatMessage key={msg.id} message={msg} />
+          <ChatMessage 
+            key={msg.id} 
+            message={msg} 
+            onArtifactOpen={onArtifactOpen}
+          />
         ))}
       </div>
 

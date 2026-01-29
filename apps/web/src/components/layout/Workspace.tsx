@@ -57,6 +57,10 @@ export function Workspace({ sessionId }: { sessionId: string }) {
       <main className="flex-1 flex flex-col min-w-0 bg-background border-r border-border">
         <ChatInterface 
           chatProps={{ messages, input, handleInputChange, handleSubmit, isLoading }}
+          onArtifactOpen={(path, content) => {
+            setArtifact({ path, content });
+            setIsArtifactOpen(true);
+          }}
         />
       </main>
 
