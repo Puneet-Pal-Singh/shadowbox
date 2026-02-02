@@ -33,7 +33,6 @@ export function useChat(
     messages,
     input,
     handleInputChange,
-    handleSubmit,
     isLoading,
     stop,
     setMessages,
@@ -49,6 +48,7 @@ export function useChat(
     },
 
     onResponse: (response) => {
+      console.log(`🧬 [Shadowbox] Response:`, response.status);
       if (!response.ok) {
         console.error(
           "🧬 [Shadowbox] HTTP Error:",
@@ -60,6 +60,7 @@ export function useChat(
 
     // Auto-update artifact data but don't force open the side-pane automatically
     onToolCall: ({ toolCall }) => {
+      console.log(`🧬 [Shadowbox] Tool call:`, toolCall.toolName);
       if (toolCall.toolName === "create_code_artifact") {
         const args = toolCall.args as ArtifactData;
 
@@ -71,19 +72,31 @@ export function useChat(
       }
     },
 
-    // DEBUG: Log what the SDK is about to send
+    // DEBUG: Log what the SDK has at finish
     onFinish: (message) => {
       console.log(`🧬 [Shadowbox] SDK onFinish for ${runId}:`, message);
+      console.log(
+        `🧬 [Shadowbox] SDK messages at finish:`,
+        messages.length,
+        messages.map((m) => ({
+          role: m.role,
+          content: m.content?.substring(0, 30),
+        })),
+      );
     },
   });
 
-  // 0. EMERGENCY RESET: Clear messages immediately when runId changes
-  // This is a safety net to ensure no cross-session contamination
+  // EMERGENCY RESET: Only clear on initial runId change, not during streaming
+  // We track if reset has been done for this runId to avoid clearing messages during active streaming
+  const hasResetForRunId = useRef<string | null>(null);
+
   useEffect(() => {
-    console.log(`🧬 [Shadowbox] EMERGENCY RESET for ${runId}`);
-    setMessages([]);
-    // Also clear from agentStore to prevent any cached data from appearing
-    agentStore.clearMessages(runId);
+    if (hasResetForRunId.current !== runId) {
+      console.log(`🧬 [Shadowbox] Initial reset for ${runId}`);
+      hasResetForRunId.current = runId;
+      setMessages([]);
+      agentStore.clearMessages(runId);
+    }
   }, [runId, setMessages]);
 
   // 1. Sync local messages to global store for tab switching
@@ -118,6 +131,24 @@ export function useChat(
     async function sync() {
       // Guard: Don't sync from server if we are currently streaming a response
       if (isLoading) return;
+
+      // CRITICAL: Don't sync if we already have messages from streaming
+      // This prevents the server from overwriting the assistant response
+      if (messages.length > 0) {
+        console.log(
+          `🧬 [Shadowbox] Skipping server sync - already have ${messages.length} messages`,
+        );
+        return;
+      }
+
+      // Wait for pending query to be consumed before syncing
+      const pendingQuery = localStorage.getItem(`pending_query_${runId}`);
+      if (pendingQuery) {
+        console.log(
+          `🧬 [Shadowbox] Delaying server sync - pending query exists`,
+        );
+        return;
+      }
 
       // Only sync on first load for this runId
       if (!isFirstLoadRef.current) return;
@@ -166,14 +197,23 @@ export function useChat(
     }
   }, [runId, messages.length, isLoading, append]);
 
-  // DEBUG: Wrap handleSubmit to log what messages are being sent
+  // IMMEDIATE USER MESSAGE: Override handleSubmit to show user message instantly
+  // before the API call. This fixes the delay where user message only appears
+  // when the assistant starts responding.
   const wrappedHandleSubmit = (e?: any) => {
+    e?.preventDefault?.();
+
+    const currentInput = input.trim();
+    if (!currentInput || isLoading) return;
+
     console.log(`🧬 [Shadowbox] SUBMIT for ${runId}:`, {
+      input: currentInput.substring(0, 50),
       messageCount: messages.length,
-      firstMessage: messages[0]?.content?.substring(0, 50),
-      lastMessage: messages[messages.length - 1]?.content?.substring(0, 50),
     });
-    handleSubmit(e);
+
+    // Use append() instead of handleSubmit() - it immediately adds user message
+    // to local state and starts streaming
+    append({ role: "user", content: currentInput });
   };
 
   return {
