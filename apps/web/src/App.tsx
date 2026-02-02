@@ -18,7 +18,7 @@ function App() {
     <div className="h-screen w-screen bg-background text-zinc-400 flex overflow-hidden font-sans">
       
       {/* 1. Navigation Layer (Static Global Nav) */}
-      <GlobalNav />
+      <GlobalNav onHome={() => setActiveSessionId(null)} />
 
       {/* 2. Session Management Layer (List of Active Tasks) */}
       <AgentSidebar 

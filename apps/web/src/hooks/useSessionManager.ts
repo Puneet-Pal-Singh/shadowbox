@@ -12,21 +12,12 @@ export function useSessionManager() {
     return saved ? JSON.parse(saved) : [];
   });
   
-  const [activeSessionId, setActiveSessionId] = useState<string | null>(() => {
-    return localStorage.getItem('shadowbox_active_id');
-  });
+  // NEVER persist activeSessionId across refreshes to ensure we always start at Inbox
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
 
   useEffect(() => {
     localStorage.setItem('shadowbox_sessions', JSON.stringify(sessions));
   }, [sessions]);
-
-  useEffect(() => {
-    if (activeSessionId) {
-      localStorage.setItem('shadowbox_active_id', activeSessionId);
-    } else {
-      localStorage.removeItem('shadowbox_active_id');
-    }
-  }, [activeSessionId]);
 
   // FIX: Make 'name' optional so it doesn't conflict with React Event objects
   const createSession = useCallback((name?: string) => {
@@ -44,5 +35,12 @@ export function useSessionManager() {
     if (activeSessionId === id) setActiveSessionId(null);
   }, [activeSessionId]);
 
-  return { sessions, activeSessionId, setActiveSessionId, createSession, removeSession };
+  const clearAllSessions = useCallback(() => {
+    setSessions([]);
+    setActiveSessionId(null);
+    localStorage.removeItem('shadowbox_sessions');
+    localStorage.removeItem('shadowbox_active_id');
+  }, []);
+
+  return { sessions, activeSessionId, setActiveSessionId, createSession, removeSession, clearAllSessions };
 }

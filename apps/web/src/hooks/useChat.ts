@@ -18,6 +18,7 @@ export function useChat(sessionId: string, runId: string = "default", onFileCrea
     api: "http://localhost:8788/chat", // Point to the brain worker /chat endpoint
     body: { sessionId, runId },
     initialMessages: agentStore.getMessages(runId),
+    id: runId, // Ensure unique ID per run to force internal state reset
 
     onError: (error: Error) => {
       console.error("🧬 [Shadowbox] Chat Stream Broken", error);
