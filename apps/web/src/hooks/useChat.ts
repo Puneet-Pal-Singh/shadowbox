@@ -173,8 +173,47 @@ export function useChat(
           console.log(
             `🧬 [Shadowbox] Server returned ${history.length} messages for ${runId}`,
           );
-          setMessages(history);
-          agentStore.setMessages(runId, history);
+
+          // CRITICAL FIX: Convert stored message format to SDK format
+          // The server stores messages with 'tool_calls' but SDK expects 'toolInvocations'
+          const convertedHistory = history.map((msg: any, index: number) => {
+            const converted: any = {
+              id: msg.id || `${runId}-msg-${index}`,
+              role: msg.role,
+              content: msg.content,
+              createdAt: msg.createdAt || new Date(),
+            };
+
+            // Convert tool_calls to toolInvocations for assistant messages
+            if (
+              msg.role === "assistant" &&
+              msg.tool_calls &&
+              msg.tool_calls.length > 0
+            ) {
+              converted.toolInvocations = msg.tool_calls.map(
+                (tc: any, tcIndex: number) => ({
+                  state: "result", // Assume completed since loading from history
+                  toolCallId: tc.id || `${runId}-tool-${tcIndex}`,
+                  toolName: tc.function?.name || "unknown",
+                  args: (() => {
+                    try {
+                      return JSON.parse(tc.function?.arguments || "{}");
+                    } catch {
+                      return {};
+                    }
+                  })(),
+                }),
+              );
+            }
+
+            return converted;
+          });
+
+          console.log(
+            `🧬 [Shadowbox] Converted ${convertedHistory.length} messages for SDK`,
+          );
+          setMessages(convertedHistory);
+          agentStore.setMessages(runId, convertedHistory);
         }
       } catch (e) {
         console.error("🧬 [Shadowbox] Sync Failed:", e);
@@ -197,9 +236,7 @@ export function useChat(
     }
   }, [runId, messages.length, isLoading, append]);
 
-  // IMMEDIATE USER MESSAGE: Override handleSubmit to show user message instantly
-  // before the API call. This fixes the delay where user message only appears
-  // when the assistant starts responding.
+  // IMMEDIATE USER MESSAGE: Manually add to UI first, then trigger API
   const wrappedHandleSubmit = (e?: any) => {
     e?.preventDefault?.();
 
@@ -211,8 +248,19 @@ export function useChat(
       messageCount: messages.length,
     });
 
-    // Use append() instead of handleSubmit() - it immediately adds user message
-    // to local state and starts streaming
+    // CRITICAL FIX: Manually add user message to UI IMMEDIATELY
+    // This ensures the message appears before any API call
+    const userMessage = {
+      id: `user-${Date.now()}`,
+      role: "user" as const,
+      content: currentInput,
+      createdAt: new Date(),
+    };
+
+    // Add to local state immediately for instant UI feedback
+    setMessages((prev) => [...prev, userMessage]);
+
+    // Then use append to trigger the API call (it will add another copy but that's ok)
     append({ role: "user", content: currentInput });
   };
 
