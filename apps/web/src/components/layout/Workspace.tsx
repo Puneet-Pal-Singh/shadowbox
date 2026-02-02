@@ -31,7 +31,7 @@ export function Workspace({ sessionId: runId }: { sessionId: string }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           plugin: "filesystem",
-          payload: { action: "read_file", path }
+          payload: { action: "read_file", runId, path }
         })
       });
       const data = await res.json();
@@ -62,6 +62,7 @@ export function Workspace({ sessionId: runId }: { sessionId: string }) {
         <FileExplorer 
           ref={explorerRef}
           sessionId={sharedSessionId} 
+          runId={runId}
           onFileClick={handleFileClick}
         />
       </aside>

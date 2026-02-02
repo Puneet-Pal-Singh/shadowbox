@@ -18,11 +18,23 @@ export class FileSystemPlugin implements IPlugin {
     // Standard pattern: { action: "list_files", path: "..." }
     
     const action = payload.action; 
+    const runId = payload.runId || "default";
+    const workspaceRoot = `/home/sandbox/workspaces/${runId}`;
 
     try {
+      // Ensure workspace exists before any operation
+      await sandbox.exec(`mkdir -p ${workspaceRoot}`);
+
       if (action === "list_files") {
         const path = payload.path || ".";
-        const res = await sandbox.exec(`ls -F ${path}`); // -F adds / to folders
+        const targetDir = `${workspaceRoot}/${path}`.replace(/\/+$/, '');
+        
+        // Safety check: prevent directory escape
+        if (!targetDir.startsWith(workspaceRoot)) {
+          return { success: false, error: "Access Denied: Path escapes workspace" };
+        }
+
+        const res = await sandbox.exec(`ls -F ${targetDir}`); // -F adds / to folders
         
         if (res.exitCode !== 0) {
           return { success: false, error: res.stderr || "Directory not found" };
@@ -41,20 +53,36 @@ export class FileSystemPlugin implements IPlugin {
       }
 
       if (action === "read_file") {
-        // We use 'cat' for simplicity in this demo. 
-        // Real prod uses sandbox.readFile() which handles binary too.
-        const res = await sandbox.exec(`cat ${payload.path}`);
+        const targetPath = `${workspaceRoot}/${payload.path}`;
+        if (!targetPath.startsWith(workspaceRoot)) {
+          return { success: false, error: "Access Denied: Path escapes workspace" };
+        }
+
+        const res = await sandbox.exec(`cat ${targetPath}`);
         if (res.exitCode !== 0) throw new Error(`File not found: ${res.stderr}`);
         return { success: true, output: res.stdout };
       }
 
       if (action === "write_file") {
-        await sandbox.writeFile(payload.path, payload.content);
+        const targetPath = `${workspaceRoot}/${payload.path}`;
+        if (!targetPath.startsWith(workspaceRoot)) {
+          return { success: false, error: "Access Denied: Path escapes workspace" };
+        }
+
+        // Ensure parent directory exists
+        const parentDir = targetPath.split('/').slice(0, -1).join('/');
+        await sandbox.exec(`mkdir -p ${parentDir}`);
+
+        await sandbox.writeFile(targetPath, payload.content);
         return { success: true, output: `Wrote ${payload.content.length} bytes to ${payload.path}` };
       }
 
       if (action === "make_dir") {
-        const res = await sandbox.exec(`mkdir -p ${payload.path}`);
+        const targetPath = `${workspaceRoot}/${payload.path}`;
+        if (!targetPath.startsWith(workspaceRoot)) {
+          return { success: false, error: "Access Denied: Path escapes workspace" };
+        }
+        const res = await sandbox.exec(`mkdir -p ${targetPath}`);
         return { success: res.exitCode === 0, output: res.exitCode === 0 ? "Directory created" : res.stderr };
       }
 

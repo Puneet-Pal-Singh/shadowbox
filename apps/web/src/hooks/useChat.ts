@@ -64,6 +64,9 @@ export function useChat(sessionId: string, runId: string = "default", onFileCrea
         setMessages(cache);
         setIsHydrating(false);
       } else {
+        // --- NEW: UI Reset ---
+        // If no cache, ensure messages are empty for a fresh start
+        setMessages([]);
         setIsHydrating(true);
       }
 

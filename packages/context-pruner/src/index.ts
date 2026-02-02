@@ -3,7 +3,9 @@ import { CoreMessage, ToolResultPart } from 'ai';
 /**
  * Prunes technical noise from tool results to keep context clean and high-signal.
  */
-export function pruneToolResults(messages: CoreMessage[]): CoreMessage[] {
+export function pruneToolResults(messages: CoreMessage[] | undefined): CoreMessage[] {
+  if (!messages || !Array.isArray(messages)) return [];
+  
   return messages.map((message) => {
     if (message.role !== 'tool' || !Array.isArray(message.content)) return message;
 

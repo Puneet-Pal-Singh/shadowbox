@@ -12,11 +12,12 @@ export interface FileExplorerHandle {
 
 interface FileExplorerProps {
   sessionId: string;
+  runId: string;
   onFileClick?: (path: string) => void;
 }
 
 export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(
-  ({ sessionId, onFileClick }, ref) => {
+  ({ sessionId, runId, onFileClick }, ref) => {
     const [files, setFiles] = useState<FileItem[]>([]);
     const [loading, setLoading] = useState(false);
 
@@ -28,7 +29,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             plugin: "filesystem",
-            payload: { action: "list_files", path: "." }
+            payload: { action: "list_files", runId, path: "." }
           })
         });
         const data = await res.json();
