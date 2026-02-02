@@ -14,6 +14,10 @@ class AgentStore {
   clearMessages(runId: string) {
     this.messagesMap.delete(runId);
   }
+
+  clearAllMessages() {
+    this.messagesMap.clear();
+  }
 }
 
 export const agentStore = new AgentStore();

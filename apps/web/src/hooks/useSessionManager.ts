@@ -1,9 +1,11 @@
 // apps/web/src/hooks/useSessionManager.ts
 import { useState, useCallback, useEffect } from 'react';
+import { agentStore } from '../store/agentStore';
 
 export interface AgentSession {
   id: string;
   name: string;
+  status?: 'idle' | 'running' | 'completed' | 'error';
 }
 
 export function useSessionManager() {
@@ -32,12 +34,14 @@ export function useSessionManager() {
 
   const removeSession = useCallback((id: string) => {
     setSessions(prev => prev.filter(s => s.id !== id));
+    agentStore.clearMessages(id);
     if (activeSessionId === id) setActiveSessionId(null);
   }, [activeSessionId]);
 
   const clearAllSessions = useCallback(() => {
     setSessions([]);
     setActiveSessionId(null);
+    agentStore.clearAllMessages();
     localStorage.removeItem('shadowbox_sessions');
     localStorage.removeItem('shadowbox_active_id');
   }, []);

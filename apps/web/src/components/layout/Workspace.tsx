@@ -7,7 +7,7 @@ import { cn } from '../../lib/utils';
 
 export function Workspace({ sessionId: runId }: { sessionId: string }) {
   const explorerRef = useRef<FileExplorerHandle>(null);
-  const sharedSessionId = "shared-workspace-v1"; // Fixed sandbox ID for the project
+  const sandboxId = runId; // Unique sandbox per task
   
   const { 
     messages, 
@@ -17,7 +17,7 @@ export function Workspace({ sessionId: runId }: { sessionId: string }) {
     isLoading, 
     isHydrating,
     artifactState 
-  } = useChat(sharedSessionId, runId, () => {
+  } = useChat(sandboxId, runId, () => {
     // Refresh explorer when AI creates a file
     explorerRef.current?.refresh();
   });
@@ -26,7 +26,7 @@ export function Workspace({ sessionId: runId }: { sessionId: string }) {
 
   const handleFileClick = async (path: string) => {
     try {
-      const res = await fetch(`http://localhost:8787/?session=${sharedSessionId}`, {
+      const res = await fetch(`http://localhost:8787/?session=${sandboxId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -61,7 +61,7 @@ export function Workspace({ sessionId: runId }: { sessionId: string }) {
       <aside className="w-64 border-r border-border bg-background flex flex-col shrink-0">
         <FileExplorer 
           ref={explorerRef}
-          sessionId={sharedSessionId} 
+          sessionId={sandboxId} 
           runId={runId}
           onFileClick={handleFileClick}
         />
