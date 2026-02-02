@@ -14,10 +14,20 @@ export function useChat(sessionId: string, runId: string = "default", onFileCrea
   const [isHydrating, setIsHydrating] = useState(false);
 
   // Configuration for the Vercel AI Hook
-  const { messages, input, handleInputChange, handleSubmit, isLoading, stop, setMessages } = useVercelChat({
+  const { messages, input, handleInputChange, handleSubmit, isLoading, stop, setMessages, append } = useVercelChat({
     api: "http://localhost:8788/chat", // Point to the brain worker /chat endpoint
     body: { sessionId, runId },
     initialMessages: agentStore.getMessages(runId),
+...
+  // 3. Pending Query Consumption
+  useEffect(() => {
+    const pendingQuery = localStorage.getItem(`pending_query_${runId}`);
+    if (pendingQuery && messages.length === 0 && !isLoading) {
+      console.log(`🧬 [Shadowbox] Consuming pending query for ${runId}`);
+      append({ role: 'user', content: pendingQuery });
+      localStorage.removeItem(`pending_query_${runId}`);
+    }
+  }, [runId, messages.length, isLoading, append]);
 
     onError: (error: Error) => {
       console.error("🧬 [Shadowbox] Chat Stream Broken", error);
@@ -102,6 +112,7 @@ export function useChat(sessionId: string, runId: string = "default", onFileCrea
     input,
     handleInputChange,
     handleSubmit,
+    append,
     isLoading,
     isHydrating,
     stop,

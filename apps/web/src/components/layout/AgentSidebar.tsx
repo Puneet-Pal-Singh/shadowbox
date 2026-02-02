@@ -18,9 +18,9 @@ interface AgentSidebarProps {
 
 export function AgentSidebar({ sessions, activeSessionId, onSelect, onCreate, onRemove }: AgentSidebarProps) {
   return (
-    <aside className="w-60 border-r border-border flex flex-col bg-background">
+    <aside className="w-60 border-r border-border flex flex-col bg-[#0c0c0e]">
       <div className="p-4 flex items-center justify-between border-b border-border">
-        <h2 className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Agents</h2>
+        <h2 className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Active Tasks</h2>
         <button 
           onClick={onCreate} 
           className="p-1 hover:bg-surface rounded text-zinc-300 transition-colors border border-transparent hover:border-border"
@@ -32,7 +32,7 @@ export function AgentSidebar({ sessions, activeSessionId, onSelect, onCreate, on
       <div className="flex-1 overflow-y-auto p-2">
         {sessions.length === 0 && (
           <div className="text-center mt-8 px-4">
-            <p className="text-[10px] text-zinc-600 italic">No active agents.</p>
+            <p className="text-[10px] text-zinc-600 italic">Awaiting first task...</p>
           </div>
         )}
         {sessions.map((s) => (
