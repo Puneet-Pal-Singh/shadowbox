@@ -112,46 +112,59 @@ export class AgentRuntime extends DurableObject {
   }
 
   // 5. SRP: History Management
-  async getHistory(agentId: string): Promise<Message[]> {
-    // Fetch all messages for this agent, sorted by timestamp (lexicographical order)
+  async getHistory(runId: string): Promise<Message[]> {
     const list = await this.ctx.storage.list<Message>({ 
-      prefix: `history:${agentId}:`,
-      limit: 100 // Load last 100 messages
+      prefix: `chat:${runId}:`,
+      limit: 100
     });
     return Array.from(list.values());
   }
 
-  async appendMessage(agentId: string, message: Message): Promise<void> {
-    const sessionId = this.ctx.id.toString();
-    const processedMessage = await this.storageService.processMessage(agentId, sessionId, message);
-    
-    // Use padded timestamp for reliable lexicographical sorting
-    const timestamp = Date.now().toString().padStart(15, '0');
-    const key = `history:${agentId}:${timestamp}`;
-    await this.ctx.storage.put(key, processedMessage);
+  async appendMessage(runId: string, message: Message): Promise<void> {
+    await this.ctx.blockConcurrencyWhile(async () => {
+      const sessionId = this.ctx.id.toString();
+      const processedMessage = await this.storageService.processMessage(runId, sessionId, message);
+      
+      const existing = await this.ctx.storage.list<Message>({ 
+        prefix: `chat:${runId}:`,
+        reverse: true,
+        limit: 1
+      });
+      
+      const lastEntry = Array.from(existing.entries())[0];
+      const isPartial = message.role === 'assistant' && typeof message.content === 'string' && message.content.includes('▌');
+
+      if (lastEntry && isPartial) {
+        const [lastKey, lastMsg] = lastEntry;
+        if (lastMsg.role === 'assistant' && typeof lastMsg.content === 'string' && lastMsg.content.includes('▌')) {
+          await this.ctx.storage.put(lastKey, processedMessage);
+          return;
+        }
+      }
+
+      const timestamp = Date.now().toString().padStart(15, '0');
+      const key = `chat:${runId}:${timestamp}`;
+      await this.ctx.storage.put(key, processedMessage);
+    });
   }
 
-  async saveHistory(agentId: string, messages: Message[]): Promise<void> {
-    const sessionId = this.ctx.id.toString();
-    
-    // Delete existing incremental keys first to avoid duplication/bloat
-    const existing = await this.ctx.storage.list({ prefix: `history:${agentId}:` });
-    const keysToDelete = Array.from(existing.keys());
-    if (keysToDelete.length > 0) {
-      await this.ctx.storage.delete(keysToDelete);
-    }
+  async saveHistory(runId: string, messages: Message[]): Promise<void> {
+    await this.ctx.blockConcurrencyWhile(async () => {
+      const sessionId = this.ctx.id.toString();
+      
+      const existing = await this.ctx.storage.list({ prefix: `chat:${runId}:` });
+      const keysToDelete = Array.from(existing.keys());
+      if (keysToDelete.length > 0) {
+        await this.ctx.storage.delete(keysToDelete);
+      }
 
-    // Also delete any old "blob" style key
-    await this.ctx.storage.delete(`history:${agentId}`);
-
-    // Save new messages incrementally
-    for (const msg of messages) {
-      const processedMessage = await this.storageService.processMessage(agentId, sessionId, msg);
-      const timestamp = Date.now().toString().padStart(15, '0');
-      await this.ctx.storage.put(`history:${agentId}:${timestamp}`, processedMessage);
-      // Small sleep to ensure unique timestamps if processing is too fast
-      await new Promise(resolve => setTimeout(resolve, 1));
-    }
+      for (const msg of messages) {
+        const processedMessage = await this.storageService.processMessage(runId, sessionId, msg);
+        const timestamp = Date.now().toString().padStart(15, '0');
+        await this.ctx.storage.put(`chat:${runId}:${timestamp}`, processedMessage);
+        await new Promise(resolve => setTimeout(resolve, 1));
+      }
+    });
   }
 
   async getArtifact(key: string): Promise<string | null> {
