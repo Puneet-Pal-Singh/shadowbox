@@ -1,4 +1,4 @@
-import { useRef, useEffect } from "react";
+import { useRef, useEffect, useState } from "react";
 import { ChatMessage } from "./ChatMessage";
 import { Bot, Send, Settings } from "lucide-react";
 import { Message } from "ai";
@@ -21,6 +21,39 @@ export function ChatInterface({
   const { messages, input, handleInputChange, handleSubmit, isLoading } =
     chatProps;
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // TIMING: Track when messages appear
+  const [timingInfo, setTimingInfo] = useState<string>("");
+  const lastMessageCountRef = useRef(messages.length);
+  const messageTimesRef = useRef<Map<string, number>>(new Map());
+
+  useEffect(() => {
+    const currentCount = messages.length;
+    const lastCount = lastMessageCountRef.current;
+
+    if (currentCount !== lastCount) {
+      const now = Date.now();
+      const timeStr = new Date().toLocaleTimeString();
+
+      if (currentCount === 1 && lastCount === 0) {
+        // First message appeared (user message)
+        messageTimesRef.current.set("first", now);
+        setTimingInfo(`User msg: ${timeStr}`);
+      } else if (currentCount === 2 && lastCount === 1) {
+        // Second message appeared (assistant started)
+        const firstTime = messageTimesRef.current.get("first") || now;
+        const delay = ((now - firstTime) / 1000).toFixed(1);
+        setTimingInfo(
+          `User msg: ${timeStr} | AI response started after ${delay}s`,
+        );
+      } else if (currentCount > lastCount) {
+        // More messages
+        setTimingInfo((prev) => `${prev} | Msg ${currentCount}: ${timeStr}`);
+      }
+
+      lastMessageCountRef.current = currentCount;
+    }
+  }, [messages.length]);
 
   // DEBUG: Log messages on every render
   console.log(
@@ -56,9 +89,12 @@ export function ChatInterface({
 
   return (
     <div className="flex flex-col h-full bg-background">
-      {/* DEBUG COUNTER - Remove after fix */}
+      {/* DEBUG COUNTER with TIMING - Remove after fix */}
       <div className="bg-red-900/50 text-red-200 px-4 py-1 text-xs font-mono">
         Messages: {messages.length} | Loading: {isLoading ? "YES" : "NO"}
+        {timingInfo && (
+          <div className="text-yellow-300 mt-1">⏱️ {timingInfo}</div>
+        )}
       </div>
 
       {/* Scrollable Container */}
