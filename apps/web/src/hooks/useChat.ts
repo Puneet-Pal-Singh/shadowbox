@@ -44,11 +44,26 @@ export function useChat(
     id: instanceKeyRef.current, // Unique per runId to force complete SDK state reset
 
     onError: (error: Error) => {
-      console.error("🧬 [Shadowbox] Chat Stream Broken", error);
+      console.error("🧬 [Shadowbox] Chat Stream Broken:", error.message);
+      console.error("🧬 [Shadowbox] Full error:", error);
+      // Log current state for debugging
+      console.log(
+        "🧬 [Shadowbox] Message count when error occurred:",
+        messages.length,
+      );
+      console.log(
+        "🧬 [Shadowbox] Last message:",
+        messages[messages.length - 1],
+      );
     },
 
     onResponse: (response) => {
-      console.log(`🧬 [Shadowbox] Response:`, response.status);
+      console.log(
+        `🧬 [Shadowbox] Response received:`,
+        response.status,
+        "at",
+        new Date().toISOString(),
+      );
       if (!response.ok) {
         console.error(
           "🧬 [Shadowbox] HTTP Error:",
@@ -236,32 +251,28 @@ export function useChat(
     }
   }, [runId, messages.length, isLoading, append]);
 
-  // IMMEDIATE USER MESSAGE: Manually add to UI first, then trigger API
+  // Use SDK's append which handles immediate UI update + API call
   const wrappedHandleSubmit = (e?: any) => {
     e?.preventDefault?.();
 
     const currentInput = input.trim();
     if (!currentInput || isLoading) return;
 
-    console.log(`🧬 [Shadowbox] SUBMIT for ${runId}:`, {
+    const startTime = performance.now();
+    console.log(`🧬 [Shadowbox] SUBMIT START for ${runId}:`, {
       input: currentInput.substring(0, 50),
       messageCount: messages.length,
+      timestamp: new Date().toISOString(),
     });
 
-    // CRITICAL FIX: Manually add user message to UI IMMEDIATELY
-    // This ensures the message appears before any API call
-    const userMessage = {
-      id: `user-${Date.now()}`,
-      role: "user" as const,
-      content: currentInput,
-      createdAt: new Date(),
-    };
-
-    // Add to local state immediately for instant UI feedback
-    setMessages((prev) => [...prev, userMessage]);
-
-    // Then use append to trigger the API call (it will add another copy but that's ok)
+    // Use append() - it immediately updates UI and triggers API call
     append({ role: "user", content: currentInput });
+
+    const endTime = performance.now();
+    console.log(`🧬 [Shadowbox] SUBMIT END for ${runId}:`, {
+      duration: `${(endTime - startTime).toFixed(2)}ms`,
+      messageCountAfter: messages.length,
+    });
   };
 
   return {
