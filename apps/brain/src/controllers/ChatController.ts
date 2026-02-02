@@ -179,15 +179,28 @@ export class ChatController {
         systemPrompt,
         tools,
         onChunk: ({ chunk }) => {
-          console.log(
-            `[Brain:${correlationId}] Chunk:`,
-            chunk.type,
-            chunk.type === "text-delta"
-              ? chunk.textDelta?.substring(0, 20)
-              : "",
-          );
+          // Log first few chunks specially for debugging
           if (chunk.type === "text-delta") {
+            console.log(
+              `[Brain:${correlationId}] Text chunk: "${chunk.textDelta?.substring(0, 30)}"`,
+            );
             accumulatedAssistantContent += chunk.textDelta;
+          } else if (chunk.type === "tool-call") {
+            console.log(
+              `[Brain:${correlationId}] Tool call chunk:`,
+              chunk.toolName,
+            );
+          } else if (chunk.type === "tool-result") {
+            console.log(
+              `[Brain:${correlationId}] Tool result chunk:`,
+              chunk.toolName,
+              chunk.result?.substring?.(0, 30),
+            );
+          } else {
+            console.log(
+              `[Brain:${correlationId}] Other chunk type:`,
+              chunk.type,
+            );
           }
 
           // Task 5: Heartbeat Persistence (Every 5 seconds)
