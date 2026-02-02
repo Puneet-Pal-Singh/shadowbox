@@ -5,7 +5,7 @@ import { ArtifactView } from '../chat/ArtifactView';
 import { useChat } from '../../hooks/useChat';
 import { cn } from '../../lib/utils';
 
-export function Workspace({ sessionId: agentId }: { sessionId: string }) {
+export function Workspace({ sessionId: runId }: { sessionId: string }) {
   const explorerRef = useRef<FileExplorerHandle>(null);
   const sharedSessionId = "shared-workspace-v1"; // Fixed sandbox ID for the project
   
@@ -17,7 +17,7 @@ export function Workspace({ sessionId: agentId }: { sessionId: string }) {
     isLoading, 
     isHydrating,
     artifactState 
-  } = useChat(sharedSessionId, agentId, () => {
+  } = useChat(sharedSessionId, runId, () => {
     // Refresh explorer when AI creates a file
     explorerRef.current?.refresh();
   });
