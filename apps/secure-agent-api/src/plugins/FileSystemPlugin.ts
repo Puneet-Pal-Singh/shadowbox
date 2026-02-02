@@ -23,7 +23,21 @@ export class FileSystemPlugin implements IPlugin {
       if (action === "list_files") {
         const path = payload.path || ".";
         const res = await sandbox.exec(`ls -F ${path}`); // -F adds / to folders
-        return { success: res.exitCode === 0, output: res.stdout, logs: res.stderr ? [res.stderr] : [] };
+        
+        if (res.exitCode !== 0) {
+          return { success: false, error: res.stderr || "Directory not found" };
+        }
+
+        const files = res.stdout.trim().split("\n").filter(f => f.length > 0);
+        const total = files.length;
+        
+        if (total > 20) {
+          const limited = files.slice(0, 20).join("\n");
+          const output = `${limited}\n\n... and ${total - 20} more files (Total: ${total})`;
+          return { success: true, output };
+        }
+
+        return { success: true, output: res.stdout };
       }
 
       if (action === "read_file") {

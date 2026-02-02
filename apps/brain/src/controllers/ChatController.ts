@@ -87,6 +87,29 @@ export class ChatController {
         return msg;
       }));
 
+      // --- NEW: Goldfish Pruner (Task 2) ---
+      // Scan history and prune old technical noise (list_files, read_file)
+      const prunedMessagesForAI = hydratedMessagesForAI.map((msg, index) => {
+        // Only prune tool results that are NOT from the immediate last turn
+        const isLastTurn = index >= hydratedMessagesForAI.length - 2;
+        if (!isLastTurn && msg.role === 'tool') {
+          return {
+            ...msg,
+            content: msg.content.map(part => {
+              if (part.type === 'tool-result' && (part.toolName === 'run_command' || part.toolName === 'read_file')) {
+                // If it's a list_files command or a large read, hide it
+                const result = typeof part.result === 'string' ? part.result : JSON.stringify(part.result);
+                if (result.includes('... and') || result.length > 500) {
+                  return { ...part, result: "[Previous technical output hidden to prevent context bloat]" };
+                }
+              }
+              return part;
+            })
+          };
+        }
+        return msg;
+      });
+
       // 4. Prepare Context
       const systemPrompt = env.SYSTEM_PROMPT || 
         `You are Shadowbox, an autonomous expert software engineer.
@@ -96,14 +119,15 @@ export class ChatController {
         - AUTONOMY: You have a 'run_command' tool. If you create or modify a file, ALWAYS run it to verify it works correctly. Do not say "I am a text model"; use your tools.
         - ARTIFACTS: ALWAYS use 'create_code_artifact' to write code to files.
         - FEEDBACK: Analyze tool outputs. If a command fails, fix the code and try again.
-        - STYLE: Be extremely concise. Do not summarize previous steps unless asked.`;
+        - STYLE: Be extremely concise. Do not summarize previous steps unless asked.
+        - CRITICAL: If you have already verified a file exists or a command has run successfully, DO NOT run it again. Move directly to answering the user.`;
 
       // 5. Generate Stream
       let accumulatedAssistantContent = "";
       let lastSyncTime = Date.now();
 
       const result = await aiService.createChatStream({
-        messages: hydratedMessagesForAI,
+        messages: prunedMessagesForAI,
         systemPrompt,
         tools,
         onChunk: ({ chunk }) => {
@@ -136,11 +160,8 @@ export class ChatController {
           console.log(`[Brain:${correlationId}] Saving final history for run: ${runId}`);
           
           try {
-            // Merge original history (with R2 refs) + new messages
-            const fullHistory = [
-              ...coreMessages,
-              ...finalResult.responseMessages
-            ];
+            // Task 1: Use finalResult.fullMessages to get the complete history correctly
+            const fullHistory = finalResult.fullMessages;
 
             // Task 2: Prune technical noise before saving
             const prunedHistory = pruneToolResults(fullHistory);
