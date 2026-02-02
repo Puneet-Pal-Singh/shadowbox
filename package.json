@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "ai": "4.1.0",
+    "framer-motion": "^12.30.0",
     "zod": "3.25.1"
   }
 }
