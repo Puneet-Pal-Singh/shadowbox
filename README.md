@@ -1,28 +1,55 @@
-# Turborepo starter
+# 📦 Shadowbox: The Open-Source Agent Platform
 
-This Turborepo starter is maintained by the Turborepo core team.
+**Vision:** A secure, cloud-native alternative to Blackbox.ai and Cursor Agents.
+**Stack:** Cloudflare Workers (Brain) + Durable Objects (Runtime) + React/Vite (UI).
 
-## Using this example
+Shadowbox is an open-source platform for running AI agents in secure sandboxed environments with real-time collaboration capabilities.
 
-Run the following command:
+## Quick Start
 
 ```sh
-npx create-turbo@latest
+# Clone the repository
+git clone https://github.com/your-username/shadowbox.git
+cd shadowbox
+
+# Install dependencies
+pnpm install
+
+# Start development
+pnpm dev
 ```
 
-## What's inside?
-
-This Turborepo includes the following packages/apps:
+## Architecture
 
 ### Apps and Packages
 
-- `docs`: a [Next.js](https://nextjs.org/) app
-- `web`: another [Next.js](https://nextjs.org/) app
-- `@repo/ui`: a stub React component library shared by both `web` and `docs` applications
-- `@repo/eslint-config`: `eslint` configurations (includes `eslint-config-next` and `eslint-config-prettier`)
-- `@repo/typescript-config`: `tsconfig.json`s used throughout the monorepo
+- `apps/secure-agent-api`: Cloudflare Workers-based secure runtime engine with Durable Objects
+- `apps/ui`: React/Vite frontend with terminal interface and chat capabilities
+- `apps/brain`: AI orchestration layer (coming soon)
+- `apps/www`: Landing page and documentation (Astro)
+- `packages/ui`: Shared React components
+- `packages/eslint-config`: ESLint configurations
+- `packages/typescript-config`: TypeScript configurations
 
-Each package/app is 100% [TypeScript](https://www.typescriptlang.org/).
+### Core Features
+
+✅ **Completed Phases**
+
+- **Monorepo Setup**: Turborepo + pnpm workspaces structure
+- **Secure Runtime Engine**: Durable Objects & Sandbox SDK
+- **Polyglot Execution**: Dockerized runtime with Python, Node.js, Rust, and Go-Redis
+- **Real-time Streaming**: WebSocket implementation for live logs
+- **Plugin Architecture**: Modular system for Git, FileSystem, and Code Runners
+- **Visual Terminal**: Xterm.js integration with "Cyberpunk" styling
+- **Multi-Session Manager**: Tabbed interface for running parallel agents
+- **File Explorer**: Visual directory tree syncing with the sandbox
+
+🚧 **In Development**
+
+- **Intelligent Orchestration**: AI-powered reasoning layer
+- **Chat-First Interface**: Modern UI like Cursor
+- **Git Integration**: Diff views and PR workflows
+- **Self-Hosting**: Easy deployment guides
 
 ### Utilities
 
@@ -123,13 +150,67 @@ yarn exec turbo link
 pnpm exec turbo link
 ```
 
+## Development
+
+### Build
+
+```sh
+# Build all apps and packages
+pnpm build
+
+# Build a specific app
+pnpm build --filter=secure-agent-api
+```
+
+### Develop
+
+```sh
+# Start all apps in development mode
+pnpm dev
+
+# Start a specific app
+pnpm dev --filter=ui
+```
+
+### Testing
+
+```sh
+# Run all tests
+pnpm test
+
+# Run tests for a specific package
+pnpm test --filter=secure-agent-api
+```
+
+## Contributing
+
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add some amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
 ## Useful Links
 
-Learn more about the power of Turborepo:
+- [Turborepo Documentation](https://turborepo.dev/docs)
+- [Cloudflare Workers](https://workers.cloudflare.com/)
+- [Durable Objects](https://developers.cloudflare.com/workers/learning/using-durable-objects/)
 
-- [Tasks](https://turborepo.dev/docs/crafting-your-repository/running-tasks)
-- [Caching](https://turborepo.dev/docs/crafting-your-repository/caching)
-- [Remote Caching](https://turborepo.dev/docs/core-concepts/remote-caching)
-- [Filtering](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters)
-- [Configuration Options](https://turborepo.dev/docs/reference/configuration)
-- [CLI Usage](https://turborepo.dev/docs/reference/command-line-reference)
+---
+
+## ✅ Completed Tasks
+
+### Foundation Phases
+
+- [x] **Monorepo Setup**: Turborepo + pnpm workspaces structure (`apps/`, `packages/`)
+- [x] **Secure Runtime Engine**: `apps/secure-agent-api` with Durable Objects & Sandbox SDK
+- [x] **Polyglot Execution**: Dockerized runtime with Python, Node.js, Rust, and Go-Redis
+- [x] **Real-time Streaming**: WebSocket implementation for live logs
+- [x] **Plugin Architecture**: Modular system for Git, FileSystem, and Code Runners
+- [x] **Visual Terminal**: Xterm.js integration with "Cyberpunk" styling
+- [x] **Multi-Session Manager**: Tabbed interface for running parallel agents
+- [x] **File Explorer**: Visual directory tree syncing with the sandbox
