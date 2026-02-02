@@ -10,6 +10,7 @@ interface ChatRequestBody {
   messages?: any[];
   sessionId?: string;
   agentId?: string;
+  runId?: string;
 }
 
 export class ChatController {
@@ -19,13 +20,30 @@ export class ChatController {
 
     try {
       const body = (await req.json().catch(() => ({}))) as ChatRequestBody;
-      const { messages, sessionId = "default" } = body;
+      const { messages, sessionId = "default", runId = body.agentId || "default" } = body;
 
       if (!messages || !Array.isArray(messages)) {
         return new Response(JSON.stringify({ error: "Invalid messages" }), {
           status: 400,
           headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
         });
+      }
+
+      // 1. Convert to CoreMessages first to standardize format
+      const coreMessages = convertToCoreMessages(messages);
+
+      // 0. Persist First: Save the incoming user message
+      const lastMessage = coreMessages[coreMessages.length - 1];
+      if (lastMessage && lastMessage.role === 'user') {
+        console.log(`[Brain:${correlationId}] Persisting User Message...`);
+        env.SECURE_API.fetch(
+          `http://internal/chat?session=${sessionId}&runId=${runId}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ message: lastMessage }),
+          }
+        ).catch(e => console.error("[Brain] Persist First failed", e));
       }
 
       // 1. Initialize Services
@@ -35,37 +53,41 @@ export class ChatController {
 
       // --- NEW: Context Hydration & Pruning ---
       console.log(`[Brain:${correlationId}] Pruning and Hydrating context...`);
-      
-      // 1. Convert to CoreMessages first to standardize format
-      const coreMessages = convertToCoreMessages(messages);
 
-      // 2. Refined Pruning: Keep the last 15 messages only to stay within token limits and prevent loops
-      // This ensures we have enough context for the current task but don't carry the entire history of every file ever created.
-      const messagesToKeep = coreMessages.length > 15 ? coreMessages.slice(-15) : coreMessages;
+      // 2. Context for AI: Keep the last 15 messages only
+      const messagesForAI = coreMessages.length > 15 ? coreMessages.slice(-15) : coreMessages;
 
-      // 3. Hydrate R2 Artifacts so the AI "remembers" the code it wrote
-      const hydratedMessages = await Promise.all(messagesToKeep.map(async (msg) => {
-        if (msg.role === 'assistant' && msg.toolCalls) {
-          for (const call of msg.toolCalls) {
-            if (call.toolName === 'create_code_artifact') {
-              const args = call.args as any;
+      // 3. Hydrate R2 Artifacts for the AI context specifically (don't mutate coreMessages)
+      const hydratedMessagesForAI = await Promise.all(messagesForAI.map(async (msg) => {
+        if (msg.role === 'assistant' && Array.isArray(msg.content)) {
+          // Clone message and content to avoid in-place mutation of coreMessages
+          const clonedMsg = { ...msg, content: [...msg.content] };
+          let hasRef = false;
+
+          for (let i = 0; i < clonedMsg.content.length; i++) {
+            const part = clonedMsg.content[i];
+            if (part && part.type === 'tool-call' && (part as any).toolName === 'create_code_artifact') {
+              const toolPart = part as any;
+              const args = { ...toolPart.args };
               if (args.content && typeof args.content === 'object' && args.content.type === 'r2_ref') {
-                console.log(`[Brain] Hydrating artifact: ${args.content.key}`);
+                hasRef = true;
+                console.log(`[Brain] Hydrating artifact for AI context: ${args.content.key}`);
                 try {
                   const actualContent = await executionService.getArtifact(args.content.key);
                   args.content = actualContent;
+                  clonedMsg.content[i] = { ...toolPart, args };
                 } catch (e) {
                   console.error("[Brain] R2 Hydration failed", e);
-                  args.content = "// [Error: Could not load code from cold storage]";
                 }
               }
             }
           }
+          return hasRef ? clonedMsg : msg;
         }
         return msg;
       }));
 
-      // 2. Prepare Context
+      // 4. Prepare Context
       const systemPrompt = env.SYSTEM_PROMPT || 
         `You are Shadowbox, an autonomous expert software engineer.
         
@@ -76,12 +98,12 @@ export class ChatController {
         - FEEDBACK: Analyze tool outputs. If a command fails, fix the code and try again.
         - STYLE: Be extremely concise. Do not summarize previous steps unless asked.`;
 
-      // 3. Generate Stream
+      // 5. Generate Stream
       let accumulatedAssistantContent = "";
       let lastSyncTime = Date.now();
 
       const result = await aiService.createChatStream({
-        messages: hydratedMessages,
+        messages: hydratedMessagesForAI,
         systemPrompt,
         tools,
         onChunk: ({ chunk }) => {
@@ -93,39 +115,38 @@ export class ChatController {
           const now = Date.now();
           if (now - lastSyncTime > 5000) {
             lastSyncTime = now;
-            const agentId = body.agentId || "default";
             
-            // Sync partial history so user doesn't lose state on refresh
+            // Sync ONLY the latest partial message to avoid DO write-lock and network bloat
             env.SECURE_API.fetch(
-              `http://internal/history?session=${sessionId}&agentId=${agentId}`,
+              `http://internal/chat?session=${sessionId}&runId=${runId}`,
               {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ 
-                  messages: [
-                    ...hydratedMessages, 
-                    { role: 'assistant', content: accumulatedAssistantContent + " ▌" }
-                  ] 
+                  message: { 
+                    role: 'assistant', 
+                    content: accumulatedAssistantContent + " ▌" 
+                  } 
                 }),
               }
             ).catch(() => {}); // Silent fail for heartbeat
           }
         },
         onFinish: async (finalResult) => {
-          const agentId = body.agentId || "default";
-          console.log(`[Brain:${correlationId}] Saving history for agent: ${agentId}`);
+          console.log(`[Brain:${correlationId}] Saving final history for run: ${runId}`);
           
           try {
+            // Merge original history (with R2 refs) + new messages
             const fullHistory = [
-              ...hydratedMessages,
+              ...coreMessages,
               ...finalResult.responseMessages
             ];
 
-            // Task 2: Prune technical noise before saving to permanent DO storage
+            // Task 2: Prune technical noise before saving
             const prunedHistory = pruneToolResults(fullHistory);
 
             await env.SECURE_API.fetch(
-              `http://internal/history?session=${sessionId}&agentId=${agentId}`,
+              `http://internal/chat?session=${sessionId}&runId=${runId}`,
               {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
