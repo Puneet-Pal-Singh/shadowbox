@@ -7,10 +7,17 @@ export class NodePlugin implements IPlugin {
   tools = [NodeTool];
 
   async execute(sandbox: Sandbox, payload: any, onLog?: LogCallback): Promise<PluginResult> {
+    const runId = payload.runId || "default";
+    const workspaceRoot = `/home/sandbox/workspaces/${runId}`;
+    
+    // Ensure workspace exists
+    await sandbox.exec(`mkdir -p ${workspaceRoot}`);
+
     // Action: run_command
     if (payload.action === "run") {
-      if (onLog) onLog(`[System] Executing: ${payload.command}\n`);
-      const result = await sandbox.exec(payload.command);
+      if (onLog) onLog(`[System] Executing in workspace: ${payload.command}\n`);
+      // Prefix with cd to workspace
+      const result = await sandbox.exec(`cd ${workspaceRoot} && ${payload.command}`);
       
       if (onLog) {
         if (result.stdout) onLog(result.stdout);
@@ -26,13 +33,13 @@ export class NodePlugin implements IPlugin {
 
     // Default legacy behavior for code-blocks
     const ext = payload.isTypeScript ? "ts" : "js";
-    const fileName = `index.${ext}`;
+    const fileName = `${workspaceRoot}/index.${ext}`;
     const runner = payload.isTypeScript ? "tsx" : "node";
 
     await sandbox.writeFile(fileName, payload.code);
-    if (onLog) onLog(`[System] Running ${runner} ${fileName}...\n`);
+    if (onLog) onLog(`[System] Running ${runner} index.${ext}...\n`);
 
-    const result = await sandbox.exec(`${runner} ${fileName}`);
+    const result = await sandbox.exec(`cd ${workspaceRoot} && ${runner} index.${ext}`);
 
     if (onLog) {
         if (result.stdout) onLog(result.stdout);

@@ -1,5 +1,5 @@
 import { useChat as useVercelChat } from "@ai-sdk/react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { agentStore } from "../store/agentStore";
 
 // Define the shape of our artifact
@@ -8,32 +8,77 @@ export interface ArtifactData {
   content: string;
 }
 
-export function useChat(sessionId: string, agentId: string = "default", onFileCreated?: () => void) {
+export function useChat(
+  sessionId: string,
+  runId: string = "default",
+  onFileCreated?: () => void,
+) {
   const [artifact, setArtifact] = useState<ArtifactData | null>(null);
   const [isArtifactOpen, setIsArtifactOpen] = useState(false);
   const [isHydrating, setIsHydrating] = useState(false);
 
-  // Configuration for the Vercel AI Hook
-  const { messages, input, handleInputChange, handleSubmit, isLoading, stop, setMessages } = useVercelChat({
+  // FORCE REMOUNT: Use a unique instance key that only changes when runId changes
+  // This ensures the Vercel AI SDK completely resets its internal state
+  const instanceKeyRef = useRef(`${runId}-${Date.now()}`);
+  const previousRunIdRef = useRef(runId);
+
+  if (previousRunIdRef.current !== runId) {
+    // runId changed, generate new key to force SDK remount
+    previousRunIdRef.current = runId;
+    instanceKeyRef.current = `${runId}-${Date.now()}`;
+    console.log(`🧬 [Shadowbox] FORCING SDK REMOUNT for ${runId}`);
+  }
+
+  const {
+    messages,
+    input,
+    handleInputChange,
+    isLoading,
+    stop,
+    setMessages,
+    append,
+  } = useVercelChat({
     api: "http://localhost:8788/chat", // Point to the brain worker /chat endpoint
-    body: { sessionId, agentId },
-    initialMessages: agentStore.getMessages(agentId),
+    body: { sessionId, runId },
+    initialMessages: [], // ALWAYS start empty - never hydrate from cache on init
+    id: instanceKeyRef.current, // Unique per runId to force complete SDK state reset
 
     onError: (error: Error) => {
-      console.error("🧬 [Shadowbox] Chat Stream Broken", error);
+      console.error("🧬 [Shadowbox] Chat Stream Broken:", error.message);
+      console.error("🧬 [Shadowbox] Full error:", error);
+      // Log current state for debugging
+      console.log(
+        "🧬 [Shadowbox] Message count when error occurred:",
+        messages.length,
+      );
+      console.log(
+        "🧬 [Shadowbox] Last message:",
+        messages[messages.length - 1],
+      );
     },
-    
+
     onResponse: (response) => {
+      console.log(
+        `🧬 [Shadowbox] Response received:`,
+        response.status,
+        "at",
+        new Date().toISOString(),
+      );
       if (!response.ok) {
-        console.error("🧬 [Shadowbox] HTTP Error:", response.status, response.statusText);
+        console.error(
+          "🧬 [Shadowbox] HTTP Error:",
+          response.status,
+          response.statusText,
+        );
       }
     },
 
     // Auto-update artifact data but don't force open the side-pane automatically
     onToolCall: ({ toolCall }) => {
-      if (toolCall.toolName === 'create_code_artifact') {
+      console.log(`🧬 [Shadowbox] Tool call:`, toolCall.toolName);
+      if (toolCall.toolName === "create_code_artifact") {
         const args = toolCall.args as ArtifactData;
-        
+
         if (args && args.path && args.content) {
           setArtifact(args);
           // Trigger file explorer refresh
@@ -41,61 +86,201 @@ export function useChat(sessionId: string, agentId: string = "default", onFileCr
         }
       }
     },
+
+    // DEBUG: Log what the SDK has at finish
+    onFinish: (message) => {
+      console.log(`🧬 [Shadowbox] SDK onFinish for ${runId}:`, message);
+      console.log(
+        `🧬 [Shadowbox] SDK messages at finish:`,
+        messages.length,
+        messages.map((m) => ({
+          role: m.role,
+          content: m.content?.substring(0, 30),
+        })),
+      );
+    },
   });
 
-  // 1. Sync local messages to global store for tab switching
-  useEffect(() => {
-    if (messages.length > 0) {
-      agentStore.setMessages(agentId, messages);
-    }
-  }, [messages, agentId]);
+  // EMERGENCY RESET: Only clear on initial runId change, not during streaming
+  // We track if reset has been done for this runId to avoid clearing messages during active streaming
+  const hasResetForRunId = useRef<string | null>(null);
 
-  // 2. Optimistic Sync: Hydrate from cache immediately, then sync from server in background
   useEffect(() => {
+    if (hasResetForRunId.current !== runId) {
+      console.log(`🧬 [Shadowbox] Initial reset for ${runId}`);
+      hasResetForRunId.current = runId;
+      setMessages([]);
+      agentStore.clearMessages(runId);
+    }
+  }, [runId, setMessages]);
+
+  // 1. Sync local messages to global store for tab switching
+  // DEBUG: Log message changes to detect contamination
+  useEffect(() => {
+    console.log(
+      `🧬 [Shadowbox] Messages updated for ${runId}:`,
+      messages.length,
+      "messages",
+    );
+    if (messages.length > 0) {
+      console.log(`🧬 [Shadowbox] First message role:`, messages[0]?.role);
+      console.log(
+        `🧬 [Shadowbox] Last message role:`,
+        messages[messages.length - 1]?.role,
+      );
+      agentStore.setMessages(runId, messages);
+    }
+  }, [messages, runId]);
+
+  // Track if this is the first load for this runId
+  const isFirstLoadRef = useRef(true);
+
+  // 2. Server-Only Sync: NEVER load from cache on initial load
+  // This prevents cross-session contamination where Agent A's messages appear in Agent B
+  useEffect(() => {
+    // Reset first load flag when runId changes
+    if (isFirstLoadRef.current === false) {
+      isFirstLoadRef.current = true;
+    }
+
     async function sync() {
-      const cache = agentStore.getMessages(agentId);
-      console.log(`🧬 [Shadowbox] Checking cache for ${agentId}:`, cache.length);
-      
-      // Optimistic UI: If we have cache, show it immediately
-      if (cache.length > 0) {
-        setMessages(cache);
-        setIsHydrating(false);
-      } else {
-        setIsHydrating(true);
+      // Guard: Don't sync from server if we are currently streaming a response
+      if (isLoading) return;
+
+      // CRITICAL: Don't sync if we already have messages from streaming
+      // This prevents the server from overwriting the assistant response
+      if (messages.length > 0) {
+        console.log(
+          `🧬 [Shadowbox] Skipping server sync - already have ${messages.length} messages`,
+        );
+        return;
       }
 
-      console.log(`🧬 [Shadowbox] Syncing ${agentId} from server...`);
+      // Wait for pending query to be consumed before syncing
+      const pendingQuery = localStorage.getItem(`pending_query_${runId}`);
+      if (pendingQuery) {
+        console.log(
+          `🧬 [Shadowbox] Delaying server sync - pending query exists`,
+        );
+        return;
+      }
+
+      // Only sync on first load for this runId
+      if (!isFirstLoadRef.current) return;
+      isFirstLoadRef.current = false;
+
+      // CRITICAL FIX: Always start with empty messages, never from cache
+      // The cache is only for temporary recovery (tab switch), not initial load
+      console.log(`🧬 [Shadowbox] Initializing fresh session ${runId}`);
+      setMessages([]);
+      setIsHydrating(true);
+
+      console.log(`🧬 [Shadowbox] Loading ${runId} from server...`);
       try {
-        const res = await fetch(`http://localhost:8787/history?session=${sessionId}&agentId=${agentId}`);
+        const res = await fetch(
+          `http://localhost:8787/chat?session=${sessionId}&runId=${runId}`,
+        );
         if (!res.ok) throw new Error("History fetch failed");
-        const data = await res.json();
-        
-        if (data.history && data.history.length > 0) {
-          // Silent merge: only update if server has new info (simplistic length check)
-          if (data.history.length !== cache.length) {
-            console.log(`🧬 [Shadowbox] Server has updates (${data.history.length} vs ${cache.length}). Merging...`);
-            setMessages(data.history);
-            agentStore.setMessages(agentId, data.history);
-          } else {
-            console.log(`🧬 [Shadowbox] Cache is up to date`);
-          }
-        } else if (cache.length > 0) {
-          console.log(`🧬 [Shadowbox] Warning: Server history empty but cache has data`);
+        const history = await res.json();
+
+        // Only populate if this is still the current runId (prevent race conditions)
+        if (Array.isArray(history)) {
+          console.log(
+            `🧬 [Shadowbox] Server returned ${history.length} messages for ${runId}`,
+          );
+
+          // CRITICAL FIX: Convert stored message format to SDK format
+          // The server stores messages with 'tool_calls' but SDK expects 'toolInvocations'
+          const convertedHistory = history.map((msg: any, index: number) => {
+            const converted: any = {
+              id: msg.id || `${runId}-msg-${index}`,
+              role: msg.role,
+              content: msg.content,
+              createdAt: msg.createdAt || new Date(),
+            };
+
+            // Convert tool_calls to toolInvocations for assistant messages
+            if (
+              msg.role === "assistant" &&
+              msg.tool_calls &&
+              msg.tool_calls.length > 0
+            ) {
+              converted.toolInvocations = msg.tool_calls.map(
+                (tc: any, tcIndex: number) => ({
+                  state: "result", // Assume completed since loading from history
+                  toolCallId: tc.id || `${runId}-tool-${tcIndex}`,
+                  toolName: tc.function?.name || "unknown",
+                  args: (() => {
+                    try {
+                      return JSON.parse(tc.function?.arguments || "{}");
+                    } catch {
+                      return {};
+                    }
+                  })(),
+                }),
+              );
+            }
+
+            return converted;
+          });
+
+          console.log(
+            `🧬 [Shadowbox] Converted ${convertedHistory.length} messages for SDK`,
+          );
+          setMessages(convertedHistory);
+          agentStore.setMessages(runId, convertedHistory);
         }
       } catch (e) {
         console.error("🧬 [Shadowbox] Sync Failed:", e);
+        // Keep empty on error - don't show stale data
+        setMessages([]);
       } finally {
         setIsHydrating(false);
       }
     }
     sync();
-  }, [sessionId, agentId, setMessages]);
+  }, [sessionId, runId, setMessages, isLoading]);
+
+  // 3. Pending Query Consumption
+  useEffect(() => {
+    const pendingQuery = localStorage.getItem(`pending_query_${runId}`);
+    if (pendingQuery && messages.length === 0 && !isLoading) {
+      console.log(`🧬 [Shadowbox] Consuming pending query for ${runId}`);
+      append({ role: "user", content: pendingQuery });
+      localStorage.removeItem(`pending_query_${runId}`);
+    }
+  }, [runId, messages.length, isLoading, append]);
+
+  // Use SDK's append which handles immediate UI update + API call
+  const wrappedHandleSubmit = (e?: any) => {
+    e?.preventDefault?.();
+
+    const currentInput = input.trim();
+    if (!currentInput || isLoading) return;
+
+    const startTime = performance.now();
+    console.log(`🧬 [Shadowbox] SUBMIT START for ${runId}:`, {
+      input: currentInput.substring(0, 50),
+      messageCount: messages.length,
+      timestamp: new Date().toISOString(),
+    });
+
+    // Use append() - it immediately updates UI and triggers API call
+    append({ role: "user", content: currentInput });
+
+    const endTime = performance.now();
+    console.log(`🧬 [Shadowbox] SUBMIT END for ${runId}:`, {
+      duration: `${(endTime - startTime).toFixed(2)}ms`,
+      messageCountAfter: messages.length,
+    });
+  };
 
   return {
     messages,
     input,
     handleInputChange,
-    handleSubmit,
+    handleSubmit: wrappedHandleSubmit,
+    append,
     isLoading,
     isHydrating,
     stop,

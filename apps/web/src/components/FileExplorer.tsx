@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useImperativeHandle, forwardRef } from 'react';
-import { Folder, File, RefreshCw, Loader2 } from 'lucide-react';
+import { Folder, File } from 'lucide-react';
 
 interface FileItem {
   name: string;
@@ -12,23 +12,22 @@ export interface FileExplorerHandle {
 
 interface FileExplorerProps {
   sessionId: string;
+  runId: string;
   onFileClick?: (path: string) => void;
 }
 
 export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(
-  ({ sessionId, onFileClick }, ref) => {
+  ({ sessionId, runId, onFileClick }, ref) => {
     const [files, setFiles] = useState<FileItem[]>([]);
-    const [loading, setLoading] = useState(false);
 
     const fetchFiles = useCallback(async () => {
-      setLoading(true);
       try {
         const res = await fetch(`http://localhost:8787/?session=${sessionId}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             plugin: "filesystem",
-            payload: { action: "list_files", path: "." }
+            payload: { action: "list_files", runId, path: "." }
           })
         });
         const data = await res.json();
@@ -43,8 +42,6 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(
         }
       } catch (e) {
         console.error("Explorer Error:", e);
-      } finally {
-        setLoading(false);
       }
     }, [sessionId]);
 
@@ -57,23 +54,9 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(
     }, [fetchFiles]);
 
     return (
-      <div className="flex flex-col h-full bg-background border-r border-border">
-        <div className="p-4 flex items-center justify-between border-b border-border">
-          <h2 className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Explorer</h2>
-          <button onClick={fetchFiles} className="text-zinc-500 hover:text-white transition-colors">
-            {loading ? (
-              <Loader2 size={12} className="animate-spin" />
-            ) : (
-              <RefreshCw size={12} />
-            )}
-          </button>
-        </div>
-
+      <div className="flex flex-col h-full bg-black">
         <div className="flex-1 overflow-y-auto p-2">
-          {files.length === 0 && !loading && (
-            <div className="text-[10px] text-zinc-600 text-center mt-4">Empty Directory</div>
-          )}
-                  {files.map((file) => (
+          {files.map((file) => (
                     <div 
                       key={file.name} 
                       onClick={() => file.type === 'file' && onFileClick?.(file.name)}

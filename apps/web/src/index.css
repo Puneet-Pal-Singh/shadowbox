@@ -3,10 +3,10 @@
 
 /* Configuration for Tailwind v4 happens here */
 @theme {
-  --color-background: #09090b;
-  --color-surface: #18181b;
-  --color-border: #27272a;
-  --color-accent: #22c55e;
+  --color-background: #000000;
+  --color-surface: #000000;
+  --color-border: #1a1a1a;
+  --color-accent: #10b981;
   
   --font-mono: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
 }
@@ -17,7 +17,7 @@
     height: 100%;
     margin: 0;
     padding: 0;
-    background-color: var(--color-background);
+    background-color: #000000;
     color: #fafafa;
     overflow: hidden; /* Necessary for a desktop-app feel */
   }
@@ -33,11 +33,39 @@
 /* Custom scrollbars for the dark theme */
 ::-webkit-scrollbar {
   width: 6px;
+  height: 6px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
   background: #3f3f46;
-  border-radius: 10px;
+  border-radius: 6px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #52525b;
+}
+
+/* Utilities */
+@layer utilities {
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .glass {
+    @apply bg-zinc-950/40 backdrop-blur-sm border border-zinc-800/50;
+  }
+
+  .glass-hover {
+    @apply hover:bg-zinc-950/60 hover:border-zinc-700/50;
+  }
+
+  .surface-hover {
+    @apply hover:bg-surface/50 hover:border-border/50;
+  }
 }

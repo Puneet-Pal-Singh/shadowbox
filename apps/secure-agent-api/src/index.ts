@@ -180,19 +180,19 @@ export default {
         const tools = await stub.getManifest();
         response = Response.json({ tools });
       } 
-      else if (url.pathname === "/history") {
-        const agentId = url.searchParams.get("agentId") || "default";
+      else if (url.pathname === "/chat") {
+        const runId = url.searchParams.get("runId") || "default";
         
         if (request.method === "GET") {
-          const history = await stub.getHistory(agentId);
-          response = Response.json({ history });
+          const history = await stub.getHistory(runId);
+          response = Response.json(history);
         } 
         else if (request.method === "POST") {
           const body = await request.json() as { message?: any, messages?: any[] };
           if (body.message) {
-            await stub.appendMessage(agentId, body.message);
+            await stub.appendMessage(runId, body.message);
           } else if (body.messages) {
-            await stub.saveHistory(agentId, body.messages);
+            await stub.saveHistory(runId, body.messages);
           }
           response = Response.json({ success: true });
         }

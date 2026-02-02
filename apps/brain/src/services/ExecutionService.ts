@@ -1,17 +1,20 @@
 import { Env } from "../types/ai";
 
 export class ExecutionService {
-  constructor(private env: Env, private sessionId: string) {}
+  constructor(private env: Env, private sessionId: string, private runId: string = sessionId) {}
 
   async execute(plugin: string, action: string, payload: Record<string, any>) {
     console.log(`[ExecutionService] ${plugin}:${action}`, payload);
     try {
       const res = await this.env.SECURE_API.fetch(
-        `http://internal/exec?session=${this.sessionId}`,
+        `http://internal/?session=${this.sessionId}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ plugin, payload: { action, ...payload } }),
+          body: JSON.stringify({ 
+            plugin, 
+            payload: { action, runId: this.runId, ...payload } 
+          }),
         }
       );
 

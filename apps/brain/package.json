@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "wrangler dev --port 8788 --inspector-port 9230",
     "deploy": "wrangler deploy",
-    "type-check": "tsc --noEmit"
+    "check-types": "tsc --noEmit"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20240208.0",
