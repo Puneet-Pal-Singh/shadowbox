@@ -1,5 +1,4 @@
 import { useSessionManager } from './hooks/useSessionManager';
-import { GlobalNav } from './components/layout/GlobalNav';
 import { AgentSidebar } from './components/layout/AgentSidebar';
 import { Workspace } from './components/layout/Workspace';
 import { AgentSetup } from './components/agent/AgentSetup';
@@ -16,10 +15,7 @@ function App() {
   return (
     <div className="h-screen w-screen bg-background text-zinc-400 flex overflow-hidden font-sans">
       
-      {/* 1. Navigation Layer (Static Global Nav) */}
-      <GlobalNav onHome={() => setActiveSessionId(null)} />
-
-      {/* 2. Session Management Layer (List of Active Tasks) */}
+      {/* Session Management Layer (List of Active Tasks) */}
       <AgentSidebar 
         sessions={sessions}
         activeSessionId={activeSessionId}
@@ -28,7 +24,7 @@ function App() {
         onRemove={removeSession}
       />
 
-      {/* 3. Main Workspace Layer */}
+      {/* Main Workspace Layer */}
       {activeSessionId ? (
         <Workspace key={activeSessionId} sessionId={activeSessionId} />
       ) : (
