@@ -56,36 +56,42 @@ export function ChatMessage({ message, onArtifactOpen }: ChatMessageProps) {
           </div>
         )}
 
-        {/* Render Tool Calls */}
-        {message.toolInvocations?.map((toolInvocation, index) => {
-          const toolName = toolInvocation.toolName;
-          const status = toolInvocation.state;
-          const args = toolInvocation.args as any;
-          const key = toolInvocation.toolCallId || `tool-${index}`;
+        {/* Render Tool Calls - Filter out technical/internal tools */}
+        {message.toolInvocations
+          ?.filter((toolInvocation: any) => {
+            // Only show user-facing tools, hide technical ones
+            const visibleTools = ["create_code_artifact"];
+            return visibleTools.includes(toolInvocation.toolName);
+          })
+          .map((toolInvocation: any, index: number) => {
+            const toolName = toolInvocation.toolName;
+            const status = toolInvocation.state;
+            const args = toolInvocation.args as any;
+            const key = toolInvocation.toolCallId || `tool-${index}`;
 
-          if (toolName === "create_code_artifact" && args?.content) {
+            if (toolName === "create_code_artifact" && args?.content) {
+              return (
+                <ArtifactPreview
+                  key={key}
+                  title={args.path || "untitled"}
+                  content={args.content}
+                  status={status}
+                  onOpen={() => onArtifactOpen?.(args.path, args.content)}
+                />
+              );
+            }
+
             return (
-              <ArtifactPreview
+              <div
                 key={key}
-                title={args.path || "untitled"}
-                content={args.content}
-                status={status}
-                onOpen={() => onArtifactOpen?.(args.path, args.content)}
-              />
-            );
-          }
-
-          return (
-            <div
-              key={key}
-              className={cn("w-full", isUser && "flex justify-end")}
-            >
-              <div className="max-w-md w-full text-left">
-                <ActionBlock tool={toolName} status={status} args={args} />
+                className={cn("w-full", isUser && "flex justify-end")}
+              >
+                <div className="max-w-md w-full text-left">
+                  <ActionBlock tool={toolName} status={status} args={args} />
+                </div>
               </div>
-            </div>
-          );
-        })}
+            );
+          })}
       </div>
     </div>
   );
