@@ -3,16 +3,16 @@ import { Message } from "ai";
 class AgentStore {
   private messagesMap: Map<string, Message[]> = new Map();
 
-  getMessages(agentId: string): Message[] {
-    return this.messagesMap.get(agentId) || [];
+  getMessages(runId: string): Message[] {
+    return this.messagesMap.get(runId) || [];
   }
 
-  setMessages(agentId: string, messages: Message[]) {
-    this.messagesMap.set(agentId, messages);
+  setMessages(runId: string, messages: Message[]) {
+    this.messagesMap.set(runId, messages);
   }
 
-  clearMessages(agentId: string) {
-    this.messagesMap.delete(agentId);
+  clearMessages(runId: string) {
+    this.messagesMap.delete(runId);
   }
 }
 

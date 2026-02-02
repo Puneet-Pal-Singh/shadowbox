@@ -8,7 +8,7 @@ export interface ArtifactData {
   content: string;
 }
 
-export function useChat(sessionId: string, agentId: string = "default", onFileCreated?: () => void) {
+export function useChat(sessionId: string, runId: string = "default", onFileCreated?: () => void) {
   const [artifact, setArtifact] = useState<ArtifactData | null>(null);
   const [isArtifactOpen, setIsArtifactOpen] = useState(false);
   const [isHydrating, setIsHydrating] = useState(false);
@@ -16,8 +16,8 @@ export function useChat(sessionId: string, agentId: string = "default", onFileCr
   // Configuration for the Vercel AI Hook
   const { messages, input, handleInputChange, handleSubmit, isLoading, stop, setMessages } = useVercelChat({
     api: "http://localhost:8788/chat", // Point to the brain worker /chat endpoint
-    body: { sessionId, agentId },
-    initialMessages: agentStore.getMessages(agentId),
+    body: { sessionId, runId },
+    initialMessages: agentStore.getMessages(runId),
 
     onError: (error: Error) => {
       console.error("🧬 [Shadowbox] Chat Stream Broken", error);
@@ -46,15 +46,18 @@ export function useChat(sessionId: string, agentId: string = "default", onFileCr
   // 1. Sync local messages to global store for tab switching
   useEffect(() => {
     if (messages.length > 0) {
-      agentStore.setMessages(agentId, messages);
+      agentStore.setMessages(runId, messages);
     }
-  }, [messages, agentId]);
+  }, [messages, runId]);
 
   // 2. Optimistic Sync: Hydrate from cache immediately, then sync from server in background
   useEffect(() => {
     async function sync() {
-      const cache = agentStore.getMessages(agentId);
-      console.log(`🧬 [Shadowbox] Checking cache for ${agentId}:`, cache.length);
+      // Guard: Don't sync from server if we are currently streaming a response
+      if (isLoading) return;
+
+      const cache = agentStore.getMessages(runId);
+      console.log(`🧬 [Shadowbox] Checking cache for ${runId}:`, cache.length);
       
       // Optimistic UI: If we have cache, show it immediately
       if (cache.length > 0) {
@@ -64,18 +67,18 @@ export function useChat(sessionId: string, agentId: string = "default", onFileCr
         setIsHydrating(true);
       }
 
-      console.log(`🧬 [Shadowbox] Syncing ${agentId} from server...`);
+      console.log(`🧬 [Shadowbox] Syncing ${runId} from server...`);
       try {
-        const res = await fetch(`http://localhost:8787/history?session=${sessionId}&agentId=${agentId}`);
+        const res = await fetch(`http://localhost:8787/chat?session=${sessionId}&runId=${runId}`);
         if (!res.ok) throw new Error("History fetch failed");
-        const data = await res.json();
+        const history = await res.json();
         
-        if (data.history && data.history.length > 0) {
+        if (Array.isArray(history) && history.length > 0) {
           // Silent merge: only update if server has new info (simplistic length check)
-          if (data.history.length !== cache.length) {
-            console.log(`🧬 [Shadowbox] Server has updates (${data.history.length} vs ${cache.length}). Merging...`);
-            setMessages(data.history);
-            agentStore.setMessages(agentId, data.history);
+          if (history.length !== cache.length) {
+            console.log(`🧬 [Shadowbox] Server has updates (${history.length} vs ${cache.length}). Merging...`);
+            setMessages(history);
+            agentStore.setMessages(runId, history);
           } else {
             console.log(`🧬 [Shadowbox] Cache is up to date`);
           }
@@ -89,7 +92,7 @@ export function useChat(sessionId: string, agentId: string = "default", onFileCr
       }
     }
     sync();
-  }, [sessionId, agentId, setMessages]);
+  }, [sessionId, runId, setMessages]);
 
   return {
     messages,
