@@ -29,9 +29,23 @@ export function ChatInterface({
       role: m.role,
       id: m.id?.substring(0, 8),
       content:
-        typeof m.content === "string" ? m.content.substring(0, 30) : "object",
+        typeof m.content === "string"
+          ? m.content.substring(0, 50)
+          : typeof m.content,
+      hasToolInvocations: !!m.toolInvocations?.length,
+      toolCount: m.toolInvocations?.length || 0,
+      toolNames: m.toolInvocations?.map((t: any) => t.toolName).join(", "),
     })),
   );
+
+  // DEBUG: Check for assistant messages specifically
+  const assistantMsgs = messages.filter((m) => m.role === "assistant");
+  if (assistantMsgs.length > 0) {
+    console.log(
+      `🧬 [ChatInterface] Found ${assistantMsgs.length} assistant messages:`,
+      assistantMsgs.map((m) => m.content?.substring(0, 30)),
+    );
+  }
 
   useEffect(() => {
     scrollRef.current?.scrollTo({
@@ -42,6 +56,11 @@ export function ChatInterface({
 
   return (
     <div className="flex flex-col h-full bg-background">
+      {/* DEBUG COUNTER - Remove after fix */}
+      <div className="bg-red-900/50 text-red-200 px-4 py-1 text-xs font-mono">
+        Messages: {messages.length} | Loading: {isLoading ? "YES" : "NO"}
+      </div>
+
       {/* Scrollable Container */}
       <div
         ref={scrollRef}
@@ -53,6 +72,30 @@ export function ChatInterface({
             <span className="font-mono text-xs tracking-widest uppercase">
               Awaiting Task Parameters
             </span>
+          </div>
+        )}
+
+        {/* DEBUG: Show raw message data */}
+        {messages[0] && (
+          <div className="bg-yellow-900/30 border border-yellow-700/50 rounded p-2 mb-4">
+            <div className="text-yellow-500 text-xs font-mono mb-1">
+              DEBUG - First Message:
+            </div>
+            <pre className="text-yellow-300 text-xs overflow-auto">
+              {JSON.stringify(
+                {
+                  id: messages[0]?.id,
+                  role: messages[0]?.role,
+                  contentType: typeof messages[0]?.content,
+                  contentPreview:
+                    typeof messages[0]?.content === "string"
+                      ? messages[0]?.content?.substring(0, 100)
+                      : "object",
+                },
+                null,
+                2,
+              )}
+            </pre>
           </div>
         )}
         {messages.map((msg) => (

@@ -1,9 +1,5 @@
 import { type Message } from "ai";
 import { User, Bot } from "lucide-react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { ActionBlock } from "./ActionBlock";
 import { ArtifactPreview } from "./ArtifactPreview";
 import { cn } from "../../lib/utils";
@@ -13,8 +9,15 @@ interface ChatMessageProps {
   onArtifactOpen?: (path: string, content: string) => void;
 }
 
+// Simple text display without markdown to avoid crashes
 export function ChatMessage({ message, onArtifactOpen }: ChatMessageProps) {
   const isUser = message.role === "user";
+
+  // DEBUG: Log when component renders
+  console.log(
+    `🧬 [ChatMessage] Rendering ${message.role} message:`,
+    message.content?.substring(0, 50),
+  );
 
   return (
     <div
@@ -43,35 +46,13 @@ export function ChatMessage({ message, onArtifactOpen }: ChatMessageProps) {
         {message.content && (
           <div
             className={cn(
-              "prose prose-invert prose-p:leading-relaxed prose-pre:p-0 break-words text-sm",
+              "text-sm whitespace-pre-wrap break-words",
               isUser ? "text-zinc-100" : "text-zinc-300",
             )}
           >
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              components={{
-                code({ node, inline, className, children, ...props }: any) {
-                  const match = /language-(\w+)/.exec(className || '');
-                  return !inline && match ? (
-                    <SyntaxHighlighter
-                      style={vscDarkPlus}
-                      language={match[1]}
-                      PreTag="div"
-                      className="rounded-md my-4"
-                      {...props}
-                    >
-                      {String(children).replace(/\n$/, '')}
-                    </SyntaxHighlighter>
-                  ) : (
-                    <code className={cn("bg-zinc-800 px-1 py-0.5 rounded text-xs font-mono", className)} {...props}>
-                      {children}
-                    </code>
-                  );
-                }
-              }}
-            >
-              {message.content}
-            </ReactMarkdown>
+            {typeof message.content === "string"
+              ? message.content
+              : JSON.stringify(message.content)}
           </div>
         )}
 
@@ -82,11 +63,11 @@ export function ChatMessage({ message, onArtifactOpen }: ChatMessageProps) {
           const args = toolInvocation.args as any;
           const key = toolInvocation.toolCallId || `tool-${index}`;
 
-          if (toolName === 'create_code_artifact' && args?.content) {
+          if (toolName === "create_code_artifact" && args?.content) {
             return (
               <ArtifactPreview
                 key={key}
-                title={args.path || 'untitled'}
+                title={args.path || "untitled"}
                 content={args.content}
                 status={status}
                 onOpen={() => onArtifactOpen?.(args.path, args.content)}
@@ -100,11 +81,7 @@ export function ChatMessage({ message, onArtifactOpen }: ChatMessageProps) {
               className={cn("w-full", isUser && "flex justify-end")}
             >
               <div className="max-w-md w-full text-left">
-                <ActionBlock
-                  tool={toolName}
-                  status={status}
-                  args={args}
-                />
+                <ActionBlock tool={toolName} status={status} args={args} />
               </div>
             </div>
           );
