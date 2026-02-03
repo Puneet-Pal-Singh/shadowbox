@@ -21,6 +21,12 @@ export function useChatHydration(
   const hasHydratedRef = useRef(false);
   const hydrationServiceRef = useRef(new ChatHydrationService());
 
+  // Reset hydration flag when runId changes
+  useEffect(() => {
+    hasHydratedRef.current = false;
+  }, [runId]);
+
+  // Perform hydration
   useEffect(() => {
     if (hasHydratedRef.current) return;
     if (messagesLength > 0) return;
