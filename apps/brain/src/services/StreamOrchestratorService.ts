@@ -1,5 +1,5 @@
-import type { CoreMessage, CoreTool } from "ai";
-import type { StreamTextResult } from "ai";
+import type { CoreMessage, CoreTool, TextStreamPart, ToolSet } from "ai";
+import type { StreamTextResult, StepResult } from "ai";
 import { AIService } from "./AIService";
 import { CORS_HEADERS } from "../lib/cors";
 import { Env } from "../types/ai";
@@ -11,8 +11,7 @@ export interface StreamOrchestratorOptions {
   correlationId: string;
   sessionId: string;
   runId: string;
-  onChunk: (chunk: any) => void;
-  onFinish: (result: any) => Promise<void>;
+  onFinish: (result: StepResult<ToolSet>) => Promise<void>;
 }
 
 export class StreamOrchestratorService {
@@ -44,7 +43,7 @@ export class StreamOrchestratorService {
         },
       });
 
-      return (result as StreamTextResult<any, any>).toDataStreamResponse({
+      return (result as StreamTextResult<ToolSet, unknown>).toDataStreamResponse({
         headers: CORS_HEADERS,
       });
     } catch (error) {
@@ -53,7 +52,10 @@ export class StreamOrchestratorService {
     }
   }
 
-  private handleChunk(chunk: any, options: StreamOrchestratorOptions): void {
+  private handleChunk(
+    chunk: TextStreamPart<ToolSet>,
+    options: StreamOrchestratorOptions,
+  ): void {
     const { correlationId, sessionId, runId } = options;
 
     if (chunk.type === "text-delta") {
@@ -67,7 +69,9 @@ export class StreamOrchestratorService {
       console.log(
         `[Brain:${correlationId}] Tool result chunk:`,
         chunk.toolName,
-        chunk.result?.substring?.(0, 30),
+        typeof chunk.result === "string"
+          ? chunk.result.substring(0, 30)
+          : chunk.result,
       );
     }
 
@@ -96,7 +100,7 @@ export class StreamOrchestratorService {
   }
 
   private async handleFinish(
-    finalResult: any,
+    finalResult: StepResult<ToolSet>,
     options: StreamOrchestratorOptions,
   ): Promise<void> {
     const { correlationId, runId } = options;
