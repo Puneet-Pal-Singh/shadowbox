@@ -1,4 +1,4 @@
-import { useRef, useEffect, type FormEvent } from "react";
+import type { FormEvent } from "react";
 import type { Message } from "@ai-sdk/react";
 import { useChatCore } from "./useChatCore";
 import { useChatHydration } from "./useChatHydration";
@@ -28,16 +28,6 @@ export function useChat(
   runId: string = "default",
   onFileCreated?: () => void,
 ): UseChatResult {
-  // Stable instance key per runId
-  const instanceKeyRef = useRef(`${runId}`);
-  const hasHydratedRef = useRef(false);
-
-  // Reset hydration flag when runId changes
-  useEffect(() => {
-    instanceKeyRef.current = `${runId}`;
-    hasHydratedRef.current = false;
-  }, [runId]);
-
   // Core chat functionality
   const {
     messages,
@@ -48,7 +38,7 @@ export function useChat(
     isLoading,
     stop,
     setMessages,
-  } = useChatCore(sessionId, runId, instanceKeyRef.current);
+  } = useChatCore(sessionId, runId);
 
   // Handle message hydration
   const { isHydrating } = useChatHydration(
