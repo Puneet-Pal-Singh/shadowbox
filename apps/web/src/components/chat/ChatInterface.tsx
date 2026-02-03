@@ -21,64 +21,17 @@ export function ChatInterface({
   const { messages, input, handleInputChange, handleSubmit, isLoading } =
     chatProps;
   const scrollRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [isFocused, setIsFocused] = useState(false);
 
-  // TIMING: Track when messages appear
-  const [timingInfo, setTimingInfo] = useState<string>("");
-  const lastMessageCountRef = useRef(messages.length);
-  const messageTimesRef = useRef<Map<string, number>>(new Map());
-
+  // Auto-resize textarea
   useEffect(() => {
-    const currentCount = messages.length;
-    const lastCount = lastMessageCountRef.current;
-
-    if (currentCount !== lastCount) {
-      const now = Date.now();
-      const timeStr = new Date().toLocaleTimeString();
-
-      if (currentCount === 1 && lastCount === 0) {
-        // First message appeared (user message)
-        messageTimesRef.current.set("first", now);
-        setTimingInfo(`User msg: ${timeStr}`);
-      } else if (currentCount === 2 && lastCount === 1) {
-        // Second message appeared (assistant started)
-        const firstTime = messageTimesRef.current.get("first") || now;
-        const delay = ((now - firstTime) / 1000).toFixed(1);
-        setTimingInfo(
-          `User msg: ${timeStr} | AI response started after ${delay}s`,
-        );
-      } else if (currentCount > lastCount) {
-        // More messages
-        setTimingInfo((prev) => `${prev} | Msg ${currentCount}: ${timeStr}`);
-      }
-
-      lastMessageCountRef.current = currentCount;
+    if (textareaRef.current) {
+      textareaRef.current.style.height = "auto";
+      const newHeight = Math.min(textareaRef.current.scrollHeight, 200);
+      textareaRef.current.style.height = newHeight + "px";
     }
-  }, [messages.length]);
-
-  // DEBUG: Log messages on every render
-  console.log(
-    `🧬 [ChatInterface] Render with ${messages.length} messages:`,
-    messages.map((m) => ({
-      role: m.role,
-      id: m.id?.substring(0, 8),
-      content:
-        typeof m.content === "string"
-          ? m.content.substring(0, 50)
-          : typeof m.content,
-      hasToolInvocations: !!m.toolInvocations?.length,
-      toolCount: m.toolInvocations?.length || 0,
-      toolNames: m.toolInvocations?.map((t: any) => t.toolName).join(", "),
-    })),
-  );
-
-  // DEBUG: Check for assistant messages specifically
-  const assistantMsgs = messages.filter((m) => m.role === "assistant");
-  if (assistantMsgs.length > 0) {
-    console.log(
-      `🧬 [ChatInterface] Found ${assistantMsgs.length} assistant messages:`,
-      assistantMsgs.map((m) => m.content?.substring(0, 30)),
-    );
-  }
+  }, [input]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({
@@ -89,14 +42,6 @@ export function ChatInterface({
 
   return (
     <div className="flex flex-col h-full bg-background">
-      {/* DEBUG COUNTER with TIMING - Remove after fix */}
-      <div className="bg-red-900/50 text-red-200 px-4 py-1 text-xs font-mono">
-        Messages: {messages.length} | Loading: {isLoading ? "YES" : "NO"}
-        {timingInfo && (
-          <div className="text-yellow-300 mt-1">⏱️ {timingInfo}</div>
-        )}
-      </div>
-
       {/* Scrollable Container */}
       <div
         ref={scrollRef}
@@ -110,30 +55,6 @@ export function ChatInterface({
             </span>
           </div>
         )}
-
-        {/* DEBUG: Show raw message data */}
-        {messages[0] && (
-          <div className="bg-yellow-900/30 border border-yellow-700/50 rounded p-2 mb-4">
-            <div className="text-yellow-500 text-xs font-mono mb-1">
-              DEBUG - First Message:
-            </div>
-            <pre className="text-yellow-300 text-xs overflow-auto">
-              {JSON.stringify(
-                {
-                  id: messages[0]?.id,
-                  role: messages[0]?.role,
-                  contentType: typeof messages[0]?.content,
-                  contentPreview:
-                    typeof messages[0]?.content === "string"
-                      ? messages[0]?.content?.substring(0, 100)
-                      : "object",
-                },
-                null,
-                2,
-              )}
-            </pre>
-          </div>
-        )}
         {messages.map((msg) => (
           <ChatMessage
             key={msg.id}
@@ -143,44 +64,68 @@ export function ChatInterface({
         ))}
       </div>
 
-      {/* Input Layer */}
-      <div className="p-4 bg-[#0c0c0e] border-t border-zinc-800">
+      {/* Input Layer - Single Expanding Input */}
+      <div className={`px-4 pb-4 bg-[#0c0c0e] transition-all duration-200 ${
+        isFocused || input.length > 0 ? "pt-4" : "pt-4"
+      } ${isFocused || input.length > 0 ? "border-t border-zinc-800" : ""}`}>
         <form
           onSubmit={(e) => {
             e.preventDefault();
             handleSubmit();
           }}
-          className="relative flex items-end gap-2 bg-zinc-900/50 border border-zinc-800 rounded-xl p-2 focus-within:border-zinc-700 transition-colors"
+          className={`relative flex flex-col gap-2 rounded-xl transition-all duration-200 ${
+            isFocused || input.length > 0
+              ? "bg-zinc-900/50 border border-zinc-700 p-3"
+              : "bg-transparent border border-transparent p-2"
+          }`}
         >
-          <button
-            type="button"
-            className="p-2 text-zinc-500 hover:text-zinc-300 transition-colors"
-          >
-            <Settings size={18} />
-          </button>
+          <div className="flex items-end gap-2">
+            <button
+              type="button"
+              className="p-2 text-zinc-500 hover:text-zinc-300 transition-colors flex-shrink-0"
+            >
+              <Settings size={18} />
+            </button>
 
-          <textarea
-            value={input}
-            onChange={handleInputChange}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                handleSubmit();
-              }
-            }}
-            disabled={isLoading}
-            placeholder="Ask Shadowbox to write code..."
-            className="flex-1 bg-transparent border-none focus:ring-0 resize-none text-sm text-zinc-200 placeholder-zinc-600 h-10 py-2.5 max-h-32"
-            rows={1}
-          />
+            <textarea
+              ref={textareaRef}
+              value={input}
+              onChange={handleInputChange}
+              onFocus={() => setIsFocused(true)}
+              onBlur={() => setIsFocused(false)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  handleSubmit();
+                }
+              }}
+              disabled={isLoading}
+              placeholder={isFocused || input.length > 0 ? "Ask Shadowbox to write code..." : "Ask Shadowbox to write code..."}
+              className="flex-1 bg-transparent border-none focus:ring-0 resize-none text-sm text-zinc-200 placeholder-zinc-600 min-h-10 max-h-48 py-2 font-mono"
+              style={{ 
+                overflow: "hidden",
+                lineHeight: "1.5"
+              }}
+            />
 
-          <button
-            type="submit"
-            disabled={isLoading || !input.trim()}
-            className="p-2 bg-white text-black rounded-lg hover:bg-zinc-200 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-          >
-            <Send size={16} />
-          </button>
+            <button
+              type="submit"
+              disabled={isLoading || !input.trim()}
+              className="p-2 bg-white text-black rounded-lg hover:bg-zinc-200 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex-shrink-0"
+            >
+              <Send size={16} />
+            </button>
+          </div>
+
+          {/* Show input preview when expanded */}
+          {(isFocused || input.length > 0) && input.length > 50 && (
+            <div className="ml-10 border-l-2 border-zinc-700 pl-3 py-2">
+              <div className="text-xs text-zinc-500 uppercase tracking-wide mb-1">Preview</div>
+              <div className="text-xs text-zinc-300 line-clamp-3 font-mono whitespace-pre-wrap break-words">
+                {input}
+              </div>
+            </div>
+          )}
         </form>
         <div className="text-[10px] text-zinc-600 mt-2 text-center">
           AI Agents can make mistakes. Review generated code.
