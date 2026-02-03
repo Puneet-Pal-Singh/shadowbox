@@ -1,3 +1,4 @@
+import type { CoreMessage, CoreTool } from "ai";
 import { createToolRegistry } from "../orchestrator/tools";
 import { Env } from "../types/ai";
 import { CORS_HEADERS } from "../lib/cors";
@@ -10,12 +11,24 @@ import { SystemPromptService } from "../services/SystemPromptService";
 import { StreamOrchestratorService } from "../services/StreamOrchestratorService";
 
 interface ChatRequestBody {
-  messages?: any[];
+  messages?: CoreMessage[];
   sessionId?: string;
   agentId?: string;
   runId?: string;
 }
 
+interface ChatRequest {
+  body: ChatRequestBody;
+  correlationId: string;
+  sessionId: string;
+  runId: string;
+}
+
+/**
+ * ChatController
+ * Orchestrates the chat flow across multiple services
+ * Single Responsibility: Coordinate request handling and service composition
+ */
 export class ChatController {
   static async handle(req: Request, env: Env): Promise<Response> {
     const correlationId = Math.random().toString(36).substring(7);
@@ -23,65 +36,85 @@ export class ChatController {
 
     try {
       const body = await parseRequestBody(req);
-      const { sessionId, runId } = extractIdentifiers(body);
+      const identifiers = extractIdentifiers(body);
 
       if (!body.messages || !Array.isArray(body.messages)) {
         return errorResponse("Invalid messages", 400);
       }
 
-      // Initialize services
-      const services = initializeServices(env, sessionId, runId);
-
-      // Prepare messages
-      const prepResult = services.messagePrep.prepareMessages(body.messages);
-
-      // Persist user message immediately
-      if (prepResult.lastUserMessage) {
-        await services.persistence.persistUserMessage(
-          sessionId,
-          runId,
-          prepResult.lastUserMessage,
-        );
-      }
-
-      // Hydrate and prune context for existing conversations
-      let messagesForAI = prepResult.messagesForAI;
-      if (!prepResult.isNewRun) {
-        messagesForAI = await hydrateAndPrune(
-          services.hydration,
-          prepResult.messagesForAI,
-        );
-      }
-
-      // Generate system prompt
-      const systemPrompt = services.promptService.generatePrompt(
-        runId,
-        env.SYSTEM_PROMPT,
-      );
-
-      // Create and return stream
-      return await services.streamOrchestrator.createStream({
-        messages: messagesForAI,
-        systemPrompt,
-        tools: services.tools,
+      const chatRequest: ChatRequest = {
+        body,
         correlationId,
+        sessionId: identifiers.sessionId,
+        runId: identifiers.runId,
+      };
+
+      return await this.handleChatRequest(chatRequest, env);
+    } catch (error: unknown) {
+      console.error(`[Brain:${correlationId}] Error:`, error);
+      const errorMessage =
+        error instanceof Error ? error.message : "Internal Server Error";
+      return errorResponse(errorMessage, 500);
+    }
+  }
+
+  private static async handleChatRequest(
+    chatRequest: ChatRequest,
+    env: Env,
+  ): Promise<Response> {
+    const { body, correlationId, sessionId, runId } = chatRequest;
+
+    // Initialize services
+    const services = initializeServices(env, sessionId, runId);
+
+    // Prepare messages
+    const prepResult = services.messagePrep.prepareMessages(body.messages!);
+
+    // Persist user message immediately
+    if (prepResult.lastUserMessage) {
+      await services.persistence.persistUserMessage(
         sessionId,
         runId,
-        onChunk: () => {},
-        onFinish: async (finalResult) => {
-          const fullHistory = finalResult.fullMessages || [];
-          await services.persistence.persistConversation(
-            sessionId,
-            runId,
-            fullHistory,
-            correlationId,
-          );
-        },
-      });
-    } catch (error: any) {
-      console.error(`[Brain:${correlationId}] Error:`, error);
-      return errorResponse(error.message || "Internal Server Error", 500);
+        prepResult.lastUserMessage,
+      );
     }
+
+    // Hydrate and prune context for existing conversations
+    let messagesForAI = prepResult.messagesForAI;
+    if (!prepResult.isNewRun) {
+      messagesForAI = await hydrateAndPrune(
+        services.hydration,
+        prepResult.messagesForAI,
+      );
+    }
+
+    // Generate system prompt
+    const systemPrompt = services.promptService.generatePrompt(
+      runId,
+      env.SYSTEM_PROMPT,
+    );
+
+    // Create tools registry
+    const toolsRegistry = services.tools;
+
+    // Create and return stream
+    return await services.streamOrchestrator.createStream({
+      messages: messagesForAI,
+      systemPrompt,
+      tools: toolsRegistry,
+      correlationId,
+      sessionId,
+      runId,
+      onFinish: async (finalResult) => {
+        const fullHistory = finalResult.fullMessages || [];
+        await services.persistence.persistConversation(
+          sessionId,
+          runId,
+          fullHistory,
+          correlationId,
+        );
+      },
+    });
   }
 }
 
@@ -136,8 +169,8 @@ function initializeServices(
 
 async function hydrateAndPrune(
   hydrationService: ContextHydrationService,
-  messages: any[],
-): Promise<any[]> {
+  messages: CoreMessage[],
+): Promise<CoreMessage[]> {
   console.log("[Brain] Hydrating and pruning context...");
   const hydrated = await hydrationService.hydrateMessages(messages);
   return hydrationService.pruneToolResults(hydrated);
