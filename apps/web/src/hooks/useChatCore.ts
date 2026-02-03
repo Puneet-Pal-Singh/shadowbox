@@ -1,5 +1,5 @@
 import { useChat as useVercelChat, type Message } from "@ai-sdk/react";
-import { useCallback, type FormEvent } from "react";
+import { useCallback, useMemo, type FormEvent } from "react";
 
 interface UseChatCoreResult {
   messages: Message[];
@@ -20,8 +20,10 @@ interface UseChatCoreResult {
 export function useChatCore(
   sessionId: string,
   runId: string,
-  instanceKey: string,
 ): UseChatCoreResult {
+  // Stable instance key - only changes when runId changes
+  const instanceKey = useMemo(() => `chat-${runId}`, [runId]);
+
   const {
     messages,
     input,
