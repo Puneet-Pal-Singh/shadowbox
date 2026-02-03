@@ -1,10 +1,10 @@
 // export type Role = 'user' | 'assistant' | 'system';
 
-// export type ModelId = 
-//   | 'llama-3' 
-//   | 'claude-3-5' 
-//   | 'gpt-4o' 
-//   | 'claude-4.5-sonnet' 
+// export type ModelId =
+//   | 'llama-3'
+//   | 'claude-3-5'
+//   | 'gpt-4o'
+//   | 'claude-4.5-sonnet'
 //   | 'gpt-5.2-codex';
 
 // export interface ToolResult {
@@ -27,8 +27,8 @@
 //   apiKey: string; // User's BYOK key
 // }
 
-export type MessageRole = 'user' | 'assistant' | 'system';
-export type ActionStatus = 'running' | 'success' | 'error';
+export type MessageRole = "user" | "assistant" | "system";
+export type ActionStatus = "running" | "success" | "error";
 
 export interface ToolExecution {
   tool: string;
@@ -42,4 +42,16 @@ export interface ChatMessage {
   content: string;
   executions?: ToolExecution[];
   timestamp: number;
+}
+
+export interface ArtifactData {
+  path: string;
+  content: string;
+}
+
+export interface ArtifactState {
+  artifact: ArtifactData | null;
+  setArtifact: (artifact: ArtifactData | null) => void;
+  isArtifactOpen: boolean;
+  setIsArtifactOpen: (isOpen: boolean) => void;
 }

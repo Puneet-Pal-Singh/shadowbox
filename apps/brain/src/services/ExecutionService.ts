@@ -3,7 +3,7 @@ import { Env } from "../types/ai";
 export class ExecutionService {
   constructor(private env: Env, private sessionId: string, private runId: string = sessionId) {}
 
-  async execute(plugin: string, action: string, payload: Record<string, any>) {
+  async execute(plugin: string, action: string, payload: Record<string, unknown>) {
     console.log(`[ExecutionService] ${plugin}:${action}`, payload);
     try {
       const res = await this.env.SECURE_API.fetch(

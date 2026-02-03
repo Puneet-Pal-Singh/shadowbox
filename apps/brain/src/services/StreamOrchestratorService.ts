@@ -1,8 +1,26 @@
-import type { CoreMessage, CoreTool, TextStreamPart, ToolSet } from "ai";
-import type { StreamTextResult, StepResult } from "ai";
+import type { CoreMessage, CoreTool, TextStreamPart } from "ai";
+import type { StreamTextResult } from "ai";
 import { AIService } from "./AIService";
 import { CORS_HEADERS } from "../lib/cors";
 import { Env } from "../types/ai";
+
+// Use generic stream result type from AI SDK
+interface StreamResult {
+  text: string;
+  toolCalls: Array<{
+    toolName: string;
+    args: unknown;
+  }>;
+  toolResults: Array<unknown>;
+  finishReason: string;
+  usage: {
+    promptTokens: number;
+    completionTokens: number;
+  };
+  // Additional fields that may be present
+  fullMessages?: CoreMessage[];
+  steps?: unknown[];
+}
 
 export interface StreamOrchestratorOptions {
   messages: CoreMessage[];
@@ -11,7 +29,7 @@ export interface StreamOrchestratorOptions {
   correlationId: string;
   sessionId: string;
   runId: string;
-  onFinish: (result: StepResult<ToolSet>) => Promise<void>;
+  onFinish: (result: StreamResult) => Promise<void>;
 }
 
 export class StreamOrchestratorService {
@@ -43,7 +61,7 @@ export class StreamOrchestratorService {
         },
       });
 
-      return (result as StreamTextResult<ToolSet, unknown>).toDataStreamResponse({
+      return (result as StreamTextResult<Record<string, CoreTool>, unknown>).toDataStreamResponse({
         headers: CORS_HEADERS,
       });
     } catch (error) {
@@ -53,7 +71,7 @@ export class StreamOrchestratorService {
   }
 
   private handleChunk(
-    chunk: TextStreamPart<ToolSet>,
+    chunk: TextStreamPart<Record<string, CoreTool>>,
     options: StreamOrchestratorOptions,
   ): void {
     const { correlationId, sessionId, runId } = options;
@@ -65,14 +83,6 @@ export class StreamOrchestratorService {
       this.accumulatedContent += chunk.textDelta;
     } else if (chunk.type === "tool-call") {
       console.log(`[Brain:${correlationId}] Tool call chunk:`, chunk.toolName);
-    } else if (chunk.type === "tool-result") {
-      console.log(
-        `[Brain:${correlationId}] Tool result chunk:`,
-        chunk.toolName,
-        typeof chunk.result === "string"
-          ? chunk.result.substring(0, 30)
-          : chunk.result,
-      );
     }
 
     this.maybeSendHeartbeat(sessionId, runId);
@@ -100,7 +110,7 @@ export class StreamOrchestratorService {
   }
 
   private async handleFinish(
-    finalResult: StepResult<ToolSet>,
+    finalResult: StreamResult,
     options: StreamOrchestratorOptions,
   ): Promise<void> {
     const { correlationId, runId } = options;
