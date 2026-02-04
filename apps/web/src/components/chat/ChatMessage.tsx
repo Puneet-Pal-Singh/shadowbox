@@ -1,82 +1,93 @@
 import { type Message } from "ai";
-import { User, Bot } from "lucide-react";
 import { ActionBlock } from "./ActionBlock";
 import { ArtifactPreview } from "./ArtifactPreview";
 import { cn } from "../../lib/utils";
+import { FilePill } from "./FilePill";
 
 interface ChatMessageProps {
   message: Message;
   onArtifactOpen?: (path: string, content: string) => void;
 }
 
-// Simple text display without markdown to avoid crashes
 export function ChatMessage({ message, onArtifactOpen }: ChatMessageProps) {
   const isUser = message.role === "user";
 
-  // DEBUG: Log when component renders
-  console.log(
-    `🧬 [ChatMessage] Rendering ${message.role} message:`,
-    message.content?.substring(0, 50),
-  );
+  // Extract file references from message content (simple regex)
+  const fileRefs =
+    typeof message.content === "string"
+      ? message.content.match(/[\w-]+\.(md|json|ts|tsx|js|jsx|css|html)/g) || []
+      : [];
+
+  // Unique file references
+  const uniqueFileRefs = [...new Set(fileRefs)];
 
   return (
     <div
       className={cn(
-        "group flex gap-4 w-full mb-8",
-        isUser && "flex-row-reverse",
+        "group flex gap-4 w-full",
+        isUser ? "flex-row-reverse" : "flex-row",
       )}
     >
-      <div
-        className={cn(
-          "flex h-8 w-8 shrink-0 select-none items-center justify-center rounded-md border shadow-sm",
-          isUser
-            ? "bg-zinc-800 text-zinc-200 border-zinc-700"
-            : "bg-emerald-950/30 text-emerald-500 border-emerald-900/50",
-        )}
-      >
-        {isUser ? <User size={16} /> : <Bot size={16} />}
-      </div>
-
-      <div
-        className={cn(
-          "flex-1 max-w-3xl space-y-2 overflow-hidden",
-          isUser && "text-right",
-        )}
-      >
-        {message.content && (
-          <div
-            className={cn(
-              "text-sm whitespace-pre-wrap break-words",
-              isUser ? "text-zinc-100" : "text-zinc-300",
-            )}
-          >
+      {/* Message Content */}
+      <div className={cn("max-w-3xl", isUser ? "text-right" : "flex-1")}>
+        {/* User message bubble */}
+        {isUser && message.content && (
+          <div className="inline-block bg-[#262626] text-white px-4 py-2.5 rounded-2xl text-sm leading-relaxed">
             {typeof message.content === "string"
               ? message.content
               : JSON.stringify(message.content)}
           </div>
         )}
 
-        {/* Render Tool Calls - Filter out technical/internal tools */}
+        {/* Assistant message */}
+        {!isUser && message.content && (
+          <div className="space-y-3">
+            <div className="text-sm text-zinc-300 leading-relaxed whitespace-pre-wrap">
+              {typeof message.content === "string"
+                ? message.content
+                : JSON.stringify(message.content)}
+            </div>
+
+            {/* File references as pills */}
+            {uniqueFileRefs.length > 0 && (
+              <div className="flex flex-wrap gap-2 mt-3">
+                {uniqueFileRefs.map((filename) => (
+                  <FilePill
+                    key={filename}
+                    filename={filename}
+                    onClick={() => console.log("Open file:", filename)}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Tool Invocations */}
         {message.toolInvocations
-          ?.filter((toolInvocation: any) => {
-            // Only show user-facing tools, hide technical ones
+          ?.filter((toolInvocation) => {
             const visibleTools = ["create_code_artifact"];
             return visibleTools.includes(toolInvocation.toolName);
           })
-          .map((toolInvocation: any, index: number) => {
+          .map((toolInvocation, index) => {
             const toolName = toolInvocation.toolName;
             const status = toolInvocation.state;
-            const args = toolInvocation.args as any;
+            const args = toolInvocation.args as Record<
+              string,
+              string | undefined
+            >;
             const key = toolInvocation.toolCallId || `tool-${index}`;
+            const path = args?.path || "untitled";
+            const content = args?.content || "";
 
-            if (toolName === "create_code_artifact" && args?.content) {
+            if (toolName === "create_code_artifact" && content) {
               return (
                 <ArtifactPreview
                   key={key}
-                  title={args.path || "untitled"}
-                  content={args.content}
+                  title={path}
+                  content={content}
                   status={status}
-                  onOpen={() => onArtifactOpen?.(args.path, args.content)}
+                  onOpen={() => onArtifactOpen?.(path, content)}
                 />
               );
             }
@@ -84,7 +95,7 @@ export function ChatMessage({ message, onArtifactOpen }: ChatMessageProps) {
             return (
               <div
                 key={key}
-                className={cn("w-full", isUser && "flex justify-end")}
+                className={cn("w-full mt-3", isUser && "flex justify-end")}
               >
                 <div className="max-w-md w-full text-left">
                   <ActionBlock tool={toolName} status={status} args={args} />

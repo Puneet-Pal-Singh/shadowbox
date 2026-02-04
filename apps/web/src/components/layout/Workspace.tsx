@@ -1,30 +1,28 @@
-import { useRef, useState } from 'react';
-import { motion } from 'framer-motion';
-import { FileExplorer, FileExplorerHandle } from '../FileExplorer';
-import { ChatInterface } from '../chat/ChatInterface';
-import { useChat } from '../../hooks/useChat';
-import { cn } from '../../lib/utils';
-import { PanelRight } from 'lucide-react';
+import { useRef, useState } from "react";
+import { motion } from "framer-motion";
+import { FileExplorer, FileExplorerHandle } from "../FileExplorer";
+import { ChatInterface } from "../chat/ChatInterface";
+import { useChat } from "../../hooks/useChat";
+import { cn } from "../../lib/utils";
+import { PanelRight } from "lucide-react";
 
 export function Workspace({ sessionId: runId }: { sessionId: string }) {
   const explorerRef = useRef<FileExplorerHandle>(null);
-  const sandboxId = runId; // Unique sandbox per task
+  const sandboxId = runId;
   const [isExplorerOpen, setIsExplorerOpen] = useState(false);
-  
-  const { 
-    messages, 
-    input, 
-    handleInputChange, 
-    handleSubmit, 
-    isLoading, 
-    isHydrating
+
+  const {
+    messages,
+    input,
+    handleInputChange,
+    handleSubmit,
+    isLoading,
+    isHydrating,
   } = useChat(sandboxId, runId, () => {
-    // Refresh explorer when AI creates a file
     explorerRef.current?.refresh();
   });
 
   const handleFileClick = async (path: string) => {
-    // Future: Handle file click for preview/editing
     console.log("Clicked file:", path);
   };
 
@@ -33,7 +31,9 @@ export function Workspace({ sessionId: runId }: { sessionId: string }) {
       <div className="flex-1 flex items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-4">
           <div className="w-8 h-8 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
-          <span className="text-xs font-mono text-zinc-500 uppercase tracking-widest">Hydrating History...</span>
+          <span className="text-xs font-mono text-zinc-500 uppercase tracking-widest">
+            Hydrating History...
+          </span>
         </div>
       </div>
     );
@@ -41,9 +41,8 @@ export function Workspace({ sessionId: runId }: { sessionId: string }) {
 
   return (
     <div className="flex-1 flex flex-col bg-black overflow-hidden relative">
-      {/* Clean Header */}
+      {/* Sub-header with file explorer toggle */}
       <div className="h-10 border-b border-border bg-black flex items-center justify-end px-3">
-        {/* Right Side: Toggle Button */}
         <motion.button
           onClick={() => setIsExplorerOpen(!isExplorerOpen)}
           whileHover={{ scale: 1.05 }}
@@ -52,7 +51,7 @@ export function Workspace({ sessionId: runId }: { sessionId: string }) {
             "p-1.5 rounded transition-colors border",
             isExplorerOpen
               ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
-              : "text-zinc-500 hover:text-zinc-300 border-transparent hover:bg-zinc-800/30"
+              : "text-zinc-500 hover:text-zinc-300 border-transparent hover:bg-zinc-800/30",
           )}
           title="Toggle Files Explorer"
         >
@@ -64,8 +63,14 @@ export function Workspace({ sessionId: runId }: { sessionId: string }) {
       <div className="flex-1 flex overflow-hidden">
         {/* Chat Area (Full Width, Expandable) */}
         <main className="flex-1 flex flex-col min-w-0 bg-black">
-          <ChatInterface 
-            chatProps={{ messages, input, handleInputChange, handleSubmit, isLoading }}
+          <ChatInterface
+            chatProps={{
+              messages,
+              input,
+              handleInputChange,
+              handleSubmit,
+              isLoading,
+            }}
             onArtifactOpen={() => {}}
           />
         </main>
@@ -80,20 +85,22 @@ export function Workspace({ sessionId: runId }: { sessionId: string }) {
           transition={{ duration: 0.25, ease: "easeInOut" }}
           className={cn(
             "border-l border-border bg-black flex flex-col overflow-hidden shrink-0",
-            !isExplorerOpen && "pointer-events-none"
+            !isExplorerOpen && "pointer-events-none",
           )}
         >
           {isExplorerOpen && (
             <div className="flex-1 flex flex-col min-w-0 w-72">
               {/* Sidebar Header */}
               <div className="h-10 border-b border-border flex items-center px-3 bg-black">
-                <span className="text-xs font-semibold uppercase text-zinc-500 tracking-wide">Files</span>
+                <span className="text-xs font-semibold uppercase text-zinc-500 tracking-wide">
+                  Files
+                </span>
               </div>
               {/* Sidebar Content */}
               <div className="flex-1 overflow-y-auto">
-                <FileExplorer 
+                <FileExplorer
                   ref={explorerRef}
-                  sessionId={sandboxId} 
+                  sessionId={sandboxId}
                   runId={runId}
                   onFileClick={handleFileClick}
                 />
