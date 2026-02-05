@@ -18,7 +18,7 @@ export function SidebarNavItem({
   href,
 }: SidebarNavItemProps) {
   const baseClasses = cn(
-    "flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg transition-all duration-200",
+    "flex items-center gap-2.5 px-2.5 py-1.5 text-xs font-medium rounded-md transition-all duration-200",
     isActive
       ? "text-white bg-zinc-800/60 shadow-sm"
       : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/40",
@@ -27,7 +27,7 @@ export function SidebarNavItem({
   const content = (
     <>
       <Icon
-        size={18}
+        size={14}
         className={cn(
           "shrink-0 transition-colors duration-200",
           isActive ? "text-white" : "text-zinc-500 group-hover:text-zinc-400",

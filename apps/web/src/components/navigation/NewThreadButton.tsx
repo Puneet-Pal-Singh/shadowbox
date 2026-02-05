@@ -11,9 +11,9 @@ export function NewThreadButton({ onClick }: NewThreadButtonProps) {
     <motion.button
       onClick={onClick}
       {...hoverScaleSmall}
-      className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-zinc-300 hover:text-white transition-colors duration-150 rounded-md hover:bg-zinc-800/50"
+      className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-zinc-300 hover:text-white transition-colors duration-150 rounded-md hover:bg-zinc-800/50"
     >
-      <Pencil size={14} className="text-zinc-400 group-hover:text-zinc-300" />
+      <Pencil size={12} className="text-zinc-400 group-hover:text-zinc-300" />
       <span>New thread</span>
     </motion.button>
   );

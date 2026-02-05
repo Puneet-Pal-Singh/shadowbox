@@ -107,9 +107,9 @@ export function AgentSetup({ onStart }: AgentSetupProps) {
         >
           {/* Cloud/Brain Icon */}
           <motion.div
-            className="w-12 h-12 mb-6 text-zinc-300"
+            className="w-10 h-10 mb-4 text-zinc-300"
             animate={{
-              y: [0, -5, 0],
+              y: [0, -4, 0],
             }}
             transition={{
               duration: 4,
@@ -117,23 +117,23 @@ export function AgentSetup({ onStart }: AgentSetupProps) {
               ease: "easeInOut",
             }}
           >
-            <Cloud size={48} strokeWidth={1.5} />
+            <Cloud size={40} strokeWidth={1.5} />
           </motion.div>
 
           {/* Title */}
-          <h1 className="text-3xl font-medium text-white tracking-tight">
+          <h1 className="text-2xl font-medium text-white tracking-tight">
             Let's build
           </h1>
 
           {/* Project Name with Dropdown */}
           <motion.button
-            className="flex items-center gap-1.5 mt-1 text-3xl font-medium text-zinc-500 hover:text-zinc-400 transition-colors duration-200 group"
+            className="flex items-center gap-1.5 mt-0.5 text-2xl font-medium text-zinc-500 hover:text-zinc-400 transition-colors duration-200 group"
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
           >
             <span>shadowbox</span>
             <ChevronDown
-              size={20}
+              size={18}
               className="text-zinc-600 group-hover:text-zinc-500 transition-colors duration-200"
             />
           </motion.button>
@@ -141,7 +141,7 @@ export function AgentSetup({ onStart }: AgentSetupProps) {
 
         {/* Suggestion Cards - Hidden when typing */}
         <motion.div
-          className={`flex gap-3 w-full max-w-4xl mb-8 ${task.trim() ? "hidden" : ""}`}
+          className={`flex gap-2 w-full max-w-3xl mb-6 ${task.trim() ? "hidden" : ""}`}
           variants={staggerContainer}
           initial="initial"
           animate="animate"
@@ -161,8 +161,8 @@ export function AgentSetup({ onStart }: AgentSetupProps) {
                 whileHover={{ scale: 1.02, y: -2 }}
                 whileTap={{ scale: 0.98 }}
                 className={`
-                  flex-1 flex flex-col gap-3 p-4 
-                  bg-[#171717] border rounded-xl text-left 
+                  flex-1 flex flex-col gap-2 p-3 
+                  bg-[#171717] border rounded-lg text-left 
                   transition-all duration-200 group relative overflow-hidden
                   ${isHovered ? "border-[#404040]" : "border-[#262626]"}
                 `}
@@ -177,15 +177,15 @@ export function AgentSetup({ onStart }: AgentSetupProps) {
                 <div className="relative z-10">
                   <div
                     className={`
-                    w-8 h-8 flex items-center justify-center rounded-lg 
+                    w-6 h-6 flex items-center justify-center rounded-md 
                     bg-zinc-800/50 text-zinc-400 
                     group-hover:text-zinc-300 group-hover:bg-zinc-800 
                     transition-all duration-200
                   `}
                   >
-                    <Icon size={18} />
+                    <Icon size={14} />
                   </div>
-                  <p className="text-sm text-zinc-200 leading-snug mt-3 group-hover:text-white transition-colors duration-200">
+                  <p className="text-xs text-zinc-200 leading-snug mt-2 group-hover:text-white transition-colors duration-200">
                     {action.title}
                   </p>
                 </div>
@@ -197,7 +197,7 @@ export function AgentSetup({ onStart }: AgentSetupProps) {
 
       {/* Input Area - Bottom */}
       <motion.div
-        className="w-full max-w-4xl mx-auto px-6 pb-8"
+        className="w-full max-w-3xl mx-auto px-6 pb-6"
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.4, duration: 0.4 }}
@@ -205,7 +205,7 @@ export function AgentSetup({ onStart }: AgentSetupProps) {
         <form onSubmit={handleSubmit}>
           <motion.div
             className={`
-              bg-[#171717] rounded-2xl p-4
+              bg-[#171717] rounded-xl p-3
               transition-all duration-200
               ${isInputFocused ? "shadow-lg shadow-black/20" : ""}
             `}
@@ -229,54 +229,54 @@ export function AgentSetup({ onStart }: AgentSetupProps) {
               onBlur={() => setIsInputFocused(false)}
               placeholder="Ask Shadowbox anything, @ to add files, / for commands"
               rows={1}
-              className="w-full bg-transparent text-base text-white placeholder-zinc-500 focus:outline-none resize-none overflow-hidden min-h-[24px] max-h-[400px]"
+              className="w-full bg-transparent text-sm text-white placeholder-zinc-500 focus:outline-none resize-none overflow-hidden min-h-[20px] max-h-[400px]"
               style={{ lineHeight: "1.5" }}
             />
 
             {/* Toolbar */}
-            <div className="flex items-center justify-between mt-3 pt-3">
+            <div className="flex items-center justify-between mt-2 pt-2">
               {/* Left: Add button + Model selector */}
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5">
                 <motion.button
                   type="button"
                   {...hoverScaleSmall}
-                  className="p-1.5 text-zinc-500 hover:text-zinc-300 transition-colors duration-150"
+                  className="p-1 text-zinc-500 hover:text-zinc-300 transition-colors duration-150"
                   title="Add files"
                 >
-                  <Plus size={18} />
+                  <Plus size={16} />
                 </motion.button>
 
-                <div className="h-4 w-px bg-zinc-800" />
+                <div className="h-3.5 w-px bg-zinc-800" />
 
                 <motion.button
                   type="button"
                   whileHover={{ scale: 1.02 }}
-                  className="flex items-center gap-1.5 px-2 py-1 text-sm text-zinc-500 hover:text-zinc-300 transition-colors duration-150"
+                  className="flex items-center gap-1 px-1.5 py-0.5 text-xs text-zinc-500 hover:text-zinc-300 transition-colors duration-150"
                 >
                   <span className="font-medium">GPT-5.2-Codex</span>
                   <span className="text-zinc-600">Medium</span>
-                  <ChevronDown size={14} />
+                  <ChevronDown size={12} />
                 </motion.button>
               </div>
 
               {/* Right: Attachment, Mic, Send */}
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5">
                 <motion.button
                   type="button"
                   {...hoverScaleSmall}
-                  className="p-1.5 text-zinc-500 hover:text-zinc-300 transition-colors duration-150"
+                  className="p-1 text-zinc-500 hover:text-zinc-300 transition-colors duration-150"
                   title="Attach file"
                 >
-                  <Paperclip size={18} />
+                  <Paperclip size={16} />
                 </motion.button>
 
                 <motion.button
                   type="button"
                   {...hoverScaleSmall}
-                  className="p-1.5 text-zinc-500 hover:text-zinc-300 transition-colors duration-150"
+                  className="p-1 text-zinc-500 hover:text-zinc-300 transition-colors duration-150"
                   title="Voice input"
                 >
-                  <Mic size={18} />
+                  <Mic size={16} />
                 </motion.button>
 
                 <motion.button
@@ -285,7 +285,7 @@ export function AgentSetup({ onStart }: AgentSetupProps) {
                   whileHover={{ scale: task.trim() ? 1.05 : 1 }}
                   whileTap={{ scale: task.trim() ? 0.95 : 1 }}
                   className={`
-                    p-2 rounded-full transition-all duration-200
+                    p-1.5 rounded-full transition-all duration-200
                     ${
                       task.trim()
                         ? "bg-white text-black hover:bg-zinc-100 shadow-lg shadow-white/10"
@@ -293,7 +293,7 @@ export function AgentSetup({ onStart }: AgentSetupProps) {
                     }
                   `}
                 >
-                  <ArrowUp size={18} />
+                  <ArrowUp size={16} />
                 </motion.button>
               </div>
             </div>

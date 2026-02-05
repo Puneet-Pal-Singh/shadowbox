@@ -36,12 +36,12 @@ export function CommitDropdown({
         onClick={() => setIsOpen(!isOpen)}
         whileHover={{ scale: 1.02 }}
         whileTap={{ scale: 0.98 }}
-        className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-zinc-300 hover:text-white bg-zinc-900/50 hover:bg-zinc-800/50 border border-zinc-800 rounded-lg transition-all"
+        className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-zinc-300 hover:text-white bg-zinc-900/50 hover:bg-zinc-800/50 border border-zinc-800 rounded-md transition-all"
       >
-        <GitBranch size={16} className="text-emerald-400" />
+        <GitBranch size={14} className="text-emerald-400" />
         <span>Commit</span>
         <ChevronDown
-          size={14}
+          size={12}
           className={`text-zinc-500 transition-transform ${isOpen ? "rotate-180" : ""}`}
         />
       </motion.button>
@@ -61,19 +61,19 @@ export function CommitDropdown({
           >
             <button
               onClick={handleCommit}
-              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-400 hover:text-white hover:bg-zinc-800/50 text-left transition-colors"
+              className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-zinc-400 hover:text-white hover:bg-zinc-800/50 text-left transition-colors"
             >
               <span>Commit changes</span>
             </button>
             <button
               onClick={handlePush}
-              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-400 hover:text-white hover:bg-zinc-800/50 text-left transition-colors"
+              className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-zinc-400 hover:text-white hover:bg-zinc-800/50 text-left transition-colors"
             >
               <span>Push to remote</span>
             </button>
             <button
               onClick={handleStash}
-              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-400 hover:text-white hover:bg-zinc-800/50 text-left transition-colors"
+              className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-zinc-400 hover:text-white hover:bg-zinc-800/50 text-left transition-colors"
             >
               <span>Stash changes</span>
             </button>

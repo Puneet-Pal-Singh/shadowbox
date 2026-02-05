@@ -31,12 +31,12 @@ export function OpenDropdown({ onSelect }: OpenDropdownProps) {
         onClick={() => setIsOpen(!isOpen)}
         whileHover={{ scale: 1.02 }}
         whileTap={{ scale: 0.98 }}
-        className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-zinc-300 hover:text-white bg-zinc-900/50 hover:bg-zinc-800/50 border border-zinc-800 rounded-lg transition-all"
+        className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-zinc-300 hover:text-white bg-zinc-900/50 hover:bg-zinc-800/50 border border-zinc-800 rounded-md transition-all"
       >
-        <Icon size={16} className="text-blue-400" />
+        <Icon size={14} className="text-blue-400" />
         <span>Open</span>
         <ChevronDown
-          size={14}
+          size={12}
           className={`text-zinc-500 transition-transform ${isOpen ? "rotate-180" : ""}`}
         />
       </motion.button>

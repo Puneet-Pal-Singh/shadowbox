@@ -36,9 +36,9 @@ export function AgentSidebar({
   }));
 
   return (
-    <aside className="w-[260px] border-r border-[#1a1a1a] flex flex-col bg-[#0c0c0e] overflow-hidden">
+    <aside className="w-[220px] border-r border-[#1a1a1a] flex flex-col bg-[#0c0c0e] overflow-hidden">
       {/* Main Navigation */}
-      <div className="p-3 space-y-1">
+      <div className="p-2.5 space-y-0.5">
         <SidebarNavItem icon={Pencil} label="New thread" onClick={onCreate} />
         <SidebarNavItem
           icon={Clock}
@@ -53,7 +53,7 @@ export function AgentSidebar({
       </div>
 
       {/* Threads Section */}
-      <div className="flex-1 overflow-y-auto px-3">
+      <div className="flex-1 overflow-y-auto px-2.5">
         <SidebarSection
           title="Threads"
           action={{
@@ -77,7 +77,7 @@ export function AgentSidebar({
       </div>
 
       {/* Bottom Section */}
-      <div className="p-3 border-t border-[#1a1a1a] space-y-1">
+      <div className="p-2.5 border-t border-[#1a1a1a] space-y-0.5">
         <SidebarNavItem
           icon={FolderPlus}
           label="New project"

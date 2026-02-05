@@ -42,11 +42,11 @@ export function ChatInputBar({
         e.preventDefault();
         onSubmit();
       }}
-      className="w-full max-w-4xl mx-auto px-4 pb-4"
+      className="w-full max-w-3xl mx-auto px-4 pb-3"
     >
       <div
         className={`
-          bg-[#171717] rounded-2xl p-4
+          bg-[#171717] rounded-xl p-3
           transition-all duration-200
           ${isFocused ? "shadow-lg shadow-black/20" : ""}
         `}
@@ -61,57 +61,57 @@ export function ChatInputBar({
           placeholder={placeholder}
           disabled={isLoading}
           rows={1}
-          className="w-full bg-transparent text-base text-white placeholder-zinc-500 focus:outline-none resize-none overflow-hidden min-h-[24px] max-h-[400px]"
+          className="w-full bg-transparent text-sm text-white placeholder-zinc-500 focus:outline-none resize-none overflow-hidden min-h-[20px] max-h-[400px]"
           style={{ lineHeight: "1.5" }}
         />
 
         {/* Toolbar */}
-        <div className="flex items-center justify-between mt-3 pt-3">
+        <div className="flex items-center justify-between mt-2 pt-2">
           {/* Left: Add button + Model selector */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
             <motion.button
               type="button"
               whileHover={{ scale: 1.1 }}
               whileTap={{ scale: 0.9 }}
-              className="p-1.5 text-zinc-500 hover:text-zinc-300 transition-colors"
+              className="p-1 text-zinc-500 hover:text-zinc-300 transition-colors"
               title="Add files"
             >
-              <Plus size={18} />
+              <Plus size={16} />
             </motion.button>
 
-            <div className="h-4 w-px bg-zinc-800" />
+            <div className="h-3.5 w-px bg-zinc-800" />
 
             <motion.button
               type="button"
               whileHover={{ scale: 1.02 }}
-              className="flex items-center gap-1.5 px-2 py-1 text-sm text-zinc-500 hover:text-zinc-300 transition-colors"
+              className="flex items-center gap-1 px-1.5 py-0.5 text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
             >
               <span className="font-medium">GPT-5.2-Codex</span>
               <span className="text-zinc-600">Medium</span>
-              <ChevronDown size={14} />
+              <ChevronDown size={12} />
             </motion.button>
           </div>
 
           {/* Right: Attachment, Mic, Send */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
             <motion.button
               type="button"
               whileHover={{ scale: 1.1 }}
               whileTap={{ scale: 0.9 }}
-              className="p-1.5 text-zinc-500 hover:text-zinc-300 transition-colors"
+              className="p-1 text-zinc-500 hover:text-zinc-300 transition-colors"
               title="Attach file"
             >
-              <Paperclip size={18} />
+              <Paperclip size={16} />
             </motion.button>
 
             <motion.button
               type="button"
               whileHover={{ scale: 1.1 }}
               whileTap={{ scale: 0.9 }}
-              className="p-1.5 text-zinc-500 hover:text-zinc-300 transition-colors"
+              className="p-1 text-zinc-500 hover:text-zinc-300 transition-colors"
               title="Voice input"
             >
-              <Mic size={18} />
+              <Mic size={16} />
             </motion.button>
 
             <motion.button
@@ -120,7 +120,7 @@ export function ChatInputBar({
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
               className={`
-                p-2 rounded-full transition-all
+                p-1.5 rounded-full transition-all
                 ${
                   input.trim()
                     ? "bg-white text-black hover:bg-zinc-200"
@@ -128,7 +128,7 @@ export function ChatInputBar({
                 }
               `}
             >
-              <ArrowUp size={18} />
+              <ArrowUp size={16} />
             </motion.button>
           </div>
         </div>

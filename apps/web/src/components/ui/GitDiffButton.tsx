@@ -11,10 +11,10 @@ export function GitDiffButton({ onClick }: GitDiffButtonProps) {
       onClick={onClick}
       whileHover={{ scale: 1.05 }}
       whileTap={{ scale: 0.95 }}
-      className="flex items-center gap-1.5 px-2.5 py-1.5 text-sm text-zinc-400 hover:text-zinc-200 bg-zinc-900/50 hover:bg-zinc-800/50 rounded-lg border border-zinc-800 hover:border-zinc-700 transition-all duration-200"
+      className="flex items-center gap-1.5 px-2 py-1 text-xs text-zinc-400 hover:text-zinc-200 bg-zinc-900/50 hover:bg-zinc-800/50 rounded-md border border-zinc-800 hover:border-zinc-700 transition-all duration-200"
       title="Show git diff"
     >
-      <GitCompare size={16} />
+      <GitCompare size={14} />
     </motion.button>
   );
 }
