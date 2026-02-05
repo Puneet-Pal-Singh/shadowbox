@@ -1,31 +1,25 @@
 import { motion } from "framer-motion";
 import { NewThreadButton } from "../navigation/NewThreadButton";
-import { UpgradeButton } from "../navigation/UpgradeButton";
 import { OpenDropdown } from "../navigation/OpenDropdown";
 import { CommitDropdown } from "../navigation/CommitDropdown";
-import { WindowControls } from "../ui/WindowControls";
-import { ChangeCounter } from "../ui/ChangeCounter";
+import { GitDiffButton } from "../ui/GitDiffButton";
 
 interface TopNavBarProps {
   onNewThread?: () => void;
-  onUpgrade?: () => void;
   onOpenIde?: (ide: string) => void;
   onCommit?: () => void;
   onPush?: () => void;
   onStash?: () => void;
-  changesAdded?: number;
-  changesRemoved?: number;
+  onShowDiff?: () => void;
 }
 
 export function TopNavBar({
   onNewThread,
-  onUpgrade,
   onOpenIde,
   onCommit,
   onPush,
   onStash,
-  changesAdded = 5446,
-  changesRemoved = 0,
+  onShowDiff,
 }: TopNavBarProps) {
   return (
     <motion.header
@@ -39,18 +33,11 @@ export function TopNavBar({
         <NewThreadButton onClick={onNewThread} />
       </div>
 
-      {/* Center Section */}
-      <div className="flex items-center">
-        <UpgradeButton onClick={onUpgrade} />
-      </div>
-
       {/* Right Section */}
       <div className="flex items-center gap-3">
         <OpenDropdown onSelect={onOpenIde} />
         <CommitDropdown onCommit={onCommit} onPush={onPush} onStash={onStash} />
-        <div className="w-px h-4 bg-zinc-800" />
-        <WindowControls />
-        <ChangeCounter added={changesAdded} removed={changesRemoved} />
+        <GitDiffButton onClick={onShowDiff} />
       </div>
     </motion.header>
   );

@@ -46,8 +46,6 @@ function App() {
         onCommit={handleCommit}
         onPush={handlePush}
         onStash={handleStash}
-        changesAdded={5446}
-        changesRemoved={0}
       />
 
       {/* Main Layout: Sidebar + Content */}
