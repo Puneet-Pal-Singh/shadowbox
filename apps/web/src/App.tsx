@@ -47,58 +47,61 @@ function App() {
   };
 
   return (
-    <div className="h-screen w-screen bg-background text-zinc-400 flex flex-col overflow-hidden font-sans">
-      {/* Top Navigation Bar */}
-      <TopNavBar
-        onOpenIde={handleOpenIde}
-        onCommit={handleCommit}
-        onPush={handlePush}
-        onStash={handleStash}
-        isSidebarOpen={isSidebarOpen}
-        onToggleSidebar={handleToggleSidebar}
-      />
+    <div className="h-screen w-screen bg-background text-zinc-400 flex overflow-hidden font-sans">
+      {/* Sidebar - Independent */}
+      {isSidebarOpen && (
+        <AgentSidebar
+          sessions={sessions}
+          activeSessionId={activeSessionId}
+          onSelect={setActiveSessionId}
+          onCreate={handleNewThread}
+          onRemove={removeSession}
+          onClose={handleToggleSidebar}
+        />
+      )}
 
-      {/* Main Layout: Sidebar + Content */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* Session Management Layer (List of Active Tasks) */}
-        {isSidebarOpen && (
-          <AgentSidebar
-            sessions={sessions}
-            activeSessionId={activeSessionId}
-            onSelect={setActiveSessionId}
-            onCreate={handleNewThread}
-            onRemove={removeSession}
-            onClose={handleToggleSidebar}
-          />
-        )}
+      {/* Main Content Area with Top NavBar */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Top Navigation Bar - Only in content area */}
+        <TopNavBar
+          onOpenIde={handleOpenIde}
+          onCommit={handleCommit}
+          onPush={handlePush}
+          onStash={handleStash}
+          isSidebarOpen={isSidebarOpen}
+          onToggleSidebar={handleToggleSidebar}
+          threadTitle={threadTitle}
+        />
 
         {/* Main Workspace Layer */}
-        {activeSessionId ? (
-          <Workspace
-            key={activeSessionId}
-            sessionId={activeSessionId}
-            threadTitle={threadTitle}
-          />
-        ) : (
-          <AgentSetup
-            onStart={(config) => {
-              const name =
-                config.task.length > 20
-                  ? config.task.substring(0, 20) + "..."
-                  : config.task;
-              const id = createSession(name);
-              localStorage.setItem(`pending_query_${id}`, config.task);
-            }}
-          />
-        )}
-      </div>
+        <div className="flex-1 flex overflow-hidden">
+          {activeSessionId ? (
+            <Workspace
+              key={activeSessionId}
+              sessionId={activeSessionId}
+              threadTitle={threadTitle}
+            />
+          ) : (
+            <AgentSetup
+              onStart={(config) => {
+                const name =
+                  config.task.length > 20
+                    ? config.task.substring(0, 20) + "..."
+                    : config.task;
+                const id = createSession(name);
+                localStorage.setItem(`pending_query_${id}`, config.task);
+              }}
+            />
+          )}
+        </div>
 
-      {/* Status Bar */}
-      <StatusBar
-        activeTab={activeTab}
-        onTabChange={setActiveTab}
-        branchName="main"
-      />
+        {/* Status Bar */}
+        <StatusBar
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
+          branchName="main"
+        />
+      </div>
     </div>
   );
 }

@@ -42,10 +42,10 @@ export function AgentSidebar({
   return (
     <aside className="w-[220px] border-r border-[#1a1a1a] flex flex-col bg-[#0c0c0e] overflow-hidden">
       {/* Sidebar Header - App Icon and Close Button */}
-      <div className="h-10 border-b border-[#1a1a1a] flex items-center justify-between px-3 shrink-0">
+      <div className="flex items-center justify-between p-2 shrink-0">
         {/* App Icon - Left */}
-        <div className="flex items-center">
-          <span className="text-zinc-300 font-mono text-sm">&lt;_</span>
+        <div className="flex items-center text-zinc-300 font-mono text-sm">
+          &lt;_
         </div>
 
         {/* Close Button - Right */}
@@ -61,7 +61,7 @@ export function AgentSidebar({
       </div>
 
       {/* Main Navigation */}
-      <div className="p-2.5 space-y-0.5">
+      <div className="px-2.5 pb-2.5 space-y-0.5">
         <SidebarNavItem icon={Pencil} label="New thread" onClick={onCreate} />
         <SidebarNavItem
           icon={Clock}

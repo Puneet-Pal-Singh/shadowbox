@@ -12,6 +12,7 @@ interface TopNavBarProps {
   onShowDiff?: () => void;
   isSidebarOpen?: boolean;
   onToggleSidebar?: () => void;
+  threadTitle?: string;
 }
 
 export function TopNavBar({
@@ -22,6 +23,7 @@ export function TopNavBar({
   onShowDiff,
   isSidebarOpen = true,
   onToggleSidebar,
+  threadTitle,
 }: TopNavBarProps) {
   return (
     <motion.header
@@ -30,8 +32,8 @@ export function TopNavBar({
       transition={{ duration: 0.3 }}
       className="h-10 bg-[#0c0c0e] border-b border-[#1a1a1a] flex items-center justify-between px-3 shrink-0 z-50 shadow-sm shadow-black/20"
     >
-      {/* Left Section - Sidebar Toggle */}
-      <div className="flex items-center">
+      {/* Left Section - Sidebar Toggle and Thread Title */}
+      <div className="flex items-center gap-3">
         {!isSidebarOpen && (
           <motion.button
             onClick={onToggleSidebar}
@@ -42,6 +44,10 @@ export function TopNavBar({
           >
             <PanelLeftOpen size={16} />
           </motion.button>
+        )}
+        {/* Thread Title */}
+        {threadTitle && (
+          <span className="text-sm font-medium text-white">{threadTitle}</span>
         )}
       </div>
 

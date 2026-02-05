@@ -46,13 +46,6 @@ export function ChatInterface({
 
   return (
     <div className="flex flex-col h-full bg-black">
-      {/* Chat Header with Thread Title */}
-      {threadTitle && (
-        <div className="px-6 py-3 border-b border-[#1a1a1a] bg-black shrink-0">
-          <h2 className="text-sm font-medium text-white">{threadTitle}</h2>
-        </div>
-      )}
-
       {/* Scrollable Messages Container - Centered with max-width */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 py-4">
         <div className="max-w-3xl mx-auto space-y-6">
