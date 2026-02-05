@@ -32,7 +32,7 @@ interface CreateChatStreamOptions {
 export class AIService {
   private groq: OpenAIProvider;
 
-  constructor(private env: Env) {
+  constructor(env: Env) {
     const apiKey = env.GROQ_API_KEY;
     if (!apiKey) throw new Error("Missing GROQ_API_KEY");
 

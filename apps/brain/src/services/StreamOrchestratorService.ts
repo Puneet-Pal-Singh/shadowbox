@@ -110,7 +110,7 @@ export class StreamOrchestratorService {
   }
 
   private async handleFinish(
-    finalResult: StreamResult,
+    _finalResult: StreamResult,
     options: StreamOrchestratorOptions,
   ): Promise<void> {
     const { correlationId, runId } = options;
