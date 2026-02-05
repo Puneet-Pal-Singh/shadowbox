@@ -17,6 +17,10 @@ function App() {
 
   const [activeTab, setActiveTab] = useState<"local" | "worktree">("local");
 
+  // Get active session name for the header
+  const activeSession = sessions.find((s) => s.id === activeSessionId);
+  const threadTitle = activeSession?.name;
+
   const handleNewThread = () => {
     setActiveSessionId(null);
   };
@@ -46,6 +50,7 @@ function App() {
         onCommit={handleCommit}
         onPush={handlePush}
         onStash={handleStash}
+        threadTitle={threadTitle}
       />
 
       {/* Main Layout: Sidebar + Content */}

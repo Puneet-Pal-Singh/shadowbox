@@ -1,10 +1,10 @@
 import { useRef, useState } from "react";
 import { motion } from "framer-motion";
+import { Files } from "lucide-react";
 import { FileExplorer, FileExplorerHandle } from "../FileExplorer";
 import { ChatInterface } from "../chat/ChatInterface";
 import { useChat } from "../../hooks/useChat";
 import { cn } from "../../lib/utils";
-import { PanelRight } from "lucide-react";
 
 export function Workspace({ sessionId: runId }: { sessionId: string }) {
   const explorerRef = useRef<FileExplorerHandle>(null);
@@ -40,29 +40,11 @@ export function Workspace({ sessionId: runId }: { sessionId: string }) {
   }
 
   return (
-    <div className="flex-1 flex flex-col bg-black overflow-hidden relative">
-      {/* Sub-header with file explorer toggle */}
-      <div className="h-10 border-b border-border bg-black flex items-center justify-end px-3">
-        <motion.button
-          onClick={() => setIsExplorerOpen(!isExplorerOpen)}
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
-          className={cn(
-            "p-1.5 rounded transition-colors border",
-            isExplorerOpen
-              ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
-              : "text-zinc-500 hover:text-zinc-300 border-transparent hover:bg-zinc-800/30",
-          )}
-          title="Toggle Files Explorer"
-        >
-          <PanelRight size={16} />
-        </motion.button>
-      </div>
-
+    <div className="flex-1 flex bg-black overflow-hidden relative">
       {/* Main Content Area */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Chat Area (Full Width, Expandable) */}
-        <main className="flex-1 flex flex-col min-w-0 bg-black">
+        {/* Chat Area */}
+        <main className="flex-1 flex flex-col min-w-0 bg-black relative">
           <ChatInterface
             chatProps={{
               messages,
@@ -73,6 +55,22 @@ export function Workspace({ sessionId: runId }: { sessionId: string }) {
             }}
             onArtifactOpen={() => {}}
           />
+
+          {/* Files Toggle Button - Floating Sidebar Style */}
+          <motion.button
+            onClick={() => setIsExplorerOpen(!isExplorerOpen)}
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            className={cn(
+              "absolute right-3 top-1/2 -translate-y-1/2 p-2 rounded-lg transition-colors border z-10",
+              isExplorerOpen
+                ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
+                : "bg-zinc-900/80 text-zinc-500 hover:text-zinc-300 border-zinc-800 hover:bg-zinc-800/50",
+            )}
+            title="Toggle Files Explorer"
+          >
+            <Files size={18} />
+          </motion.button>
         </main>
 
         {/* File Explorer (Collapsible Right Sidebar) */}

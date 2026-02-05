@@ -11,6 +11,7 @@ interface TopNavBarProps {
   onPush?: () => void;
   onStash?: () => void;
   onShowDiff?: () => void;
+  threadTitle?: string;
 }
 
 export function TopNavBar({
@@ -20,6 +21,7 @@ export function TopNavBar({
   onPush,
   onStash,
   onShowDiff,
+  threadTitle,
 }: TopNavBarProps) {
   return (
     <motion.header
@@ -32,6 +34,15 @@ export function TopNavBar({
       <div className="flex items-center gap-2">
         <NewThreadButton onClick={onNewThread} />
       </div>
+
+      {/* Center Section - Thread Title */}
+      {threadTitle && (
+        <div className="flex-1 flex items-center justify-center">
+          <span className="text-xs font-medium text-white truncate max-w-md">
+            {threadTitle}
+          </span>
+        </div>
+      )}
 
       {/* Right Section */}
       <div className="flex items-center gap-3">

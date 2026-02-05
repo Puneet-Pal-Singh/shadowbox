@@ -1,6 +1,5 @@
 import { useRef, useEffect } from "react";
 import { ChatMessage } from "./ChatMessage";
-import { ThreadHeader } from "./ThreadHeader";
 import { ChatInputBar } from "./ChatInputBar";
 import { ExploredFilesSummary } from "./ExploredFilesSummary";
 import { Message } from "ai";
@@ -19,7 +18,6 @@ interface ChatInterfaceProps {
 
 export function ChatInterface({
   chatProps,
-  threadTitle = "Review shadowbox README",
   onArtifactOpen,
 }: ChatInterfaceProps) {
   const { messages, input, handleInputChange, handleSubmit, isLoading } =
@@ -47,9 +45,6 @@ export function ChatInterface({
 
   return (
     <div className="flex flex-col h-full bg-black">
-      {/* Thread Header */}
-      <ThreadHeader title={threadTitle} />
-
       {/* Scrollable Messages Container */}
       <div
         ref={scrollRef}
