@@ -52,14 +52,17 @@ export function AgentSetup({ onStart }: AgentSetupProps) {
   const [hoveredCard, setHoveredCard] = useState<number | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  const hasTask = task.trim().length > 0;
+
   // Auto-resize textarea
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
-      const newHeight = Math.min(textareaRef.current.scrollHeight, 400);
+      const maxHeight = hasTask ? 200 : 400;
+      const newHeight = Math.min(textareaRef.current.scrollHeight, maxHeight);
       textareaRef.current.style.height = newHeight + "px";
     }
-  }, [task]);
+  }, [task, hasTask]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -229,7 +232,7 @@ export function AgentSetup({ onStart }: AgentSetupProps) {
               onBlur={() => setIsInputFocused(false)}
               placeholder="Ask Shadowbox anything, @ to add files, / for commands"
               rows={1}
-              className="w-full bg-transparent text-sm text-white placeholder-zinc-500 focus:outline-none resize-none overflow-hidden min-h-[20px] max-h-[400px]"
+              className={`w-full bg-transparent text-sm text-white placeholder-zinc-500 focus:outline-none resize-none overflow-hidden min-h-[20px] ${hasTask ? "max-h-[200px]" : "max-h-[400px]"}`}
               style={{ lineHeight: "1.5" }}
             />
 

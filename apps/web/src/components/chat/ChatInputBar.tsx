@@ -20,14 +20,17 @@ export function ChatInputBar({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [isFocused, setIsFocused] = useState(false);
 
+  const hasInput = input.trim().length > 0;
+
   // Auto-resize textarea
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
-      const newHeight = Math.min(textareaRef.current.scrollHeight, 400);
+      const maxHeight = hasInput ? 200 : 400;
+      const newHeight = Math.min(textareaRef.current.scrollHeight, maxHeight);
       textareaRef.current.style.height = newHeight + "px";
     }
-  }, [input]);
+  }, [input, hasInput]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -61,7 +64,7 @@ export function ChatInputBar({
           placeholder={placeholder}
           disabled={isLoading}
           rows={1}
-          className="w-full bg-transparent text-sm text-white placeholder-zinc-500 focus:outline-none resize-none overflow-hidden min-h-[20px] max-h-[400px]"
+          className={`w-full bg-transparent text-sm text-white placeholder-zinc-500 focus:outline-none resize-none overflow-hidden min-h-[20px] ${hasInput ? "max-h-[200px]" : "max-h-[400px]"}`}
           style={{ lineHeight: "1.5" }}
         />
 
