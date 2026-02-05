@@ -197,7 +197,7 @@ export function AgentSetup({ onStart }: AgentSetupProps) {
 
       {/* Input Area - Bottom */}
       <motion.div
-        className={`w-full mx-auto px-6 pb-6 transition-all duration-300 ${task.trim() ? "max-w-xl" : "max-w-3xl"}`}
+        className="w-full max-w-3xl mx-auto px-6 pb-6"
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.4, duration: 0.4 }}
