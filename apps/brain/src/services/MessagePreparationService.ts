@@ -1,4 +1,4 @@
-import { convertToCoreMessages, type CoreMessage, type Message } from "ai";
+import { type CoreMessage } from "ai";
 
 export interface PreparedMessages {
   coreMessages: CoreMessage[];
@@ -8,8 +8,8 @@ export interface PreparedMessages {
 }
 
 export class MessagePreparationService {
-  prepareMessages(rawMessages: Message[]): PreparedMessages {
-    const coreMessages = convertToCoreMessages(rawMessages);
+  prepareMessages(rawMessages: CoreMessage[]): PreparedMessages {
+    const coreMessages = rawMessages;
     const isNewRun = coreMessages.length <= 1;
     const lastUserMessage = this.extractLastUserMessage(coreMessages);
 

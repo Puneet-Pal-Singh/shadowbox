@@ -11,7 +11,7 @@ interface WorkspaceProps {
   threadTitle?: string;
 }
 
-export function Workspace({ sessionId: runId, threadTitle }: WorkspaceProps) {
+export function Workspace({ sessionId: runId }: WorkspaceProps) {
   const explorerRef = useRef<FileExplorerHandle>(null);
   const sandboxId = runId;
   const [isExplorerOpen, setIsExplorerOpen] = useState(false);
@@ -58,7 +58,6 @@ export function Workspace({ sessionId: runId, threadTitle }: WorkspaceProps) {
               handleSubmit,
               isLoading,
             }}
-            threadTitle={threadTitle}
             onArtifactOpen={() => {}}
           />
 
