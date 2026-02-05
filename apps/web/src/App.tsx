@@ -47,55 +47,53 @@ function App() {
   };
 
   return (
-    <div className="h-screen w-screen bg-background text-zinc-400 flex overflow-hidden font-sans">
-      {/* Left Sidebar - Full height including header area */}
-      {isSidebarOpen && (
-        <AgentSidebar
-          sessions={sessions}
-          activeSessionId={activeSessionId}
-          onSelect={setActiveSessionId}
-          onCreate={handleNewThread}
-          onRemove={removeSession}
-          onClose={handleToggleSidebar}
-        />
-      )}
+    <div className="h-screen w-screen bg-background text-zinc-400 flex flex-col overflow-hidden font-sans">
+      {/* Top Navigation Bar */}
+      <TopNavBar
+        onOpenIde={handleOpenIde}
+        onCommit={handleCommit}
+        onPush={handlePush}
+        onStash={handleStash}
+        threadTitle={threadTitle}
+      />
 
-      {/* Main Content Area */}
-      <div className="flex-1 flex flex-col min-w-0">
-        {/* Top Navigation Bar - Inside main content */}
-        <TopNavBar
-          onOpenIde={handleOpenIde}
-          onCommit={handleCommit}
-          onPush={handlePush}
-          onStash={handleStash}
-          threadTitle={threadTitle}
-        />
+      {/* Main Layout: Sidebar + Content */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* Session Management Layer (List of Active Tasks) */}
+        {isSidebarOpen && (
+          <AgentSidebar
+            sessions={sessions}
+            activeSessionId={activeSessionId}
+            onSelect={setActiveSessionId}
+            onCreate={handleNewThread}
+            onRemove={removeSession}
+            onClose={handleToggleSidebar}
+          />
+        )}
 
         {/* Main Workspace Layer */}
-        <div className="flex-1 overflow-hidden">
-          {activeSessionId ? (
-            <Workspace key={activeSessionId} sessionId={activeSessionId} />
-          ) : (
-            <AgentSetup
-              onStart={(config) => {
-                const name =
-                  config.task.length > 20
-                    ? config.task.substring(0, 20) + "..."
-                    : config.task;
-                const id = createSession(name);
-                localStorage.setItem(`pending_query_${id}`, config.task);
-              }}
-            />
-          )}
-        </div>
-
-        {/* Status Bar */}
-        <StatusBar
-          activeTab={activeTab}
-          onTabChange={setActiveTab}
-          branchName="main"
-        />
+        {activeSessionId ? (
+          <Workspace key={activeSessionId} sessionId={activeSessionId} />
+        ) : (
+          <AgentSetup
+            onStart={(config) => {
+              const name =
+                config.task.length > 20
+                  ? config.task.substring(0, 20) + "..."
+                  : config.task;
+              const id = createSession(name);
+              localStorage.setItem(`pending_query_${id}`, config.task);
+            }}
+          />
+        )}
       </div>
+
+      {/* Status Bar */}
+      <StatusBar
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+        branchName="main"
+      />
     </div>
   );
 }
