@@ -6,12 +6,7 @@ import { ChatInterface } from "../chat/ChatInterface";
 import { useChat } from "../../hooks/useChat";
 import { cn } from "../../lib/utils";
 
-interface WorkspaceProps {
-  sessionId: string;
-  threadTitle?: string;
-}
-
-export function Workspace({ sessionId: runId, threadTitle }: WorkspaceProps) {
+export function Workspace({ sessionId: runId }: { sessionId: string }) {
   const explorerRef = useRef<FileExplorerHandle>(null);
   const sandboxId = runId;
   const [isExplorerOpen, setIsExplorerOpen] = useState(false);
@@ -58,7 +53,6 @@ export function Workspace({ sessionId: runId, threadTitle }: WorkspaceProps) {
               handleSubmit,
               isLoading,
             }}
-            threadTitle={threadTitle}
             onArtifactOpen={() => {}}
           />
 

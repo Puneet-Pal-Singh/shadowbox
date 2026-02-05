@@ -18,7 +18,6 @@ interface ChatInterfaceProps {
 
 export function ChatInterface({
   chatProps,
-  threadTitle,
   onArtifactOpen,
 }: ChatInterfaceProps) {
   const { messages, input, handleInputChange, handleSubmit, isLoading } =
@@ -46,53 +45,40 @@ export function ChatInterface({
 
   return (
     <div className="flex flex-col h-full bg-black">
-      {/* Thread Title Header - Left aligned */}
-      {threadTitle && (
-        <div className="px-6 py-3 border-b border-[#1a1a1a] bg-black">
-          <h2 className="text-xs font-medium text-white">{threadTitle}</h2>
-        </div>
-      )}
-
-      {/* Scrollable Messages Container - Centered with max width */}
+      {/* Scrollable Messages Container */}
       <div
         ref={scrollRef}
-        className="flex-1 overflow-y-auto px-6 py-4 space-y-6"
+        className="flex-1 overflow-y-auto px-4 py-4 space-y-6"
       >
-        <div className="max-w-3xl mx-auto">
-          {messages.length > 0 && (
-            <ExploredFilesSummary fileCount={fileReferences.length} />
-          )}
+        {messages.length > 0 && (
+          <ExploredFilesSummary fileCount={fileReferences.length} />
+        )}
 
-          {messages.map((msg) => (
-            <ChatMessage
-              key={msg.id}
-              message={msg}
-              onArtifactOpen={onArtifactOpen}
-            />
-          ))}
-
-          {/* Loading indicator */}
-          {isLoading && messages.length > 0 && (
-            <div className="flex items-center gap-2 px-4 py-2">
-              <div className="w-2 h-2 bg-zinc-500 rounded-full animate-bounce" />
-              <div className="w-2 h-2 bg-zinc-500 rounded-full animate-bounce [animation-delay:0.1s]" />
-              <div className="w-2 h-2 bg-zinc-500 rounded-full animate-bounce [animation-delay:0.2s]" />
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Input Area - Centered */}
-      <div className="px-6">
-        <div className="max-w-3xl mx-auto">
-          <ChatInputBar
-            input={input}
-            onChange={handleInputChangeWrapper}
-            onSubmit={handleSubmit}
-            isLoading={isLoading}
+        {messages.map((msg) => (
+          <ChatMessage
+            key={msg.id}
+            message={msg}
+            onArtifactOpen={onArtifactOpen}
           />
-        </div>
+        ))}
+
+        {/* Loading indicator */}
+        {isLoading && messages.length > 0 && (
+          <div className="flex items-center gap-2 px-4 py-2">
+            <div className="w-2 h-2 bg-zinc-500 rounded-full animate-bounce" />
+            <div className="w-2 h-2 bg-zinc-500 rounded-full animate-bounce [animation-delay:0.1s]" />
+            <div className="w-2 h-2 bg-zinc-500 rounded-full animate-bounce [animation-delay:0.2s]" />
+          </div>
+        )}
       </div>
+
+      {/* Input Area */}
+      <ChatInputBar
+        input={input}
+        onChange={handleInputChangeWrapper}
+        onSubmit={handleSubmit}
+        isLoading={isLoading}
+      />
     </div>
   );
 }

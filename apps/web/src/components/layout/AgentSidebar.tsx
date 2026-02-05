@@ -36,7 +36,7 @@ export function AgentSidebar({
   }));
 
   return (
-    <aside className="w-[220px] border-r border-[#1a1a1a] flex flex-col bg-[#0c0c0e] overflow-hidden h-full">
+    <aside className="w-[220px] border-r border-[#1a1a1a] flex flex-col bg-[#0c0c0e] overflow-hidden">
       {/* Main Navigation */}
       <div className="p-2.5 space-y-0.5">
         <SidebarNavItem icon={Pencil} label="New thread" onClick={onCreate} />
