@@ -54,7 +54,8 @@ function App() {
         onCommit={handleCommit}
         onPush={handlePush}
         onStash={handleStash}
-        threadTitle={threadTitle}
+        isSidebarOpen={isSidebarOpen}
+        onToggleSidebar={handleToggleSidebar}
       />
 
       {/* Main Layout: Sidebar + Content */}
@@ -73,7 +74,11 @@ function App() {
 
         {/* Main Workspace Layer */}
         {activeSessionId ? (
-          <Workspace key={activeSessionId} sessionId={activeSessionId} />
+          <Workspace
+            key={activeSessionId}
+            sessionId={activeSessionId}
+            threadTitle={threadTitle}
+          />
         ) : (
           <AgentSetup
             onStart={(config) => {
