@@ -4,16 +4,25 @@
 /* Configuration for Tailwind v4 happens here */
 @theme {
   --color-background: #000000;
-  --color-surface: #000000;
+  --color-surface: #0c0c0e;
+  --color-surface-elevated: #171717;
   --color-border: #1a1a1a;
+  --color-border-subtle: #262626;
   --color-accent: #10b981;
-  
+  --color-text-primary: #ffffff;
+  --color-text-secondary: #a1a1aa;
+  --color-text-tertiary: #71717a;
+  --color-accent-purple: #8b5cf6;
+  --color-accent-purple-hover: #7c3aed;
+
   --font-mono: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
 }
 
 /* Reset and Global Styles */
 @layer base {
-  html, body, #root {
+  html,
+  body,
+  #root {
     height: 100%;
     margin: 0;
     padding: 0;
@@ -24,7 +33,7 @@
 
   /* Fix the Vite "Center" bug */
   body {
-    display: block; 
+    display: block;
     min-width: 0;
     min-height: 0;
   }
@@ -44,6 +53,67 @@
 }
 ::-webkit-scrollbar-thumb:hover {
   background: #52525b;
+}
+
+/* Animations */
+@keyframes pulse-slow {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+@keyframes float {
+  0%,
+  100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-5px);
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+@keyframes slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 /* Utilities */
@@ -67,5 +137,62 @@
 
   .surface-hover {
     @apply hover:bg-surface/50 hover:border-border/50;
+  }
+
+  /* Animation utilities */
+  .animate-pulse-slow {
+    animation: pulse-slow 3s ease-in-out infinite;
+  }
+
+  .animate-float {
+    animation: float 4s ease-in-out infinite;
+  }
+
+  .animate-shimmer {
+    animation: shimmer 2s linear infinite;
+    background-size: 200% 100%;
+  }
+
+  .animate-slide-up {
+    animation: slide-up 0.3s ease-out forwards;
+  }
+
+  .animate-fade-in {
+    animation: fade-in 0.2s ease-out forwards;
+  }
+
+  .animate-scale-in {
+    animation: scale-in 0.2s ease-out forwards;
+  }
+
+  /* Transition utilities */
+  .transition-colors-fast {
+    transition:
+      color 0.15s ease,
+      background-color 0.15s ease,
+      border-color 0.15s ease;
+  }
+
+  .transition-transform-fast {
+    transition: transform 0.15s ease;
+  }
+
+  .transition-opacity-fast {
+    transition: opacity 0.15s ease;
+  }
+
+  /* Focus ring */
+  .focus-ring {
+    @apply focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:ring-offset-2 focus:ring-offset-black;
+  }
+
+  /* Hover lift effect */
+  .hover-lift {
+    @apply transition-transform duration-200 hover:-translate-y-0.5;
+  }
+
+  /* Text gradient */
+  .text-gradient {
+    @apply bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 to-emerald-600;
   }
 }

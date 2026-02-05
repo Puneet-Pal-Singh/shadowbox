@@ -1,43 +1,68 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { motion } from "framer-motion";
 import {
-  Terminal,
-  ArrowUp,
-  GitPullRequest,
-  FileText,
+  ChevronDown,
+  Cloud,
   Gamepad2,
+  FileText,
+  GitPullRequest,
+  Plus,
+  Mic,
+  ArrowUp,
+  Paperclip,
 } from "lucide-react";
+import {
+  staggerContainer,
+  staggerItem,
+  slideUp,
+  hoverScaleSmall,
+} from "../../lib/animations";
 
 interface AgentSetupProps {
   onStart: (config: { repo: string; branch: string; task: string }) => void;
 }
 
 interface SuggestedAction {
-  icon: React.ReactNode;
-  label: string;
-  description: string;
+  icon: React.ElementType;
+  title: string;
+  gradient: string;
 }
 
 const SUGGESTED_ACTIONS: SuggestedAction[] = [
   {
-    icon: <Gamepad2 size={20} className="text-zinc-400" />,
-    label: "Build a classic Snake game",
-    description: "Create an interactive browser game in this repo",
+    icon: Gamepad2,
+    title: "Build a classic Snake game in this repo.",
+    gradient: "from-blue-500/10 to-purple-500/10",
   },
   {
-    icon: <FileText size={20} className="text-zinc-400" />,
-    label: "Create a one-page PDF summary",
-    description: "Generate a document that summarizes this app",
+    icon: FileText,
+    title: "Create a one-page $pdf that summarizes this app.",
+    gradient: "from-emerald-500/10 to-teal-500/10",
   },
   {
-    icon: <GitPullRequest size={20} className="text-zinc-400" />,
-    label: "Summarize recent PRs",
-    description: "Get last week's changes by teammate and theme",
+    icon: GitPullRequest,
+    title: "Summarize last week's PRs by teammate and theme.",
+    gradient: "from-orange-500/10 to-red-500/10",
   },
 ];
 
 export function AgentSetup({ onStart }: AgentSetupProps) {
   const [task, setTask] = useState("");
+  const [isInputFocused, setIsInputFocused] = useState(false);
+  const [hoveredCard, setHoveredCard] = useState<number | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const hasTask = task.trim().length > 0;
+
+  // Auto-resize textarea
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = "auto";
+      const maxHeight = hasTask ? 200 : 400;
+      const newHeight = Math.min(textareaRef.current.scrollHeight, maxHeight);
+      textareaRef.current.style.height = newHeight + "px";
+    }
+  }, [task, hasTask]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -46,109 +71,237 @@ export function AgentSetup({ onStart }: AgentSetupProps) {
     }
   };
 
-  const handleSuggestedAction = (action: string) => {
-    setTask(action);
+  const handleSuggestedAction = (title: string) => {
+    setTask(title);
   };
 
   return (
     <motion.div
-      className="flex-1 flex flex-col items-center justify-center p-6 bg-black relative overflow-hidden"
-      initial={{ opacity: 1 }}
+      className="flex-1 flex flex-col bg-black relative overflow-hidden"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       transition={{ duration: 0.3 }}
     >
-      {/* Gradient Background */}
-      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-4xl h-full pointer-events-none">
-        <div className="absolute top-[-10%] left-1/2 -translate-x-1/2 w-[800px] h-[500px] bg-emerald-500/5 blur-[120px] rounded-full opacity-50" />
+      {/* Animated Background Glow */}
+      <div className="absolute inset-0 pointer-events-none overflow-hidden">
+        <motion.div
+          className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[500px] bg-emerald-500/5 blur-[150px] rounded-full"
+          animate={{
+            scale: [1, 1.1, 1],
+            opacity: [0.3, 0.5, 0.3],
+          }}
+          transition={{
+            duration: 8,
+            repeat: Infinity,
+            ease: "easeInOut",
+          }}
+        />
       </div>
 
-      {/* Single Screen - Command Bar */}
-      <motion.div
-        key="command-bar"
-        className="relative w-full flex flex-col items-center gap-12"
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        transition={{ duration: 0.3 }}
-      >
-        {/* Header */}
-        <div className="flex flex-col items-center gap-4 text-center">
-          <div className="w-14 h-14 bg-zinc-900 border border-zinc-800 rounded-2xl flex items-center justify-center shadow-2xl shadow-emerald-500/5">
-            <Terminal size={28} className="text-emerald-500" />
-          </div>
-          <h1 className="text-4xl font-bold text-white tracking-tight">
-            Shadowbox
-          </h1>
-          <p className="text-zinc-400 text-base">AI Agent Workspace</p>
-        </div>
-
-        {/* Command Bar (Centered) */}
-        <motion.form
-          onSubmit={handleSubmit}
-          className="w-full max-w-[600px]"
-          initial={{ y: 20, opacity: 0 }}
-          animate={{ y: 0, opacity: 1 }}
-          transition={{ delay: 0.1, duration: 0.4 }}
+      {/* Main Content - Centered */}
+      <div className="flex-1 flex flex-col items-center justify-center px-6">
+        {/* Logo and Title */}
+        <motion.div
+          className="flex flex-col items-center mb-12"
+          variants={slideUp}
+          initial="initial"
+          animate="animate"
         >
-          <div className="relative">
+          {/* Cloud/Brain Icon */}
+          <motion.div
+            className="w-10 h-10 mb-4 text-zinc-300"
+            animate={{
+              y: [0, -4, 0],
+            }}
+            transition={{
+              duration: 4,
+              repeat: Infinity,
+              ease: "easeInOut",
+            }}
+          >
+            <Cloud size={40} strokeWidth={1.5} />
+          </motion.div>
+
+          {/* Title */}
+          <h1 className="text-2xl font-medium text-white tracking-tight">
+            Let's build
+          </h1>
+
+          {/* Project Name with Dropdown */}
+          <motion.button
+            className="flex items-center gap-1.5 mt-0.5 text-2xl font-medium text-zinc-500 hover:text-zinc-400 transition-colors duration-200 group"
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+          >
+            <span>shadowbox</span>
+            <ChevronDown
+              size={18}
+              className="text-zinc-600 group-hover:text-zinc-500 transition-colors duration-200"
+            />
+          </motion.button>
+        </motion.div>
+
+        {/* Suggestion Cards - Hidden when typing */}
+        <motion.div
+          className={`flex gap-2 w-full max-w-3xl mb-6 ${task.trim() ? "hidden" : ""}`}
+          variants={staggerContainer}
+          initial="initial"
+          animate="animate"
+        >
+          {SUGGESTED_ACTIONS.map((action, idx) => {
+            const Icon = action.icon;
+            const isHovered = hoveredCard === idx;
+
+            return (
+              <motion.button
+                key={idx}
+                type="button"
+                variants={staggerItem}
+                onClick={() => handleSuggestedAction(action.title)}
+                onMouseEnter={() => setHoveredCard(idx)}
+                onMouseLeave={() => setHoveredCard(null)}
+                whileHover={{ scale: 1.02, y: -2 }}
+                whileTap={{ scale: 0.98 }}
+                className={`
+                  flex-1 flex flex-col gap-2 p-3 
+                  bg-[#171717] border rounded-lg text-left 
+                  transition-all duration-200 group relative overflow-hidden
+                  ${isHovered ? "border-[#404040]" : "border-[#262626]"}
+                `}
+              >
+                {/* Gradient overlay on hover */}
+                <motion.div
+                  className={`absolute inset-0 bg-gradient-to-br ${action.gradient} opacity-0 group-hover:opacity-100 transition-opacity duration-300`}
+                  initial={false}
+                  animate={{ opacity: isHovered ? 0.5 : 0 }}
+                />
+
+                <div className="relative z-10">
+                  <div
+                    className={`
+                    w-6 h-6 flex items-center justify-center rounded-md 
+                    bg-zinc-800/50 text-zinc-400 
+                    group-hover:text-zinc-300 group-hover:bg-zinc-800 
+                    transition-all duration-200
+                  `}
+                  >
+                    <Icon size={14} />
+                  </div>
+                  <p className="text-xs text-zinc-200 leading-snug mt-2 group-hover:text-white transition-colors duration-200">
+                    {action.title}
+                  </p>
+                </div>
+              </motion.button>
+            );
+          })}
+        </motion.div>
+      </div>
+
+      {/* Input Area - Bottom */}
+      <motion.div
+        className="w-full max-w-3xl mx-auto px-6 pb-6"
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.4, duration: 0.4 }}
+      >
+        <form onSubmit={handleSubmit}>
+          <motion.div
+            className={`
+              bg-[#171717] rounded-xl p-3
+              transition-all duration-200
+              ${isInputFocused ? "shadow-lg shadow-black/20" : ""}
+            `}
+            animate={{
+              boxShadow: isInputFocused
+                ? "0 4px 20px rgba(0, 0, 0, 0.3)"
+                : "0 0 0 0px rgba(0, 0, 0, 0)",
+            }}
+          >
             <textarea
+              ref={textareaRef}
               value={task}
               onChange={(e) => setTask(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
-                  handleSubmit(e as any);
+                  handleSubmit(e as unknown as React.FormEvent);
                 }
               }}
-              placeholder="Ask Shadowbox to build, fix, explore..."
+              onFocus={() => setIsInputFocused(true)}
+              onBlur={() => setIsInputFocused(false)}
+              placeholder="Ask Shadowbox anything, @ to add files, / for commands"
               rows={1}
-              className="w-full bg-zinc-950/50 border border-zinc-800 rounded-2xl py-4 px-5 text-base text-white placeholder-zinc-600 focus:outline-none focus:border-emerald-500/50 transition-all shadow-2xl backdrop-blur-sm resize-none overflow-hidden min-h-[56px] max-h-[200px] font-mono"
+              className={`w-full bg-transparent text-sm text-white placeholder-zinc-500 focus:outline-none resize-none overflow-hidden min-h-[20px] ${hasTask ? "max-h-[200px]" : "max-h-[400px]"}`}
               style={{ lineHeight: "1.5" }}
             />
-            <motion.button
-              type="submit"
-              disabled={!task.trim()}
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              className="absolute right-2 top-1/2 -translate-y-1/2 p-2 hover:bg-zinc-800 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <ArrowUp size={20} className="text-zinc-500" />
-            </motion.button>
-          </div>
-        </motion.form>
 
-        {/* Suggested Actions - Card Style */}
-        <motion.div
-          className="grid grid-cols-1 md:grid-cols-3 gap-4 w-full max-w-3xl px-4"
-          initial={{ y: 20, opacity: 0 }}
-          animate={{ y: 0, opacity: 1 }}
-          transition={{ delay: 0.2, duration: 0.4 }}
-        >
-          {SUGGESTED_ACTIONS.map((action, idx) => (
-            <motion.button
-              key={action.label}
-              type="button"
-              onClick={() => handleSuggestedAction(action.label)}
-              whileHover={{ scale: 1.02, y: -2 }}
-              whileTap={{ scale: 0.98 }}
-              className="flex flex-col items-start gap-3 p-5 bg-zinc-900/50 border border-zinc-800 rounded-xl text-left hover:border-zinc-600 hover:bg-zinc-800/50 transition-all group"
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.3 + idx * 0.05 }}
-            >
-              <div className="p-2 bg-zinc-800/50 rounded-lg group-hover:bg-zinc-700/50 transition-colors">
-                {action.icon}
+            {/* Toolbar */}
+            <div className="flex items-center justify-between mt-2 pt-2">
+              {/* Left: Add button + Model selector */}
+              <div className="flex items-center gap-1.5">
+                <motion.button
+                  type="button"
+                  {...hoverScaleSmall}
+                  className="p-1 text-zinc-500 hover:text-zinc-300 transition-colors duration-150"
+                  title="Add files"
+                >
+                  <Plus size={16} />
+                </motion.button>
+
+                <div className="h-3.5 w-px bg-zinc-800" />
+
+                <motion.button
+                  type="button"
+                  whileHover={{ scale: 1.02 }}
+                  className="flex items-center gap-1 px-1.5 py-0.5 text-xs text-zinc-500 hover:text-zinc-300 transition-colors duration-150"
+                >
+                  <span className="font-medium">GPT-5.2-Codex</span>
+                  <span className="text-zinc-600">Medium</span>
+                  <ChevronDown size={12} />
+                </motion.button>
               </div>
-              <div>
-                <div className="text-sm font-medium text-zinc-200 mb-1">
-                  {action.label}
-                </div>
-                <div className="text-xs text-zinc-500">
-                  {action.description}
-                </div>
+
+              {/* Right: Attachment, Mic, Send */}
+              <div className="flex items-center gap-1.5">
+                <motion.button
+                  type="button"
+                  {...hoverScaleSmall}
+                  className="p-1 text-zinc-500 hover:text-zinc-300 transition-colors duration-150"
+                  title="Attach file"
+                >
+                  <Paperclip size={16} />
+                </motion.button>
+
+                <motion.button
+                  type="button"
+                  {...hoverScaleSmall}
+                  className="p-1 text-zinc-500 hover:text-zinc-300 transition-colors duration-150"
+                  title="Voice input"
+                >
+                  <Mic size={16} />
+                </motion.button>
+
+                <motion.button
+                  type="submit"
+                  disabled={!task.trim()}
+                  whileHover={{ scale: task.trim() ? 1.05 : 1 }}
+                  whileTap={{ scale: task.trim() ? 0.95 : 1 }}
+                  className={`
+                    p-1.5 rounded-full transition-all duration-200
+                    ${
+                      task.trim()
+                        ? "bg-white text-black hover:bg-zinc-100 shadow-lg shadow-white/10"
+                        : "bg-zinc-800 text-zinc-600 cursor-not-allowed"
+                    }
+                  `}
+                >
+                  <ArrowUp size={16} />
+                </motion.button>
               </div>
-            </motion.button>
-          ))}
-        </motion.div>
+            </div>
+          </motion.div>
+        </form>
       </motion.div>
     </motion.div>
   );
