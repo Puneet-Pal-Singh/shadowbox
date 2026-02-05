@@ -16,8 +16,9 @@ function App() {
   } = useSessionManager();
 
   const [activeTab, setActiveTab] = useState<"local" | "worktree">("local");
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
-  // Get active session name for the header
+  // Get active session name for the workspace
   const activeSession = sessions.find((s) => s.id === activeSessionId);
   const threadTitle = activeSession?.name;
 
@@ -41,44 +42,59 @@ function App() {
     console.log("Stash changes");
   };
 
+  const handleToggleSidebar = () => {
+    setIsSidebarOpen(!isSidebarOpen);
+  };
+
   return (
     <div className="h-screen w-screen bg-background text-zinc-400 flex flex-col overflow-hidden font-sans">
-      {/* Top Navigation Bar */}
-      <TopNavBar
-        onNewThread={handleNewThread}
-        onOpenIde={handleOpenIde}
-        onCommit={handleCommit}
-        onPush={handlePush}
-        onStash={handleStash}
-        threadTitle={threadTitle}
-      />
-
-      {/* Main Layout: Sidebar + Content */}
+      {/* Main Layout Grid - Sidebar + Content */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Session Management Layer (List of Active Tasks) */}
-        <AgentSidebar
-          sessions={sessions}
-          activeSessionId={activeSessionId}
-          onSelect={setActiveSessionId}
-          onCreate={handleNewThread}
-          onRemove={removeSession}
-        />
-
-        {/* Main Workspace Layer */}
-        {activeSessionId ? (
-          <Workspace key={activeSessionId} sessionId={activeSessionId} />
-        ) : (
-          <AgentSetup
-            onStart={(config) => {
-              const name =
-                config.task.length > 20
-                  ? config.task.substring(0, 20) + "..."
-                  : config.task;
-              const id = createSession(name);
-              localStorage.setItem(`pending_query_${id}`, config.task);
-            }}
+        {/* Left Sidebar - Extends full height */}
+        {isSidebarOpen && (
+          <AgentSidebar
+            sessions={sessions}
+            activeSessionId={activeSessionId}
+            onSelect={setActiveSessionId}
+            onCreate={handleNewThread}
+            onRemove={removeSession}
           />
         )}
+
+        {/* Right Content Area */}
+        <div className="flex-1 flex flex-col min-w-0">
+          {/* Top Navigation Bar */}
+          <TopNavBar
+            onOpenIde={handleOpenIde}
+            onCommit={handleCommit}
+            onPush={handlePush}
+            onStash={handleStash}
+            isSidebarOpen={isSidebarOpen}
+            onToggleSidebar={handleToggleSidebar}
+          />
+
+          {/* Main Content */}
+          <div className="flex-1 overflow-hidden">
+            {activeSessionId ? (
+              <Workspace
+                key={activeSessionId}
+                sessionId={activeSessionId}
+                threadTitle={threadTitle}
+              />
+            ) : (
+              <AgentSetup
+                onStart={(config) => {
+                  const name =
+                    config.task.length > 20
+                      ? config.task.substring(0, 20) + "..."
+                      : config.task;
+                  const id = createSession(name);
+                  localStorage.setItem(`pending_query_${id}`, config.task);
+                }}
+              />
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Status Bar */}

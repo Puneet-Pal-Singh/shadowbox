@@ -1,27 +1,27 @@
 import { motion } from "framer-motion";
-import { NewThreadButton } from "../navigation/NewThreadButton";
+import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { OpenDropdown } from "../navigation/OpenDropdown";
 import { CommitDropdown } from "../navigation/CommitDropdown";
 import { GitDiffButton } from "../ui/GitDiffButton";
 
 interface TopNavBarProps {
-  onNewThread?: () => void;
   onOpenIde?: (ide: string) => void;
   onCommit?: () => void;
   onPush?: () => void;
   onStash?: () => void;
   onShowDiff?: () => void;
-  threadTitle?: string;
+  isSidebarOpen?: boolean;
+  onToggleSidebar?: () => void;
 }
 
 export function TopNavBar({
-  onNewThread,
   onOpenIde,
   onCommit,
   onPush,
   onStash,
   onShowDiff,
-  threadTitle,
+  isSidebarOpen = true,
+  onToggleSidebar,
 }: TopNavBarProps) {
   return (
     <motion.header
@@ -30,19 +30,22 @@ export function TopNavBar({
       transition={{ duration: 0.3 }}
       className="h-10 bg-[#0c0c0e] border-b border-[#1a1a1a] flex items-center justify-between px-3 shrink-0 z-50 shadow-sm shadow-black/20"
     >
-      {/* Left Section */}
+      {/* Left Section - Sidebar Toggle */}
       <div className="flex items-center gap-2">
-        <NewThreadButton onClick={onNewThread} />
+        <motion.button
+          onClick={onToggleSidebar}
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+          className="p-1.5 text-zinc-400 hover:text-zinc-200 transition-colors rounded-md hover:bg-zinc-800/50"
+          title={isSidebarOpen ? "Close sidebar" : "Open sidebar"}
+        >
+          {isSidebarOpen ? (
+            <PanelLeftClose size={16} />
+          ) : (
+            <PanelLeftOpen size={16} />
+          )}
+        </motion.button>
       </div>
-
-      {/* Center Section - Thread Title */}
-      {threadTitle && (
-        <div className="flex-1 flex items-center justify-center">
-          <span className="text-xs font-medium text-white truncate max-w-md">
-            {threadTitle}
-          </span>
-        </div>
-      )}
 
       {/* Right Section */}
       <div className="flex items-center gap-3">
