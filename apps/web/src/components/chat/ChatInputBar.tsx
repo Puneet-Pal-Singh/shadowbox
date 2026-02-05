@@ -36,13 +36,15 @@ export function ChatInputBar({
     }
   };
 
+  const hasInput = input.trim().length > 0;
+
   return (
     <form
       onSubmit={(e) => {
         e.preventDefault();
         onSubmit();
       }}
-      className="w-full max-w-3xl mx-auto px-4 pb-3"
+      className={`w-full mx-auto px-4 pb-3 transition-all duration-300 ${hasInput ? "max-w-xl" : "max-w-3xl"}`}
     >
       <div
         className={`
