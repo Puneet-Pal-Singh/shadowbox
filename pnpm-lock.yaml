@@ -42,6 +42,9 @@ importers:
       '@shadowbox/context-pruner':
         specifier: workspace:*
         version: link:../../packages/context-pruner
+      '@shadowbox/github-bridge':
+        specifier: workspace:*
+        version: link:../../packages/github-bridge
       ai:
         specifier: 4.1.0
         version: 4.1.0(react@19.2.4)(zod@3.25.1)
@@ -230,6 +233,15 @@ importers:
       typescript-eslint:
         specifier: ^8.50.0
         version: 8.54.0(eslint@9.39.2(jiti@2.6.1))(typescript@5.9.3)
+
+  packages/github-bridge:
+    devDependencies:
+      '@repo/typescript-config':
+        specifier: workspace:*
+        version: link:../typescript-config
+      typescript:
+        specifier: ~5.9.3
+        version: 5.9.3
 
   packages/typescript-config: {}
 
