@@ -59,38 +59,42 @@ function App() {
       />
 
       {/* Main Layout: Sidebar + Content */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* Session Management Layer (List of Active Tasks) */}
+      <div className="flex-1 flex overflow-hidden relative">
+        {/* Session Management Layer (List of Active Tasks) - Extends to top */}
         {isSidebarOpen && (
-          <AgentSidebar
-            sessions={sessions}
-            activeSessionId={activeSessionId}
-            onSelect={setActiveSessionId}
-            onCreate={handleNewThread}
-            onRemove={removeSession}
-            onClose={handleToggleSidebar}
-          />
+          <div className="absolute left-0 top-[-40px] bottom-0 z-10">
+            <AgentSidebar
+              sessions={sessions}
+              activeSessionId={activeSessionId}
+              onSelect={setActiveSessionId}
+              onCreate={handleNewThread}
+              onRemove={removeSession}
+              onClose={handleToggleSidebar}
+            />
+          </div>
         )}
 
-        {/* Main Workspace Layer */}
-        {activeSessionId ? (
-          <Workspace
-            key={activeSessionId}
-            sessionId={activeSessionId}
-            threadTitle={threadTitle}
-          />
-        ) : (
-          <AgentSetup
-            onStart={(config) => {
-              const name =
-                config.task.length > 20
-                  ? config.task.substring(0, 20) + "..."
-                  : config.task;
-              const id = createSession(name);
-              localStorage.setItem(`pending_query_${id}`, config.task);
-            }}
-          />
-        )}
+        {/* Main Workspace Layer - Adjust for sidebar */}
+        <div className={`flex-1 ${isSidebarOpen ? "ml-[220px]" : ""}`}>
+          {activeSessionId ? (
+            <Workspace
+              key={activeSessionId}
+              sessionId={activeSessionId}
+              threadTitle={threadTitle}
+            />
+          ) : (
+            <AgentSetup
+              onStart={(config) => {
+                const name =
+                  config.task.length > 20
+                    ? config.task.substring(0, 20) + "..."
+                    : config.task;
+                const id = createSession(name);
+                localStorage.setItem(`pending_query_${id}`, config.task);
+              }}
+            />
+          )}
+        </div>
       </div>
 
       {/* Status Bar */}
