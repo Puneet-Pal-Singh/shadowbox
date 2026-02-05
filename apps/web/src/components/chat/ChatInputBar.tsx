@@ -24,7 +24,7 @@ export function ChatInputBar({
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
-      const newHeight = Math.min(textareaRef.current.scrollHeight, 200);
+      const newHeight = Math.min(textareaRef.current.scrollHeight, 400);
       textareaRef.current.style.height = newHeight + "px";
     }
   }, [input]);
@@ -42,13 +42,13 @@ export function ChatInputBar({
         e.preventDefault();
         onSubmit();
       }}
-      className="w-full max-w-3xl mx-auto px-4 pb-4"
+      className="w-full max-w-4xl mx-auto px-4 pb-4"
     >
       <div
         className={`
-          bg-[#171717] border rounded-2xl p-4
+          bg-[#171717] rounded-2xl p-4
           transition-all duration-200
-          ${isFocused ? "border-[#404040]" : "border-[#262626]"}
+          ${isFocused ? "shadow-lg shadow-black/20" : ""}
         `}
       >
         <textarea
@@ -61,12 +61,12 @@ export function ChatInputBar({
           placeholder={placeholder}
           disabled={isLoading}
           rows={1}
-          className="w-full bg-transparent text-base text-white placeholder-zinc-500 focus:outline-none resize-none overflow-hidden min-h-[24px] max-h-[200px]"
+          className="w-full bg-transparent text-base text-white placeholder-zinc-500 focus:outline-none resize-none overflow-hidden min-h-[24px] max-h-[400px]"
           style={{ lineHeight: "1.5" }}
         />
 
         {/* Toolbar */}
-        <div className="flex items-center justify-between mt-3 pt-3 border-t border-[#262626]">
+        <div className="flex items-center justify-between mt-3 pt-3">
           {/* Left: Add button + Model selector */}
           <div className="flex items-center gap-2">
             <motion.button

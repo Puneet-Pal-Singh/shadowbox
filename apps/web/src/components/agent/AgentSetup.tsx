@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { motion } from "framer-motion";
 import {
   ChevronDown,
@@ -50,6 +50,16 @@ export function AgentSetup({ onStart }: AgentSetupProps) {
   const [task, setTask] = useState("");
   const [isInputFocused, setIsInputFocused] = useState(false);
   const [hoveredCard, setHoveredCard] = useState<number | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Auto-resize textarea
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = "auto";
+      const newHeight = Math.min(textareaRef.current.scrollHeight, 400);
+      textareaRef.current.style.height = newHeight + "px";
+    }
+  }, [task]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -129,9 +139,9 @@ export function AgentSetup({ onStart }: AgentSetupProps) {
           </motion.button>
         </motion.div>
 
-        {/* Suggestion Cards */}
+        {/* Suggestion Cards - Hidden when typing */}
         <motion.div
-          className="flex gap-3 w-full max-w-3xl mb-8"
+          className={`flex gap-3 w-full max-w-4xl mb-8 ${task.trim() ? "hidden" : ""}`}
           variants={staggerContainer}
           initial="initial"
           animate="animate"
@@ -187,7 +197,7 @@ export function AgentSetup({ onStart }: AgentSetupProps) {
 
       {/* Input Area - Bottom */}
       <motion.div
-        className="w-full max-w-2xl mx-auto px-6 pb-8"
+        className="w-full max-w-4xl mx-auto px-6 pb-8"
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.4, duration: 0.4 }}
@@ -195,17 +205,18 @@ export function AgentSetup({ onStart }: AgentSetupProps) {
         <form onSubmit={handleSubmit}>
           <motion.div
             className={`
-              bg-[#171717] border rounded-2xl p-4
+              bg-[#171717] rounded-2xl p-4
               transition-all duration-200
-              ${isInputFocused ? "border-[#525252] shadow-lg shadow-black/20" : "border-[#262626]"}
+              ${isInputFocused ? "shadow-lg shadow-black/20" : ""}
             `}
             animate={{
               boxShadow: isInputFocused
-                ? "0 0 0 1px rgba(82, 82, 82, 0.5), 0 4px 20px rgba(0, 0, 0, 0.3)"
-                : "0 0 0 0px rgba(82, 82, 82, 0)",
+                ? "0 4px 20px rgba(0, 0, 0, 0.3)"
+                : "0 0 0 0px rgba(0, 0, 0, 0)",
             }}
           >
             <textarea
+              ref={textareaRef}
               value={task}
               onChange={(e) => setTask(e.target.value)}
               onKeyDown={(e) => {
@@ -218,12 +229,12 @@ export function AgentSetup({ onStart }: AgentSetupProps) {
               onBlur={() => setIsInputFocused(false)}
               placeholder="Ask Shadowbox anything, @ to add files, / for commands"
               rows={1}
-              className="w-full bg-transparent text-base text-white placeholder-zinc-500 focus:outline-none resize-none overflow-hidden min-h-[24px] max-h-[200px]"
+              className="w-full bg-transparent text-base text-white placeholder-zinc-500 focus:outline-none resize-none overflow-hidden min-h-[24px] max-h-[400px]"
               style={{ lineHeight: "1.5" }}
             />
 
             {/* Toolbar */}
-            <div className="flex items-center justify-between mt-3 pt-3 border-t border-[#262626]">
+            <div className="flex items-center justify-between mt-3 pt-3">
               {/* Left: Add button + Model selector */}
               <div className="flex items-center gap-2">
                 <motion.button
