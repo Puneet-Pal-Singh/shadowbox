@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { PanelLeftOpen, PanelLeftClose } from "lucide-react";
+import { PanelLeftOpen } from "lucide-react";
 import { OpenDropdown } from "../navigation/OpenDropdown";
 import { CommitDropdown } from "../navigation/CommitDropdown";
 import { GitDiffButton } from "../ui/GitDiffButton";
