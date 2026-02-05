@@ -45,40 +45,43 @@ export function ChatInterface({
 
   return (
     <div className="flex flex-col h-full bg-black">
-      {/* Scrollable Messages Container */}
-      <div
-        ref={scrollRef}
-        className="flex-1 overflow-y-auto px-4 py-4 space-y-6"
-      >
-        {messages.length > 0 && (
-          <ExploredFilesSummary fileCount={fileReferences.length} />
-        )}
+      {/* Scrollable Messages Container - Centered with max-width */}
+      <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 py-4">
+        <div className="max-w-3xl mx-auto space-y-6">
+          {messages.length > 0 && (
+            <ExploredFilesSummary fileCount={fileReferences.length} />
+          )}
 
-        {messages.map((msg) => (
-          <ChatMessage
-            key={msg.id}
-            message={msg}
-            onArtifactOpen={onArtifactOpen}
-          />
-        ))}
+          {messages.map((msg) => (
+            <ChatMessage
+              key={msg.id}
+              message={msg}
+              onArtifactOpen={onArtifactOpen}
+            />
+          ))}
 
-        {/* Loading indicator */}
-        {isLoading && messages.length > 0 && (
-          <div className="flex items-center gap-2 px-4 py-2">
-            <div className="w-2 h-2 bg-zinc-500 rounded-full animate-bounce" />
-            <div className="w-2 h-2 bg-zinc-500 rounded-full animate-bounce [animation-delay:0.1s]" />
-            <div className="w-2 h-2 bg-zinc-500 rounded-full animate-bounce [animation-delay:0.2s]" />
-          </div>
-        )}
+          {/* Loading indicator */}
+          {isLoading && messages.length > 0 && (
+            <div className="flex items-center gap-2 px-4 py-2">
+              <div className="w-2 h-2 bg-zinc-500 rounded-full animate-bounce" />
+              <div className="w-2 h-2 bg-zinc-500 rounded-full animate-bounce [animation-delay:0.1s]" />
+              <div className="w-2 h-2 bg-zinc-500 rounded-full animate-bounce [animation-delay:0.2s]" />
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* Input Area */}
-      <ChatInputBar
-        input={input}
-        onChange={handleInputChangeWrapper}
-        onSubmit={handleSubmit}
-        isLoading={isLoading}
-      />
+      {/* Input Area - Centered */}
+      <div className="px-6 pb-4">
+        <div className="max-w-3xl mx-auto">
+          <ChatInputBar
+            input={input}
+            onChange={handleInputChangeWrapper}
+            onSubmit={handleSubmit}
+            isLoading={isLoading}
+          />
+        </div>
+      </div>
     </div>
   );
 }

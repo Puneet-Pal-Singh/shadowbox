@@ -6,7 +6,9 @@ import {
   ListFilter,
   FolderPlus,
   Settings,
+  PanelLeftClose,
 } from "lucide-react";
+import { motion } from "framer-motion";
 import { AgentSession } from "../../hooks/useSessionManager";
 import { SidebarNavItem } from "../navigation/SidebarNavItem";
 import { ThreadList } from "../navigation/ThreadList";
@@ -18,6 +20,7 @@ interface AgentSidebarProps {
   onSelect: (id: string) => void;
   onCreate: () => void;
   onRemove: (id: string) => void;
+  onClose?: () => void;
 }
 
 export function AgentSidebar({
@@ -26,6 +29,7 @@ export function AgentSidebar({
   onSelect,
   onCreate,
   onRemove,
+  onClose,
 }: AgentSidebarProps) {
   // Convert sessions to thread items
   const threadItems = sessions.map((session) => ({
@@ -37,6 +41,25 @@ export function AgentSidebar({
 
   return (
     <aside className="w-[220px] border-r border-[#1a1a1a] flex flex-col bg-[#0c0c0e] overflow-hidden">
+      {/* Sidebar Header - App Icon and Close Button */}
+      <div className="h-10 border-b border-[#1a1a1a] flex items-center justify-between px-3 shrink-0">
+        {/* App Icon - Left */}
+        <div className="flex items-center">
+          <span className="text-zinc-300 font-mono text-sm">&lt;_</span>
+        </div>
+
+        {/* Close Button - Right */}
+        <motion.button
+          onClick={onClose}
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+          className="p-1.5 text-zinc-500 hover:text-zinc-300 transition-colors rounded-md hover:bg-zinc-800/50"
+          title="Close sidebar"
+        >
+          <PanelLeftClose size={16} />
+        </motion.button>
+      </div>
+
       {/* Main Navigation */}
       <div className="p-2.5 space-y-0.5">
         <SidebarNavItem icon={Pencil} label="New thread" onClick={onCreate} />

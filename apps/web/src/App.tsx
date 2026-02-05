@@ -16,6 +16,7 @@ function App() {
   } = useSessionManager();
 
   const [activeTab, setActiveTab] = useState<"local" | "worktree">("local");
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
   // Get active session name for the header
   const activeSession = sessions.find((s) => s.id === activeSessionId);
@@ -41,11 +42,14 @@ function App() {
     console.log("Stash changes");
   };
 
+  const handleToggleSidebar = () => {
+    setIsSidebarOpen(!isSidebarOpen);
+  };
+
   return (
     <div className="h-screen w-screen bg-background text-zinc-400 flex flex-col overflow-hidden font-sans">
       {/* Top Navigation Bar */}
       <TopNavBar
-        onNewThread={handleNewThread}
         onOpenIde={handleOpenIde}
         onCommit={handleCommit}
         onPush={handlePush}
@@ -56,13 +60,16 @@ function App() {
       {/* Main Layout: Sidebar + Content */}
       <div className="flex-1 flex overflow-hidden">
         {/* Session Management Layer (List of Active Tasks) */}
-        <AgentSidebar
-          sessions={sessions}
-          activeSessionId={activeSessionId}
-          onSelect={setActiveSessionId}
-          onCreate={handleNewThread}
-          onRemove={removeSession}
-        />
+        {isSidebarOpen && (
+          <AgentSidebar
+            sessions={sessions}
+            activeSessionId={activeSessionId}
+            onSelect={setActiveSessionId}
+            onCreate={handleNewThread}
+            onRemove={removeSession}
+            onClose={handleToggleSidebar}
+          />
+        )}
 
         {/* Main Workspace Layer */}
         {activeSessionId ? (

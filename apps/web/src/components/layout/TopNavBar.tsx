@@ -1,11 +1,9 @@
 import { motion } from "framer-motion";
-import { NewThreadButton } from "../navigation/NewThreadButton";
 import { OpenDropdown } from "../navigation/OpenDropdown";
 import { CommitDropdown } from "../navigation/CommitDropdown";
 import { GitDiffButton } from "../ui/GitDiffButton";
 
 interface TopNavBarProps {
-  onNewThread?: () => void;
   onOpenIde?: (ide: string) => void;
   onCommit?: () => void;
   onPush?: () => void;
@@ -15,7 +13,6 @@ interface TopNavBarProps {
 }
 
 export function TopNavBar({
-  onNewThread,
   onOpenIde,
   onCommit,
   onPush,
@@ -30,9 +27,9 @@ export function TopNavBar({
       transition={{ duration: 0.3 }}
       className="h-10 bg-[#0c0c0e] border-b border-[#1a1a1a] flex items-center justify-between px-3 shrink-0 z-50 shadow-sm shadow-black/20"
     >
-      {/* Left Section */}
-      <div className="flex items-center gap-2">
-        <NewThreadButton onClick={onNewThread} />
+      {/* Left Section - Empty for balance */}
+      <div className="flex items-center gap-2 w-[200px]">
+        {/* Spacer to balance the right side */}
       </div>
 
       {/* Center Section - Thread Title */}
@@ -45,7 +42,7 @@ export function TopNavBar({
       )}
 
       {/* Right Section */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center justify-end gap-3 w-[200px]">
         <OpenDropdown onSelect={onOpenIde} />
         <CommitDropdown onCommit={onCommit} onPush={onPush} onStash={onStash} />
         <GitDiffButton onClick={onShowDiff} />
