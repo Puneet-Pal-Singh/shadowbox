@@ -7,6 +7,7 @@ import { TopNavBar } from "./components/layout/TopNavBar";
 import { StatusBar } from "./components/layout/StatusBar";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { RepoPicker } from "./components/github/RepoPicker";
+import { LoginScreen } from "./components/auth/LoginScreen";
 import type { Repository } from "./services/GitHubService";
 
 /**
@@ -34,7 +35,7 @@ function AppContent() {
     removeSession,
   } = useSessionManager();
 
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, login } = useAuth();
   const [showRepoPicker, setShowRepoPicker] = useState(false);
   const [githubContext, setGithubContext] = useState<{
     repo: Repository | null;
@@ -51,6 +52,14 @@ function AppContent() {
       setShowRepoPicker(true);
     }
   }, [isLoading, isAuthenticated, githubContext.repo]);
+
+  // Handle skip login - proceed without GitHub
+  const handleSkipLogin = () => {
+    // For now, we'll set a flag in localStorage to remember the choice
+    localStorage.setItem("skip_github_auth", "true");
+    // Force a reload to re-evaluate auth state
+    window.location.reload();
+  };
 
   // Get active session name for the header
   const activeSession = sessions.find((s) => s.id === activeSessionId);
@@ -118,6 +127,11 @@ function AppContent() {
     );
   }
 
+  // Show LoginScreen if user is not authenticated
+  if (!isAuthenticated) {
+    return <LoginScreen onLogin={login} onSkip={handleSkipLogin} />;
+  }
+
   // Show RepoPicker if user needs to select a repository
   if (showRepoPicker) {
     return (
@@ -155,6 +169,8 @@ function AppContent() {
           isSidebarOpen={isSidebarOpen}
           onToggleSidebar={handleToggleSidebar}
           threadTitle={threadTitle}
+          isAuthenticated={isAuthenticated}
+          onConnectGitHub={login}
         />
 
         {/* Main Workspace Layer */}

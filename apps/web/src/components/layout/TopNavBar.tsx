@@ -3,6 +3,7 @@ import { PanelLeftOpen } from "lucide-react";
 import { OpenDropdown } from "../navigation/OpenDropdown";
 import { CommitDropdown } from "../navigation/CommitDropdown";
 import { GitDiffButton } from "../ui/GitDiffButton";
+import { GitHubLoginButton } from "../auth/GitHubLoginButton";
 
 interface TopNavBarProps {
   onOpenIde?: (ide: string) => void;
@@ -13,6 +14,8 @@ interface TopNavBarProps {
   isSidebarOpen?: boolean;
   onToggleSidebar?: () => void;
   threadTitle?: string;
+  isAuthenticated?: boolean;
+  onConnectGitHub?: () => void;
 }
 
 export function TopNavBar({
@@ -24,6 +27,8 @@ export function TopNavBar({
   isSidebarOpen = true,
   onToggleSidebar,
   threadTitle,
+  isAuthenticated = false,
+  onConnectGitHub,
 }: TopNavBarProps) {
   return (
     <motion.header
@@ -56,6 +61,13 @@ export function TopNavBar({
 
       {/* Right Section */}
       <div className="flex items-center gap-3">
+        {!isAuthenticated && onConnectGitHub && (
+          <GitHubLoginButton
+            onClick={onConnectGitHub}
+            size="sm"
+            variant="secondary"
+          />
+        )}
         <OpenDropdown onSelect={onOpenIde} />
         <CommitDropdown onCommit={onCommit} onPush={onPush} onStash={onStash} />
         <GitDiffButton onClick={onShowDiff} />
