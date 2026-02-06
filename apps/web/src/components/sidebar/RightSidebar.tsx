@@ -53,7 +53,7 @@ export function RightSidebar({
               duration: 0.3,
               ease: [0.4, 0, 0.2, 1],
             }}
-            className="fixed right-0 top-12 bottom-12 w-full md:w-[320px] lg:w-[400px] z-40 bg-gray-950 border-l border-gray-800 flex flex-col shadow-xl"
+            className="fixed right-0 top-10 bottom-0 w-full md:w-[320px] lg:w-[400px] z-40 bg-black border-l border-zinc-800 flex flex-col shadow-xl"
           >
             <SidebarHeader
               activeTab={activeTab}
@@ -63,7 +63,7 @@ export function RightSidebar({
               changesCount={changesCount}
             />
 
-            <div className="flex-1 overflow-hidden">
+            <div className="flex-1 overflow-hidden bg-black">
               <AnimatePresence mode="wait">
                 {activeTab === "changes" ? (
                   <motion.div
@@ -74,7 +74,7 @@ export function RightSidebar({
                     transition={{ duration: 0.15 }}
                     className="h-full"
                   >
-                    <ChangesPanel />
+                    <ChangesPanel mode="sidebar" />
                   </motion.div>
                 ) : (
                   <motion.div

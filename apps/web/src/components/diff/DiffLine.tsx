@@ -26,7 +26,7 @@ const DiffLine = memo(({ line, hunksIndex }: DiffLineProps) => {
       ? "text-green-300"
       : line.type === "deleted"
         ? "text-red-300"
-        : "text-gray-300";
+        : "text-zinc-300";
 
   const prefix =
     line.type === "added" ? "+" : line.type === "deleted" ? "-" : " ";
@@ -36,10 +36,10 @@ const DiffLine = memo(({ line, hunksIndex }: DiffLineProps) => {
       className={`flex border-l-2 ${borderColor} ${bgColor} font-mono text-sm`}
       key={`${hunksIndex}-${line.oldLineNumber || line.newLineNumber}`}
     >
-      <div className="w-12 flex-shrink-0 bg-gray-900/50 px-2 py-1 text-right text-xs text-gray-500">
+      <div className="w-12 flex-shrink-0 bg-zinc-900/50 px-2 py-1 text-right text-xs text-zinc-500">
         {line.oldLineNumber && <span>{line.oldLineNumber}</span>}
       </div>
-      <div className="w-12 flex-shrink-0 bg-gray-900/50 px-2 py-1 text-right text-xs text-gray-500">
+      <div className="w-12 flex-shrink-0 bg-zinc-900/50 px-2 py-1 text-right text-xs text-zinc-500">
         {line.newLineNumber && <span>{line.newLineNumber}</span>}
       </div>
       <div className={`flex-1 px-3 py-1 ${textColor}`}>
