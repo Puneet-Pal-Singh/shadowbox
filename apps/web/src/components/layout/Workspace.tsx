@@ -9,9 +9,16 @@ import { cn } from "../../lib/utils";
 interface WorkspaceProps {
   sessionId: string;
   threadTitle?: string;
+  isGitSidebarOpen?: boolean;
+  onGitSidebarClose?: () => void;
 }
 
-export function Workspace({ sessionId: runId, threadTitle }: WorkspaceProps) {
+export function Workspace({ 
+  sessionId: runId, 
+  threadTitle,
+  isGitSidebarOpen = false,
+  onGitSidebarClose,
+}: WorkspaceProps) {
   const explorerRef = useRef<FileExplorerHandle>(null);
   const sandboxId = runId;
   const [isExplorerOpen, setIsExplorerOpen] = useState(false);
@@ -113,6 +120,16 @@ export function Workspace({ sessionId: runId, threadTitle }: WorkspaceProps) {
           )}
         </motion.aside>
       </div>
+
+      {/* Git Diff Sidebar */}
+      <RightSidebar
+        isOpen={isGitSidebarOpen}
+        onClose={onGitSidebarClose || (() => {})}
+        onExpand={() => {
+          console.log("Expand git diff to full screen");
+        }}
+        defaultTab="changes"
+      />
     </div>
   );
 }

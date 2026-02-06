@@ -17,6 +17,7 @@ function App() {
 
   const [activeTab, setActiveTab] = useState<"local" | "worktree">("local");
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isGitSidebarOpen, setIsGitSidebarOpen] = useState(false);
 
   // Get active session name for the header
   const activeSession = sessions.find((s) => s.id === activeSessionId);
@@ -46,6 +47,10 @@ function App() {
     setIsSidebarOpen(!isSidebarOpen);
   };
 
+  const handleShowGitDiff = () => {
+    setIsGitSidebarOpen(true);
+  };
+
   return (
     <div className="h-screen w-screen bg-background text-zinc-400 flex overflow-hidden font-sans">
       {/* Sidebar - Independent */}
@@ -71,6 +76,7 @@ function App() {
           isSidebarOpen={isSidebarOpen}
           onToggleSidebar={handleToggleSidebar}
           threadTitle={threadTitle}
+          onShowDiff={handleShowGitDiff}
         />
 
         {/* Main Workspace Layer */}
@@ -80,6 +86,8 @@ function App() {
               key={activeSessionId}
               sessionId={activeSessionId}
               threadTitle={threadTitle}
+              isGitSidebarOpen={isGitSidebarOpen}
+              onGitSidebarClose={() => setIsGitSidebarOpen(false)}
             />
           ) : (
             <AgentSetup
