@@ -1,17 +1,17 @@
 import { motion } from "framer-motion";
-import { PanelLeftOpen, PanelLeftClose } from "lucide-react";
+import { PanelLeftOpen, FileDiff } from "lucide-react";
 import { OpenDropdown } from "../navigation/OpenDropdown";
 import { CommitDropdown } from "../navigation/CommitDropdown";
-import { GitDiffButton } from "../ui/GitDiffButton";
 
 interface TopNavBarProps {
   onOpenIde?: (ide: string) => void;
   onCommit?: () => void;
   onPush?: () => void;
   onStash?: () => void;
-  onShowDiff?: () => void;
   isSidebarOpen?: boolean;
   onToggleSidebar?: () => void;
+  isRightSidebarOpen?: boolean;
+  onToggleRightSidebar?: () => void;
   threadTitle?: string;
 }
 
@@ -20,9 +20,10 @@ export function TopNavBar({
   onCommit,
   onPush,
   onStash,
-  onShowDiff,
   isSidebarOpen = true,
   onToggleSidebar,
+  isRightSidebarOpen = false,
+  onToggleRightSidebar,
   threadTitle,
 }: TopNavBarProps) {
   return (
@@ -58,7 +59,20 @@ export function TopNavBar({
       <div className="flex items-center gap-3">
         <OpenDropdown onSelect={onOpenIde} />
         <CommitDropdown onCommit={onCommit} onPush={onPush} onStash={onStash} />
-        <GitDiffButton onClick={onShowDiff} />
+        
+        <motion.button
+          onClick={onToggleRightSidebar}
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+          className={`p-1.5 transition-colors rounded-md ${
+            isRightSidebarOpen 
+              ? "text-white bg-zinc-800 border border-zinc-700" 
+              : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50"
+          }`}
+          title="Toggle Git Diff & Files"
+        >
+          <FileDiff size={18} />
+        </motion.button>
       </div>
     </motion.header>
   );
