@@ -71,8 +71,9 @@ Shadowbox is a **web-native, multi-agent IDE** built on Cloudflare primitives.
 ## 4. Git & Workflow Protocol
 
 ### Branching Strategy
-*   **Feature Branches**: Always create a branch for a task. Format: `feat/persistence-engine`, `fix/cors-headers`.
-*   **No Direct Push**: Never push directly to `main` without verification.
+*   **Feature Branches**: ALWAYS create a branch for a task. Format: `feat/persistence-engine`, `fix/cors-headers`.
+*   **No Direct Push to main**: Never push directly to `main` without a branch or pull request.
+*   **GitHub Actions CI**: All PRs must pass automated checks (type-check, lint, build) before merge is allowed. Pushing to main bypasses CI protection—always use branches.
 
 ### Commit Standards
 *   **Conventional Commits**: Use prefixes: `feat:`, `fix:`, `chore:`, `refactor:`.
