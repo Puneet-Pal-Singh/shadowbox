@@ -58,7 +58,7 @@ export function TopNavBar({
       <div className="flex items-center gap-3">
         <OpenDropdown onSelect={onOpenIde} />
         <CommitDropdown onCommit={onCommit} onPush={onPush} onStash={onStash} />
-        <GitDiffButton onClick={onShowDiff} />
+        <GitDiffButton onClick={onShowDiff} title="Show git changes" />
       </div>
     </motion.header>
   );

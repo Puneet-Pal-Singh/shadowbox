@@ -1,6 +1,6 @@
 import { useRef, useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { ChevronDown, Plus, Mic, ArrowUp, Paperclip } from "lucide-react";
+import { ChevronDown, Plus, Mic, ArrowUp, Paperclip, GitCompare } from "lucide-react";
 
 interface ChatInputBarProps {
   input: string;
@@ -8,6 +8,7 @@ interface ChatInputBarProps {
   onSubmit: () => void;
   isLoading?: boolean;
   placeholder?: string;
+  onGitDiffClick?: () => void;
 }
 
 export function ChatInputBar({
@@ -16,6 +17,7 @@ export function ChatInputBar({
   onSubmit,
   isLoading = false,
   placeholder = "Ask Shadowbox anything, @ to add files, / for commands",
+  onGitDiffClick,
 }: ChatInputBarProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [isFocused, setIsFocused] = useState(false);
@@ -70,7 +72,7 @@ export function ChatInputBar({
 
         {/* Toolbar */}
         <div className="flex items-center justify-between mt-2 pt-2">
-          {/* Left: Add button + Model selector */}
+          {/* Left: Add button + Model selector + Git Diff */}
           <div className="flex items-center gap-1.5">
             <motion.button
               type="button"
@@ -80,6 +82,19 @@ export function ChatInputBar({
               title="Add files"
             >
               <Plus size={16} />
+            </motion.button>
+
+            <div className="h-3.5 w-px bg-zinc-800" />
+
+            <motion.button
+              type="button"
+              onClick={onGitDiffClick}
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.9 }}
+              className="p-1 text-zinc-500 hover:text-zinc-300 transition-colors"
+              title="Show git diff"
+            >
+              <GitCompare size={16} />
             </motion.button>
 
             <div className="h-3.5 w-px bg-zinc-800" />
