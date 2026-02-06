@@ -42,21 +42,42 @@ const BRAIN_API_URL =
   import.meta.env.VITE_BRAIN_API_URL || "http://localhost:8788";
 
 /**
+ * Helper to get fetch options with optional session token
+ */
+function getFetchOptions(options: RequestInit = {}): RequestInit {
+  const token = localStorage.getItem("shadowbox_session");
+  const headers = new Headers(options.headers || {});
+
+  if (token) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
+
+  return {
+    ...options,
+    headers,
+    credentials: "include",
+  };
+}
+
+/**
  * Get current session from Brain API
  */
 export async function getSession(): Promise<{
   authenticated: boolean;
   user?: GitHubUser;
 }> {
-  const response = await fetch(`${BRAIN_API_URL}/auth/session`, {
-    credentials: "include",
-  });
+  const response = await fetch(`${BRAIN_API_URL}/auth/session`, getFetchOptions());
 
   if (!response.ok) {
     return { authenticated: false };
   }
 
-  return response.json();
+  const data = await response.json();
+  
+  // If we got a user, but didn't have a token in localStorage, 
+  // we might want to keep it that way (let cookie handle it).
+  // But if we're authenticated, we're good.
+  return data;
 }
 
 /**
@@ -70,10 +91,10 @@ export function initiateGitHubLogin(): void {
  * Logout user
  */
 export async function logout(): Promise<void> {
-  await fetch(`${BRAIN_API_URL}/auth/logout`, {
+  localStorage.removeItem("shadowbox_session");
+  await fetch(`${BRAIN_API_URL}/auth/logout`, getFetchOptions({
     method: "POST",
-    credentials: "include",
-  });
+  }));
 }
 
 /**
@@ -85,9 +106,7 @@ export async function listRepositories(
 ): Promise<Repository[]> {
   const response = await fetch(
     `${BRAIN_API_URL}/api/github/repos?type=${type}&sort=${sort}`,
-    {
-      credentials: "include",
-    },
+    getFetchOptions()
   );
 
   if (!response.ok) {
@@ -107,9 +126,7 @@ export async function listBranches(
 ): Promise<Branch[]> {
   const response = await fetch(
     `${BRAIN_API_URL}/api/github/branches?owner=${owner}&repo=${repo}`,
-    {
-      credentials: "include",
-    },
+    getFetchOptions()
   );
 
   if (!response.ok) {
@@ -130,9 +147,7 @@ export async function getRepositoryTree(
 ): Promise<Array<{ path: string; type: string; sha: string }>> {
   const response = await fetch(
     `${BRAIN_API_URL}/api/github/tree?owner=${owner}&repo=${repo}&sha=${sha}`,
-    {
-      credentials: "include",
-    },
+    getFetchOptions()
   );
 
   if (!response.ok) {
@@ -156,7 +171,9 @@ export function handleOAuthCallback(): {
   const user = params.get("user");
 
   if (session) {
-    // Token is already stored in cookie by the backend
+    // Store token in localStorage as fallback for cookies
+    localStorage.setItem("shadowbox_session", session);
+    
     // Just clean up URL
     window.history.replaceState({}, document.title, window.location.pathname);
     return { user, success: true };

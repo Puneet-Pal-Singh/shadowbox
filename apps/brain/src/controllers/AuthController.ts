@@ -6,7 +6,7 @@
  * Follows Single Responsibility: Only handles OAuth flow
  */
 
-import { CORS_HEADERS } from "../lib/cors";
+import { getCorsHeaders } from "../lib/cors";
 import { Env } from "../types/ai";
 import {
   generateAuthUrl,
@@ -34,7 +34,7 @@ export class AuthController {
    * Initiate GitHub OAuth flow
    * GET /auth/github/login
    */
-  static async handleLogin(_request: Request, env: Env): Promise<Response> {
+  static async handleLogin(request: Request, env: Env): Promise<Response> {
     try {
       console.log("[Auth] Initiating OAuth login...");
 
@@ -43,15 +43,8 @@ export class AuthController {
         console.error(
           "[Auth] Missing required GitHub OAuth environment variables",
         );
-        console.error(
-          "[Auth] GITHUB_CLIENT_ID:",
-          env.GITHUB_CLIENT_ID ? "set" : "NOT SET",
-        );
-        console.error(
-          "[Auth] GITHUB_CLIENT_SECRET:",
-          env.GITHUB_CLIENT_SECRET ? "set" : "NOT SET",
-        );
         return errorResponse(
+          request,
           "Server configuration error: Missing GitHub OAuth credentials. " +
             "Please check your .dev.vars file and ensure GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET are set.",
           500,
@@ -61,6 +54,7 @@ export class AuthController {
       if (!env.GITHUB_REDIRECT_URI) {
         console.error("[Auth] Missing GITHUB_REDIRECT_URI");
         return errorResponse(
+          request,
           "Server configuration error: Missing redirect URI",
           500,
         );
@@ -99,12 +93,12 @@ export class AuthController {
         status: 302,
         headers: {
           Location: authUrl,
-          ...CORS_HEADERS,
+          ...getCorsHeaders(request),
         },
       });
     } catch (error) {
       console.error("[Auth] Login error:", error);
-      return errorResponse("Failed to initiate authentication", 500);
+      return errorResponse(request, "Failed to initiate authentication", 500);
     }
   }
 
@@ -130,18 +124,18 @@ export class AuthController {
       // Handle OAuth errors from GitHub
       if (error) {
         console.error("[Auth] GitHub OAuth error:", error);
-        return errorResponse(`GitHub authentication failed: ${error}`, 400);
+        return errorResponse(request, `GitHub authentication failed: ${error}`, 400);
       }
 
       if (!code || !state) {
-        return errorResponse("Missing code or state parameter", 400);
+        return errorResponse(request, "Missing code or state parameter", 400);
       }
 
       // Verify state to prevent CSRF
       const sessionData = await env.SESSIONS.get(`oauth_state:${state}`);
       if (!sessionData) {
         console.error("[Auth] State not found in KV store");
-        return errorResponse("Invalid or expired session", 400);
+        return errorResponse(request, "Invalid or expired session", 400);
       }
 
       const session: AuthSession = JSON.parse(sessionData);
@@ -149,12 +143,12 @@ export class AuthController {
       // Check session expiration
       if (Date.now() - session.createdAt > SESSION_TTL) {
         await env.SESSIONS.delete(`oauth_state:${state}`);
-        return errorResponse("Session expired", 400);
+        return errorResponse(request, "Session expired", 400);
       }
 
       // Verify state matches
       if (!verifyState(state, session.state)) {
-        return errorResponse("Invalid state parameter", 400);
+        return errorResponse(request, "Invalid state parameter", 400);
       }
 
       // Clean up state
@@ -164,6 +158,7 @@ export class AuthController {
       if (!env.GITHUB_CLIENT_ID || !env.GITHUB_CLIENT_SECRET) {
         console.error("[Auth] Missing GitHub OAuth credentials");
         return errorResponse(
+          request,
           "Server configuration error: Missing GitHub credentials",
           500,
         );
@@ -223,7 +218,7 @@ export class AuthController {
         status: 302,
         headers: {
           Location: redirectUrl.toString(),
-          ...CORS_HEADERS,
+          ...getCorsHeaders(request),
           "Set-Cookie": createSessionCookie(sessionToken),
         },
       });
@@ -231,7 +226,7 @@ export class AuthController {
       console.error("[Auth] Callback error:", error);
       const message =
         error instanceof Error ? error.message : "Authentication failed";
-      return errorResponse(message, 500);
+      return errorResponse(request, message, 500);
     }
   }
 
@@ -243,22 +238,22 @@ export class AuthController {
     try {
       const sessionToken = extractSessionToken(request);
       if (!sessionToken) {
-        return jsonResponse({ authenticated: false });
+        return jsonResponse(request, { authenticated: false });
       }
 
       const userId = await verifySessionToken(sessionToken, env);
       if (!userId) {
-        return jsonResponse({ authenticated: false });
+        return jsonResponse(request, { authenticated: false });
       }
 
       const sessionData = await env.SESSIONS.get(`user_session:${userId}`);
       if (!sessionData) {
-        return jsonResponse({ authenticated: false });
+        return jsonResponse(request, { authenticated: false });
       }
 
       const session = JSON.parse(sessionData);
 
-      return jsonResponse({
+      return jsonResponse(request, {
         authenticated: true,
         user: {
           id: session.userId,
@@ -269,7 +264,7 @@ export class AuthController {
       });
     } catch (error) {
       console.error("[Auth] Session error:", error);
-      return errorResponse("Failed to get session", 500);
+      return errorResponse(request, "Failed to get session", 500);
     }
   }
 
@@ -288,15 +283,16 @@ export class AuthController {
       }
 
       return jsonResponse(
+        request,
         { success: true },
         {
           "Set-Cookie":
-            "shadowbox_session=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure; SameSite=Strict",
+            "shadowbox_session=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure; SameSite=Lax",
         },
       );
     } catch (error) {
       console.error("[Auth] Logout error:", error);
-      return errorResponse("Logout failed", 500);
+      return errorResponse(request, "Logout failed", 500);
     }
   }
 }
@@ -325,13 +321,16 @@ async function generateSessionToken(userId: string, env: Env): Promise<string> {
  * Create session cookie
  */
 function createSessionCookie(token: string): string {
-  return `shadowbox_session=${token}; Path=/; Max-Age=604800; HttpOnly; Secure; SameSite=Strict`;
+  // Use SameSite=Lax for cross-origin local development
+  // Secure is usually required for HttpOnly in modern browsers even on localhost
+  return `shadowbox_session=${token}; Path=/; Max-Age=604800; HttpOnly; Secure; SameSite=Lax`;
 }
 
 /**
  * JSON response helper
  */
 function jsonResponse(
+  request: Request,
   data: unknown,
   headers: Record<string, string> = {},
 ): Response {
@@ -339,7 +338,7 @@ function jsonResponse(
     status: 200,
     headers: {
       "Content-Type": "application/json",
-      ...CORS_HEADERS,
+      ...getCorsHeaders(request),
       ...headers,
     },
   });
@@ -348,12 +347,12 @@ function jsonResponse(
 /**
  * Error response helper
  */
-function errorResponse(message: string, status: number): Response {
+function errorResponse(request: Request, message: string, status: number): Response {
   return new Response(JSON.stringify({ error: message }), {
     status,
     headers: {
       "Content-Type": "application/json",
-      ...CORS_HEADERS,
+      ...getCorsHeaders(request),
     },
   });
 }

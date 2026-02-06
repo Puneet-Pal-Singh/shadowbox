@@ -6,7 +6,7 @@
  * Follows Single Responsibility: Only handles GitHub API routes
  */
 
-import { CORS_HEADERS } from "../lib/cors";
+import { getCorsHeaders } from "../lib/cors";
 import { Env } from "../types/ai";
 import { getGitHubClient } from "../services/AuthService";
 import type { CreatePullRequestParams } from "@shadowbox/github-bridge";
@@ -14,12 +14,12 @@ import type { CreatePullRequestParams } from "@shadowbox/github-bridge";
 /**
  * JSON response helper
  */
-function jsonResponse(data: unknown, status: number = 200): Response {
+function jsonResponse(request: Request, data: unknown, status: number = 200): Response {
   return new Response(JSON.stringify(data), {
     status,
     headers: {
       "Content-Type": "application/json",
-      ...CORS_HEADERS,
+      ...getCorsHeaders(request),
     },
   });
 }
@@ -27,8 +27,8 @@ function jsonResponse(data: unknown, status: number = 200): Response {
 /**
  * Error response helper
  */
-function errorResponse(message: string, status: number): Response {
-  return jsonResponse({ error: message }, status);
+function errorResponse(request: Request, message: string, status: number): Response {
+  return jsonResponse(request, { error: message }, status);
 }
 
 export class GitHubController {
@@ -40,7 +40,7 @@ export class GitHubController {
     try {
       const auth = await getGitHubClient(request, env);
       if (!auth) {
-        return errorResponse("Unauthorized", 401);
+        return errorResponse(request, "Unauthorized", 401);
       }
 
       const { client } = auth;
@@ -58,12 +58,12 @@ export class GitHubController {
 
       const repos = await client.listRepositories(type, sort, perPage);
 
-      return jsonResponse({ repositories: repos });
+      return jsonResponse(request, { repositories: repos });
     } catch (error) {
       console.error("[GitHub] List repos error:", error);
       const message =
         error instanceof Error ? error.message : "Failed to list repositories";
-      return errorResponse(message, 500);
+      return errorResponse(request, message, 500);
     }
   }
 
@@ -75,7 +75,7 @@ export class GitHubController {
     try {
       const auth = await getGitHubClient(request, env);
       if (!auth) {
-        return errorResponse("Unauthorized", 401);
+        return errorResponse(request, "Unauthorized", 401);
       }
 
       const { client } = auth;
@@ -85,17 +85,17 @@ export class GitHubController {
       const repo = url.searchParams.get("repo");
 
       if (!owner || !repo) {
-        return errorResponse("Missing owner or repo parameter", 400);
+        return errorResponse(request, "Missing owner or repo parameter", 400);
       }
 
       const branches = await client.listBranches(owner, repo);
 
-      return jsonResponse({ branches });
+      return jsonResponse(request, { branches });
     } catch (error) {
       console.error("[GitHub] List branches error:", error);
       const message =
         error instanceof Error ? error.message : "Failed to list branches";
-      return errorResponse(message, 500);
+      return errorResponse(request, message, 500);
     }
   }
 
@@ -107,7 +107,7 @@ export class GitHubController {
     try {
       const auth = await getGitHubClient(request, env);
       if (!auth) {
-        return errorResponse("Unauthorized", 401);
+        return errorResponse(request, "Unauthorized", 401);
       }
 
       const { client } = auth;
@@ -119,17 +119,17 @@ export class GitHubController {
       const ref = url.searchParams.get("ref") || undefined;
 
       if (!owner || !repo) {
-        return errorResponse("Missing owner or repo parameter", 400);
+        return errorResponse(request, "Missing owner or repo parameter", 400);
       }
 
       const contents = await client.getContents(owner, repo, path, ref);
 
-      return jsonResponse({ contents });
+      return jsonResponse(request, { contents });
     } catch (error) {
       console.error("[GitHub] Get contents error:", error);
       const message =
         error instanceof Error ? error.message : "Failed to get contents";
-      return errorResponse(message, 500);
+      return errorResponse(request, message, 500);
     }
   }
 
@@ -141,7 +141,7 @@ export class GitHubController {
     try {
       const auth = await getGitHubClient(request, env);
       if (!auth) {
-        return errorResponse("Unauthorized", 401);
+        return errorResponse(request, "Unauthorized", 401);
       }
 
       const { client } = auth;
@@ -152,17 +152,17 @@ export class GitHubController {
       const sha = url.searchParams.get("sha") || "HEAD";
 
       if (!owner || !repo) {
-        return errorResponse("Missing owner or repo parameter", 400);
+        return errorResponse(request, "Missing owner or repo parameter", 400);
       }
 
       const tree = await client.getTree(owner, repo, sha);
 
-      return jsonResponse({ tree });
+      return jsonResponse(request, { tree });
     } catch (error) {
       console.error("[GitHub] Get tree error:", error);
       const message =
         error instanceof Error ? error.message : "Failed to get tree";
-      return errorResponse(message, 500);
+      return errorResponse(request, message, 500);
     }
   }
 
@@ -174,7 +174,7 @@ export class GitHubController {
     try {
       const auth = await getGitHubClient(request, env);
       if (!auth) {
-        return errorResponse("Unauthorized", 401);
+        return errorResponse(request, "Unauthorized", 401);
       }
 
       const { client } = auth;
@@ -186,17 +186,17 @@ export class GitHubController {
         (url.searchParams.get("state") as "open" | "closed" | "all") || "open";
 
       if (!owner || !repo) {
-        return errorResponse("Missing owner or repo parameter", 400);
+        return errorResponse(request, "Missing owner or repo parameter", 400);
       }
 
       const pullRequests = await client.listPullRequests(owner, repo, state);
 
-      return jsonResponse({ pullRequests });
+      return jsonResponse(request, { pullRequests });
     } catch (error) {
       console.error("[GitHub] List PRs error:", error);
       const message =
         error instanceof Error ? error.message : "Failed to list pull requests";
-      return errorResponse(message, 500);
+      return errorResponse(request, message, 500);
     }
   }
 
@@ -208,7 +208,7 @@ export class GitHubController {
     try {
       const auth = await getGitHubClient(request, env);
       if (!auth) {
-        return errorResponse("Unauthorized", 401);
+        return errorResponse(request, "Unauthorized", 401);
       }
 
       const { client } = auth;
@@ -221,17 +221,17 @@ export class GitHubController {
       const number = numberStr ? parseInt(numberStr, 10) : NaN;
 
       if (!owner || !repo || isNaN(number)) {
-        return errorResponse("Missing or invalid parameters", 400);
+        return errorResponse(request, "Missing or invalid parameters", 400);
       }
 
       const pullRequest = await client.getPullRequest(owner, repo, number);
 
-      return jsonResponse({ pullRequest });
+      return jsonResponse(request, { pullRequest });
     } catch (error) {
       console.error("[GitHub] Get PR error:", error);
       const message =
         error instanceof Error ? error.message : "Failed to get pull request";
-      return errorResponse(message, 500);
+      return errorResponse(request, message, 500);
     }
   }
 
@@ -246,7 +246,7 @@ export class GitHubController {
     try {
       const auth = await getGitHubClient(request, env);
       if (!auth) {
-        return errorResponse("Unauthorized", 401);
+        return errorResponse(request, "Unauthorized", 401);
       }
 
       const { client } = auth;
@@ -267,7 +267,7 @@ export class GitHubController {
       const base = body.base;
 
       if (!owner || !repo || !title || !head || !base) {
-        return errorResponse("Missing required parameters", 400);
+        return errorResponse(request, "Missing required parameters", 400);
       }
 
       const params: CreatePullRequestParams = {
@@ -279,14 +279,14 @@ export class GitHubController {
 
       const pullRequest = await client.createPullRequest(owner, repo, params);
 
-      return jsonResponse({ pullRequest }, 201);
+      return jsonResponse(request, { pullRequest }, 201);
     } catch (error) {
       console.error("[GitHub] Create PR error:", error);
       const message =
         error instanceof Error
           ? error.message
           : "Failed to create pull request";
-      return errorResponse(message, 500);
+      return errorResponse(request, message, 500);
     }
   }
 }
