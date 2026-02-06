@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { DiffContent } from "@repo/shared-types";
 import { useRunContext } from "./useRunContext";
 

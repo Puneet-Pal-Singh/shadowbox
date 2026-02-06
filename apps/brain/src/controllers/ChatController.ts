@@ -1,4 +1,4 @@
-import type { CoreMessage, CoreTool } from "ai";
+import type { CoreMessage, CoreTool, Message } from "ai";
 import { createToolRegistry } from "../orchestrator/tools";
 import { Env } from "../types/ai";
 import { CORS_HEADERS } from "../lib/cors";
@@ -11,7 +11,7 @@ import { SystemPromptService } from "../services/SystemPromptService";
 import { StreamOrchestratorService } from "../services/StreamOrchestratorService";
 
 interface ChatRequestBody {
-  messages?: CoreMessage[];
+  messages?: Message[];
   sessionId?: string;
   agentId?: string;
   runId?: string;

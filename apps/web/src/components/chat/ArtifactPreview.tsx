@@ -18,19 +18,21 @@ export function ArtifactPreview({ title, content: initialContent, onOpen, status
 
   useEffect(() => {
     if (typeof initialContent === 'object' && initialContent?.type === 'r2_ref') {
-      setIsLoadingContent(true);
-      fetch(`http://localhost:8787/artifact?key=${initialContent.key}`)
-        .then(res => res.text())
-        .then(text => {
+      (async () => {
+        setIsLoadingContent(true);
+        try {
+          const res = await fetch(`http://localhost:8787/artifact?key=${initialContent.key}`);
+          const text = await res.text();
           setContent(text);
           setIsLoadingContent(false);
-        })
-        .catch(err => {
+        } catch (err) {
           console.error("Failed to fetch artifact content:", err);
           setContent("// Error loading code from cold storage");
           setIsLoadingContent(false);
-        });
+        }
+      })();
     } else if (typeof initialContent === 'string') {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setContent(initialContent);
     }
   }, [initialContent]);

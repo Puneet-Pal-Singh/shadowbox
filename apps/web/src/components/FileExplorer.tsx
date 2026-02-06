@@ -43,14 +43,16 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(
       } catch (e) {
         console.error("Explorer Error:", e);
       }
-    }, [sessionId]);
+    }, [sessionId, runId]);
 
     useImperativeHandle(ref, () => ({
       refresh: fetchFiles
     }));
 
     useEffect(() => {
-      fetchFiles();
+      (async () => {
+        await fetchFiles();
+      })();
     }, [fetchFiles]);
 
     return (

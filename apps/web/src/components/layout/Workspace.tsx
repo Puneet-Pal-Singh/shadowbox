@@ -11,16 +11,12 @@ import { useGitStatus } from "../../hooks/useGitStatus";
 
 interface WorkspaceProps {
   sessionId: string;
-  threadTitle?: string;
   isRightSidebarOpen?: boolean;
-  onRightSidebarClose?: () => void;
 }
 
 export function Workspace({ 
   sessionId: runId, 
-  threadTitle,
   isRightSidebarOpen = false,
-  onRightSidebarClose,
 }: WorkspaceProps) {
   const explorerRef = useRef<FileExplorerHandle>(null);
   const sandboxId = runId;
@@ -72,7 +68,6 @@ export function Workspace({
               handleSubmit,
               isLoading,
             }}
-            threadTitle={threadTitle}
             onArtifactOpen={() => {}}
           />
         </main>

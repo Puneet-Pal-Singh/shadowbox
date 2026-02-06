@@ -12,13 +12,11 @@ interface ChatInterfaceProps {
     handleSubmit: () => void;
     isLoading: boolean;
   };
-  threadTitle?: string;
   onArtifactOpen?: (path: string, content: string) => void;
 }
 
 export function ChatInterface({
   chatProps,
-  threadTitle,
   onArtifactOpen,
 }: ChatInterfaceProps) {
   const { messages, input, handleInputChange, handleSubmit, isLoading } =

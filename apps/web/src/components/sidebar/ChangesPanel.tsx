@@ -28,6 +28,7 @@ export function ChangesPanel({ className = "", mode = "sidebar" }: ChangesPanelP
       const staged = new Set(
         status.files.filter((f) => f.isStaged).map((f) => f.path),
       );
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setStagedFiles(staged);
     }
   }, [status]);
@@ -36,7 +37,7 @@ export function ChangesPanel({ className = "", mode = "sidebar" }: ChangesPanelP
     if (selectedFile) {
       fetchDiff(selectedFile.path, stagedFiles.has(selectedFile.path));
     }
-  }, [selectedFile]);
+  }, [selectedFile, fetchDiff, stagedFiles]);
 
   const handleToggleStaged = async (path: string, staged: boolean) => {
     if (!runId) return;
