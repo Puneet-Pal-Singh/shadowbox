@@ -64,7 +64,7 @@ export class AgentRuntime extends DurableObject {
       }
     });
 
-    await Promise.all(promises).catch(() => {
+    await Promise.all(promises).catch((e) => {
       this.stream.broadcast(
         "error",
         "One or more background services failed to start.",
@@ -129,7 +129,7 @@ export class AgentRuntime extends DurableObject {
       limit: 100,
     });
     // Ensure all messages have unique IDs for React rendering
-    return Array.from(list.entries()).map(([, msg], index) => ({
+    return Array.from(list.entries()).map(([key, msg], index) => ({
       ...msg,
       id: (msg as any).id || `${runId}-${index}-${Date.now()}`,
     }));

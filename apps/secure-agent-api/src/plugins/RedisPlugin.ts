@@ -1,6 +1,6 @@
 // src/plugins/RedisPlugin.ts
 import { Sandbox } from "@cloudflare/sandbox";
-import { IPlugin, PluginResult } from "../interfaces/types";
+import { IPlugin, PluginResult, LogCallback } from "../interfaces/types";
 import { RedisTool } from "../schemas/redis"; // Import the definition
 
 // ==========================================
@@ -79,7 +79,7 @@ export class RedisPlugin implements IPlugin {
     throw new Error(`Redis Sidecar failed to start. Logs: ${logs.stdout.slice(0, 100)}`);
   }
 
-  async execute(sandbox: Sandbox): Promise<PluginResult> {
+  async execute(sandbox: Sandbox, payload: any, onLog?: LogCallback): Promise<PluginResult> {
     const port = this.activePort || 6378;
     const check = await sandbox.exec(`nc -z localhost ${port}`);
     

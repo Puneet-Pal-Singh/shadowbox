@@ -1,13 +1,13 @@
 // apps/secure-agent-api/src/plugins/FileSystemPlugin.ts
 import { Sandbox } from "@cloudflare/sandbox";
-import { IPlugin, PluginResult } from "../interfaces/types";
+import { IPlugin, PluginResult, LogCallback } from "../interfaces/types";
 import { FileSystemTools } from "../schemas/filesystem";
 
 export class FileSystemPlugin implements IPlugin {
   name = "filesystem";
   tools = FileSystemTools;
 
-  async execute(sandbox: Sandbox, payload: any): Promise<PluginResult> {
+  async execute(sandbox: Sandbox, payload: any, onLog?: LogCallback): Promise<PluginResult> {
     // The payload will come in as { tool: "list_files", ...args } 
     // OR we need to handle the routing in AgentRuntime better.
     // For now, let's assume the AgentRuntime passes the specific tool name or we infer it.

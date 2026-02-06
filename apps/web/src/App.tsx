@@ -44,6 +44,7 @@ function AppContent() {
 
   const [activeTab, setActiveTab] = useState<"local" | "worktree">("local");
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(false);
 
   // Check if we should show repo picker on mount
   useEffect(() => {
@@ -87,6 +88,10 @@ function AppContent() {
 
   const handleToggleSidebar = () => {
     setIsSidebarOpen(!isSidebarOpen);
+  };
+
+  const handleToggleRightSidebar = () => {
+    setIsRightSidebarOpen(!isRightSidebarOpen);
   };
 
   /**
@@ -168,6 +173,8 @@ function AppContent() {
           onStash={handleStash}
           isSidebarOpen={isSidebarOpen}
           onToggleSidebar={handleToggleSidebar}
+          isRightSidebarOpen={isRightSidebarOpen}
+          onToggleRightSidebar={handleToggleRightSidebar}
           threadTitle={threadTitle}
           isAuthenticated={isAuthenticated}
           onConnectGitHub={login}
@@ -180,6 +187,8 @@ function AppContent() {
               key={activeSessionId}
               sessionId={activeSessionId}
               threadTitle={threadTitle}
+              isRightSidebarOpen={isRightSidebarOpen}
+              onRightSidebarClose={() => setIsRightSidebarOpen(false)}
             />
           ) : (
             <AgentSetup
