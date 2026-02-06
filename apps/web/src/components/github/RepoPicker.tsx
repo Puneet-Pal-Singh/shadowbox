@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { GitBranch, Star, Github, Search, Check } from "lucide-react";
-import type { Repository, Branch } from "../services/GitHubService";
-import * as GitHubService from "../services/GitHubService";
+import type { Repository, Branch } from "../../services/GitHubService";
+import * as GitHubService from "../../services/GitHubService";
 
 interface RepoPickerProps {
   onRepoSelect: (repo: Repository, branch: string) => void;

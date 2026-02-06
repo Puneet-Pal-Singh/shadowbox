@@ -34,7 +34,7 @@ export class AuthController {
    * Initiate GitHub OAuth flow
    * GET /auth/github/login
    */
-  static async handleLogin(request: Request, env: Env): Promise<Response> {
+  static async handleLogin(_request: Request, env: Env): Promise<Response> {
     try {
       const state = generateState();
 
