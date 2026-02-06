@@ -86,9 +86,7 @@ function App() {
             <Workspace
               key={activeSessionId}
               sessionId={activeSessionId}
-              threadTitle={threadTitle}
               isRightSidebarOpen={isRightSidebarOpen}
-              onRightSidebarClose={() => setIsRightSidebarOpen(false)}
             />
           ) : (
             <AgentSetup
