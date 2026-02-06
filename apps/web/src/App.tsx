@@ -1,12 +1,31 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useSessionManager } from "./hooks/useSessionManager";
 import { AgentSidebar } from "./components/layout/AgentSidebar";
 import { Workspace } from "./components/layout/Workspace";
 import { AgentSetup } from "./components/agent/AgentSetup";
 import { TopNavBar } from "./components/layout/TopNavBar";
 import { StatusBar } from "./components/layout/StatusBar";
+import { AuthProvider, useAuth } from "./contexts/AuthContext";
+import { RepoPicker } from "./components/github/RepoPicker";
+import type { Repository } from "./services/GitHubService";
 
+/**
+ * Main App Component
+ * Wraps everything in AuthProvider for GitHub authentication
+ */
 function App() {
+  return (
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
+  );
+}
+
+/**
+ * App Content - Contains the main application logic
+ * Separated to allow useAuth hook access within AuthProvider
+ */
+function AppContent() {
   const {
     sessions,
     activeSessionId,
@@ -15,8 +34,23 @@ function App() {
     removeSession,
   } = useSessionManager();
 
+  const { isAuthenticated, isLoading } = useAuth();
+  const [showRepoPicker, setShowRepoPicker] = useState(false);
+  const [githubContext, setGithubContext] = useState<{
+    repo: Repository | null;
+    branch: string | null;
+  }>({ repo: null, branch: null });
+
   const [activeTab, setActiveTab] = useState<"local" | "worktree">("local");
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+
+  // Check if we should show repo picker on mount
+  useEffect(() => {
+    if (!isLoading && isAuthenticated && !githubContext.repo) {
+      // User is authenticated but hasn't selected a repo yet
+      setShowRepoPicker(true);
+    }
+  }, [isLoading, isAuthenticated, githubContext.repo]);
 
   // Get active session name for the header
   const activeSession = sessions.find((s) => s.id === activeSessionId);
@@ -45,6 +79,56 @@ function App() {
   const handleToggleSidebar = () => {
     setIsSidebarOpen(!isSidebarOpen);
   };
+
+  /**
+   * Handle repository selection from RepoPicker
+   */
+  const handleRepoSelect = (repo: Repository, branch: string) => {
+    setGithubContext({ repo, branch });
+    setShowRepoPicker(false);
+
+    // Store in localStorage for persistence
+    localStorage.setItem(
+      "github_context",
+      JSON.stringify({
+        repoOwner: repo.owner.login,
+        repoName: repo.name,
+        branch,
+        fullName: repo.full_name,
+      }),
+    );
+
+    console.log(`[App] Selected repository: ${repo.full_name}@${branch}`);
+  };
+
+  /**
+   * Handle skip - allow user to proceed without GitHub
+   */
+  const handleSkipRepoPicker = () => {
+    setShowRepoPicker(false);
+    console.log("[App] Skipped repository selection");
+  };
+
+  // Show loading state while checking auth
+  if (isLoading) {
+    return (
+      <div className="h-screen w-screen bg-background flex items-center justify-center">
+        <div className="animate-spin w-8 h-8 border-2 border-zinc-600 border-t-white rounded-full" />
+      </div>
+    );
+  }
+
+  // Show RepoPicker if user needs to select a repository
+  if (showRepoPicker) {
+    return (
+      <div className="h-screen w-screen bg-background flex items-center justify-center">
+        <RepoPicker
+          onRepoSelect={handleRepoSelect}
+          onSkip={handleSkipRepoPicker}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="h-screen w-screen bg-background text-zinc-400 flex overflow-hidden font-sans">
@@ -90,6 +174,14 @@ function App() {
                     : config.task;
                 const id = createSession(name);
                 localStorage.setItem(`pending_query_${id}`, config.task);
+
+                // Pass GitHub context to the session
+                if (githubContext.repo) {
+                  localStorage.setItem(
+                    `github_context_${id}`,
+                    JSON.stringify(githubContext),
+                  );
+                }
               }}
             />
           )}
@@ -99,7 +191,44 @@ function App() {
         <StatusBar
           activeTab={activeTab}
           onTabChange={setActiveTab}
-          branchName="main"
+          branchName={githubContext.branch || "main"}
+        />
+
+        {/* Main Workspace Layer */}
+        <div className="flex-1 flex overflow-hidden">
+          {activeSessionId ? (
+            <Workspace
+              key={activeSessionId}
+              sessionId={activeSessionId}
+              threadTitle={threadTitle}
+            />
+          ) : (
+            <AgentSetup
+              onStart={(config) => {
+                const name =
+                  config.task.length > 20
+                    ? config.task.substring(0, 20) + "..."
+                    : config.task;
+                const id = createSession(name);
+                localStorage.setItem(`pending_query_${id}`, config.task);
+
+                // Pass GitHub context to the session
+                if (githubContext.repo) {
+                  localStorage.setItem(
+                    `github_context_${id}`,
+                    JSON.stringify(githubContext),
+                  );
+                }
+              }}
+            />
+          )}
+        </div>
+
+        {/* Status Bar */}
+        <StatusBar
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
+          branchName={githubContext.branch || "main"}
         />
       </div>
     </div>

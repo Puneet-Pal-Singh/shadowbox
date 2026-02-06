@@ -8,7 +8,7 @@
   // 1. Enable Cloudflare Workers AI (Free Tier Llama-3)
   "ai": {
     "binding": "AI",
-    "remote": true // Use Cloudflare's hosted AI service
+    "remote": true, // Use Cloudflare's hosted AI service
   },
 
   // 2. Connect to the Secure Runtime Worker
@@ -16,7 +16,26 @@
   "services": [
     {
       "binding": "SECURE_API",
-      "service": "shadowbox-api"
-    }
-  ]
+      "service": "shadowbox-api",
+    },
+  ],
+
+  // 3. GitHub Integration Configuration
+  // Add these environment variables:
+  // GITHUB_CLIENT_ID, GITHUB_REDIRECT_URI, FRONTEND_URL (public)
+  // GITHUB_CLIENT_SECRET, GITHUB_TOKEN_ENCRYPTION_KEY, SESSION_SECRET (secret)
+  "vars": {
+    // These should be set via wrangler secret put for production
+    // GITHUB_CLIENT_SECRET
+    // GITHUB_TOKEN_ENCRYPTION_KEY
+    // SESSION_SECRET
+  },
+
+  // 4. KV Namespace for Session Storage
+  "kv_namespaces": [
+    {
+      "binding": "SESSIONS",
+      "id": "your_sessions_kv_namespace_id_here",
+    },
+  ],
 }
