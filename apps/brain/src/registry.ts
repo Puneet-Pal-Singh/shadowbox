@@ -26,6 +26,6 @@ export const MODEL_REGISTRY = {
     new OpenAIProvider(id, "Kimi K2.5", "moonshot-v2.5-128k"),
 
   // --- FREE TIER (Cloudflare Native) ---
-  "llama-3": (_id: string, env: any) => 
+  "llama-3": (id: string, env: any) => 
     new CloudflareProvider(env)
 };

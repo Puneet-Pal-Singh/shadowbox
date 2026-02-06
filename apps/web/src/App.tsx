@@ -17,6 +17,7 @@ function App() {
 
   const [activeTab, setActiveTab] = useState<"local" | "worktree">("local");
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(false);
 
   // Get active session name for the header
   const activeSession = sessions.find((s) => s.id === activeSessionId);
@@ -46,6 +47,10 @@ function App() {
     setIsSidebarOpen(!isSidebarOpen);
   };
 
+  const handleToggleRightSidebar = () => {
+    setIsRightSidebarOpen(!isRightSidebarOpen);
+  };
+
   return (
     <div className="h-screen w-screen bg-background text-zinc-400 flex overflow-hidden font-sans">
       {/* Sidebar - Independent */}
@@ -70,6 +75,8 @@ function App() {
           onStash={handleStash}
           isSidebarOpen={isSidebarOpen}
           onToggleSidebar={handleToggleSidebar}
+          isRightSidebarOpen={isRightSidebarOpen}
+          onToggleRightSidebar={handleToggleRightSidebar}
           threadTitle={threadTitle}
         />
 
@@ -80,6 +87,8 @@ function App() {
               key={activeSessionId}
               sessionId={activeSessionId}
               threadTitle={threadTitle}
+              isRightSidebarOpen={isRightSidebarOpen}
+              onRightSidebarClose={() => setIsRightSidebarOpen(false)}
             />
           ) : (
             <AgentSetup

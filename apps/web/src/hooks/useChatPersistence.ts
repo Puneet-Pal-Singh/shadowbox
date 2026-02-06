@@ -27,7 +27,6 @@ export function useChatPersistence({
   // Sync messages to global store
   useEffect(() => {
     persistenceService.syncToStore(runId, messages);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages, runId]);
 
   // Restore pending query from localStorage
@@ -40,6 +39,5 @@ export function useChatPersistence({
       append({ role: "user", content: pendingQuery });
       persistenceService.clearPendingQuery(runId);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runId, messagesLength, isLoading, append]);
 }

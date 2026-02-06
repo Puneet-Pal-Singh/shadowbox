@@ -18,7 +18,6 @@ export function ArtifactPreview({ title, content: initialContent, onOpen, status
 
   useEffect(() => {
     if (typeof initialContent === 'object' && initialContent?.type === 'r2_ref') {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setIsLoadingContent(true);
       fetch(`http://localhost:8787/artifact?key=${initialContent.key}`)
         .then(res => res.text())
