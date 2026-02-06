@@ -4,6 +4,7 @@ import { Files } from "lucide-react";
 import { FileExplorer, FileExplorerHandle } from "../FileExplorer";
 import { ChatInterface } from "../chat/ChatInterface";
 import { RightSidebar } from "../sidebar/RightSidebar";
+import { RunContextProvider } from "../../hooks/useRunContext";
 import { useChat } from "../../hooks/useChat";
 import { cn } from "../../lib/utils";
 
@@ -53,9 +54,10 @@ export function Workspace({
   }
 
   return (
-    <div className="flex-1 flex bg-black overflow-hidden relative">
-      {/* Main Content Area */}
-      <div className="flex-1 flex overflow-hidden">
+    <RunContextProvider runId={runId}>
+      <div className="flex-1 flex bg-black overflow-hidden relative">
+        {/* Main Content Area */}
+        <div className="flex-1 flex overflow-hidden">
         {/* Chat Area */}
         <main className="flex-1 flex flex-col min-w-0 bg-black relative">
           <ChatInterface
@@ -122,15 +124,16 @@ export function Workspace({
         </motion.aside>
       </div>
 
-      {/* Git Diff Sidebar */}
-      <RightSidebar
-        isOpen={isGitSidebarOpen}
-        onClose={onGitSidebarClose || (() => {})}
-        onExpand={() => {
-          console.log("Expand git diff to full screen");
-        }}
-        defaultTab="changes"
-      />
-    </div>
+        {/* Git Diff Sidebar */}
+        <RightSidebar
+          isOpen={isGitSidebarOpen}
+          onClose={onGitSidebarClose || (() => {})}
+          onExpand={() => {
+            console.log("Expand git diff to full screen");
+          }}
+          defaultTab="changes"
+        />
+      </div>
+    </RunContextProvider>
   );
 }
