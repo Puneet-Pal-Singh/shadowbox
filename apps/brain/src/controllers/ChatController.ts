@@ -1,4 +1,4 @@
-import type { CoreMessage } from "ai";
+import type { CoreMessage, CoreTool } from "ai";
 import { createToolRegistry } from "../orchestrator/tools";
 import { Env } from "../types/ai";
 import { CORS_HEADERS } from "../lib/cors";

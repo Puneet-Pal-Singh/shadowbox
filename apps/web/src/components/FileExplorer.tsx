@@ -43,7 +43,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(
       } catch (e) {
         console.error("Explorer Error:", e);
       }
-    }, [sessionId, runId]);
+    }, [sessionId]);
 
     useImperativeHandle(ref, () => ({
       refresh: fetchFiles
@@ -51,8 +51,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(
 
     useEffect(() => {
       fetchFiles();
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [fetchFiles]);
 
     return (
       <div className="flex flex-col h-full bg-black">
