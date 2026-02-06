@@ -3,6 +3,7 @@ import { motion } from "framer-motion";
 import { Files } from "lucide-react";
 import { FileExplorer, FileExplorerHandle } from "../FileExplorer";
 import { ChatInterface } from "../chat/ChatInterface";
+import { RightSidebar } from "../sidebar/RightSidebar";
 import { useChat } from "../../hooks/useChat";
 import { cn } from "../../lib/utils";
 
