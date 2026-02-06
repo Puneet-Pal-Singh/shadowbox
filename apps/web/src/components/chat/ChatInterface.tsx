@@ -18,7 +18,6 @@ interface ChatInterfaceProps {
 
 export function ChatInterface({
   chatProps,
-  threadTitle,
   onArtifactOpen,
 }: ChatInterfaceProps) {
   const { messages, input, handleInputChange, handleSubmit, isLoading } =

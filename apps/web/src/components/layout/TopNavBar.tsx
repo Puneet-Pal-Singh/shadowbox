@@ -2,7 +2,6 @@ import { motion } from "framer-motion";
 import { PanelLeftOpen, FileDiff } from "lucide-react";
 import { OpenDropdown } from "../navigation/OpenDropdown";
 import { CommitDropdown } from "../navigation/CommitDropdown";
-import { GitDiffButton } from "../ui/GitDiffButton";
 import { GitHubLoginButton } from "../auth/GitHubLoginButton";
 
 interface TopNavBarProps {

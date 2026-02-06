@@ -20,7 +20,6 @@ export function Workspace({
   sessionId: runId, 
   threadTitle,
   isRightSidebarOpen = false,
-  onRightSidebarClose,
 }: WorkspaceProps) {
   const explorerRef = useRef<FileExplorerHandle>(null);
   const sandboxId = runId;
