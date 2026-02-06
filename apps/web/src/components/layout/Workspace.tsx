@@ -79,18 +79,16 @@ export function Workspace({
 
         {/* Combined Sidebar */}
         <motion.aside
-          initial={false}
           animate={{
             width: isRightSidebarOpen ? 320 : 0,
-            opacity: isRightSidebarOpen ? 1 : 0,
           }}
           transition={{ duration: 0.2, ease: "easeInOut" }}
           className={cn(
             "border-l border-zinc-800 bg-black flex flex-col overflow-hidden shrink-0",
-            !isRightSidebarOpen && "pointer-events-none border-transparent",
+            !isRightSidebarOpen && "border-transparent",
           )}
         >
-          <div className="flex-1 flex flex-col min-w-0 w-[320px]">
+          <div className="flex-1 flex flex-col min-w-[320px] w-[320px]">
             {/* Sidebar Header */}
             <div className="h-10 border-b border-zinc-800 flex items-center justify-between px-3 bg-black">
               <div className="flex gap-4 h-full">
