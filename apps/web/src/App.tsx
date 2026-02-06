@@ -193,43 +193,6 @@ function AppContent() {
           onTabChange={setActiveTab}
           branchName={githubContext.branch || "main"}
         />
-
-        {/* Main Workspace Layer */}
-        <div className="flex-1 flex overflow-hidden">
-          {activeSessionId ? (
-            <Workspace
-              key={activeSessionId}
-              sessionId={activeSessionId}
-              threadTitle={threadTitle}
-            />
-          ) : (
-            <AgentSetup
-              onStart={(config) => {
-                const name =
-                  config.task.length > 20
-                    ? config.task.substring(0, 20) + "..."
-                    : config.task;
-                const id = createSession(name);
-                localStorage.setItem(`pending_query_${id}`, config.task);
-
-                // Pass GitHub context to the session
-                if (githubContext.repo) {
-                  localStorage.setItem(
-                    `github_context_${id}`,
-                    JSON.stringify(githubContext),
-                  );
-                }
-              }}
-            />
-          )}
-        </div>
-
-        {/* Status Bar */}
-        <StatusBar
-          activeTab={activeTab}
-          onTabChange={setActiveTab}
-          branchName={githubContext.branch || "main"}
-        />
       </div>
     </div>
   );
