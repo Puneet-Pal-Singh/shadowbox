@@ -36,7 +36,38 @@ export class AuthController {
    */
   static async handleLogin(_request: Request, env: Env): Promise<Response> {
     try {
+      console.log("[Auth] Initiating OAuth login...");
+
+      // Validate required environment variables
+      if (!env.GITHUB_CLIENT_ID || !env.GITHUB_CLIENT_SECRET) {
+        console.error(
+          "[Auth] Missing required GitHub OAuth environment variables",
+        );
+        console.error(
+          "[Auth] GITHUB_CLIENT_ID:",
+          env.GITHUB_CLIENT_ID ? "set" : "NOT SET",
+        );
+        console.error(
+          "[Auth] GITHUB_CLIENT_SECRET:",
+          env.GITHUB_CLIENT_SECRET ? "set" : "NOT SET",
+        );
+        return errorResponse(
+          "Server configuration error: Missing GitHub OAuth credentials. " +
+            "Please check your .dev.vars file and ensure GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET are set.",
+          500,
+        );
+      }
+
+      if (!env.GITHUB_REDIRECT_URI) {
+        console.error("[Auth] Missing GITHUB_REDIRECT_URI");
+        return errorResponse(
+          "Server configuration error: Missing redirect URI",
+          500,
+        );
+      }
+
       const state = generateState();
+      console.log("[Auth] Generated OAuth state");
 
       // Store state in KV with expiration
       const session: AuthSession = {
@@ -49,6 +80,7 @@ export class AuthController {
         JSON.stringify(session),
         { expirationTtl: 600 }, // 10 minutes
       );
+      console.log("[Auth] OAuth state stored in KV");
 
       const config: OAuthConfig = {
         clientId: env.GITHUB_CLIENT_ID,
@@ -58,6 +90,10 @@ export class AuthController {
       };
 
       const authUrl = generateAuthUrl(config, state);
+      console.log(
+        "[Auth] Redirecting to GitHub:",
+        authUrl.substring(0, 60) + "...",
+      );
 
       return new Response(null, {
         status: 302,
@@ -78,10 +114,18 @@ export class AuthController {
    */
   static async handleCallback(request: Request, env: Env): Promise<Response> {
     try {
+      console.log("[Auth] OAuth callback received");
+
       const url = new URL(request.url);
       const code = url.searchParams.get("code");
       const state = url.searchParams.get("state");
       const error = url.searchParams.get("error");
+
+      console.log("[Auth] Callback params:", {
+        code: !!code,
+        state: !!state,
+        error,
+      });
 
       // Handle OAuth errors from GitHub
       if (error) {
@@ -96,6 +140,7 @@ export class AuthController {
       // Verify state to prevent CSRF
       const sessionData = await env.SESSIONS.get(`oauth_state:${state}`);
       if (!sessionData) {
+        console.error("[Auth] State not found in KV store");
         return errorResponse("Invalid or expired session", 400);
       }
 
@@ -115,6 +160,15 @@ export class AuthController {
       // Clean up state
       await env.SESSIONS.delete(`oauth_state:${state}`);
 
+      // Check required environment variables
+      if (!env.GITHUB_CLIENT_ID || !env.GITHUB_CLIENT_SECRET) {
+        console.error("[Auth] Missing GitHub OAuth credentials");
+        return errorResponse(
+          "Server configuration error: Missing GitHub credentials",
+          500,
+        );
+      }
+
       // Exchange code for token
       const config: OAuthConfig = {
         clientId: env.GITHUB_CLIENT_ID,
@@ -122,10 +176,14 @@ export class AuthController {
         redirectUri: env.GITHUB_REDIRECT_URI,
       };
 
+      console.log("[Auth] Exchanging code for token...");
       const tokenResponse = await exchangeCodeForToken(code, config);
+      console.log("[Auth] Token received successfully");
 
       // Fetch user details
+      console.log("[Auth] Fetching user details...");
       const user = await fetchGitHubUser(tokenResponse.access_token);
+      console.log("[Auth] User fetched:", user.login);
 
       // Encrypt token before storing
       const encryptedToken = await encryptToken(
@@ -154,7 +212,10 @@ export class AuthController {
       const sessionToken = await generateSessionToken(user.id.toString(), env);
 
       // Redirect to frontend with session token
-      const redirectUrl = new URL(env.FRONTEND_URL);
+      const frontendUrl = env.FRONTEND_URL || "http://localhost:5173";
+      console.log("[Auth] Redirecting to frontend:", frontendUrl);
+
+      const redirectUrl = new URL(frontendUrl);
       redirectUrl.searchParams.set("session", sessionToken);
       redirectUrl.searchParams.set("user", user.login);
 
