@@ -3,7 +3,6 @@ import { motion } from "framer-motion";
 import { Files } from "lucide-react";
 import { FileExplorer, FileExplorerHandle } from "../FileExplorer";
 import { ChatInterface } from "../chat/ChatInterface";
-import { RightSidebar } from "../sidebar/RightSidebar";
 import { useChat } from "../../hooks/useChat";
 import { cn } from "../../lib/utils";
 
@@ -16,7 +15,6 @@ export function Workspace({ sessionId: runId, threadTitle }: WorkspaceProps) {
   const explorerRef = useRef<FileExplorerHandle>(null);
   const sandboxId = runId;
   const [isExplorerOpen, setIsExplorerOpen] = useState(false);
-  const [isGitSidebarOpen, setIsGitSidebarOpen] = useState(false);
 
   const {
     messages,
@@ -62,7 +60,6 @@ export function Workspace({ sessionId: runId, threadTitle }: WorkspaceProps) {
             }}
             threadTitle={threadTitle}
             onArtifactOpen={() => {}}
-            onGitDiffClick={() => setIsGitSidebarOpen(true)}
           />
 
           {/* Files Toggle Button - Floating Sidebar Style */}
@@ -116,17 +113,6 @@ export function Workspace({ sessionId: runId, threadTitle }: WorkspaceProps) {
           )}
         </motion.aside>
       </div>
-
-      {/* Git Diff Sidebar */}
-      <RightSidebar
-        isOpen={isGitSidebarOpen}
-        onClose={() => setIsGitSidebarOpen(false)}
-        onExpand={() => {
-          // TODO: Implement expand to full modal
-          console.log("Expand git diff to full screen");
-        }}
-        defaultTab="changes"
-      />
     </div>
   );
 }

@@ -14,14 +14,12 @@ interface ChatInterfaceProps {
   };
   threadTitle?: string;
   onArtifactOpen?: (path: string, content: string) => void;
-  onGitDiffClick?: () => void;
 }
 
 export function ChatInterface({
   chatProps,
   threadTitle,
   onArtifactOpen,
-  onGitDiffClick,
 }: ChatInterfaceProps) {
   const { messages, input, handleInputChange, handleSubmit, isLoading } =
     chatProps;
@@ -82,7 +80,6 @@ export function ChatInterface({
             onChange={handleInputChangeWrapper}
             onSubmit={handleSubmit}
             isLoading={isLoading}
-            onGitDiffClick={onGitDiffClick}
           />
         </div>
       </div>
