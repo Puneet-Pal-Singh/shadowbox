@@ -20,6 +20,7 @@
     "@ai-sdk/google": "1.1.0",
     "@ai-sdk/openai": "^1.1.0",
     "@shadowbox/context-pruner": "workspace:*",
+    "@shadowbox/github-bridge": "workspace:*",
     "ai": "4.1.0",
     "zod": "^3.22.4"
   }

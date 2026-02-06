@@ -3,108 +3,13 @@
  *
  * Handles GitHub API operations for repository management
  * Part of the Control Plane (Brain)
+ * Follows Single Responsibility: Only handles GitHub API routes
  */
 
 import { CORS_HEADERS } from "../lib/cors";
 import { Env } from "../types/ai";
-import {
-  GitHubAPIClient,
-  decryptToken,
-  type EncryptedToken,
-} from "@shadowbox/github-bridge";
-
-/**
- * Extract session token from request
- */
-function extractSessionToken(request: Request): string | null {
-  const cookie = request.headers.get("Cookie");
-  if (cookie) {
-    const match = cookie.match(/shadowbox_session=([^;]+)/);
-    if (match) return match[1];
-  }
-
-  const auth = request.headers.get("Authorization");
-  if (auth?.startsWith("Bearer ")) {
-    return auth.slice(7);
-  }
-
-  return null;
-}
-
-/**
- * Verify and extract user ID from session token
- */
-async function verifySessionToken(
-  token: string,
-  env: Env,
-): Promise<string | null> {
-  try {
-    const [userId, timestamp, signature] = token.split(":");
-    if (!userId || !timestamp || !signature) return null;
-
-    const data = `${userId}:${timestamp}`;
-    const encoder = new TextEncoder();
-    const key = await crypto.subtle.importKey(
-      "raw",
-      encoder.encode(env.SESSION_SECRET),
-      { name: "HMAC", hash: "SHA-256" },
-      false,
-      ["verify"],
-    );
-
-    const sigBytes = Uint8Array.from(atob(signature), (c) => c.charCodeAt(0));
-    const valid = await crypto.subtle.verify(
-      "HMAC",
-      key,
-      sigBytes,
-      encoder.encode(data),
-    );
-
-    if (!valid) return null;
-
-    // Check expiration (7 days)
-    const tokenTime = parseInt(timestamp, 10);
-    if (Date.now() - tokenTime > 7 * 24 * 60 * 60 * 1000) {
-      return null;
-    }
-
-    return userId;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Get authenticated client for user
- */
-async function getGitHubClient(
-  request: Request,
-  env: Env,
-): Promise<{ client: GitHubAPIClient; userId: string } | null> {
-  const sessionToken = extractSessionToken(request);
-  if (!sessionToken) return null;
-
-  const userId = await verifySessionToken(sessionToken, env);
-  if (!userId) return null;
-
-  // Get user session
-  const sessionData = await env.SESSIONS.get(`user_session:${userId}`);
-  if (!sessionData) return null;
-
-  const session = JSON.parse(sessionData);
-  const encryptedToken: EncryptedToken = session.encryptedToken;
-
-  // Decrypt token
-  const accessToken = await decryptToken(
-    encryptedToken,
-    env.GITHUB_TOKEN_ENCRYPTION_KEY,
-  );
-
-  return {
-    client: new GitHubAPIClient(accessToken),
-    userId,
-  };
-}
+import { getGitHubClient } from "../services/AuthService";
+import type { CreatePullRequestParams } from "@shadowbox/github-bridge";
 
 /**
  * JSON response helper
@@ -257,6 +162,130 @@ export class GitHubController {
       console.error("[GitHub] Get tree error:", error);
       const message =
         error instanceof Error ? error.message : "Failed to get tree";
+      return errorResponse(message, 500);
+    }
+  }
+
+  /**
+   * List pull requests for a repository
+   * GET /api/github/pulls?owner=xxx&repo=xxx&state=xxx
+   */
+  static async listPullRequests(request: Request, env: Env): Promise<Response> {
+    try {
+      const auth = await getGitHubClient(request, env);
+      if (!auth) {
+        return errorResponse("Unauthorized", 401);
+      }
+
+      const { client } = auth;
+
+      const url = new URL(request.url);
+      const owner = url.searchParams.get("owner");
+      const repo = url.searchParams.get("repo");
+      const state =
+        (url.searchParams.get("state") as "open" | "closed" | "all") || "open";
+
+      if (!owner || !repo) {
+        return errorResponse("Missing owner or repo parameter", 400);
+      }
+
+      const pullRequests = await client.listPullRequests(owner, repo, state);
+
+      return jsonResponse({ pullRequests });
+    } catch (error) {
+      console.error("[GitHub] List PRs error:", error);
+      const message =
+        error instanceof Error ? error.message : "Failed to list pull requests";
+      return errorResponse(message, 500);
+    }
+  }
+
+  /**
+   * Get a single pull request
+   * GET /api/github/pulls/:number?owner=xxx&repo=xxx
+   */
+  static async getPullRequest(request: Request, env: Env): Promise<Response> {
+    try {
+      const auth = await getGitHubClient(request, env);
+      if (!auth) {
+        return errorResponse("Unauthorized", 401);
+      }
+
+      const { client } = auth;
+
+      const url = new URL(request.url);
+      const owner = url.searchParams.get("owner");
+      const repo = url.searchParams.get("repo");
+      const pathParts = url.pathname.split("/");
+      const numberStr = pathParts[pathParts.length - 1];
+      const number = numberStr ? parseInt(numberStr, 10) : NaN;
+
+      if (!owner || !repo || isNaN(number)) {
+        return errorResponse("Missing or invalid parameters", 400);
+      }
+
+      const pullRequest = await client.getPullRequest(owner, repo, number);
+
+      return jsonResponse({ pullRequest });
+    } catch (error) {
+      console.error("[GitHub] Get PR error:", error);
+      const message =
+        error instanceof Error ? error.message : "Failed to get pull request";
+      return errorResponse(message, 500);
+    }
+  }
+
+  /**
+   * Create a pull request
+   * POST /api/github/pulls
+   */
+  static async createPullRequest(
+    request: Request,
+    env: Env,
+  ): Promise<Response> {
+    try {
+      const auth = await getGitHubClient(request, env);
+      if (!auth) {
+        return errorResponse("Unauthorized", 401);
+      }
+
+      const { client } = auth;
+
+      const body = (await request.json()) as {
+        owner?: string;
+        repo?: string;
+        title?: string;
+        head?: string;
+        base?: string;
+        body?: string;
+      };
+
+      const owner = body.owner;
+      const repo = body.repo;
+      const title = body.title;
+      const head = body.head;
+      const base = body.base;
+
+      if (!owner || !repo || !title || !head || !base) {
+        return errorResponse("Missing required parameters", 400);
+      }
+
+      const params: CreatePullRequestParams = {
+        title,
+        head,
+        base,
+        body: body.body,
+      };
+
+      const pullRequest = await client.createPullRequest(owner, repo, params);
+
+      return jsonResponse({ pullRequest }, 201);
+    } catch (error) {
+      console.error("[GitHub] Create PR error:", error);
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Failed to create pull request";
       return errorResponse(message, 500);
     }
   }

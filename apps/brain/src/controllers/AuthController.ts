@@ -3,6 +3,7 @@
  *
  * Handles GitHub OAuth authentication flow
  * Part of the Control Plane (Brain) - manages identity and tokens
+ * Follows Single Responsibility: Only handles OAuth flow
  */
 
 import { CORS_HEADERS } from "../lib/cors";
@@ -16,6 +17,10 @@ import {
   encryptToken,
   type OAuthConfig,
 } from "@shadowbox/github-bridge";
+import {
+  extractSessionToken,
+  verifySessionToken,
+} from "../services/AuthService";
 
 interface AuthSession {
   state: string;
@@ -253,69 +258,6 @@ async function generateSessionToken(userId: string, env: Env): Promise<string> {
   const sigBase64 = btoa(String.fromCharCode(...new Uint8Array(signature)));
 
   return `${data}:${sigBase64}`;
-}
-
-/**
- * Verify and extract user ID from session token
- */
-async function verifySessionToken(
-  token: string,
-  env: Env,
-): Promise<string | null> {
-  try {
-    const [userId, timestamp, signature] = token.split(":");
-    if (!userId || !timestamp || !signature) return null;
-
-    const data = `${userId}:${timestamp}`;
-    const encoder = new TextEncoder();
-    const key = await crypto.subtle.importKey(
-      "raw",
-      encoder.encode(env.SESSION_SECRET),
-      { name: "HMAC", hash: "SHA-256" },
-      false,
-      ["verify"],
-    );
-
-    const sigBytes = Uint8Array.from(atob(signature), (c) => c.charCodeAt(0));
-    const valid = await crypto.subtle.verify(
-      "HMAC",
-      key,
-      sigBytes,
-      encoder.encode(data),
-    );
-
-    if (!valid) return null;
-
-    // Check expiration (7 days)
-    const tokenTime = parseInt(timestamp, 10);
-    if (Date.now() - tokenTime > 7 * 24 * 60 * 60 * 1000) {
-      return null;
-    }
-
-    return userId;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Extract session token from request
- */
-function extractSessionToken(request: Request): string | null {
-  // Check cookie first
-  const cookie = request.headers.get("Cookie");
-  if (cookie) {
-    const match = cookie.match(/shadowbox_session=([^;]+)/);
-    if (match) return match[1];
-  }
-
-  // Check Authorization header
-  const auth = request.headers.get("Authorization");
-  if (auth?.startsWith("Bearer ")) {
-    return auth.slice(7);
-  }
-
-  return null;
 }
 
 /**
