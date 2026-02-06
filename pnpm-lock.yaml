@@ -143,6 +143,9 @@ importers:
       '@eslint/js':
         specifier: ^9.39.1
         version: 9.39.2
+      '@repo/shared-types':
+        specifier: workspace:*
+        version: link:../../packages/shared-types
       '@repo/typescript-config':
         specifier: workspace:*
         version: link:../../packages/typescript-config
@@ -241,6 +244,15 @@ importers:
         version: link:../typescript-config
       typescript:
         specifier: ~5.9.3
+        version: 5.9.3
+
+  packages/shared-types:
+    devDependencies:
+      '@repo/typescript-config':
+        specifier: workspace:*
+        version: link:../typescript-config
+      typescript:
+        specifier: ^5.0.0
         version: 5.9.3
 
   packages/typescript-config: {}
