@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect } from "react";
+import { useRef, useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Maximize2, ArrowLeft, Loader2 } from "lucide-react";
 import type { DiffContent } from "@repo/shared-types";
