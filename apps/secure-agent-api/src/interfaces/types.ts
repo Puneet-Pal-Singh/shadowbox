@@ -9,6 +9,7 @@ export interface PluginResult {
   output?: string | Record<string, unknown> | null;
   error?: string;
   logs?: string[];
+  isBinary?: boolean;
 }
 
 // OpenAI Tool Definition Schema

@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useImperativeHandle, forwardRef } from 'react';
-import { Folder, File, ChevronRight, ChevronDown } from 'lucide-react';
+import { Folder, File, ChevronRight, ChevronDown, Loader2 } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 interface FileItem {
@@ -24,6 +24,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(
   ({ sessionId, runId, onFileClick }, ref) => {
     const [files, setFiles] = useState<FileItem[]>([]);
     const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set(['.']));
+    const [loadingPaths, setLoadingPaths] = useState<Set<string>>(new Set());
 
     const fetchFilesForPath = useCallback(async (path: string, depth: number): Promise<FileItem[]> => {
       try {
@@ -35,24 +36,34 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(
             payload: { action: "list_files", runId, path }
           })
         });
+        
         const data = await res.json();
         
-        if (data.success && data.output) {
+        if (data.success && typeof data.output === 'string') {
           const lines = data.output.split('\n').filter((l: string) => l.trim() && !l.includes('... and'));
-          return lines.map((line: string) => {
-            const name = line.replace('/', '');
+          
+          const seen = new Set<string>();
+          const items: FileItem[] = [];
+
+          for (const line of lines) {
             const isDir = line.endsWith('/');
+            const name = isDir ? line.slice(0, -1) : line;
+            
+            if (seen.has(name)) continue;
+            seen.add(name);
+
             const itemPath = path === '.' ? name : `${path}/${name}`;
-            return {
+            items.push({
               name,
               path: itemPath,
               type: isDir ? 'directory' : 'file',
               depth
-            };
-          });
+            });
+          }
+          return items;
         }
       } catch (e) {
-        console.error("Explorer Error:", e);
+        console.error("🧬 [Shadowbox] Explorer Error:", e);
       }
       return [];
     }, [sessionId, runId]);
@@ -67,7 +78,10 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(
     }));
 
     useEffect(() => {
-      refresh();
+      const init = async () => {
+        await refresh();
+      };
+      init();
     }, [refresh]);
 
     const toggleDirectory = async (path: string) => {
@@ -79,9 +93,11 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(
         newExpanded.add(path);
         setExpandedPaths(newExpanded);
         
-        // Fetch children if needed (simple implementation: re-fetch and merge)
-        // For a more robust explorer, we'd store children in the file state
-        const children = await fetchFilesForPath(path, 0); // depth is relative here for simplicity
+        // Mark as loading
+        setLoadingPaths(prev => new Set(prev).add(path));
+        
+        const children = await fetchFilesForPath(path, 0);
+        
         setFiles(prev => {
            const updateChildren = (items: FileItem[]): FileItem[] => {
               return items.map(item => {
@@ -96,11 +112,18 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(
            };
            return updateChildren(prev);
         });
+        
+        setLoadingPaths(prev => {
+           const next = new Set(prev);
+           next.delete(path);
+           return next;
+        });
       }
     };
 
     const renderItem = (item: FileItem) => {
       const isExpanded = expandedPaths.has(item.path);
+      const isLoading = loadingPaths.has(item.path);
       const isDir = item.type === 'directory';
 
       return (
@@ -108,14 +131,19 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(
           <div 
             onClick={() => isDir ? toggleDirectory(item.path) : onFileClick?.(item.path)}
             className={cn(
-               "flex items-center gap-1.5 p-1 px-2 hover:bg-zinc-800/50 rounded group cursor-pointer transition-colors",
-               item.depth > 0 && "ml-3"
+               "flex items-center gap-1.5 p-1 px-2 hover:bg-zinc-800/50 rounded group cursor-pointer transition-colors"
             )}
             style={{ paddingLeft: `${item.depth * 12 + 8}px` }}
           >
             {isDir ? (
                <>
-                  {isExpanded ? <ChevronDown size={14} className="text-zinc-500" /> : <ChevronRight size={14} className="text-zinc-500" />}
+                  {isLoading ? (
+                    <Loader2 size={14} className="text-zinc-500 animate-spin" />
+                  ) : isExpanded ? (
+                    <ChevronDown size={14} className="text-zinc-500" />
+                  ) : (
+                    <ChevronRight size={14} className="text-zinc-500" />
+                  )}
                   <Folder size={14} className="text-blue-500/80 shrink-0" />
                </>
             ) : (

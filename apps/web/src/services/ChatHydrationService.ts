@@ -1,4 +1,5 @@
-import type { Message, ToolInvocation } from "@ai-sdk/react";
+import type { Message } from "@ai-sdk/react";
+import type { ToolInvocation } from "ai";
 
 interface ServerToolCall {
   id?: string;

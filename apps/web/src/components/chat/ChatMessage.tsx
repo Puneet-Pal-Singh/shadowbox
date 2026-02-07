@@ -1,9 +1,7 @@
-import { type Message } from "ai";
-import { ActionBlock } from "./ActionBlock";
+import { type Message, type TextPart } from "ai";
 import { ArtifactPreview } from "./ArtifactPreview";
 import { cn } from "../../lib/utils";
 import { FilePill } from "./FilePill";
-import { Loader2 } from "lucide-react";
 
 interface ChatMessageProps {
   message: Message;
@@ -17,8 +15,8 @@ export function ChatMessage({ message, onArtifactOpen }: ChatMessageProps) {
   const getTextContent = () => {
     if (typeof message.content === 'string') return message.content;
     if (Array.isArray(message.content)) {
-      return message.content
-        .filter(part => part.type === 'text')
+      return (message.content as any[])
+        .filter((part): part is TextPart => part.type === 'text')
         .map(part => part.text)
         .join('');
     }
@@ -31,7 +29,7 @@ export function ChatMessage({ message, onArtifactOpen }: ChatMessageProps) {
   const fileRefs = content.match(/[\w-]+\.(md|json|ts|tsx|js|jsx|css|html)/g) || [];
 
   // Unique file references
-  const uniqueFileRefs = [...new Set(fileRefs)];
+  const uniqueFileRefs = [...new Set(fileRefs)] as string[];
 
   return (
     <div

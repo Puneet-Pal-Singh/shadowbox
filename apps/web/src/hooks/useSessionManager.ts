@@ -18,23 +18,37 @@ interface SavedSession {
 
 export function useSessionManager() {
   const [sessions, setSessions] = useState<AgentSession[]>(() => {
-    const saved = localStorage.getItem('shadowbox_sessions');
-    const parsed: SavedSession[] = saved ? JSON.parse(saved) : [];
-    // Migration: Add repository if missing
-    return parsed.map((s) => ({
-      ...s,
-      repository: s.repository || 'New Project'
-    })) as AgentSession[];
+    try {
+      const saved = localStorage.getItem('shadowbox_sessions');
+      const parsed: SavedSession[] = saved ? JSON.parse(saved) : [];
+      
+      if (!Array.isArray(parsed)) return [];
+
+      // Migration: Add repository if missing
+      return parsed.map((s) => ({
+        ...s,
+        repository: s.repository || 'New Project'
+      })) as AgentSession[];
+    } catch (e) {
+      console.error("🧬 [Shadowbox] Failed to parse sessions from localStorage:", e);
+      return [];
+    }
   });
   
   // Persist activeSessionId to survive refreshes
   const [activeSessionId, setActiveSessionId] = useState<string | null>(() => {
-    const savedId = localStorage.getItem('shadowbox_active_id');
-    const savedSessions = localStorage.getItem('shadowbox_sessions');
-    const sessionsList: SavedSession[] = savedSessions ? JSON.parse(savedSessions) : [];
-    
-    // Only restore if the session still exists
-    return sessionsList.some(s => s.id === savedId) ? savedId : null;
+    try {
+      const savedId = localStorage.getItem('shadowbox_active_id');
+      const savedSessions = localStorage.getItem('shadowbox_sessions');
+      const sessionsList: SavedSession[] = savedSessions ? JSON.parse(savedSessions) : [];
+      
+      if (!Array.isArray(sessionsList)) return null;
+
+      // Only restore if the session still exists
+      return sessionsList.some(s => s.id === savedId) ? savedId : null;
+    } catch (e) {
+      return null;
+    }
   });
 
   useEffect(() => {

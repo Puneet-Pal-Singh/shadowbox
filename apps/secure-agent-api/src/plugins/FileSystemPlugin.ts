@@ -34,7 +34,7 @@ export class FileSystemPlugin implements IPlugin {
           return { success: false, error: "Access Denied: Path escapes workspace" };
         }
 
-        const res = await sandbox.exec(`ls -F ${targetDir}`); // -F adds / to folders
+        const res = await sandbox.exec(`ls -1p ${targetDir}`); // -1p: one per line, / for folders, no * for executables
         
         if (res.exitCode !== 0) {
           return { success: false, error: res.stderr || "Directory not found" };
@@ -56,6 +56,12 @@ export class FileSystemPlugin implements IPlugin {
         const targetPath = `${workspaceRoot}/${payload.path}`;
         if (!targetPath.startsWith(workspaceRoot)) {
           return { success: false, error: "Access Denied: Path escapes workspace" };
+        }
+
+        // Check if file is binary first
+        const check = await sandbox.exec(`file -b --mime-type ${targetPath}`);
+        if (check.stdout.includes('binary') || check.stdout.includes('application/octet-stream') || check.stdout.includes('executable')) {
+           return { success: true, output: "[BINARY_FILE_DETECTED]", isBinary: true };
         }
 
         const res = await sandbox.exec(`cat ${targetPath}`);

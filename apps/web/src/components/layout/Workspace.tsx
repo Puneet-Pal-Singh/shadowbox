@@ -100,12 +100,26 @@ export function Workspace({
           payload: { action: "read_file", runId, path }
         })
       });
-      const data = await res.json();
+      
+      let data;
+      try {
+        data = await res.json();
+      } catch (parseError) {
+        console.error("Failed to parse file response:", parseError);
+        setSelectedFile({ path, content: "// [Error] The server returned unreadable data. This usually happens with large binary files." });
+        return;
+      }
+
       if (data.success) {
-        setSelectedFile({ path, content: data.output });
+        if (data.isBinary || data.output === "[BINARY_FILE_DETECTED]") {
+           setSelectedFile({ path, content: "// [Shadowbox] This file is a binary and cannot be displayed in the text editor." });
+        } else {
+           setSelectedFile({ path, content: data.output });
+        }
       }
     } catch (e) {
       console.error("Failed to read file:", e);
+      setSelectedFile({ path, content: "// [Error] Failed to connect to server or read file." });
     } finally {
       setIsLoadingContent(false);
     }
