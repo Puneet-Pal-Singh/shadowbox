@@ -66,7 +66,14 @@ export function ChatMessage({ message, onArtifactOpen }: ChatMessageProps) {
         {/* Tool Invocations */}
         {message.toolInvocations
           ?.filter((toolInvocation) => {
-            const visibleTools = ["create_code_artifact"];
+            const visibleTools = [
+              "create_code_artifact",
+              "run_command",
+              "list_files",
+              "read_file",
+              "write_file",
+              "make_dir",
+            ];
             return visibleTools.includes(toolInvocation.toolName);
           })
           .map((toolInvocation, index) => {

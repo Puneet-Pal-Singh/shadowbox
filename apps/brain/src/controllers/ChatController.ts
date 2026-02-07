@@ -38,6 +38,9 @@ export class ChatController {
       const body = await parseRequestBody(req);
       const identifiers = extractIdentifiers(body);
 
+      console.log(`[Brain:${correlationId}] Incoming request for session: ${identifiers.sessionId}, run: ${identifiers.runId}`);
+      console.log(`[Brain:${correlationId}] Messages count in request: ${body.messages?.length || 0}`);
+
       if (!body.messages || !Array.isArray(body.messages)) {
         return errorResponse("Invalid messages", 400);
       }
@@ -92,6 +95,7 @@ export class ChatController {
     const systemPrompt = services.promptService.generatePrompt(
       runId,
       env.SYSTEM_PROMPT,
+      body.agentId, // Use agentId as custom prompt if needed, or similar logic
     );
 
     // Create tools registry
@@ -100,6 +104,7 @@ export class ChatController {
     // Create and return stream
     return await services.streamOrchestrator.createStream({
       messages: messagesForAI,
+      fullHistory: prepResult.coreMessages,
       systemPrompt,
       tools: toolsRegistry,
       correlationId,

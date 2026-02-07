@@ -1,4 +1,4 @@
-import type { Message } from "@ai-sdk/react";
+import type { Message, ToolInvocation } from "@ai-sdk/react";
 
 interface ServerToolCall {
   id?: string;
@@ -8,10 +8,18 @@ interface ServerToolCall {
   };
 }
 
+interface CorePart {
+  type: 'text' | 'tool-call';
+  text?: string;
+  toolName?: string;
+  toolCallId?: string;
+  args?: any;
+}
+
 interface ServerMessage {
   id?: string;
   role: "system" | "user" | "assistant" | "tool";
-  content: string;
+  content: string | CorePart[];
   tool_calls?: ServerToolCall[];
   createdAt?: string | Date;
 }
@@ -66,38 +74,59 @@ export class ChatHydrationService {
     return history
       .filter((msg) => msg.role !== "tool")
       .map((msg, index) => {
-        const converted = {
+        let content = "";
+        let toolInvocations: ToolInvocation[] = [];
+
+        if (typeof msg.content === 'string') {
+          content = msg.content;
+        } else if (Array.isArray(msg.content)) {
+          // Handle CoreMessage parts
+          msg.content.forEach(part => {
+            if (part.type === 'text' && part.text) {
+              content += part.text;
+            } else if (part.type === 'tool-call') {
+              toolInvocations.push({
+                state: 'result',
+                toolCallId: part.toolCallId || `${runId}-tool-${index}`,
+                toolName: part.toolName || 'unknown',
+                args: part.args || {},
+                result: null // Results are pruned or handled separately
+              });
+            }
+          });
+        }
+
+        const converted: Message = {
           id: msg.id || `${runId}-msg-${index}`,
           role: msg.role as "system" | "user" | "assistant",
-          content: msg.content,
+          content,
           createdAt: msg.createdAt ? new Date(msg.createdAt) : new Date(),
         };
 
+        // Handle legacy tool_calls format
         if (msg.role === "assistant" && msg.tool_calls) {
-          (converted as Message).toolInvocations = this.convertToolCalls(
-            msg.tool_calls,
-            runId,
-          ) as Message["toolInvocations"];
+          const legacyTools = this.convertToolCalls(msg.tool_calls, runId);
+          toolInvocations = [...toolInvocations, ...legacyTools];
         }
 
-        return converted as Message;
+        if (toolInvocations.length > 0) {
+          converted.toolInvocations = toolInvocations;
+        }
+
+        return converted;
       });
   }
 
   private convertToolCalls(
     toolCalls: ServerToolCall[],
     runId: string,
-  ): Array<{
-    state: "result";
-    toolCallId: string;
-    toolName: string;
-    args: Record<string, unknown>;
-  }> {
+  ): ToolInvocation[] {
     return toolCalls.map((tc, tcIndex) => ({
       state: "result" as const,
       toolCallId: tc.id || `${runId}-tool-${tcIndex}`,
       toolName: tc.function?.name || "unknown",
       args: this.parseToolArguments(tc.function?.arguments),
+      result: null
     }));
   }
 
