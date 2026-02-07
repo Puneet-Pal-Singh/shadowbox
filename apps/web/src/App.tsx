@@ -42,6 +42,9 @@ function AppContent() {
     createSession,
     removeSession,
     updateSession,
+    repositories,
+    removeRepository,
+    renameRepository,
   } = useSessionManager();
 
   const { isAuthenticated, isLoading, login } = useAuth();
@@ -136,8 +139,20 @@ function AppContent() {
   const taskTitle = activeSession?.name;
   const threadTitle = activeSession?.name;
 
-  const handleNewTask = () => {
-    setActiveSessionId(null);
+  const handleNewTask = (repositoryName?: string) => {
+    if (repositoryName) {
+      // Create a session for this specific repository
+      const sessionName = `New Task`;
+      const sessionId = createSession(sessionName, repositoryName);
+      setActiveSessionId(sessionId);
+      
+      // Update GitHub context if we have the info (this might be tricky if we don't have the full Repo object)
+      // For now, if it's the current repo, we are good. 
+      // If it's a different repo from the sidebar, we might need to fetch repo details or store them.
+      // But usually clicking "New Task" on a repo folder means you want to work on THAT repo.
+    } else {
+      setActiveSessionId(null);
+    }
   };
 
   const handleOpenIde = (ide: string) => {
@@ -236,17 +251,19 @@ function AppContent() {
       {/* Sidebar - Independent */}
       {isSidebarOpen && (
         <div className="relative flex shrink-0" style={{ width: sidebarWidth }}>
-          <AgentSidebar
-            sessions={sessions}
-            activeSessionId={activeSessionId}
-            onSelect={setActiveSessionId}
-            onCreate={handleNewTask}
-            onRemove={removeSession}
-            onClose={handleToggleSidebar}
-            onAddRepository={() => setShowRepoPicker(true)}
-            width={sidebarWidth}
-          />
-          <Resizer
+                      <AgentSidebar
+                        sessions={sessions}
+                        repositories={repositories}
+                        activeSessionId={activeSessionId}
+                        onSelect={setActiveSessionId}
+                        onCreate={handleNewTask}
+                        onRemove={removeSession}
+                        onRemoveRepository={removeRepository}
+                        onRenameRepository={renameRepository}
+                        onClose={handleToggleSidebar}
+                        onAddRepository={() => setShowRepoPicker(true)}
+                        width={sidebarWidth}
+                      />          <Resizer
             side="left"
             onResize={(delta) =>
               setSidebarWidth((prev) =>

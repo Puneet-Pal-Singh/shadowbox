@@ -14,10 +14,13 @@ import { SidebarSection } from "../navigation/SidebarSection";
 
 interface AgentSidebarProps {
   sessions: AgentSession[];
+  repositories: string[];
   activeSessionId: string | null;
   onSelect: (id: string) => void;
-  onCreate: () => void;
+  onCreate: (repo?: string) => void;
   onRemove: (id: string) => void;
+  onRemoveRepository?: (repo: string) => void;
+  onRenameRepository?: (oldName: string, newName: string) => void;
   onClose?: () => void;
   onAddRepository?: () => void;
   width?: number;
@@ -25,17 +28,17 @@ interface AgentSidebarProps {
 
 export function AgentSidebar({
   sessions,
+  repositories,
   activeSessionId,
   onSelect,
   onCreate,
   onRemove,
+  onRemoveRepository,
+  onRenameRepository,
   onClose,
   onAddRepository,
   width = 220,
 }: AgentSidebarProps) {
-  // Group sessions by repository
-  const repos = Array.from(new Set(sessions.map((s) => s.repository)));
-
   return (
     <aside
       className="border-r border-[#1a1a1a] flex flex-col bg-[#0c0c0e] overflow-hidden"
@@ -62,7 +65,7 @@ export function AgentSidebar({
 
       {/* Main Navigation */}
       <div className="px-2.5 pb-2.5 space-y-0.5">
-        <SidebarNavItem icon={Pencil} label="New task" onClick={onCreate} />
+        <SidebarNavItem icon={Pencil} label="New task" onClick={() => onCreate()} />
       </div>
 
       {/* Tasks Section */}
@@ -71,7 +74,7 @@ export function AgentSidebar({
           title="TASKS"
           action={{
             icon: Plus,
-            onClick: onCreate,
+            onClick: () => onCreate(),
             label: "New task",
           }}
           secondaryAction={{
@@ -80,7 +83,7 @@ export function AgentSidebar({
             label: "Filter",
           }}
         >
-          {repos.map((repo) => {
+          {repositories.map((repo) => {
             const repoName = repo.split("/")[1] || repo;
             return (
               <RepositorySection
@@ -100,10 +103,13 @@ export function AgentSidebar({
                   }))}
                 onSelectTask={onSelect}
                 onRemoveTask={onRemove}
+                onAddTask={() => onCreate(repo)}
+                onRemoveRepo={() => onRemoveRepository?.(repo)}
+                onRenameRepo={(newName) => onRenameRepository?.(repo, newName)}
               />
             );
           })}
-          {repos.length === 0 && (
+          {repositories.length === 0 && (
             <p className="px-3 py-2 text-xs text-zinc-600 italic">No tasks</p>
           )}
         </SidebarSection>
