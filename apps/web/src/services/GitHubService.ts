@@ -66,15 +66,18 @@ export async function getSession(): Promise<{
   authenticated: boolean;
   user?: GitHubUser;
 }> {
-  const response = await fetch(`${BRAIN_API_URL}/auth/session`, getFetchOptions());
+  const response = await fetch(
+    `${BRAIN_API_URL}/auth/session`,
+    getFetchOptions(),
+  );
 
   if (!response.ok) {
     return { authenticated: false };
   }
 
   const data = await response.json();
-  
-  // If we got a user, but didn't have a token in localStorage, 
+
+  // If we got a user, but didn't have a token in localStorage,
   // we might want to keep it that way (let cookie handle it).
   // But if we're authenticated, we're good.
   return data;
@@ -92,9 +95,12 @@ export function initiateGitHubLogin(): void {
  */
 export async function logout(): Promise<void> {
   localStorage.removeItem("shadowbox_session");
-  await fetch(`${BRAIN_API_URL}/auth/logout`, getFetchOptions({
-    method: "POST",
-  }));
+  await fetch(
+    `${BRAIN_API_URL}/auth/logout`,
+    getFetchOptions({
+      method: "POST",
+    }),
+  );
 }
 
 /**
@@ -106,7 +112,7 @@ export async function listRepositories(
 ): Promise<Repository[]> {
   const response = await fetch(
     `${BRAIN_API_URL}/api/github/repos?type=${type}&sort=${sort}`,
-    getFetchOptions()
+    getFetchOptions(),
   );
 
   if (!response.ok) {
@@ -126,7 +132,7 @@ export async function listBranches(
 ): Promise<Branch[]> {
   const response = await fetch(
     `${BRAIN_API_URL}/api/github/branches?owner=${owner}&repo=${repo}`,
-    getFetchOptions()
+    getFetchOptions(),
   );
 
   if (!response.ok) {
@@ -147,7 +153,7 @@ export async function getRepositoryTree(
 ): Promise<Array<{ path: string; type: string; sha: string }>> {
   const response = await fetch(
     `${BRAIN_API_URL}/api/github/tree?owner=${owner}&repo=${repo}&sha=${sha}`,
-    getFetchOptions()
+    getFetchOptions(),
   );
 
   if (!response.ok) {
@@ -156,6 +162,28 @@ export async function getRepositoryTree(
 
   const data = await response.json();
   return data.tree;
+}
+
+/**
+ * Get file content from a repository
+ */
+export async function getFileContent(
+  owner: string,
+  repo: string,
+  path: string,
+  ref: string = "HEAD",
+): Promise<{ content: string; sha: string; size: number; encoding: string }> {
+  const response = await fetch(
+    `${BRAIN_API_URL}/api/github/contents?owner=${owner}&repo=${repo}&path=${encodeURIComponent(path)}&ref=${ref}`,
+    getFetchOptions(),
+  );
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch file content: ${response.statusText}`);
+  }
+
+  const data = await response.json();
+  return data.contents;
 }
 
 /**
@@ -173,7 +201,7 @@ export function handleOAuthCallback(): {
   if (session) {
     // Store token in localStorage as fallback for cookies
     localStorage.setItem("shadowbox_session", session);
-    
+
     // Just clean up URL
     window.history.replaceState({}, document.title, window.location.pathname);
     return { user, success: true };

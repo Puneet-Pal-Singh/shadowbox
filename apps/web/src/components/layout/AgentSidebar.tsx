@@ -19,6 +19,7 @@ interface AgentSidebarProps {
   onCreate: () => void;
   onRemove: (id: string) => void;
   onClose?: () => void;
+  onAddRepository?: () => void;
   width?: number;
 }
 
@@ -29,13 +30,14 @@ export function AgentSidebar({
   onCreate,
   onRemove,
   onClose,
+  onAddRepository,
   width = 220,
 }: AgentSidebarProps) {
   // Group sessions by repository
   const repos = Array.from(new Set(sessions.map((s) => s.repository)));
 
   return (
-    <aside 
+    <aside
       className="border-r border-[#1a1a1a] flex flex-col bg-[#0c0c0e] overflow-hidden"
       style={{ width }}
     >
@@ -109,7 +111,7 @@ export function AgentSidebar({
         <SidebarNavItem
           icon={FolderPlus}
           label="Add repository"
-          onClick={() => console.log("Add repository")}
+          onClick={onAddRepository}
         />
         <SidebarNavItem
           icon={Settings}

@@ -13,6 +13,12 @@ import { useGitDiff } from "../../hooks/useGitDiff";
 import { Resizer } from "../ui/Resizer";
 import { ArtifactView } from "../chat/ArtifactView";
 import { DiffViewer } from "../diff/DiffViewer";
+import { RepoFileTree } from "../github/RepoFileTree";
+import { useGitHub } from "../github/GitHubContextProvider";
+import {
+  getRepositoryTree,
+  getFileContent,
+} from "../../services/GitHubService";
 
 interface WorkspaceProps {
   sessionId: string;
@@ -27,6 +33,49 @@ export function Workspace({
 }: WorkspaceProps) {
   const explorerRef = useRef<FileExplorerHandle>(null);
   const sandboxId = runId;
+  const { repo, branch, isLoaded: isGitHubLoaded } = useGitHub();
+
+  // GitHub repository tree state
+  const [repoTree, setRepoTree] = useState<
+    Array<{ path: string; type: string; sha: string }>
+  >([]);
+  const [isLoadingTree, setIsLoadingTree] = useState(false);
+
+  // Fetch repository tree when GitHub context changes
+  useEffect(() => {
+    console.log("[Workspace] GitHub context changed:", {
+      repo: repo?.full_name,
+      branch,
+      isGitHubLoaded,
+    });
+
+    if (!repo || !isGitHubLoaded) {
+      console.log("[Workspace] No repo or not loaded yet, clearing tree");
+      setRepoTree([]);
+      return;
+    }
+
+    const fetchTree = async () => {
+      console.log("[Workspace] Fetching tree for:", repo.full_name, branch);
+      setIsLoadingTree(true);
+      try {
+        const tree = await getRepositoryTree(
+          repo.owner.login,
+          repo.name,
+          branch,
+        );
+        console.log("[Workspace] Fetched tree with", tree.length, "items");
+        setRepoTree(tree);
+      } catch (error) {
+        console.error("[Workspace] Failed to fetch repository tree:", error);
+        setRepoTree([]);
+      } finally {
+        setIsLoadingTree(false);
+      }
+    };
+
+    fetchTree();
+  }, [repo, branch, isGitHubLoaded]);
 
   // Sidebar states
   const [activeTab, setActiveTab] = useState<"files" | "changes">(() => {
@@ -163,6 +212,43 @@ export function Workspace({
     fetchDiff(path);
     // Diff view will be set by the useEffect above
   };
+
+  // Handle file selection from GitHub repository
+  const handleGitHubFileSelect = useCallback(
+    async (path: string) => {
+      if (!repo) return;
+
+      setIsLoadingContent(true);
+      setIsViewingContent(true);
+      localStorage.setItem("shadowbox_last_viewed_path", path);
+
+      try {
+        const fileData = await getFileContent(
+          repo.owner.login,
+          repo.name,
+          path,
+          branch,
+        );
+
+        // GitHub API returns base64 encoded content
+        if (fileData.encoding === "base64") {
+          const decoded = atob(fileData.content);
+          setSelectedFile({ path, content: decoded });
+        } else {
+          setSelectedFile({ path, content: fileData.content });
+        }
+      } catch (error) {
+        console.error("Failed to fetch GitHub file content:", error);
+        setSelectedFile({
+          path,
+          content: "// [Error] Failed to fetch file content from GitHub.",
+        });
+      } finally {
+        setIsLoadingContent(false);
+      }
+    },
+    [repo, branch],
+  );
 
   return (
     <RunContextProvider runId={runId}>
@@ -339,12 +425,23 @@ export function Workspace({
                     transition={{ duration: 0.15 }}
                     className="absolute inset-0 overflow-y-auto"
                   >
-                    <FileExplorer
-                      ref={explorerRef}
-                      sessionId={sandboxId}
-                      runId={runId}
-                      onFileClick={handleFileClick}
-                    />
+                    {repo && isGitHubLoaded ? (
+                      <RepoFileTree
+                        owner={repo.owner.login}
+                        repo={repo.name}
+                        branch={branch}
+                        tree={repoTree}
+                        isLoading={isLoadingTree}
+                        onFileSelect={handleGitHubFileSelect}
+                      />
+                    ) : (
+                      <FileExplorer
+                        ref={explorerRef}
+                        sessionId={sandboxId}
+                        runId={runId}
+                        onFileClick={handleFileClick}
+                      />
+                    )}
                   </motion.div>
                 ) : (
                   <motion.div

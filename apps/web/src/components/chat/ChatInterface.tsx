@@ -2,6 +2,7 @@ import { useRef, useEffect } from "react";
 import { ChatMessage } from "./ChatMessage";
 import { ChatInputBar } from "./ChatInputBar";
 import { ExploredFilesSummary } from "./ExploredFilesSummary";
+import { ChatBranchSelector } from "./ChatBranchSelector";
 import { Message } from "ai";
 
 interface ChatInterfaceProps {
@@ -78,6 +79,8 @@ export function ChatInterface({
             onSubmit={handleSubmit}
             isLoading={isLoading}
           />
+          {/* Branch Selector - Shows when GitHub repo is selected */}
+          <ChatBranchSelector />
         </div>
       </div>
     </div>

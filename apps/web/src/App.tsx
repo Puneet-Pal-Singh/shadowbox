@@ -6,6 +6,10 @@ import { AgentSetup } from "./components/agent/AgentSetup";
 import { TopNavBar } from "./components/layout/TopNavBar";
 import { StatusBar } from "./components/layout/StatusBar";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
+import {
+  GitHubContextProvider,
+  useGitHub,
+} from "./components/github/GitHubContextProvider";
 import { RepoPicker } from "./components/github/RepoPicker";
 import { LoginScreen } from "./components/auth/LoginScreen";
 import type { Repository } from "./services/GitHubService";
@@ -13,12 +17,14 @@ import { Resizer } from "./components/ui/Resizer";
 
 /**
  * Main App Component
- * Wraps everything in AuthProvider for GitHub authentication
+ * Wraps everything in AuthProvider and GitHubContextProvider
  */
 function App() {
   return (
     <AuthProvider>
-      <AppContent />
+      <GitHubContextProvider>
+        <AppContent />
+      </GitHubContextProvider>
     </AuthProvider>
   );
 }
@@ -37,11 +43,29 @@ function AppContent() {
   } = useSessionManager();
 
   const { isAuthenticated, isLoading, login } = useAuth();
+  const {
+    repo,
+    branch,
+    setContext,
+    isLoaded: isGitHubContextLoaded,
+  } = useGitHub();
   const [showRepoPicker, setShowRepoPicker] = useState(false);
-  const [githubContext, setGithubContext] = useState<{
-    repo: Repository | null;
-    branch: string | null;
-  }>({ repo: null, branch: null });
+
+  // Check if user needs to select a repository on load
+  useEffect(() => {
+    console.log("[App] Checking repo picker:", {
+      isGitHubContextLoaded,
+      hasRepo: !!repo,
+      isAuthenticated,
+    });
+    if (isGitHubContextLoaded && !repo && isAuthenticated) {
+      // No repo selected, show picker
+      console.log("[App] Showing repo picker - no repo selected");
+      setShowRepoPicker(true);
+    } else if (isGitHubContextLoaded && repo) {
+      console.log("[App] Repo already selected:", repo.full_name);
+    }
+  }, [isGitHubContextLoaded, repo, isAuthenticated]);
 
   const [activeTab, setActiveTab] = useState<"local" | "worktree">("local");
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
@@ -100,23 +124,29 @@ function AppContent() {
 
   /**
    * Handle repository selection from RepoPicker
+   * Creates a session immediately for the selected repository
    */
-  const handleRepoSelect = (repo: Repository, branch: string) => {
-    setGithubContext({ repo, branch });
+  const handleRepoSelect = (
+    selectedRepo: Repository,
+    selectedBranch: string,
+  ) => {
+    setContext(selectedRepo, selectedBranch);
     setShowRepoPicker(false);
 
-    // Store in localStorage for persistence
+    // Create a session immediately for this repository
+    const sessionName = `Exploring ${selectedRepo.name}`;
+    const sessionId = createSession(sessionName, selectedRepo.full_name);
+    setActiveSessionId(sessionId);
+
+    // Store GitHub context for the session
     localStorage.setItem(
-      "github_context",
-      JSON.stringify({
-        repoOwner: repo.owner.login,
-        repoName: repo.name,
-        branch,
-        fullName: repo.full_name,
-      }),
+      `github_context_${sessionId}`,
+      JSON.stringify({ repo: selectedRepo, branch: selectedBranch }),
     );
 
-    console.log(`[App] Selected repository: ${repo.full_name}@${branch}`);
+    console.log(
+      `[App] Selected repository: ${selectedRepo.full_name}@${selectedBranch}, created session: ${sessionId}`,
+    );
   };
 
   /**
@@ -165,6 +195,7 @@ function AppContent() {
             onCreate={handleNewTask}
             onRemove={removeSession}
             onClose={handleToggleSidebar}
+            onAddRepository={() => setShowRepoPicker(true)}
             width={sidebarWidth}
           />
           <Resizer
@@ -214,15 +245,15 @@ function AppContent() {
                     : config.task;
 
                 // Use repository name from GitHub context if available
-                const repoName = githubContext.repo?.full_name || "New Project";
+                const repoName = repo?.full_name || "New Project";
                 const id = createSession(name, repoName);
                 localStorage.setItem(`pending_query_${id}`, config.task);
 
                 // Pass GitHub context to the session
-                if (githubContext.repo) {
+                if (repo) {
                   localStorage.setItem(
                     `github_context_${id}`,
-                    JSON.stringify(githubContext),
+                    JSON.stringify({ repo, branch }),
                   );
                 }
               }}
@@ -234,7 +265,7 @@ function AppContent() {
         <StatusBar
           activeTab={activeTab}
           onTabChange={setActiveTab}
-          branchName={githubContext.branch || "main"}
+          branchName={branch || "main"}
         />
       </div>
     </div>
