@@ -9,23 +9,45 @@ export interface AgentSession {
   status?: 'idle' | 'running' | 'completed' | 'error';
 }
 
+interface SavedSession {
+  id: string;
+  name: string;
+  repository?: string;
+  status?: AgentSession['status'];
+}
+
 export function useSessionManager() {
   const [sessions, setSessions] = useState<AgentSession[]>(() => {
     const saved = localStorage.getItem('shadowbox_sessions');
-    const parsed = saved ? JSON.parse(saved) : [];
+    const parsed: SavedSession[] = saved ? JSON.parse(saved) : [];
     // Migration: Add repository if missing
-    return parsed.map((s: any) => ({
+    return parsed.map((s) => ({
       ...s,
       repository: s.repository || 'New Project'
-    }));
+    })) as AgentSession[];
   });
   
-  // NEVER persist activeSessionId across refreshes to ensure we always start at Inbox
-  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  // Persist activeSessionId to survive refreshes
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(() => {
+    const savedId = localStorage.getItem('shadowbox_active_id');
+    const savedSessions = localStorage.getItem('shadowbox_sessions');
+    const sessionsList: SavedSession[] = savedSessions ? JSON.parse(savedSessions) : [];
+    
+    // Only restore if the session still exists
+    return sessionsList.some(s => s.id === savedId) ? savedId : null;
+  });
 
   useEffect(() => {
     localStorage.setItem('shadowbox_sessions', JSON.stringify(sessions));
   }, [sessions]);
+
+  useEffect(() => {
+    if (activeSessionId) {
+      localStorage.setItem('shadowbox_active_id', activeSessionId);
+    } else {
+      localStorage.removeItem('shadowbox_active_id');
+    }
+  }, [activeSessionId]);
 
   // FIX: Make 'name' optional so it doesn't conflict with React Event objects
   const createSession = useCallback((name?: string, repository: string = 'New Project') => {
