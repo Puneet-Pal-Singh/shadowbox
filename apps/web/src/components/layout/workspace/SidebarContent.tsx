@@ -95,23 +95,39 @@ export function SidebarContent({
             transition={{ duration: 0.15 }}
             className="absolute inset-0 overflow-y-auto"
           >
-            {repo && isGitHubLoaded ? (
-              <RepoFileTree
-                owner={repo.owner.login}
-                repo={repo.name}
-                branch={branch}
-                tree={repoTree}
-                isLoading={isLoadingTree}
-                onFileSelect={handleGitHubFileSelect}
-              />
-            ) : (
-              <FileExplorer
-                ref={explorerRef}
-                sessionId={sandboxId}
-                runId={runId}
-                onFileClick={handleFileClick}
-              />
-            )}
+            <AnimatePresence mode="wait">
+              {repo && isGitHubLoaded ? (
+                <motion.div
+                  key="repo-tree"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                >
+                  <RepoFileTree
+                    owner={repo.owner.login}
+                    repo={repo.name}
+                    branch={branch}
+                    tree={repoTree}
+                    isLoading={isLoadingTree}
+                    onFileSelect={handleGitHubFileSelect}
+                  />
+                </motion.div>
+              ) : (
+                <motion.div
+                  key="local-explorer"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                >
+                  <FileExplorer
+                    ref={explorerRef}
+                    sessionId={sandboxId}
+                    runId={runId}
+                    onFileClick={handleFileClick}
+                  />
+                </motion.div>
+              )}
+            </AnimatePresence>
           </motion.div>
         ) : (
           <motion.div

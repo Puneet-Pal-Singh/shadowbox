@@ -17,7 +17,6 @@ import {
   FileText,
   File,
   ChevronRight,
-  Loader2,
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 
@@ -262,113 +261,134 @@ export function RepoFileTree({
     return expandedFolders.has(parentPath);
   });
 
-  if (isLoading) {
-    return (
-      <div
-        className={cn(
-          "flex items-center justify-center py-8 text-zinc-500",
-          className,
-        )}
-      >
-        <Loader2 size={20} className="animate-spin mr-2" />
-        <span className="text-sm">Loading repository...</span>
-      </div>
-    );
-  }
-
-  if (treeItems.length === 0) {
-    return (
-      <div
-        className={cn(
-          "flex flex-col items-center justify-center py-8 text-zinc-500",
-          className,
-        )}
-      >
-        <Folder size={32} className="mb-2 opacity-50" />
-        <span className="text-sm">No files found</span>
-      </div>
-    );
-  }
-
   return (
     <div className={cn("py-2", className)}>
-      {/* Header showing repo info */}
-      <div className="px-3 py-2 mb-2 border-b border-zinc-800/50">
-        <div className="flex items-center gap-2 text-xs text-zinc-400">
-          <span className="font-medium text-zinc-300">{owner}</span>
-          <span className="text-zinc-600">/</span>
-          <span className="font-medium text-white">{repo}</span>
-        </div>
-        <div className="flex items-center gap-1.5 mt-1 text-[10px] text-zinc-500">
-          <span className="px-1.5 py-0.5 bg-zinc-800/50 rounded">{branch}</span>
-          <span>•</span>
-          <span>{tree.length} items</span>
-        </div>
-      </div>
-
-      {/* Tree items */}
-      <div className="space-y-0.5">
-        <AnimatePresence initial={false}>
-          {visibleItems.map((item) => {
-            const isFolder = item.type === "tree";
-            const isExpanded = expandedFolders.has(item.path);
-            const indent = item.level * 12;
-
-            return (
-              <motion.div
-                key={item.sha}
-                initial={{ opacity: 0, x: -10 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -10 }}
-                transition={{ duration: 0.1 }}
+      <AnimatePresence mode="wait">
+        {isLoading ? (
+          <motion.div
+            key="loading"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="space-y-1 px-3 py-2"
+          >
+            {/* Repo Info Skeleton */}
+            <div className="flex items-center gap-2 mb-4">
+              <div className="h-3 w-16 bg-zinc-800 rounded animate-pulse" />
+              <div className="h-3 w-4 bg-zinc-900 rounded animate-pulse" />
+              <div className="h-3 w-24 bg-zinc-800 rounded animate-pulse" />
+            </div>
+            
+            {/* Tree Skeletons */}
+            {[...Array(8)].map((_, i) => (
+              <div
+                key={i}
+                className="flex items-center gap-2 py-1"
+                style={{ paddingLeft: `${(i % 3) * 12}px` }}
               >
-                {isFolder ? (
-                  <button
-                    onClick={() => toggleFolder(item.path)}
-                    className={cn(
-                      "w-full flex items-center gap-1.5 px-2 py-1.5 text-left",
-                      "hover:bg-zinc-800/50 transition-colors duration-150",
-                      "group",
-                    )}
-                    style={{ paddingLeft: `${12 + indent}px` }}
-                  >
+                <div className="w-3.5 h-3.5 bg-zinc-800 rounded animate-pulse shrink-0" />
+                <div className="h-3 bg-zinc-800 rounded animate-pulse" style={{ width: `${40 + Math.random() * 40}%` }} />
+              </div>
+            ))}
+          </motion.div>
+        ) : treeItems.length === 0 ? (
+          <motion.div
+            key="empty"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="flex flex-col items-center justify-center py-8 text-zinc-500"
+          >
+            <Folder size={32} className="mb-2 opacity-50" />
+            <span className="text-sm">No files found</span>
+          </motion.div>
+        ) : (
+          <motion.div
+            key="content"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            {/* Header showing repo info */}
+            <div className="px-3 py-2 mb-2 border-b border-zinc-800/50">
+              <div className="flex items-center gap-2 text-xs text-zinc-400">
+                <span className="font-medium text-zinc-300">{owner}</span>
+                <span className="text-zinc-600">/</span>
+                <span className="font-medium text-white">{repo}</span>
+              </div>
+              <div className="flex items-center gap-1.5 mt-1 text-[10px] text-zinc-500">
+                <span className="px-1.5 py-0.5 bg-zinc-800/50 rounded">{branch}</span>
+                <span>•</span>
+                <span>{tree.length} items</span>
+              </div>
+            </div>
+
+            {/* Tree items */}
+            <div className="space-y-0.5">
+              <AnimatePresence initial={false}>
+                {visibleItems.map((item) => {
+                  const isFolder = item.type === "tree";
+                  const isExpanded = expandedFolders.has(item.path);
+                  const indent = item.level * 12;
+
+                  return (
                     <motion.div
-                      animate={{ rotate: isExpanded ? 90 : 0 }}
-                      transition={{ duration: 0.15 }}
-                      className="text-zinc-500 group-hover:text-zinc-400"
+                      key={item.sha}
+                      initial={{ opacity: 0, x: -10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0, x: -10 }}
+                      transition={{ duration: 0.1 }}
                     >
-                      <ChevronRight size={14} />
+                      {isFolder ? (
+                        <button
+                          onClick={() => toggleFolder(item.path)}
+                          className={cn(
+                            "w-full flex items-center gap-1.5 px-2 py-1.5 text-left",
+                            "hover:bg-zinc-800/50 transition-colors duration-150",
+                            "group",
+                          )}
+                          style={{ paddingLeft: `${12 + indent}px` }}
+                        >
+                          <motion.div
+                            animate={{ rotate: isExpanded ? 90 : 0 }}
+                            transition={{ duration: 0.15 }}
+                            className="text-zinc-500 group-hover:text-zinc-400"
+                          >
+                            <ChevronRight size={14} />
+                          </motion.div>
+                          {isExpanded ? (
+                            <FolderOpen size={14} className="text-blue-400" />
+                          ) : (
+                            <Folder size={14} className="text-blue-400" />
+                          )}
+                          <span className="text-sm text-zinc-300 group-hover:text-white truncate">
+                            {item.name}
+                          </span>
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => onFileSelect(item.path)}
+                          className={cn(
+                            "w-full flex items-center gap-1.5 px-2 py-1.5 text-left",
+                            "hover:bg-zinc-800/50 transition-colors duration-150",
+                            "group",
+                          )}
+                          style={{ paddingLeft: `${28 + indent}px` }}
+                        >
+                          {getFileIcon(item.name)}
+                          <span className="text-sm text-zinc-400 group-hover:text-zinc-200 truncate">
+                            {item.name}
+                          </span>
+                        </button>
+                      )}
                     </motion.div>
-                    {isExpanded ? (
-                      <FolderOpen size={14} className="text-blue-400" />
-                    ) : (
-                      <Folder size={14} className="text-blue-400" />
-                    )}
-                    <span className="text-sm text-zinc-300 group-hover:text-white truncate">
-                      {item.name}
-                    </span>
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => onFileSelect(item.path)}
-                    className={cn(
-                      "w-full flex items-center gap-1.5 px-2 py-1.5 text-left",
-                      "hover:bg-zinc-800/50 transition-colors duration-150",
-                      "group",
-                    )}
-                    style={{ paddingLeft: `${28 + indent}px` }}
-                  >
-                    {getFileIcon(item.name)}
-                    <span className="text-sm text-zinc-400 group-hover:text-zinc-200 truncate">
-                      {item.name}
-                    </span>
-                  </button>
-                )}
-              </motion.div>
-            );
-          })}
-        </AnimatePresence>
-      </div>
+                  );
+                })}
+              </AnimatePresence>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
