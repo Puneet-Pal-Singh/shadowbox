@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useSessionManager } from "./hooks/useSessionManager";
 import { AgentSidebar } from "./components/layout/AgentSidebar";
 import { Workspace } from "./components/layout/Workspace";
 import { AgentSetup } from "./components/agent/AgentSetup";
 import { TopNavBar } from "./components/layout/TopNavBar";
 import { StatusBar } from "./components/layout/StatusBar";
+import { Resizer } from "./components/ui/Resizer";
 
 function App() {
   const {
@@ -17,13 +18,20 @@ function App() {
 
   const [activeTab, setActiveTab] = useState<"local" | "worktree">("local");
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-  const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(false);
+  const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(() => {
+    return localStorage.getItem("shadowbox_right_sidebar_open") === "true";
+  });
+  const [sidebarWidth, setSidebarWidth] = useState(260);
+
+  useEffect(() => {
+    localStorage.setItem("shadowbox_right_sidebar_open", String(isRightSidebarOpen));
+  }, [isRightSidebarOpen]);
 
   // Get active session name for the header
   const activeSession = sessions.find((s) => s.id === activeSessionId);
-  const threadTitle = activeSession?.name;
+  const taskTitle = activeSession?.name;
 
-  const handleNewThread = () => {
+  const handleNewTask = () => {
     setActiveSessionId(null);
   };
 
@@ -55,18 +63,25 @@ function App() {
     <div className="h-screen w-screen bg-background text-zinc-400 flex overflow-hidden font-sans">
       {/* Sidebar - Independent */}
       {isSidebarOpen && (
-        <AgentSidebar
-          sessions={sessions}
-          activeSessionId={activeSessionId}
-          onSelect={setActiveSessionId}
-          onCreate={handleNewThread}
-          onRemove={removeSession}
-          onClose={handleToggleSidebar}
-        />
+        <div className="relative flex shrink-0" style={{ width: sidebarWidth }}>
+          <AgentSidebar
+            sessions={sessions}
+            activeSessionId={activeSessionId}
+            onSelect={setActiveSessionId}
+            onCreate={handleNewTask}
+            onRemove={removeSession}
+            onClose={handleToggleSidebar}
+            width={sidebarWidth}
+          />
+          <Resizer 
+            side="left" 
+            onResize={(delta) => setSidebarWidth(prev => Math.max(160, Math.min(400, prev + delta)))} 
+          />
+        </div>
       )}
 
       {/* Main Content Area with Top NavBar */}
-      <div className="flex-1 flex flex-col overflow-hidden">
+      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
         {/* Top Navigation Bar - Only in content area */}
         <TopNavBar
           onOpenIde={handleOpenIde}
@@ -77,7 +92,7 @@ function App() {
           onToggleSidebar={handleToggleSidebar}
           isRightSidebarOpen={isRightSidebarOpen}
           onToggleRightSidebar={handleToggleRightSidebar}
-          threadTitle={threadTitle}
+          taskTitle={taskTitle}
         />
 
         {/* Main Workspace Layer */}
@@ -87,6 +102,7 @@ function App() {
               key={activeSessionId}
               sessionId={activeSessionId}
               isRightSidebarOpen={isRightSidebarOpen}
+              setIsRightSidebarOpen={setIsRightSidebarOpen}
             />
           ) : (
             <AgentSetup

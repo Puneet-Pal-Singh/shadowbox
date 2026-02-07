@@ -6,9 +6,10 @@ export type LogCallback = (log: string) => void;
 
 export interface PluginResult {
   success: boolean;
-  output?: any;
+  output?: string | Record<string, unknown> | null;
   error?: string;
   logs?: string[];
+  isBinary?: boolean;
 }
 
 // OpenAI Tool Definition Schema
@@ -17,7 +18,7 @@ export interface ToolDefinition {
   description: string;
   parameters: {
     type: "object";
-    properties: Record<string, any>;
+    properties: Record<string, unknown>;
     required?: string[];
   };
 }
@@ -41,8 +42,9 @@ export interface IPlugin {
 }
 
 export interface Message {
+  id?: string;
   role: 'system' | 'user' | 'assistant' | 'tool';
   content: string;
-  tool_calls?: any[];
+  tool_calls?: unknown[];
   tool_call_id?: string;
 }

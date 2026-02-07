@@ -15,6 +15,7 @@ import { FileSystemPlugin } from "../plugins/FileSystemPlugin";
 import { GitPlugin } from "../plugins/GitPlugin";
 import { NodePlugin } from "../plugins/NodePlugin";
 import { RustPlugin } from "../plugins/RustPlugin";
+import { Env } from "../index";
 
 export class AgentRuntime extends DurableObject {
   private sandbox: Sandbox | null = null;
@@ -22,9 +23,9 @@ export class AgentRuntime extends DurableObject {
   private stream = new StreamHandler();
   private storageService: StorageService;
 
-  constructor(ctx: DurableObjectState, env: any) {
+  constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
-    this.storageService = new StorageService(env.ARTIFACTS);
+    this.storageService = new StorageService(env.ARTIFACTS as any);
     this.setupRegistry();
   }
 
@@ -112,9 +113,10 @@ export class AgentRuntime extends DurableObject {
       // Crucial: The "finish" event tells the UI to return the prompt
       this.stream.broadcast("finish", { success: result.success });
       return result;
-    } catch (e: any) {
-      this.stream.broadcast("error", e.message);
-      return { success: false, error: e.message };
+    } catch (e: unknown) {
+      const error = e instanceof Error ? e.message : "Unknown execution error";
+      this.stream.broadcast("error", error);
+      return { success: false, error };
     }
   }
 
@@ -129,9 +131,9 @@ export class AgentRuntime extends DurableObject {
       limit: 100,
     });
     // Ensure all messages have unique IDs for React rendering
-    return Array.from(list.entries()).map(([key, msg], index) => ({
+    return Array.from(list.entries()).map(([_, msg], index) => ({
       ...msg,
-      id: (msg as any).id || `${runId}-${index}-${Date.now()}`,
+      id: msg.id || `${runId}-${index}-${Date.now()}`,
     }));
   }
 
@@ -140,11 +142,12 @@ export class AgentRuntime extends DurableObject {
       const sessionId = this.ctx.id.toString();
 
       // Ensure message has an ID
-      const messageWithId = {
-        ...message,
-        id:
-          (message as any).id ||
-          `${runId}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      const messageWithId: Message = {
+        role: message.role,
+        content: message.content,
+        tool_calls: message.tool_calls,
+        tool_call_id: message.tool_call_id,
+        id: message.id || `${runId}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       };
 
       const processedMessage = await this.storageService.processMessage(
@@ -197,22 +200,24 @@ export class AgentRuntime extends DurableObject {
 
       for (let i = 0; i < messages.length; i++) {
         const msg = messages[i];
+        if (!msg) continue;
+
         // Ensure message has an ID
-        const msgWithId: Message & { id: string } = {
-          ...msg,
-          id: (msg as any).id || `${runId}-msg-${i}-${Date.now()}`,
-        } as Message & { id: string };
+        const msgWithId: Message = {
+          role: msg.role,
+          content: msg.content,
+          tool_calls: msg.tool_calls,
+          tool_call_id: msg.tool_call_id,
+          id: msg.id || `${runId}-msg-${i}-${Date.now()}`,
+        };
         const processedMessage = await this.storageService.processMessage(
           runId,
           sessionId,
           msgWithId,
         );
         const timestamp = Date.now().toString().padStart(15, "0");
-        await this.ctx.storage.put(
-          `chat:${runId}:${timestamp}`,
-          processedMessage,
-        );
-        await new Promise((resolve) => setTimeout(resolve, 1));
+        const key = `chat:${runId}:${timestamp}-${i.toString().padStart(3, '0')}`;
+        await this.ctx.storage.put(key, processedMessage);
       }
     });
   }

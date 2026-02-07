@@ -46,7 +46,7 @@ export function ChatInterface({
     <div className="flex flex-col h-full bg-black">
       {/* Scrollable Messages Container - Centered with max-width */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 py-4">
-        <div className="max-w-3xl mx-auto space-y-6">
+        <div className="max-w-4xl mx-auto space-y-6">
           {messages.length > 0 && (
             <ExploredFilesSummary fileCount={fileReferences.length} />
           )}
@@ -60,11 +60,10 @@ export function ChatInterface({
           ))}
 
           {/* Loading indicator */}
-          {isLoading && messages.length > 0 && (
-            <div className="flex items-center gap-2 px-4 py-2">
-              <div className="w-2 h-2 bg-zinc-500 rounded-full animate-bounce" />
-              <div className="w-2 h-2 bg-zinc-500 rounded-full animate-bounce [animation-delay:0.1s]" />
-              <div className="w-2 h-2 bg-zinc-500 rounded-full animate-bounce [animation-delay:0.2s]" />
+          {isLoading && (
+            <div className="flex items-center gap-2 px-4 py-2 text-xs text-zinc-500 font-medium bg-zinc-900/30 w-fit rounded-full border border-zinc-800/50 animate-pulse">
+              <div className="w-1.5 h-1.5 bg-zinc-500 rounded-full animate-bounce" />
+              <span>Thinking...</span>
             </div>
           )}
         </div>
@@ -72,7 +71,7 @@ export function ChatInterface({
 
       {/* Input Area - Centered */}
       <div className="px-6 pb-4">
-        <div className="max-w-3xl mx-auto">
+        <div className="max-w-4xl mx-auto">
           <ChatInputBar
             input={input}
             onChange={handleInputChangeWrapper}

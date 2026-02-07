@@ -1,7 +1,5 @@
 import {
   Pencil,
-  Clock,
-  Box,
   Plus,
   ListFilter,
   FolderPlus,
@@ -11,7 +9,7 @@ import {
 import { motion } from "framer-motion";
 import { AgentSession } from "../../hooks/useSessionManager";
 import { SidebarNavItem } from "../navigation/SidebarNavItem";
-import { ThreadList } from "../navigation/ThreadList";
+import { RepositorySection } from "../navigation/ThreadList";
 import { SidebarSection } from "../navigation/SidebarSection";
 
 interface AgentSidebarProps {
@@ -21,6 +19,7 @@ interface AgentSidebarProps {
   onCreate: () => void;
   onRemove: (id: string) => void;
   onClose?: () => void;
+  width?: number;
 }
 
 export function AgentSidebar({
@@ -30,17 +29,16 @@ export function AgentSidebar({
   onCreate,
   onRemove,
   onClose,
+  width = 220,
 }: AgentSidebarProps) {
-  // Convert sessions to thread items
-  const threadItems = sessions.map((session) => ({
-    id: session.id,
-    title: session.name,
-    status: session.status as "running" | "completed" | "error",
-    isActive: session.id === activeSessionId,
-  }));
+  // Group sessions by repository
+  const repos = Array.from(new Set(sessions.map((s) => s.repository)));
 
   return (
-    <aside className="w-[220px] border-r border-[#1a1a1a] flex flex-col bg-[#0c0c0e] overflow-hidden">
+    <aside 
+      className="border-r border-[#1a1a1a] flex flex-col bg-[#0c0c0e] overflow-hidden"
+      style={{ width }}
+    >
       {/* Sidebar Header - App Icon and Close Button */}
       <div className="flex items-center justify-between p-2 shrink-0">
         {/* App Icon - Left */}
@@ -62,40 +60,47 @@ export function AgentSidebar({
 
       {/* Main Navigation */}
       <div className="px-2.5 pb-2.5 space-y-0.5">
-        <SidebarNavItem icon={Pencil} label="New thread" onClick={onCreate} />
-        <SidebarNavItem
-          icon={Clock}
-          label="Automations"
-          onClick={() => console.log("Automations")}
-        />
-        <SidebarNavItem
-          icon={Box}
-          label="Skills"
-          onClick={() => console.log("Skills")}
-        />
+        <SidebarNavItem icon={Pencil} label="New task" onClick={onCreate} />
       </div>
 
-      {/* Threads Section */}
+      {/* Tasks Section */}
       <div className="flex-1 overflow-y-auto px-2.5">
         <SidebarSection
-          title="Threads"
+          title="TASKS"
           action={{
             icon: Plus,
             onClick: onCreate,
-            label: "New thread",
+            label: "New task",
           }}
           secondaryAction={{
             icon: ListFilter,
-            onClick: () => console.log("Filter threads"),
+            onClick: () => console.log("Filter tasks"),
             label: "Filter",
           }}
         >
-          <ThreadList
-            projectName="shadowbox"
-            threads={threadItems}
-            onSelectThread={onSelect}
-            onRemoveThread={onRemove}
-          />
+          {repos.map((repo) => (
+            <RepositorySection
+              key={repo}
+              repositoryName={repo}
+              tasks={sessions
+                .filter((s) => s.repository === repo)
+                .map((session) => ({
+                  id: session.id,
+                  title: session.name,
+                  status: (session.status || "idle") as
+                    | "running"
+                    | "completed"
+                    | "error"
+                    | "idle",
+                  isActive: session.id === activeSessionId,
+                }))}
+              onSelectTask={onSelect}
+              onRemoveTask={onRemove}
+            />
+          ))}
+          {repos.length === 0 && (
+            <p className="px-3 py-2 text-xs text-zinc-600 italic">No tasks</p>
+          )}
         </SidebarSection>
       </div>
 
@@ -103,8 +108,8 @@ export function AgentSidebar({
       <div className="p-2.5 border-t border-[#1a1a1a] space-y-0.5">
         <SidebarNavItem
           icon={FolderPlus}
-          label="New project"
-          onClick={() => console.log("New project")}
+          label="Add repository"
+          onClick={() => console.log("Add repository")}
         />
         <SidebarNavItem
           icon={Settings}

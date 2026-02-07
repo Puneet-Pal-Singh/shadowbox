@@ -12,7 +12,7 @@ interface TopNavBarProps {
   onToggleSidebar?: () => void;
   isRightSidebarOpen?: boolean;
   onToggleRightSidebar?: () => void;
-  threadTitle?: string;
+  taskTitle?: string;
 }
 
 export function TopNavBar({
@@ -24,7 +24,7 @@ export function TopNavBar({
   onToggleSidebar,
   isRightSidebarOpen = false,
   onToggleRightSidebar,
-  threadTitle,
+  taskTitle,
 }: TopNavBarProps) {
   return (
     <motion.header
@@ -33,7 +33,7 @@ export function TopNavBar({
       transition={{ duration: 0.3 }}
       className="h-10 bg-[#0c0c0e] border-b border-[#1a1a1a] flex items-center justify-between px-3 shrink-0 z-50 shadow-sm shadow-black/20"
     >
-      {/* Left Section - Sidebar Toggle and Thread Title */}
+      {/* Left Section - Sidebar Toggle and Task Title */}
       <div className="flex items-center gap-3">
         {!isSidebarOpen && (
           <motion.button
@@ -46,9 +46,9 @@ export function TopNavBar({
             <PanelLeftOpen size={16} />
           </motion.button>
         )}
-        {/* Thread Title */}
-        {threadTitle && (
-          <span className="text-sm font-medium text-white">{threadTitle}</span>
+        {/* Task Title */}
+        {taskTitle && (
+          <span className="text-sm font-medium text-white">{taskTitle}</span>
         )}
       </div>
 
