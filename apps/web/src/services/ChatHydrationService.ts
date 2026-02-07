@@ -14,7 +14,7 @@ interface CorePart {
   text?: string;
   toolName?: string;
   toolCallId?: string;
-  args?: any;
+  args?: unknown;
 }
 
 interface ServerMessage {

@@ -46,7 +46,7 @@ export function useSessionManager() {
 
       // Only restore if the session still exists
       return sessionsList.some(s => s.id === savedId) ? savedId : null;
-    } catch (e) {
+    } catch {
       return null;
     }
   });

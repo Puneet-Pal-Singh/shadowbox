@@ -66,19 +66,6 @@ export function Workspace({
     explorerRef.current?.refresh();
   });
 
-  // Restore selected file on mount if we were viewing one
-  useEffect(() => {
-    if (isHydrating) return;
-    
-    const savedPath = localStorage.getItem("shadowbox_last_viewed_path");
-    console.log(`🧬 [Shadowbox] Restoration Check: isViewing=${isViewingContent}, path=${savedPath}, selectedFile=${!!selectedFile}`);
-    
-    if (isViewingContent && savedPath && !selectedFile && !selectedDiff) {
-      console.log(`🧬 [Shadowbox] Restoring last viewed file: ${savedPath}`);
-      handleFileClick(savedPath);
-    }
-  }, [isHydrating, isViewingContent, selectedFile, selectedDiff]);
-
   // Sync diff from hook to local state when it loads
   useEffect(() => {
     if (diff && activeTab === "changes") {
@@ -87,7 +74,7 @@ export function Workspace({
     }
   }, [diff, activeTab]);
 
-  const handleFileClick = async (path: string) => {
+  const handleFileClick = useCallback(async (path: string) => {
     setIsLoadingContent(true);
     setIsViewingContent(true);
     localStorage.setItem("shadowbox_last_viewed_path", path);
@@ -123,7 +110,20 @@ export function Workspace({
     } finally {
       setIsLoadingContent(false);
     }
-  };
+  }, [sandboxId, runId]);
+
+  // Restore selected file on mount if we were viewing one
+  useEffect(() => {
+    if (isHydrating) return;
+    
+    const savedPath = localStorage.getItem("shadowbox_last_viewed_path");
+    console.log(`🧬 [Shadowbox] Restoration Check: isViewing=${isViewingContent}, path=${savedPath}, selectedFile=${!!selectedFile}`);
+    
+    if (isViewingContent && savedPath && !selectedFile && !selectedDiff) {
+      console.log(`🧬 [Shadowbox] Restoring last viewed file: ${savedPath}`);
+      handleFileClick(savedPath);
+    }
+  }, [isHydrating, isViewingContent, selectedFile, selectedDiff, handleFileClick]);
 
   const handleViewChange = (path: string) => {
     fetchDiff(path);
