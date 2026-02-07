@@ -78,10 +78,23 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(
     }));
 
     useEffect(() => {
-      // Fire and forget, handling any potential errors
-      refresh().catch((err) => {
-        console.error("🧬 [Shadowbox] Failed to initial refresh file tree:", err);
-      });
+      let isMounted = true;
+      
+      const init = async () => {
+        try {
+          await refresh();
+        } catch (err) {
+          if (isMounted) {
+            console.error("🧬 [Shadowbox] Failed to initial refresh file tree:", err);
+          }
+        }
+      };
+
+      init();
+
+      return () => {
+        isMounted = false;
+      };
     }, [refresh]);
 
     const toggleDirectory = async (path: string) => {
