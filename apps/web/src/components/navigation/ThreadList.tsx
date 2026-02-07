@@ -33,12 +33,14 @@ export function RepositorySection({
   const [showMenu, setShowMenu] = useState(false);
   const [isRenaming, setIsRenaming] = useState(false);
   const [newName, setNewName] = useState(repositoryName);
+  const [confirmingRemove, setConfirmingRemove] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
         setShowMenu(false);
+        setConfirmingRemove(false);
       }
     }
     document.addEventListener("mousedown", handleClickOutside);
@@ -115,6 +117,7 @@ export function RepositorySection({
               onClick={(e) => {
                 e.stopPropagation();
                 setShowMenu(!showMenu);
+                setConfirmingRemove(false);
               }}
               className="p-1 text-zinc-500 hover:text-white transition-colors"
               title="More options"
@@ -128,32 +131,44 @@ export function RepositorySection({
                   initial={{ opacity: 0, scale: 0.95, y: -10 }}
                   animate={{ opacity: 1, scale: 1, y: 0 }}
                   exit={{ opacity: 0, scale: 0.95, y: -10 }}
-                  className="absolute right-0 mt-1 w-40 bg-[#171717] border border-zinc-800 rounded-lg shadow-xl z-50 py-1 overflow-hidden"
+                  className="absolute right-0 mt-1 w-32 bg-[#171717] border border-zinc-800 rounded-lg shadow-xl z-50 py-1 overflow-hidden"
                 >
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setIsRenaming(true);
-                      setShowMenu(false);
-                    }}
-                    className="w-full flex items-center gap-2 px-3 py-2 text-xs text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
-                  >
-                    <Edit2 size={12} />
-                    Rename Folder
-                  </button>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (confirm(`Remove repository folder "${repositoryName}"?`)) {
+                  {!confirmingRemove ? (
+                    <>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setIsRenaming(true);
+                          setShowMenu(false);
+                        }}
+                        className="w-full flex items-center gap-2 px-3 py-2 text-xs text-white hover:bg-zinc-800 transition-colors"
+                      >
+                        <Edit2 size={12} className="text-zinc-400" />
+                        Rename
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setConfirmingRemove(true);
+                        }}
+                        className="w-full flex items-center gap-2 px-3 py-2 text-xs text-white hover:bg-zinc-800 transition-colors"
+                      >
+                        <Trash2 size={12} className="text-zinc-400" />
+                        Remove
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
                         onRemoveRepo?.();
-                      }
-                      setShowMenu(false);
-                    }}
-                    className="w-full flex items-center gap-2 px-3 py-2 text-xs text-red-400 hover:text-red-300 hover:bg-red-900/20 transition-colors"
-                  >
-                    <Trash2 size={12} />
-                    Remove Repo Folder
-                  </button>
+                        setShowMenu(false);
+                      }}
+                      className="w-full flex items-center justify-center gap-2 px-3 py-2 text-xs font-semibold text-red-400 hover:bg-red-900/20 transition-colors"
+                    >
+                      Confirm Delete?
+                    </button>
+                  )}
                 </motion.div>
               )}
             </AnimatePresence>
@@ -169,23 +184,13 @@ export function RepositorySection({
               key={task.id}
               task={task}
               onSelect={() => onSelectTask(task.id)}
-              onRemove={() => {
-                if (confirm(`Are you sure you want to delete task "${task.title}"?`)) {
-                  onRemoveTask?.(task.id);
-                }
-              }}
+              onRemove={onRemoveTask ? () => onRemoveTask(task.id) : undefined}
               delay={idx * 0.03}
             />
           ))}
           {tasks.length === 0 && (
-            <div className="px-3 py-2 flex flex-col items-center justify-center border border-dashed border-zinc-800/50 rounded-md mx-2 my-1">
+            <div className="px-3 py-1">
               <p className="text-[10px] text-zinc-600 italic">No tasks</p>
-              <button 
-                onClick={onAddTask}
-                className="mt-1 text-[9px] text-emerald-500/70 hover:text-emerald-400 underline underline-offset-2 transition-colors"
-              >
-                Create one?
-              </button>
             </div>
           )}
         </div>
@@ -207,6 +212,15 @@ function TaskItemComponent({
   onRemove,
   delay = 0,
 }: TaskItemComponentProps) {
+  const [isConfirming, setIsConfirming] = useState(false);
+
+  useEffect(() => {
+    if (isConfirming) {
+      const timer = setTimeout(() => setIsConfirming(false), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [isConfirming]);
+
   const getStatusDot = () => {
     switch (task.status) {
       case "running":
@@ -229,43 +243,48 @@ function TaskItemComponent({
   };
 
   return (
-    <motion.button
+    <motion.div
       initial={{ opacity: 0, x: -8 }}
       animate={{ opacity: 1, x: 0 }}
       transition={{ delay, duration: 0.2 }}
-      onClick={onSelect}
-      className={cn(
-        "group flex items-center gap-2 px-2 py-1.5 text-sm rounded-md transition-all w-full text-left",
-        task.isActive
-          ? "text-white bg-zinc-800/60"
-          : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/40",
-      )}
+      className="relative"
     >
-      {getStatusDot()}
-      <span className="truncate flex-1">{task.title}</span>
-      {onRemove && (
-        <motion.button
-          whileHover={{ scale: 1.1 }}
-          whileTap={{ scale: 0.9 }}
-          onClick={(e) => {
-            e.stopPropagation();
-            onRemove();
-          }}
-          className="opacity-0 group-hover:opacity-100 p-0.5 hover:text-red-400 transition-opacity"
-        >
-          <span className="sr-only">Remove</span>
-          <svg
-            width="12"
-            height="12"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
+      <button
+        onClick={onSelect}
+        className={cn(
+          "group flex items-center gap-2 px-2 py-1.5 text-sm rounded-md transition-all w-full text-left",
+          task.isActive
+            ? "text-white bg-zinc-800/60"
+            : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/40",
+        )}
+      >
+        {getStatusDot()}
+        <span className="truncate flex-1">{task.title}</span>
+        
+        {onRemove && !isConfirming && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsConfirming(true);
+            }}
+            className="opacity-0 group-hover:opacity-100 p-0.5 text-zinc-500 hover:text-red-400 transition-all"
           >
-            <path d="M18 6L6 18M6 6l12 12" />
-          </svg>
-        </motion.button>
-      )}
-    </motion.button>
+            <Trash2 size={12} />
+          </button>
+        )}
+
+        {isConfirming && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onRemove?.();
+            }}
+            className="px-1.5 py-0.5 bg-red-500/20 text-red-400 text-[10px] font-bold rounded border border-red-500/30 hover:bg-red-500/30 transition-colors"
+          >
+            CONFIRM
+          </button>
+        )}
+      </button>
+    </motion.div>
   );
 }
