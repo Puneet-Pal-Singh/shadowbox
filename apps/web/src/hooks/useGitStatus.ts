@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import type { GitStatusResponse } from "@repo/shared-types";
 import { useRunContext } from "./useRunContext";
 
@@ -15,7 +15,7 @@ export function useGitStatus(): UseGitStatusResult {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchStatus = async () => {
+  const fetchStatus = useCallback(async () => {
     if (!runId) {
       setError("No run context available");
       return;
@@ -42,11 +42,11 @@ export function useGitStatus(): UseGitStatusResult {
     } finally {
       setLoading(false);
     }
-  };
+  }, [runId]);
 
   useEffect(() => {
     fetchStatus();
-  }, [runId]);
+  }, [fetchStatus]);
 
   return { status, loading, error, refetch: fetchStatus };
 }

@@ -48,3 +48,5 @@ dist/
 .turbo/
 
 .archive/
+tasks/
+*.tsbuildinfo

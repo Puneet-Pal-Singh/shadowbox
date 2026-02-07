@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import type { Message } from "@ai-sdk/react";
 import { ChatPersistenceService } from "../services/ChatPersistenceService";
 
@@ -22,12 +22,12 @@ export function useChatPersistence({
   isLoading,
   append,
 }: UseChatPersistenceProps): void {
-  const persistenceService = new ChatPersistenceService();
+  const persistenceService = useMemo(() => new ChatPersistenceService(), []);
 
   // Sync messages to global store
   useEffect(() => {
     persistenceService.syncToStore(runId, messages);
-  }, [messages, runId]);
+  }, [messages, runId, persistenceService]);
 
   // Restore pending query from localStorage
   useEffect(() => {
@@ -39,5 +39,5 @@ export function useChatPersistence({
       append({ role: "user", content: pendingQuery });
       persistenceService.clearPendingQuery(runId);
     }
-  }, [runId, messagesLength, isLoading, append]);
+  }, [runId, messagesLength, isLoading, append, persistenceService]);
 }

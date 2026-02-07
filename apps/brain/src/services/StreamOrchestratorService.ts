@@ -24,6 +24,7 @@ interface StreamResult {
 
 export interface StreamOrchestratorOptions {
   messages: CoreMessage[];
+  fullHistory: CoreMessage[];
   systemPrompt: string;
   tools: Record<string, CoreTool>;
   correlationId: string;
@@ -53,6 +54,7 @@ export class StreamOrchestratorService {
     try {
       const result = await this.aiService.createChatStream({
         messages,
+        fullHistory: options.fullHistory,
         systemPrompt,
         tools,
         onChunk: (event) => this.handleChunk(event.chunk, options),

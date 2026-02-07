@@ -15,6 +15,9 @@ interface StreamResult {
     promptTokens: number;
     completionTokens: number;
   };
+  response: {
+    messages: CoreMessage[];
+  };
   // Additional fields that may be present
   fullMessages?: CoreMessage[];
   steps?: unknown[];
@@ -22,6 +25,7 @@ interface StreamResult {
 
 interface CreateChatStreamOptions {
   messages: CoreMessage[];
+  fullHistory: CoreMessage[];
   systemPrompt: string;
   tools: Record<string, CoreTool>;
   model?: string;
@@ -44,23 +48,47 @@ export class AIService {
 
   async createChatStream({
     messages,
+    fullHistory,
     systemPrompt,
     tools,
     model = "llama-3.3-70b-versatile",
     onFinish,
     onChunk,
   }: CreateChatStreamOptions) {
-    // Messages from ChatController are already CoreMessages
-    // Just ensure they're in the right format for the AI SDK
-    const coreMessages = messages.length > 0 ? messages : [];
+    // Ensure we have a valid history to fall back on if constructor args are empty
+    const baseHistory = fullHistory.length > 0 ? fullHistory : messages;
 
     return streamText({
       model: this.groq(model),
-      messages: coreMessages,
+      messages: messages,
       system: systemPrompt,
       tools,
-      maxSteps: 10,
-      onFinish,
+      maxSteps: 15,
+      onFinish: async (result) => {
+        console.log(`[AIService] AI Stream Finished. Reason: ${result.finishReason}`);
+        
+        if (onFinish) {
+          // Construct history: Base (all previous + current user) + New (AI + Tools)
+          const newMessages = result.response.messages || [];
+          
+          // Safety: If result.response.messages is somehow missing the text but we have it in result.text
+          if (newMessages.length === 0 && result.text) {
+             newMessages.push({ 
+               id: `assistant-${Date.now()}`, 
+               role: 'assistant', 
+               content: result.text 
+             });
+          }
+
+          const finalMessages: CoreMessage[] = [
+            ...baseHistory,
+            ...newMessages,
+          ];
+          
+          console.log(`[AIService] Persisting ${finalMessages.length} messages. Roles: ${finalMessages.map(m => m.role).join(' -> ')}`);
+          await onFinish({ ...result, fullMessages: finalMessages } as unknown as StreamResult);
+        }
+      },
       onChunk,
     });
   }

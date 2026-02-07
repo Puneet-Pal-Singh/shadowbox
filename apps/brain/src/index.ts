@@ -78,7 +78,6 @@ function createRouter(): Router {
   router.add(/\/api\/git\/status/, GitController.getStatus);
   router.add(/\/api\/git\/diff/, GitController.getDiff);
   router.add(/\/api\/git\/stage/, GitController.stageFiles, "POST");
-  router.add(/\/api\/git\/unstage/, GitController.unstageFiles, "POST");
   router.add(/\/api\/git\/commit/, GitController.commit, "POST");
 
   return router;

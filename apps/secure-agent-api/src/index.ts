@@ -135,6 +135,7 @@ export { Sandbox, AgentRuntime };
 export interface Env {
   AGENT_RUNTIME: DurableObjectNamespace<AgentRuntime>;
   Sandbox: DurableObjectNamespace<Sandbox>;
+  ARTIFACTS: R2Bucket;
 }
 
 interface ExecutionBody {

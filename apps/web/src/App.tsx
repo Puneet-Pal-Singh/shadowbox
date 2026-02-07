@@ -9,6 +9,7 @@ import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { RepoPicker } from "./components/github/RepoPicker";
 import { LoginScreen } from "./components/auth/LoginScreen";
 import type { Repository } from "./services/GitHubService";
+import { Resizer } from "./components/ui/Resizer";
 
 /**
  * Main App Component
@@ -44,15 +45,17 @@ function AppContent() {
 
   const [activeTab, setActiveTab] = useState<"local" | "worktree">("local");
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-  const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(false);
+  const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(() => {
+    return localStorage.getItem("shadowbox_right_sidebar_open") === "true";
+  });
+  const [sidebarWidth, setSidebarWidth] = useState(260);
 
-  // Check if we should show repo picker on mount
   useEffect(() => {
-    if (!isLoading && isAuthenticated && !githubContext.repo) {
-      // User is authenticated but hasn't selected a repo yet
-      setShowRepoPicker(true);
-    }
-  }, [isLoading, isAuthenticated, githubContext.repo]);
+    localStorage.setItem(
+      "shadowbox_right_sidebar_open",
+      String(isRightSidebarOpen),
+    );
+  }, [isRightSidebarOpen]);
 
   // Handle skip login - proceed without GitHub
   const handleSkipLogin = () => {
@@ -64,9 +67,10 @@ function AppContent() {
 
   // Get active session name for the header
   const activeSession = sessions.find((s) => s.id === activeSessionId);
+  const taskTitle = activeSession?.name;
   const threadTitle = activeSession?.name;
 
-  const handleNewThread = () => {
+  const handleNewTask = () => {
     setActiveSessionId(null);
   };
 
@@ -153,18 +157,29 @@ function AppContent() {
     <div className="h-screen w-screen bg-background text-zinc-400 flex overflow-hidden font-sans">
       {/* Sidebar - Independent */}
       {isSidebarOpen && (
-        <AgentSidebar
-          sessions={sessions}
-          activeSessionId={activeSessionId}
-          onSelect={setActiveSessionId}
-          onCreate={handleNewThread}
-          onRemove={removeSession}
-          onClose={handleToggleSidebar}
-        />
+        <div className="relative flex shrink-0" style={{ width: sidebarWidth }}>
+          <AgentSidebar
+            sessions={sessions}
+            activeSessionId={activeSessionId}
+            onSelect={setActiveSessionId}
+            onCreate={handleNewTask}
+            onRemove={removeSession}
+            onClose={handleToggleSidebar}
+            width={sidebarWidth}
+          />
+          <Resizer
+            side="left"
+            onResize={(delta) =>
+              setSidebarWidth((prev) =>
+                Math.max(160, Math.min(400, prev + delta)),
+              )
+            }
+          />
+        </div>
       )}
 
       {/* Main Content Area with Top NavBar */}
-      <div className="flex-1 flex flex-col overflow-hidden">
+      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
         {/* Top Navigation Bar - Only in content area */}
         <TopNavBar
           onOpenIde={handleOpenIde}
@@ -176,6 +191,7 @@ function AppContent() {
           isRightSidebarOpen={isRightSidebarOpen}
           onToggleRightSidebar={handleToggleRightSidebar}
           threadTitle={threadTitle}
+          taskTitle={taskTitle}
           isAuthenticated={isAuthenticated}
           onConnectGitHub={login}
         />
@@ -186,9 +202,8 @@ function AppContent() {
             <Workspace
               key={activeSessionId}
               sessionId={activeSessionId}
-              threadTitle={threadTitle}
               isRightSidebarOpen={isRightSidebarOpen}
-              onRightSidebarClose={() => setIsRightSidebarOpen(false)}
+              setIsRightSidebarOpen={setIsRightSidebarOpen}
             />
           ) : (
             <AgentSetup

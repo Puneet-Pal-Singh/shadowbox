@@ -1,6 +1,7 @@
-import { useRef, useState } from "react";
+import { useRef, useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Maximize2 } from "lucide-react";
+import { Maximize2, ArrowLeft, Loader2 } from "lucide-react";
+import type { DiffContent } from "@repo/shared-types";
 import { FileExplorer, FileExplorerHandle } from "../FileExplorer";
 import { ChatInterface } from "../chat/ChatInterface";
 import { ChangesPanel } from "../sidebar/ChangesPanel";
@@ -8,26 +9,62 @@ import { RunContextProvider } from "../../hooks/useRunContext";
 import { useChat } from "../../hooks/useChat";
 import { cn } from "../../lib/utils";
 import { useGitStatus } from "../../hooks/useGitStatus";
+import { useGitDiff } from "../../hooks/useGitDiff";
+import { Resizer } from "../ui/Resizer";
+import { ArtifactView } from "../chat/ArtifactView";
+import { DiffViewer } from "../diff/DiffViewer";
 
 interface WorkspaceProps {
   sessionId: string;
-  threadTitle?: string;
   isRightSidebarOpen?: boolean;
-  onRightSidebarClose?: () => void;
+  setIsRightSidebarOpen?: (open: boolean) => void;
 }
 
-export function Workspace({ 
-  sessionId: runId, 
-  threadTitle,
+export function Workspace({
+  sessionId: runId,
   isRightSidebarOpen = false,
+  setIsRightSidebarOpen,
 }: WorkspaceProps) {
   const explorerRef = useRef<FileExplorerHandle>(null);
   const sandboxId = runId;
-  
-  // Sidebar tab state
-  const [activeTab, setActiveTab] = useState<"files" | "changes">("files");
-  
-  const { status } = useGitStatus(); // To show badge count
+
+  // Sidebar states
+  const [activeTab, setActiveTab] = useState<"files" | "changes">(() => {
+    return (
+      (localStorage.getItem("shadowbox_active_tab") as "files" | "changes") ||
+      "files"
+    );
+  });
+
+  useEffect(() => {
+    localStorage.setItem("shadowbox_active_tab", activeTab);
+  }, [activeTab]);
+  const [sidebarWidth, setSidebarWidth] = useState(440);
+  const [isResizing, setIsResizing] = useState(false);
+
+  // Content view states
+  const [selectedFile, setSelectedFile] = useState<{
+    path: string;
+    content: string;
+  } | null>(null);
+  const [selectedDiff, setSelectedDiff] = useState<{
+    path: string;
+    content: DiffContent;
+  } | null>(null);
+  const [isViewingContent, setIsViewingContent] = useState(() => {
+    return localStorage.getItem("shadowbox_is_viewing_content") === "true";
+  });
+  const [isLoadingContent, setIsLoadingContent] = useState(false);
+
+  useEffect(() => {
+    localStorage.setItem(
+      "shadowbox_is_viewing_content",
+      String(isViewingContent),
+    );
+  }, [isViewingContent]);
+
+  const { status } = useGitStatus();
+  const { fetch: fetchDiff, diff } = useGitDiff();
   const changesCount = status?.files.length || 0;
 
   const {
@@ -41,97 +78,221 @@ export function Workspace({
     explorerRef.current?.refresh();
   });
 
-  const handleFileClick = async (path: string) => {
-    console.log("Clicked file:", path);
-  };
+  // Sync diff from hook to local state when it loads
+  useEffect(() => {
+    if (diff && activeTab === "changes") {
+      setSelectedDiff({ path: diff.newPath, content: diff });
+      setIsViewingContent(true);
+    }
+  }, [diff, activeTab]);
 
-  if (isHydrating) {
-    return (
-      <div className="flex-1 flex items-center justify-center bg-background">
-        <div className="flex flex-col items-center gap-4">
-          <div className="w-8 h-8 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
-          <span className="text-xs font-mono text-zinc-500 uppercase tracking-widest">
-            Hydrating History...
-          </span>
-        </div>
-      </div>
+  const handleFileClick = useCallback(
+    async (path: string) => {
+      setIsLoadingContent(true);
+      setIsViewingContent(true);
+      localStorage.setItem("shadowbox_last_viewed_path", path);
+      try {
+        const res = await fetch(`http://localhost:8787/?session=${sandboxId}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            plugin: "filesystem",
+            payload: { action: "read_file", runId, path },
+          }),
+        });
+
+        let data;
+        try {
+          data = await res.json();
+        } catch (parseError) {
+          console.error("Failed to parse file response:", parseError);
+          setSelectedFile({
+            path,
+            content:
+              "// [Error] The server returned unreadable data. This usually happens with large binary files.",
+          });
+          return;
+        }
+
+        if (data.success) {
+          if (data.isBinary || data.output === "[BINARY_FILE_DETECTED]") {
+            setSelectedFile({
+              path,
+              content:
+                "// [Shadowbox] This file is a binary and cannot be displayed in the text editor.",
+            });
+          } else {
+            setSelectedFile({ path, content: data.output });
+          }
+        }
+      } catch (e) {
+        console.error("Failed to read file:", e);
+        setSelectedFile({
+          path,
+          content: "// [Error] Failed to connect to server or read file.",
+        });
+      } finally {
+        setIsLoadingContent(false);
+      }
+    },
+    [sandboxId, runId],
+  );
+
+  // Restore selected file on mount if we were viewing one
+  useEffect(() => {
+    if (isHydrating) return;
+
+    const savedPath = localStorage.getItem("shadowbox_last_viewed_path");
+    console.log(
+      `🧬 [Shadowbox] Restoration Check: isViewing=${isViewingContent}, path=${savedPath}, selectedFile=${!!selectedFile}`,
     );
-  }
+
+    if (isViewingContent && savedPath && !selectedFile && !selectedDiff) {
+      console.log(`🧬 [Shadowbox] Restoring last viewed file: ${savedPath}`);
+      handleFileClick(savedPath);
+    }
+  }, [
+    isHydrating,
+    isViewingContent,
+    selectedFile,
+    selectedDiff,
+    handleFileClick,
+  ]);
+
+  const handleViewChange = (path: string) => {
+    fetchDiff(path);
+    // Diff view will be set by the useEffect above
+  };
 
   return (
     <RunContextProvider runId={runId}>
       <div className="flex-1 flex bg-black overflow-hidden relative">
         {/* Chat Area */}
         <main className="flex-1 flex flex-col min-w-0 bg-black relative">
-          <ChatInterface
-            chatProps={{
-              messages,
-              input,
-              handleInputChange,
-              handleSubmit,
-              isLoading,
-            }}
-            threadTitle={threadTitle}
-            onArtifactOpen={() => {}}
-          />
+          {isHydrating ? (
+            <div className="flex-1 flex items-center justify-center bg-background">
+              <div className="flex flex-col items-center gap-4">
+                <div className="w-8 h-8 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+                <span className="text-xs font-mono text-zinc-500 uppercase tracking-widest">
+                  Hydrating History...
+                </span>
+              </div>
+            </div>
+          ) : (
+            <ChatInterface
+              chatProps={{
+                messages,
+                input,
+                handleInputChange,
+                handleSubmit,
+                isLoading,
+              }}
+              onArtifactOpen={(path, content) => {
+                setSelectedFile({ path, content });
+                setIsViewingContent(true);
+                setIsRightSidebarOpen?.(true);
+                setActiveTab("files");
+              }}
+            />
+          )}
         </main>
 
         {/* Combined Sidebar */}
         <motion.aside
+          initial={false}
           animate={{
-            width: isRightSidebarOpen ? 320 : 0,
+            width: isRightSidebarOpen ? sidebarWidth : 0,
           }}
-          transition={{ duration: 0.2, ease: "easeInOut" }}
+          transition={
+            isResizing
+              ? { duration: 0 }
+              : { duration: 0.15, ease: [0.23, 1, 0.32, 1] }
+          }
           className={cn(
-            "border-l border-zinc-800 bg-black flex flex-col overflow-hidden shrink-0",
+            "border-l border-zinc-800 bg-black flex flex-col overflow-hidden shrink-0 relative",
             !isRightSidebarOpen && "border-transparent",
           )}
         >
-          <div className="flex-1 flex flex-col min-w-[320px] w-[320px]">
+          {isRightSidebarOpen && (
+            <Resizer
+              side="right"
+              onResizeStart={() => setIsResizing(true)}
+              onResizeEnd={() => setIsResizing(false)}
+              onResize={(delta) =>
+                setSidebarWidth((prev) =>
+                  Math.max(280, Math.min(600, prev + delta)),
+                )
+              }
+            />
+          )}
+
+          <div
+            className="flex-1 flex flex-col min-w-[280px]"
+            style={{ width: sidebarWidth }}
+          >
             {/* Sidebar Header */}
-            <div className="h-10 border-b border-zinc-800 flex items-center justify-between px-3 bg-black">
+            <div className="h-10 border-b border-zinc-800 flex items-center justify-between px-3 bg-black shrink-0">
               <div className="flex gap-4 h-full">
-                <button
-                  onClick={() => setActiveTab("files")}
-                  className={cn(
-                    "text-xs font-semibold uppercase tracking-wide transition-colors relative h-full flex items-center",
-                    activeTab === "files" ? "text-white" : "text-zinc-500 hover:text-zinc-300"
-                  )}
-                >
-                  Files
-                  {activeTab === "files" && (
-                    <motion.div
-                      layoutId="activeTab"
-                      className="absolute bottom-0 left-0 right-0 h-0.5 bg-zinc-400"
-                    />
-                  )}
-                </button>
-                <button
-                  onClick={() => setActiveTab("changes")}
-                  className={cn(
-                    "text-xs font-semibold uppercase tracking-wide transition-colors relative h-full flex items-center gap-1.5",
-                    activeTab === "changes" ? "text-white" : "text-zinc-500 hover:text-zinc-300"
-                  )}
-                >
-                  Changes
-                  {changesCount > 0 && (
-                    <span className="px-1.5 py-0.5 bg-zinc-800 text-zinc-300 text-[10px] rounded-full">
-                      {changesCount}
-                    </span>
-                  )}
-                  {activeTab === "changes" && (
-                    <motion.div
-                      layoutId="activeTab"
-                      className="absolute bottom-0 left-0 right-0 h-0.5 bg-zinc-400"
-                    />
-                  )}
-                </button>
+                {isViewingContent ? (
+                  <button
+                    onClick={() => {
+                      setIsViewingContent(false);
+                      setSelectedFile(null);
+                      setSelectedDiff(null);
+                    }}
+                    className="flex items-center gap-2 text-xs font-semibold text-zinc-400 hover:text-white transition-colors"
+                  >
+                    <ArrowLeft size={14} />
+                    Back
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => setActiveTab("files")}
+                      className={cn(
+                        "text-xs font-semibold uppercase tracking-wide transition-colors relative h-full flex items-center",
+                        activeTab === "files"
+                          ? "text-white"
+                          : "text-zinc-500 hover:text-zinc-300",
+                      )}
+                    >
+                      Files
+                      {activeTab === "files" && (
+                        <motion.div
+                          layoutId="activeTab"
+                          className="absolute bottom-0 left-0 right-0 h-0.5 bg-zinc-400"
+                        />
+                      )}
+                    </button>
+                    <button
+                      onClick={() => setActiveTab("changes")}
+                      className={cn(
+                        "text-xs font-semibold uppercase tracking-wide transition-colors relative h-full flex items-center gap-1.5",
+                        activeTab === "changes"
+                          ? "text-white"
+                          : "text-zinc-500 hover:text-zinc-300",
+                      )}
+                    >
+                      Changes
+                      {changesCount > 0 && (
+                        <span className="px-1.5 py-0.5 bg-zinc-800 text-zinc-300 text-[10px] rounded-full">
+                          {changesCount}
+                        </span>
+                      )}
+                      {activeTab === "changes" && (
+                        <motion.div
+                          layoutId="activeTab"
+                          className="absolute bottom-0 left-0 right-0 h-0.5 bg-zinc-400"
+                        />
+                      )}
+                    </button>
+                  </>
+                )}
               </div>
-              
-              {/* Optional Expand Button */}
-              <button 
+
+              <button
                 className="text-zinc-500 hover:text-zinc-300 p-1 rounded hover:bg-zinc-900"
-                title="Expand to full screen (Coming Soon)"
+                title="Expand"
               >
                 <Maximize2 size={14} />
               </button>
@@ -140,7 +301,36 @@ export function Workspace({
             {/* Sidebar Content */}
             <div className="flex-1 overflow-hidden relative">
               <AnimatePresence mode="wait" initial={false}>
-                {activeTab === "files" ? (
+                {isViewingContent ? (
+                  <motion.div
+                    key="content"
+                    initial={{ opacity: 0, scale: 0.98 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.98 }}
+                    className="absolute inset-0 flex flex-col overflow-y-auto"
+                  >
+                    {isLoadingContent ? (
+                      <div className="flex-1 flex items-center justify-center">
+                        <Loader2
+                          size={24}
+                          className="animate-spin text-zinc-600"
+                        />
+                      </div>
+                    ) : selectedFile ? (
+                      <ArtifactView
+                        isOpen={true}
+                        onClose={() => setIsViewingContent(false)}
+                        title={selectedFile.path}
+                        content={selectedFile.content}
+                      />
+                    ) : selectedDiff ? (
+                      <DiffViewer
+                        diff={selectedDiff.content}
+                        className="flex-1"
+                      />
+                    ) : null}
+                  </motion.div>
+                ) : activeTab === "files" ? (
                   <motion.div
                     key="files"
                     initial={{ opacity: 0, x: -10 }}
@@ -163,9 +353,12 @@ export function Workspace({
                     animate={{ opacity: 1, x: 0 }}
                     exit={{ opacity: 0, x: 10 }}
                     transition={{ duration: 0.15 }}
-                    className="absolute inset-0 overflow-hidden"
+                    className="absolute inset-0 overflow-y-auto"
                   >
-                    <ChangesPanel mode="sidebar" />
+                    <ChangesPanel
+                      mode="sidebar"
+                      onFileSelect={handleViewChange}
+                    />
                   </motion.div>
                 )}
               </AnimatePresence>

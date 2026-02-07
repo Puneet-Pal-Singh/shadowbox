@@ -1,4 +1,4 @@
-import type { CoreMessage, CoreTool } from "ai";
+import type { CoreMessage, CoreTool, Message } from "ai";
 import { createToolRegistry } from "../orchestrator/tools";
 import { Env } from "../types/ai";
 import { getCorsHeaders } from "../lib/cors";
@@ -11,7 +11,7 @@ import { SystemPromptService } from "../services/SystemPromptService";
 import { StreamOrchestratorService } from "../services/StreamOrchestratorService";
 
 interface ChatRequestBody {
-  messages?: CoreMessage[];
+  messages?: Message[];
   sessionId?: string;
   agentId?: string;
   runId?: string;
@@ -37,6 +37,9 @@ export class ChatController {
     try {
       const body = await parseRequestBody(req);
       const identifiers = extractIdentifiers(body);
+
+      console.log(`[Brain:${correlationId}] Incoming request for session: ${identifiers.sessionId}, run: ${identifiers.runId}`);
+      console.log(`[Brain:${correlationId}] Messages count in request: ${body.messages?.length || 0}`);
 
       if (!body.messages || !Array.isArray(body.messages)) {
         return errorResponse(req, "Invalid messages", 400);
@@ -93,6 +96,7 @@ export class ChatController {
     const systemPrompt = services.promptService.generatePrompt(
       runId,
       env.SYSTEM_PROMPT,
+      body.agentId, // Use agentId as custom prompt if needed, or similar logic
     );
 
     // Create tools registry
@@ -101,6 +105,7 @@ export class ChatController {
     // Create and return stream
     return await services.streamOrchestrator.createStream({
       messages: messagesForAI,
+      fullHistory: prepResult.coreMessages,
       systemPrompt,
       tools: toolsRegistry,
       correlationId,

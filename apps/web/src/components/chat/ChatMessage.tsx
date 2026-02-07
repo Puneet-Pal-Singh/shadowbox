@@ -1,5 +1,4 @@
 import { type Message } from "ai";
-import { ActionBlock } from "./ActionBlock";
 import { ArtifactPreview } from "./ArtifactPreview";
 import { cn } from "../../lib/utils";
 import { FilePill } from "./FilePill";
@@ -12,14 +11,28 @@ interface ChatMessageProps {
 export function ChatMessage({ message, onArtifactOpen }: ChatMessageProps) {
   const isUser = message.role === "user";
 
+  // Safely extract text content even if it's an array of parts
+  const getTextContent = () => {
+    const rawContent: unknown = message.content;
+    if (typeof rawContent === 'string') return rawContent;
+    if (Array.isArray(rawContent)) {
+      return (rawContent as Array<{ type: string; text?: string }>)
+        .filter((part): part is { type: 'text'; text: string } => 
+          part.type === 'text' && typeof part.text === 'string'
+        )
+        .map(part => part.text)
+        .join('');
+    }
+    return '';
+  };
+
+  const content = getTextContent();
+
   // Extract file references from message content (simple regex)
-  const fileRefs =
-    typeof message.content === "string"
-      ? message.content.match(/[\w-]+\.(md|json|ts|tsx|js|jsx|css|html)/g) || []
-      : [];
+  const fileRefs = content.match(/[\w-]+\.(md|json|ts|tsx|js|jsx|css|html)/g) || [];
 
   // Unique file references
-  const uniqueFileRefs = [...new Set(fileRefs)];
+  const uniqueFileRefs = [...new Set(fileRefs)] as string[];
 
   return (
     <div
@@ -29,23 +42,19 @@ export function ChatMessage({ message, onArtifactOpen }: ChatMessageProps) {
       )}
     >
       {/* Message Content */}
-      <div className={cn("max-w-3xl", isUser ? "text-right" : "flex-1")}>
+      <div className={cn("max-w-4xl", isUser ? "text-right" : "flex-1")}>
         {/* User message bubble */}
-        {isUser && message.content && (
+        {isUser && content && (
           <div className="inline-block bg-[#262626] text-white px-4 py-2.5 rounded-2xl text-sm leading-relaxed">
-            {typeof message.content === "string"
-              ? message.content
-              : JSON.stringify(message.content)}
+            {content}
           </div>
         )}
 
         {/* Assistant message */}
-        {!isUser && message.content && (
+        {!isUser && content && (
           <div className="space-y-3">
             <div className="text-sm text-zinc-300 leading-relaxed whitespace-pre-wrap">
-              {typeof message.content === "string"
-                ? message.content
-                : JSON.stringify(message.content)}
+              {content}
             </div>
 
             {/* File references as pills */}
@@ -66,8 +75,8 @@ export function ChatMessage({ message, onArtifactOpen }: ChatMessageProps) {
         {/* Tool Invocations */}
         {message.toolInvocations
           ?.filter((toolInvocation) => {
-            const visibleTools = ["create_code_artifact"];
-            return visibleTools.includes(toolInvocation.toolName);
+            // ONLY show major UI artifacts. Everything else is hidden behind 'Thinking' status.
+            return toolInvocation.toolName === "create_code_artifact";
           })
           .map((toolInvocation, index) => {
             const toolName = toolInvocation.toolName;
@@ -78,30 +87,21 @@ export function ChatMessage({ message, onArtifactOpen }: ChatMessageProps) {
             >;
             const key = toolInvocation.toolCallId || `tool-${index}`;
             const path = args?.path || "untitled";
-            const content = args?.content || "";
+            const artifactContent = args?.content || "";
 
-            if (toolName === "create_code_artifact" && content) {
+            if (toolName === "create_code_artifact" && artifactContent) {
               return (
                 <ArtifactPreview
                   key={key}
                   title={path}
-                  content={content}
+                  content={artifactContent}
                   status={status}
-                  onOpen={() => onArtifactOpen?.(path, content)}
+                  onOpen={() => onArtifactOpen?.(path, artifactContent)}
                 />
               );
             }
 
-            return (
-              <div
-                key={key}
-                className={cn("w-full mt-3", isUser && "flex justify-end")}
-              >
-                <div className="max-w-md w-full text-left">
-                  <ActionBlock tool={toolName} status={status} args={args} />
-                </div>
-              </div>
-            );
+            return null;
           })}
       </div>
     </div>

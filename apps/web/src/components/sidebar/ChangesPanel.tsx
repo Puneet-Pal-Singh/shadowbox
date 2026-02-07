@@ -11,9 +11,14 @@ import { useRunContext } from "../../hooks/useRunContext";
 interface ChangesPanelProps {
   className?: string;
   mode?: "sidebar" | "modal";
+  onFileSelect?: (path: string) => void;
 }
 
-export function ChangesPanel({ className = "", mode = "sidebar" }: ChangesPanelProps) {
+export function ChangesPanel({ 
+  className = "", 
+  mode = "sidebar",
+  onFileSelect 
+}: ChangesPanelProps) {
   const { runId } = useRunContext();
   const { status, loading: statusLoading, error: statusError, refetch } = useGitStatus();
   const { diff, loading: diffLoading, fetch: fetchDiff } = useGitDiff();
@@ -28,6 +33,7 @@ export function ChangesPanel({ className = "", mode = "sidebar" }: ChangesPanelP
       const staged = new Set<string>(
         status.files.filter((f: FileStatus) => f.isStaged).map((f: FileStatus) => f.path),
       );
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setStagedFiles(staged);
     }
   }, [status]);
@@ -36,7 +42,12 @@ export function ChangesPanel({ className = "", mode = "sidebar" }: ChangesPanelP
     if (selectedFile) {
       fetchDiff(selectedFile.path, stagedFiles.has(selectedFile.path));
     }
-  }, [selectedFile]);
+  }, [selectedFile, fetchDiff, stagedFiles]);
+
+  const handleSelectFile = (file: FileStatus) => {
+    setSelectedFile(file);
+    onFileSelect?.(file.path);
+  };
 
   const handleToggleStaged = async (path: string, staged: boolean) => {
     if (!runId) return;
@@ -100,14 +111,14 @@ export function ChangesPanel({ className = "", mode = "sidebar" }: ChangesPanelP
       <div className="flex-1 flex gap-4 min-h-0 overflow-hidden">
         {/* List Section */}
         <div 
-          className={`flex flex-col bg-black rounded-lg border border-zinc-800 overflow-hidden ${
+          className={`flex flex-col bg-black rounded-lg border border-zinc-800 overflow-y-auto scrollbar-hide ${
             mode === "sidebar" ? "w-full" : "w-80"
           }`}
         >
           <ChangesList
             files={status?.files || []}
             selectedFile={selectedFile}
-            onSelectFile={setSelectedFile}
+            onSelectFile={handleSelectFile}
             stagedFiles={stagedFiles}
             onToggleStaged={handleToggleStaged}
           />
