@@ -359,6 +359,7 @@ function AppContent() {
             <Workspace
               key={activeSessionId}
               sessionId={activeSessionId}
+              repository={activeSession?.repository || ""}
               isRightSidebarOpen={isRightSidebarOpen}
               setIsRightSidebarOpen={setIsRightSidebarOpen}
             />

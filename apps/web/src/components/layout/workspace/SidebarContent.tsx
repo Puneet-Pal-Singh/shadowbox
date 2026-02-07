@@ -95,7 +95,7 @@ export function SidebarContent({
             transition={{ duration: 0.15 }}
             className="absolute inset-0 overflow-y-auto"
           >
-            <AnimatePresence mode="wait">
+            <AnimatePresence>
               {repo && isGitHubLoaded ? (
                 <motion.div
                   key="repo-tree"

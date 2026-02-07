@@ -16,12 +16,14 @@ import { SidebarContent } from "./workspace/SidebarContent";
 
 interface WorkspaceProps {
   sessionId: string;
+  repository: string;
   isRightSidebarOpen?: boolean;
   setIsRightSidebarOpen?: (open: boolean) => void;
 }
 
 export function Workspace({
   sessionId: runId,
+  repository,
   isRightSidebarOpen = false,
   setIsRightSidebarOpen,
 }: WorkspaceProps) {
@@ -52,7 +54,7 @@ export function Workspace({
     repo,
     branch,
     isGitHubLoaded
-  } = useGitHubTree();
+  } = useGitHubTree(repository);
 
   const { handleFileClick, handleGitHubFileSelect } = useFileLoader({
     sandboxId,
@@ -199,7 +201,7 @@ export function Workspace({
               repo={repo}
               isGitHubLoaded={isGitHubLoaded}
               repoTree={repoTree}
-              isLoadingTree={isLoadingTree}
+              isLoadingTree={!!isLoadingTree}
               branch={branch}
               handleGitHubFileSelect={handleGitHubFileSelect}
               handleFileClick={handleFileClick}
