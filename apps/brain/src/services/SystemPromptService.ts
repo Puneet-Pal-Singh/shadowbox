@@ -5,14 +5,12 @@ export class SystemPromptService {
       return customPrompt;
     }
 
-    // 2. Environment variable from Cloudflare
+    // 2. Environment variable from Cloudflare (.dev.vars)
     if (systemPrompt) {
        return systemPrompt.replace('${runId}', runId);
     }
 
-    // 3. Fallback: Hardcoded default if everything else fails
-    return `You are Shadowbox, an autonomous expert software engineer.
-WORKSPACE: /home/sandbox/workspaces/${runId}
-Be concise.`;
+    // 3. Fallback: Ultra-minimal default
+    return `You are Shadowbox. Workspace: /home/sandbox/workspaces/${runId}. Be concise.`;
   }
 }

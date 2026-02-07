@@ -60,11 +60,10 @@ export function ChatInterface({
           ))}
 
           {/* Loading indicator */}
-          {isLoading && messages.length > 0 && (
-            <div className="flex items-center gap-2 px-4 py-2">
-              <div className="w-2 h-2 bg-zinc-500 rounded-full animate-bounce" />
-              <div className="w-2 h-2 bg-zinc-500 rounded-full animate-bounce [animation-delay:0.1s]" />
-              <div className="w-2 h-2 bg-zinc-500 rounded-full animate-bounce [animation-delay:0.2s]" />
+          {isLoading && (
+            <div className="flex items-center gap-2 px-4 py-2 text-xs text-zinc-500 font-medium bg-zinc-900/30 w-fit rounded-full border border-zinc-800/50 animate-pulse">
+              <div className="w-1.5 h-1.5 bg-zinc-500 rounded-full animate-bounce" />
+              <span>Thinking...</span>
             </div>
           )}
         </div>
