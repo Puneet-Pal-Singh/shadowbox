@@ -1,4 +1,4 @@
-import { type Message, type TextPart } from "ai";
+import { type Message } from "ai";
 import { ArtifactPreview } from "./ArtifactPreview";
 import { cn } from "../../lib/utils";
 import { FilePill } from "./FilePill";
@@ -13,10 +13,13 @@ export function ChatMessage({ message, onArtifactOpen }: ChatMessageProps) {
 
   // Safely extract text content even if it's an array of parts
   const getTextContent = () => {
-    if (typeof message.content === 'string') return message.content;
-    if (Array.isArray(message.content)) {
-      return (message.content as any[])
-        .filter((part): part is TextPart => part.type === 'text')
+    const rawContent: unknown = message.content;
+    if (typeof rawContent === 'string') return rawContent;
+    if (Array.isArray(rawContent)) {
+      return (rawContent as Array<{ type: string; text?: string }>)
+        .filter((part): part is { type: 'text'; text: string } => 
+          part.type === 'text' && typeof part.text === 'string'
+        )
         .map(part => part.text)
         .join('');
     }
