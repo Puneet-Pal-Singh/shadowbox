@@ -42,38 +42,37 @@ export function Workspace({
     console.log("Clicked file:", path);
   };
 
-  if (isHydrating) {
-    return (
-      <div className="flex-1 flex items-center justify-center bg-background">
-        <div className="flex flex-col items-center gap-4">
-          <div className="w-8 h-8 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
-          <span className="text-xs font-mono text-zinc-500 uppercase tracking-widest">
-            Hydrating History...
-          </span>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <RunContextProvider runId={runId}>
       <div className="flex-1 flex bg-black overflow-hidden relative">
         {/* Chat Area */}
         <main className="flex-1 flex flex-col min-w-0 bg-black relative">
-          <ChatInterface
-            chatProps={{
-              messages,
-              input,
-              handleInputChange,
-              handleSubmit,
-              isLoading,
-            }}
-            onArtifactOpen={() => {}}
-          />
+          {isHydrating ? (
+            <div className="flex-1 flex items-center justify-center bg-background">
+              <div className="flex flex-col items-center gap-4">
+                <div className="w-8 h-8 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+                <span className="text-xs font-mono text-zinc-500 uppercase tracking-widest">
+                  Hydrating History...
+                </span>
+              </div>
+            </div>
+          ) : (
+            <ChatInterface
+              chatProps={{
+                messages,
+                input,
+                handleInputChange,
+                handleSubmit,
+                isLoading,
+              }}
+              onArtifactOpen={() => {}}
+            />
+          )}
         </main>
 
         {/* Combined Sidebar */}
         <motion.aside
+          initial={false}
           animate={{
             width: isRightSidebarOpen ? 320 : 0,
           }}
