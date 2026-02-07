@@ -40,6 +40,7 @@ function AppContent() {
     setActiveSessionId,
     createSession,
     removeSession,
+    updateSession,
   } = useSessionManager();
 
   const { isAuthenticated, isLoading, login } = useAuth();
@@ -164,7 +165,7 @@ function AppContent() {
 
   /**
    * Handle repository selection from RepoPicker
-   * Sets the context but doesn't create a session yet
+   * Creates a session immediately for the selected repository
    */
   const handleRepoSelect = (
     selectedRepo: Repository,
@@ -173,8 +174,19 @@ function AppContent() {
     setContext(selectedRepo, selectedBranch);
     setShowRepoPicker(false);
 
+    // Create a session immediately for this repository so it shows in sidebar
+    const sessionName = `New Task`;
+    const sessionId = createSession(sessionName, selectedRepo.full_name);
+    setActiveSessionId(sessionId);
+
+    // Store GitHub context for the session
+    localStorage.setItem(
+      `github_context_${sessionId}`,
+      JSON.stringify({ repo: selectedRepo, branch: selectedBranch }),
+    );
+
     console.log(
-      `[App] Selected repository: ${selectedRepo.full_name}@${selectedBranch}`,
+      `[App] Selected repository: ${selectedRepo.full_name}@${selectedBranch}, created session: ${sessionId}`,
     );
   };
 
@@ -212,8 +224,14 @@ function AppContent() {
     );
   }
 
-  // Show AgentSetup if user has selected a repo but no active session
-  if (repo && !activeSessionId) {
+  // Check if current session has a pending query or messages
+  const hasPendingQuery = activeSessionId ? !!localStorage.getItem(`pending_query_${activeSessionId}`) : false;
+  // We don't check messages here because they might be on the server, 
+  // but if hasPendingQuery is true, it means the user submitted the AgentSetup form.
+  const isWorkspaceVisible = activeSessionId && hasPendingQuery;
+
+  // Show AgentSetup if user has selected a repo but no active session or session hasn't started
+  if (repo && !isWorkspaceVisible) {
     return (
       <div className="h-screen w-screen bg-background text-zinc-400 flex overflow-hidden font-sans">
         {/* Sidebar - Independent */}
@@ -271,17 +289,23 @@ function AppContent() {
                     ? config.task.substring(0, 20) + "..."
                     : config.task;
 
-                // Use repository name from GitHub context if available
-                const repoName = repo?.full_name || "New Project";
-                const id = createSession(name, repoName);
-                localStorage.setItem(`pending_query_${id}`, config.task);
-
-                // Pass GitHub context to the session
-                if (repo) {
-                  localStorage.setItem(
-                    `github_context_${id}`,
-                    JSON.stringify({ repo, branch }),
-                  );
+                if (activeSessionId) {
+                  // Update existing session
+                  updateSession(activeSessionId, { name });
+                  localStorage.setItem(`pending_query_${activeSessionId}`, config.task);
+                  // Force a small state update to trigger re-evaluation of isWorkspaceVisible
+                  setActiveSessionId(activeSessionId); 
+                } else {
+                  // Fallback for creating new session
+                  const repoName = repo?.full_name || "New Project";
+                  const id = createSession(name, repoName);
+                  localStorage.setItem(`pending_query_${id}`, config.task);
+                  if (repo) {
+                    localStorage.setItem(
+                      `github_context_${id}`,
+                      JSON.stringify({ repo, branch }),
+                    );
+                  }
                 }
               }}
             />
@@ -298,7 +322,7 @@ function AppContent() {
     );
   }
 
-  // Show main workspace if user has an active session
+  // Show main workspace if user has an active session with a task
   return (
     <div className="h-screen w-screen bg-background text-zinc-400 flex overflow-hidden font-sans">
       {/* Sidebar - Independent */}
@@ -345,38 +369,13 @@ function AppContent() {
 
         {/* Main Workspace Layer */}
         <div className="flex-1 flex overflow-hidden">
-          {activeSessionId ? (
-            <Workspace
-              key={activeSessionId}
-              sessionId={activeSessionId}
-              repository={activeSession?.repository || ""}
-              isRightSidebarOpen={isRightSidebarOpen}
-              setIsRightSidebarOpen={setIsRightSidebarOpen}
-            />
-          ) : (
-            <AgentSetup
-              onRepoClick={() => setShowRepoPicker(true)}
-              onStart={(config) => {
-                const name =
-                  config.task.length > 20
-                    ? config.task.substring(0, 20) + "..."
-                    : config.task;
-
-                // Use repository name from GitHub context if available
-                const repoName = repo?.full_name || "New Project";
-                const id = createSession(name, repoName);
-                localStorage.setItem(`pending_query_${id}`, config.task);
-
-                // Pass GitHub context to the session
-                if (repo) {
-                  localStorage.setItem(
-                    `github_context_${id}`,
-                    JSON.stringify({ repo, branch }),
-                  );
-                }
-              }}
-            />
-          )}
+          <Workspace
+            key={activeSessionId}
+            sessionId={activeSessionId!}
+            repository={activeSession?.repository || ""}
+            isRightSidebarOpen={isRightSidebarOpen}
+            setIsRightSidebarOpen={setIsRightSidebarOpen}
+          />
         </div>
 
         {/* Status Bar */}

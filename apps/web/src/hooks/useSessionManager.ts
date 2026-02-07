@@ -80,6 +80,10 @@ export function useSessionManager() {
     if (activeSessionId === id) setActiveSessionId(null);
   }, [activeSessionId]);
 
+  const updateSession = useCallback((id: string, updates: Partial<AgentSession>) => {
+    setSessions(prev => prev.map(s => s.id === id ? { ...s, ...updates } : s));
+  }, []);
+
   const clearAllSessions = useCallback(() => {
     setSessions([]);
     setActiveSessionId(null);
@@ -88,5 +92,5 @@ export function useSessionManager() {
     localStorage.removeItem('shadowbox_active_id');
   }, []);
 
-  return { sessions, activeSessionId, setActiveSessionId, createSession, removeSession, clearAllSessions };
+  return { sessions, activeSessionId, setActiveSessionId, createSession, removeSession, updateSession, clearAllSessions };
 }
