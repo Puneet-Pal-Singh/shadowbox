@@ -15,8 +15,9 @@ export default {
     if (url.pathname.includes("/api/git/status")) {
       try {
         return await GitController.getStatus(request, env);
-      } catch (e: any) {
-        return new Response(JSON.stringify({ error: e.message }), {
+      } catch (e: unknown) {
+        const message = e instanceof Error ? e.message : "Unknown error";
+        return new Response(JSON.stringify({ error: message }), {
           status: 500,
           headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
         });
@@ -26,8 +27,9 @@ export default {
     if (url.pathname.includes("/api/git/diff")) {
       try {
         return await GitController.getDiff(request, env);
-      } catch (e: any) {
-        return new Response(JSON.stringify({ error: e.message }), {
+      } catch (e: unknown) {
+        const message = e instanceof Error ? e.message : "Unknown error";
+        return new Response(JSON.stringify({ error: message }), {
           status: 500,
           headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
         });
@@ -37,8 +39,9 @@ export default {
     if (url.pathname.includes("/api/git/stage") && request.method === "POST") {
       try {
         return await GitController.stageFiles(request, env);
-      } catch (e: any) {
-        return new Response(JSON.stringify({ error: e.message }), {
+      } catch (e: unknown) {
+        const message = e instanceof Error ? e.message : "Unknown error";
+        return new Response(JSON.stringify({ error: message }), {
           status: 500,
           headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
         });
@@ -48,8 +51,9 @@ export default {
     if (url.pathname.includes("/api/git/unstage") && request.method === "POST") {
       try {
         return await GitController.stageFiles(request, env);
-      } catch (e: any) {
-        return new Response(JSON.stringify({ error: e.message }), {
+      } catch (e: unknown) {
+        const message = e instanceof Error ? e.message : "Unknown error";
+        return new Response(JSON.stringify({ error: message }), {
           status: 500,
           headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
         });
@@ -59,8 +63,9 @@ export default {
     if (url.pathname.includes("/api/git/commit") && request.method === "POST") {
       try {
         return await GitController.commit(request, env);
-      } catch (e: any) {
-        return new Response(JSON.stringify({ error: e.message }), {
+      } catch (e: unknown) {
+        const message = e instanceof Error ? e.message : "Unknown error";
+        return new Response(JSON.stringify({ error: message }), {
           status: 500,
           headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
         });
@@ -71,8 +76,9 @@ export default {
     if (url.pathname.includes("/chat")) {
       try {
         return await ChatController.handle(request, env);
-      } catch (e: any) {
-        return new Response(JSON.stringify({ error: e.message }), {
+      } catch (e: unknown) {
+        const message = e instanceof Error ? e.message : "Unknown error";
+        return new Response(JSON.stringify({ error: message }), {
           status: 500,
           headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
         });

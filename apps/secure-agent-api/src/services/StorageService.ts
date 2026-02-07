@@ -6,6 +6,16 @@ export interface R2Ref {
   key: string;
 }
 
+interface CoreToolCallPart {
+  type: 'tool-call';
+  toolName: string;
+  args: {
+    path: string;
+    content: string | R2Ref;
+    [key: string]: unknown;
+  };
+}
+
 export class StorageService {
   constructor(private artifacts: R2Bucket) {}
 
@@ -16,8 +26,9 @@ export class StorageService {
     const newMessage = { ...message };
 
     // 1. Check for OpenAI-style assistant tool calls
-    if (message.role === 'assistant' && message.tool_calls) {
-      for (const call of message.tool_calls) {
+    if (message.role === 'assistant' && (message as any).tool_calls) {
+      const toolCalls = (message as any).tool_calls;
+      for (const call of toolCalls) {
         if (call.function?.name === 'create_code_artifact') {
           try {
             const args = JSON.parse(call.function.arguments);
@@ -40,10 +51,12 @@ export class StorageService {
 
     // 2. Check for Vercel AI SDK CoreMessage style assistant tool calls
     if (message.role === 'assistant' && Array.isArray(message.content)) {
-      for (const part of (message.content as any[])) {
-        if (part.type === 'tool-call' && part.toolName === 'create_code_artifact') {
+      const content = message.content as unknown[];
+      for (const part of content) {
+        const toolPart = part as CoreToolCallPart;
+        if (toolPart.type === 'tool-call' && toolPart.toolName === 'create_code_artifact') {
           try {
-            const args = part.args;
+            const args = toolPart.args;
             if (args.content && typeof args.content === 'string' && args.content.length > 1000) {
               const filename = args.path.split('/').pop() || 'file';
               const key = `artifacts/${sessionId}/${agentId}/${Date.now()}-${filename}`;
@@ -61,7 +74,7 @@ export class StorageService {
     }
 
     // 3. Check for large tool results (e.g. read_file output)
-    if (message.role === 'tool' && typeof (message as any).content === 'string' && (message as any).content.length > 5000) {
+    if (message.role === 'tool' && typeof message.content === 'string' && message.content.length > 5000) {
         // We could also move large read outputs to R2
     }
 
