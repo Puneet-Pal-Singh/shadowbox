@@ -19,6 +19,7 @@ interface AgentSidebarProps {
   onCreate: () => void;
   onRemove: (id: string) => void;
   onClose?: () => void;
+  width?: number;
 }
 
 export function AgentSidebar({
@@ -28,12 +29,16 @@ export function AgentSidebar({
   onCreate,
   onRemove,
   onClose,
+  width = 220,
 }: AgentSidebarProps) {
   // Group sessions by repository
   const repos = Array.from(new Set(sessions.map((s) => s.repository)));
 
   return (
-    <aside className="w-[220px] border-r border-[#1a1a1a] flex flex-col bg-[#0c0c0e] overflow-hidden">
+    <aside 
+      className="border-r border-[#1a1a1a] flex flex-col bg-[#0c0c0e] overflow-hidden"
+      style={{ width }}
+    >
       {/* Sidebar Header - App Icon and Close Button */}
       <div className="flex items-center justify-between p-2 shrink-0">
         {/* App Icon - Left */}
