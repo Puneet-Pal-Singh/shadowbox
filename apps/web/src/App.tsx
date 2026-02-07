@@ -164,7 +164,7 @@ function AppContent() {
 
   /**
    * Handle repository selection from RepoPicker
-   * Creates a session immediately for the selected repository
+   * Sets the context but doesn't create a session yet
    */
   const handleRepoSelect = (
     selectedRepo: Repository,
@@ -173,19 +173,8 @@ function AppContent() {
     setContext(selectedRepo, selectedBranch);
     setShowRepoPicker(false);
 
-    // Create a session immediately for this repository
-    const sessionName = `Exploring ${selectedRepo.name}`;
-    const sessionId = createSession(sessionName, selectedRepo.full_name);
-    setActiveSessionId(sessionId);
-
-    // Store GitHub context for the session
-    localStorage.setItem(
-      `github_context_${sessionId}`,
-      JSON.stringify({ repo: selectedRepo, branch: selectedBranch }),
-    );
-
     console.log(
-      `[App] Selected repository: ${selectedRepo.full_name}@${selectedBranch}, created session: ${sessionId}`,
+      `[App] Selected repository: ${selectedRepo.full_name}@${selectedBranch}`,
     );
   };
 
@@ -275,6 +264,7 @@ function AppContent() {
           {/* Main Workspace Layer */}
           <div className="flex-1 flex overflow-hidden">
             <AgentSetup
+              onRepoClick={() => setShowRepoPicker(true)}
               onStart={(config) => {
                 const name =
                   config.task.length > 20
@@ -365,6 +355,7 @@ function AppContent() {
             />
           ) : (
             <AgentSetup
+              onRepoClick={() => setShowRepoPicker(true)}
               onStart={(config) => {
                 const name =
                   config.task.length > 20

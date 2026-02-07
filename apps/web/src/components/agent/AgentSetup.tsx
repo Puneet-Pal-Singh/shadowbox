@@ -17,9 +17,11 @@ import {
   slideUp,
   hoverScaleSmall,
 } from "../../lib/animations";
+import { useGitHub } from "../github/GitHubContextProvider";
 
 interface AgentSetupProps {
   onStart: (config: { repo: string; branch: string; task: string }) => void;
+  onRepoClick?: () => void;
 }
 
 interface SuggestedAction {
@@ -46,7 +48,8 @@ const SUGGESTED_ACTIONS: SuggestedAction[] = [
   },
 ];
 
-export function AgentSetup({ onStart }: AgentSetupProps) {
+export function AgentSetup({ onStart, onRepoClick }: AgentSetupProps) {
+  const { repo, branch } = useGitHub();
   const [task, setTask] = useState("");
   const [isInputFocused, setIsInputFocused] = useState(false);
   const [hoveredCard, setHoveredCard] = useState<number | null>(null);
@@ -67,13 +70,19 @@ export function AgentSetup({ onStart }: AgentSetupProps) {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (task.trim()) {
-      onStart({ repo: "", branch: "main", task });
+      onStart({
+        repo: repo?.full_name || "",
+        branch: branch || "main",
+        task,
+      });
     }
   };
 
   const handleSuggestedAction = (title: string) => {
     setTask(title);
   };
+
+  const repoName = repo?.name || "New Project";
 
   return (
     <motion.div
@@ -130,11 +139,12 @@ export function AgentSetup({ onStart }: AgentSetupProps) {
 
           {/* Project Name with Dropdown */}
           <motion.button
+            onClick={onRepoClick}
             className="flex items-center gap-1.5 mt-0.5 text-2xl font-medium text-zinc-500 hover:text-zinc-400 transition-colors duration-200 group"
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
           >
-            <span>shadowbox</span>
+            <span>{repoName}</span>
             <ChevronDown
               size={18}
               className="text-zinc-600 group-hover:text-zinc-500 transition-colors duration-200"
