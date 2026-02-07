@@ -80,26 +80,29 @@ export function AgentSidebar({
             label: "Filter",
           }}
         >
-          {repos.map((repo) => (
-            <RepositorySection
-              key={repo}
-              repositoryName={repo}
-              tasks={sessions
-                .filter((s) => s.repository === repo)
-                .map((session) => ({
-                  id: session.id,
-                  title: session.name,
-                  status: (session.status || "idle") as
-                    | "running"
-                    | "completed"
-                    | "error"
-                    | "idle",
-                  isActive: session.id === activeSessionId,
-                }))}
-              onSelectTask={onSelect}
-              onRemoveTask={onRemove}
-            />
-          ))}
+          {repos.map((repo) => {
+            const repoName = repo.split("/")[1] || repo;
+            return (
+              <RepositorySection
+                key={repo}
+                repositoryName={repoName}
+                tasks={sessions
+                  .filter((s) => s.repository === repo)
+                  .map((session) => ({
+                    id: session.id,
+                    title: session.name,
+                    status: (session.status || "idle") as
+                      | "running"
+                      | "completed"
+                      | "error"
+                      | "idle",
+                    isActive: session.id === activeSessionId,
+                  }))}
+                onSelectTask={onSelect}
+                onRemoveTask={onRemove}
+              />
+            );
+          })}
           {repos.length === 0 && (
             <p className="px-3 py-2 text-xs text-zinc-600 italic">No tasks</p>
           )}

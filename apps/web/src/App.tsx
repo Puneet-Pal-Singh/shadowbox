@@ -47,9 +47,49 @@ function AppContent() {
     repo,
     branch,
     setContext,
+    clearContext,
     isLoaded: isGitHubContextLoaded,
   } = useGitHub();
   const [showRepoPicker, setShowRepoPicker] = useState(false);
+
+  // Sync GitHub context with active session
+  useEffect(() => {
+    if (!activeSessionId) return;
+
+    // Try to load context specific to this session
+    const storedSessionContext = localStorage.getItem(
+      `github_context_${activeSessionId}`,
+    );
+
+    if (storedSessionContext) {
+      try {
+        const { repo: storedRepo, branch: storedBranch } =
+          JSON.parse(storedSessionContext);
+
+        // Update global context if it differs
+        if (
+          repo?.full_name !== storedRepo.full_name ||
+          branch !== storedBranch
+        ) {
+          console.log(
+            `[App] Switching GitHub context to session ${activeSessionId}: ${storedRepo.full_name}`,
+          );
+          setContext(storedRepo, storedBranch);
+        }
+      } catch (e) {
+        console.error("Failed to parse session GitHub context", e);
+      }
+    } else {
+      // No stored context for this session.
+      // If we have a lingering repo context, clear it to ensure isolation.
+      if (repo) {
+        console.log(
+          `[App] Clearing GitHub context for session ${activeSessionId} (no associated repo)`,
+        );
+        clearContext();
+      }
+    }
+  }, [activeSessionId, repo, branch, setContext, clearContext]);
 
   // Check if user needs to select a repository on load
   useEffect(() => {
@@ -183,6 +223,92 @@ function AppContent() {
     );
   }
 
+  // Show AgentSetup if user has selected a repo but no active session
+  if (repo && !activeSessionId) {
+    return (
+      <div className="h-screen w-screen bg-background text-zinc-400 flex overflow-hidden font-sans">
+        {/* Sidebar - Independent */}
+        {isSidebarOpen && (
+          <div
+            className="relative flex shrink-0"
+            style={{ width: sidebarWidth }}
+          >
+            <AgentSidebar
+              sessions={sessions}
+              activeSessionId={activeSessionId}
+              onSelect={setActiveSessionId}
+              onCreate={handleNewTask}
+              onRemove={removeSession}
+              onClose={handleToggleSidebar}
+              onAddRepository={() => setShowRepoPicker(true)}
+              width={sidebarWidth}
+            />
+            <Resizer
+              side="left"
+              onResize={(delta) =>
+                setSidebarWidth((prev) =>
+                  Math.max(160, Math.min(400, prev + delta)),
+                )
+              }
+            />
+          </div>
+        )}
+
+        {/* Main Content Area with Top NavBar */}
+        <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+          {/* Top Navigation Bar - Only in content area */}
+          <TopNavBar
+            onOpenIde={handleOpenIde}
+            onCommit={handleCommit}
+            onPush={handlePush}
+            onStash={handleStash}
+            isSidebarOpen={isSidebarOpen}
+            onToggleSidebar={handleToggleSidebar}
+            isRightSidebarOpen={isRightSidebarOpen}
+            onToggleRightSidebar={handleToggleRightSidebar}
+            threadTitle={threadTitle}
+            taskTitle={taskTitle}
+            isAuthenticated={isAuthenticated}
+            onConnectGitHub={login}
+          />
+
+          {/* Main Workspace Layer */}
+          <div className="flex-1 flex overflow-hidden">
+            <AgentSetup
+              onStart={(config) => {
+                const name =
+                  config.task.length > 20
+                    ? config.task.substring(0, 20) + "..."
+                    : config.task;
+
+                // Use repository name from GitHub context if available
+                const repoName = repo?.full_name || "New Project";
+                const id = createSession(name, repoName);
+                localStorage.setItem(`pending_query_${id}`, config.task);
+
+                // Pass GitHub context to the session
+                if (repo) {
+                  localStorage.setItem(
+                    `github_context_${id}`,
+                    JSON.stringify({ repo, branch }),
+                  );
+                }
+              }}
+            />
+          </div>
+
+          {/* Status Bar */}
+          <StatusBar
+            activeTab={activeTab}
+            onTabChange={setActiveTab}
+            branchName={branch || "main"}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  // Show main workspace if user has an active session
   return (
     <div className="h-screen w-screen bg-background text-zinc-400 flex overflow-hidden font-sans">
       {/* Sidebar - Independent */}
