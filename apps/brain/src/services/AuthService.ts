@@ -27,7 +27,7 @@ export function extractSessionToken(request: Request): string | null {
   const cookie = request.headers.get("Cookie");
   if (cookie) {
     const match = cookie.match(/shadowbox_session=([^;]+)/);
-    if (match) return match[1];
+    if (match && match[1]) return match[1];
   }
 
   // Check Authorization header
