@@ -41,7 +41,7 @@ export function ChatMessage({ message, onArtifactOpen }: ChatMessageProps) {
       )}
     >
       {/* Message Content */}
-      <div className={cn("max-w-3xl", isUser ? "text-right" : "flex-1")}>
+      <div className={cn("max-w-4xl", isUser ? "text-right" : "flex-1")}>
         {/* User message bubble */}
         {isUser && content && (
           <div className="inline-block bg-[#262626] text-white px-4 py-2.5 rounded-2xl text-sm leading-relaxed">

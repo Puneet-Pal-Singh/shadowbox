@@ -17,11 +17,13 @@ import { DiffViewer } from "../diff/DiffViewer";
 interface WorkspaceProps {
   sessionId: string;
   isRightSidebarOpen?: boolean;
+  setIsRightSidebarOpen?: (open: boolean) => void;
 }
 
 export function Workspace({ 
   sessionId: runId, 
   isRightSidebarOpen = false,
+  setIsRightSidebarOpen,
 }: WorkspaceProps) {
   const explorerRef = useRef<FileExplorerHandle>(null);
   const sandboxId = runId;
@@ -34,7 +36,7 @@ export function Workspace({
   useEffect(() => {
     localStorage.setItem("shadowbox_active_tab", activeTab);
   }, [activeTab]);
-  const [sidebarWidth, setSidebarWidth] = useState(320);
+  const [sidebarWidth, setSidebarWidth] = useState(440);
   const [isResizing, setIsResizing] = useState(false);
   
   // Content view states
@@ -140,6 +142,8 @@ export function Workspace({
               onArtifactOpen={(path, content) => {
                 setSelectedFile({ path, content });
                 setIsViewingContent(true);
+                setIsRightSidebarOpen?.(true);
+                setActiveTab("files");
               }}
             />
           )}
@@ -151,7 +155,7 @@ export function Workspace({
           animate={{
             width: isRightSidebarOpen ? sidebarWidth : 0,
           }}
-          transition={isResizing ? { duration: 0 } : { duration: 0.2, ease: "easeInOut" }}
+          transition={isResizing ? { duration: 0 } : { duration: 0.15, ease: [0.23, 1, 0.32, 1] }}
           className={cn(
             "border-l border-zinc-800 bg-black flex flex-col overflow-hidden shrink-0 relative",
             !isRightSidebarOpen && "border-transparent",

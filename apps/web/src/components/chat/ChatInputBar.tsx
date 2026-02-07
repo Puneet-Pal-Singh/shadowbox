@@ -45,7 +45,7 @@ export function ChatInputBar({
         e.preventDefault();
         onSubmit();
       }}
-      className="w-full max-w-3xl mx-auto px-4 pb-3"
+      className="w-full max-w-4xl mx-auto px-4 pb-3"
     >
       <div
         className={`

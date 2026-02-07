@@ -46,7 +46,7 @@ export function ChatInterface({
     <div className="flex flex-col h-full bg-black">
       {/* Scrollable Messages Container - Centered with max-width */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 py-4">
-        <div className="max-w-3xl mx-auto space-y-6">
+        <div className="max-w-4xl mx-auto space-y-6">
           {messages.length > 0 && (
             <ExploredFilesSummary fileCount={fileReferences.length} />
           )}
@@ -71,7 +71,7 @@ export function ChatInterface({
 
       {/* Input Area - Centered */}
       <div className="px-6 pb-4">
-        <div className="max-w-3xl mx-auto">
+        <div className="max-w-4xl mx-auto">
           <ChatInputBar
             input={input}
             onChange={handleInputChangeWrapper}

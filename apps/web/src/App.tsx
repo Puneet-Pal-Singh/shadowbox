@@ -21,7 +21,7 @@ function App() {
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(() => {
     return localStorage.getItem("shadowbox_right_sidebar_open") === "true";
   });
-  const [sidebarWidth, setSidebarWidth] = useState(220);
+  const [sidebarWidth, setSidebarWidth] = useState(260);
 
   useEffect(() => {
     localStorage.setItem("shadowbox_right_sidebar_open", String(isRightSidebarOpen));
@@ -102,6 +102,7 @@ function App() {
               key={activeSessionId}
               sessionId={activeSessionId}
               isRightSidebarOpen={isRightSidebarOpen}
+              setIsRightSidebarOpen={setIsRightSidebarOpen}
             />
           ) : (
             <AgentSetup
