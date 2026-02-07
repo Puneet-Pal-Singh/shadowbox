@@ -5,13 +5,19 @@ import { agentStore } from '../store/agentStore';
 export interface AgentSession {
   id: string;
   name: string;
+  repository: string;
   status?: 'idle' | 'running' | 'completed' | 'error';
 }
 
 export function useSessionManager() {
   const [sessions, setSessions] = useState<AgentSession[]>(() => {
     const saved = localStorage.getItem('shadowbox_sessions');
-    return saved ? JSON.parse(saved) : [];
+    const parsed = saved ? JSON.parse(saved) : [];
+    // Migration: Add repository if missing
+    return parsed.map((s: any) => ({
+      ...s,
+      repository: s.repository || 'New Project'
+    }));
   });
   
   // NEVER persist activeSessionId across refreshes to ensure we always start at Inbox
@@ -22,11 +28,11 @@ export function useSessionManager() {
   }, [sessions]);
 
   // FIX: Make 'name' optional so it doesn't conflict with React Event objects
-  const createSession = useCallback((name?: string) => {
+  const createSession = useCallback((name?: string, repository: string = 'New Project') => {
     const id = `agent-${Math.random().toString(36).substring(7)}`;
-    const sessionName = typeof name === 'string' ? name : `Agent ${sessions.length + 1}`;
+    const sessionName = typeof name === 'string' ? name : `Task ${sessions.length + 1}`;
     
-    const newSession = { id, name: sessionName };
+    const newSession: AgentSession = { id, name: sessionName, repository, status: 'idle' };
     setSessions(prev => [...prev, newSession]);
     setActiveSessionId(id);
     return id;

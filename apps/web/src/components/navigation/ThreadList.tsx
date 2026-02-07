@@ -3,37 +3,38 @@ import { motion } from "framer-motion";
 import { useState } from "react";
 import { cn } from "../../lib/utils";
 
-interface ThreadItem {
+interface TaskItem {
   id: string;
   title: string;
-  status: "running" | "completed" | "error";
+  status: "running" | "completed" | "error" | "idle";
   isActive?: boolean;
 }
 
-interface ThreadListProps {
-  projectName: string;
-  threads: ThreadItem[];
-  onSelectThread: (id: string) => void;
-  onRemoveThread?: (id: string) => void;
+interface RepositorySectionProps {
+  repositoryName: string;
+  tasks: TaskItem[];
+  onSelectTask: (id: string) => void;
+  onRemoveTask?: (id: string) => void;
 }
 
-export function ThreadList({
-  projectName,
-  threads,
-  onSelectThread,
-  onRemoveThread,
-}: ThreadListProps) {
+export function RepositorySection({
+  repositoryName,
+  tasks,
+  onSelectTask,
+  onRemoveTask,
+}: RepositorySectionProps) {
   const [isExpanded, setIsExpanded] = useState(true);
 
-  const runningThreads = threads.filter((t) => t.status === "running");
-  const completedThreads = threads.filter(
+  const runningTasks = tasks.filter((t) => t.status === "running");
+  const idleTasks = tasks.filter((t) => t.status === "idle");
+  const completedTasks = tasks.filter(
     (t) => t.status === "completed" || t.status === "error",
   );
-  const sortedThreads = [...runningThreads, ...completedThreads];
+  const sortedTasks = [...runningTasks, ...idleTasks, ...completedTasks];
 
   return (
     <div className="mt-2">
-      {/* Project Header */}
+      {/* Repository Header */}
       <motion.button
         onClick={() => setIsExpanded(!isExpanded)}
         whileHover={{ scale: 1.01 }}
@@ -47,23 +48,23 @@ export function ThreadList({
           )}
         />
         <Folder size={16} className="text-zinc-500" />
-        <span className="truncate">{projectName}</span>
+        <span className="truncate font-medium">{repositoryName}</span>
       </motion.button>
 
-      {/* Thread Items */}
+      {/* Task Items directly under repo */}
       {isExpanded && (
-        <div className="ml-4 mt-1 space-y-0.5">
-          {sortedThreads.map((thread, idx) => (
-            <ThreadItemComponent
-              key={thread.id}
-              thread={thread}
-              onSelect={() => onSelectThread(thread.id)}
-              onRemove={() => onRemoveThread?.(thread.id)}
+        <div className="ml-4 mt-1 space-y-0.5 border-l border-zinc-800/50 pl-2">
+          {sortedTasks.map((task, idx) => (
+            <TaskItemComponent
+              key={task.id}
+              task={task}
+              onSelect={() => onSelectTask(task.id)}
+              onRemove={() => onRemoveTask?.(task.id)}
               delay={idx * 0.03}
             />
           ))}
-          {threads.length === 0 && (
-            <p className="px-3 py-2 text-xs text-zinc-600 italic">No threads</p>
+          {tasks.length === 0 && (
+            <p className="px-3 py-1 text-[10px] text-zinc-600 italic">No tasks</p>
           )}
         </div>
       )}
@@ -71,21 +72,21 @@ export function ThreadList({
   );
 }
 
-interface ThreadItemComponentProps {
-  thread: ThreadItem;
+interface TaskItemComponentProps {
+  task: TaskItem;
   onSelect: () => void;
   onRemove?: () => void;
   delay?: number;
 }
 
-function ThreadItemComponent({
-  thread,
+function TaskItemComponent({
+  task,
   onSelect,
   onRemove,
   delay = 0,
-}: ThreadItemComponentProps) {
+}: TaskItemComponentProps) {
   const getStatusDot = () => {
-    switch (thread.status) {
+    switch (task.status) {
       case "running":
         return (
           <motion.div
@@ -94,6 +95,8 @@ function ThreadItemComponent({
             transition={{ duration: 1.5, repeat: Infinity }}
           />
         );
+      case "idle":
+        return <div className="w-1.5 h-1.5 rounded-full bg-amber-500/50" />;
       case "completed":
         return <div className="w-1.5 h-1.5 rounded-full bg-zinc-500" />;
       case "error":
@@ -110,14 +113,14 @@ function ThreadItemComponent({
       transition={{ delay, duration: 0.2 }}
       onClick={onSelect}
       className={cn(
-        "group flex items-center gap-2 px-3 py-1.5 text-sm rounded-md transition-all w-full text-left",
-        thread.isActive
+        "group flex items-center gap-2 px-2 py-1.5 text-sm rounded-md transition-all w-full text-left",
+        task.isActive
           ? "text-white bg-zinc-800/60"
           : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/40",
       )}
     >
       {getStatusDot()}
-      <span className="truncate flex-1">{thread.title}</span>
+      <span className="truncate flex-1">{task.title}</span>
       {onRemove && (
         <motion.button
           whileHover={{ scale: 1.1 }}

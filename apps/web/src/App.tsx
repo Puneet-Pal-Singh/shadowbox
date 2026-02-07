@@ -21,9 +21,9 @@ function App() {
 
   // Get active session name for the header
   const activeSession = sessions.find((s) => s.id === activeSessionId);
-  const threadTitle = activeSession?.name;
+  const taskTitle = activeSession?.name;
 
-  const handleNewThread = () => {
+  const handleNewTask = () => {
     setActiveSessionId(null);
   };
 
@@ -59,7 +59,7 @@ function App() {
           sessions={sessions}
           activeSessionId={activeSessionId}
           onSelect={setActiveSessionId}
-          onCreate={handleNewThread}
+          onCreate={handleNewTask}
           onRemove={removeSession}
           onClose={handleToggleSidebar}
         />
@@ -77,7 +77,7 @@ function App() {
           onToggleSidebar={handleToggleSidebar}
           isRightSidebarOpen={isRightSidebarOpen}
           onToggleRightSidebar={handleToggleRightSidebar}
-          threadTitle={threadTitle}
+          taskTitle={taskTitle}
         />
 
         {/* Main Workspace Layer */}
