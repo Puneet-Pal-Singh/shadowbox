@@ -48,12 +48,12 @@ export function DiffViewer({ diff, className = "" }: DiffViewerProps) {
   }
 
   return (
-    <div className={`bg-black rounded-lg overflow-hidden ${className}`}>
-      <div className="border-b border-zinc-800 px-4 py-3 bg-zinc-900">
+    <div className={`bg-black rounded-lg overflow-y-auto scrollbar-hide ${className}`}>
+      <div className="border-b border-zinc-800 px-4 py-3 bg-zinc-900 sticky top-0 z-10">
         <p className="text-sm font-mono text-zinc-300">{diff.newPath}</p>
       </div>
 
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto overflow-y-visible">
         {diff.hunks.length === 0 ? (
           <div className="p-4 text-zinc-500 text-sm">No changes</div>
         ) : (
