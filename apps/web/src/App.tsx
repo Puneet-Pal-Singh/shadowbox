@@ -212,7 +212,10 @@ function AppContent() {
                   config.task.length > 20
                     ? config.task.substring(0, 20) + "..."
                     : config.task;
-                const id = createSession(name);
+
+                // Use repository name from GitHub context if available
+                const repoName = githubContext.repo?.full_name || "New Project";
+                const id = createSession(name, repoName);
                 localStorage.setItem(`pending_query_${id}`, config.task);
 
                 // Pass GitHub context to the session
