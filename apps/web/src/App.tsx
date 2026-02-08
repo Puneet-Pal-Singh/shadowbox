@@ -289,6 +289,10 @@ function AppContent() {
     (activeSession.status && activeSession.status !== "idle")
   );
 
+  // Robust visibility flags
+  const showSetup = !!activeSessionId && !isSessionStarted;
+  const showWorkspace = !!activeSessionId && !!isSessionStarted;
+
   return (
     <div className="h-screen w-screen bg-background text-zinc-400 flex overflow-hidden font-sans">
       {/* Sidebar - Independent */}
@@ -336,51 +340,58 @@ function AppContent() {
         />
 
         {/* Main Workspace Layer */}
-        <div className="flex-1 flex overflow-hidden relative">
+        <div className="flex-1 flex overflow-hidden relative bg-black">
           <AnimatePresence mode="wait">
-            {activeSessionId ? (
-              !isSessionStarted ? (
-                <motion.div
-                  key={`setup-${activeSessionId}`}
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  transition={{ duration: 0.3 }}
-                  className="absolute inset-0 flex"
-                >
-                  <AgentSetup
-                    onRepoClick={() => setShowRepoPicker(true)}
-                    onStart={(config) => {
-                      const name =
-                        config.task.length > 20
-                          ? config.task.substring(0, 20) + "..."
-                          : config.task;
+            {showSetup ? (
+              <motion.div
+                key={`setup-${activeSessionId}`}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                className="absolute inset-0 flex"
+              >
+                <AgentSetup
+                  onRepoClick={() => setShowRepoPicker(true)}
+                  onStart={(config) => {
+                    const name =
+                      config.task.length > 20
+                        ? config.task.substring(0, 20) + "..."
+                        : config.task;
 
-                      updateSession(activeSessionId, { name, status: 'running' });
-                      localStorage.setItem(`pending_query_${activeSessionId}`, config.task);
-                      // Force a re-render to trigger isSessionStarted update
-                      setActiveSessionId(activeSessionId); 
-                    }}
-                  />
-                </motion.div>
-              ) : (
-                <motion.div
-                  key={`workspace-${activeSessionId}`}
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  transition={{ duration: 0.3 }}
-                  className="absolute inset-0 flex"
-                >
-                  <Workspace
-                    sessionId={activeSessionId}
-                    repository={activeSession?.repository || ""}
-                    isRightSidebarOpen={isRightSidebarOpen}
-                    setIsRightSidebarOpen={setIsRightSidebarOpen}
-                  />
-                </motion.div>
-              )
-            ) : null}
+                    updateSession(activeSessionId, { name, status: 'running' });
+                    localStorage.setItem(`pending_query_${activeSessionId}`, config.task);
+                    // Force a re-render to trigger state sync
+                    setActiveSessionId(activeSessionId); 
+                  }}
+                />
+              </motion.div>
+            ) : showWorkspace ? (
+              <motion.div
+                key={`workspace-${activeSessionId}`}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                className="absolute inset-0 flex"
+              >
+                <Workspace
+                  sessionId={activeSessionId}
+                  repository={activeSession?.repository || ""}
+                  isRightSidebarOpen={isRightSidebarOpen}
+                  setIsRightSidebarOpen={setIsRightSidebarOpen}
+                />
+              </motion.div>
+            ) : (
+              <motion.div 
+                key="empty"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="flex-1 flex items-center justify-center text-zinc-600 italic text-sm"
+              >
+                Select or create a task to get started
+              </motion.div>
+            )}
           </AnimatePresence>
         </div>
       </div>
