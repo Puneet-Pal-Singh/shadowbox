@@ -53,7 +53,7 @@ function createRouter(): Router {
   const router = new Router();
 
   // Chat routes
-  router.add(/\/chat/, ChatController.handle);
+  router.add(/\/chat/, ChatController.handle, "POST");
 
   // Auth routes - OAuth flow
   router.add(/\/auth\/github\/login/, AuthController.handleLogin);
