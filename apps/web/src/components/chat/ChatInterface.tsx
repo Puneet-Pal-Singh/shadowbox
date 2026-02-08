@@ -3,7 +3,7 @@ import { ChatMessage } from "./ChatMessage";
 import { ChatInputBar } from "./ChatInputBar";
 import { ExploredFilesSummary } from "./ExploredFilesSummary";
 import { ChatBranchSelector } from "./ChatBranchSelector";
-import { Message } from "ai";
+import type { Message } from "@ai-sdk/react";
 
 interface ChatInterfaceProps {
   chatProps: {

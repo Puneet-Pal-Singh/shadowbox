@@ -1,4 +1,4 @@
-import { type Message } from "ai";
+import type { Message } from "@ai-sdk/react";
 import { ArtifactPreview } from "./ArtifactPreview";
 import { cn } from "../../lib/utils";
 import { FilePill } from "./FilePill";

@@ -1,5 +1,6 @@
 import type { Message } from "@ai-sdk/react";
-import type { ToolInvocation } from "ai";
+
+type ToolInvocation = NonNullable<Message['toolInvocations']>[number];
 
 interface ServerToolCall {
   id?: string;
