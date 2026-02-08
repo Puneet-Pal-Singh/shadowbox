@@ -62,7 +62,6 @@ export function ChatBranchSelector() {
       branches={branches}
       isLoading={isLoading}
       onBranchSelect={switchBranch}
-      className="mt-2"
     />
   );
 }

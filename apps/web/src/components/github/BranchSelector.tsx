@@ -10,7 +10,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { GitBranch, ChevronDown, Search, Check } from "lucide-react";
+import { GitBranch, ChevronDown, Search, Check, Loader2 } from "lucide-react";
 import { cn } from "../../lib/utils";
 
 interface Branch {
@@ -94,54 +94,59 @@ export function BranchSelector({
     setSearchQuery("");
   };
 
-  if (isLoading) {
-    return (
-      <div
-        className={cn(
-          "flex items-center gap-2 px-3 py-1.5 rounded-lg bg-zinc-900/50 text-zinc-500 text-sm",
-          className,
-        )}
-      >
-        <GitBranch size={14} />
-        <span>Loading branches...</span>
-      </div>
-    );
-  }
-
   return (
-    <div ref={containerRef} className={cn("relative", className)}>
-      {/* Main Button */}
-      <motion.button
-        onClick={() => setIsOpen(!isOpen)}
-        whileHover={{ scale: 1.02 }}
-        whileTap={{ scale: 0.98 }}
-        className={cn(
-          "flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-200",
-          "bg-zinc-900/50 hover:bg-zinc-800/70 text-zinc-300 hover:text-white",
-          "border border-zinc-800 hover:border-zinc-700",
-          isOpen && "bg-zinc-800/70 border-zinc-700",
+    <div ref={containerRef} className={cn("relative flex items-center", className)}>
+      <AnimatePresence mode="wait">
+        {isLoading ? (
+          <motion.div
+            key="loading"
+            initial={{ opacity: 0, x: -4 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 4 }}
+            transition={{ duration: 0.2 }}
+            className="flex items-center gap-2 px-2 py-1 text-xs text-zinc-500 font-medium"
+          >
+            <Loader2 size={12} className="animate-spin text-zinc-600" />
+            <span>Loading...</span>
+          </motion.div>
+        ) : (
+          <motion.button
+            key="button"
+            initial={{ opacity: 0, x: -4 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 4 }}
+            transition={{ duration: 0.2 }}
+            onClick={() => setIsOpen(!isOpen)}
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            className={cn(
+              "flex items-center gap-2 px-2 py-1 rounded-md text-xs font-medium transition-all duration-200",
+              "text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800/50",
+              isOpen && "text-zinc-200 bg-zinc-800/50",
+            )}
+          >
+            <GitBranch size={12} className="text-zinc-600" />
+            <span className="max-w-[150px] truncate">{currentBranch}</span>
+            <motion.div
+              animate={{ rotate: isOpen ? 180 : 0 }}
+              transition={{ duration: 0.2 }}
+            >
+              <ChevronDown size={12} className="text-zinc-600" />
+            </motion.div>
+          </motion.button>
         )}
-      >
-        <GitBranch size={14} className="text-zinc-500" />
-        <span className="max-w-[150px] truncate">{currentBranch}</span>
-        <motion.div
-          animate={{ rotate: isOpen ? 180 : 0 }}
-          transition={{ duration: 0.2 }}
-        >
-          <ChevronDown size={14} className="text-zinc-500" />
-        </motion.div>
-      </motion.button>
+      </AnimatePresence>
 
       {/* Dropdown */}
       <AnimatePresence>
         {isOpen && (
           <motion.div
-            initial={{ opacity: 0, y: -10, scale: 0.95 }}
+            initial={{ opacity: 0, y: 10, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -10, scale: 0.95 }}
+            exit={{ opacity: 0, y: 10, scale: 0.95 }}
             transition={{ duration: 0.15, ease: [0.23, 1, 0.32, 1] }}
             className={cn(
-              "absolute left-0 top-full mt-2 z-50",
+              "absolute left-0 bottom-full mb-2 z-50",
               "w-72 rounded-xl overflow-hidden",
               "bg-[#1a1a1a] border border-zinc-800",
               "shadow-2xl shadow-black/50",

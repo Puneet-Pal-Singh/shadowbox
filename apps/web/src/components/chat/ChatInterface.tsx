@@ -79,8 +79,9 @@ export function ChatInterface({
             onSubmit={handleSubmit}
             isLoading={isLoading}
           />
-          {/* Branch Selector - Shows when GitHub repo is selected */}
-          <ChatBranchSelector />
+          <div className="pl-6 mt-1">
+            <ChatBranchSelector />
+          </div>
         </div>
       </div>
     </div>

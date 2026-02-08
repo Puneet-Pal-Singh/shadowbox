@@ -18,6 +18,7 @@ import {
   hoverScaleSmall,
 } from "../../lib/animations";
 import { useGitHub } from "../github/GitHubContextProvider";
+import { ChatBranchSelector } from "../chat/ChatBranchSelector";
 
 interface AgentSetupProps {
   onStart: (config: { repo: string; branch: string; task: string }) => void;
@@ -209,110 +210,115 @@ export function AgentSetup({ onStart, onRepoClick }: AgentSetupProps) {
       </div>
 
       {/* Input Area - Bottom */}
-      <motion.div
-        className="w-full max-w-3xl mx-auto px-6 pb-6"
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.4, duration: 0.4 }}
-      >
-        <form onSubmit={handleSubmit}>
-          <motion.div
-            className={`
-              bg-[#171717] rounded-xl p-3
-              transition-all duration-200
-              ${isInputFocused ? "shadow-lg shadow-black/20" : ""}
-            `}
-            animate={{
-              boxShadow: isInputFocused
-                ? "0 4px 20px rgba(0, 0, 0, 0.3)"
-                : "0 0 0 0px rgba(0, 0, 0, 0)",
-            }}
-          >
-            <textarea
-              ref={textareaRef}
-              value={task}
-              onChange={(e) => setTask(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  handleSubmit(e as unknown as React.FormEvent);
-                }
+      <div className="w-full px-6 pb-4">
+        <motion.div
+          className="max-w-4xl mx-auto"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.4, duration: 0.4 }}
+        >
+          <form onSubmit={handleSubmit} className="px-4 pb-3">
+            <motion.div
+              className={`
+                bg-[#171717] rounded-xl p-3
+                transition-all duration-200
+                ${isInputFocused ? "shadow-lg shadow-black/20" : ""}
+              `}
+              animate={{
+                boxShadow: isInputFocused
+                  ? "0 4px 20px rgba(0, 0, 0, 0.3)"
+                  : "0 0 0 0px rgba(0, 0, 0, 0)",
               }}
-              onFocus={() => setIsInputFocused(true)}
-              onBlur={() => setIsInputFocused(false)}
-              placeholder="Ask Shadowbox anything, @ to add files, / for commands"
-              rows={1}
-              className={`w-full bg-transparent text-sm text-white placeholder-zinc-500 focus:outline-none resize-none overflow-hidden min-h-[20px] ${hasTask ? "max-h-[200px]" : "max-h-[400px]"}`}
-              style={{ lineHeight: "1.5" }}
-            />
+            >
+              <textarea
+                ref={textareaRef}
+                value={task}
+                onChange={(e) => setTask(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSubmit(e as unknown as React.FormEvent);
+                  }
+                }}
+                onFocus={() => setIsInputFocused(true)}
+                onBlur={() => setIsInputFocused(false)}
+                placeholder="Ask Shadowbox anything, @ to add files, / for commands"
+                rows={1}
+                className={`w-full bg-transparent text-sm text-white placeholder-zinc-500 focus:outline-none resize-none overflow-hidden min-h-[20px] ${hasTask ? "max-h-[200px]" : "max-h-[400px]"}`}
+                style={{ lineHeight: "1.5" }}
+              />
 
-            {/* Toolbar */}
-            <div className="flex items-center justify-between mt-2 pt-2">
-              {/* Left: Add button + Model selector */}
-              <div className="flex items-center gap-1.5">
-                <motion.button
-                  type="button"
-                  {...hoverScaleSmall}
-                  className="p-1 text-zinc-500 hover:text-zinc-300 transition-colors duration-150"
-                  title="Add files"
-                >
-                  <Plus size={16} />
-                </motion.button>
+              {/* Toolbar */}
+              <div className="flex items-center justify-between mt-2 pt-2">
+                {/* Left: Add button + Model selector */}
+                <div className="flex items-center gap-1.5">
+                  <motion.button
+                    type="button"
+                    {...hoverScaleSmall}
+                    className="p-1 text-zinc-500 hover:text-zinc-300 transition-colors duration-150"
+                    title="Add files"
+                  >
+                    <Plus size={16} />
+                  </motion.button>
 
-                <div className="h-3.5 w-px bg-zinc-800" />
+                  <div className="h-3.5 w-px bg-zinc-800" />
 
-                <motion.button
-                  type="button"
-                  whileHover={{ scale: 1.02 }}
-                  className="flex items-center gap-1 px-1.5 py-0.5 text-xs text-zinc-500 hover:text-zinc-300 transition-colors duration-150"
-                >
-                  <span className="font-medium">GPT-5.2-Codex</span>
-                  <span className="text-zinc-600">Medium</span>
-                  <ChevronDown size={12} />
-                </motion.button>
+                  <motion.button
+                    type="button"
+                    whileHover={{ scale: 1.02 }}
+                    className="flex items-center gap-1 px-1.5 py-0.5 text-xs text-zinc-500 hover:text-zinc-300 transition-colors duration-150"
+                  >
+                    <span className="font-medium">GPT-5.2-Codex</span>
+                    <span className="text-zinc-600">Medium</span>
+                    <ChevronDown size={12} />
+                  </motion.button>
+                </div>
+
+                {/* Right: Attachment, Mic, Send */}
+                <div className="flex items-center gap-1.5">
+                  <motion.button
+                    type="button"
+                    {...hoverScaleSmall}
+                    className="p-1 text-zinc-500 hover:text-zinc-300 transition-colors duration-150"
+                    title="Attach file"
+                  >
+                    <Paperclip size={16} />
+                  </motion.button>
+
+                  <motion.button
+                    type="button"
+                    {...hoverScaleSmall}
+                    className="p-1 text-zinc-500 hover:text-zinc-300 transition-colors duration-150"
+                    title="Voice input"
+                  >
+                    <Mic size={16} />
+                  </motion.button>
+
+                  <motion.button
+                    type="submit"
+                    disabled={!task.trim()}
+                    whileHover={{ scale: task.trim() ? 1.05 : 1 }}
+                    whileTap={{ scale: task.trim() ? 0.95 : 1 }}
+                    className={`
+                      p-1.5 rounded-full transition-all duration-200
+                      ${
+                        task.trim()
+                          ? "bg-white text-black hover:bg-zinc-100 shadow-lg shadow-white/10"
+                          : "bg-zinc-800 text-zinc-600 cursor-not-allowed"
+                      }
+                    `}
+                  >
+                    <ArrowUp size={16} />
+                  </motion.button>
+                </div>
               </div>
-
-              {/* Right: Attachment, Mic, Send */}
-              <div className="flex items-center gap-1.5">
-                <motion.button
-                  type="button"
-                  {...hoverScaleSmall}
-                  className="p-1 text-zinc-500 hover:text-zinc-300 transition-colors duration-150"
-                  title="Attach file"
-                >
-                  <Paperclip size={16} />
-                </motion.button>
-
-                <motion.button
-                  type="button"
-                  {...hoverScaleSmall}
-                  className="p-1 text-zinc-500 hover:text-zinc-300 transition-colors duration-150"
-                  title="Voice input"
-                >
-                  <Mic size={16} />
-                </motion.button>
-
-                <motion.button
-                  type="submit"
-                  disabled={!task.trim()}
-                  whileHover={{ scale: task.trim() ? 1.05 : 1 }}
-                  whileTap={{ scale: task.trim() ? 0.95 : 1 }}
-                  className={`
-                    p-1.5 rounded-full transition-all duration-200
-                    ${
-                      task.trim()
-                        ? "bg-white text-black hover:bg-zinc-100 shadow-lg shadow-white/10"
-                        : "bg-zinc-800 text-zinc-600 cursor-not-allowed"
-                    }
-                  `}
-                >
-                  <ArrowUp size={16} />
-                </motion.button>
-              </div>
-            </div>
-          </motion.div>
-        </form>
-      </motion.div>
+            </motion.div>
+          </form>
+          <div className="pl-6 mt-1">
+            <ChatBranchSelector />
+          </div>
+        </motion.div>
+      </div>
     </motion.div>
   );
 }
