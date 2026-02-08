@@ -119,6 +119,7 @@ export function useGitHubContext(): UseGitHubContextReturn {
   useEffect(() => {
     const stored = loadStoredContext();
     if (stored) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setRepo(storedToRepository(stored));
       setBranch(stored.branch);
     }

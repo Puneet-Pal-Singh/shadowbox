@@ -5,7 +5,6 @@ import { AgentSidebar } from "./components/layout/AgentSidebar";
 import { Workspace } from "./components/layout/Workspace";
 import { AgentSetup } from "./components/agent/AgentSetup";
 import { TopNavBar } from "./components/layout/TopNavBar";
-import { StatusBar } from "./components/layout/StatusBar";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import {
   GitHubContextProvider,
@@ -113,6 +112,7 @@ function AppContent() {
     if (isGitHubContextLoaded && !repo && isAuthenticated && sessions.length === 0) {
       // No repo selected and no sessions, show picker
       console.log("[App] Showing repo picker - fresh start, no repo or sessions");
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setShowRepoPicker(true);
     } else if (isGitHubContextLoaded && repo) {
       console.log("[App] Repo already selected:", repo.full_name);
@@ -151,7 +151,10 @@ function AppContent() {
     // If no repo name provided, try to use the currently active repo
     const targetRepo = repositoryName || repo?.full_name;
 
-    if (targetRepo) {
+    // Verify the repo actually exists in our folders list
+    const repoExists = targetRepo && repositories.includes(targetRepo);
+
+    if (targetRepo && repoExists) {
       console.log("[App] Creating new task for repo:", targetRepo);
       // Create a session for this specific repository
       const sessionName = `New Task`;
@@ -181,7 +184,9 @@ function AppContent() {
         );
       }
     } else {
-      console.log("[App] No target repo found for new task, showing picker");
+      // If absolutely no repo is selected, targetRepo is missing, 
+      // or the user has deleted the repo folder
+      console.log("[App] No valid target repo found for new task, showing picker");
       setShowRepoPicker(true);
     }
   };

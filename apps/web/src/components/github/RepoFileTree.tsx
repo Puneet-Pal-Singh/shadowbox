@@ -236,6 +236,7 @@ export function RepoFileTree({
 
   // Reset expanded folders when tree changes
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setExpandedFolders(new Set([""]));
   }, [tree]);
 
@@ -287,7 +288,7 @@ export function RepoFileTree({
                 style={{ paddingLeft: `${(i % 3) * 12}px` }}
               >
                 <div className="w-3.5 h-3.5 bg-zinc-800 rounded animate-pulse shrink-0" />
-                <div className="h-3 bg-zinc-800 rounded animate-pulse" style={{ width: `${40 + Math.random() * 40}%` }} />
+                <div className="h-3 bg-zinc-800 rounded animate-pulse" style={{ width: `${40 + (i * 10) % 40}%` }} />
               </div>
             ))}
           </motion.div>

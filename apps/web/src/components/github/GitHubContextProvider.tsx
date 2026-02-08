@@ -80,6 +80,7 @@ export function GitHubContextProvider({
  * ```
  * @throws Error if used outside of GitHubContextProvider
  */
+// eslint-disable-next-line react-refresh/only-export-components
 export function useGitHub(): GitHubContextValue {
   const context = useContext(GitHubContext);
 

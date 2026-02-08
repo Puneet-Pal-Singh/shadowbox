@@ -96,7 +96,7 @@ export function useSessionManager() {
     setSessions(prev => [...prev, newSession]);
     setActiveSessionId(id);
     return id;
-  }, [sessions.length]);
+  }, []);
 
   const addRepository = useCallback((repository: string) => {
     setRepositories(prev => {

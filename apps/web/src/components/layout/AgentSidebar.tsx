@@ -1,6 +1,5 @@
 import {
   Pencil,
-  Plus,
   ListFilter,
   FolderPlus,
   Settings,
