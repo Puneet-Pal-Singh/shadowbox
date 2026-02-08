@@ -73,9 +73,9 @@ export function AgentSidebar({
         <SidebarSection
           title="TASKS"
           action={{
-            icon: Plus,
-            onClick: () => onCreate(),
-            label: "New task",
+            icon: FolderPlus,
+            onClick: onAddRepository || (() => {}),
+            label: "New repo",
           }}
           secondaryAction={{
             icon: ListFilter,
