@@ -102,17 +102,23 @@ function AppContent() {
       isGitHubContextLoaded,
       hasRepo: !!repo,
       isAuthenticated,
+      hasSessions: sessions.length > 0
     });
-    if (isGitHubContextLoaded && !repo && isAuthenticated) {
-      // No repo selected, show picker
-      console.log("[App] Showing repo picker - no repo selected");
+    
+    // ONLY show repo picker automatically if:
+    // 1. Context is loaded
+    // 2. No repo is currently selected
+    // 3. User is authenticated
+    // 4. User has NO existing sessions (it's a fresh start)
+    if (isGitHubContextLoaded && !repo && isAuthenticated && sessions.length === 0) {
+      // No repo selected and no sessions, show picker
+      console.log("[App] Showing repo picker - fresh start, no repo or sessions");
       setShowRepoPicker(true);
     } else if (isGitHubContextLoaded && repo) {
       console.log("[App] Repo already selected:", repo.full_name);
     }
-  }, [isGitHubContextLoaded, repo, isAuthenticated]);
+  }, [isGitHubContextLoaded, repo, isAuthenticated, sessions.length]);
 
-  const [activeTab, setActiveTab] = useState<"local" | "worktree">("local");
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(() => {
     return localStorage.getItem("shadowbox_right_sidebar_open") === "true";
@@ -140,18 +146,43 @@ function AppContent() {
   const threadTitle = activeSession?.name;
 
   const handleNewTask = (repositoryName?: string) => {
-    if (repositoryName) {
+    console.log("[App] handleNewTask called with:", repositoryName);
+    
+    // If no repo name provided, try to use the currently active repo
+    const targetRepo = repositoryName || repo?.full_name;
+
+    if (targetRepo) {
+      console.log("[App] Creating new task for repo:", targetRepo);
       // Create a session for this specific repository
       const sessionName = `New Task`;
-      const sessionId = createSession(sessionName, repositoryName);
-      setActiveSessionId(sessionId);
+      const sessionId = createSession(sessionName, targetRepo);
       
-      // Update GitHub context if we have the info (this might be tricky if we don't have the full Repo object)
-      // For now, if it's the current repo, we are good. 
-      // If it's a different repo from the sidebar, we might need to fetch repo details or store them.
-      // But usually clicking "New Task" on a repo folder means you want to work on THAT repo.
+      // Explicitly clear pending query for new task
+      localStorage.removeItem(`pending_query_${sessionId}`);
+      
+      setActiveSessionId(sessionId);
+
+      // Sync GitHub context
+      const otherSessionWithRepo = sessions.find(
+        (s) => s.repository === targetRepo,
+      );
+
+      if (otherSessionWithRepo) {
+        const storedContext = localStorage.getItem(
+          `github_context_${otherSessionWithRepo.id}`,
+        );
+        if (storedContext) {
+          localStorage.setItem(`github_context_${sessionId}`, storedContext);
+        }
+      } else if (repo && repo.full_name === targetRepo) {
+        localStorage.setItem(
+          `github_context_${sessionId}`,
+          JSON.stringify({ repo, branch }),
+        );
+      }
     } else {
-      setActiveSessionId(null);
+      console.log("[App] No target repo found for new task, showing picker");
+      setShowRepoPicker(true);
     }
   };
 
@@ -242,9 +273,16 @@ function AppContent() {
 
   // Check if current session has a pending query or messages
   const hasPendingQuery = activeSessionId ? !!localStorage.getItem(`pending_query_${activeSessionId}`) : false;
-  // We don't check messages here because they might be on the server, 
-  // but if hasPendingQuery is true, it means the user submitted the AgentSetup form.
-  const isWorkspaceVisible = activeSessionId && hasPendingQuery;
+  
+  // A session is considered to have "started" if:
+  // 1. It has a pending query in localStorage
+  // 2. OR its name has been changed from "New Task"
+  // 3. OR its status is not "idle"
+  const isSessionStarted = activeSession && (
+    hasPendingQuery || 
+    (activeSession.name !== "New Task" && activeSession.name !== "") ||
+    (activeSession.status && activeSession.status !== "idle")
+  );
 
   return (
     <div className="h-screen w-screen bg-background text-zinc-400 flex overflow-hidden font-sans">
@@ -295,70 +333,51 @@ function AppContent() {
         {/* Main Workspace Layer */}
         <div className="flex-1 flex overflow-hidden relative">
           <AnimatePresence mode="wait">
-            {repo && !isWorkspaceVisible ? (
-              <motion.div
-                key="setup"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.3 }}
-                className="absolute inset-0 flex"
-              >
-                <AgentSetup
-                  onRepoClick={() => setShowRepoPicker(true)}
-                  onStart={(config) => {
-                    const name =
-                      config.task.length > 20
-                        ? config.task.substring(0, 20) + "..."
-                        : config.task;
+            {activeSessionId ? (
+              !isSessionStarted ? (
+                <motion.div
+                  key={`setup-${activeSessionId}`}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.3 }}
+                  className="absolute inset-0 flex"
+                >
+                  <AgentSetup
+                    onRepoClick={() => setShowRepoPicker(true)}
+                    onStart={(config) => {
+                      const name =
+                        config.task.length > 20
+                          ? config.task.substring(0, 20) + "..."
+                          : config.task;
 
-                    if (activeSessionId) {
-                      // Update existing session
-                      updateSession(activeSessionId, { name });
+                      updateSession(activeSessionId, { name, status: 'running' });
                       localStorage.setItem(`pending_query_${activeSessionId}`, config.task);
-                      // Force a small state update to trigger re-evaluation of isWorkspaceVisible
+                      // Force a re-render to trigger isSessionStarted update
                       setActiveSessionId(activeSessionId); 
-                    } else {
-                      // Fallback for creating new session
-                      const repoName = repo?.full_name || "New Project";
-                      const id = createSession(name, repoName);
-                      localStorage.setItem(`pending_query_${id}`, config.task);
-                      if (repo) {
-                        localStorage.setItem(
-                          `github_context_${id}`,
-                          JSON.stringify({ repo, branch }),
-                        );
-                      }
-                    }
-                  }}
-                />
-              </motion.div>
-            ) : activeSessionId ? (
-              <motion.div
-                key={activeSessionId}
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.3 }}
-                className="absolute inset-0 flex"
-              >
-                <Workspace
-                  sessionId={activeSessionId}
-                  repository={activeSession?.repository || ""}
-                  isRightSidebarOpen={isRightSidebarOpen}
-                  setIsRightSidebarOpen={setIsRightSidebarOpen}
-                />
-              </motion.div>
+                    }}
+                  />
+                </motion.div>
+              ) : (
+                <motion.div
+                  key={`workspace-${activeSessionId}`}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.3 }}
+                  className="absolute inset-0 flex"
+                >
+                  <Workspace
+                    sessionId={activeSessionId}
+                    repository={activeSession?.repository || ""}
+                    isRightSidebarOpen={isRightSidebarOpen}
+                    setIsRightSidebarOpen={setIsRightSidebarOpen}
+                  />
+                </motion.div>
+              )
             ) : null}
           </AnimatePresence>
         </div>
-
-        {/* Status Bar */}
-        <StatusBar
-          activeTab={activeTab}
-          onTabChange={setActiveTab}
-          branchName={branch || "main"}
-        />
       </div>
     </div>
   );

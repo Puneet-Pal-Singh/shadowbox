@@ -68,14 +68,7 @@ export function useSessionManager() {
       const saved = localStorage.getItem('shadowbox_repositories');
       const parsed = saved ? JSON.parse(saved) : [];
       
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      
-      // Fallback: Extract from sessions if no explicit repos saved
-      const sessionRepos = localStorage.getItem('shadowbox_sessions');
-      const parsedSessions: SavedSession[] = sessionRepos ? JSON.parse(sessionRepos) : [];
-      if (Array.isArray(parsedSessions)) {
-        return Array.from(new Set(parsedSessions.map(s => s.repository || 'New Project')));
-      }
+      if (Array.isArray(parsed)) return parsed;
       return [];
     } catch {
       return [];
@@ -89,7 +82,7 @@ export function useSessionManager() {
   // FIX: Make 'name' optional so it doesn't conflict with React Event objects
   const createSession = useCallback((name?: string, repository: string = 'New Project') => {
     const id = `agent-${Math.random().toString(36).substring(7)}`;
-    const sessionName = typeof name === 'string' ? name : `Task ${sessions.length + 1}`;
+    const sessionName = typeof name === 'string' ? name : `New Task`;
     
     // Ensure repository exists in the list
     setRepositories(prev => {
@@ -116,9 +109,20 @@ export function useSessionManager() {
 
   const removeRepository = useCallback((repository: string) => {
     setRepositories(prev => prev.filter(r => r !== repository));
-    // Optional: decided NOT to remove sessions when removing repo folder from UI
-    // sessions.filter(s => s.repository === repository).forEach(s => removeSession(s.id));
-  }, []);
+    // When removing a repo folder, also remove all its tasks to ensure clean state
+    setSessions(prev => {
+      const sessionsToRemove = prev.filter(s => s.repository === repository);
+      sessionsToRemove.forEach(s => agentStore.clearMessages(s.id));
+      const remaining = prev.filter(s => s.repository !== repository);
+      
+      // If active session was in this repo, clear active ID
+      if (activeSessionId && sessionsToRemove.some(s => s.id === activeSessionId)) {
+        setActiveSessionId(null);
+      }
+      
+      return remaining;
+    });
+  }, [activeSessionId]);
 
   const renameRepository = useCallback((oldName: string, newName: string) => {
     setRepositories(prev => prev.map(r => r === oldName ? newName : r));
