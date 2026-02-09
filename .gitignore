@@ -50,3 +50,7 @@ dist/
 .archive/
 # tasks/
 *.tsbuildinfo
+
+# Internal planning files
+tasks/
+plans/
