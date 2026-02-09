@@ -52,10 +52,13 @@ export type { MemorySnapshot, MemoryChunk } from "./memory.js";
 // Runtime types
 export type {
   RuntimeEvent,
-  ToolCallPayload,
-  ToolErrorPayload,
-  ToolResultPayload,
-  ExecutionResultPayload,
+  ToolCallEvent,
+  ToolErrorEvent,
+  ToolResultEvent,
+  ExecutionResultEvent,
+  UserInterruptionEvent,
+  AgentSwitchEvent,
+  CheckpointEvent,
 } from "./runtime.js";
 
 // Tool types
@@ -67,6 +70,7 @@ export type {
   ContextSource,
   SourceResult,
   AssemblyResult,
+  AssemblyStrategyHandler,
   TokenBudget,
   TokenUsage,
   ToolFilter,

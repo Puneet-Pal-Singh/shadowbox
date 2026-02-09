@@ -1,5 +1,6 @@
-import type { ContextBuildInput } from "./input.js";
-import type { ContextBundle } from "./output.js";
+import type { ContextBuildInput, AgentDescriptor } from "./input.js";
+import type { ContextBundle, ContextMessage } from "./output.js";
+import type { ToolDescriptor } from "./tools.js";
 
 /**
  * ContextBuilder interface
@@ -46,7 +47,7 @@ export interface ContextSource {
  */
 export interface SourceResult {
   /** Extracted messages */
-  messages: import("./output.js").ContextMessage[];
+  messages: ContextMessage[];
 
   /** Tokens used */
   tokensUsed: number;
@@ -62,9 +63,10 @@ export interface SourceResult {
 }
 
 /**
- * Assembly strategy interface
+ * Assembly strategy handler interface
+ * Implementation of an assembly strategy algorithm
  */
-export interface AssemblyStrategy {
+export interface AssemblyStrategyHandler {
   /** Strategy name */
   name: string;
 
@@ -88,7 +90,7 @@ export interface AssemblyStrategy {
  */
 export interface AssemblyResult {
   /** Assembled messages */
-  messages: import("./output.js").ContextMessage[];
+  messages: ContextMessage[];
 
   /** Source results map */
   sourceResults: Map<string, SourceResult>;
@@ -146,8 +148,5 @@ export interface ToolFilter {
    * @param agent - Agent descriptor
    * @returns Filtered tools
    */
-  filter(
-    tools: import("./tools.js").ToolDescriptor[],
-    agent: import("./input.js").AgentDescriptor,
-  ): import("./tools.js").ToolDescriptor[];
+  filter(tools: ToolDescriptor[], agent: AgentDescriptor): ToolDescriptor[];
 }

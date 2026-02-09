@@ -5,8 +5,9 @@
 
 /**
  * Unique identifier for a context assembly operation
+ * Branded type for type safety
  */
-export type RunId = string;
+export type RunId = string & { __brand: "RunId" };
 
 /**
  * Agent role classification

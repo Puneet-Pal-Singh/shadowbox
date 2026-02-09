@@ -108,7 +108,6 @@ src/
     ├── memory.ts     # Memory types
     ├── runtime.ts    # Event types
     ├── tools.ts      # Tool types
-    ├── constraints.ts # Budget types
     └── builder.ts    # Builder interfaces
 ```
 
