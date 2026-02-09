@@ -337,7 +337,48 @@ console.warn("[cache/invalidate] Cache miss for key:", key);
 
 ---
 
-## 17. Common Commands
+## 17. Agent Skills
+
+Shadowbox uses the [Agent Skills](https://agentskills.io/) standard to extend agent capabilities with specialized knowledge.
+
+### Available Skills
+
+Located in `.agents/skills/`:
+
+| Skill          | Purpose                                      |
+| -------------- | -------------------------------------------- |
+| `git-workflow` | Safe git operations (branch, commit, status) |
+| `security`     | Security audits and vulnerability scanning   |
+| `pr-workflow`  | Create, review, and merge Pull Requests      |
+
+### Skill Format
+
+Skills follow the Agent Skills specification:
+
+```
+skill-name/
+└── SKILL.md          # YAML frontmatter + Markdown instructions
+```
+
+### How Skills Work
+
+1. **Discovery**: Agent loads skill metadata at startup
+2. **Activation**: Full instructions loaded when task matches description
+3. **Execution**: Agent follows step-by-step guidance
+
+### Integration
+
+- **git-workflow**: Implements Section 9 (Git Protocol) and Section 12 (Multi-Agent Safety)
+- **security**: Implements the Security Auditor role (Section 2)
+- **pr-workflow**: Implements the DevOps/Git Operator role (Section 2)
+
+### Creating New Skills
+
+See `.agents/skills/README.md` for the template and guidelines.
+
+---
+
+## 18. Common Commands
 
 ```bash
 # Development
