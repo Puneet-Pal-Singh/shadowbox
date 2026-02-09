@@ -215,3 +215,148 @@ Before declaring a task complete, the Agent must verify:
 5.  Is there a simpler way to achieve this (KISS)?
 
 ---
+
+## 12. Multi-Agent Safety Rules
+
+When multiple agents work in the same repository:
+
+### Git Safety
+
+- **Do NOT create/apply/drop `git stash`** entries unless explicitly requested
+- **Do NOT switch branches** unless explicitly requested
+- **Do NOT create/remove/modify `git worktree`** checkouts unless explicitly requested
+- When the user says "push", you may `git pull --rebase` to integrate latest changes
+- When the user says "commit", scope to your changes only
+- When you see unrecognized files, keep going; focus on your changes
+
+### Workspace Isolation
+
+- Running multiple agents is OK as long as each agent has its own `runId`
+- Never assume you're the only agent working; avoid cross-cutting state changes
+- Each agent has separate Chat History but shares Filesystem
+
+### Conflict Resolution
+
+- If there are local changes or unpushed commits when starting a review, stop and alert the user
+- Prefer **rebase** when commits are clean; **squash** when history is messy
+- Focus reports on your edits; avoid guard-rail disclaimers unless truly blocked
+
+---
+
+## 13. Testing Guidelines
+
+### Test Organization
+
+- Tests should be **co-located** with source files: `ComponentName.test.ts` next to `ComponentName.ts`
+- One test file per source file
+- Integration tests live in `tests/integration/`
+
+### Test Standards
+
+- Run tests before pushing when you touch logic
+- Pure test additions generally do **not** need a changelog entry
+- Test coverage: aim for 70%+ on new code
+- Mock external dependencies; test business logic in isolation
+
+### Test Commands
+
+```bash
+# Run all tests
+npm test
+
+# Run with coverage
+npm run test:coverage
+
+# Run specific test file
+npm test -- src/services/MyService.test.ts
+```
+
+---
+
+## 14. Project Structure
+
+All projects in this repo should follow this structure:
+
+```
+src/
+├── services/              # Business logic
+│   ├── MyService/
+│   │   ├── MyService.ts
+│   │   ├── MyService.test.ts
+│   │   └── index.ts
+├── lib/                   # Utilities and helpers
+│   └── utils/
+├── types/                 # Type definitions
+└── index.ts              # Public API
+```
+
+### Co-location Principles
+
+1. **One folder per module**: `ModuleName/ModuleName.ts` + `index.ts` for barrel export
+2. **Tests co-located**: `*.test.ts` next to source files
+3. **Dependencies together**: Utils, hooks, constants live next to files using them
+4. **Shared code**: Extract to `src/lib/` or `packages/shared-*` when used in 2+ places
+
+---
+
+## 15. Logging Conventions
+
+Use prefixed console logging with consistent context:
+
+```typescript
+// Pattern: [domain/operation] message
+console.log("[auth/login] User logged in:", userId);
+console.error("[api/fetch] Failed to fetch data:", error);
+console.warn("[cache/invalidate] Cache miss for key:", key);
+```
+
+### What to Log
+
+- ✅ Entry/exit of significant operations
+- ✅ External API calls (without sensitive data)
+- ✅ Error conditions with context (IDs, relevant state)
+- ❌ Sensitive data (tokens, passwords, PII)
+- ❌ High-frequency operations in loops
+
+---
+
+## 16. Code Smells to Avoid
+
+| Smell                            | Symptom                                | Fix                                      |
+| -------------------------------- | -------------------------------------- | ---------------------------------------- |
+| **Magic numbers**                | Hardcoded `100`, `3` in logic          | Extract to named constants               |
+| **God objects**                  | Class/function does everything         | Split by responsibility                  |
+| **Deep nesting**                 | 4+ levels of if/for/try                | Early returns, extract functions         |
+| **Boolean blindness**            | `doThing(true, false, true)`           | Use options object with named properties |
+| **Shotgun surgery**              | One change requires 5+ file edits      | Co-locate related code                   |
+| **Primitive obsession**          | Raw strings for IDs everywhere         | Consider branded types                   |
+| **Silent error swallowing**      | `catch(() => {})`                      | At minimum log the error                 |
+| **Cross-layer imports**          | UI importing from db internals         | Go through proper package exports        |
+| **Barrel file abuse**            | `export * from` creating circular deps | Import from concrete files               |
+| **Optional deps without reason** | `logger?: Logger` in interface         | Make required unless truly optional      |
+
+---
+
+## 17. Common Commands
+
+```bash
+# Development
+npm run dev                 # Start all dev servers
+npm run build               # Build all packages
+npm run typecheck           # Type check all packages
+
+# Code Quality
+npm run lint               # Check for lint issues
+npm run lint:fix           # Fix auto-fixable lint issues
+npm run format             # Format code
+
+# Testing
+npm test                   # Run tests
+npm run test:coverage      # Run tests with coverage
+
+# Database (if applicable)
+npm run db:migrate         # Run migrations
+npm run db:generate        # Generate migrations
+```
+
+---
