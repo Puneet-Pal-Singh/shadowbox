@@ -1,93 +1,125 @@
 // apps/brain/src/index.ts
 import { ChatController } from "./controllers/ChatController";
+import { AuthController } from "./controllers/AuthController";
+import { GitHubController } from "./controllers/GitHubController";
 import { GitController } from "./controllers/GitController";
 import { handleOptions, CORS_HEADERS } from "./lib/cors";
 import { Env } from "./types/ai";
 
+/**
+ * Route configuration type with HTTP method support
+ */
+interface RouteConfig {
+  pattern: RegExp;
+  method: string;
+  handler: (request: Request, env: Env) => Promise<Response>;
+}
+
+/**
+ * Router class - Single Responsibility: Route matching only
+ * Follows Open/Closed: New routes can be added without modifying existing code
+ * Now includes HTTP method matching for RESTful API design
+ */
+class Router {
+  private routes: RouteConfig[] = [];
+
+  add(
+    pattern: RegExp,
+    handler: RouteConfig["handler"],
+    method: string = "GET",
+  ): void {
+    this.routes.push({ pattern, method: method.toUpperCase(), handler });
+  }
+
+  async match(request: Request, env: Env): Promise<Response | null> {
+    const url = new URL(request.url);
+    const requestMethod = request.method.toUpperCase();
+
+    for (const route of this.routes) {
+      if (route.pattern.test(url.pathname) && route.method === requestMethod) {
+        return await route.handler(request, env);
+      }
+    }
+
+    return null;
+  }
+}
+
+/**
+ * Create and configure router with all application routes
+ * Separates route configuration from request handling logic
+ */
+function createRouter(): Router {
+  const router = new Router();
+
+  // Chat routes
+  router.add(/\/chat/, ChatController.handle, "POST");
+
+  // Auth routes - OAuth flow
+  router.add(/\/auth\/github\/login/, AuthController.handleLogin);
+  router.add(/\/auth\/github\/callback/, AuthController.handleCallback);
+  router.add(/\/auth\/session/, AuthController.handleGetSession);
+  router.add(/\/auth\/logout/, AuthController.handleLogout);
+
+  // GitHub API routes
+  router.add(/\/api\/github\/repos/, GitHubController.listRepositories);
+  router.add(/\/api\/github\/branches/, GitHubController.listBranches);
+  router.add(/\/api\/github\/contents/, GitHubController.getContents);
+  router.add(/\/api\/github\/tree/, GitHubController.getTree);
+  router.add(/\/api\/github\/pulls$/, GitHubController.listPullRequests, "GET");
+  router.add(/\/api\/github\/pulls\//, GitHubController.getPullRequest, "GET");
+  router.add(
+    /\/api\/github\/pulls$/,
+    GitHubController.createPullRequest,
+    "POST",
+  );
+
+  // Git local routes (for sidebar)
+  router.add(/\/api\/git\/status/, GitController.getStatus);
+  router.add(/\/api\/git\/diff/, GitController.getDiff);
+  router.add(/\/api\/git\/stage/, GitController.stageFiles, "POST");
+  router.add(/\/api\/git\/commit/, GitController.commit, "POST");
+
+  return router;
+}
+
+/**
+ * Main request handler
+ * Delegates to controllers - follows Dependency Inversion Principle
+ */
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const optionsResponse = handleOptions(request);
     if (optionsResponse) return optionsResponse;
 
-    const url = new URL(request.url);
+    const router = createRouter();
 
-    // Git routes
-    if (url.pathname.includes("/api/git/status")) {
-      try {
-        return await GitController.getStatus(request, env);
-      } catch (e: unknown) {
-        const message = e instanceof Error ? e.message : "Unknown error";
-        return new Response(JSON.stringify({ error: message }), {
-          status: 500,
-          headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
-        });
+    try {
+      const response = await router.match(request, env);
+
+      if (response) {
+        return response;
       }
-    }
 
-    if (url.pathname.includes("/api/git/diff")) {
-      try {
-        return await GitController.getDiff(request, env);
-      } catch (e: unknown) {
-        const message = e instanceof Error ? e.message : "Unknown error";
-        return new Response(JSON.stringify({ error: message }), {
-          status: 500,
+      return new Response(
+        JSON.stringify({
+          error: "Not Found",
+          path: new URL(request.url).pathname,
+        }),
+        {
+          status: 404,
           headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
-        });
-      }
-    }
+        },
+      );
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error ? error.message : "Internal Server Error";
+      console.error("[Router] Error handling request:", error);
 
-    if (url.pathname.includes("/api/git/stage") && request.method === "POST") {
-      try {
-        return await GitController.stageFiles(request, env);
-      } catch (e: unknown) {
-        const message = e instanceof Error ? e.message : "Unknown error";
-        return new Response(JSON.stringify({ error: message }), {
-          status: 500,
-          headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
-        });
-      }
+      return new Response(JSON.stringify({ error: message }), {
+        status: 500,
+        headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+      });
     }
-
-    if (url.pathname.includes("/api/git/unstage") && request.method === "POST") {
-      try {
-        return await GitController.stageFiles(request, env);
-      } catch (e: unknown) {
-        const message = e instanceof Error ? e.message : "Unknown error";
-        return new Response(JSON.stringify({ error: message }), {
-          status: 500,
-          headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
-        });
-      }
-    }
-
-    if (url.pathname.includes("/api/git/commit") && request.method === "POST") {
-      try {
-        return await GitController.commit(request, env);
-      } catch (e: unknown) {
-        const message = e instanceof Error ? e.message : "Unknown error";
-        return new Response(JSON.stringify({ error: message }), {
-          status: 500,
-          headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
-        });
-      }
-    }
-
-    // Chat routes
-    if (url.pathname.includes("/chat")) {
-      try {
-        return await ChatController.handle(request, env);
-      } catch (e: unknown) {
-        const message = e instanceof Error ? e.message : "Unknown error";
-        return new Response(JSON.stringify({ error: message }), {
-          status: 500,
-          headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
-        });
-      }
-    }
-
-    return new Response(JSON.stringify({ error: "Not Found", path: url.pathname }), { 
-      status: 404, 
-      headers: { ...CORS_HEADERS, "Content-Type": "application/json" }
-    });
   },
 };

@@ -1,4 +1,4 @@
-import { Message } from "ai";
+import type { Message } from "@ai-sdk/react";
 
 class AgentStore {
   private messagesMap: Map<string, Message[]> = new Map();

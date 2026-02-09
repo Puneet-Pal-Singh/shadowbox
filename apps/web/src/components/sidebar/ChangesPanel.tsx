@@ -30,8 +30,8 @@ export function ChangesPanel({
 
   useEffect(() => {
     if (status) {
-      const staged = new Set(
-        status.files.filter((f) => f.isStaged).map((f) => f.path),
+      const staged = new Set<string>(
+        status.files.filter((f: FileStatus) => f.isStaged).map((f: FileStatus) => f.path),
       );
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setStagedFiles(staged);

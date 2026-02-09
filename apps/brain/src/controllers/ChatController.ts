@@ -1,7 +1,7 @@
 import type { CoreMessage, CoreTool, Message } from "ai";
 import { createToolRegistry } from "../orchestrator/tools";
 import { Env } from "../types/ai";
-import { CORS_HEADERS } from "../lib/cors";
+import { getCorsHeaders } from "../lib/cors";
 import { AIService } from "../services/AIService";
 import { ExecutionService } from "../services/ExecutionService";
 import { MessagePreparationService } from "../services/MessagePreparationService";
@@ -42,7 +42,7 @@ export class ChatController {
       console.log(`[Brain:${correlationId}] Messages count in request: ${body.messages?.length || 0}`);
 
       if (!body.messages || !Array.isArray(body.messages)) {
-        return errorResponse("Invalid messages", 400);
+        return errorResponse(req, "Invalid messages", 400);
       }
 
       const chatRequest: ChatRequest = {
@@ -52,16 +52,17 @@ export class ChatController {
         runId: identifiers.runId,
       };
 
-      return await this.handleChatRequest(chatRequest, env);
+      return await this.handleChatRequest(req, chatRequest, env);
     } catch (error: unknown) {
       console.error(`[Brain:${correlationId}] Error:`, error);
       const errorMessage =
         error instanceof Error ? error.message : "Internal Server Error";
-      return errorResponse(errorMessage, 500);
+      return errorResponse(req, errorMessage, 500);
     }
   }
 
   private static async handleChatRequest(
+    req: Request,
     chatRequest: ChatRequest,
     env: Env,
   ): Promise<Response> {
@@ -110,6 +111,7 @@ export class ChatController {
       correlationId,
       sessionId,
       runId,
+      requestOrigin: req.headers.get("Origin") || undefined,
       onFinish: async (finalResult) => {
         const fullHistory = finalResult.fullMessages || [];
         await services.persistence.persistConversation(
@@ -138,10 +140,10 @@ function extractIdentifiers(body: ChatRequestBody) {
   };
 }
 
-function errorResponse(message: string, status: number): Response {
+function errorResponse(req: Request, message: string, status: number): Response {
   return new Response(JSON.stringify({ error: message }), {
     status,
-    headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+    headers: { ...getCorsHeaders(req), "Content-Type": "application/json" },
   });
 }
 

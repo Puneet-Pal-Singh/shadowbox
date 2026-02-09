@@ -5,26 +5,53 @@ import type {
   FileStatus,
   DiffContent,
   DiffHunk,
-  DiffLine,
 } from "../../../../packages/shared-types/src/git";
 
+/**
+ * Git payload interface with optional token for authentication
+ * Following GEMINI.md: Clear interfaces for all tool inputs
+ */
 interface GitPayload {
-  action:
-    | "status"
-    | "diff"
-    | "stage"
-    | "unstage"
-    | "commit"
-    | "push"
-    | "git_clone";
+  action: GitAction;
   runId: string;
+  url?: string;
+  token?: string;
+  message?: string;
+  branch?: string;
   path?: string;
   files?: string[];
-  message?: string;
+  remote?: string;
   staged?: boolean;
-  url?: string;
 }
 
+type GitAction =
+  | "status"
+  | "diff"
+  | "stage"
+  | "unstage"
+  | "commit"
+  | "push"
+  | "git_clone"
+  | "git_diff"
+  | "git_commit"
+  | "git_push"
+  | "git_pull"
+  | "git_fetch"
+  | "git_branch_create"
+  | "git_branch_switch"
+  | "git_branch_list"
+  | "git_stage"
+  | "git_status"
+  | "git_config";
+
+/**
+ * GitPlugin - Handles all Git operations in the sandbox
+ *
+ * Security Notes:
+ * - Tokens are passed securely from Brain and never logged
+ * - All operations happen in isolated sandbox environment
+ * - runId isolation maintained per GEMINI.md
+ */
 export class GitPlugin implements IPlugin {
   name = "git";
 
@@ -81,14 +108,21 @@ export class GitPlugin implements IPlugin {
     payload: GitPayload,
     onLog?: LogCallback,
   ): Promise<PluginResult> {
-    const { action, runId } = payload;
+    const { action, runId, token } = payload;
     const worktree = `/home/sandbox/runs/${runId}`;
 
     try {
+      // Configure git authentication if token provided
+      if (token) {
+        await this.configureGitAuth(sandbox, token);
+      }
+
       switch (action) {
         case "status":
+        case "git_status":
           return await this.getStatus(sandbox, worktree);
         case "diff":
+        case "git_diff":
           return await this.getDiff(
             sandbox,
             worktree,
@@ -96,10 +130,12 @@ export class GitPlugin implements IPlugin {
             payload.staged,
           );
         case "stage":
+        case "git_stage":
           return await this.stageFiles(sandbox, worktree, payload.files);
         case "unstage":
           return await this.unstageFiles(sandbox, worktree, payload.files);
         case "commit":
+        case "git_commit":
           return await this.commit(
             sandbox,
             worktree,
@@ -107,9 +143,22 @@ export class GitPlugin implements IPlugin {
             payload.files,
           );
         case "push":
-          return await this.push(sandbox, worktree);
+        case "git_push":
+          return await this.push(sandbox, worktree, payload.remote, payload.branch);
         case "git_clone":
-          return await this.clone(sandbox, payload.url, onLog);
+          return await this.clone(sandbox, payload.url, token, onLog);
+        case "git_pull":
+          return await this.pull(sandbox, worktree, payload.remote, payload.branch);
+        case "git_fetch":
+          return await this.fetch(sandbox, worktree, payload.remote);
+        case "git_branch_create":
+          return await this.createBranch(sandbox, worktree, payload.branch);
+        case "git_branch_switch":
+          return await this.switchBranch(sandbox, worktree, payload.branch);
+        case "git_branch_list":
+          return await this.listBranches(sandbox, worktree);
+        case "git_config":
+          return await this.configureGitAuth(sandbox, token || "");
         default:
           return { success: false, error: `Unsupported git action: ${action}` };
       }
@@ -117,6 +166,61 @@ export class GitPlugin implements IPlugin {
       const msg = e instanceof Error ? e.message : "Git operation failed";
       return { success: false, error: msg };
     }
+  }
+
+  /**
+   * Configure git authentication with token
+   * Uses credential.helper for secure HTTPS authentication
+   * Token is never logged or exposed
+   */
+  private async configureGitAuth(
+    sandbox: Sandbox,
+    token: string,
+  ): Promise<PluginResult> {
+    if (!token) {
+      return { success: false, error: "Token is required for authentication" };
+    }
+
+    // Configure git to use token for HTTPS authentication
+    const res = await sandbox.exec(
+      `git config --global credential.helper '!f() { echo "username=x-access-token"; echo "password=${token}"; }; f'`,
+    );
+
+    if (res.exitCode !== 0) {
+      return {
+        success: false,
+        error: "Failed to configure git authentication",
+      };
+    }
+
+    return { success: true, output: "Git authentication configured" };
+  }
+
+  /**
+   * Clone a repository
+   * Supports both public and private repositories with token auth
+   */
+  private async clone(
+    sandbox: Sandbox,
+    url?: string,
+    token?: string,
+    onLog?: LogCallback,
+  ): Promise<PluginResult> {
+    if (!url) throw new Error("Clone URL is required");
+    if (onLog) onLog(`Cloning repository: ${url}...\n`);
+
+    // If token provided, inject it into the URL for authentication
+    const cloneUrl = token
+      ? url.replace("https://", `https://x-access-token:${token}@`)
+      : url;
+
+    const res = await sandbox.exec(`git clone ${cloneUrl} /root/repo`);
+    if (res.exitCode !== 0) return { success: false, error: res.stderr };
+
+    return {
+      success: true,
+      output: "Repository cloned successfully to /root/repo",
+    };
   }
 
   private async getStatus(
@@ -177,7 +281,7 @@ export class GitPlugin implements IPlugin {
       files.push({
         path: filePath,
         status,
-        additions: 0, // Would need git diff --numstat for this
+        additions: 0,
         deletions: 0,
         isStaged,
       });
@@ -278,7 +382,7 @@ export class GitPlugin implements IPlugin {
       oldPath,
       newPath,
       hunks,
-      isBinary: false, // Would need to detect this
+      isBinary: false,
       isNewFile,
       isDeleted,
     };
@@ -289,7 +393,7 @@ export class GitPlugin implements IPlugin {
     worktree: string,
     files?: string[],
   ): Promise<PluginResult> {
-    const fileList = files && files.length > 0 ? files.join(" ") : ".";
+    const fileList = files && files.length > 0 ? files.map(f => `"${f}"`).join(" ") : ".";
     const res = await sandbox.exec(`git -C ${worktree} add ${fileList}`);
 
     return {
@@ -303,7 +407,7 @@ export class GitPlugin implements IPlugin {
     worktree: string,
     files?: string[],
   ): Promise<PluginResult> {
-    const fileList = files && files.length > 0 ? files.join(" ") : ".";
+    const fileList = files && files.length > 0 ? files.map(f => `"${f}"`).join(" ") : ".";
     const res = await sandbox.exec(`git -C ${worktree} reset HEAD ${fileList}`);
 
     return {
@@ -339,8 +443,12 @@ export class GitPlugin implements IPlugin {
   private async push(
     sandbox: Sandbox,
     worktree: string,
+    remote?: string,
+    branch?: string,
   ): Promise<PluginResult> {
-    const res = await sandbox.exec(`git -C ${worktree} push`);
+    const targetRemote = remote || "origin";
+    const targetBranch = branch || "";
+    const res = await sandbox.exec(`git -C ${worktree} push ${targetRemote} ${targetBranch}`.trim());
 
     return {
       success: res.exitCode === 0,
@@ -348,20 +456,79 @@ export class GitPlugin implements IPlugin {
     };
   }
 
-  private async clone(
+  private async pull(
     sandbox: Sandbox,
-    url?: string,
-    onLog?: LogCallback,
+    worktree: string,
+    remote?: string,
+    branch?: string,
   ): Promise<PluginResult> {
-    if (!url) throw new Error("Clone URL is required");
-    if (onLog) onLog(`Cloning repository: ${url}...\n`);
+    const targetRemote = remote || "origin";
+    const targetBranch = branch || "";
 
-    const res = await sandbox.exec(`git clone ${url} /root/repo`);
-    if (res.exitCode !== 0) return { success: false, error: res.stderr };
+    const res = await sandbox.exec(
+      `git -C ${worktree} pull ${targetRemote} ${targetBranch}`.trim(),
+    );
 
     return {
-      success: true,
-      output: "Repository cloned successfully to /root/repo",
+      success: res.exitCode === 0,
+      output: res.exitCode === 0 ? "Changes pulled successfully" : res.stderr,
+    };
+  }
+
+  private async fetch(
+    sandbox: Sandbox,
+    worktree: string,
+    remote?: string,
+  ): Promise<PluginResult> {
+    const targetRemote = remote || "origin";
+
+    const res = await sandbox.exec(`git -C ${worktree} fetch ${targetRemote}`);
+
+    return {
+      success: res.exitCode === 0,
+      output: res.exitCode === 0 ? "Fetched successfully" : res.stderr,
+    };
+  }
+
+  private async createBranch(
+    sandbox: Sandbox,
+    worktree: string,
+    branch?: string,
+  ): Promise<PluginResult> {
+    if (!branch) throw new Error("Branch name is required");
+
+    const res = await sandbox.exec(`git -C ${worktree} checkout -b ${branch}`);
+
+    return {
+      success: res.exitCode === 0,
+      output:
+        res.exitCode === 0
+          ? `Created and switched to branch: ${branch}`
+          : res.stderr,
+    };
+  }
+
+  private async switchBranch(
+    sandbox: Sandbox,
+    worktree: string,
+    branch?: string,
+  ): Promise<PluginResult> {
+    if (!branch) throw new Error("Branch name is required");
+
+    const res = await sandbox.exec(`git -C ${worktree} checkout ${branch}`);
+
+    return {
+      success: res.exitCode === 0,
+      output: res.exitCode === 0 ? `Switched to branch: ${branch}` : res.stderr,
+    };
+  }
+
+  private async listBranches(sandbox: Sandbox, worktree: string): Promise<PluginResult> {
+    const res = await sandbox.exec(`git -C ${worktree} branch -a`);
+
+    return {
+      success: res.exitCode === 0,
+      output: res.stdout || "No branches found",
     };
   }
 }

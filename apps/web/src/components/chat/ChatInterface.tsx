@@ -2,7 +2,8 @@ import { useRef, useEffect } from "react";
 import { ChatMessage } from "./ChatMessage";
 import { ChatInputBar } from "./ChatInputBar";
 import { ExploredFilesSummary } from "./ExploredFilesSummary";
-import { Message } from "ai";
+import { ChatBranchSelector } from "./ChatBranchSelector";
+import type { Message } from "@ai-sdk/react";
 
 interface ChatInterfaceProps {
   chatProps: {
@@ -78,6 +79,9 @@ export function ChatInterface({
             onSubmit={handleSubmit}
             isLoading={isLoading}
           />
+          <div className="pl-6 mt-1">
+            <ChatBranchSelector />
+          </div>
         </div>
       </div>
     </div>

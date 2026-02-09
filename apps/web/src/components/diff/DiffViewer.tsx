@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
-import type { DiffContent } from "@repo/shared-types";
+import type { DiffContent, DiffHunk, DiffLine as DiffLineType } from "@repo/shared-types";
 import DiffLine from "./DiffLine";
 
 interface DiffViewerProps {
@@ -10,7 +10,7 @@ interface DiffViewerProps {
 
 export function DiffViewer({ diff, className = "" }: DiffViewerProps) {
   const [expandedHunks, setExpandedHunks] = useState<Set<number>>(
-    new Set(diff.hunks.map((_, i) => i)),
+    new Set(diff.hunks.map((_: DiffHunk, i: number) => i)),
   );
 
   const toggleHunk = (index: number) => {
@@ -57,7 +57,7 @@ export function DiffViewer({ diff, className = "" }: DiffViewerProps) {
         {diff.hunks.length === 0 ? (
           <div className="p-4 text-zinc-500 text-sm">No changes</div>
         ) : (
-          diff.hunks.map((hunk, hunkIndex) => (
+          diff.hunks.map((hunk: DiffHunk, hunkIndex: number) => (
             <div key={hunkIndex} className="border-b border-zinc-800 last:border-b-0">
               <button
                 onClick={() => toggleHunk(hunkIndex)}
@@ -73,7 +73,7 @@ export function DiffViewer({ diff, className = "" }: DiffViewerProps) {
 
               {expandedHunks.has(hunkIndex) && (
                 <div className="border-t border-zinc-800">
-                  {hunk.lines.map((line, lineIndex) => (
+                  {hunk.lines.map((line: DiffLineType, lineIndex: number) => (
                     <DiffLine
                       key={lineIndex}
                       line={line}

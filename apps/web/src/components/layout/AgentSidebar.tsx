@@ -1,6 +1,5 @@
 import {
   Pencil,
-  Plus,
   ListFilter,
   FolderPlus,
   Settings,
@@ -14,28 +13,33 @@ import { SidebarSection } from "../navigation/SidebarSection";
 
 interface AgentSidebarProps {
   sessions: AgentSession[];
+  repositories: string[];
   activeSessionId: string | null;
   onSelect: (id: string) => void;
-  onCreate: () => void;
+  onCreate: (repo?: string) => void;
   onRemove: (id: string) => void;
+  onRemoveRepository?: (repo: string) => void;
+  onRenameRepository?: (oldName: string, newName: string) => void;
   onClose?: () => void;
+  onAddRepository?: () => void;
   width?: number;
 }
 
 export function AgentSidebar({
   sessions,
+  repositories,
   activeSessionId,
   onSelect,
   onCreate,
   onRemove,
+  onRemoveRepository,
+  onRenameRepository,
   onClose,
+  onAddRepository,
   width = 220,
 }: AgentSidebarProps) {
-  // Group sessions by repository
-  const repos = Array.from(new Set(sessions.map((s) => s.repository)));
-
   return (
-    <aside 
+    <aside
       className="border-r border-[#1a1a1a] flex flex-col bg-[#0c0c0e] overflow-hidden"
       style={{ width }}
     >
@@ -60,7 +64,7 @@ export function AgentSidebar({
 
       {/* Main Navigation */}
       <div className="px-2.5 pb-2.5 space-y-0.5">
-        <SidebarNavItem icon={Pencil} label="New task" onClick={onCreate} />
+        <SidebarNavItem icon={Pencil} label="New task" onClick={() => onCreate()} />
       </div>
 
       {/* Tasks Section */}
@@ -68,9 +72,9 @@ export function AgentSidebar({
         <SidebarSection
           title="TASKS"
           action={{
-            icon: Plus,
-            onClick: onCreate,
-            label: "New task",
+            icon: FolderPlus,
+            onClick: onAddRepository || (() => {}),
+            label: "New repo",
           }}
           secondaryAction={{
             icon: ListFilter,
@@ -78,27 +82,33 @@ export function AgentSidebar({
             label: "Filter",
           }}
         >
-          {repos.map((repo) => (
-            <RepositorySection
-              key={repo}
-              repositoryName={repo}
-              tasks={sessions
-                .filter((s) => s.repository === repo)
-                .map((session) => ({
-                  id: session.id,
-                  title: session.name,
-                  status: (session.status || "idle") as
-                    | "running"
-                    | "completed"
-                    | "error"
-                    | "idle",
-                  isActive: session.id === activeSessionId,
-                }))}
-              onSelectTask={onSelect}
-              onRemoveTask={onRemove}
-            />
-          ))}
-          {repos.length === 0 && (
+          {repositories.map((repo) => {
+            const repoName = repo.split("/")[1] || repo;
+            return (
+              <RepositorySection
+                key={repo}
+                repositoryName={repoName}
+                tasks={sessions
+                  .filter((s) => s.repository === repo)
+                  .map((session) => ({
+                    id: session.id,
+                    title: session.name,
+                    status: (session.status || "idle") as
+                      | "running"
+                      | "completed"
+                      | "error"
+                      | "idle",
+                    isActive: session.id === activeSessionId,
+                  }))}
+                onSelectTask={onSelect}
+                onRemoveTask={onRemove}
+                onAddTask={() => onCreate(repo)}
+                onRemoveRepo={() => onRemoveRepository?.(repo)}
+                onRenameRepo={(newName) => onRenameRepository?.(repo, newName)}
+              />
+            );
+          })}
+          {repositories.length === 0 && (
             <p className="px-3 py-2 text-xs text-zinc-600 italic">No tasks</p>
           )}
         </SidebarSection>
@@ -109,7 +119,7 @@ export function AgentSidebar({
         <SidebarNavItem
           icon={FolderPlus}
           label="Add repository"
-          onClick={() => console.log("Add repository")}
+          onClick={onAddRepository}
         />
         <SidebarNavItem
           icon={Settings}

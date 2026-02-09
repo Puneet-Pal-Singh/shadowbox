@@ -1,5 +1,5 @@
 // apps/brain/src/types/ai.ts
-import type { Ai, Fetcher } from "@cloudflare/workers-types";
+import type { Ai, Fetcher, KVNamespace } from "@cloudflare/workers-types";
 
 export interface Env {
   // Existing bindings
@@ -11,6 +11,17 @@ export interface Env {
   ANTHROPIC_API_KEY?: string;
   GROQ_API_KEY?: string;
   SYSTEM_PROMPT?: string;
+
+  // ✅ GitHub OAuth & Session Management
+  GITHUB_CLIENT_ID: string;
+  GITHUB_CLIENT_SECRET: string;
+  GITHUB_REDIRECT_URI: string;
+  GITHUB_TOKEN_ENCRYPTION_KEY: string;
+  SESSION_SECRET: string;
+  FRONTEND_URL: string;
+
+  // KV Namespace for sessions
+  SESSIONS: KVNamespace;
 }
 
 // export interface Env {
@@ -18,14 +29,14 @@ export interface Env {
 //   SECURE_API: Fetcher;
 // }
 
-export type MessageRole = 'system' | 'user' | 'assistant' | 'tool';
+export type MessageRole = "system" | "user" | "assistant" | "tool";
 
 export interface ChatMessage {
   role: MessageRole;
   content: string;
   tool_calls?: ToolCall[];
   tool_call_id?: string; // Required for role: 'tool'
-  name?: string;         // Optional: name of the tool
+  name?: string; // Optional: name of the tool
 }
 
 export interface Tool {

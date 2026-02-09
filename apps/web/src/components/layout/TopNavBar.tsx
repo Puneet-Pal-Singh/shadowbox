@@ -2,6 +2,7 @@ import { motion } from "framer-motion";
 import { PanelLeftOpen, FileDiff } from "lucide-react";
 import { OpenDropdown } from "../navigation/OpenDropdown";
 import { CommitDropdown } from "../navigation/CommitDropdown";
+import { GitHubLoginButton } from "../auth/GitHubLoginButton";
 
 interface TopNavBarProps {
   onOpenIde?: (ide: string) => void;
@@ -12,7 +13,10 @@ interface TopNavBarProps {
   onToggleSidebar?: () => void;
   isRightSidebarOpen?: boolean;
   onToggleRightSidebar?: () => void;
+  threadTitle?: string;
   taskTitle?: string;
+  isAuthenticated?: boolean;
+  onConnectGitHub?: () => void;
 }
 
 export function TopNavBar({
@@ -25,6 +29,8 @@ export function TopNavBar({
   isRightSidebarOpen = false,
   onToggleRightSidebar,
   taskTitle,
+  isAuthenticated = false,
+  onConnectGitHub,
 }: TopNavBarProps) {
   return (
     <motion.header
@@ -57,16 +63,23 @@ export function TopNavBar({
 
       {/* Right Section */}
       <div className="flex items-center gap-3">
+        {!isAuthenticated && onConnectGitHub && (
+          <GitHubLoginButton
+            onClick={onConnectGitHub}
+            size="sm"
+            variant="secondary"
+          />
+        )}
         <OpenDropdown onSelect={onOpenIde} />
         <CommitDropdown onCommit={onCommit} onPush={onPush} onStash={onStash} />
-        
+
         <motion.button
           onClick={onToggleRightSidebar}
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}
           className={`p-1.5 transition-colors rounded-md ${
-            isRightSidebarOpen 
-              ? "text-white bg-zinc-800 border border-zinc-700" 
+            isRightSidebarOpen
+              ? "text-white bg-zinc-800 border border-zinc-700"
               : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50"
           }`}
           title="Toggle Git Diff & Files"
