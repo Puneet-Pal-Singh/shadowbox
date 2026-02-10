@@ -31,17 +31,21 @@ const SAFETY_PRIORITY: IntentType[] = [
 ];
 
 /**
- * Classify user intent based on message and context
- *
- * @param input - Classification input
- * @returns Intent classification result
+ * Confidence thresholds for score differences
  */
-export function classifyIntent(input: ClassifierInput): IntentClassification {
-  const normalized = normalize(input.message);
-  const signals: IntentSignal[] = [];
-  const matchCounts = new Map<IntentType, number>();
+const CONFIDENCE_THRESHOLDS = {
+  HIGH: 3,
+  MEDIUM: 1,
+} as const;
 
-  // Keyword matching
+/**
+ * Match keywords in normalized text
+ */
+function matchKeywords(
+  normalized: string,
+  signals: IntentSignal[],
+  matchCounts: Map<IntentType, number>,
+): void {
   for (const [intent, keywords] of INTENT_KEYWORDS) {
     let count = 0;
     for (const keyword of keywords) {
@@ -54,8 +58,16 @@ export function classifyIntent(input: ClassifierInput): IntentClassification {
       matchCounts.set(intent, (matchCounts.get(intent) || 0) + count);
     }
   }
+}
 
-  // Pattern matching (implicit priority: patterns > keywords)
+/**
+ * Match regex patterns in normalized text
+ */
+function matchPatterns(
+  normalized: string,
+  signals: IntentSignal[],
+  matchCounts: Map<IntentType, number>,
+): void {
   for (const [intent, patterns] of INTENT_PATTERNS) {
     let count = 0;
     for (const pattern of patterns) {
@@ -70,58 +82,105 @@ export function classifyIntent(input: ClassifierInput): IntentClassification {
       matchCounts.set(intent, (matchCounts.get(intent) || 0) + count);
     }
   }
+}
 
-  // Context matching from recent tool calls
-  if (input.recentToolCalls && input.recentToolCalls.length > 0) {
-    const lastTool =
-      input.recentToolCalls[input.recentToolCalls.length - 1]?.toolName;
-    if (lastTool) {
-      const contextIntent = toolToIntent(lastTool);
-      if (contextIntent) {
-        signals.push({
-          type: "context",
-          value: lastTool,
-          intent: contextIntent,
-        });
-        matchCounts.set(
-          contextIntent,
-          (matchCounts.get(contextIntent) || 0) + 1,
-        );
-      }
-    }
+/**
+ * Extract context signals from recent tool calls
+ */
+function matchContext(
+  recentToolCalls: Array<{ toolName: string }> | undefined,
+  signals: IntentSignal[],
+  matchCounts: Map<IntentType, number>,
+): void {
+  if (!recentToolCalls || recentToolCalls.length === 0) {
+    return;
   }
 
-  // Selection with tie-breaking
-  let primary: IntentType = IntentType.READ_CODE;
-  let maxScore = -1;
+  const lastTool = recentToolCalls[recentToolCalls.length - 1]?.toolName;
+  if (!lastTool) {
+    return;
+  }
 
+  const contextIntent = toolToIntent(lastTool);
+  if (contextIntent) {
+    signals.push({
+      type: "context",
+      value: lastTool,
+      intent: contextIntent,
+    });
+    matchCounts.set(contextIntent, (matchCounts.get(contextIntent) || 0) + 1);
+  }
+}
+
+/**
+ * Select primary intent with tie-breaking
+ */
+function selectPrimaryIntent(
+  matchCounts: Map<IntentType, number>,
+): [IntentType, number] {
   const sortedIntents = Array.from(matchCounts.entries()).sort((a, b) => {
     if (b[1] !== a[1]) return b[1] - a[1];
     return SAFETY_PRIORITY.indexOf(a[0]) - SAFETY_PRIORITY.indexOf(b[0]);
   });
 
   const first = sortedIntents[0];
-  const second = sortedIntents[1];
-
   if (first) {
-    primary = first[0];
-    maxScore = first[1];
+    return [first[0], first[1]];
   }
 
-  // Confidence calculation
-  const secondScore = second?.[1] ?? 0;
+  return [IntentType.READ_CODE, -1];
+}
+
+/**
+ * Calculate confidence based on score difference
+ */
+function calculateConfidence(
+  sortedIntents: Array<[IntentType, number]>,
+  maxScore: number,
+): "low" | "medium" | "high" {
+  if (sortedIntents.length === 0) {
+    return "low";
+  }
+
+  const secondScore = sortedIntents[1]?.[1] ?? 0;
   const diff = maxScore - secondScore;
 
-  let confidence: "low" | "medium" | "high";
-  if (sortedIntents.length === 0) {
-    confidence = "low";
-  } else if (diff > 3) {
-    confidence = "high";
-  } else if (diff >= 1) {
-    confidence = "medium";
-  } else {
-    confidence = "low";
+  if (diff > CONFIDENCE_THRESHOLDS.HIGH) {
+    return "high";
   }
+
+  if (diff >= CONFIDENCE_THRESHOLDS.MEDIUM) {
+    return "medium";
+  }
+
+  return "low";
+}
+
+/**
+ * Classify user intent based on message and context
+ *
+ * @param input - Classification input
+ * @returns Intent classification result
+ */
+export function classifyIntent(input: ClassifierInput): IntentClassification {
+  const normalized = normalize(input.message);
+  const signals: IntentSignal[] = [];
+  const matchCounts = new Map<IntentType, number>();
+
+  // Match signals from keywords, patterns, and context
+  matchKeywords(normalized, signals, matchCounts);
+  matchPatterns(normalized, signals, matchCounts);
+  matchContext(input.recentToolCalls, signals, matchCounts);
+
+  // Select primary intent with tie-breaking
+  const [primary, maxScore] = selectPrimaryIntent(matchCounts);
+
+  // Calculate confidence
+  const sortedIntents = Array.from(matchCounts.entries()).sort((a, b) => {
+    if (b[1] !== a[1]) return b[1] - a[1];
+    return SAFETY_PRIORITY.indexOf(a[0]) - SAFETY_PRIORITY.indexOf(b[0]);
+  });
+  const confidence = calculateConfidence(sortedIntents, maxScore);
 
   return {
     primary,
