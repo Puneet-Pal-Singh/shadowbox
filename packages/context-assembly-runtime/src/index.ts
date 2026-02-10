@@ -1,5 +1,11 @@
 export { ContextBuilder } from "./ContextBuilder.js";
 export { TokenCounter } from "./TokenCounter.js";
 export { TokenBudget } from "./TokenBudget.js";
-export * from "./assemblers/index.js";
-export * from "./formatters/index.js";
+export {
+  assembleSystem,
+  assembleHistory,
+  assembleRepo,
+  assembleDiffs,
+  assembleEvents,
+} from "./assemblers/index.js";
+export { formatEvent, formatEvents } from "./formatters/index.js";
