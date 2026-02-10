@@ -29,8 +29,8 @@ export class ImportanceScorer {
   private static readonly BASE_SCORE = 0.5;
   private static readonly BOOST_INCREMENT = 0.2;
   private static readonly REDUCE_INCREMENT = 0.2;
-  private static readonly LOC_THRESHOLD_LARGE = 500;
-  private static readonly LOC_THRESHOLD_TINY = 50;
+  private static readonly LOC_THRESHOLD_LARGE = 500; // Lines of code threshold for large files
+  private static readonly LOC_THRESHOLD_TINY = 50; // Lines of code threshold for tiny files
 
   /**
    * Score a file's importance (0-1)

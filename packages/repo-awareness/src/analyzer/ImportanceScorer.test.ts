@@ -21,7 +21,7 @@ describe("ImportanceScorer", () => {
 
     it("should score test files low", () => {
       const file: RepoFileMeta = {
-        path: "src/utils.test.ts",
+        path: "tests/utils.test.ts",
         ext: "ts",
         size: 300,
         kind: FileKind.TEST,

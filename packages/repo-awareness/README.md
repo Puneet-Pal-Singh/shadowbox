@@ -75,9 +75,20 @@ const isEntry = FileClassifier.isEntryPoint("src/index.ts");
 
 ```typescript
 import { ImportanceScorer } from "@shadowbox/repo-awareness";
+import type { RepoFileMeta } from "@shadowbox/repo-awareness";
+import { FileKind } from "@shadowbox/repo-awareness";
+
+const fileMeta: RepoFileMeta = {
+  path: "src/index.ts",
+  ext: "ts",
+  size: 156,
+  loc: 156,
+  kind: FileKind.SOURCE,
+  importance: 0,
+};
 
 const score = ImportanceScorer.score(fileMeta);
-// → 0.85 (high importance for entry point)
+// → 0.95 (high importance for entry point)
 ```
 
 ## API
@@ -95,6 +106,15 @@ async function scanRepo(options: ScanOptions): Promise<RepoSummary>
 Walks file system and collects metadata.
 
 ```typescript
+import { RepoScanner } from "@shadowbox/repo-awareness";
+import type { ScanOptions } from "@shadowbox/repo-awareness";
+
+const options: ScanOptions = {
+  rootPath: "/path/to/repo",
+  respectGitignore: true,
+  calculateLoc: false,
+};
+
 const scanner = new RepoScanner(options);
 const files = await scanner.scan();
 ```

@@ -4,7 +4,7 @@
  * Single responsibility: Scan directory and extract file metadata
  * No file contents loaded - only metadata (size, mtime, path)
  */
-import { readdirSync, statSync } from "fs";
+import { readdirSync, statSync, readFileSync } from "fs";
 import { join, relative, extname } from "path";
 import type { RepoFileMeta, ScanOptions } from "../types.js";
 import { FileClassifier } from "./FileClassifier.js";
@@ -143,7 +143,7 @@ export class RepoScanner {
    */
   private countLines(filePath: string): number {
     try {
-      const content = require("fs").readFileSync(filePath, "utf-8");
+      const content = readFileSync(filePath, "utf-8");
       return content.split("\n").length;
     } catch {
       return 0;

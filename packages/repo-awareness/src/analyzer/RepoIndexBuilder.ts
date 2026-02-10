@@ -13,6 +13,8 @@ import { FileKind as FileKindEnum } from "../types.js";
 export class RepoIndexBuilder {
   private files: RepoFileMeta[];
   private rootPath: string;
+  private static readonly TOP_LARGEST_FILES = 10;
+  private static readonly TOP_IMPORTANT_FILES = 20;
 
   constructor(files: RepoFileMeta[], rootPath: string = ".") {
     // Sort for deterministic output
@@ -60,7 +62,7 @@ export class RepoIndexBuilder {
   /**
    * Get top N largest files
    */
-  private getLargestFiles(n: number): RepoFileMeta[] {
+  private getLargestFiles(n: number = RepoIndexBuilder.TOP_LARGEST_FILES): RepoFileMeta[] {
     return [...this.files]
       .sort((a, b) => b.size - a.size)
       .slice(0, n);
@@ -68,20 +70,31 @@ export class RepoIndexBuilder {
 
   /**
    * Get entry point files
+   * Matches common entry point patterns across multiple languages
    */
   private getEntryPoints(): RepoFileMeta[] {
+    const entryPointNames = [
+      "main.ts",
+      "index.ts",
+      "app.ts",
+      "server.ts",
+      "main.js",
+      "index.js",
+      "app.js",
+      "main.go",
+    ];
+
     return this.files.filter(
       (f) =>
-        ["main.ts", "index.ts", "app.ts", "server.ts"].includes(
-          f.path.split("/").pop() || "",
-        ) || /\bcmd\//.test(f.path),
+        entryPointNames.includes(f.path.split("/").pop() || "") ||
+        /\bcmd\//.test(f.path),
     );
   }
 
   /**
    * Get most important files by score
    */
-  private getImportantFiles(n: number): RepoFileMeta[] {
+  private getImportantFiles(n: number = RepoIndexBuilder.TOP_IMPORTANT_FILES): RepoFileMeta[] {
     return [...this.files]
       .sort((a, b) => b.importance - a.importance)
       .slice(0, n);

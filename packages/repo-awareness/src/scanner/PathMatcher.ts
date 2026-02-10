@@ -52,21 +52,26 @@ export class PathMatcher {
 
   /**
    * Check if path should be ignored
+   * Handles both positive and negation patterns correctly
    */
   shouldIgnore(relativePath: string): boolean {
     // Normalize path separators
     const normalized = relativePath.replace(/\\/g, "/");
 
     // Check against all patterns
+    // Process in order: first match wins
     for (const pattern of this.patterns) {
-      // Handle negation patterns
       if (pattern.startsWith("!")) {
+        // Negation pattern: if matched, DO NOT ignore
         const negatePattern = pattern.slice(1);
-        if (minimatch(normalized, negatePattern)) {
+        if (minimatch(normalized, negatePattern, { dot: true })) {
           return false;
         }
-      } else if (minimatch(normalized, pattern, { dot: true })) {
-        return true;
+      } else {
+        // Positive pattern: if matched, DO ignore
+        if (minimatch(normalized, pattern, { dot: true })) {
+          return true;
+        }
       }
     }
 
