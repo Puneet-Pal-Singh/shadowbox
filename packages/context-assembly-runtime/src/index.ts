@@ -8,4 +8,11 @@ export {
   assembleDiffs,
   assembleEvents,
 } from "./assemblers/index.js";
-export { formatEvent, formatEvents } from "./formatters/index.js";
+export {
+  formatFile,
+  formatFiles,
+  formatDiff,
+  formatDiffs,
+  formatEvent,
+  formatEvents,
+} from "./formatters/index.js";
