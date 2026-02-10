@@ -22,13 +22,11 @@
     "test:coverage": "vitest --coverage"
   },
   "dependencies": {
-    "@shadowbox/intent-classifier": "workspace:*",
-    "@shadowbox/context-builder": "workspace:*",
     "zod": "^3.22.0"
   },
   "devDependencies": {
-    "@shadowbox/eslint-config": "workspace:*",
-    "@shadowbox/typescript-config": "workspace:*",
+    "@repo/eslint-config": "workspace:*",
+    "@repo/typescript-config": "workspace:*",
     "@types/node": "^20.10.0",
     "typescript": "^5.3.3",
     "vitest": "^1.0.0"
