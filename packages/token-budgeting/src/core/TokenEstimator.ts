@@ -5,6 +5,9 @@
  * No randomness, no model calls, deterministic output
  */
 
+/** Safety margin for truncation (keep text to 95% of budget to account for estimation error) */
+const TRUNCATION_SAFETY_MARGIN = 0.95;
+
 /**
  * Estimate tokens using character-based approximation
  */
@@ -71,12 +74,16 @@ export class TokenEstimator {
       return "";
     }
 
+    if (!text || text.length === 0) {
+      return "";
+    }
+
     const maxChars = maxTokens * this.charsPerToken;
     if (text.length <= maxChars) {
       return text;
     }
 
     // Truncate with safety margin to ensure we stay under limit
-    return text.substring(0, Math.floor(maxChars * 0.95)) + "...";
+    return text.substring(0, Math.floor(maxChars * TRUNCATION_SAFETY_MARGIN)) + "...";
   }
 }

@@ -10,7 +10,7 @@ import type {
   BudgetedContextPlan,
   ContextWithTokens,
 } from "../types.js";
-import { BucketKind, TruncationPolicy } from "../types.js";
+import { BucketKind as BucketKindEnum, TruncationPolicy } from "../types.js";
 
 /**
  * Validate inputs and enforce safety constraints
@@ -39,12 +39,14 @@ export class BudgetValidator {
       throw new Error("Components must be an array");
     }
 
+    const validBuckets = Object.values(BucketKindEnum);
+
     for (let i = 0; i < components.length; i++) {
       const comp = components[i];
       if (!comp) {
         throw new Error(`Component ${i} is null or undefined`);
       }
-      if (!(comp.bucket in BucketKind)) {
+      if (!validBuckets.includes(comp.bucket)) {
         throw new Error(`Component ${i} has invalid bucket: ${comp.bucket}`);
       }
       if (typeof comp.content !== "string") {
@@ -55,13 +57,13 @@ export class BudgetValidator {
 
   /**
    * Check if SYSTEM + USER alone exceed budget (hard failure case)
-   * @returns { valid, deficit? } - valid=true if fits, deficit if over
+   * @returns Discriminated union - either valid or invalid with deficit
    */
   static checkRequiredBucketsWithinLimit(
     system: ContextWithTokens,
     user: ContextWithTokens,
     availableTokens: number,
-  ): { valid: boolean; deficit?: number } {
+  ): { valid: true } | { valid: false; deficit: number } {
     const requiredTokens = system.estimatedTokens + user.estimatedTokens;
 
     if (requiredTokens > availableTokens) {
@@ -115,8 +117,8 @@ export class BudgetValidator {
     }
 
     // Check REJECT buckets (SYSTEM, USER) have decisions
-    const systemDec = decisionsByKind.get(BucketKind.SYSTEM);
-    const userDec = decisionsByKind.get(BucketKind.USER);
+    const systemDec = decisionsByKind.get(BucketKindEnum.SYSTEM);
+    const userDec = decisionsByKind.get(BucketKindEnum.USER);
 
     if (!systemDec) {
       throw new Error("No SYSTEM bucket decision");

@@ -24,6 +24,7 @@ export function getModelConfig(modelId: string): ModelConfig {
 
 /**
  * Get all builtin model configurations
+ * Token limits sourced from official model documentation
  */
 export function getBuiltinModels(): ModelConfig[] {
   return [
@@ -47,7 +48,13 @@ export function getBuiltinModels(): ModelConfig[] {
       supportedMethods: ["chat"],
     },
 
-    // Anthropic Claude models
+    // Anthropic Claude models (latest versions)
+    {
+      id: "claude-3-5-sonnet",
+      name: "Claude 3.5 Sonnet",
+      maxTokens: 200000,
+      supportedMethods: ["chat"],
+    },
     {
       id: "claude-3-opus",
       name: "Claude 3 Opus",

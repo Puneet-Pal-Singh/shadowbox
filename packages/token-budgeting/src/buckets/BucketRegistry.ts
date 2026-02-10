@@ -83,14 +83,15 @@ export class BucketRegistry {
   }
 
   /**
-   * Get bucket by kind
+   * Get bucket by kind (returns a shallow copy for safety)
    */
   getBucket(kind: BucketKind): BucketBudget {
     const bucket = this.buckets.get(kind);
     if (!bucket) {
       throw new Error(`Unknown bucket kind: ${kind}`);
     }
-    return bucket;
+    // Return a shallow copy to prevent external mutations
+    return { ...bucket };
   }
 
   /**
