@@ -23,6 +23,8 @@ import { PromptComposer } from './composer/PromptComposer.js';
  * - Repo awareness (provides context data)
  * - Token budgeting (enforces hard limits)
  *
+ * Pipeline: validate → strategy → assemble → calculate → compose → return
+ *
  * @example
  * const builder = new ContextBuilder();
  * const context = await builder.build({
@@ -51,8 +53,8 @@ export class ContextBuilder {
    * 1. Validate input
    * 2. Resolve intent strategy
    * 3. Assemble context blocks
-   * 4. Compose prompt
-   * 5. Calculate token budget
+   * 4. Calculate token budget (enforce before composing)
+   * 5. Compose final prompt from survived blocks
    * 6. Return final output
    *
    * @throws ValidationError if input invalid
@@ -72,11 +74,14 @@ export class ContextBuilder {
     const blocks = await this.assembler.assemble(input, strategy);
     console.log(`[context-builder/build] Assembled ${blocks.length} blocks`);
 
-    // 4. Calculate token budget (BEFORE composing prompts)
+    // 4a. Compose preliminary prompt from all blocks to get actual system prompt size
+    const preliminaryComposer = new PromptComposer();
+    const { systemPrompt: actualSystemPrompt } = preliminaryComposer.compose(blocks, input.userMessage);
+
+    // 4b. Calculate token budget using actual system prompt
     const { blocks: allocatedBlocks, report: budgetReport } = this.budgetCalculator.calculate(
       blocks,
-      // Use temporary system prompt for budget calculation
-      'You are a helpful AI assistant.',
+      actualSystemPrompt,
       input.userMessage,
       input.maxTokens
     );
