@@ -1,0 +1,36 @@
+{
+  "name": "@shadowbox/planning-engine",
+  "version": "1.0.0",
+  "description": "Structured planning engine for deterministic task orchestration",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "type-check": "tsc --noEmit",
+    "test": "vitest",
+    "test:watch": "vitest --watch",
+    "test:coverage": "vitest --coverage"
+  },
+  "dependencies": {
+    "@shadowbox/intent-classifier": "workspace:*",
+    "@shadowbox/context-builder": "workspace:*",
+    "zod": "^3.22.0"
+  },
+  "devDependencies": {
+    "@shadowbox/eslint-config": "workspace:*",
+    "@shadowbox/typescript-config": "workspace:*",
+    "@types/node": "^20.10.0",
+    "typescript": "^5.3.3",
+    "vitest": "^1.0.0"
+  }
+}
