@@ -5,6 +5,7 @@
  * All types are strict and non-negotiable.
  */
 
+// Import from workspace packages where available, otherwise define locally
 import type { IntentClassification } from '@shadowbox/intent-classifier';
 import type { RepoSummary } from '@shadowbox/repo-awareness';
 
