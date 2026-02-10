@@ -87,6 +87,7 @@ export class BudgetEnforcer {
 
   /**
    * Map block type to bucket type
+   * Ensures each block type has proper bucket consideration
    */
   private mapBlockTypeToBucket(blockType: string): BucketType {
     switch (blockType) {
@@ -94,6 +95,10 @@ export class BudgetEnforcer {
         return 'REPO_SUMMARY';
       case 'CHAT':
         return 'CHAT_HISTORY';
+      case 'FILE_LIST':
+      case 'TESTS':
+      case 'DIFFS':
+        return 'CONTEXT_BLOCKS';
       default:
         return 'CONTEXT_BLOCKS';
     }
