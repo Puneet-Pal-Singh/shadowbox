@@ -271,6 +271,18 @@ importers:
         specifier: ~5.9.3
         version: 5.9.3
 
+  packages/intent-classifier:
+    devDependencies:
+      '@types/node':
+        specifier: ^20.0.0
+        version: 20.19.30
+      typescript:
+        specifier: ^5.3.0
+        version: 5.9.3
+      vitest:
+        specifier: ^1.0.0
+        version: 1.6.1(@types/node@20.19.30)(lightningcss@1.30.2)
+
   packages/shared-types:
     devDependencies:
       '@repo/typescript-config':
