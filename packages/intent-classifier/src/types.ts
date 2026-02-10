@@ -36,8 +36,6 @@ export interface IntentSignal {
 export interface IntentClassification {
   /** Primary detected intent */
   primary: IntentType;
-  /** Secondary intents */
-  secondary?: IntentType[];
   /** Classification confidence level */
   confidence: "low" | "medium" | "high";
   /** All signals that contributed to classification */
