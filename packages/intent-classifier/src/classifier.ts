@@ -39,7 +39,7 @@ const CONFIDENCE_THRESHOLDS = {
 } as const;
 
 /**
- * Match keywords in normalized text
+ * Match keywords in normalized text using word boundaries
  */
 function matchKeywords(
   normalized: string,
@@ -49,7 +49,9 @@ function matchKeywords(
   for (const [intent, keywords] of INTENT_KEYWORDS) {
     let count = 0;
     for (const keyword of keywords) {
-      if (normalized.includes(keyword)) {
+      // Use word boundary regex to avoid false positives (e.g., "how" matching "show")
+      const regex = new RegExp(`\\b${keyword}\\b`);
+      if (regex.test(normalized)) {
         signals.push({ type: "keyword", value: keyword, intent });
         count++;
       }
@@ -114,10 +116,11 @@ function matchContext(
 
 /**
  * Select primary intent with tie-breaking
+ * Returns sorted intents and max score to avoid duplicate sorting in caller
  */
 function selectPrimaryIntent(
   matchCounts: Map<IntentType, number>,
-): [IntentType, number] {
+): { primary: IntentType; maxScore: number; sortedIntents: Array<[IntentType, number]> } {
   const sortedIntents = Array.from(matchCounts.entries()).sort((a, b) => {
     if (b[1] !== a[1]) return b[1] - a[1];
     return SAFETY_PRIORITY.indexOf(a[0]) - SAFETY_PRIORITY.indexOf(b[0]);
@@ -125,10 +128,10 @@ function selectPrimaryIntent(
 
   const first = sortedIntents[0];
   if (first) {
-    return [first[0], first[1]];
+    return { primary: first[0], maxScore: first[1], sortedIntents };
   }
 
-  return [IntentType.READ_CODE, -1];
+  return { primary: IntentType.READ_CODE, maxScore: -1, sortedIntents };
 }
 
 /**
@@ -173,13 +176,9 @@ export function classifyIntent(input: ClassifierInput): IntentClassification {
   matchContext(input.recentToolCalls, signals, matchCounts);
 
   // Select primary intent with tie-breaking
-  const [primary, maxScore] = selectPrimaryIntent(matchCounts);
+  const { primary, maxScore, sortedIntents } = selectPrimaryIntent(matchCounts);
 
   // Calculate confidence
-  const sortedIntents = Array.from(matchCounts.entries()).sort((a, b) => {
-    if (b[1] !== a[1]) return b[1] - a[1];
-    return SAFETY_PRIORITY.indexOf(a[0]) - SAFETY_PRIORITY.indexOf(b[0]);
-  });
   const confidence = calculateConfidence(sortedIntents, maxScore);
 
   return {
