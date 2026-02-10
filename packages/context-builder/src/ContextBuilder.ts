@@ -72,27 +72,28 @@ export class ContextBuilder {
     const blocks = await this.assembler.assemble(input, strategy);
     console.log(`[context-builder/build] Assembled ${blocks.length} blocks`);
 
-    // 4. Compose prompt
-    const { systemPrompt, userPrompt } = this.composer.compose(blocks, input.userMessage);
-    console.log(`[context-builder/build] System prompt: ${systemPrompt.length} chars`);
-    console.log(`[context-builder/build] User prompt: ${userPrompt.length} chars`);
-
-    // 5. Calculate token budget
-    const { blocks: allocatedBlocks, report } = this.budgetCalculator.calculate(
+    // 4. Calculate token budget (BEFORE composing prompts)
+    const { blocks: allocatedBlocks, report: budgetReport } = this.budgetCalculator.calculate(
       blocks,
-      systemPrompt,
+      // Use temporary system prompt for budget calculation
+      'You are a helpful AI assistant.',
       input.userMessage,
       input.maxTokens
     );
-    console.log(`[context-builder/build] Budget: ${report.totalUsed}/${input.maxTokens || 13500} tokens`);
-    console.log(`[context-builder/build] Dropped: ${report.droppedBlocks.length}, Truncated: ${report.truncatedBlocks.length}`);
+    console.log(`[context-builder/build] Budget: ${budgetReport.totalUsed}/${input.maxTokens || 13500} tokens`);
+    console.log(`[context-builder/build] Dropped: ${budgetReport.droppedBlocks.length}, Truncated: ${budgetReport.truncatedBlocks.length}`);
+
+    // 5. Compose final prompt from budget-enforced blocks
+    const { systemPrompt, userPrompt } = this.composer.compose(allocatedBlocks, input.userMessage);
+    console.log(`[context-builder/build] System prompt: ${systemPrompt.length} chars`);
+    console.log(`[context-builder/build] User prompt: ${userPrompt.length} chars`);
 
     // 6. Return final output
     const output: ContextBuilderOutput = {
       systemPrompt,
       userPrompt,
       contextBlocks: allocatedBlocks,
-      tokenReport: report,
+      tokenReport: budgetReport,
       metadata: {
         intent: input.intent.primary,
         strategyUsed: strategy.intent,
