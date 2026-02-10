@@ -3,6 +3,7 @@
  *
  * Applies deterministic drop order and policy enforcement.
  * Ensures token budgets are never exceeded.
+ * Does not mutate input blocks.
  */
 
 import type { ContextBlock, TokenBucket, BucketType, TokenBudgetReport } from '../types.js';
@@ -26,7 +27,7 @@ const DROP_ORDER: BucketType[] = [
  */
 export class BudgetEnforcer {
   /**
-   * Enforce budget policies on blocks
+   * Enforce budget policies on blocks (does not mutate input)
    */
   enforce(
     blocks: ContextBlock[],
@@ -52,13 +53,20 @@ export class BudgetEnforcer {
         bucket.current = 0;
       } else if (bucket.policy === 'TRUNCATE') {
         // Truncate blocks in this bucket (keep head, remove tail)
-        for (const block of blocksInBucket) {
-          const excess = Math.max(0, block.content.length - (bucket.limit * 4)); // Rough estimate
-          if (excess > 0) {
-            block.content = block.content.substring(0, block.content.length - excess);
-            truncatedBlocks.push(block.id);
+        // Create new blocks without mutating originals
+        currentBlocks = currentBlocks.map(block => {
+          if (blocksInBucket.some(b => b.id === block.id)) {
+            const excess = Math.max(0, block.content.length - (bucket.limit * 4)); // Rough estimate
+            if (excess > 0) {
+              truncatedBlocks.push(block.id);
+              return {
+                ...block,
+                content: block.content.substring(0, block.content.length - excess),
+              };
+            }
           }
-        }
+          return block;
+        });
       }
     }
 
