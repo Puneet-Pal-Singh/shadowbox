@@ -31,6 +31,14 @@ export class TokenBudget implements ITokenBudget {
   }
 
   /**
+   * Get total allocated tokens (including overages from forceAllocate)
+   * @returns Number of tokens allocated
+   */
+  allocated(): number {
+    return this.used;
+  }
+
+  /**
    * Attempt to allocate tokens
    * @param amount - Amount to allocate
    * @returns Whether allocation succeeded (won't exceed budget)

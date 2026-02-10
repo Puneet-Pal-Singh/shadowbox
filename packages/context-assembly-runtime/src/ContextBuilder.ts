@@ -161,7 +161,8 @@ export class ContextBuilder implements IContextBuilder {
       (total, tool) =>
         total +
         this.tokenCounter.count(tool.name) +
-        this.tokenCounter.count(tool.description),
+        this.tokenCounter.count(tool.description) +
+        (tool.schema ? this.tokenCounter.count(JSON.stringify(tool.schema)) : 0),
       0,
     );
   }
@@ -183,14 +184,15 @@ export class ContextBuilder implements IContextBuilder {
   ): TokenBreakdown {
     const messagesTokens = this.countMessages(messages);
     const toolsTokens = this.countTools(tools);
-    const overhead = 50;
-    const total = systemTokens + messagesTokens + toolsTokens + overhead;
+    const OVERHEAD_TOKENS = 50; // Fixed allocation for response buffer
+    const allocatedTokens = budget.allocated();
+    const total = allocatedTokens + OVERHEAD_TOKENS;
 
     return {
       system: systemTokens,
       messages: messagesTokens,
       tools: toolsTokens,
-      overhead,
+      overhead: OVERHEAD_TOKENS,
       total,
       remaining: budget.remaining,
     };
@@ -203,13 +205,21 @@ export class ContextBuilder implements IContextBuilder {
     breakdown: TokenBreakdown,
     strategy: string,
   ): ContextDebugInfo {
+    // Validate strategy at compile time to catch invalid values
+    const validStrategies = ["greedy", "balanced", "conservative"] as const;
+    const strategyUsed = strategy as "greedy" | "balanced" | "conservative";
+    
+    if (!validStrategies.includes(strategyUsed)) {
+      throw new Error(`Invalid strategy: ${strategy}. Must be one of: ${validStrategies.join(", ")}`);
+    }
+
     return {
       includedFiles,
       excludedFiles,
       droppedMessages: 0,
       summarizationsApplied: 0,
       tokenBreakdown: breakdown,
-      strategyUsed: strategy as "greedy" | "balanced" | "conservative",
+      strategyUsed,
       assembledAt: Date.now(),
     };
   }
