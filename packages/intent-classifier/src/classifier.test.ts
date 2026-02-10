@@ -195,10 +195,9 @@ describe("IntentClassifier", () => {
       expect(result.confidence).toBe("low");
     });
 
-    it("should handle undefined recentToolCalls", () => {
+    it("should handle no recentToolCalls", () => {
       const result = classifyIntent({
         message: "Explain the code",
-        recentToolCalls: undefined,
       });
       expect(result.primary).toBe(IntentType.READ_CODE);
     });
