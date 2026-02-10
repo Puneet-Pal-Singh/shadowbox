@@ -173,11 +173,14 @@ export class StandardStopConditionEvaluator implements StopConditionEvaluator {
     // Sort by priority (lower index = higher priority)
     const sorted = triggered.sort((a, b) => a.priority - b.priority);
 
+    // sorted[0] guaranteed to exist because triggered.length > 0 (checked above)
+    const highestPriority = sorted[0]!;
+
     console.log(
-      `[stop-evaluator/resolveMultiple] ${triggered.length} conditions triggered, highest priority: ${sorted[0].details.condition.type}`
+      `[stop-evaluator/resolveMultiple] ${triggered.length} conditions triggered, highest priority: ${highestPriority.details.condition.type}`
     );
 
-    return sorted[0];
+    return highestPriority;
   }
 
   /**
