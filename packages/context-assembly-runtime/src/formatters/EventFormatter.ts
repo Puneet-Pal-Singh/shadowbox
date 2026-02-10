@@ -69,9 +69,9 @@ export function formatEvent(
       break;
 
     default: {
-      // Exhaustive check - if we reach here, we've missed a case
-      // eslint-disable-next-line @typescript-eslint/restrict-template-expressions
-      parts.push(`Unknown event type: ${(event as RuntimeEvent).type}`);
+      // Exhaustive check enforced at compile time via never type
+      const _exhaustiveCheck: never = event;
+      parts.push(`Unknown event type: ${_exhaustiveCheck}`);
     }
   }
 
