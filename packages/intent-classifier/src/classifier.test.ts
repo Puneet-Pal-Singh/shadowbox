@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { classifyIntent } from "../src/classifier.js";
-import { normalize } from "../src/rules.js";
-import { IntentType } from "../src/types.js";
+import { classifyIntent } from "./classifier.js";
+import { normalize } from "./rules.js";
+import { IntentType } from "./types.js";
 
 describe("IntentClassifier", () => {
   describe("normalize", () => {
