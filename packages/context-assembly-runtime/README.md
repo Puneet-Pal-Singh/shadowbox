@@ -131,7 +131,7 @@ When over budget, sections are dropped in priority order:
 
 ## Architecture
 
-```
+```text
 packages/context-assembly-runtime/
 ├── src/
 │   ├── index.ts                    # Public API exports
