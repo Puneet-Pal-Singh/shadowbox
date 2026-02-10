@@ -116,11 +116,9 @@ describe('BudgetCalculator', () => {
 
       const { report } = calculator.calculate(blocks, systemPrompt, userMessage);
 
-      // With many large blocks, some should be dropped
-      if (report.droppedBlocks.length === 0) {
-        // If not dropped, they should be truncated
-        expect(report.truncatedBlocks.length).toBeGreaterThanOrEqual(0);
-      }
+      // With many large blocks, we should have dropped or truncated some
+      const actionsPerformed = report.droppedBlocks.length + report.truncatedBlocks.length;
+      expect(actionsPerformed).toBeGreaterThan(0);
     });
 
     it('should include warnings for dropped/truncated content', () => {
