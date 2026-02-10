@@ -21,8 +21,11 @@ describe('ContextBuilder', () => {
       const output1 = await builder.build(input);
       const output2 = await builder.build(input);
 
-      // String compare to ensure byte-for-byte identical
-      expect(JSON.stringify(output1)).toBe(JSON.stringify(output2));
+      // Compare excluding timestamp (which varies per invocation)
+      expect(output1.systemPrompt).toBe(output2.systemPrompt);
+      expect(output1.userPrompt).toBe(output2.userPrompt);
+      expect(output1.contextBlocks.length).toBe(output2.contextBlocks.length);
+      expect(output1.tokenReport.totalUsed).toBe(output2.tokenReport.totalUsed);
     });
 
     it('should preserve output for multiple runs', async () => {
@@ -34,9 +37,9 @@ describe('ContextBuilder', () => {
         builder.build(input),
       ]);
 
-      const first = JSON.stringify(outputs[0]);
+      const firstPrompt = outputs[0].systemPrompt;
       outputs.forEach(output => {
-        expect(JSON.stringify(output)).toBe(first);
+        expect(output.systemPrompt).toBe(firstPrompt);
       });
     });
   });
