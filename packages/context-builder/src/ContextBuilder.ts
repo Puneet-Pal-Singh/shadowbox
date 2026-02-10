@@ -74,14 +74,11 @@ export class ContextBuilder {
     const blocks = await this.assembler.assemble(input, strategy);
     console.log(`[context-builder/build] Assembled ${blocks.length} blocks`);
 
-    // 4a. Compose preliminary prompt from all blocks to get actual system prompt size
-    const preliminaryComposer = new PromptComposer();
-    const { systemPrompt: actualSystemPrompt } = preliminaryComposer.compose(blocks, input.userMessage);
-
-    // 4b. Calculate token budget using actual system prompt
+    // 4. Calculate token budget using fixed system prompt
+    const systemPrompt = this.composer.getSystemPrompt();
     const { blocks: allocatedBlocks, report: budgetReport } = this.budgetCalculator.calculate(
       blocks,
-      actualSystemPrompt,
+      systemPrompt,
       input.userMessage,
       input.maxTokens
     );
@@ -89,7 +86,7 @@ export class ContextBuilder {
     console.log(`[context-builder/build] Dropped: ${budgetReport.droppedBlocks.length}, Truncated: ${budgetReport.truncatedBlocks.length}`);
 
     // 5. Compose final prompt from budget-enforced blocks
-    const { systemPrompt, userPrompt } = this.composer.compose(allocatedBlocks, input.userMessage);
+    const { userPrompt } = this.composer.compose(allocatedBlocks, input.userMessage);
     console.log(`[context-builder/build] System prompt: ${systemPrompt.length} chars`);
     console.log(`[context-builder/build] User prompt: ${userPrompt.length} chars`);
 

@@ -8,31 +8,9 @@
 import type { ContextBlock } from '../types.js';
 
 /**
- * Composes final prompts from context blocks
- *
- * @example
- * const composer = new PromptComposer();
- * const { systemPrompt, userPrompt } = composer.compose(blocks, userMessage);
+ * Fixed system prompt (used consistently for budget calculation and composition)
  */
-export class PromptComposer {
-  /**
-   * Compose system and user prompts
-   */
-  compose(
-    blocks: ContextBlock[],
-    userMessage: string
-  ): { systemPrompt: string; userPrompt: string } {
-    const systemPrompt = this.buildSystemPrompt();
-    const userPrompt = this.buildUserPrompt(blocks, userMessage);
-
-    return { systemPrompt, userPrompt };
-  }
-
-  /**
-   * Build system prompt (fixed template)
-   */
-  private buildSystemPrompt(): string {
-    return `You are a helpful AI assistant specialized in reading, understanding, and modifying code repositories.
+const SYSTEM_PROMPT = `You are a helpful AI assistant specialized in reading, understanding, and modifying code repositories.
 
 You have access to the following context about the repository structure, recent changes, and conversation history.
 Use this information to understand the codebase and respond to the user's requests accurately and thoughtfully.
@@ -50,6 +28,33 @@ When making code changes:
 2. Consider error handling and edge cases
 3. Follow existing code patterns and conventions
 4. Test your changes mentally or suggest test cases`;
+
+/**
+ * Composes final prompts from context blocks
+ *
+ * @example
+ * const composer = new PromptComposer();
+ * const { systemPrompt, userPrompt } = composer.compose(blocks, userMessage);
+ */
+export class PromptComposer {
+  /**
+   * Get the fixed system prompt
+   */
+  getSystemPrompt(): string {
+    return SYSTEM_PROMPT;
+  }
+
+  /**
+   * Compose system and user prompts
+   */
+  compose(
+    blocks: ContextBlock[],
+    userMessage: string
+  ): { systemPrompt: string; userPrompt: string } {
+    const systemPrompt = SYSTEM_PROMPT;
+    const userPrompt = this.buildUserPrompt(blocks, userMessage);
+
+    return { systemPrompt, userPrompt };
   }
 
   /**
