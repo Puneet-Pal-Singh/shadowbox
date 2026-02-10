@@ -40,7 +40,7 @@ const CONFIG_PATTERNS = [
   /^vitest/,
   /^webpack\.config/,
   /\.config\./,
-  /^\..*rc$/,
+  /^\..*rc(\.|$)/,
   /^Dockerfile/i,
   /^\.env/,
   /^docker-compose/,
@@ -105,12 +105,15 @@ export class FileClassifier {
 
   /**
    * Check if file is a known entry point
+   * Only checks root-level or shallow entry points
    */
   static isEntryPoint(path: string): boolean {
     const fileName = path.split("/").pop() || "";
     const entryPointNames = ["main.ts", "index.ts", "app.ts", "server.ts"];
+    const depth = path.split("/").length;
 
-    if (entryPointNames.includes(fileName)) {
+    // Only consider files in root or src/ as entry points
+    if ((depth === 1 || depth === 2) && entryPointNames.includes(fileName)) {
       return true;
     }
 
