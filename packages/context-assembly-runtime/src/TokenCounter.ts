@@ -12,8 +12,14 @@ export class TokenCounter {
   /**
    * Create token counter with custom character-to-token ratio
    * @param charsPerToken - Number of characters per token (default: 4)
+   * @throws Error if charsPerToken is not a positive number
    */
   constructor(charsPerToken = 4) {
+    if (charsPerToken <= 0 || !Number.isFinite(charsPerToken)) {
+      throw new Error(
+        `charsPerToken must be a positive number, received: ${charsPerToken}`,
+      );
+    }
     this.charsPerToken = charsPerToken;
   }
 
