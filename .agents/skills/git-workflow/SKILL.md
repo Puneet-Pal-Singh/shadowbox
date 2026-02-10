@@ -43,7 +43,16 @@ Use this skill when:
    - The target branch is ambiguous
    - You're in the middle of a merge/rebase
 
-4. **Multi-agent safety**:
+4. **NEVER use `git add -A` or `git add .`**:
+   - Always add specific files/paths explicitly
+   - Ensures intentional, auditable commits
+   - Pattern: `git add path/to/file` or `git add path/to/dir/`
+   - ✅ `git add packages/planning-engine/src/types.ts` (specific file)
+   - ✅ `git add packages/planning-engine/src/` (specific directory)
+   - ❌ `git add -A` (too risky, unintentional files)
+   - ❌ `git add .` (same risk as -A)
+
+5. **Multi-agent safety**:
    - Do NOT create/apply/drop `git stash` unless explicitly requested
    - Do NOT switch branches unless explicitly requested
    - Do NOT create/remove/modify `git worktree` checkouts unless explicitly requested
@@ -233,8 +242,8 @@ git checkout -b feat/my-feature
 
 # Do work...
 
-# Commit when ready
-git add .
+# Commit when ready (NEVER use git add -A)
+git add src/services/MyService.ts
 git commit -m "feat: implement my feature"
 ```
 
@@ -244,8 +253,8 @@ git commit -m "feat: implement my feature"
 # Check what needs committing
 git status
 
-# Stage and commit your changes
-git add -A
+# Stage and commit your changes (by specific paths)
+git add packages/my-package/src/
 git commit -m "WIP: current progress on feature"
 
 # Or if incomplete, note what's left:

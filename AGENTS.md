@@ -180,6 +180,11 @@ Shadowbox is a **web-native, multi-agent IDE** built on Cloudflare primitives.
 - **Conventional Commits**: Use prefixes: `feat:`, `fix:`, `chore:`, `refactor:`.
 - **Atomic Commits**: One logical change per commit. Do not bundle a UI fix with a backend refactor.
 - **Don't commit plans/ folder**: Keep plans/ out of git commits.
+- **NEVER use `git add -A`**: Always add specific files/paths. Pattern: `git add path/to/file` or `git add path/to/dir/`. This ensures intentional, auditable commits.
+  - ✅ `git add packages/planning-engine/src/types.ts`
+  - ✅ `git add packages/planning-engine/src/`
+  - ❌ `git add -A` (too risky, unintentional files)
+  - ❌ `git add .` (same risk as -A)
 
 ### "Plan-First" Workflow
 
