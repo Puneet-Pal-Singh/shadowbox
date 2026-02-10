@@ -78,7 +78,7 @@ export const SeveritySchema = z.enum(['info', 'warning', 'error']);
 // Constraint Schema
 // ============================================================================
 
-export const ConstraintSchema: z.ZodType<Constraint> = z
+export const ConstraintSchema = z
   .object({
     type: ConstraintTypeSchema,
     description: z.string().min(1).max(500),
@@ -86,13 +86,13 @@ export const ConstraintSchema: z.ZodType<Constraint> = z
     mitigation: z.string().max(500).optional(),
     blocksExecution: z.boolean(),
   })
-  .strict();
+  .strict() as z.ZodType<Constraint>;
 
 // ============================================================================
 // Plan Step Schema
 // ============================================================================
 
-export const PlanStepSchema: z.ZodType<PlanStep> = z
+export const PlanStepSchema = z
   .object({
     id: z.string().regex(/^step_\d+$/, 'Step ID must be "step_N" format'),
     description: z.string().min(5).max(500),
@@ -113,13 +113,13 @@ export const PlanStepSchema: z.ZodType<PlanStep> = z
     requiresApproval: z.boolean(),
     priority: z.number().int().min(0).max(10),
   })
-  .strict();
+  .strict() as z.ZodType<PlanStep>;
 
 // ============================================================================
 // Plan Metadata Schema
 // ============================================================================
 
-export const PlanMetadataSchema: z.ZodType<PlanMetadata> = z
+export const PlanMetadataSchema = z
   .object({
     intent: z.string().min(1).max(100),
     createdAt: z.number().int().min(0),
@@ -128,13 +128,13 @@ export const PlanMetadataSchema: z.ZodType<PlanMetadata> = z
     plannerVersion: z.string().regex(/^\d+\.\d+\.\d+$/),
     isAlternative: z.boolean(),
   })
-  .strict();
+  .strict() as z.ZodType<PlanMetadata>;
 
 // ============================================================================
 // Plan Schema (Core Artifact)
 // ============================================================================
 
-export const PlanSchema: z.ZodType<Plan> = z
+export const PlanSchema = z
   .object({
     id: z.string().uuid(),
     strategy: PlanningStrategySchema,
@@ -153,26 +153,26 @@ export const PlanSchema: z.ZodType<Plan> = z
   .refine((plan) => plan.estimatedTokens >= plan.steps.length * 10, {
     message: 'Total estimated tokens must be sum of all step tokens',
     path: ['estimatedTokens'],
-  });
+  }) as z.ZodType<Plan>;
 
 // ============================================================================
 // Planning Input/Output Schemas
 // ============================================================================
 
-export const PlanningOutputSchema: z.ZodType<PlanningOutput> = z
+export const PlanningOutputSchema = z
   .object({
     plan: PlanSchema,
     confidence: z.number().min(0).max(1),
     alternatives: z.array(PlanSchema).optional(),
     reasoning: z.string().min(10).max(2000),
   })
-  .strict();
+  .strict() as z.ZodType<PlanningOutput>;
 
 // ============================================================================
 // Execution Result Schema
 // ============================================================================
 
-export const ExecutionResultSchema: z.ZodType<ExecutionResult> = z
+export const ExecutionResultSchema = z
   .object({
     planId: z.string().uuid(),
     failedStep: z.string().optional(),
@@ -184,7 +184,7 @@ export const ExecutionResultSchema: z.ZodType<ExecutionResult> = z
     error: z.string().optional(),
     feedback: z.string().optional(),
   })
-  .strict();
+  .strict() as z.ZodType<ExecutionResult>;
 
 // ============================================================================
 // Validation Result Schemas
@@ -202,13 +202,13 @@ export const ValidationWarningSchema = z.object({
   suggestion: z.string().optional(),
 });
 
-export const PlanValidationResultSchema: z.ZodType<PlanValidationResult> = z
+export const PlanValidationResultSchema = z
   .object({
     valid: z.boolean(),
     errors: z.array(ValidationErrorSchema),
     warnings: z.array(ValidationWarningSchema),
   })
-  .strict();
+  .strict() as z.ZodType<PlanValidationResult>;
 
 // ============================================================================
 // Helper Functions

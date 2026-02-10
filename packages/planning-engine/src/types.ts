@@ -7,8 +7,32 @@
  * Pattern: Discriminated unions for runtime safety, exhaustiveness checking.
  */
 
-import type { IntentClassification } from '@shadowbox/intent-classifier';
-import type { ContextBuilderOutput } from '@shadowbox/context-builder';
+// Optional imports from Phase 1 packages (will be available at runtime)
+// These are commented out for now to allow package to build independently
+// import type { IntentClassification } from '@shadowbox/intent-classifier';
+// import type { ContextBuilderOutput } from '@shadowbox/context-builder';
+
+// Placeholder types (will be replaced with actual imports once Phase 1 is merged)
+type IntentClassification = {
+  primary: string;
+  confidence?: number;
+};
+
+type ContextBuilderOutput = {
+  systemPrompt: string;
+  userPrompt: string;
+  contextBlocks: Array<{
+    id: string;
+    type: string;
+    content: string;
+  }>;
+  tokenReport: {
+    totalUsed: number;
+  };
+  metadata: {
+    intent: string;
+  };
+};
 
 /**
  * Input to PlanningEngine.plan()

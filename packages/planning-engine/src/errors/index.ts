@@ -29,7 +29,6 @@ export class ValidationError extends PlanningError {
   ) {
     super(message, 'VALIDATION_ERROR');
     this.name = 'ValidationError';
-    Object.setPrototypeOf(this, ValidationError.prototype);
   }
 }
 
@@ -43,7 +42,6 @@ export class PlanGenerationError extends PlanningError {
   ) {
     super(message, 'PLAN_GENERATION_ERROR');
     this.name = 'PlanGenerationError';
-    Object.setPrototypeOf(this, PlanGenerationError.prototype);
   }
 }
 
@@ -58,7 +56,6 @@ export class PlanValidationError extends PlanningError {
   ) {
     super(message, 'PLAN_VALIDATION_ERROR');
     this.name = 'PlanValidationError';
-    Object.setPrototypeOf(this, PlanValidationError.prototype);
   }
 }
 
@@ -66,6 +63,8 @@ export class PlanValidationError extends PlanningError {
  * Thrown when a step dependency graph is invalid (cyclic, etc.)
  */
 export class DependencyError extends PlanValidationError {
+  declare code: string;
+
   constructor(
     message: string,
     public readonly stepId?: string,
@@ -73,7 +72,6 @@ export class DependencyError extends PlanValidationError {
     super(message, undefined, [`Step: ${stepId}`]);
     this.code = 'DEPENDENCY_ERROR';
     this.name = 'DependencyError';
-    Object.setPrototypeOf(this, DependencyError.prototype);
   }
 }
 
@@ -87,7 +85,6 @@ export class StrategyError extends PlanningError {
   ) {
     super(message, 'STRATEGY_ERROR');
     this.name = 'StrategyError';
-    Object.setPrototypeOf(this, StrategyError.prototype);
   }
 }
 
@@ -101,7 +98,6 @@ export class ConstraintError extends PlanningError {
   ) {
     super(message, 'CONSTRAINT_ERROR');
     this.name = 'ConstraintError';
-    Object.setPrototypeOf(this, ConstraintError.prototype);
   }
 }
 
