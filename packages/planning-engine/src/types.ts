@@ -291,7 +291,7 @@ export interface PlanValidationResult {
   valid: boolean;
 
   /** Validation errors (if any) */
-  errors: ValidationError[];
+  errors: ValidationIssue[];
 
   /** Warnings that don't block execution */
   warnings: ValidationWarning[];
@@ -300,7 +300,7 @@ export interface PlanValidationResult {
 /**
  * A validation error (blocks execution)
  */
-export interface ValidationError {
+export interface ValidationIssue {
   code: string;
   message: string;
   location?: string; // e.g., "step_2.dependsOn"

@@ -24,7 +24,7 @@ export type {
   ChatTurn,
   ExecutionResult,
   PlanValidationResult,
-  ValidationError as ValidationErrorType,
+  ValidationIssue,
   ValidationWarning,
 } from './types.js';
 

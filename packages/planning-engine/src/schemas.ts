@@ -190,7 +190,7 @@ export const ExecutionResultSchema = z
 // Validation Result Schemas
 // ============================================================================
 
-export const ValidationErrorSchema = z.object({
+export const ValidationIssueSchema = z.object({
   code: z.string().min(1),
   message: z.string().min(1),
   location: z.string().optional(),
@@ -205,7 +205,7 @@ export const ValidationWarningSchema = z.object({
 export const PlanValidationResultSchema = z
   .object({
     valid: z.boolean(),
-    errors: z.array(ValidationErrorSchema),
+    errors: z.array(ValidationIssueSchema),
     warnings: z.array(ValidationWarningSchema),
   })
   .strict() as z.ZodType<PlanValidationResult>;
