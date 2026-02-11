@@ -89,3 +89,40 @@ export {
   OutputValidationError,
   BudgetExhaustedError
 } from './errors.js'
+
+export type {
+  EnvironmentConfig,
+  ExecutionEnvironment,
+  ExecutionTask,
+  ExecutionLog,
+  ExecutionResult,
+  Executor
+} from './executor.js'
+
+export {
+  EnvironmentConfigSchema,
+  ExecutionEnvironmentSchema,
+  ExecutionTaskSchema,
+  ExecutionLogSchema,
+  ExecutionResultSchema
+} from './executor.js'
+
+export type {
+  ModelPricing,
+  CostEntry,
+  ModelUsage,
+  ExecutionCost,
+  SandboxCostConfig
+} from './cost.js'
+
+export {
+  ModelPricingSchema,
+  CostEntrySchema,
+  ModelUsageSchema,
+  ExecutionCostSchema,
+  SandboxCostConfigSchema,
+  MODEL_PRICING,
+  getModelPricing,
+  calculateTokenCost,
+  calculateSandboxCost
+} from './cost.js'
