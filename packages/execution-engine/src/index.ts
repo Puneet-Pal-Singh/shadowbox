@@ -35,3 +35,22 @@ export {
   validateStringArg,
   validateNumberArg
 } from './tools/index.js'
+
+// Events
+export { EventBus } from './events/index.js'
+export type {
+  ExecutionEvent,
+  ExecutionStartedEvent,
+  StepStartedEvent,
+  ToolCalledEvent,
+  ToolCompletedEvent,
+  StepCompletedEvent,
+  ExecutionCompletedEvent,
+  ExecutionStoppedEvent,
+  ExecutionFailedEvent,
+  EventHandler
+} from './events/index.js'
+
+// Observability
+export { ExecutionLogger, ExecutionTracer } from './observability/index.js'
+export type { ExecutionSpan, ExecutionTimeline } from './observability/index.js'
