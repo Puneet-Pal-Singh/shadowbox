@@ -8,16 +8,16 @@ import {
   StepSchema,
   ToolCallSchema,
   ExecutionStateSchema,
-  ExecutionContextSchema,
   MemoryBlockSchema,
   StepResultSchema,
+  LogEntrySchema,
   ArtifactSchema,
   createExecutionContext,
   initializeExecutionState,
   createStepResult,
   createLogEntry,
   createArtifact
-} from '../../src/types'
+} from '../../src/types/index.js'
 
 describe('Plan Types', () => {
   it('validates correct plan', () => {
