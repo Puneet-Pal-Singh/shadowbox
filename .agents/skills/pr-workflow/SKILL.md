@@ -221,12 +221,45 @@ EOF
 )"
 ```
 
+### PR Title Format
+
+Follow conventional commits:
+
+```
+feat: add model provider abstraction (OpenAI and LocalMock adapters)
+fix: resolve race condition in cache invalidation
+chore: update dependencies
+refactor: simplify error handling
+docs: update API documentation
+```
+
 ### PR Body Template
+
+**REQUIRED**: Always include an executive summary box with:
 
 ```markdown
 ## Summary
 
 One-paragraph explanation of the change.
+
+## What's Included
+
+- **Component 1** (X lines) — Purpose
+- **Component 2** (Y lines) — Purpose
+- **Tests** (Z lines, coverage %) — Test scope
+
+## Key Features
+
+✅ Feature 1  
+✅ Feature 2  
+✅ Feature 3
+
+## Verification
+
+✅ TypeScript strict: `pnpm typecheck`  
+✅ Builds: `pnpm build`  
+✅ Tests pass: `pnpm test`  
+✅ Zero `any` types
 
 ## Motivation
 
@@ -269,6 +302,53 @@ Relates to #456
 - [ ] I have added tests that prove my fix is effective
 - [ ] New and existing unit tests pass locally
 - [ ] Any dependent changes have been merged and published
+```
+
+### PR Description Requirements
+
+**MANDATORY** for all PRs:
+
+1. **Title**: Use conventional commit format
+2. **Summary Box**: Include component breakdown, features, verification steps
+3. **Body**: Follow template structure above
+4. **Code Stats**: Include lines of code, test coverage percentage
+5. **Verification**: Add checkmarks for build/test verification
+6. **Atomic Commits**: Reference commit count in summary
+
+**Example Summary Box**:
+
+```
+## ✅ PR 2 Complete: Model Adapters & Tool Integration
+
+**5 Atomic Commits** (1,445 lines of code + 496 lines of tests):
+
+1. **ModelProvider Abstraction** (418 lines)
+   - ModelProvider.ts — Interface + schemas (Zod)
+   - OpenAIAdapter.ts — Production OpenAI implementation
+   - LocalMockAdapter.ts — Deterministic testing mock
+
+2. **Output Validation** (103 lines)
+   - OutputValidator.ts — JSON extraction, tool call parsing
+   - Schema validation with Zod
+
+3. **Tool Framework** (428 lines)
+   - Tool.ts — Base abstraction
+   - ToolValidator.ts — Path/command/arg validation
+   - ToolRegistry.ts — Tool registration
+   - ToolExecutor.ts — Safe execution
+
+4. **Main API Export** (27 lines)
+   - All new modules exported
+
+5. **Tests** (496 lines, 70%+ coverage)
+   - Integration & unit tests
+
+### Verification
+
+✅ TypeScript strict: `pnpm --filter=@shadowbox/execution-engine type-check`  
+✅ Builds: `pnpm --filter=@shadowbox/execution-engine build`  
+✅ Zero `any` types  
+✅ 5 atomic commits (conventional format)
 ```
 
 ---
