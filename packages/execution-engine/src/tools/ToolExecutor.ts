@@ -81,39 +81,40 @@ export class ToolExecutor {
       )
     }
 
-    // Execute with timeout using AbortController
+    // Execute with timeout
+    return this.executeWithTimeout(tool, toolName, args, context, startTime, timeout)
+  }
+
+  private async executeWithTimeout(
+    tool: Tool,
+    toolName: string,
+    args: Record<string, unknown>,
+    context: ExecutionContext,
+    startTime: number,
+    timeoutMs: number
+  ): Promise<ToolResult> {
     const controller = new AbortController()
-    const timeoutHandle = setTimeout(() => controller.abort(), timeout)
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
 
     try {
-      const result = await Promise.race([
-        tool.execute(args, context),
-        new Promise<ToolResult>((_, reject) =>
-          controller.signal.addEventListener('abort', () =>
-            reject(new Error(`Tool execution timeout after ${timeout}ms`))
-          )
-        )
-      ])
+      const result = await tool.execute(args, context)
+      clearTimeout(timeoutId)
 
-      clearTimeout(timeoutHandle)
       const duration = Date.now() - startTime
       result.duration = duration
       result.timestamp = Date.now()
 
       return result
     } catch (error) {
-      clearTimeout(timeoutHandle)
-      const duration = Date.now() - startTime
-      const errorMsg = error instanceof Error ? error.message : String(error)
+      clearTimeout(timeoutId)
 
-      return createToolResult(
-        toolName,
-        args,
-        'error',
-        undefined,
-        errorMsg,
-        duration
-      )
+      const duration = Date.now() - startTime
+      const errorMsg =
+        error instanceof Error
+          ? error.message
+          : String(error)
+
+      return createToolResult(toolName, args, 'error', undefined, errorMsg, duration)
     }
   }
 
