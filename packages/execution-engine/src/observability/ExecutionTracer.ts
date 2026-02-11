@@ -66,7 +66,8 @@ export class ExecutionTracer {
   }
 
   /**
-   * Complete a span (pop from stack)
+   * Complete a span
+   * Removes span from stack regardless of order (e.g., parent ended before child)
    */
   endSpan(id: string, status: 'completed' | 'failed' = 'completed'): void {
     const span = this.spanMap.get(id)
@@ -76,9 +77,10 @@ export class ExecutionTracer {
     span.duration = span.endTime - span.startTime
     span.status = status
 
-    // Pop from stack if it's the current span
-    if (this.spanStack[this.spanStack.length - 1]?.id === id) {
-      this.spanStack.pop()
+    // Remove span from stack by finding its position
+    const index = this.spanStack.findIndex(s => s.id === id)
+    if (index !== -1) {
+      this.spanStack.splice(index, 1)
     }
   }
 
