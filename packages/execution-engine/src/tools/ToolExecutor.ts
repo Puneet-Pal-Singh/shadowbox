@@ -81,24 +81,28 @@ export class ToolExecutor {
       )
     }
 
-    // Execute with timeout
+    // Execute with timeout using AbortController
+    const controller = new AbortController()
+    const timeoutHandle = setTimeout(() => controller.abort(), timeout)
+
     try {
       const result = await Promise.race([
         tool.execute(args, context),
         new Promise<ToolResult>((_, reject) =>
-          setTimeout(
-            () => reject(new Error(`Tool execution timeout after ${timeout}ms`)),
-            timeout
+          controller.signal.addEventListener('abort', () =>
+            reject(new Error(`Tool execution timeout after ${timeout}ms`))
           )
         )
       ])
 
+      clearTimeout(timeoutHandle)
       const duration = Date.now() - startTime
       result.duration = duration
       result.timestamp = Date.now()
 
       return result
     } catch (error) {
+      clearTimeout(timeoutHandle)
       const duration = Date.now() - startTime
       const errorMsg = error instanceof Error ? error.message : String(error)
 
