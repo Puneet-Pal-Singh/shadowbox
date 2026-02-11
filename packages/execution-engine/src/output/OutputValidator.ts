@@ -33,8 +33,9 @@ export function extractJSON(text: string): unknown {
 export function extractToolCalls(text: string): ModelToolCall[] {
   const toolCalls: ModelToolCall[] = []
 
-  // Look for patterns like: <tool name="read_file" args={"path": "/src/main.ts"}>
-  const pattern = /<tool\s+name="([^"]+)"\s+(?:id="([^"]+)")?\s+args='([^']+)'/g
+  // Look for patterns like: <tool name="read_file" id="tool-1" args={"path": "/src/main.ts"}>
+  // Pattern allows optional id attribute with leading \s+
+  const pattern = /<tool\s+name="([^"]+)"(?:\s+id="([^"]+)")?\s+args='([^']+)'/g
   let match: RegExpExecArray | null
 
   while ((match = pattern.exec(text)) !== null) {
