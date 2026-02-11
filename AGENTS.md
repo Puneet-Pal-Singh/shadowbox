@@ -149,7 +149,210 @@ Shadowbox is a **web-native, multi-agent IDE** built on Cloudflare primitives.
 
 ### S.O.L.I.D. & Pattern Discipline
 
-- **S (Single Responsibility)**: One file = One purpose.
+#### Single Responsibility Principle (SRP)
+
+**MANDATORY**: Every function/class must do ONE thing and do it well.
+
+- **Function limit**: Max 50 lines. If > 50 lines, refactor into smaller functions.
+- **One reason to change**: If a function could change for 2+ reasons, split it.
+- **Naming clarity**: Function name must describe its ONLY responsibility.
+  - ❌ `generateAndParseAndValidate()` — Does 3 things
+  - ✅ `generate()`, `parseResponse()`, `validateOutput()` — Each does 1 thing
+
+**Example violation and fix**:
+
+```typescript
+// ❌ BAD: generate() does 80+ things
+async generate(input: ModelInput): Promise<ModelOutput> {
+  const messages = [...]; // Build messages
+  const tools = input.tools?.map(...); // Map tools
+  const response = await fetch(...); // HTTP call
+  const data = await response.json(); // Parse JSON
+  const toolCalls = []; // Extract tools
+  if (choice.message.tool_calls) { // Tool extraction logic
+    for (const tc of ...) { // Parsing logic
+      toolCalls.push(...); // Pushing
+    }
+  }
+  const mapFinishReason = (...) => { ... }; // Reason mapping
+  return { ... }; // Build response
+}
+
+// ✅ GOOD: Split into 6 functions, each with 1 responsibility
+private buildMessages(input: ModelInput): OpenAIMessage[] { ... }
+private buildTools(tools?: ToolDefinition[]): OpenAITool[] | undefined { ... }
+private async callOpenAIAPI(req: object): Promise<OpenAIResponse> { ... }
+private extractToolCalls(choice: OpenAIChoice): ModelToolCall[] { ... }
+private mapFinishReason(reason: string): StopReason { ... }
+async generate(input: ModelInput): Promise<ModelOutput> {
+  const messages = this.buildMessages(input);
+  const tools = this.buildTools(input.tools);
+  const data = await this.callOpenAIAPI({ messages, tools });
+  const choice = data.choices[0];
+  const toolCalls = this.extractToolCalls(choice);
+  return { /* assembled */ };
+}
+```
+
+#### Open/Closed Principle (OCP)
+
+**MANDATORY**: Classes/modules must be open for extension, closed for modification.
+
+- **Use abstractions**: Depend on interfaces, not concrete implementations.
+- **Avoid hardcoding**: Use factory patterns or injection for swappable components.
+
+**Example violation and fix**:
+
+```typescript
+// ❌ BAD: Hardcoded OpenAI, can't swap providers
+class Engine {
+  async execute() {
+    const openai = new OpenAI(...);
+    const response = await openai.generate(...);
+  }
+}
+
+// ✅ GOOD: Depends on ModelProvider abstraction
+class Engine {
+  constructor(private modelProvider: ModelProvider) {}
+  async execute() {
+    const response = await this.modelProvider.generate(...);
+  }
+}
+// Can inject OpenAIAdapter, AnthropicAdapter, LocalMockAdapter
+```
+
+#### Liskov Substitution Principle (LSP)
+
+**MANDATORY**: Subtypes must be substitutable for their base types.
+
+- **Honor contracts**: If interface says it returns X, always return X.
+- **No surprises**: Derived classes must not break base class assumptions.
+
+**Example violation**:
+
+```typescript
+// ❌ BAD: LocalMockAdapter breaks ModelProvider contract
+class LocalMockAdapter implements ModelProvider {
+  async generate(): Promise<ModelOutput> {
+    if (this.random) return null; // Contract says ModelOutput, not null!
+  }
+}
+
+// ✅ GOOD: Always honors contract
+class LocalMockAdapter implements ModelProvider {
+  async generate(): Promise<ModelOutput> {
+    return { content: '', usage: { ... }, stopReason: 'end_turn' };
+  }
+}
+```
+
+#### Interface Segregation Principle (ISP)
+
+**MANDATORY**: Many specific interfaces are better than one general interface.
+
+- **Narrow interfaces**: Don't force clients to depend on methods they don't use.
+- **Split when possible**: If a class only uses part of an interface, split the interface.
+
+**Example violation and fix**:
+
+```typescript
+// ❌ BAD: Tool interface forces every tool to implement validate()
+interface Tool {
+  execute(args: any): Promise<ToolResult>;
+  validate(args: any): boolean;
+  getMetadata(): ToolMetadata;
+}
+
+// ReadFileTool doesn't need getMetadata(), but forced to implement
+
+// ✅ GOOD: Segregate into focused interfaces
+interface Tool {
+  execute(args: Record<string, unknown>): Promise<ToolResult>;
+}
+interface Validatable {
+  validate(args: Record<string, unknown>): boolean;
+}
+interface Describable {
+  getMetadata(): ToolMetadata;
+}
+
+class ReadFileTool implements Tool, Validatable { ... }
+```
+
+#### Dependency Inversion Principle (DIP)
+
+**MANDATORY**: Depend on abstractions, not concretions.
+
+- **Inject dependencies**: Pass dependencies as constructor parameters.
+- **Mock for testing**: Use interfaces so you can inject mocks.
+
+**Example violation and fix**:
+
+```typescript
+// ❌ BAD: Hardcoded dependency on concrete OpenAI class
+class Engine {
+  private openai = new OpenAI(...);
+  async execute() {
+    const resp = await this.openai.generate(...);
+  }
+}
+
+// ✅ GOOD: Depend on ModelProvider abstraction
+class Engine {
+  constructor(private modelProvider: ModelProvider) {}
+  async execute() {
+    const resp = await this.modelProvider.generate(...);
+  }
+}
+
+// Test with mock
+const mockProvider = new LocalMockAdapter();
+const engine = new Engine(mockProvider);
+```
+
+### Don't Repeat Yourself (DRY)
+
+**MANDATORY**: Code must not repeat logic.
+
+- **Extract to functions**: If you write it twice, make it a function.
+- **Extract to constants**: Magic numbers → named constants.
+- **Extract to classes**: Repeated patterns → base classes or utilities.
+
+**Example**:
+
+```typescript
+// ❌ BAD: Path validation repeated
+if (!path.includes('..')) { ... }
+// ... elsewhere ...
+if (!path.includes('..')) { ... }
+
+// ✅ GOOD: Extract to function
+function isSafePath(path: string): boolean {
+  return !path.includes('..') && !path.includes('\\');
+}
+```
+
+### Keep It Simple, Stupid (KISS)
+
+**MANDATORY**: Simplicity over cleverness.
+
+- **No over-engineering**: Don't add complexity for future features that don't exist.
+- **Readable over clever**: `const isValid = x > 0 && x < 100` beats `const isValid = /^\d{1,2}$/.test(String(x))`
+- **Obvious solutions**: Use the straightforward approach.
+
+**Example**:
+
+```typescript
+// ❌ BAD: Over-engineered, hard to understand
+const p = (a, b) => a.reduce((acc, x) => (acc.includes(x) ? acc : [...acc, x]), []).filter(x => b.includes(x));
+
+// ✅ GOOD: Clear intent
+function findCommon(arr1: string[], arr2: string[]): string[] {
+  return arr1.filter(x => arr2.includes(x));
+}
+```
+
 - **Service Pattern**: Business logic goes in `src/services/`. External API calls (Google, Groq, Sandbox) MUST be wrapped in a Service with proper error handling.
 - **Adapter Pattern**: Wrap external SDKs (AI SDK, Git) so they can be swapped.
 - **Helper Pattern**: Do not put logic in React components or Worker fetch handlers. Extract to `src/lib`.
