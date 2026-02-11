@@ -106,16 +106,20 @@ export class ExecutionTracer {
   }
 
   /**
-   * Get critical path (longest span sequence)
+   * Get critical path (longest cumulative duration)
+   * Critical path refers to the sequence with greatest total duration, not span count
    */
   getCriticalPath(): ExecutionSpan[] {
     const rootSpans = this.timeline.spans.filter(s => !s.parentId)
     let longestPath: ExecutionSpan[] = []
+    let longestDuration = 0
 
     for (const span of rootSpans) {
       const path = this.getSpanPath(span)
-      if (path.length > longestPath.length) {
+      const duration = this.calculatePathDuration(path)
+      if (duration > longestDuration) {
         longestPath = path
+        longestDuration = duration
       }
     }
 
@@ -128,14 +132,24 @@ export class ExecutionTracer {
   private getSpanPath(span: ExecutionSpan): ExecutionSpan[] {
     const children = this.timeline.spans.filter(s => s.parentId === span.id)
     let longestChildPath: ExecutionSpan[] = []
+    let longestDuration = 0
 
     for (const child of children) {
       const path = this.getSpanPath(child)
-      if (path.length > longestChildPath.length) {
+      const duration = this.calculatePathDuration(path)
+      if (duration > longestDuration) {
         longestChildPath = path
+        longestDuration = duration
       }
     }
 
     return [span, ...longestChildPath]
+  }
+
+  /**
+   * Calculate cumulative duration of a path
+   */
+  private calculatePathDuration(path: ExecutionSpan[]): number {
+    return path.reduce((sum, span) => sum + (span.duration ?? 0), 0)
   }
 }

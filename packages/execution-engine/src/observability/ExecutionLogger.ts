@@ -63,7 +63,7 @@ export class ExecutionLogger {
    */
   logEvent(event: ExecutionEvent): void {
     const domain = 'events'
-    const operation = event.type.replace(/_/g, '_')
+    const operation = event.type
 
     let message = ''
     let context: Record<string, unknown> | undefined
