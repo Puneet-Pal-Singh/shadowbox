@@ -3,7 +3,7 @@
  * Implements ModelProvider for OpenAI API
  */
 
-import type { ModelProvider, ModelInput, ModelOutput, ModelToolCall } from './ModelProvider.js'
+import type { ModelProvider, ModelInput, ModelOutput, ModelToolCall, ToolDefinition } from './ModelProvider.js'
 
 /**
  * OpenAI API response types (simplified)
@@ -81,25 +81,23 @@ export class OpenAIAdapter implements ModelProvider {
     }
   }
 
-  async generate(input: ModelInput): Promise<ModelOutput> {
-    const request = this.buildRequest(input)
-    const response = await this.callAPI(request)
-    return this.parseResponse(response)
+  private buildMessages(input: ModelInput): OpenAIMessage[] {
+    return [
+      {
+        role: 'system',
+        content: input.systemPrompt
+      },
+      {
+        role: 'user',
+        content: input.userMessage
+      }
+    ]
   }
 
-  /**
-   * Build OpenAI API request (SRP: request formatting)
-   */
-  private buildRequest(input: ModelInput): {
-    requestBody: Record<string, unknown>
-    timeout: AbortSignal
-  } {
-    const messages: OpenAIMessage[] = [
-      { role: 'system', content: input.systemPrompt },
-      { role: 'user', content: input.userMessage }
-    ]
+  private buildTools(tools?: ToolDefinition[]) {
+    if (!tools) return undefined
 
-    const tools = input.tools?.map(tool => ({
+    return tools.map(tool => ({
       type: 'function' as const,
       function: {
         name: tool.name,
@@ -107,35 +105,27 @@ export class OpenAIAdapter implements ModelProvider {
         parameters: tool.inputSchema
       }
     }))
+  }
 
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), 30000)
-
+  private buildRequestBody(input: ModelInput, tools: unknown | undefined) {
     return {
-      requestBody: {
-        model: this.model,
-        messages,
-        temperature: input.temperature ?? 0.7,
-        max_tokens: input.maxTokens ?? 4096,
-        tools,
-        tool_choice: tools ? 'auto' : undefined
-      },
-      timeout: controller.signal
+      model: this.model,
+      messages: this.buildMessages(input),
+      temperature: input.temperature ?? 0.7,
+      max_tokens: input.maxTokens ?? 4096,
+      tools,
+      tool_choice: tools ? 'auto' : undefined
     }
   }
 
-  /**
-   * Call OpenAI API (SRP: HTTP communication)
-   */
-  private async callAPI(request: { requestBody: Record<string, unknown>; timeout: AbortSignal }): Promise<OpenAIResponse> {
+  private async callOpenAIAPI(requestBody: object): Promise<OpenAIResponse> {
     const response = await fetch(`${this.baseUrl}/chat/completions`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${this.apiKey}`,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify(request.requestBody),
-      signal: request.timeout
+      body: JSON.stringify(requestBody)
     })
 
     if (!response.ok) {
@@ -143,58 +133,28 @@ export class OpenAIAdapter implements ModelProvider {
       throw new Error(`OpenAI API error: ${response.status} ${error}`)
     }
 
-    const data = (await response.json()) as unknown
-    return this.validateResponse(data)
+    return (await response.json()) as OpenAIResponse
   }
 
-  /**
-   * Validate response structure (SRP: response validation)
-   */
-  private validateResponse(data: unknown): OpenAIResponse {
-    if (!data || typeof data !== 'object' || !('choices' in data)) {
-      throw new Error('Invalid OpenAI response structure')
-    }
+  private extractToolCalls(toolCalls: OpenAIToolCall[] | undefined): ModelToolCall[] {
+    if (!toolCalls) return []
 
-    const response = data as Record<string, unknown>
-    const choices = response.choices as unknown[]
-
-    if (!Array.isArray(choices) || choices.length === 0) {
-      throw new Error('No choices in OpenAI response')
-    }
-
-    return data as OpenAIResponse
-  }
-
-  /**
-   * Parse tool calls from response (SRP: tool call extraction)
-   */
-  private parseToolCalls(toolCalls: OpenAIToolCall[] | undefined): ModelToolCall[] {
-    if (!toolCalls) {
-      return []
-    }
-
-    const parsed: ModelToolCall[] = []
-
+    const extracted: ModelToolCall[] = []
     for (const tc of toolCalls) {
       try {
         const args = JSON.parse(tc.function.arguments) as Record<string, unknown>
-        parsed.push({
+        extracted.push({
           id: tc.id,
           toolName: tc.function.name,
           arguments: args
         })
       } catch (error) {
-        console.error('[openai/adapter] Failed to parse tool arguments for', tc.function.name, error)
-        // Skip unparseable tool calls rather than silently dropping them
+        console.error('[openai/adapter] Failed to parse tool arguments:', error)
       }
     }
-
-    return parsed
+    return extracted
   }
 
-  /**
-   * Map OpenAI finish reason to standard reason (SRP: reason mapping)
-   */
   private mapFinishReason(reason: string): 'max_tokens' | 'end_turn' | 'tool_use' | 'error' {
     switch (reason) {
       case 'length':
@@ -208,17 +168,17 @@ export class OpenAIAdapter implements ModelProvider {
     }
   }
 
-  /**
-   * Parse OpenAI response to ModelOutput (SRP: response parsing)
-   */
-  private parseResponse(data: OpenAIResponse): ModelOutput {
-    const choice = data.choices[0]
+  async generate(input: ModelInput): Promise<ModelOutput> {
+    const tools = this.buildTools(input.tools)
+    const requestBody = this.buildRequestBody(input, tools)
+    const data = await this.callOpenAIAPI(requestBody)
 
+    const choice = data.choices[0]
     if (!choice) {
-      throw new Error('No choice in OpenAI response')
+      throw new Error('No response from OpenAI')
     }
 
-    const toolCalls = this.parseToolCalls(choice.message.tool_calls)
+    const toolCalls = this.extractToolCalls(choice.message.tool_calls)
 
     return {
       content: choice.message.content ?? '',
