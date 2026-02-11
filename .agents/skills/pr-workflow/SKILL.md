@@ -221,12 +221,45 @@ EOF
 )"
 ```
 
+### PR Title Format
+
+Follow conventional commits:
+
+```bash
+feat: add model provider abstraction (OpenAI and LocalMock adapters)
+fix: resolve race condition in cache invalidation
+chore: update dependencies
+refactor: simplify error handling
+docs: update API documentation
+```
+
 ### PR Body Template
+
+**REQUIRED**: Always include an executive summary box with:
 
 ```markdown
 ## Summary
 
 One-paragraph explanation of the change.
+
+## What's Included
+
+- **Component 1** (X lines) — Purpose
+- **Component 2** (Y lines) — Purpose
+- **Tests** (Z lines, coverage %) — Test scope
+
+## Key Features
+
+✅ Feature 1  
+✅ Feature 2  
+✅ Feature 3
+
+## Verification
+
+✅ TypeScript strict: `pnpm typecheck`  
+✅ Builds: `pnpm build`  
+✅ Tests pass: `pnpm test`  
+✅ Zero `any` types
 
 ## Motivation
 
@@ -269,6 +302,71 @@ Relates to #456
 - [ ] I have added tests that prove my fix is effective
 - [ ] New and existing unit tests pass locally
 - [ ] Any dependent changes have been merged and published
+```
+
+### PR Description Requirements
+
+**MANDATORY** for all PRs:
+
+**Title + Summary format (simple, concise, PR-ready):**
+
+```markdown
+## Title
+feat: add model provider abstraction (OpenAI and LocalMock adapters)
+
+## Summary
+
+✅ PR 2 Complete: Model Adapters & Tool Integration
+
+**Branch**: feat/execution-engine-pr2
+
+### What Was Built
+
+5 Atomic Commits (1,445 lines of code + 496 lines of tests):
+
+**ModelProvider Abstraction** (418 lines)
+- ModelProvider.ts — Interface + schemas (Zod)
+- OpenAIAdapter.ts — Production OpenAI implementation
+- LocalMockAdapter.ts — Deterministic testing mock
+- Full type safety, zero `any` types
+
+**Output Validation** (103 lines)
+- OutputValidator.ts — JSON extraction, tool call parsing
+- Schema validation with Zod
+- Markdown code block handling
+
+**Tool Framework** (428 lines)
+- Tool.ts — Base abstraction
+- ToolValidator.ts — Path/command/arg validation
+- ToolRegistry.ts — Tool registration & lookup
+- ToolExecutor.ts — Safe execution with timeout & retry
+
+**Main API Export** (27 lines)
+- All new modules exported from `src/index.ts`
+- Resolved name conflicts between adapters & tools
+
+**Comprehensive Tests** (496 lines, 70%+ coverage)
+- model-adapter.test.ts — Integration tests
+- adapters.test.ts — Unit tests for validation
+- tools.test.ts — Registry & executor tests
+
+### Key Features
+
+✅ Model Abstraction: Swap OpenAI/Anthropic/local without changing engine
+✅ Output Safety: Zod validation + markdown parsing
+✅ Tool Safety: File path validation, command sanitization, timeout enforcement
+✅ Determinism: LocalMock adapter for reproducible testing
+✅ No Dependencies: Only Zod (same as PR 1)
+
+### Verification
+
+✅ TypeScript strict: `pnpm --filter=@shadowbox/execution-engine type-check`
+✅ Builds: `pnpm --filter=@shadowbox/execution-engine build`
+✅ Zero `any` types
+✅ 5 atomic commits (conventional format)
+✅ All specific paths in `git add` (no `-A`)
+
+**Ready for PR review and merge.**
 ```
 
 ---
