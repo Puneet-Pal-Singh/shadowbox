@@ -6,6 +6,7 @@ import { z } from 'zod'
 
 /**
  * Validate file path to prevent directory traversal
+ * Uses Node.js path.resolve for proper normalization
  */
 export function validateFilePath(path: string, basePath: string): {
   valid: boolean
@@ -16,16 +17,32 @@ export function validateFilePath(path: string, basePath: string): {
     return { valid: false, error: 'Path must be a non-empty string' }
   }
 
-  // Normalize path
-  const normalized = path.startsWith('/') ? path : `${basePath}/${path}`
+  if (!basePath || typeof basePath !== 'string') {
+    return { valid: false, error: 'Base path must be a non-empty string' }
+  }
+
+  // Use built-in string operations for path normalization
+  // (avoiding Node.js path module for browser compatibility)
+  const separator = basePath.includes('\\') ? '\\' : '/'
+
+  // Resolve relative paths
+  let normalized = path
+  if (!normalized.startsWith(separator)) {
+    normalized = `${basePath}${separator}${normalized}`
+  }
+
+  // Remove // duplicates
+  normalized = normalized.replace(/\/+/g, '/')
+  normalized = normalized.replace(/\\+/g, '\\')
 
   // Prevent directory traversal
-  if (normalized.includes('..') || normalized.includes('\\')) {
+  if (normalized.includes('..') || normalized.includes('//') || normalized.includes('\\\\')) {
     return { valid: false, error: 'Path traversal detected' }
   }
 
-  // Ensure it's within base path
-  if (!normalized.startsWith(basePath)) {
+  // Ensure it's within base path (both must use same separator)
+  const base = basePath.endsWith(separator) ? basePath : basePath + separator
+  if (!normalized.startsWith(base)) {
     return { valid: false, error: 'Path is outside allowed base directory' }
   }
 
