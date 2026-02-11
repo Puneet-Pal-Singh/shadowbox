@@ -225,7 +225,7 @@ EOF
 
 Follow conventional commits:
 
-```
+```bash
 feat: add model provider abstraction (OpenAI and LocalMock adapters)
 fix: resolve race condition in cache invalidation
 chore: update dependencies
@@ -310,7 +310,7 @@ Relates to #456
 
 **Title + Summary format (simple, concise, PR-ready):**
 
-```text
+```markdown
 ## Title
 feat: add model provider abstraction (OpenAI and LocalMock adapters)
 
@@ -367,7 +367,7 @@ feat: add model provider abstraction (OpenAI and LocalMock adapters)
 ✅ All specific paths in `git add` (no `-A`)
 
 **Ready for PR review and merge.**
-```markdown
+```
 
 ---
 
