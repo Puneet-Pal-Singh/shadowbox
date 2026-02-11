@@ -308,47 +308,65 @@ Relates to #456
 
 **MANDATORY** for all PRs:
 
-1. **Title**: Use conventional commit format
-2. **Summary Box**: Include component breakdown, features, verification steps
-3. **Body**: Follow template structure above
-4. **Code Stats**: Include lines of code, test coverage percentage
-5. **Verification**: Add checkmarks for build/test verification
-6. **Atomic Commits**: Reference commit count in summary
+**Title + Summary format (simple, concise, PR-ready):**
 
-**Example Summary Box**:
+```markdown
+## Title
+feat: add model provider abstraction (OpenAI and LocalMock adapters)
 
-```
-## ✅ PR 2 Complete: Model Adapters & Tool Integration
+## Summary
 
-**5 Atomic Commits** (1,445 lines of code + 496 lines of tests):
+✅ PR 2 Complete: Model Adapters & Tool Integration
 
-1. **ModelProvider Abstraction** (418 lines)
-   - ModelProvider.ts — Interface + schemas (Zod)
-   - OpenAIAdapter.ts — Production OpenAI implementation
-   - LocalMockAdapter.ts — Deterministic testing mock
+**Branch**: feat/execution-engine-pr2
 
-2. **Output Validation** (103 lines)
-   - OutputValidator.ts — JSON extraction, tool call parsing
-   - Schema validation with Zod
+### What Was Built
 
-3. **Tool Framework** (428 lines)
-   - Tool.ts — Base abstraction
-   - ToolValidator.ts — Path/command/arg validation
-   - ToolRegistry.ts — Tool registration
-   - ToolExecutor.ts — Safe execution
+5 Atomic Commits (1,445 lines of code + 496 lines of tests):
 
-4. **Main API Export** (27 lines)
-   - All new modules exported
+**ModelProvider Abstraction** (418 lines)
+- ModelProvider.ts — Interface + schemas (Zod)
+- OpenAIAdapter.ts — Production OpenAI implementation
+- LocalMockAdapter.ts — Deterministic testing mock
+- Full type safety, zero `any` types
 
-5. **Tests** (496 lines, 70%+ coverage)
-   - Integration & unit tests
+**Output Validation** (103 lines)
+- OutputValidator.ts — JSON extraction, tool call parsing
+- Schema validation with Zod
+- Markdown code block handling
+
+**Tool Framework** (428 lines)
+- Tool.ts — Base abstraction
+- ToolValidator.ts — Path/command/arg validation
+- ToolRegistry.ts — Tool registration & lookup
+- ToolExecutor.ts — Safe execution with timeout & retry
+
+**Main API Export** (27 lines)
+- All new modules exported from `src/index.ts`
+- Resolved name conflicts between adapters & tools
+
+**Comprehensive Tests** (496 lines, 70%+ coverage)
+- model-adapter.test.ts — Integration tests
+- adapters.test.ts — Unit tests for validation
+- tools.test.ts — Registry & executor tests
+
+### Key Features
+
+✅ Model Abstraction: Swap OpenAI/Anthropic/local without changing engine
+✅ Output Safety: Zod validation + markdown parsing
+✅ Tool Safety: File path validation, command sanitization, timeout enforcement
+✅ Determinism: LocalMock adapter for reproducible testing
+✅ No Dependencies: Only Zod (same as PR 1)
 
 ### Verification
 
-✅ TypeScript strict: `pnpm --filter=@shadowbox/execution-engine type-check`  
-✅ Builds: `pnpm --filter=@shadowbox/execution-engine build`  
-✅ Zero `any` types  
+✅ TypeScript strict: `pnpm --filter=@shadowbox/execution-engine type-check`
+✅ Builds: `pnpm --filter=@shadowbox/execution-engine build`
+✅ Zero `any` types
 ✅ 5 atomic commits (conventional format)
+✅ All specific paths in `git add` (no `-A`)
+
+**Ready for PR review and merge.**
 ```
 
 ---
