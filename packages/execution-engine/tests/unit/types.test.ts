@@ -288,7 +288,7 @@ describe('Type Safety', () => {
       timestamp: Date.now()
     }
 
-    const result = createLogEntry('info', 'test')
-    expect(result.level).toBe('info')
+    const result = LogEntrySchema.safeParse(log)
+    expect(result.success).toBe(false)
   })
 })

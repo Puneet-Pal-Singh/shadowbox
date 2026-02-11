@@ -90,7 +90,7 @@ tests/
 
 ### Basic Setup
 
-```typescript
+```ts
 import { PlanExecutionEngine, initializeExecutionState } from '@shadowbox/execution-engine'
 import type { Plan } from '@shadowbox/execution-engine'
 
@@ -121,7 +121,7 @@ console.log(state.status) // 'completed', 'failed', or 'stopped'
 
 ### With Artifact Store
 
-```typescript
+```ts
 import { PlanExecutionEngine } from '@shadowbox/execution-engine'
 import type { ArtifactStore } from '@shadowbox/execution-engine'
 
@@ -136,7 +136,7 @@ const engine = new PlanExecutionEngine({
 
 ### Context Management
 
-```typescript
+```ts
 import { ExecutionContextManager } from '@shadowbox/execution-engine'
 
 const manager = new ExecutionContextManager(
@@ -156,7 +156,7 @@ const context = manager.getContextForStep(plan.steps[1])
 
 ### Replay & Determinism
 
-```typescript
+```ts
 import { ExecutionStateTracker } from '@shadowbox/execution-engine'
 
 const tracker = new ExecutionStateTracker(store, 'run-1')
@@ -170,7 +170,7 @@ const isDeterministic = tracker.verifyDeterminism(previousSnapshots)
 
 ## Error Handling
 
-```typescript
+```ts
 import {
   ExecutionError,
   StepFailureError,

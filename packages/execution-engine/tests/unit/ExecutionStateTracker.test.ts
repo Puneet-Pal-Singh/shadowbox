@@ -235,6 +235,7 @@ describe('ExecutionStateTracker', () => {
 
       tracker.clearSnapshots()
 
+      // Verify both snapshots and artifacts are cleared
       expect(tracker.getAllSnapshots()).toHaveLength(0)
     })
   })

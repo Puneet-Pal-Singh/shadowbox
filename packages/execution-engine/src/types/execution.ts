@@ -21,6 +21,7 @@ export const StopReasonSchema = z.enum([
   'budget_exhausted',
   'max_iterations',
   'goal_satisfied',
+  'timeout',
   'error'
 ])
 

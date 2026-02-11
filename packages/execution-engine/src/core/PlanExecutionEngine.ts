@@ -61,7 +61,10 @@ export class PlanExecutionEngine {
         // For now: just track structure
       }
 
-      state.status = 'completed'
+      // Only set to completed if not already stopped
+      if (state.status === 'running') {
+        state.status = 'completed'
+      }
     } catch (error) {
       state.status = 'failed'
       state.errors.push(error instanceof Error ? error : new Error(String(error)))

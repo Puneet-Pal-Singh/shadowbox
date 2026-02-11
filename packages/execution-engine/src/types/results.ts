@@ -3,7 +3,6 @@
  */
 
 import { z } from 'zod'
-import type { ToolCall } from './plan.js'
 
 export const LogLevelSchema = z.enum(['info', 'debug', 'warn', 'error'])
 
