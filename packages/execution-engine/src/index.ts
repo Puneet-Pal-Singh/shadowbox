@@ -54,3 +54,8 @@ export type {
 // Observability
 export { ExecutionLogger, ExecutionTracer } from './observability/index.js'
 export type { ExecutionSpan, ExecutionTimeline } from './observability/index.js'
+
+// Artifacts
+export { InMemoryArtifactStore, FileArtifactStore } from './artifacts/index.js'
+export type { FileArtifactStoreConfig } from './artifacts/index.js'
+export type { ArtifactStore } from './types/index.js'
