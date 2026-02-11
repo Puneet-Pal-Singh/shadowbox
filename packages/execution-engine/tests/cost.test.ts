@@ -58,7 +58,10 @@ describe('MODEL_PRICING Constant', () => {
   it('all entries are valid ModelPricing', () => {
     Object.entries(MODEL_PRICING).forEach(([modelName, pricing]) => {
       const result = ModelPricingSchema.safeParse(pricing)
-      expect(result.success).toBe(true, `Model ${modelName} has invalid pricing`)
+      if (!result.success) {
+        throw new Error(`Model ${modelName} has invalid pricing: ${JSON.stringify(result.error)}`)
+      }
+      expect(result.success).toBe(true)
     })
   })
 
@@ -89,33 +92,54 @@ describe('getModelPricing', () => {
 })
 
 describe('calculateTokenCost', () => {
-  it('calculates cost correctly for GPT-4', () => {
-    // 1000 tokens split evenly: 500 input, 500 output
+  it('calculates cost correctly with separate input/output tokens', () => {
     // input: 500 * 0.03/1000 = 0.015
     // output: 500 * 0.06/1000 = 0.03
     // total: 0.045
-    const cost = calculateTokenCost(1000, 'gpt-4')
+    const cost = calculateTokenCost(500, 500, 'gpt-4')
     expect(cost).toBeCloseTo(0.045, 5)
   })
 
+  it('calculates cost for input-heavy workload (code analysis)', () => {
+    // Code analysis: 1000 input, 100 output tokens
+    // input: 1000 * 0.03/1000 = 0.03
+    // output: 100 * 0.06/1000 = 0.006
+    // total: 0.036
+    const cost = calculateTokenCost(1000, 100, 'gpt-4')
+    expect(cost).toBeCloseTo(0.036, 5)
+  })
+
+  it('calculates cost for output-heavy workload (code generation)', () => {
+    // Code generation: 100 input, 1000 output tokens
+    // input: 100 * 0.03/1000 = 0.003
+    // output: 1000 * 0.06/1000 = 0.06
+    // total: 0.063
+    const cost = calculateTokenCost(100, 1000, 'gpt-4')
+    expect(cost).toBeCloseTo(0.063, 5)
+  })
+
   it('calculates cost for zero tokens', () => {
-    const cost = calculateTokenCost(0, 'gpt-4')
+    const cost = calculateTokenCost(0, 0, 'gpt-4')
     expect(cost).toBe(0)
   })
 
   it('calculates cost for Claude model', () => {
-    const cost = calculateTokenCost(1000, 'claude-3-sonnet')
+    const cost = calculateTokenCost(1000, 1000, 'claude-3-sonnet')
     expect(cost).toBeGreaterThan(0)
   })
 
   it('throws for unknown model', () => {
-    expect(() => calculateTokenCost(1000, 'unknown')).toThrow()
+    expect(() => calculateTokenCost(1000, 1000, 'unknown')).toThrow()
   })
 
-  it('scales cost with token count', () => {
-    const cost1 = calculateTokenCost(1000, 'gpt-3.5-turbo')
-    const cost2 = calculateTokenCost(2000, 'gpt-3.5-turbo')
-    expect(cost2).toBeCloseTo(cost1 * 2, 5)
+  it('correctly prices different token distributions', () => {
+    // Different workload distributions yield different costs
+    const codeLike = calculateTokenCost(1000, 100, 'gpt-3.5-turbo')
+    const generationLike = calculateTokenCost(100, 1000, 'gpt-3.5-turbo')
+    // Generation-heavy typically costs more (if output price > input price)
+    expect(codeLike).toBeGreaterThan(0)
+    expect(generationLike).toBeGreaterThan(0)
+    expect(codeLike).not.toEqual(generationLike)
   })
 })
 

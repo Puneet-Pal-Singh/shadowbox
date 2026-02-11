@@ -115,12 +115,15 @@ export function getModelPricing(modelName: string): ModelPricing {
 
 /**
  * Helper: Calculate token cost
+ * Separate input/output tokens for accurate pricing
+ * (Different workloads have different token distributions)
  */
-export function calculateTokenCost(tokens: number, modelName: string): number {
+export function calculateTokenCost(
+  inputTokens: number,
+  outputTokens: number,
+  modelName: string
+): number {
   const pricing = getModelPricing(modelName)
-  // Assume tokens are balanced split (half input, half output)
-  const inputTokens = Math.ceil(tokens / 2)
-  const outputTokens = Math.floor(tokens / 2)
   return inputTokens * pricing.inputTokenPrice + outputTokens * pricing.outputTokenPrice
 }
 
