@@ -141,6 +141,8 @@ export class StandardStopConditionEvaluator implements StopConditionEvaluator {
   /**
    * Resolve multiple stop conditions
    * Returns highest-priority match
+   *
+   * Priority is determined by priorityOrder parameter (or DEFAULT_PRIORITY_ORDER)
    */
   resolveMultiple(
     conditions: StopCondition[],
@@ -150,7 +152,12 @@ export class StandardStopConditionEvaluator implements StopConditionEvaluator {
     console.log(`[stop-evaluator/resolveMultiple] Resolving ${conditions.length} conditions`);
 
     // Evaluate all conditions
-    const results = conditions.map((cond) => this.evaluate(cond, state));
+    const results = conditions.map((cond) => {
+      const result = this.evaluate(cond, state);
+      // Update priority based on custom priorityOrder
+      result.priority = getPriority(cond.type, priorityOrder);
+      return result;
+    });
 
     // Filter to those that trigger (shouldStop = true)
     const triggered = results.filter((r) => r.shouldStop);
@@ -246,22 +253,29 @@ export function evaluateStopPolicy(
 
   // First check hard limits
   if (stopEvaluator.exceedsHardLimits(state, policy.hardLimits)) {
-    // Determine which limit was exceeded
+    // Determine which limit was exceeded and create representative condition
     let reason: StopReason = 'FAILED_HARD_LIMIT_STEPS';
+    let condition: StopCondition;
     let message = 'Hard limit exceeded';
 
     if (state.stepsExecuted > policy.hardLimits.maxSteps) {
       reason = 'FAILED_HARD_LIMIT_STEPS';
+      condition = { type: 'max_steps_reached', maxSteps: policy.hardLimits.maxSteps };
       message = `Steps exceeded: ${state.stepsExecuted} > ${policy.hardLimits.maxSteps}`;
     } else if (state.errorCount > policy.hardLimits.maxErrors) {
       reason = 'FAILED_HARD_LIMIT_ERRORS';
+      condition = { type: 'error_threshold_exceeded', maxErrors: policy.hardLimits.maxErrors };
       message = `Errors exceeded: ${state.errorCount} > ${policy.hardLimits.maxErrors}`;
     } else if (
       policy.hardLimits.maxDurationMs &&
       state.durationMs > policy.hardLimits.maxDurationMs
     ) {
       reason = 'FAILED_HARD_LIMIT_TIMEOUT';
+      condition = { type: 'timeout_reached', maxDurationMs: policy.hardLimits.maxDurationMs };
       message = `Duration exceeded: ${state.durationMs} > ${policy.hardLimits.maxDurationMs}`;
+    } else {
+      // Fallback (shouldn't reach here if exceedsHardLimits works correctly)
+      condition = policy.primary;
     }
 
     return {
@@ -269,7 +283,7 @@ export function evaluateStopPolicy(
       reason,
       priority: 0, // highest priority
       details: {
-        condition: policy.primary,
+        condition,
         executionTime: state.durationMs,
         stepsCompleted: state.stepsCompleted,
         message,
@@ -286,9 +300,12 @@ export function evaluateStopPolicy(
   // Check fallback condition
   const fallbackResult = stopEvaluator.evaluate(policy.fallback, state);
   if (fallbackResult.shouldStop) {
-    // Fallback triggered: reason is COMPLETED_PARTIAL
-    fallbackResult.reason = 'COMPLETED_PARTIAL';
-    return fallbackResult;
+    // Fallback triggered: return new result with COMPLETED_PARTIAL reason
+    // (don't mutate fallbackResult to preserve immutability)
+    return {
+      ...fallbackResult,
+      reason: 'COMPLETED_PARTIAL',
+    };
   }
 
   // Neither condition met

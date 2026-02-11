@@ -162,7 +162,6 @@ export type StopReason =
   | 'FAILED_HARD_LIMIT_ERRORS' // exceeded maxErrors
   | 'FAILED_HARD_LIMIT_TIMEOUT' // exceeded maxDurationMs
   | 'FAILED_CONDITION_NOT_MET' // neither primary nor fallback met
-  | 'FAILED_TIMEOUT' // execution took too long
   | 'ABORTED_EXTERNAL'; // user or system abort
 
 /**

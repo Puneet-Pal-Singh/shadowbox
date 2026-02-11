@@ -166,6 +166,34 @@ export const StopPolicySchema: z.ZodType<StopPolicy> = z
       message: 'fallback max_errors cannot exceed hardLimits.maxErrors',
       path: ['fallback'],
     }
+  )
+  .refine(
+    (policy) => {
+      // Check if primary maxDurationMs exceeds hard limit
+      if (policy.primary.type === 'timeout_reached') {
+        return policy.hardLimits.maxDurationMs === undefined || 
+               policy.primary.maxDurationMs <= policy.hardLimits.maxDurationMs;
+      }
+      return true;
+    },
+    {
+      message: 'primary timeout_reached cannot exceed hardLimits.maxDurationMs',
+      path: ['primary'],
+    }
+  )
+  .refine(
+    (policy) => {
+      // Check if fallback maxDurationMs exceeds hard limit
+      if (policy.fallback.type === 'timeout_reached') {
+        return policy.hardLimits.maxDurationMs === undefined || 
+               policy.fallback.maxDurationMs <= policy.hardLimits.maxDurationMs;
+      }
+      return true;
+    },
+    {
+      message: 'fallback timeout_reached cannot exceed hardLimits.maxDurationMs',
+      path: ['fallback'],
+    }
   );
 
 // ============================================================================
@@ -205,7 +233,6 @@ export const StopReasonSchema = z.enum([
   'FAILED_HARD_LIMIT_ERRORS',
   'FAILED_HARD_LIMIT_TIMEOUT',
   'FAILED_CONDITION_NOT_MET',
-  'FAILED_TIMEOUT',
   'ABORTED_EXTERNAL',
 ]);
 
@@ -222,7 +249,7 @@ export const StopResultSchema: z.ZodType<StopResult> = z
       condition: StopConditionSchema,
       executionTime: z.number().int().min(0),
       stepsCompleted: z.number().int().min(0),
-      message: z.string().min(1),
+      message: z.string().min(0), // Allow empty string (evaluator may not have context)
     }),
   })
   .strict();
