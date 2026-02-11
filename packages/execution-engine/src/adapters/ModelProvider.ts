@@ -4,7 +4,7 @@
  */
 
 import { z } from 'zod'
-import type { ExecutionContext } from '../types/index.js'
+import type { ExecutionContext, MemoryBlock } from '../types/index.js'
 
 /**
  * Tool definition for model tool_use capability
@@ -79,6 +79,7 @@ export interface ModelProvider {
 
 /**
  * Helper to build system prompt for step execution
+ * Note: Sanitizes outputs to prevent sensitive data leakage
  */
 export function buildSystemPrompt(
   basePrompt: string,
@@ -92,22 +93,35 @@ export function buildSystemPrompt(
 - Repo Path: ${context.repoPath}
 
 ## Previous Step Outputs
-${
-  Object.entries(context.previousStepOutputs).length > 0
-    ? Object.entries(context.previousStepOutputs)
-        .map(([key, value]) => `- ${key}: ${JSON.stringify(value)}`)
-        .join('\n')
-    : '(none)'
-}
+${buildOutputsSummary(context.previousStepOutputs)}
 
 ## Memory
-${
-  context.memory.length > 0
-    ? context.memory
-        .map(m => `- ${m.key}: ${JSON.stringify(m.value)}`)
-        .join('\n')
-    : '(none)'
-}`
+${buildMemorySummary(context.memory)}
+`
+}
+
+/**
+ * Build sanitized summary of outputs (prevent data leakage)
+ */
+function buildOutputsSummary(outputs: Record<string, unknown>): string {
+  if (Object.entries(outputs).length === 0) {
+    return '(none)'
+  }
+
+  return Object.entries(outputs)
+    .map(([key]) => `- ${key}: <output>`)
+    .join('\n')
+}
+
+/**
+ * Build sanitized summary of memory blocks
+ */
+function buildMemorySummary(memory: MemoryBlock[]): string {
+  if (memory.length === 0) {
+    return '(none)'
+  }
+
+  return memory.map(m => `- ${m.key}: <value>`).join('\n')
 }
 
 /**
