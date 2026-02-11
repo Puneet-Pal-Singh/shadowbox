@@ -47,6 +47,11 @@ export class ExecutionTracer {
    * Start a new span
    */
   startSpan(id: string, name: string, metadata?: Record<string, unknown>): ExecutionSpan {
+    // Guard against duplicate span IDs
+    if (this.spanMap.has(id)) {
+      throw new Error(`Span with ID '${id}' already exists`)
+    }
+
     const parentId = this.spanStack[this.spanStack.length - 1]?.id
 
     const span: ExecutionSpan = {
