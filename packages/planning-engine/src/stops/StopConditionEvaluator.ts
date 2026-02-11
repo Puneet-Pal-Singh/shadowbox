@@ -193,30 +193,32 @@ export class StandardStopConditionEvaluator implements StopConditionEvaluator {
   /**
    * Check if state violates hard limits
    * Pure function: deterministic
+   *
+   * Uses >= boundary to match evaluate() condition: stepsExecuted >= condition.maxSteps
    */
   exceedsHardLimits(state: ExecutionState, limits: HardLimits): boolean {
     console.log('[stop-evaluator/exceedsHardLimits] Checking limits');
 
-    // Check maxSteps
-    if (state.stepsExecuted > limits.maxSteps) {
+    // Check maxSteps (>= to match evaluate boundary)
+    if (state.stepsExecuted >= limits.maxSteps) {
       console.warn(
-        `[stop-evaluator/exceedsHardLimits] Exceeded maxSteps: ${state.stepsExecuted} > ${limits.maxSteps}`
+        `[stop-evaluator/exceedsHardLimits] Exceeded maxSteps: ${state.stepsExecuted} >= ${limits.maxSteps}`
       );
       return true;
     }
 
-    // Check maxErrors
-    if (state.errorCount > limits.maxErrors) {
+    // Check maxErrors (>= to match evaluate boundary)
+    if (state.errorCount >= limits.maxErrors) {
       console.warn(
-        `[stop-evaluator/exceedsHardLimits] Exceeded maxErrors: ${state.errorCount} > ${limits.maxErrors}`
+        `[stop-evaluator/exceedsHardLimits] Exceeded maxErrors: ${state.errorCount} >= ${limits.maxErrors}`
       );
       return true;
     }
 
-    // Check maxDurationMs (if specified)
-    if (limits.maxDurationMs && state.durationMs > limits.maxDurationMs) {
+    // Check maxDurationMs (if specified, >= to match evaluate boundary)
+    if (limits.maxDurationMs && state.durationMs >= limits.maxDurationMs) {
       console.warn(
-        `[stop-evaluator/exceedsHardLimits] Exceeded maxDurationMs: ${state.durationMs} > ${limits.maxDurationMs}`
+        `[stop-evaluator/exceedsHardLimits] Exceeded maxDurationMs: ${state.durationMs} >= ${limits.maxDurationMs}`
       );
       return true;
     }
@@ -242,6 +244,44 @@ export function getPriority(
 }
 
 /**
+ * Helper: detect which hard limit was exceeded
+ * Returns (reason, condition, message) or null if no limit exceeded
+ */
+function detectExceededHardLimit(
+  state: ExecutionState,
+  limits: HardLimits
+): { reason: StopReason; condition: StopCondition; message: string } | null {
+  // Check maxSteps (use >= to match evaluate() boundary)
+  if (state.stepsExecuted >= limits.maxSteps) {
+    return {
+      reason: 'FAILED_HARD_LIMIT_STEPS',
+      condition: { type: 'max_steps_reached', maxSteps: limits.maxSteps },
+      message: `Steps exceeded: ${state.stepsExecuted} >= ${limits.maxSteps}`,
+    };
+  }
+
+  // Check maxErrors (use >= to match evaluate() boundary)
+  if (state.errorCount >= limits.maxErrors) {
+    return {
+      reason: 'FAILED_HARD_LIMIT_ERRORS',
+      condition: { type: 'error_threshold_exceeded', maxErrors: limits.maxErrors },
+      message: `Errors exceeded: ${state.errorCount} >= ${limits.maxErrors}`,
+    };
+  }
+
+  // Check maxDurationMs (use >= to match evaluate() boundary)
+  if (limits.maxDurationMs && state.durationMs >= limits.maxDurationMs) {
+    return {
+      reason: 'FAILED_HARD_LIMIT_TIMEOUT',
+      condition: { type: 'timeout_reached', maxDurationMs: limits.maxDurationMs },
+      message: `Duration exceeded: ${state.durationMs} >= ${limits.maxDurationMs}`,
+    };
+  }
+
+  return null;
+}
+
+/**
  * Helper: evaluate a stop policy against execution state
  * Checks primary, then fallback
  */
@@ -251,42 +291,18 @@ export function evaluateStopPolicy(
 ): StopResult {
   console.log('[stop-evaluator/evaluateStopPolicy] Evaluating policy');
 
-  // First check hard limits
-  if (stopEvaluator.exceedsHardLimits(state, policy.hardLimits)) {
-    // Determine which limit was exceeded and create representative condition
-    let reason: StopReason = 'FAILED_HARD_LIMIT_STEPS';
-    let condition: StopCondition;
-    let message = 'Hard limit exceeded';
-
-    if (state.stepsExecuted > policy.hardLimits.maxSteps) {
-      reason = 'FAILED_HARD_LIMIT_STEPS';
-      condition = { type: 'max_steps_reached', maxSteps: policy.hardLimits.maxSteps };
-      message = `Steps exceeded: ${state.stepsExecuted} > ${policy.hardLimits.maxSteps}`;
-    } else if (state.errorCount > policy.hardLimits.maxErrors) {
-      reason = 'FAILED_HARD_LIMIT_ERRORS';
-      condition = { type: 'error_threshold_exceeded', maxErrors: policy.hardLimits.maxErrors };
-      message = `Errors exceeded: ${state.errorCount} > ${policy.hardLimits.maxErrors}`;
-    } else if (
-      policy.hardLimits.maxDurationMs &&
-      state.durationMs > policy.hardLimits.maxDurationMs
-    ) {
-      reason = 'FAILED_HARD_LIMIT_TIMEOUT';
-      condition = { type: 'timeout_reached', maxDurationMs: policy.hardLimits.maxDurationMs };
-      message = `Duration exceeded: ${state.durationMs} > ${policy.hardLimits.maxDurationMs}`;
-    } else {
-      // Fallback (shouldn't reach here if exceedsHardLimits works correctly)
-      condition = policy.primary;
-    }
-
+  // First check hard limits using shared helper
+  const hardLimitExceeded = detectExceededHardLimit(state, policy.hardLimits);
+  if (hardLimitExceeded) {
     return {
       shouldStop: true,
-      reason,
+      reason: hardLimitExceeded.reason,
       priority: 0, // highest priority
       details: {
-        condition,
+        condition: hardLimitExceeded.condition,
         executionTime: state.durationMs,
         stepsCompleted: state.stepsCompleted,
-        message,
+        message: hardLimitExceeded.message,
       },
     };
   }
