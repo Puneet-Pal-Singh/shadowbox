@@ -21,7 +21,8 @@ describe('End-to-End Execution', () => {
 
     engine = new PlanExecutionEngine({
       maxIterations: 10,
-      maxTokens: 10000
+      maxTokens: 10000,
+      modelProvider: mockAdapter
     })
 
     plan = {
@@ -104,5 +105,9 @@ describe('End-to-End Execution', () => {
 
     expect(state.planId).toBe(plan.id)
     expect(state.currentStepIndex).toBeGreaterThanOrEqual(0)
+  })
+
+  it('injects model provider into engine', () => {
+    expect(engine.getModelProvider()).toBe(mockAdapter)
   })
 })

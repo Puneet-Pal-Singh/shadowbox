@@ -11,12 +11,14 @@ import type {
   ArtifactStore
 } from '../types/index.js'
 import { initializeExecutionState } from '../types/index.js'
+import type { ModelProvider } from '../adapters/index.js'
 
 export interface PlanExecutionEngineConfig {
   maxIterations?: number
   maxExecutionTimeMs?: number
   maxTokens?: number
   artifactStore?: ArtifactStore
+  modelProvider?: ModelProvider
 }
 
 export class PlanExecutionEngine {
@@ -24,12 +26,14 @@ export class PlanExecutionEngine {
   private maxExecutionTimeMs: number
   private maxTokens: number
   private artifactStore: ArtifactStore | null
+  private modelProvider: ModelProvider | null
 
   constructor(config: PlanExecutionEngineConfig = {}) {
     this.maxIterations = config.maxIterations ?? 20
     this.maxExecutionTimeMs = config.maxExecutionTimeMs ?? 5 * 60 * 1000 // 5 minutes
     this.maxTokens = config.maxTokens ?? 100000
     this.artifactStore = config.artifactStore ?? null
+    this.modelProvider = config.modelProvider ?? null
   }
 
   /**
@@ -117,5 +121,12 @@ export class PlanExecutionEngine {
       maxExecutionTimeMs: this.maxExecutionTimeMs,
       maxTokens: this.maxTokens
     }
+  }
+
+  /**
+   * Get model provider (for testing and integration)
+   */
+  getModelProvider(): ModelProvider | null {
+    return this.modelProvider
   }
 }
