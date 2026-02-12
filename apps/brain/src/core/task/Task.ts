@@ -8,6 +8,7 @@ import type {
   TaskOutput,
   TaskError,
 } from "../../types";
+import { TaskState } from "./TaskState";
 
 export interface SerializedTask {
   id: string;
@@ -41,7 +42,7 @@ export class Task {
   ) {}
 
   transition(newStatus: TaskStatus, data?: Partial<Task>): void {
-    if (!this.isValidTransition(this.status, newStatus)) {
+    if (!TaskState.isValidTransition(this.status, newStatus)) {
       throw new InvalidTaskStateTransitionError(this.status, newStatus);
     }
 
@@ -72,22 +73,7 @@ export class Task {
   }
 
   isTerminal(): boolean {
-    return ["DONE", "FAILED", "CANCELLED"].includes(this.status);
-  }
-
-  private isValidTransition(from: TaskStatus, to: TaskStatus): boolean {
-    const validTransitions: Record<TaskStatus, TaskStatus[]> = {
-      PENDING: ["READY", "CANCELLED"],
-      READY: ["RUNNING", "BLOCKED", "CANCELLED"],
-      RUNNING: ["DONE", "FAILED", "CANCELLED"],
-      DONE: [],
-      FAILED: ["RETRYING", "CANCELLED"],
-      BLOCKED: ["READY", "CANCELLED"],
-      CANCELLED: [],
-      RETRYING: ["RUNNING"],
-    };
-
-    return validTransitions[from]?.includes(to) ?? false;
+    return TaskState.isTerminal(this.status);
   }
 
   toJSON(): SerializedTask {

@@ -8,6 +8,7 @@ import type {
   RunOutput,
   RunMetadata,
 } from "../../types";
+import { RunStateMachine } from "./RunStateMachine";
 
 export interface SerializedRun {
   id: string;
@@ -35,7 +36,7 @@ export class Run {
   ) {}
 
   transition(newStatus: RunStatus): void {
-    if (!this.isValidTransition(this.status, newStatus)) {
+    if (!RunStateMachine.isValidTransition(this.status, newStatus)) {
       throw new InvalidStateTransitionError(this.status, newStatus);
     }
 
@@ -49,20 +50,6 @@ export class Run {
     if (["COMPLETED", "FAILED", "CANCELLED"].includes(newStatus)) {
       this.metadata.completedAt = new Date().toISOString();
     }
-  }
-
-  private isValidTransition(from: RunStatus, to: RunStatus): boolean {
-    const validTransitions: Record<RunStatus, RunStatus[]> = {
-      CREATED: ["PLANNING", "CANCELLED"],
-      PLANNING: ["RUNNING", "FAILED", "CANCELLED"],
-      RUNNING: ["PAUSED", "COMPLETED", "FAILED", "CANCELLED"],
-      PAUSED: ["RUNNING", "CANCELLED"],
-      COMPLETED: [],
-      FAILED: [],
-      CANCELLED: [],
-    };
-
-    return validTransitions[from]?.includes(to) ?? false;
   }
 
   toJSON(): SerializedRun {

@@ -32,7 +32,7 @@ export class TaskState {
   }
 
   static isTerminal(status: TaskStatus): boolean {
-    return ["DONE", "FAILED", "CANCELLED"].includes(status);
+    return ["DONE", "CANCELLED"].includes(status);
   }
 
   static isActive(status: TaskStatus): boolean {

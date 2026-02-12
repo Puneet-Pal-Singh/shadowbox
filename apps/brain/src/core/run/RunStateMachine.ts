@@ -14,7 +14,7 @@ export class RunStateMachine {
   private transitions: StateTransition[] = [];
 
   private static readonly VALID_TRANSITIONS: Record<RunStatus, RunStatus[]> = {
-    CREATED: ["PLANNING", "CANCELLED"],
+    CREATED: ["PLANNING", "RUNNING", "CANCELLED"],
     PLANNING: ["RUNNING", "FAILED", "CANCELLED"],
     RUNNING: ["PAUSED", "COMPLETED", "FAILED", "CANCELLED"],
     PAUSED: ["RUNNING", "CANCELLED"],
