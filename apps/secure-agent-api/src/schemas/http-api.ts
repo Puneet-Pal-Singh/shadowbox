@@ -61,7 +61,7 @@ export type ExecuteTaskResponse = z.infer<typeof ExecuteTaskResponseSchema>
 
 export const LogStreamQuerySchema = z.object({
   sessionId: z.string().min(1, 'sessionId required'),
-  since: z.number().int().optional()
+  since: z.coerce.number().int().positive().optional()
 })
 
 export type LogStreamQuery = z.infer<typeof LogStreamQuerySchema>

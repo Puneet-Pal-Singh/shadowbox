@@ -179,27 +179,21 @@ export default {
 
       // NEW: HTTP API Routes for CloudSandboxExecutor Integration
       if (url.pathname === "/api/v1/session" && request.method === "POST") {
-        return await handleCreateSession(request, stub);
+        response = await handleCreateSession(request, stub);
+      } else if (url.pathname === "/api/v1/execute" && request.method === "POST") {
+        response = await handleExecuteTask(request, stub);
+      } else if (url.pathname.startsWith("/api/v1/logs") && request.method === "GET") {
+        response = handleStreamLogs(request);
+      } else if (url.pathname.startsWith("/api/v1/session/") && request.method === "DELETE") {
+        response = handleDeleteSession(request);
       }
 
-      if (url.pathname === "/api/v1/execute" && request.method === "POST") {
-        return await handleExecuteTask(request, stub);
-      }
-
-      if (url.pathname.startsWith("/api/v1/logs") && request.method === "GET") {
-        return handleStreamLogs(request);
-      }
-
-      if (url.pathname.startsWith("/api/v1/session/") && request.method === "DELETE") {
-        return handleDeleteSession(request);
-      }
-
-      if (url.pathname === "/connect") {
+      else if (url.pathname === "/connect") {
         // Upgrade to WebSocket
         return stub.fetch(request);
       }
 
-      if (url.pathname === "/tools") {
+      else if (url.pathname === "/tools") {
         // Dynamic Tool Discovery for the Brain
         const tools = await stub.getManifest();
         response = Response.json({ tools });

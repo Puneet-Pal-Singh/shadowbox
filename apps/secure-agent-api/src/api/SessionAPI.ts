@@ -110,6 +110,65 @@ function validateSession(sessionId: string): boolean {
 }
 
 /**
+ * Store session in session store
+ */
+function storeSession(
+  sessionId: string,
+  runId: string,
+  taskId: string,
+  repoPath: string,
+  token: string
+): number {
+  const expiresAt = Date.now() + 3600000 // 1 hour expiry
+  sessionStore.set(sessionId, {
+    runId,
+    taskId,
+    repoPath,
+    expiresAt,
+    token,
+    createdAt: Date.now()
+  })
+  logsStore.set(sessionId, [])
+  return expiresAt
+}
+
+/**
+ * Fetch optional manifest from runtime
+ */
+function fetchManifest(runtime: RuntimeStub): unknown {
+  try {
+    const getManifest = (runtime as Record<string, unknown>).getManifest
+    if (typeof getManifest === 'function') {
+      return getManifest()
+    }
+    return undefined
+  } catch (error) {
+    console.warn('[api/session] Failed to get manifest:', error)
+    return undefined
+  }
+}
+
+/**
+ * Build session response
+ */
+function buildSessionResponse(
+  sessionId: string,
+  token: string,
+  expiresAt: number,
+  manifest?: unknown
+): Record<string, unknown> {
+  const response: Record<string, unknown> = {
+    sessionId,
+    token,
+    expiresAt
+  }
+  if (manifest) {
+    response.manifest = manifest
+  }
+  return response
+}
+
+/**
  * POST /api/v1/session
  * Create a new execution session
  */
@@ -120,59 +179,72 @@ export async function handleCreateSession(
   console.log('[api/session] Handling session creation request')
 
   try {
-    // Validate request body
     const validation = await validateRequestBody(request, SessionCreateRequestSchema)
-
     if (!validation.valid) {
       console.warn(`[api/session] Validation failed: ${validation.error}`)
       return errorResponse(validation.error, 'INVALID_REQUEST', 400)
     }
 
-    const { runId, taskId, repoPath, metadata } = validation.data
-
-    // Create session
+    const { runId, taskId, repoPath } = validation.data
     const sessionId = generateSessionId()
     const token = generateToken()
-    const expiresAt = Date.now() + 3600000 // 1 hour expiry
-
-    sessionStore.set(sessionId, {
-      runId,
-      taskId,
-      repoPath,
-      expiresAt,
-      token,
-      createdAt: Date.now()
-    })
-
-    // Initialize logs for this session
-    logsStore.set(sessionId, [])
-
-    // Get manifest from runtime
-    let manifest: unknown
-    try {
-      manifest = runtime.getManifest?.()
-    } catch (error) {
-      console.warn('[api/session] Failed to get manifest:', error)
-      manifest = undefined
-    }
+    const expiresAt = storeSession(sessionId, runId, taskId, repoPath, token)
+    const manifest = fetchManifest(runtime)
+    const response = buildSessionResponse(sessionId, token, expiresAt, manifest)
 
     console.log(`[api/session] Session created: ${sessionId.substring(0, 8)}...`)
-
-    const response: Record<string, unknown> = {
-      sessionId,
-      token,
-      expiresAt
-    }
-
-    if (manifest) {
-      response.manifest = manifest
-    }
-
     return jsonResponse(response, 201)
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error)
     console.error(`[api/session] Unexpected error: ${msg}`)
     return errorResponse(msg, 'INTERNAL_ERROR', 500)
+  }
+}
+
+/**
+ * Record execution log entry for a session
+ */
+function recordLog(
+  sessionId: string,
+  level: 'info' | 'error',
+  message: string,
+  source: 'stdout' | 'stderr'
+): void {
+  const logs = logsStore.get(sessionId) || []
+  logs.push({
+    timestamp: Date.now(),
+    level,
+    message,
+    source
+  })
+  logsStore.set(sessionId, logs)
+}
+
+/**
+ * Build successful execution response
+ */
+function buildSuccessResponse(duration: number): Record<string, unknown> {
+  return {
+    exitCode: 0,
+    stdout: 'Command executed successfully',
+    stderr: '',
+    duration: Math.round(duration),
+    status: 'success',
+    timestamp: Date.now()
+  }
+}
+
+/**
+ * Build error execution response
+ */
+function buildErrorResponse(duration: number, message: string): Record<string, unknown> {
+  return {
+    exitCode: 1,
+    stdout: '',
+    stderr: message,
+    duration: Math.round(duration),
+    status: 'error',
+    timestamp: Date.now()
   }
 }
 
@@ -187,78 +259,33 @@ export async function handleExecuteTask(
   console.log('[api/execute] Handling task execution request')
 
   try {
-    // Validate request body
     const validation = await validateRequestBody(request, ExecuteTaskRequestSchema)
-
     if (!validation.valid) {
       console.warn(`[api/execute] Validation failed: ${validation.error}`)
       return errorResponse(validation.error, 'INVALID_REQUEST', 400)
     }
 
-    const { sessionId, command, cwd, timeout, env } = validation.data
-
-    // Validate session
+    const { sessionId } = validation.data
     if (!validateSession(sessionId)) {
       console.warn(`[api/execute] Session not found or expired: ${sessionId}`)
       return errorResponse('Session not found or expired', 'SESSION_NOT_FOUND', 404)
     }
 
     const startTime = Date.now()
-
     try {
       // TODO: Phase 2.5B - Integrate actual runtime.run() execution
       // For MVP, this endpoint validates the contract and returns mock response
       // Real implementation will delegate to runtime.run(sessionId, command, cwd, timeout, env)
       const duration = Math.random() * 5000 // Random 0-5s
-
-      // Add log entry
-      const logs = logsStore.get(sessionId) || []
-      logs.push({
-        timestamp: Date.now(),
-        level: 'info',
-        message: `Executed: ${command}`,
-        source: 'stdout'
-      })
-      logsStore.set(sessionId, logs)
-
+      recordLog(sessionId, 'info', 'Task executed successfully', 'stdout')
       console.log(`[api/execute] Task completed in ${Math.round(duration)}ms: ${sessionId.substring(0, 8)}...`)
-
-      const response: Record<string, unknown> = {
-        exitCode: 0,
-        stdout: `$ ${command}\nOutput from command execution`,
-        stderr: '',
-        duration: Math.round(duration),
-        status: 'success',
-        timestamp: Date.now()
-      }
-
-      return jsonResponse(response, 200)
+      return jsonResponse(buildSuccessResponse(duration), 200)
     } catch (error) {
       const duration = Date.now() - startTime
       const msg = error instanceof Error ? error.message : String(error)
-
-      // Add error log
-      const logs = logsStore.get(sessionId) || []
-      logs.push({
-        timestamp: Date.now(),
-        level: 'error',
-        message: `Execution failed: ${msg}`,
-        source: 'stderr'
-      })
-      logsStore.set(sessionId, logs)
-
+      recordLog(sessionId, 'error', msg, 'stderr')
       console.error(`[api/execute] Task failed: ${msg}`)
-
-      const response: Record<string, unknown> = {
-        exitCode: 1,
-        stdout: '',
-        stderr: msg,
-        duration: Math.round(duration),
-        status: 'error',
-        timestamp: Date.now()
-      }
-
-      return jsonResponse(response, 200) // HTTP 200, but exitCode=1
+      return jsonResponse(buildErrorResponse(duration, msg), 200)
     }
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error)
