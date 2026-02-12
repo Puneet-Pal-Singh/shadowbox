@@ -250,6 +250,8 @@ export class CloudSandboxExecutor extends EnvironmentManager {
 
   /**
    * Validate task inputs for safety
+   * Note: Path validation happens at schema level (SessionAPI) for repoPath
+   * This validates only critical fields required for execution
    */
   private validateTask(task: ExecutionTask): void {
     if (!task.command) {
@@ -260,9 +262,15 @@ export class CloudSandboxExecutor extends EnvironmentManager {
       throw new Error('Task cwd is required')
     }
 
-    // Check for path traversal and absolute paths
-    if (task.cwd.includes('..') || task.cwd.startsWith('/') || task.cwd.includes('\\')) {
-      throw new Error('Invalid path: absolute paths and traversal not allowed')
+    // Only check for path traversal (critical security issue)
+    // Absolute paths are allowed in sandboxed contexts (/workspace is valid)
+    if (task.cwd.includes('..')) {
+      throw new Error('Invalid path: traversal sequences (..) not allowed')
+    }
+
+    // Reject Windows-style paths in Unix contexts
+    if (task.cwd.includes('\\')) {
+      throw new Error('Invalid path: backslashes not allowed')
     }
   }
 

@@ -494,12 +494,16 @@ describe('CloudSandboxExecutor Integration with secure-agent-api', () => {
         text: async () => `Invalid token: ${sensitiveToken}`
       } as Response)
 
-      const error = await expect(executor.createEnvironment(envConfig)).rejects.toThrow()
-
-      // Error thrown should NOT contain the sensitive token
-      expect(error.message).not.toContain(sensitiveToken)
-      // Should contain redaction marker instead
-      expect(error.message).toContain('REDACTED')
+      try {
+        await executor.createEnvironment(envConfig)
+        expect.fail('Should have thrown an error')
+      } catch (error) {
+        // Error thrown should NOT contain the sensitive token
+        const errorMsg = error instanceof Error ? error.message : String(error)
+        expect(errorMsg).not.toContain(sensitiveToken)
+        // Should contain redaction marker instead
+        expect(errorMsg).toContain('REDACTED')
+      }
     })
   })
 })

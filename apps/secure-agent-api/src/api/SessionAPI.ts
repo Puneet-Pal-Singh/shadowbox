@@ -209,12 +209,13 @@ export async function handleCreateSession(
 
 /**
  * Record execution log entry for a session
+ * Accepts full range of log levels
  */
 function recordLog(
   sessionId: string,
-  level: 'info' | 'error',
+  level: 'info' | 'warn' | 'error' | 'debug',
   message: string,
-  source: 'stdout' | 'stderr'
+  source?: 'stdout' | 'stderr'
 ): void {
   const logs = logsStore.get(sessionId) || []
   logs.push({
@@ -403,7 +404,6 @@ export function handleDeleteSession(request: Request): Response {
 /**
  * Add log entry to a session
  * Called internally by plugins to track execution logs
- * Consolidates recordLog for consistency (DRY)
  */
 export function addLog(
   sessionId: string,
@@ -411,7 +411,7 @@ export function addLog(
   message: string,
   source?: 'stdout' | 'stderr'
 ): void {
-  recordLog(sessionId, level as 'info' | 'error', message, source as 'stdout' | 'stderr')
+  recordLog(sessionId, level, message, source)
 }
 
 /**
