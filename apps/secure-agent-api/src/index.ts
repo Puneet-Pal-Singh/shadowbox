@@ -126,6 +126,12 @@
 // apps/secure-agent-api/src/index.ts
 import { AgentRuntime } from "./core/AgentRuntime";
 import { Sandbox } from '@cloudflare/sandbox';
+import {
+  handleCreateSession,
+  handleExecuteTask,
+  handleStreamLogs,
+  handleDeleteSession
+} from './api/SessionAPI'
 
 export { Sandbox, AgentRuntime };
 
@@ -170,6 +176,23 @@ export default {
     try {
       // 3. Route to proper Durable Object methods
       let response: Response;
+
+      // NEW: HTTP API Routes for CloudSandboxExecutor Integration
+      if (url.pathname === "/api/v1/session" && request.method === "POST") {
+        return await handleCreateSession(request, stub);
+      }
+
+      if (url.pathname === "/api/v1/execute" && request.method === "POST") {
+        return await handleExecuteTask(request, stub);
+      }
+
+      if (url.pathname.startsWith("/api/v1/logs") && request.method === "GET") {
+        return handleStreamLogs(request);
+      }
+
+      if (url.pathname.startsWith("/api/v1/session/") && request.method === "DELETE") {
+        return handleDeleteSession(request);
+      }
 
       if (url.pathname === "/connect") {
         // Upgrade to WebSocket
