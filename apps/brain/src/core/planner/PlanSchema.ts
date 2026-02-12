@@ -26,10 +26,23 @@ export const PlanSchema = z.object({
 });
 
 /**
- * TypeScript types inferred from Zod schemas
+ * TypeScript types - explicitly defined to match Zod output
  */
-export type PlannedTask = z.infer<typeof PlannedTaskSchema>;
-export type Plan = z.infer<typeof PlanSchema>;
+export interface PlannedTask {
+  id: string;
+  type: "analyze" | "edit" | "test" | "review" | "git" | "shell";
+  description: string;
+  dependsOn?: string[];
+  expectedOutput?: string;
+}
+
+export interface Plan {
+  tasks: PlannedTask[];
+  metadata: {
+    estimatedSteps: number;
+    reasoning?: string;
+  };
+}
 
 /**
  * Validates a plan against the schema

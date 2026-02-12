@@ -22,15 +22,13 @@ export class PlannerService implements IPlannerService {
     console.log(`[planner/service] Generating plan for run ${run.id}`);
 
     const messages = this.buildMessages(run, prompt);
-    const response = await this.callLLM(messages);
-    const parsedPlan = this.parseResponse(response);
-    const validatedPlan = this.validatePlan(parsedPlan);
+    const plan = await this.callLLM(messages);
 
     console.log(
-      `[planner/service] Generated plan with ${validatedPlan.tasks.length} tasks`,
+      `[planner/service] Generated plan with ${plan.tasks.length} tasks`,
     );
 
-    return validatedPlan;
+    return plan;
   }
 
   private buildMessages(
@@ -92,33 +90,19 @@ Generate a plan to accomplish this request.`;
 
   private async callLLM(
     messages: Array<{ role: "system" | "user"; content: string }>,
-  ): Promise<string> {
+  ): Promise<Plan> {
     // Use AIService to generate structured response
-    // In Phase 3B, we'll use a simple approach without streaming
-    const result = await this.aiService.generateStructured({
-      messages,
-      schema: PlanSchema,
-      temperature: 0.2, // Deterministic planning
-    });
-
-    return JSON.stringify(result);
-  }
-
-  private parseResponse(response: string): unknown {
+    // generateStructured already validates with Zod schema
     try {
-      return JSON.parse(response);
+      const result = await this.aiService.generateStructured({
+        messages,
+        schema: PlanSchema,
+        temperature: 0.2, // Deterministic planning
+      });
+      return result;
     } catch (error) {
-      console.error("[planner/service] Failed to parse LLM response:", error);
-      throw new PlannerError("Failed to parse plan from LLM response");
-    }
-  }
-
-  private validatePlan(plan: unknown): Plan {
-    try {
-      return PlanSchema.parse(plan);
-    } catch (error) {
-      console.error("[planner/service] Plan validation failed:", error);
-      throw new PlannerError("Generated plan failed validation");
+      console.error("[planner/service] Failed to generate plan:", error);
+      throw new PlannerError("Failed to generate valid plan from LLM");
     }
   }
 }

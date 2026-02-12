@@ -1,6 +1,7 @@
 import { createOpenAI, type OpenAIProvider } from "@ai-sdk/openai";
 import {
   generateObject,
+  generateText,
   streamText,
   type CoreTool,
   type CoreMessage,
@@ -127,5 +128,23 @@ export class AIService {
     });
 
     return result.object;
+  }
+
+  async generateText({
+    messages,
+    model = "llama-3.3-70b-versatile",
+    temperature = 0.7,
+  }: {
+    messages: Array<{ role: "system" | "user"; content: string }>;
+    model?: string;
+    temperature?: number;
+  }): Promise<string> {
+    const result = await generateText({
+      model: this.groq(model),
+      messages,
+      temperature,
+    });
+
+    return result.text;
   }
 }

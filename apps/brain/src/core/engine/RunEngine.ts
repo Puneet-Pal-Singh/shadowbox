@@ -73,7 +73,7 @@ export class RunEngine implements IRunEngine {
   async execute(
     input: RunInput,
     messages: CoreMessage[],
-    tools: Record<string, CoreTool>,
+    _tools: Record<string, CoreTool>, // Intentionally unused - Phase 3B uses explicit planning instead of tool loop
   ): Promise<Response> {
     const { runId, sessionId } = this.options;
 
@@ -195,7 +195,7 @@ export class RunEngine implements IRunEngine {
       runId,
       planned.type,
       "PENDING",
-      planned.dependsOn,
+      planned.dependsOn ?? [],
       {
         description: planned.description,
         expectedOutput: planned.expectedOutput,
@@ -236,9 +236,18 @@ Provide a concise summary of what was accomplished.`;
       { role: "user" as const, content: synthesisPrompt },
     ];
 
-    // TODO: Phase 3B - Implement proper synthesis with streaming
-    // For now, return a placeholder
-    return `## Summary\n\nCompleted ${completedTasks.length} tasks for your request.\n\n${taskResults}`;
+    // Call LLM for synthesis
+    try {
+      const response = await this.aiService.generateText({
+        messages,
+        temperature: 0.7,
+      });
+      return response;
+    } catch (error) {
+      console.error("[run/engine] Synthesis failed:", error);
+      // Fallback to simple summary if LLM call fails
+      return `## Summary\n\nCompleted ${completedTasks.length} tasks for your request.\n\n${taskResults}`;
+    }
   }
 
   private createStreamResponse(content: string): Response {
