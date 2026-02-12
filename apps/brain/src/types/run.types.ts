@@ -18,7 +18,7 @@ export type RunStatus =
   | "FAILED"
   | "CANCELLED";
 
-export type AgentType = "coding" | "review" | "ci" | string;
+export type AgentType = "coding" | "review" | "ci" | (string & {});
 
 export interface RunInput {
   agentType: AgentType;

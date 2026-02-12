@@ -82,7 +82,9 @@ export class RunEngine implements IRunEngine {
     // 2. Create initial task (represents entire Phase 3A execution)
     const task = await this.createExecutionTask(run.id);
 
-    // 3. Transition run to RUNNING
+    // 3. Transition run through PLANNING to RUNNING
+    // Phase 3A: Simple flow - CREATED -> RUNNING (skip PLANNING for now)
+    // In Phase 3B, this will be: CREATED -> PLANNING -> RUNNING
     run.transition("RUNNING");
     await this.runRepo.update(run);
 
@@ -106,7 +108,10 @@ export class RunEngine implements IRunEngine {
         requestOrigin,
         onFinish: async (result) => {
           // 6. Record cost
-          await this.recordCost(runId, result.usage, input.agentType);
+          // TODO: Extract actual model from result in Phase 3B
+          // For now, use a default model identifier
+          const modelName = "llama-3.3-70b-versatile"; // This should come from result.response?.model
+          await this.recordCost(runId, result.usage, modelName);
 
           // 7. Complete task
           task.transition("DONE", {
@@ -147,7 +152,12 @@ export class RunEngine implements IRunEngine {
 
   async cancel(runId: string): Promise<boolean> {
     const run = await this.runRepo.getById(runId);
-    if (!run || run.status === "COMPLETED" || run.status === "FAILED") {
+    if (
+      !run ||
+      run.status === "COMPLETED" ||
+      run.status === "FAILED" ||
+      run.status === "CANCELLED"
+    ) {
       return false;
     }
 
@@ -194,7 +204,8 @@ export class RunEngine implements IRunEngine {
   }
 
   private async createExecutionTask(runId: string): Promise<Task> {
-    const taskId = `exec-${Date.now()}`;
+    // Use crypto.randomUUID() for collision-safe task IDs
+    const taskId = `exec-${crypto.randomUUID()}`;
     const task = new Task(
       taskId,
       runId,

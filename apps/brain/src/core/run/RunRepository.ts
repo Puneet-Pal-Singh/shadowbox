@@ -2,7 +2,8 @@
 // Phase 3A: Run persistence layer using Durable Object storage
 
 import type { DurableObjectState } from "@cloudflare/workers-types";
-import { Run, type SerializedRun } from "./Run";
+import { Run } from "./Run";
+import type { SerializedRun } from "../../types";
 
 export interface IRunRepository {
   create(run: Run): Promise<void>;
@@ -34,7 +35,7 @@ export class RunRepository implements IRunRepository {
       await this.ctx.storage.put(runKey, run.toJSON());
 
       const existingRunIds =
-        (await this.ctx.storage.get<string[]>(sessionRunsKey)) || [];
+        (await this.ctx.storage.get<string[]>(sessionRunsKey)) ?? [];
       if (!existingRunIds.includes(run.id)) {
         await this.ctx.storage.put(sessionRunsKey, [...existingRunIds, run.id]);
       }
@@ -61,7 +62,7 @@ export class RunRepository implements IRunRepository {
     const runIds =
       (await this.ctx.storage.get<string[]>(
         this.getSessionRunsKey(sessionId),
-      )) || [];
+      )) ?? [];
     const runs: Run[] = [];
 
     for (const runId of runIds) {

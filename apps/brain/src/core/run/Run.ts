@@ -7,20 +7,9 @@ import type {
   RunInput,
   RunOutput,
   RunMetadata,
+  SerializedRun,
 } from "../../types";
 import { RunStateMachine } from "./RunStateMachine";
-
-export interface SerializedRun {
-  id: string;
-  sessionId: string;
-  status: RunStatus;
-  agentType: AgentType;
-  input: RunInput;
-  output?: RunOutput;
-  metadata: RunMetadata;
-  createdAt: string;
-  updatedAt: string;
-}
 
 export class Run {
   constructor(

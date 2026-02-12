@@ -2,8 +2,8 @@
 // Phase 3A: Task persistence layer using Durable Object storage
 
 import type { DurableObjectState } from "@cloudflare/workers-types";
-import { Task, type SerializedTask } from "./Task";
-import type { TaskStatus } from "../../types";
+import { Task } from "./Task";
+import type { TaskStatus, SerializedTask } from "../../types";
 
 export interface ITaskRepository {
   create(task: Task): Promise<void>;
@@ -38,7 +38,7 @@ export class TaskRepository implements ITaskRepository {
       await this.ctx.storage.put(taskKey, task.toJSON());
 
       const existingTaskIds =
-        (await this.ctx.storage.get<string[]>(runTasksKey)) || [];
+        (await this.ctx.storage.get<string[]>(runTasksKey)) ?? [];
       if (!existingTaskIds.includes(task.id)) {
         await this.ctx.storage.put(runTasksKey, [...existingTaskIds, task.id]);
       }
@@ -61,7 +61,7 @@ export class TaskRepository implements ITaskRepository {
 
   async getByRun(runId: string): Promise<Task[]> {
     const taskIds =
-      (await this.ctx.storage.get<string[]>(this.getRunTasksKey(runId))) || [];
+      (await this.ctx.storage.get<string[]>(this.getRunTasksKey(runId))) ?? [];
     const tasks: Task[] = [];
 
     for (const taskId of taskIds) {
@@ -115,16 +115,20 @@ export class TaskRepository implements ITaskRepository {
 
   async deleteByRun(runId: string): Promise<void> {
     const runTasksKey = this.getRunTasksKey(runId);
-    const taskIds = (await this.ctx.storage.get<string[]>(runTasksKey)) || [];
 
     await this.ctx.blockConcurrencyWhile(async () => {
+      // Read taskIds inside blockConcurrencyWhile to prevent TOCTOU race condition
+      const taskIds = (await this.ctx.storage.get<string[]>(runTasksKey)) ?? [];
+
       for (const taskId of taskIds) {
         await this.ctx.storage.delete(this.getTaskKey(taskId, runId));
       }
       await this.ctx.storage.delete(runTasksKey);
-    });
 
-    console.log(`[task/repo] Deleted ${taskIds.length} tasks for run ${runId}`);
+      console.log(
+        `[task/repo] Deleted ${taskIds.length} tasks for run ${runId}`,
+      );
+    });
   }
 }
 

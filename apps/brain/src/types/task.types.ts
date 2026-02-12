@@ -11,7 +11,7 @@ export type TaskType =
   | "review"
   | "git"
   | "shell"
-  | string;
+  | (string & {});
 
 /**
  * Task Status State Machine

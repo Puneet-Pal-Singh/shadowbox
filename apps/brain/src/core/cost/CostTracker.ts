@@ -48,7 +48,7 @@ export class CostTracker implements ICostTracker {
 
     await this.ctx.blockConcurrencyWhile(async () => {
       const current =
-        (await this.ctx.storage.get<CostSnapshot>(costKey)) ||
+        (await this.ctx.storage.get<CostSnapshot>(costKey)) ??
         this.createEmptySnapshot(runId);
       const cost = this.calculateCost(usage);
 
@@ -96,14 +96,14 @@ export class CostTracker implements ICostTracker {
   async getTotalCostForSession(sessionId: string): Promise<number> {
     const sessionCostKey = this.getSessionCostKey(sessionId);
     const cached = await this.ctx.storage.get<number>(sessionCostKey);
-    return cached || 0;
+    return cached ?? 0;
   }
 
   async updateSessionCost(sessionId: string, runCost: number): Promise<void> {
     const sessionCostKey = this.getSessionCostKey(sessionId);
 
     await this.ctx.blockConcurrencyWhile(async () => {
-      const current = (await this.ctx.storage.get<number>(sessionCostKey)) || 0;
+      const current = (await this.ctx.storage.get<number>(sessionCostKey)) ?? 0;
       await this.ctx.storage.put(sessionCostKey, current + runCost);
     });
   }

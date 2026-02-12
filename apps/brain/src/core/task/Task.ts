@@ -7,23 +7,9 @@ import type {
   TaskInput,
   TaskOutput,
   TaskError,
+  SerializedTask,
 } from "../../types";
 import { TaskState } from "./TaskState";
-
-export interface SerializedTask {
-  id: string;
-  runId: string;
-  type: TaskType;
-  status: TaskStatus;
-  dependencies: string[];
-  input: TaskInput;
-  output?: TaskOutput;
-  error?: TaskError;
-  retryCount: number;
-  maxRetries: number;
-  createdAt: string;
-  updatedAt: string;
-}
 
 export class Task {
   constructor(
@@ -41,7 +27,10 @@ export class Task {
     public updatedAt: Date = new Date(),
   ) {}
 
-  transition(newStatus: TaskStatus, data?: Partial<Task>): void {
+  transition(
+    newStatus: TaskStatus,
+    data?: { output?: TaskOutput; error?: TaskError },
+  ): void {
     if (!TaskState.isValidTransition(this.status, newStatus)) {
       throw new InvalidTaskStateTransitionError(this.status, newStatus);
     }
@@ -49,8 +38,12 @@ export class Task {
     this.status = newStatus;
     this.updatedAt = new Date();
 
-    if (data) {
-      Object.assign(this, data);
+    // Explicitly assign only mutable data fields (not readonly fields)
+    if (data?.output !== undefined) {
+      this.output = data.output;
+    }
+    if (data?.error !== undefined) {
+      this.error = data.error;
     }
 
     console.log(`[task/entity] Task ${this.id} transitioned to ${newStatus}`);
