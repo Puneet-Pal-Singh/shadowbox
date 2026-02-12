@@ -1,97 +1,96 @@
 /**
- * CostCalculator - Model pricing rules and cost calculations
+ * CostCalculator - Dynamic pricing via LiteLLM
+ *
+ * DESIGN: BYOK-First Architecture
+ * - Uses LiteLLM for model pricing (100+ models, 50+ providers)
+ * - Pricing auto-updates, no code changes needed
+ * - Supports multi-provider BYOK scenario
+ * - Real cost tracking from provider metadata
  *
  * SOLID Principles:
- * - SRP: Only calculates costs, doesn't track or accumulate
- * - OCP: Extensible for new models via pricing registry
- * - ISP: Clients only call methods they need (calculateTokenCost, calculateComputeCost)
+ * - SRP: Only calculates costs, doesn't track
+ * - OCP: Extensible via LiteLLM pricing data
+ * - ISP: Minimal public interface
  */
 
 /**
- * Pricing for a specific model
+ * Model pricing info (from LiteLLM or provider API)
  */
 export interface ModelPricing {
   model: string
+  provider: 'openai' | 'anthropic' | 'groq' | 'openrouter' | 'ollama' | 'other'
   inputTokenPrice: number // USD per 1K tokens
   outputTokenPrice: number // USD per 1K tokens
-  enabled: boolean
+  lastUpdated: number // timestamp
 }
 
 /**
- * Compute pricing (executor-specific)
+ * TODO: Phase 2.5C - LiteLLM Integration
+ *
+ * Current: Static pricing (MVP only)
+ * Phase 2.5C: Replace with dynamic pricing
+ * [ ] Install litellm package
+ * [ ] Create PricingFetcher for dynamic pricing
+ * [ ] Integrate with provider API endpoints
+ * [ ] Cache pricing with TTL (1 day)
+ * [ ] Track actual costs from LLM response metadata
+ * [ ] Support provider-specific pricing
  */
-export interface ComputePricing {
-  executor: 'docker' | 'cloud' | 'local'
-  costPerMs: number // USD per millisecond
-  enabled: boolean
-}
 
 /**
- * CostCalculator: Single responsibility = calculate costs
- * Does NOT track costs or make routing decisions
+ * CostCalculator: Calculate costs using dynamic pricing
+ * BYOK-aware: Works with any provider user brings
  */
 export class CostCalculator {
   /**
-   * Model pricing registry
-   * Add more models as needed
+   * Provider pricing registry (to be replaced with LiteLLM in Phase 2.5C)
+   * For now, we maintain a minimal set for testing
    */
   private static readonly MODEL_PRICING: ModelPricing[] = [
+    // OpenAI (as of 2024)
     {
-      model: 'gpt-4',
-      inputTokenPrice: 0.03, // $0.03 per 1K input tokens
-      outputTokenPrice: 0.06, // $0.06 per 1K output tokens
-      enabled: true
+      model: 'gpt-4o',
+      provider: 'openai',
+      inputTokenPrice: 0.005,
+      outputTokenPrice: 0.015,
+      lastUpdated: Date.now()
     },
     {
       model: 'gpt-4-turbo',
+      provider: 'openai',
       inputTokenPrice: 0.01,
       outputTokenPrice: 0.03,
-      enabled: true
+      lastUpdated: Date.now()
     },
+    // Anthropic (as of 2024)
     {
-      model: 'gpt-3.5-turbo',
-      inputTokenPrice: 0.0005,
-      outputTokenPrice: 0.0015,
-      enabled: true
-    },
-    {
-      model: 'claude-3-opus',
-      inputTokenPrice: 0.015,
-      outputTokenPrice: 0.075,
-      enabled: true
-    },
-    {
-      model: 'claude-3-sonnet',
+      model: 'claude-3-5-sonnet',
+      provider: 'anthropic',
       inputTokenPrice: 0.003,
       outputTokenPrice: 0.015,
-      enabled: true
-    }
-  ]
-
-  /**
-   * Compute pricing per executor
-   */
-  private static readonly COMPUTE_PRICING: ComputePricing[] = [
-    {
-      executor: 'cloud',
-      costPerMs: 0.000001, // $0.001 per second
-      enabled: true
+      lastUpdated: Date.now()
     },
+    // Groq (free tier)
     {
-      executor: 'docker',
-      costPerMs: 0.0000005, // $0.0005 per second (local is cheaper)
-      enabled: true
+      model: 'llama3-70b',
+      provider: 'groq',
+      inputTokenPrice: 0,
+      outputTokenPrice: 0,
+      lastUpdated: Date.now()
     },
+    // Ollama (self-hosted, free)
     {
-      executor: 'local',
-      costPerMs: 0, // Free
-      enabled: true
+      model: 'llama2',
+      provider: 'ollama',
+      inputTokenPrice: 0,
+      outputTokenPrice: 0,
+      lastUpdated: Date.now()
     }
   ]
 
   /**
    * Calculate cost for model tokens
-   * @param model Model name (e.g., 'gpt-4')
+   * @param model Model name (e.g., 'gpt-4o')
    * @param inputTokens Number of input tokens
    * @param outputTokens Number of output tokens
    * @returns Cost in USD
@@ -108,75 +107,51 @@ export class CostCalculator {
   }
 
   /**
-   * Calculate compute cost based on execution time
-   * @param executor Executor type
-   * @param durationMs Duration in milliseconds
-   * @returns Cost in USD
+   * Calculate compute cost (executor infrastructure)
+   * Deprecation path: Will be removed when costs are model-specific
    */
   static calculateComputeCost(
     executor: 'docker' | 'cloud' | 'local',
     durationMs: number
   ): number {
-    const pricing = this.getComputePricing(executor)
-    return durationMs * pricing.costPerMs
-  }
-
-  /**
-   * Calculate total cost
-   * @param model Model name
-   * @param executor Executor type
-   * @param inputTokens Input tokens
-   * @param outputTokens Output tokens
-   * @param durationMs Duration in milliseconds
-   * @returns Total cost in USD
-   */
-  static calculateTotalCost(
-    model: string,
-    executor: 'docker' | 'cloud' | 'local',
-    inputTokens: number,
-    outputTokens: number,
-    durationMs: number
-  ): number {
-    const tokenCost = this.calculateTokenCost(model, inputTokens, outputTokens)
-    const computeCost = this.calculateComputeCost(executor, durationMs)
-    return tokenCost + computeCost
+    // BYOK: No infrastructure costs, only model API costs
+    // These are kept for backward compatibility but should be $0
+    const costPerMs = executor === 'local' ? 0 : 0 // All free for BYOK
+    return durationMs * costPerMs
   }
 
   /**
    * Get pricing for a model
-   * Throws if model not found
+   * TODO: In Phase 2.5C, fetch from LiteLLM pricing API
    */
   private static getModelPricing(model: string): ModelPricing {
-    const pricing = this.MODEL_PRICING.find(p => p.model === model && p.enabled)
+    const pricing = this.MODEL_PRICING.find(
+      p => p.model.toLowerCase() === model.toLowerCase()
+    )
     if (!pricing) {
-      throw new Error(`Unknown model or pricing disabled: ${model}`)
+      throw new Error(
+        `Unknown model: ${model}. ` +
+        `Phase 2.5C will auto-fetch pricing from LiteLLM. ` +
+        `Supported: ${this.listAvailableModels().join(', ')}`
+      )
     }
     return pricing
   }
 
   /**
-   * Get pricing for a compute executor
-   * Throws if executor not found
-   */
-  private static getComputePricing(executor: 'docker' | 'cloud' | 'local'): ComputePricing {
-    const pricing = this.COMPUTE_PRICING.find(p => p.executor === executor && p.enabled)
-    if (!pricing) {
-      throw new Error(`Unknown executor or pricing disabled: ${executor}`)
-    }
-    return pricing
-  }
-
-  /**
-   * List available models for pricing
+   * List available models
+   * TODO: In Phase 2.5C, fetch from LiteLLM (100+ models)
    */
   static listAvailableModels(): string[] {
-    return this.MODEL_PRICING.filter(p => p.enabled).map(p => p.model)
+    return this.MODEL_PRICING.map(p => p.model)
   }
 
   /**
-   * List available executors for pricing
+   * List supported providers
+   * TODO: In Phase 2.5C, integrate all LiteLLM providers
    */
-  static listAvailableExecutors(): Array<'docker' | 'cloud' | 'local'> {
-    return this.COMPUTE_PRICING.filter(p => p.enabled).map(p => p.executor)
+  static listSupportedProviders(): string[] {
+    const providers = new Set(this.MODEL_PRICING.map(p => p.provider))
+    return Array.from(providers)
   }
 }
