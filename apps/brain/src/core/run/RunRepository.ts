@@ -1,0 +1,110 @@
+// apps/brain/src/core/run/RunRepository.ts
+// Phase 3A: Run persistence layer using Durable Object storage
+
+import type { DurableObjectState } from "@cloudflare/workers-types";
+import { Run } from "./Run";
+import type { SerializedRun } from "../../types";
+
+export interface IRunRepository {
+  create(run: Run): Promise<void>;
+  getById(runId: string): Promise<Run | null>;
+  getBySession(sessionId: string): Promise<Run[]>;
+  update(run: Run): Promise<void>;
+  listActiveRuns(): Promise<Run[]>;
+}
+
+export class RunRepository implements IRunRepository {
+  private readonly RUN_KEY_PREFIX = "run:";
+  private readonly SESSION_RUNS_KEY_PREFIX = "session_runs:";
+
+  constructor(private ctx: DurableObjectState) {}
+
+  private getRunKey(runId: string): string {
+    return `${this.RUN_KEY_PREFIX}${runId}`;
+  }
+
+  private getSessionRunsKey(sessionId: string): string {
+    return `${this.SESSION_RUNS_KEY_PREFIX}${sessionId}`;
+  }
+
+  async create(run: Run): Promise<void> {
+    const runKey = this.getRunKey(run.id);
+    const sessionRunsKey = this.getSessionRunsKey(run.sessionId);
+
+    await this.ctx.blockConcurrencyWhile(async () => {
+      await this.ctx.storage.put(runKey, run.toJSON());
+
+      const existingRunIds =
+        (await this.ctx.storage.get<string[]>(sessionRunsKey)) ?? [];
+      if (!existingRunIds.includes(run.id)) {
+        await this.ctx.storage.put(sessionRunsKey, [...existingRunIds, run.id]);
+      }
+    });
+
+    console.log(
+      `[run/repo] Created run ${run.id} for session ${run.sessionId}`,
+    );
+  }
+
+  async getById(runId: string): Promise<Run | null> {
+    const data = await this.ctx.storage.get<SerializedRun>(
+      this.getRunKey(runId),
+    );
+
+    if (!data) {
+      return null;
+    }
+
+    return Run.fromJSON(data);
+  }
+
+  async getBySession(sessionId: string): Promise<Run[]> {
+    const runIds =
+      (await this.ctx.storage.get<string[]>(
+        this.getSessionRunsKey(sessionId),
+      )) ?? [];
+    const runs: Run[] = [];
+
+    for (const runId of runIds) {
+      const run = await this.getById(runId);
+      if (run) {
+        runs.push(run);
+      }
+    }
+
+    return runs;
+  }
+
+  async update(run: Run): Promise<void> {
+    const runKey = this.getRunKey(run.id);
+
+    await this.ctx.blockConcurrencyWhile(async () => {
+      await this.ctx.storage.put(runKey, run.toJSON());
+    });
+
+    console.log(`[run/repo] Updated run ${run.id} to status ${run.status}`);
+  }
+
+  async listActiveRuns(): Promise<Run[]> {
+    const allRuns: Run[] = [];
+    const listResult = await this.ctx.storage.list<SerializedRun>({
+      prefix: this.RUN_KEY_PREFIX,
+    });
+
+    for (const [, data] of listResult) {
+      const run = Run.fromJSON(data);
+      if (["CREATED", "PLANNING", "RUNNING", "PAUSED"].includes(run.status)) {
+        allRuns.push(run);
+      }
+    }
+
+    return allRuns;
+  }
+}
+
+export class RunNotFoundError extends Error {
+  constructor(runId: string) {
+    super(`[run/repo] Run not found: ${runId}`);
+    this.name = "RunNotFoundError";
+  }
+}
