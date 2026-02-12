@@ -1,5 +1,5 @@
 // apps/brain/src/core/engine/index.ts
-// Phase 3A: Engine module barrel exports
+// Phase 3B: Engine module barrel exports
 
 export {
   RunEngine,
@@ -7,3 +7,5 @@ export {
   type IRunEngine,
   type RunEngineOptions,
 } from "./RunEngine";
+
+export { DefaultTaskExecutor } from "./TaskExecutor";
