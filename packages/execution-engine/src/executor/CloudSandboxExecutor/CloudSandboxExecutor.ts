@@ -268,7 +268,7 @@ export class CloudSandboxExecutor extends EnvironmentManager {
    * @throws If session creation fails
    */
   private async createSession(config: EnvironmentConfig): Promise<CloudSessionResponse> {
-    const url = `${this.apiUrl}/session`
+    const url = `${this.apiUrl}/api/v1/session`
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), SESSION_CREATE_TIMEOUT)
 
@@ -307,7 +307,7 @@ export class CloudSandboxExecutor extends EnvironmentManager {
     sessionId: string,
     task: ExecutionTask
   ): Promise<CloudExecutionResponse> {
-    const url = `${this.apiUrl}/execute`
+    const url = `${this.apiUrl}/api/v1/execute`
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), TASK_EXEC_TIMEOUT)
 
@@ -345,7 +345,7 @@ export class CloudSandboxExecutor extends EnvironmentManager {
    * @throws If log fetch fails
    */
   private async fetchLogs(sessionId: string): Promise<ExecutionLog[]> {
-    const url = `${this.apiUrl}/logs?sessionId=${encodeURIComponent(sessionId)}`
+    const url = `${this.apiUrl}/api/v1/logs?sessionId=${encodeURIComponent(sessionId)}`
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), LOG_STREAM_TIMEOUT)
 
@@ -375,7 +375,7 @@ export class CloudSandboxExecutor extends EnvironmentManager {
    * @throws If deletion fails
    */
   private async deleteSession(sessionId: string): Promise<void> {
-    const url = `${this.apiUrl}/session/${encodeURIComponent(sessionId)}`
+    const url = `${this.apiUrl}/api/v1/session/${encodeURIComponent(sessionId)}`
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), SESSION_CREATE_TIMEOUT)
 
