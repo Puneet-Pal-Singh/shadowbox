@@ -11,8 +11,9 @@ import type { AgentRuntime } from '../core/AgentRuntime'
 
 /**
  * Runtime can be either the actual AgentRuntime or a DurableObjectStub proxy
+ * DurableObjectStub is dynamically typed by Cloudflare Workers
  */
-type RuntimeStub = AgentRuntime | any // any for DurableObjectStub
+type RuntimeStub = AgentRuntime | unknown
 import {
   SessionCreateRequestSchema,
   SessionCreateResponseSchema,
@@ -29,7 +30,20 @@ import {
 } from '../schemas/http-api'
 
 /**
- * In-memory session store (temporary, replace with Durable Objects in production)
+ * ⚠️  PRODUCTION SCALING NOTICE
+ * 
+ * In-memory session store is MVP only and will BREAK if secure-agent-api is:
+ * - Deployed to multiple instances
+ * - Behind a load balancer
+ * - Running in auto-scaling group
+ * - On Kubernetes with replicas > 1
+ * 
+ * PHASE 2.5B: Migrate to Durable Objects
+ * [ ] Replace sessionStore Map with Durable Object storage
+ * [ ] Replace logsStore Map with Durable Object storage
+ * [ ] Add session recovery tests
+ * [ ] Test with multiple instances
+ * 
  * Key: sessionId, Value: { runId, taskId, repoPath, expiresAt, token }
  */
 const sessionStore = new Map<
@@ -59,17 +73,27 @@ const logsStore = new Map<
 >()
 
 /**
- * Generate unique session ID
+ * Generate unique session ID using crypto-secure random
  */
 function generateSessionId(): string {
-  return `sess_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+  const randomBytes = new Uint8Array(8)
+  crypto.getRandomValues(randomBytes)
+  const randomHex = Array.from(randomBytes)
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('')
+  return `sess_${Date.now()}_${randomHex}`
 }
 
 /**
- * Generate session token
+ * Generate cryptographically secure session token
  */
 function generateToken(): string {
-  return `tok_${Math.random().toString(36).substr(2, 32)}`
+  const randomBytes = new Uint8Array(32)
+  crypto.getRandomValues(randomBytes)
+  const randomHex = Array.from(randomBytes)
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('')
+  return `tok_${randomHex}`
 }
 
 /**

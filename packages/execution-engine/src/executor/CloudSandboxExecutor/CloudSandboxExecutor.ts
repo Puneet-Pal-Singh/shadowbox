@@ -165,6 +165,7 @@ export class CloudSandboxExecutor extends EnvironmentManager {
 
     // Create self reference for use in async generator
     const self = this
+    let lastFetchedTimestamp = 0
 
     return {
       async *[Symbol.asyncIterator]() {
@@ -174,11 +175,13 @@ export class CloudSandboxExecutor extends EnvironmentManager {
           // Stream logs for up to 2 minutes
           while (Date.now() - lastLogTime < 120000) {
             try {
-              const logs = await self.fetchLogs(sessionId)
+              // Pass timestamp to avoid re-yielding duplicate logs
+              const logs = await self.fetchLogsWithTimestamp(sessionId, lastFetchedTimestamp)
               if (logs.length > 0) {
                 for (const log of logs) {
                   yield log
                   lastLogTime = Date.now()
+                  lastFetchedTimestamp = Math.max(lastFetchedTimestamp, log.timestamp)
                 }
               } else {
                 // No new logs, wait before polling again
@@ -257,9 +260,9 @@ export class CloudSandboxExecutor extends EnvironmentManager {
       throw new Error('Task cwd is required')
     }
 
-    // Check for path traversal
-    if (task.cwd.includes('..')) {
-      throw new Error('Path traversal not allowed')
+    // Check for path traversal and absolute paths
+    if (task.cwd.includes('..') || task.cwd.startsWith('/') || task.cwd.includes('\\')) {
+      throw new Error('Invalid path: absolute paths and traversal not allowed')
     }
   }
 
@@ -341,11 +344,14 @@ export class CloudSandboxExecutor extends EnvironmentManager {
   }
 
   /**
-   * Fetch logs from remote session
+   * Fetch logs from remote session with timestamp filter
    * @throws If log fetch fails
    */
-  private async fetchLogs(sessionId: string): Promise<ExecutionLog[]> {
-    const url = `${this.apiUrl}/api/v1/logs?sessionId=${encodeURIComponent(sessionId)}`
+  private async fetchLogsWithTimestamp(
+    sessionId: string,
+    since: number
+  ): Promise<ExecutionLog[]> {
+    const url = `${this.apiUrl}/api/v1/logs?sessionId=${encodeURIComponent(sessionId)}${since ? `&since=${since}` : ''}`
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), LOG_STREAM_TIMEOUT)
 
@@ -363,11 +369,78 @@ export class CloudSandboxExecutor extends EnvironmentManager {
         throw new Error(`Failed to fetch logs: ${error}`)
       }
 
+      // Handle both JSON and Server-Sent Events responses
+      const contentType = response.headers.get('Content-Type') || ''
+      if (contentType.includes('text/event-stream')) {
+        return this.parseServerSentEvents(await response.text())
+      }
+
       const data = (await response.json()) as unknown
       return this.validateLogsResponse(data)
     } finally {
       clearTimeout(timeoutId)
     }
+  }
+
+  /**
+   * Parse Server-Sent Events format logs
+   */
+  private parseServerSentEvents(text: string): ExecutionLog[] {
+    const logs: ExecutionLog[] = []
+    const lines = text.split('\n')
+
+    for (const line of lines) {
+      if (line.startsWith('data: ')) {
+        try {
+          const json = JSON.parse(line.substring(6))
+          const validated = this.validateLogEntry(json)
+          if (validated) {
+            logs.push(validated)
+          }
+        } catch {
+          // Skip invalid SSE entries
+          continue
+        }
+      }
+    }
+
+    return logs
+  }
+
+  /**
+   * Validate a single log entry
+   */
+  private validateLogEntry(item: unknown): ExecutionLog | null {
+    if (
+      typeof item === 'object' &&
+      item !== null &&
+      'timestamp' in item &&
+      'level' in item &&
+      'message' in item
+    ) {
+      const log = item as Record<string, unknown>
+      if (
+        typeof log.timestamp === 'number' &&
+        (log.level === 'info' || log.level === 'warn' || log.level === 'error' || log.level === 'debug') &&
+        typeof log.message === 'string'
+      ) {
+        return {
+          timestamp: log.timestamp,
+          level: log.level as ExecutionLog['level'],
+          message: log.message,
+          source: log.source
+        } as ExecutionLog
+      }
+    }
+    return null
+  }
+
+  /**
+   * Fetch logs from remote session (convenience method)
+   * @deprecated Use fetchLogsWithTimestamp instead
+   */
+  private async fetchLogs(sessionId: string): Promise<ExecutionLog[]> {
+    return this.fetchLogsWithTimestamp(sessionId, 0)
   }
 
   /**
