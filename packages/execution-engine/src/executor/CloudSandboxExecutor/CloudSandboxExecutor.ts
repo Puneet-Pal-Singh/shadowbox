@@ -384,15 +384,28 @@ export class CloudSandboxExecutor extends EnvironmentManager {
 
   /**
    * Parse Server-Sent Events format logs
+   * Handles multi-line data fields per SSE spec
    */
   private parseServerSentEvents(text: string): ExecutionLog[] {
     const logs: ExecutionLog[] = []
-    const lines = text.split('\n')
+    const events = text.split('\n\n') // SSE events separated by double newline
 
-    for (const line of lines) {
-      if (line.startsWith('data: ')) {
+    for (const event of events) {
+      if (!event.trim()) continue
+
+      const lines = event.split('\n')
+      let dataContent = ''
+
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          // Accumulate data fields (can span multiple lines)
+          dataContent += line.substring(6)
+        }
+      }
+
+      if (dataContent) {
         try {
-          const json = JSON.parse(line.substring(6))
+          const json = JSON.parse(dataContent)
           const validated = this.validateLogEntry(json)
           if (validated) {
             logs.push(validated)
@@ -409,8 +422,18 @@ export class CloudSandboxExecutor extends EnvironmentManager {
 
   /**
    * Validate a single log entry
+   * Returns null if invalid (for lenient parsing in SSE)
    */
   private validateLogEntry(item: unknown): ExecutionLog | null {
+    return this.parseLogEntry(item, false)
+  }
+
+  /**
+   * Parse and validate a log entry with configurable strictness
+   * @param item - Log entry to validate
+   * @param strict - If true, throws on invalid; if false, returns null
+   */
+  private parseLogEntry(item: unknown, strict: boolean): ExecutionLog | null {
     if (
       typeof item === 'object' &&
       item !== null &&
@@ -431,6 +454,9 @@ export class CloudSandboxExecutor extends EnvironmentManager {
           source: log.source
         } as ExecutionLog
       }
+    }
+    if (strict) {
+      throw new Error('Invalid log entry format')
     }
     return null
   }
@@ -584,32 +610,13 @@ export class CloudSandboxExecutor extends EnvironmentManager {
       throw new Error('Logs response must be an array')
     }
 
+    // Use parseLogEntry with strict mode for array responses
     return data.map((item, index) => {
-      if (
-        typeof item === 'object' &&
-        item !== null &&
-        'timestamp' in item &&
-        'level' in item &&
-        'message' in item
-      ) {
-        const log = item as Record<string, unknown>
-        if (
-          typeof log.timestamp === 'number' &&
-          (log.level === 'info' ||
-            log.level === 'warn' ||
-            log.level === 'error' ||
-            log.level === 'debug') &&
-          typeof log.message === 'string'
-        ) {
-          return {
-            timestamp: log.timestamp,
-            level: log.level as ExecutionLog['level'],
-            message: log.message,
-            source: log.source
-          } as ExecutionLog
-        }
+      const parsed = this.parseLogEntry(item, true)
+      if (!parsed) {
+        throw new Error(`Invalid log entry at index ${index}`)
       }
-      throw new Error(`Invalid log entry at index ${index}`)
+      return parsed
     })
   }
 }

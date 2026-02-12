@@ -182,7 +182,7 @@ export default {
         response = await handleCreateSession(request, stub);
       } else if (url.pathname === "/api/v1/execute" && request.method === "POST") {
         response = await handleExecuteTask(request, stub);
-      } else if (url.pathname.startsWith("/api/v1/logs") && request.method === "GET") {
+      } else if (url.pathname === "/api/v1/logs" && request.method === "GET") {
         response = handleStreamLogs(request);
       } else if (url.pathname.startsWith("/api/v1/session/") && request.method === "DELETE") {
         response = handleDeleteSession(request);

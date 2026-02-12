@@ -133,13 +133,19 @@ function storeSession(
 }
 
 /**
- * Fetch optional manifest from runtime
+ * Fetch optional manifest from runtime (async)
+ * Durable Object stubs return Promises that must be awaited
  */
-function fetchManifest(runtime: RuntimeStub): unknown {
+async function fetchManifest(runtime: RuntimeStub): Promise<unknown> {
   try {
     const getManifest = (runtime as Record<string, unknown>).getManifest
     if (typeof getManifest === 'function') {
-      return getManifest()
+      const result = getManifest()
+      // Durable Object methods return Promises; await if needed
+      if (result instanceof Promise) {
+        return await result
+      }
+      return result
     }
     return undefined
   } catch (error) {
@@ -189,7 +195,7 @@ export async function handleCreateSession(
     const sessionId = generateSessionId()
     const token = generateToken()
     const expiresAt = storeSession(sessionId, runId, taskId, repoPath, token)
-    const manifest = fetchManifest(runtime)
+    const manifest = await fetchManifest(runtime)
     const response = buildSessionResponse(sessionId, token, expiresAt, manifest)
 
     console.log(`[api/session] Session created: ${sessionId.substring(0, 8)}...`)
@@ -397,6 +403,7 @@ export function handleDeleteSession(request: Request): Response {
 /**
  * Add log entry to a session
  * Called internally by plugins to track execution logs
+ * Consolidates recordLog for consistency (DRY)
  */
 export function addLog(
   sessionId: string,
@@ -404,14 +411,7 @@ export function addLog(
   message: string,
   source?: 'stdout' | 'stderr'
 ): void {
-  const logs = logsStore.get(sessionId) || []
-  logs.push({
-    timestamp: Date.now(),
-    level,
-    message,
-    source
-  })
-  logsStore.set(sessionId, logs)
+  recordLog(sessionId, level as 'info' | 'error', message, source as 'stdout' | 'stderr')
 }
 
 /**

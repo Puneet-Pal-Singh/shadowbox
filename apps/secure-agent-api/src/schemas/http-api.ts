@@ -15,7 +15,9 @@ import { z } from 'zod'
 export const SessionCreateRequestSchema = z.object({
   runId: z.string().min(1, 'runId required'),
   taskId: z.string().min(1, 'taskId required'),
-  repoPath: z.string().min(1, 'repoPath required'),
+  repoPath: z.string().min(1, 'repoPath required')
+    .refine(path => !path.startsWith('/'), 'repoPath must be relative, not absolute')
+    .refine(path => !path.includes('..'), 'repoPath must not contain path traversal'),
   metadata: z.record(z.unknown()).optional()
 })
 
@@ -37,7 +39,9 @@ export type SessionCreateResponse = z.infer<typeof SessionCreateResponseSchema>
 export const ExecuteTaskRequestSchema = z.object({
   sessionId: z.string().min(1, 'sessionId required'),
   command: z.string().min(1, 'command required'),
-  cwd: z.string().min(1, 'cwd required'),
+  cwd: z.string().min(1, 'cwd required')
+    .refine(path => !path.startsWith('/'), 'cwd must be relative, not absolute')
+    .refine(path => !path.includes('..'), 'cwd must not contain path traversal'),
   timeout: z.number().int().positive().optional(),
   env: z.record(z.string()).optional()
 })
