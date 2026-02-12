@@ -1,22 +1,20 @@
 // apps/brain/src/core/engine/RunEngine.ts
-// Phase 3A: Minimal RunEngine that wraps StreamOrchestratorService
-// Creates Run/Task metadata without changing existing behavior
+// Phase 3B: RunEngine with explicit planning and task orchestration
+// Replaces the wrapped StreamOrchestratorService from Phase 3A
 
 import type { DurableObjectState } from "@cloudflare/workers-types";
 import type { CoreMessage, CoreTool } from "ai";
 import { Run, RunRepository } from "../run";
 import { Task, TaskRepository } from "../task";
 import { CostTracker } from "../cost";
-import { StreamOrchestratorService } from "../../services/StreamOrchestratorService";
+import { PlannerService } from "../planner";
+import { TaskScheduler } from "../orchestration";
+import { DefaultTaskExecutor } from "./TaskExecutor";
 import { AIService } from "../../services/AIService";
 import type { Env } from "../../types/ai";
-import type {
-  RunInput,
-  RunResult,
-  RunStatus,
-  AgentType,
-  CostSnapshot,
-} from "../../types";
+import type { RunInput, RunResult, RunStatus, CostSnapshot } from "../../types";
+import type { Plan, PlannedTask } from "../planner";
+import { CORS_HEADERS } from "../../lib/cors";
 
 export interface IRunEngine {
   execute(
@@ -37,22 +35,27 @@ export interface RunEngineOptions {
 }
 
 /**
- * Phase 3A RunEngine - Foundation Layer
+ * Phase 3B RunEngine - Explicit Planning Layer
  *
- * This minimal implementation:
- * 1. Creates Run entity and persists it
- * 2. Creates a single Task representing the entire execution
- * 3. Wraps existing StreamOrchestratorService (no behavior change)
- * 4. Tracks costs via CostTracker
- * 5. Updates Run/Task status as execution progresses
+ * This implementation:
+ * 1. Generates a plan using PlannerService (LLM → JSON plan)
+ * 2. Creates tasks from the plan
+ * 3. Executes tasks sequentially using TaskScheduler
+ * 4. Synthesizes final result with LLM
+ * 5. Brain controls execution flow (not LLM via maxSteps)
  *
- * Future phases will replace the wrapped orchestrator with explicit task planning.
+ * Key changes from Phase 3A:
+ * - Replaced wrapped StreamOrchestratorService
+ * - Added explicit planning step
+ * - Sequential task execution
+ * - Brain controls tool execution
  */
 export class RunEngine implements IRunEngine {
   private runRepo: RunRepository;
   private taskRepo: TaskRepository;
   private costTracker: CostTracker;
-  private streamOrchestrator: StreamOrchestratorService;
+  private planner: PlannerService;
+  private scheduler: TaskScheduler;
   private aiService: AIService;
 
   constructor(
@@ -63,84 +66,68 @@ export class RunEngine implements IRunEngine {
     this.taskRepo = new TaskRepository(ctx);
     this.costTracker = new CostTracker(ctx);
     this.aiService = new AIService(options.env);
-    this.streamOrchestrator = new StreamOrchestratorService(
-      this.aiService,
-      options.env,
-    );
+    this.planner = new PlannerService(this.aiService);
+    const taskExecutor = new DefaultTaskExecutor();
+    this.scheduler = new TaskScheduler(this.taskRepo, taskExecutor);
   }
 
   async execute(
     input: RunInput,
     messages: CoreMessage[],
-    tools: Record<string, CoreTool>,
+    _tools: Record<string, CoreTool>, // Intentionally unused - Phase 3B uses explicit planning instead of tool loop
   ): Promise<Response> {
-    const { runId, sessionId, correlationId, requestOrigin } = this.options;
-
-    // 1. Create or load the Run
-    const run = await this.getOrCreateRun(input, runId, sessionId);
-
-    // 2. Create initial task (represents entire Phase 3A execution)
-    const task = await this.createExecutionTask(run.id);
-
-    // 3. Transition run through PLANNING to RUNNING
-    // Phase 3A: Simple flow - CREATED -> RUNNING (skip PLANNING for now)
-    // In Phase 3B, this will be: CREATED -> PLANNING -> RUNNING
-    run.transition("RUNNING");
-    await this.runRepo.update(run);
-
-    // 4. Update task to RUNNING
-    task.transition("RUNNING");
-    await this.taskRepo.update(task);
-
-    console.log(`[run/engine] Starting execution for run ${runId}`);
+    const { runId, sessionId } = this.options;
 
     try {
-      // 5. Delegate to existing StreamOrchestratorService
-      // This maintains backward compatibility while we build Phase 3 infrastructure
-      const response = await this.streamOrchestrator.createStream({
-        messages,
-        fullHistory: messages,
-        systemPrompt: this.buildSystemPrompt(input),
-        tools,
-        correlationId,
-        sessionId,
-        runId,
-        requestOrigin,
-        onFinish: async (result) => {
-          // 6. Record cost
-          // TODO: Extract actual model from result in Phase 3B
-          // For now, use a default model identifier
-          const modelName = "llama-3.3-70b-versatile"; // This should come from result.response?.model
-          await this.recordCost(runId, result.usage, modelName);
+      // 1. Create or load the Run
+      const run = await this.getOrCreateRun(input, runId, sessionId);
 
-          // 7. Complete task
-          task.transition("DONE", {
-            output: {
-              content: result.text,
-              metadata: {
-                finishReason: result.finishReason,
-                toolCalls: result.toolCalls?.length || 0,
-              },
-            },
-          });
-          await this.taskRepo.update(task);
+      // 2. PLANNING PHASE - Generate execution plan
+      console.log(`[run/engine] Planning phase for run ${runId}`);
+      try {
+        run.transition("PLANNING");
+        await this.runRepo.update(run);
 
-          // 8. Complete run
-          run.transition("COMPLETED");
-          run.output = { content: result.text };
-          await this.runRepo.update(run);
+        const plan = await this.planner.plan(run, input.prompt);
+        console.log(
+          `[run/engine] Generated plan with ${plan.tasks.length} tasks`,
+        );
 
-          console.log(`[run/engine] Completed run ${runId}`);
+        // 3. Create tasks from plan
+        await this.createTasksFromPlan(run.id, plan);
+      } catch (planError) {
+        // If planning fails, transition to FAILED and re-throw
+        run.transition("FAILED");
+        run.metadata.error =
+          planError instanceof Error
+            ? planError.message
+            : "Planning phase failed";
+        await this.runRepo.update(run);
+        throw planError;
+      }
 
-          // Call original onFinish if needed
-          await this.handleOnFinish(result);
-        },
-      });
+      // 4. EXECUTION PHASE - Run tasks sequentially
+      console.log(`[run/engine] Execution phase for run ${runId}`);
+      run.transition("RUNNING");
+      await this.runRepo.update(run);
 
-      return response;
+      await this.scheduler.execute(run.id);
+
+      // 5. SYNTHESIS PHASE - Generate final response
+      console.log(`[run/engine] Synthesis phase for run ${runId}`);
+      const finalOutput = await this.synthesizeResult(run.id, input.prompt);
+
+      // 6. Complete the run
+      run.transition("COMPLETED");
+      run.output = { content: finalOutput };
+      await this.runRepo.update(run);
+
+      console.log(`[run/engine] Completed run ${runId}`);
+
+      // Return streaming response with final result
+      return this.createStreamResponse(finalOutput);
     } catch (error) {
-      // Handle failure
-      await this.handleExecutionError(run, task, error);
+      await this.handleExecutionError(runId, error);
       throw error;
     }
   }
@@ -203,107 +190,128 @@ export class RunEngine implements IRunEngine {
     return run;
   }
 
-  private async createExecutionTask(runId: string): Promise<Task> {
-    // Use crypto.randomUUID() for collision-safe task IDs
-    const taskId = `exec-${crypto.randomUUID()}`;
-    const task = new Task(
-      taskId,
+  private async createTasksFromPlan(runId: string, plan: Plan): Promise<void> {
+    for (const plannedTask of plan.tasks) {
+      const task = this.createTaskFromPlanned(runId, plannedTask);
+      await this.taskRepo.create(task);
+    }
+
+    console.log(
+      `[run/engine] Created ${plan.tasks.length} tasks for run ${runId}`,
+    );
+  }
+
+  private createTaskFromPlanned(runId: string, planned: PlannedTask): Task {
+    return new Task(
+      planned.id,
       runId,
-      "shell", // Generic type for Phase 3A wrapped execution
+      planned.type,
       "PENDING",
-      [], // No dependencies in Phase 3A
+      planned.dependsOn,
       {
-        description: "Execute user request via AI orchestration",
-        expectedOutput: "Completed execution with results",
+        description: planned.description,
+        expectedOutput: planned.expectedOutput,
       },
     );
-
-    await this.taskRepo.create(task);
-    console.log(`[run/engine] Created task ${taskId} for run ${runId}`);
-
-    return task;
   }
 
-  private buildSystemPrompt(input: RunInput): string {
-    // Simple system prompt construction
-    // In future phases, this will be more sophisticated with agent-specific prompts
-    return `You are a helpful coding assistant. Agent type: ${input.agentType}`;
-  }
-
-  private async recordCost(
+  private async synthesizeResult(
     runId: string,
-    usage: { promptTokens: number; completionTokens: number },
-    model: string,
-  ): Promise<void> {
-    try {
-      await this.costTracker.recordUsage(runId, {
-        promptTokens: usage.promptTokens,
-        completionTokens: usage.completionTokens,
-        model,
-      });
+    originalPrompt: string,
+  ): Promise<string> {
+    const tasks = await this.taskRepo.getByRun(runId);
+    const completedTasks = tasks.filter((t) => t.status === "DONE");
 
-      const snapshot = await this.costTracker.getCostSnapshot(runId);
-      console.log(
-        `[run/engine] Cost for run ${runId}: $${snapshot.totalCost.toFixed(4)}`,
-      );
+    // Build context from completed tasks
+    const taskResults = completedTasks
+      .map(
+        (t) =>
+          `- ${t.type}: ${t.input.description}\n  Result: ${t.output?.content || "N/A"}`,
+      )
+      .join("\n");
+
+    const synthesisPrompt = `Based on the following completed tasks, provide a final summary:
+
+Original Request: ${originalPrompt}
+
+Completed Tasks:
+${taskResults}
+
+Provide a concise summary of what was accomplished.`;
+
+    // Use AIService to generate synthesis with streaming
+    const messages = [
+      {
+        role: "system" as const,
+        content: "You are a helpful assistant summarizing task results.",
+      },
+      { role: "user" as const, content: synthesisPrompt },
+    ];
+
+    try {
+      const response = await this.aiService.generateText({
+        messages,
+        temperature: 0.7,
+      });
+      return response;
     } catch (error) {
-      // Don't fail execution if cost tracking fails
-      console.error(`[run/engine] Cost tracking error:`, error);
+      console.error("[run/engine] Synthesis failed:", error);
+      // Fallback to simple summary if LLM call fails
+      return `## Summary\n\nCompleted ${completedTasks.length} tasks for your request.\n\n${taskResults}`;
     }
   }
 
+  private createStreamResponse(content: string): Response {
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode(content));
+        controller.close();
+      },
+    });
+
+    return new Response(stream, {
+      headers: {
+        ...CORS_HEADERS,
+        "Content-Type": "text/plain; charset=utf-8",
+        "Transfer-Encoding": "chunked",
+      },
+    });
+  }
+
   private async handleExecutionError(
-    run: Run,
-    task: Task,
+    runId: string,
     error: unknown,
   ): Promise<void> {
     const errorMessage =
       error instanceof Error ? error.message : "Unknown error";
 
-    // Update task
-    task.transition("FAILED", {
-      error: {
-        message: errorMessage,
-      },
-    });
-    await this.taskRepo.update(task);
+    try {
+      const run = await this.runRepo.getById(runId);
+      if (run) {
+        run.transition("FAILED");
+        run.metadata.error = errorMessage;
+        await this.runRepo.update(run);
+      }
+    } catch (handlerError) {
+      // Log handler error but don't re-throw to avoid masking original error
+      console.error(
+        `[run/engine] Failed to handle execution error for run ${runId}:`,
+        handlerError,
+      );
+    }
 
-    // Update run
-    run.transition("FAILED");
-    run.metadata.error = errorMessage;
-    await this.runRepo.update(run);
-
-    console.error(`[run/engine] Run ${run.id} failed:`, errorMessage);
+    console.error(`[run/engine] Run ${runId} failed:`, errorMessage);
   }
 
-  private async handleOnFinish(result: {
-    text: string;
-    usage: { promptTokens: number; completionTokens: number };
-  }): Promise<void> {
-    // Placeholder for any additional onFinish logic
-    // In Phase 3B+, this will synthesize final results
-    console.log(
-      `[run/engine] Execution finished. Tokens: ${result.usage.promptTokens + result.usage.completionTokens}`,
-    );
-  }
-
-  /**
-   * Get the current cost snapshot for a run
-   */
   async getCostSnapshot(runId: string): Promise<CostSnapshot> {
     return this.costTracker.getCostSnapshot(runId);
   }
 
-  /**
-   * Get all tasks for a run
-   */
   async getTasksForRun(runId: string) {
     return this.taskRepo.getByRun(runId);
   }
 
-  /**
-   * Get run details
-   */
   async getRun(runId: string) {
     return this.runRepo.getById(runId);
   }
