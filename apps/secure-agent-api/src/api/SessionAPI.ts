@@ -29,6 +29,9 @@ import {
   getPathParam
 } from '../schemas/http-api'
 
+// Session TTL: 1 hour (in milliseconds)
+const SESSION_TTL_MS = 3600000
+
 /**
  * ⚠️  PRODUCTION SCALING NOTICE
  * 
@@ -119,7 +122,7 @@ function storeSession(
   repoPath: string,
   token: string
 ): number {
-  const expiresAt = Date.now() + 3600000 // 1 hour expiry
+  const expiresAt = Date.now() + SESSION_TTL_MS
   sessionStore.set(sessionId, {
     runId,
     taskId,
@@ -356,8 +359,19 @@ export function handleStreamLogs(request: Request): Response {
 }
 
 /**
+ * Extract session ID from delete request path
+ * Path format: /api/v1/session/:sessionId
+ */
+function extractSessionIdFromPath(pathname: string): string | null {
+  // Use regex to safely extract sessionId from /api/v1/session/{sessionId}
+  const match = pathname.match(/^\/api\/v1\/session\/(.+)$/)
+  return match?.[1] ?? null
+}
+
+/**
  * DELETE /api/v1/session/:sessionId
  * Delete a session and clean up resources
+ * SECURITY: Requires Authorization header with valid token
  */
 export function handleDeleteSession(request: Request): Response {
   console.log('[api/delete-session] Handling session deletion request')
@@ -365,21 +379,29 @@ export function handleDeleteSession(request: Request): Response {
   try {
     const url = new URL(request.url)
 
-    // Extract sessionId from path: /api/v1/session/:sessionId
-    const pathParts = url.pathname.split('/')
-    const sessionId = pathParts[pathParts.length - 1]
+    // Extract sessionId safely using regex
+    const sessionId = extractSessionIdFromPath(url.pathname)
 
     if (!sessionId || sessionId.length < 5) {
       console.warn(`[api/delete-session] Invalid session ID: ${sessionId}`)
       return errorResponse('Invalid session ID', 'INVALID_REQUEST', 400)
     }
 
-    // Check if session exists
-    const exists = sessionStore.has(sessionId)
-
-    if (!exists) {
+    // SECURITY: Verify session exists and get token
+    const session = sessionStore.get(sessionId)
+    if (!session) {
       console.warn(`[api/delete-session] Session not found: ${sessionId}`)
       return errorResponse('Session not found', 'SESSION_NOT_FOUND', 404)
+    }
+
+    // SECURITY: Validate Authorization header matches session token
+    const authHeader = request.headers.get('Authorization') || ''
+    const tokenMatch = authHeader.match(/^Bearer (.+)$/)
+    const providedToken = tokenMatch ? tokenMatch[1] : null
+
+    if (providedToken !== session.token) {
+      console.warn(`[api/delete-session] Unauthorized deletion attempt for session: ${sessionId}`)
+      return errorResponse('Unauthorized', 'UNAUTHORIZED', 401)
     }
 
     // Delete session and logs
