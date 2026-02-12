@@ -17,6 +17,10 @@ import type {
 } from '../../types/executor.js'
 import { EnvironmentManager } from '../EnvironmentManager.js'
 
+// Timeout constants (in milliseconds)
+const DOCKER_PULL_TIMEOUT = 60000 // 60 seconds for image pull
+const COMMAND_EXEC_TIMEOUT = 30000 // 30 seconds default command timeout
+
 /**
  * Escape shell argument to prevent command injection
  */
@@ -100,8 +104,8 @@ export class DockerExecutor extends EnvironmentManager {
     env: ExecutionEnvironment,
     task: ExecutionTask
   ): Promise<ExecutionResult> {
-    const containerName = env.metadata?.containerName as string
-    if (!containerName) {
+    const containerName = env.metadata?.containerName
+    if (typeof containerName !== 'string') {
       throw new Error('Container name not found in environment metadata')
     }
 
@@ -228,6 +232,9 @@ export class DockerExecutor extends EnvironmentManager {
     }
 
     // Validate cwd doesn't escape
+    if (!task.cwd) {
+      throw new Error('Task cwd is required')
+    }
     if (task.cwd.includes('..')) {
       throw new Error('Path traversal not allowed')
     }
@@ -238,7 +245,7 @@ export class DockerExecutor extends EnvironmentManager {
    */
   private pullImage(): void {
     try {
-      execSync(`docker pull ${escapeShellArg(this.image)}`, { stdio: 'pipe', timeout: 60000 })
+      execSync(`docker pull ${escapeShellArg(this.image)}`, { stdio: 'pipe', timeout: DOCKER_PULL_TIMEOUT })
     } catch {
       // Ignore — image may already exist locally
       console.debug(`[executor/docker] Could not pull image: ${this.image}`)
@@ -274,7 +281,7 @@ export class DockerExecutor extends EnvironmentManager {
       const stdout = execSync(cmd, {
         stdio: 'pipe',
         encoding: 'utf-8',
-        timeout: task.timeout ?? 30000
+        timeout: task.timeout ?? COMMAND_EXEC_TIMEOUT
       }).trim()
 
       const duration = Date.now() - startTime
