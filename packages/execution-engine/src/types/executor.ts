@@ -40,7 +40,10 @@ export const ExecutionTaskSchema = z.object({
   cwd: z.string().min(1),
   timeout: z.number().int().positive().optional(),
   env: z.record(z.string()).optional(),
-  metadata: z.record(z.unknown()).optional()
+  metadata: z.record(z.unknown()).optional(),
+  executorHint: z.enum(['docker', 'cloud', 'local']).optional(),
+  requiresGPU: z.boolean().optional(),
+  estimatedDuration: z.number().int().positive().optional()
 })
 
 export type ExecutionTask = z.infer<typeof ExecutionTaskSchema>
