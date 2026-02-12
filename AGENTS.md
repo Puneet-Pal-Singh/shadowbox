@@ -633,19 +633,26 @@ See `.agents/skills/README.md` for the template and guidelines.
    🎉 PR{N} is ready for production code review and merge.
    ```
 
-### Documentation Files: MINIMAL RULE
+### Documentation Files: STRICT RULE
 
-**Only create summary documents when:**
-- ✅ Answering principal engineer review questions (one file max)
-- ✅ Documenting architectural decisions (one file max)
-- ✅ Creating standards for future use (templates, checklists)
+**NEVER create summary or documentation files unless EXPLICITLY REQUESTED by user.**
 
 **Do NOT create:**
-- ❌ Multiple completion summary files
-- ❌ Redundant documentation
+- ❌ Any `.md` summary files (PR4_SUMMARY.md, COMPLETION_SUMMARY.md, etc.)
+- ❌ Task completion documents
+- ❌ Status reports in markdown
+- ❌ Multiple documentation files
 - ❌ Files that duplicate PR description
+- ❌ Auto-generated completion reports
+
+**ONLY create docs if user explicitly says:**
+- `"Create a document for..."`
+- `"Write architecture.md"`
+- `"Document the design"`
 
 **Place all details in the GitHub PR description itself** — that's the source of truth.
+
+**Never push documentation files to remote** unless explicitly requested. Keep working directory clean.
 
 ---
 
