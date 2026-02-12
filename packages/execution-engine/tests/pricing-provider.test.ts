@@ -5,6 +5,7 @@
 
 import { describe, it, expect, beforeAll } from 'vitest'
 import { StaticPricingProvider } from '../src/pricing/StaticPricingProvider.js'
+import { DEFAULT_PRICING_CURRENCY } from '../src/pricing/PricingProvider.js'
 
 describe('StaticPricingProvider', () => {
   let provider: StaticPricingProvider
@@ -35,7 +36,7 @@ describe('StaticPricingProvider', () => {
         inputPer1k: 0.005,
         outputPer1k: 0.015,
         lastUpdated: expect.any(String),
-        currency: 'USD'
+        currency: DEFAULT_PRICING_CURRENCY
       })
     })
 
@@ -48,7 +49,7 @@ describe('StaticPricingProvider', () => {
         inputPer1k: 0.003,
         outputPer1k: 0.015,
         lastUpdated: expect.any(String),
-        currency: 'USD'
+        currency: DEFAULT_PRICING_CURRENCY
       })
     })
 
@@ -57,7 +58,7 @@ describe('StaticPricingProvider', () => {
 
       expect(pricing.inputPer1k).toBe(0)
       expect(pricing.outputPer1k).toBe(0)
-      expect(pricing.currency).toBe('USD')
+      expect(pricing.currency).toBe(DEFAULT_PRICING_CURRENCY)
     })
 
     it('should throw for unknown provider', async () => {
@@ -200,7 +201,7 @@ describe('StaticPricingProvider', () => {
         for (const prov of providers) {
           try {
             const pricing = await provider.getPricing(model, prov)
-            expect(pricing.currency).toBe('USD')
+            expect(pricing.currency).toBe(DEFAULT_PRICING_CURRENCY)
           } catch {
             // Model not in this provider, skip
           }

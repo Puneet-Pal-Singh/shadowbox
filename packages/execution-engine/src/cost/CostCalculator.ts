@@ -17,6 +17,12 @@
 import type { PricingProvider } from '../pricing/PricingProvider.js'
 
 /**
+ * Token divisor for per-1k pricing calculations
+ * All pricing is expressed as cost per 1000 tokens
+ */
+const TOKENS_PER_1K = 1000
+
+/**
  * CostCalculator: Token cost calculation using pluggable pricing
  * Instance-based (not static) to support dependency injection
  *
@@ -60,8 +66,8 @@ export class CostCalculator {
     outputTokens: number
   ): Promise<number> {
     const pricing = await this.pricingProvider.getPricing(model, provider)
-    const inputCost = (inputTokens / 1000) * pricing.inputPer1k
-    const outputCost = (outputTokens / 1000) * pricing.outputPer1k
+    const inputCost = (inputTokens / TOKENS_PER_1K) * pricing.inputPer1k
+    const outputCost = (outputTokens / TOKENS_PER_1K) * pricing.outputPer1k
     return inputCost + outputCost
   }
 

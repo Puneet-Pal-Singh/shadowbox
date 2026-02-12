@@ -18,7 +18,8 @@ import { fileURLToPath } from 'url'
 import {
   PricingProvider,
   ModelPricingData,
-  ModelPricingDataSchema
+  ModelPricingDataSchema,
+  DEFAULT_PRICING_CURRENCY
 } from './PricingProvider.js'
 
 /**
@@ -144,14 +145,14 @@ export class StaticPricingProvider implements PricingProvider {
 
       for (const [model, rawData] of Object.entries(models)) {
         // Ensure model and provider are set
-        const data: ModelPricingData = {
-          model: rawData.model || model,
-          provider: rawData.provider || provider,
-          inputPer1k: rawData.inputPer1k,
-          outputPer1k: rawData.outputPer1k,
-          lastUpdated: rawData.lastUpdated,
-          currency: rawData.currency || 'USD'
-        }
+         const data: ModelPricingData = {
+           model: rawData.model || model,
+           provider: rawData.provider || provider,
+           inputPer1k: rawData.inputPer1k,
+           outputPer1k: rawData.outputPer1k,
+           lastUpdated: rawData.lastUpdated,
+           currency: rawData.currency || DEFAULT_PRICING_CURRENCY
+         }
 
         // Validate schema
         const validation = ModelPricingDataSchema.safeParse(data)

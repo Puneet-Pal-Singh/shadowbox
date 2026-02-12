@@ -11,6 +11,12 @@
 import { z } from 'zod'
 
 /**
+ * Default currency for all pricing
+ * Used when pricing.json doesn't specify currency
+ */
+export const DEFAULT_PRICING_CURRENCY = 'USD' as const
+
+/**
  * Model pricing data from any provider
  * BYOK-compatible: works with OpenAI, Anthropic, Groq, Ollama, custom
  */
