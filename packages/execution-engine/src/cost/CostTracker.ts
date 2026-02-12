@@ -11,56 +11,67 @@
  * Cost entry with metadata
  */
 export interface Cost {
-  type: 'model_tokens' | 'compute_time' | 'storage' | 'network'
-  amount: number
-  currency: 'USD' | 'credits'
-  timestamp: number
-  metadata?: Record<string, unknown>
+  type: "model_tokens" | "compute_time" | "storage" | "network";
+  amount: number;
+  currency: "USD" | "credits";
+  timestamp: number;
+  metadata?: Record<string, unknown>;
 }
 
 /**
  * Cost summary for a run
  */
 export interface CostSummary {
-  runId: string
-  totalCost: number
+  runId: string;
+  totalCost: number;
   totalCosts: {
-    modelTokens: number
-    computeTime: number
-    storage: number
-    network: number
-  }
-  costBreakdown: Cost[]
-  duration: number
-  startTime: number
-  endTime?: number
+    modelTokens: number;
+    computeTime: number;
+    storage: number;
+    network: number;
+  };
+  costBreakdown: Cost[];
+  duration: number;
+  startTime: number;
+  endTime?: number;
 }
+
+/**
+ * Minimum length for valid runId
+ */
+const MIN_RUNID_LENGTH = 5;
 
 /**
  * CostTracker: Single responsibility = accumulate costs
  * Does NOT calculate pricing or make routing decisions
  */
 export class CostTracker {
-  private costs: Cost[] = []
-  private readonly runId: string
-  private readonly startTime: number
+  private costs: Cost[] = [];
+  private readonly runId: string;
+  private readonly startTime: number;
 
   constructor(runId: string) {
-    if (!runId || runId.length < 5) {
-      throw new Error('Invalid runId')
+    if (!runId || runId.length < MIN_RUNID_LENGTH) {
+      throw new Error("Invalid runId");
     }
-    this.runId = runId
-    this.startTime = Date.now()
+    this.runId = runId;
+    this.startTime = Date.now();
   }
 
   /**
    * Add a cost entry to tracking
+   * @throws Error if amount is negative, NaN, or Infinity
    */
-  addCost(cost: Omit<Cost, 'timestamp'>): void {
+  addCost(cost: Omit<Cost, "timestamp">): void {
+    if (!Number.isFinite(cost.amount) || cost.amount < 0) {
+      throw new Error(
+        `Invalid cost amount: ${cost.amount}. Must be a non-negative finite number.`,
+      );
+    }
     this.costs.push({
       ...cost,
-      timestamp: Date.now()
-    })
+      timestamp: Date.now(),
+    });
   }
 
   /**
@@ -70,11 +81,11 @@ export class CostTracker {
    */
   addModelTokensCost(tokens: number, costPerToken: number): void {
     this.addCost({
-      type: 'model_tokens',
+      type: "model_tokens",
       amount: tokens * costPerToken,
-      currency: 'USD',
-      metadata: { tokens, costPerToken }
-    })
+      currency: "USD",
+      metadata: { tokens, costPerToken },
+    });
   }
 
   /**
@@ -84,21 +95,21 @@ export class CostTracker {
    */
   addComputeTimeCost(durationMs: number, costPerMs: number): void {
     this.addCost({
-      type: 'compute_time',
+      type: "compute_time",
       amount: durationMs * costPerMs,
-      currency: 'USD',
-      metadata: { durationMs, costPerMs }
-    })
+      currency: "USD",
+      metadata: { durationMs, costPerMs },
+    });
   }
 
   /**
    * Get current cost summary
    */
   getSummary(): CostSummary {
-    const modelTokensCost = this.calculateCostByType('model_tokens')
-    const computeTimeCost = this.calculateCostByType('compute_time')
-    const storageCost = this.calculateCostByType('storage')
-    const networkCost = this.calculateCostByType('network')
+    const modelTokensCost = this.calculateCostByType("model_tokens");
+    const computeTimeCost = this.calculateCostByType("compute_time");
+    const storageCost = this.calculateCostByType("storage");
+    const networkCost = this.calculateCostByType("network");
 
     return {
       runId: this.runId,
@@ -107,12 +118,12 @@ export class CostTracker {
         modelTokens: modelTokensCost,
         computeTime: computeTimeCost,
         storage: storageCost,
-        network: networkCost
+        network: networkCost,
       },
       costBreakdown: [...this.costs], // Return shallow copy to prevent mutation
       duration: Date.now() - this.startTime,
-      startTime: this.startTime
-    }
+      startTime: this.startTime,
+    };
   }
 
   /**
@@ -120,19 +131,19 @@ export class CostTracker {
    * Call this when execution is complete
    */
   finalize(): CostSummary {
-    const summary = this.getSummary()
+    const summary = this.getSummary();
     return {
       ...summary,
-      endTime: Date.now()
-    }
+      endTime: Date.now(),
+    };
   }
 
   /**
    * Calculate total cost for a specific type
    */
-  private calculateCostByType(type: Cost['type']): number {
+  private calculateCostByType(type: Cost["type"]): number {
     return this.costs
-      .filter(cost => cost.type === type)
-      .reduce((sum, cost) => sum + cost.amount, 0)
+      .filter((cost) => cost.type === type)
+      .reduce((sum, cost) => sum + cost.amount, 0);
   }
 }
