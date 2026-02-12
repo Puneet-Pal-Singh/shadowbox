@@ -90,13 +90,16 @@ export class MockPricingProvider implements PricingProvider {
   constructor(private pricing: Record<string, Record<string, ModelPricingData>> = TEST_PRICING) {}
 
   async getPricing(model: string, provider: string): Promise<ModelPricingData> {
-    const pricing = this.pricing[provider]?.[model]
-    if (!pricing) {
-      throw new Error(
-        `[mock/pricing] Model "${model}" for provider "${provider}" not found in test fixture. ` +
-        `Phase 3 will use real LiteLLM API.`
-      )
+    const providerData = this.pricing[provider]
+    if (!providerData) {
+      throw new Error(`[mock/pricing] Provider "${provider}" not found in test fixture`)
     }
+
+    const pricing = providerData[model]
+    if (!pricing) {
+      throw new Error(`[mock/pricing] Model "${model}" not found in test fixture`)
+    }
+
     return pricing
   }
 
