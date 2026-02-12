@@ -13,12 +13,30 @@ import type { EnvironmentConfig, ExecutionTask } from '../src/types/executor.js'
 global.fetch = vi.fn()
 
 /**
+ * Session data type
+ */
+interface MockSession {
+  token: string
+  expiresAt: number
+}
+
+/**
+ * Log entry type
+ */
+interface MockLogEntry {
+  timestamp: number
+  level: 'info' | 'error'
+  message: string
+  source: 'stdout' | 'stderr'
+}
+
+/**
  * Mock secure-agent-api HTTP API responses
  */
 class MockSecureAgentAPI {
   baseUrl = 'http://localhost:8787'
-  sessions = new Map<string, any>()
-  logs = new Map<string, any[]>()
+  sessions = new Map<string, MockSession>()
+  logs = new Map<string, MockLogEntry[]>()
 
   mockSessionCreation() {
     const sessionId = 'sess_test_123'
@@ -211,10 +229,35 @@ describe('CloudSandboxExecutor Integration with secure-agent-api', () => {
         }
       }
 
-      const iterator = await executor.streamLogs(env)
+      // Mock log stream response with SSE format
+      const mockLogs = [
+        { timestamp: Date.now(), level: 'info' as const, message: 'Task started' },
+        { timestamp: Date.now() + 100, level: 'info' as const, message: 'Task completed' }
+      ]
+      const sseContent = mockLogs
+        .map(log => `data: ${JSON.stringify(log)}\n\n`)
+        .join('')
 
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'Content-Type': 'text/event-stream' }),
+        text: async () => sseContent
+      } as unknown as Response)
+
+      const iterator = await executor.streamLogs(env)
       expect(iterator).toBeDefined()
       expect(iterator[Symbol.asyncIterator]).toBeDefined()
+
+      // Actually consume the iterator and verify log content
+      const logs: typeof mockLogs = []
+      for await (const log of iterator) {
+        logs.push(log as typeof mockLogs[0])
+        if (logs.length >= mockLogs.length) break
+      }
+
+      expect(logs.length).toBeGreaterThan(0)
+      expect(logs[0].message).toBe('Task started')
     })
 
     it('should delete session via secure-agent-api HTTP endpoint', async () => {
@@ -443,18 +486,20 @@ describe('CloudSandboxExecutor Integration with secure-agent-api', () => {
     })
 
     it('should not leak token in error messages', async () => {
+      const sensitiveToken = 'test-token-123456789'
       vi.mocked(fetch).mockResolvedValueOnce({
         ok: false,
         status: 401,
         statusText: 'Unauthorized',
-        text: async () => 'Invalid token test-token-123'
+        text: async () => `Invalid token: ${sensitiveToken}`
       } as Response)
 
-      await expect(executor.createEnvironment(envConfig)).rejects.toThrow()
+      const error = await expect(executor.createEnvironment(envConfig)).rejects.toThrow()
 
-      // Error message should be present but not expose the token
-      const calls = vi.mocked(fetch).mock.calls
-      expect(calls.length).toBeGreaterThan(0)
+      // Error thrown should NOT contain the sensitive token
+      expect(error.message).not.toContain(sensitiveToken)
+      // Should contain redaction marker instead
+      expect(error.message).toContain('REDACTED')
     })
   })
 })
