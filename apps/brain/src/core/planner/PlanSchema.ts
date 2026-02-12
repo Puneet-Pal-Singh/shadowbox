@@ -6,13 +6,18 @@ import { z } from "zod";
 /**
  * PlannedTask represents a single unit of work
  */
-export const PlannedTaskSchema = z.object({
-  id: z.string().min(1).max(50),
-  type: z.enum(["analyze", "edit", "test", "review", "git", "shell"]),
-  description: z.string().min(1).max(1000),
-  dependsOn: z.array(z.string()).default([]),
-  expectedOutput: z.string().optional(),
-});
+export const PlannedTaskSchema = z
+  .object({
+    id: z.string().min(1).max(50),
+    type: z.enum(["analyze", "edit", "test", "review", "git", "shell"]),
+    description: z.string().min(1).max(1000),
+    dependsOn: z.array(z.string()).default([]),
+    expectedOutput: z.string().optional(),
+  })
+  .transform((task) => ({
+    ...task,
+    dependsOn: task.dependsOn as string[], // Ensure dependsOn is never undefined
+  }));
 
 /**
  * Plan represents the structured output of the planning phase
@@ -29,35 +34,27 @@ export const PlanSchema = z
     (plan) => {
       // Validate referential integrity: all dependsOn IDs must exist in tasks
       const taskIds = new Set(plan.tasks.map((t) => t.id));
-      return plan.tasks.every((task) =>
-        task.dependsOn?.every((depId) => taskIds.has(depId)) ?? true
-      );
+      return plan.tasks.every((task) => {
+        // Check for self-reference
+        if (task.dependsOn.includes(task.id)) {
+          return false;
+        }
+        // Check all dependencies exist
+        return task.dependsOn.every((depId) => taskIds.has(depId));
+      });
     },
     {
       message:
-        "Task dependencies must reference existing task IDs within the plan",
+        "Task dependencies must reference existing task IDs and cannot self-reference",
       path: ["tasks"],
     }
   );
 
 /**
- * TypeScript types - explicitly defined to match Zod output
+ * TypeScript types - inferred from Zod schemas for type safety
  */
-export interface PlannedTask {
-  id: string;
-  type: "analyze" | "edit" | "test" | "review" | "git" | "shell";
-  description: string;
-  dependsOn?: string[];
-  expectedOutput?: string;
-}
-
-export interface Plan {
-  tasks: PlannedTask[];
-  metadata: {
-    estimatedSteps: number;
-    reasoning?: string;
-  };
-}
+export type PlannedTask = z.infer<typeof PlannedTaskSchema>;
+export type Plan = z.infer<typeof PlanSchema>;
 
 /**
  * Validates a plan against the schema

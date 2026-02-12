@@ -54,8 +54,8 @@ export class TaskScheduler implements ITaskScheduler {
       throw new SchedulerError(`Task ${taskId} not found in run ${runId}`);
     }
 
-    // Validate task is ready before executing
-    if (!["READY", "PENDING"].includes(task.status)) {
+    // Validate task is ready before executing (allow RETRYING for retry logic)
+    if (!["READY", "PENDING", "RETRYING"].includes(task.status)) {
       throw new SchedulerError(
         `Task ${taskId} is not ready for execution (status: ${task.status})`,
       );
@@ -145,14 +145,30 @@ export class TaskScheduler implements ITaskScheduler {
           runId,
         );
 
+        // Verify all requested dependencies were found
+        if (dependencies.length !== task.dependencies.length) {
+          const foundIds = new Set(dependencies.map((d) => d.id));
+          const missingIds = task.dependencies.filter(
+            (id) => !foundIds.has(id)
+          );
+          task.transition("FAILED", {
+            error: {
+              message: `Missing dependencies: ${missingIds.join(", ")}`,
+            },
+          });
+          await this.taskRepo.update(task);
+          continue; // Skip this task, try next
+        }
+
         // Check for failed dependencies and cascade failure
         const failedDeps = dependencies.filter((dep) =>
           dep.status === "FAILED"
         );
         if (failedDeps.length > 0) {
+          const failedDep = failedDeps[0];
           task.transition("FAILED", {
             error: {
-              message: `Dependency task ${failedDeps[0].id} failed`,
+              message: `Dependency task ${failedDep?.id || "unknown"} failed`,
             },
           });
           await this.taskRepo.update(task);

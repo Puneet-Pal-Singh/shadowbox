@@ -207,7 +207,7 @@ export class RunEngine implements IRunEngine {
       runId,
       planned.type,
       "PENDING",
-      planned.dependsOn ?? [],
+      planned.dependsOn,
       {
         description: planned.description,
         expectedOutput: planned.expectedOutput,

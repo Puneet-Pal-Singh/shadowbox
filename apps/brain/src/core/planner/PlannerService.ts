@@ -93,11 +93,13 @@ Generate a plan to accomplish this request.`;
   ): Promise<Plan> {
     // generateStructured returns Zod-validated Plan directly
     try {
-      return await this.aiService.generateStructured({
+      const result = await this.aiService.generateStructured({
         messages,
         schema: PlanSchema,
         temperature: 0.2, // Deterministic planning
       });
+      // Type assertion is safe here because Zod validation already occurred
+      return result as Plan;
     } catch (error) {
       console.error("[planner/service] Failed to generate plan:", error);
       throw new PlannerError("Failed to generate valid plan from LLM");
