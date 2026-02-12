@@ -14,6 +14,7 @@ import { AIService } from "../../services/AIService";
 import type { Env } from "../../types/ai";
 import type { RunInput, RunResult, RunStatus, CostSnapshot } from "../../types";
 import type { Plan, PlannedTask } from "../planner";
+import { CORS_HEADERS } from "../../lib/cors";
 
 export interface IRunEngine {
   execute(
@@ -271,6 +272,7 @@ Provide a concise summary of what was accomplished.`;
 
     return new Response(stream, {
       headers: {
+        ...CORS_HEADERS,
         "Content-Type": "text/plain; charset=utf-8",
         "Transfer-Encoding": "chunked",
       },
@@ -284,11 +286,19 @@ Provide a concise summary of what was accomplished.`;
     const errorMessage =
       error instanceof Error ? error.message : "Unknown error";
 
-    const run = await this.runRepo.getById(runId);
-    if (run) {
-      run.transition("FAILED");
-      run.metadata.error = errorMessage;
-      await this.runRepo.update(run);
+    try {
+      const run = await this.runRepo.getById(runId);
+      if (run) {
+        run.transition("FAILED");
+        run.metadata.error = errorMessage;
+        await this.runRepo.update(run);
+      }
+    } catch (handlerError) {
+      // Log handler error but don't re-throw to avoid masking original error
+      console.error(
+        `[run/engine] Failed to handle execution error for run ${runId}:`,
+        handlerError,
+      );
     }
 
     console.error(`[run/engine] Run ${runId} failed:`, errorMessage);

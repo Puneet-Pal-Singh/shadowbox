@@ -54,6 +54,13 @@ export class TaskScheduler implements ITaskScheduler {
       throw new SchedulerError(`Task ${taskId} not found in run ${runId}`);
     }
 
+    // Validate task is ready before executing
+    if (!["READY", "PENDING"].includes(task.status)) {
+      throw new SchedulerError(
+        `Task ${taskId} is not ready for execution (status: ${task.status})`,
+      );
+    }
+
     console.log(`[task/scheduler] Executing task ${task.id} (${task.type})`);
 
     // Transition to RUNNING
@@ -137,6 +144,21 @@ export class TaskScheduler implements ITaskScheduler {
           task.dependencies,
           runId,
         );
+
+        // Check for failed dependencies and cascade failure
+        const failedDeps = dependencies.filter((dep) =>
+          dep.status === "FAILED"
+        );
+        if (failedDeps.length > 0) {
+          task.transition("FAILED", {
+            error: {
+              message: `Dependency task ${failedDeps[0].id} failed`,
+            },
+          });
+          await this.taskRepo.update(task);
+          continue; // Skip this task, try next
+        }
+
         const allDone = dependencies.every((dep) => dep.status === "DONE");
 
         if (allDone) {
@@ -152,11 +174,7 @@ export class TaskScheduler implements ITaskScheduler {
 
   private async hasExecutableTasks(runId: string): Promise<boolean> {
     const allTasks = await this.taskRepo.getByRun(runId);
-    return allTasks.some(
-      (task) =>
-        task.status === "READY" ||
-        (task.status === "PENDING" && !TaskState.isTerminal(task.status)),
-    );
+    return allTasks.some((task) => task.status === "READY");
   }
 
   private async hasPendingTasks(runId: string): Promise<boolean> {

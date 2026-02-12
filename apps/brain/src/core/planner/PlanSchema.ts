@@ -17,13 +17,28 @@ export const PlannedTaskSchema = z.object({
 /**
  * Plan represents the structured output of the planning phase
  */
-export const PlanSchema = z.object({
-  tasks: z.array(PlannedTaskSchema).min(1).max(20),
-  metadata: z.object({
-    estimatedSteps: z.number().int().positive(),
-    reasoning: z.string().optional(),
-  }),
-});
+export const PlanSchema = z
+  .object({
+    tasks: z.array(PlannedTaskSchema).min(1).max(20),
+    metadata: z.object({
+      estimatedSteps: z.number().int().positive(),
+      reasoning: z.string().optional(),
+    }),
+  })
+  .refine(
+    (plan) => {
+      // Validate referential integrity: all dependsOn IDs must exist in tasks
+      const taskIds = new Set(plan.tasks.map((t) => t.id));
+      return plan.tasks.every((task) =>
+        task.dependsOn?.every((depId) => taskIds.has(depId)) ?? true
+      );
+    },
+    {
+      message:
+        "Task dependencies must reference existing task IDs within the plan",
+      path: ["tasks"],
+    }
+  );
 
 /**
  * TypeScript types - explicitly defined to match Zod output

@@ -91,15 +91,13 @@ Generate a plan to accomplish this request.`;
   private async callLLM(
     messages: Array<{ role: "system" | "user"; content: string }>,
   ): Promise<Plan> {
-    // Use AIService to generate structured response
-    // generateStructured already validates with Zod schema
+    // generateStructured returns Zod-validated Plan directly
     try {
-      const result = await this.aiService.generateStructured({
+      return await this.aiService.generateStructured({
         messages,
         schema: PlanSchema,
         temperature: 0.2, // Deterministic planning
       });
-      return result;
     } catch (error) {
       console.error("[planner/service] Failed to generate plan:", error);
       throw new PlannerError("Failed to generate valid plan from LLM");
