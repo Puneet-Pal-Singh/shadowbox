@@ -10,7 +10,12 @@
  */
 
 import type { Executor } from '../Executor.js'
-import type { ExecutionTask, ExecutionEnvironment } from '../../types/executor.js'
+import type { ExecutionTask } from '../../types/executor.js'
+
+/**
+ * Task duration threshold for cloud routing (5 minutes in milliseconds)
+ */
+const LONG_RUNNING_TASK_THRESHOLD_MS = 5 * 60 * 1000
 
 /**
  * Executor selection hints
@@ -96,7 +101,7 @@ export class ExecutorRouter {
     }
 
     // If task is large/long-running, prefer cloud
-    if (task.estimatedDuration && task.estimatedDuration > 300000) {
+    if (task.estimatedDuration && task.estimatedDuration > LONG_RUNNING_TASK_THRESHOLD_MS) {
       if (this.executors.has('cloud')) {
         return {
           executorId: 'cloud',

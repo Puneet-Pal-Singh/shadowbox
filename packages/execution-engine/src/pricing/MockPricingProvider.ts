@@ -24,6 +24,22 @@ const TEST_PRICING: Record<string, Record<string, ModelPricingData>> = {
       outputPer1k: 0.015,
       lastUpdated: new Date().toISOString(),
       currency: 'USD'
+    },
+    'gpt-4-turbo': {
+      model: 'gpt-4-turbo',
+      provider: 'openai',
+      inputPer1k: 0.01,
+      outputPer1k: 0.03,
+      lastUpdated: new Date().toISOString(),
+      currency: 'USD'
+    },
+    'gpt-3.5-turbo': {
+      model: 'gpt-3.5-turbo',
+      provider: 'openai',
+      inputPer1k: 0.0005,
+      outputPer1k: 0.0015,
+      lastUpdated: new Date().toISOString(),
+      currency: 'USD'
     }
   },
   anthropic: {
@@ -32,6 +48,34 @@ const TEST_PRICING: Record<string, Record<string, ModelPricingData>> = {
       provider: 'anthropic',
       inputPer1k: 0.003,
       outputPer1k: 0.015,
+      lastUpdated: new Date().toISOString(),
+      currency: 'USD'
+    },
+    'claude-3-opus': {
+      model: 'claude-3-opus',
+      provider: 'anthropic',
+      inputPer1k: 0.015,
+      outputPer1k: 0.075,
+      lastUpdated: new Date().toISOString(),
+      currency: 'USD'
+    }
+  },
+  groq: {
+    'llama3-70b': {
+      model: 'llama3-70b',
+      provider: 'groq',
+      inputPer1k: 0,
+      outputPer1k: 0,
+      lastUpdated: new Date().toISOString(),
+      currency: 'USD'
+    }
+  },
+  ollama: {
+    'llama2': {
+      model: 'llama2',
+      provider: 'ollama',
+      inputPer1k: 0,
+      outputPer1k: 0,
       lastUpdated: new Date().toISOString(),
       currency: 'USD'
     }

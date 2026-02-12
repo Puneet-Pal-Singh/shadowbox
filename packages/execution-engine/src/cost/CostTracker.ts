@@ -109,7 +109,7 @@ export class CostTracker {
         storage: storageCost,
         network: networkCost
       },
-      costBreakdown: this.costs,
+      costBreakdown: [...this.costs], // Return shallow copy to prevent mutation
       duration: Date.now() - this.startTime,
       startTime: this.startTime
     }
