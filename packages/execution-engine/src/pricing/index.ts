@@ -1,7 +1,11 @@
 /**
  * Pricing module exports
- * Public API for pricing providers and cost calculation
+ * 
+ * Phase 2.5: Abstraction only (PricingProvider interface)
+ * Phase 3: Implement real providers (LiteLLMPricingProvider, etc.)
+ * 
+ * Pricing MUST come from LLM API providers, NOT hardcoded files
  */
 
 export type { PricingProvider, ModelPricingData } from './PricingProvider.js'
-export { StaticPricingProvider } from './StaticPricingProvider.js'
+export { MockPricingProvider } from './MockPricingProvider.js'

@@ -61,8 +61,11 @@ export type { FileArtifactStoreConfig } from './artifacts/index.js'
 export type { ArtifactStore } from './types/index.js'
 
 // Pricing
-export { StaticPricingProvider } from './pricing/index.js'
+// Phase 2.5: Abstraction (PricingProvider interface)
+// Phase 3: Real implementations (LiteLLMPricingProvider, OpenAIPricingProvider, etc.)
+// Pricing must come from LLM API providers only, NOT hardcoded files
 export type { PricingProvider, ModelPricingData } from './pricing/index.js'
+export { MockPricingProvider } from './pricing/index.js'
 
 // Cost tracking
 export { CostTracker, CostCalculator } from './cost/index.js'

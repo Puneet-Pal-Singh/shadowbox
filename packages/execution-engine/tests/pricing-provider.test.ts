@@ -4,25 +4,28 @@
  */
 
 import { describe, it, expect, beforeAll } from 'vitest'
-import { StaticPricingProvider } from '../src/pricing/StaticPricingProvider.js'
+import { MockPricingProvider } from '../src/pricing/MockPricingProvider.js'
 import { DEFAULT_PRICING_CURRENCY } from '../src/pricing/PricingProvider.js'
 
-describe('StaticPricingProvider', () => {
-  let provider: StaticPricingProvider
+/**
+ * Test suite for PricingProvider interface
+ * Uses MockPricingProvider (test fixture)
+ * Phase 3 will test real providers (LiteLLMPricingProvider, etc.)
+ */
+describe('PricingProvider (via MockPricingProvider)', () => {
+  let provider: MockPricingProvider
 
   beforeAll(() => {
-    provider = new StaticPricingProvider()
+    provider = new MockPricingProvider()
   })
 
   describe('initialization', () => {
-    it('should load pricing.json without errors', () => {
+    it('should create mock provider with test fixtures', () => {
       expect(provider).toBeDefined()
     })
 
-    it('should throw if pricing file not found', () => {
-      expect(
-        () => new StaticPricingProvider('/nonexistent/path/pricing.json')
-      ).toThrow()
+    it('should throw for unknown models in test fixtures', () => {
+      expect(provider.getPricing('unknown-model', 'openai')).rejects.toThrow()
     })
   })
 

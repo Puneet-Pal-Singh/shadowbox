@@ -5,7 +5,7 @@
 
 import { describe, it, expect, beforeAll } from 'vitest'
 import { CostCalculator } from '../src/cost/CostCalculator.js'
-import { StaticPricingProvider } from '../src/pricing/StaticPricingProvider.js'
+import { MockPricingProvider } from '../src/pricing/MockPricingProvider.js'
 import type { PricingProvider } from '../src/pricing/PricingProvider.js'
 
 /**
@@ -23,7 +23,7 @@ describe('CostCalculator', () => {
   let provider: PricingProvider
 
   beforeAll(() => {
-    provider = new StaticPricingProvider()
+    provider = new MockPricingProvider()
     calculator = new CostCalculator(provider)
   })
 
