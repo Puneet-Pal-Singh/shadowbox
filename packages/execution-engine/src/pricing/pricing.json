@@ -1,11 +1,18 @@
 {
+  "_metadata": {
+    "version": "1.0",
+    "lastUpdated": "2026-02-12T00:00:00Z",
+    "stalePolicyDays": 90,
+    "deprecationWarning": "This static pricing will be deprecated in Phase 3. Use LiteLLMPricingProvider or dynamic fetcher for production.",
+    "note": "IMPORTANT: This data must be updated regularly as provider pricing changes frequently. See docs/pricing-maintenance.md"
+  },
   "openai": {
     "gpt-4o": {
       "model": "gpt-4o",
       "provider": "openai",
       "inputPer1k": 0.005,
       "outputPer1k": 0.015,
-      "lastUpdated": "2024-02-01T00:00:00Z",
+      "lastUpdated": "2026-02-12T00:00:00Z",
       "currency": "USD"
     },
     "gpt-4-turbo": {
@@ -13,7 +20,7 @@
       "provider": "openai",
       "inputPer1k": 0.01,
       "outputPer1k": 0.03,
-      "lastUpdated": "2024-02-01T00:00:00Z",
+      "lastUpdated": "2026-02-12T00:00:00Z",
       "currency": "USD"
     },
     "gpt-3.5-turbo": {
@@ -21,7 +28,7 @@
       "provider": "openai",
       "inputPer1k": 0.0005,
       "outputPer1k": 0.0015,
-      "lastUpdated": "2024-02-01T00:00:00Z",
+      "lastUpdated": "2026-02-12T00:00:00Z",
       "currency": "USD"
     }
   },
@@ -31,7 +38,7 @@
       "provider": "anthropic",
       "inputPer1k": 0.003,
       "outputPer1k": 0.015,
-      "lastUpdated": "2024-02-01T00:00:00Z",
+      "lastUpdated": "2026-02-12T00:00:00Z",
       "currency": "USD"
     },
     "claude-3-opus": {
@@ -39,7 +46,7 @@
       "provider": "anthropic",
       "inputPer1k": 0.015,
       "outputPer1k": 0.075,
-      "lastUpdated": "2024-02-01T00:00:00Z",
+      "lastUpdated": "2026-02-12T00:00:00Z",
       "currency": "USD"
     }
   },
@@ -49,7 +56,7 @@
       "provider": "groq",
       "inputPer1k": 0,
       "outputPer1k": 0,
-      "lastUpdated": "2024-02-01T00:00:00Z",
+      "lastUpdated": "2026-02-12T00:00:00Z",
       "currency": "USD"
     }
   },
@@ -59,7 +66,7 @@
       "provider": "ollama",
       "inputPer1k": 0,
       "outputPer1k": 0,
-      "lastUpdated": "2024-02-01T00:00:00Z",
+      "lastUpdated": "2026-02-12T00:00:00Z",
       "currency": "USD"
     }
   }

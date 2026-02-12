@@ -23,16 +23,29 @@ import {
 } from './PricingProvider.js'
 
 /**
+ * Metadata for pricing configuration
+ * Tracks staleness and deprecation status
+ */
+interface PricingMetadata {
+  version: string
+  lastUpdated: string
+  stalePolicyDays: number
+  deprecationWarning: string
+  note: string
+}
+
+/**
  * Raw pricing configuration structure before normalization
  * Matches pricing.json file format
  */
 interface RawPricingConfig {
+  _metadata?: PricingMetadata
   [provider: string]: {
     [model: string]: Omit<ModelPricingData, 'model' | 'provider'> & {
       model?: string
       provider?: string
     }
-  }
+  } | PricingMetadata
 }
 
 /**
@@ -47,6 +60,11 @@ export class StaticPricingProvider implements PricingProvider {
   private readonly pricingMap: Map<string, Map<string, ModelPricingData>>
 
   /**
+   * Pricing metadata (version, update timestamp, deprecation info)
+   */
+  private readonly metadata: PricingMetadata | undefined
+
+  /**
    * Initialize from pricing.json
    * @throws If pricing.json not found or invalid
    */
@@ -56,7 +74,14 @@ export class StaticPricingProvider implements PricingProvider {
     console.log('[pricing/static] Loading pricing from:', filePath)
     const rawConfig = this.loadPricingFile(filePath)
 
-    // Normalize and validate
+    // Extract and validate metadata
+    this.metadata = rawConfig._metadata
+    if (this.metadata) {
+      this.checkStaleness(this.metadata)
+      console.log('[pricing/static] Deprecation Warning:', this.metadata.deprecationWarning)
+    }
+
+    // Normalize and validate pricing data
     this.pricingMap = this.buildPricingMap(rawConfig)
 
     console.log(
@@ -134,6 +159,7 @@ export class StaticPricingProvider implements PricingProvider {
   /**
    * Build normalized pricing map from raw config
    * Validates each pricing entry with Zod
+   * Skips metadata entries
    */
   private buildPricingMap(
     config: RawPricingConfig
@@ -141,9 +167,14 @@ export class StaticPricingProvider implements PricingProvider {
     const map = new Map<string, Map<string, ModelPricingData>>()
 
     for (const [provider, models] of Object.entries(config)) {
+      // Skip metadata
+      if (provider === '_metadata' || typeof models !== 'object' || models === null) {
+        continue
+      }
+
       const providerMap = new Map<string, ModelPricingData>()
 
-      for (const [model, rawData] of Object.entries(models)) {
+      for (const [model, rawData] of Object.entries(models as Record<string, any>)) {
         // Ensure model and provider are set
          const data: ModelPricingData = {
            model: rawData.model || model,
@@ -185,6 +216,31 @@ export class StaticPricingProvider implements PricingProvider {
     } catch {
       // CJS fallback
       return join(__dirname, 'pricing.json')
+    }
+  }
+
+  /**
+   * Check if pricing data is stale and warn if needed
+   * @param metadata Pricing metadata
+   * @throws If pricing is critically stale (>180 days)
+   */
+  private checkStaleness(metadata: PricingMetadata): void {
+    const lastUpdated = new Date(metadata.lastUpdated)
+    const now = new Date()
+    const daysOld = Math.floor((now.getTime() - lastUpdated.getTime()) / (1000 * 60 * 60 * 24))
+    const stalePolicy = metadata.stalePolicyDays || 90
+
+    if (daysOld > stalePolicy) {
+      const message = `[pricing/static] WARNING: Pricing data is ${daysOld} days old (policy: ${stalePolicy} days). ` +
+        `Last updated: ${metadata.lastUpdated}. Consider updating or switching to dynamic pricing in Phase 3.`
+      console.warn(message)
+    }
+
+    if (daysOld > 180) {
+      throw new Error(
+        `[pricing/static] CRITICAL: Pricing data is ${daysOld} days old and critically stale. ` +
+        `Phase 3 must implement dynamic pricing (LiteLLM, API fetcher) before production use.`
+      )
     }
   }
 }
