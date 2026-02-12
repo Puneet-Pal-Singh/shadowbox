@@ -1,5 +1,5 @@
 // apps/brain/src/core/orchestration/TaskScheduler.ts
-// Phase 3B: Sequential task execution scheduler
+// Phase 3C: Parallel task execution scheduler with concurrency limits
 
 import type { TaskRepository } from "../task";
 import { Task, TaskState } from "../task";
@@ -14,24 +14,39 @@ export interface TaskExecutor {
   execute(task: Task): Promise<TaskResult>;
 }
 
+export interface SchedulerConfig {
+  concurrencyLimit?: number;
+}
+
 /**
  * TaskScheduler manages the execution of tasks according to their dependencies.
- * Phase 3B: Sequential execution only (one task at a time)
- * Phase 3C: Will add parallel execution support
+ * Phase 3B: Sequential execution (concurrencyLimit = 1)
+ * Phase 3C: Parallel execution with configurable concurrency limit
  */
 export class TaskScheduler implements ITaskScheduler {
+  private concurrencyLimit: number;
+
   constructor(
     private taskRepo: TaskRepository,
     private executor: TaskExecutor,
-  ) {}
+    config: SchedulerConfig = {},
+  ) {
+    this.concurrencyLimit = config.concurrencyLimit ?? 1;
+    if (this.concurrencyLimit < 1) {
+      throw new SchedulerError("concurrencyLimit must be >= 1");
+    }
+  }
 
   async execute(runId: string): Promise<void> {
-    console.log(`[task/scheduler] Starting execution for run ${runId}`);
+    console.log(
+      `[task/scheduler] Starting execution for run ${runId} (concurrency: ${this.concurrencyLimit})`,
+    );
 
     while (await this.hasExecutableTasks(runId)) {
-      const readyTask = await this.findNextReadyTask(runId);
+      // Find all ready tasks (up to concurrency limit)
+      const readyTasks = await this.findAllReadyTasks(runId);
 
-      if (!readyTask) {
+      if (readyTasks.length === 0) {
         // Check for deadlocks or completion
         const hasPending = await this.hasPendingTasks(runId);
         if (hasPending) {
@@ -41,11 +56,31 @@ export class TaskScheduler implements ITaskScheduler {
         break;
       }
 
-      // Phase 3B: Execute sequentially
-      await this.executeSingle(readyTask.id, runId);
+      // Phase 3C: Execute in parallel batches up to concurrency limit
+      const batch = readyTasks.slice(0, this.concurrencyLimit);
+      console.log(
+        `[task/scheduler] Executing batch of ${batch.length} task(s)`,
+      );
+
+      await this.executeBatch(batch, runId);
     }
 
     console.log(`[task/scheduler] Execution complete for run ${runId}`);
+  }
+
+  private async executeBatch(tasks: Task[], runId: string): Promise<void> {
+    // Execute all tasks in parallel
+    const promises = tasks.map((task) =>
+      this.executeSingle(task.id, runId).catch((error) => {
+        // Log but don't throw - allow other tasks to continue
+        console.error(
+          `[task/scheduler] Batch task ${task.id} failed:`,
+          error,
+        );
+      }),
+    );
+
+    await Promise.all(promises);
   }
 
   async executeSingle(taskId: string, runId: string): Promise<TaskResult> {
@@ -123,19 +158,22 @@ export class TaskScheduler implements ITaskScheduler {
     };
   }
 
-  private async findNextReadyTask(runId: string): Promise<Task | null> {
+  private async findAllReadyTasks(runId: string): Promise<Task[]> {
     const allTasks = await this.taskRepo.getByRun(runId);
+    const readyTasks: Task[] = [];
 
     for (const task of allTasks) {
       if (task.status === "READY") {
-        return task;
+        readyTasks.push(task);
+        continue;
       }
 
       if (task.status === "PENDING" && task.dependencies.length === 0) {
         // No dependencies - can start immediately
         task.transition("READY");
         await this.taskRepo.update(task);
-        return task;
+        readyTasks.push(task);
+        continue;
       }
 
       if (task.status === "PENDING" && task.dependencies.length > 0) {
@@ -157,7 +195,7 @@ export class TaskScheduler implements ITaskScheduler {
             },
           });
           await this.taskRepo.update(task);
-          continue; // Skip this task, try next
+          continue;
         }
 
         // Check for failed dependencies and cascade failure
@@ -172,7 +210,7 @@ export class TaskScheduler implements ITaskScheduler {
             },
           });
           await this.taskRepo.update(task);
-          continue; // Skip this task, try next
+          continue;
         }
 
         const allDone = dependencies.every((dep) => dep.status === "DONE");
@@ -180,12 +218,12 @@ export class TaskScheduler implements ITaskScheduler {
         if (allDone) {
           task.transition("READY");
           await this.taskRepo.update(task);
-          return task;
+          readyTasks.push(task);
         }
       }
     }
 
-    return null;
+    return readyTasks;
   }
 
   private async hasExecutableTasks(runId: string): Promise<boolean> {
