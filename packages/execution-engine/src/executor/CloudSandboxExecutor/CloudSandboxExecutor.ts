@@ -173,7 +173,7 @@ export class CloudSandboxExecutor extends EnvironmentManager {
           let lastLogTime = Date.now()
 
           // Stream logs for up to 2 minutes
-          while (Date.now() - lastLogTime < 120000) {
+          while (Date.now() - lastLogTime < POLL_TIMEOUT) {
             try {
               // Pass timestamp to avoid re-yielding duplicate logs
               const logs = await self.fetchLogsWithTimestamp(sessionId, lastFetchedTimestamp)

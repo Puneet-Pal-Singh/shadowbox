@@ -13,7 +13,7 @@ import type { AgentRuntime } from '../core/AgentRuntime'
  * Runtime can be either the actual AgentRuntime or a DurableObjectStub proxy
  * DurableObjectStub is dynamically typed by Cloudflare Workers
  */
-type RuntimeStub = AgentRuntime | unknown
+type RuntimeStub = AgentRuntime | Record<string, unknown>
 import {
   SessionCreateRequestSchema,
   SessionCreateResponseSchema,
@@ -206,8 +206,9 @@ export async function handleExecuteTask(
     const startTime = Date.now()
 
     try {
-      // Simulate task execution (in real implementation, would call runtime.run())
-      // For now, return mock response
+      // TODO: Phase 2.5B - Integrate actual runtime.run() execution
+      // For MVP, this endpoint validates the contract and returns mock response
+      // Real implementation will delegate to runtime.run(sessionId, command, cwd, timeout, env)
       const duration = Math.random() * 5000 // Random 0-5s
 
       // Add log entry

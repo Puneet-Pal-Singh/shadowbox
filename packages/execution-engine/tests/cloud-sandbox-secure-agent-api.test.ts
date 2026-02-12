@@ -299,7 +299,7 @@ describe('CloudSandboxExecutor Integration with secure-agent-api', () => {
         }
       }
 
-      mockApi.mockTaskExecution('sess_test_123', 1, '', )
+      mockApi.mockTaskExecution('sess_test_123', 1, '')
 
       const result = await executor.executeTask(env, task)
 
