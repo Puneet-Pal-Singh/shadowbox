@@ -126,6 +126,12 @@
 // apps/secure-agent-api/src/index.ts
 import { AgentRuntime } from "./core/AgentRuntime";
 import { Sandbox } from '@cloudflare/sandbox';
+import {
+  handleCreateSession,
+  handleExecuteTask,
+  handleStreamLogs,
+  handleDeleteSession
+} from './api/SessionAPI'
 
 export { Sandbox, AgentRuntime };
 
@@ -171,12 +177,23 @@ export default {
       // 3. Route to proper Durable Object methods
       let response: Response;
 
-      if (url.pathname === "/connect") {
+      // NEW: HTTP API Routes for CloudSandboxExecutor Integration
+      if (url.pathname === "/api/v1/session" && request.method === "POST") {
+        response = await handleCreateSession(request, stub);
+      } else if (url.pathname === "/api/v1/execute" && request.method === "POST") {
+        response = await handleExecuteTask(request, stub);
+      } else if (url.pathname === "/api/v1/logs" && request.method === "GET") {
+        response = handleStreamLogs(request);
+      } else if (url.pathname.startsWith("/api/v1/session/") && request.method === "DELETE") {
+        response = handleDeleteSession(request);
+      }
+
+      else if (url.pathname === "/connect") {
         // Upgrade to WebSocket
         return stub.fetch(request);
       }
 
-      if (url.pathname === "/tools") {
+      else if (url.pathname === "/tools") {
         // Dynamic Tool Discovery for the Brain
         const tools = await stub.getManifest();
         response = Response.json({ tools });

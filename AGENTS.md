@@ -586,7 +586,77 @@ See `.agents/skills/README.md` for the template and guidelines.
 
 ---
 
-## 18. Common Commands
+## 18. PR Documentation Standard
+
+### GitHub PR Description Format
+
+**Every PR must include this structure** (no exceptions, minimal variations):
+
+1. **Celebratory Header** (one line)
+   ```
+   🎉 PR{N}: {TITLE} - COMPLETE & READY FOR MERGE
+   ```
+
+2. **Status & Metadata** (2-3 lines)
+   ```
+   **Status**: ✅ COMPLETE
+   **Branch**: {branch-name}
+   **Commits**: {N} commits
+   **Tests**: {X}/{Y} passing
+   ```
+
+3. **What Was Accomplished** (bullet list)
+   - Feature/component with LOC and test count
+   - Key achievements with checkmarks
+   - Documentation added
+
+4. **Test Results** (code block)
+   ```
+   ✓ test-file.test.ts ({N} tests)
+   ───────────────────────
+   Total: {X}/{Y} tests PASSING ✅
+   ```
+
+5. **Code Quality Metrics** (simple table)
+   - TypeScript strict, zero `any`, Zod validation, etc.
+
+6. **Files Changed** (if significant)
+   - New files with line counts
+   - Modified files with line deltas
+
+7. **Pre-Merge Checklist** (checkboxes)
+   - All code, tests, docs complete
+   - No blockers
+
+8. **Celebratory Closing** (one sentence)
+   ```
+   🎉 PR{N} is ready for production code review and merge.
+   ```
+
+### Documentation Files: STRICT RULE
+
+**NEVER create summary or documentation files unless EXPLICITLY REQUESTED by user.**
+
+**Do NOT create:**
+- ❌ Any `.md` summary files (PR4_SUMMARY.md, COMPLETION_SUMMARY.md, etc.)
+- ❌ Task completion documents
+- ❌ Status reports in markdown
+- ❌ Multiple documentation files
+- ❌ Files that duplicate PR description
+- ❌ Auto-generated completion reports
+
+**ONLY create docs if user explicitly says:**
+- `"Create a document for..."`
+- `"Write architecture.md"`
+- `"Document the design"`
+
+**Place all details in the GitHub PR description itself** — that's the source of truth.
+
+**Never push documentation files to remote** unless explicitly requested. Keep working directory clean.
+
+---
+
+## 19. Common Commands
 
 ```bash
 # Development
