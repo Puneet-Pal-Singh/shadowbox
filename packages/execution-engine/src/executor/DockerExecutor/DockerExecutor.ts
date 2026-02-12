@@ -284,7 +284,13 @@ export class DockerExecutor extends EnvironmentManager {
       const duration = Date.now() - startTime
       const stderr = error instanceof Error ? error.message : String(error)
       // Exit code from execSync error, default to 1 if unavailable
-      const exitCode = error instanceof Error && 'status' in error ? (error as any).status : 1
+      let exitCode = 1
+      if (error instanceof Error && 'status' in error) {
+        const status = (error as Record<string, unknown>)['status']
+        if (typeof status === 'number') {
+          exitCode = status
+        }
+      }
 
       return { stdout: '', stderr, duration, exitCode }
     }

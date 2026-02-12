@@ -210,7 +210,7 @@ describe('DockerExecutor', () => {
       const result = await executor.executeTask(env, task)
 
       expect(result.status).toBe('error')
-      expect(result.stderr).toContain('Command chaining')
+      expect(result.stderr).toContain('unsafe characters')
     })
 
     it('rejects path traversal in cwd', async () => {
