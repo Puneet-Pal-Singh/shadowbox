@@ -83,16 +83,27 @@ export class RunEngine implements IRunEngine {
 
       // 2. PLANNING PHASE - Generate execution plan
       console.log(`[run/engine] Planning phase for run ${runId}`);
-      run.transition("PLANNING");
-      await this.runRepo.update(run);
+      try {
+        run.transition("PLANNING");
+        await this.runRepo.update(run);
 
-      const plan = await this.planner.plan(run, input.prompt);
-      console.log(
-        `[run/engine] Generated plan with ${plan.tasks.length} tasks`,
-      );
+        const plan = await this.planner.plan(run, input.prompt);
+        console.log(
+          `[run/engine] Generated plan with ${plan.tasks.length} tasks`,
+        );
 
-      // 3. Create tasks from plan
-      await this.createTasksFromPlan(run.id, plan);
+        // 3. Create tasks from plan
+        await this.createTasksFromPlan(run.id, plan);
+      } catch (planError) {
+        // If planning fails, transition to FAILED and re-throw
+        run.transition("FAILED");
+        run.metadata.error =
+          planError instanceof Error
+            ? planError.message
+            : "Planning phase failed";
+        await this.runRepo.update(run);
+        throw planError;
+      }
 
       // 4. EXECUTION PHASE - Run tasks sequentially
       console.log(`[run/engine] Execution phase for run ${runId}`);
@@ -227,7 +238,7 @@ ${taskResults}
 
 Provide a concise summary of what was accomplished.`;
 
-    // Use AIService to generate synthesis
+    // Use AIService to generate synthesis with streaming
     const messages = [
       {
         role: "system" as const,
@@ -236,7 +247,6 @@ Provide a concise summary of what was accomplished.`;
       { role: "user" as const, content: synthesisPrompt },
     ];
 
-    // Call LLM for synthesis
     try {
       const response = await this.aiService.generateText({
         messages,
