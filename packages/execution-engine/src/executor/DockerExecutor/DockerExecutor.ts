@@ -7,7 +7,7 @@
  * - LSP: Fully substitutable for Executor interface
  */
 
-import { execSync, spawn } from 'child_process'
+import { execSync } from 'child_process'
 import type {
   EnvironmentConfig,
   ExecutionEnvironment,
@@ -16,6 +16,14 @@ import type {
   ExecutionLog
 } from '../../types/executor.js'
 import { EnvironmentManager } from '../EnvironmentManager.js'
+
+/**
+ * Escape shell argument to prevent command injection
+ */
+function escapeShellArg(arg: string): string {
+  // Single quote the entire argument and escape any single quotes within it
+  return "'" + arg.replace(/'/g, "'\\''") + "'"
+}
 
 /**
  * Configuration for DockerExecutor
@@ -105,12 +113,12 @@ export class DockerExecutor extends EnvironmentManager {
       const output = this.executeInContainer(containerName, task)
 
       return {
-        exitCode: 0,
+        exitCode: output.exitCode,
         stdout: output.stdout,
         stderr: output.stderr,
         duration: output.duration,
         timestamp: Date.now(),
-        status: 'success'
+        status: output.exitCode === 0 ? 'success' : 'error'
       }
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error)
@@ -153,10 +161,10 @@ export class DockerExecutor extends EnvironmentManager {
 
     try {
       // Stop container
-      execSync(`docker stop ${containerName}`, { stdio: 'pipe' })
+      execSync(`docker stop ${escapeShellArg(containerName)}`, { stdio: 'pipe' })
 
       // Remove container
-      execSync(`docker rm ${containerName}`, { stdio: 'pipe' })
+      execSync(`docker rm ${escapeShellArg(containerName)}`, { stdio: 'pipe' })
 
       console.log(`[executor/docker] Destroyed container: ${containerName}`)
     } catch (error) {
@@ -213,8 +221,10 @@ export class DockerExecutor extends EnvironmentManager {
       throw new Error('Task command is required')
     }
 
-    if (task.command.includes(';') || task.command.includes('|')) {
-      throw new Error('Command chaining not allowed')
+    // Check for command injection vectors
+    const dangerousChars = [';', '|', '&', '`', '$', '\n', '\r', '(', ')']
+    if (dangerousChars.some(char => task.command.includes(char))) {
+      throw new Error('Command contains unsafe characters')
     }
 
     // Validate cwd doesn't escape
@@ -228,7 +238,7 @@ export class DockerExecutor extends EnvironmentManager {
    */
   private pullImage(): void {
     try {
-      execSync(`docker pull ${this.image}`, { stdio: 'pipe', timeout: 60000 })
+      execSync(`docker pull ${escapeShellArg(this.image)}`, { stdio: 'pipe', timeout: 60000 })
     } catch {
       // Ignore — image may already exist locally
       console.debug(`[executor/docker] Could not pull image: ${this.image}`)
@@ -240,10 +250,8 @@ export class DockerExecutor extends EnvironmentManager {
    */
   private startContainer(containerName: string): string {
     try {
-      const containerId = execSync(
-        `docker run -d --name ${containerName} --network ${this.network} ${this.image} sleep infinity`,
-        { stdio: 'pipe', encoding: 'utf-8' }
-      ).trim()
+      const cmd = `docker run -d --name ${escapeShellArg(containerName)} --network ${escapeShellArg(this.network)} ${escapeShellArg(this.image)} sleep infinity`
+      const containerId = execSync(cmd, { stdio: 'pipe', encoding: 'utf-8' }).trim()
 
       return containerId
     } catch (error) {
@@ -258,11 +266,12 @@ export class DockerExecutor extends EnvironmentManager {
   private executeInContainer(
     containerName: string,
     task: ExecutionTask
-  ): { stdout: string; stderr: string; duration: number } {
+  ): { stdout: string; stderr: string; duration: number; exitCode: number } {
     const startTime = Date.now()
 
     try {
-      const stdout = execSync(`docker exec -w ${task.cwd} ${containerName} ${task.command}`, {
+      const cmd = `docker exec -w ${escapeShellArg(task.cwd)} ${escapeShellArg(containerName)} sh -c ${escapeShellArg(task.command)}`
+      const stdout = execSync(cmd, {
         stdio: 'pipe',
         encoding: 'utf-8',
         timeout: task.timeout ?? 30000
@@ -270,12 +279,14 @@ export class DockerExecutor extends EnvironmentManager {
 
       const duration = Date.now() - startTime
 
-      return { stdout, stderr: '', duration }
+      return { stdout, stderr: '', duration, exitCode: 0 }
     } catch (error) {
       const duration = Date.now() - startTime
       const stderr = error instanceof Error ? error.message : String(error)
+      // Exit code from execSync error, default to 1 if unavailable
+      const exitCode = error instanceof Error && 'status' in error ? (error as any).status : 1
 
-      return { stdout: '', stderr, duration }
+      return { stdout: '', stderr, duration, exitCode }
     }
   }
 }
