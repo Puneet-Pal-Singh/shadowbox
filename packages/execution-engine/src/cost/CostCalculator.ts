@@ -1,157 +1,81 @@
 /**
- * CostCalculator - Dynamic pricing via LiteLLM
+ * CostCalculator - Calculate token costs using pluggable pricing provider
  *
  * DESIGN: BYOK-First Architecture
- * - Uses LiteLLM for model pricing (100+ models, 50+ providers)
- * - Pricing auto-updates, no code changes needed
+ * - Uses PricingProvider abstraction for pricing (OpenAI, Anthropic, Groq, Ollama, etc.)
+ * - Supports StaticPricingProvider (MVP) and future dynamic providers
  * - Supports multi-provider BYOK scenario
- * - Real cost tracking from provider metadata
+ * - Future: LiteLLM integration for 100+ models in Phase 3
  *
  * SOLID Principles:
- * - SRP: Only calculates costs, doesn't track
- * - OCP: Extensible via LiteLLM pricing data
- * - ISP: Minimal public interface
+ * - SRP: Only calculates costs from pricing data
+ * - OCP: Extensible via PricingProvider implementations
+ * - DIP: Depends on PricingProvider interface, not concrete implementations
+ * - ISP: Minimal interface for callers
  */
 
-/**
- * Model pricing info (from LiteLLM or provider API)
- */
-export interface ModelPricing {
-  model: string
-  provider: 'openai' | 'anthropic' | 'groq' | 'openrouter' | 'ollama' | 'other'
-  inputTokenPrice: number // USD per 1K tokens
-  outputTokenPrice: number // USD per 1K tokens
-  lastUpdated: number // timestamp
-}
+import type { PricingProvider } from '../pricing/PricingProvider.js'
 
 /**
- * TODO: Phase 2.5C - LiteLLM Integration
+ * CostCalculator: Token cost calculation using pluggable pricing
+ * Instance-based (not static) to support dependency injection
  *
- * Current: Static pricing (MVP only)
- * Phase 2.5C: Replace with dynamic pricing
- * [ ] Install litellm package
- * [ ] Create PricingFetcher for dynamic pricing
- * [ ] Integrate with provider API endpoints
- * [ ] Cache pricing with TTL (1 day)
- * [ ] Track actual costs from LLM response metadata
- * [ ] Support provider-specific pricing
- */
-
-/**
- * CostCalculator: Calculate costs using dynamic pricing
- * BYOK-aware: Works with any provider user brings
+ * Example:
+ * ```typescript
+ * const provider = new StaticPricingProvider()
+ * const calculator = new CostCalculator(provider)
+ * const cost = await calculator.calculateTokenCost('gpt-4o', 'openai', 1000, 500)
+ * ```
  */
 export class CostCalculator {
   /**
-   * Provider pricing registry (to be replaced with LiteLLM in Phase 2.5C)
-   * For now, we maintain a minimal set for testing
+   * @param pricingProvider Provider for model pricing data
+   * @throws If pricingProvider is falsy
    */
-  private static readonly MODEL_PRICING: ModelPricing[] = [
-    // OpenAI (as of 2024)
-    {
-      model: 'gpt-4o',
-      provider: 'openai',
-      inputTokenPrice: 0.005,
-      outputTokenPrice: 0.015,
-      lastUpdated: Date.now()
-    },
-    {
-      model: 'gpt-4-turbo',
-      provider: 'openai',
-      inputTokenPrice: 0.01,
-      outputTokenPrice: 0.03,
-      lastUpdated: Date.now()
-    },
-    // Anthropic (as of 2024)
-    {
-      model: 'claude-3-5-sonnet',
-      provider: 'anthropic',
-      inputTokenPrice: 0.003,
-      outputTokenPrice: 0.015,
-      lastUpdated: Date.now()
-    },
-    // Groq (free tier)
-    {
-      model: 'llama3-70b',
-      provider: 'groq',
-      inputTokenPrice: 0,
-      outputTokenPrice: 0,
-      lastUpdated: Date.now()
-    },
-    // Ollama (self-hosted, free)
-    {
-      model: 'llama2',
-      provider: 'ollama',
-      inputTokenPrice: 0,
-      outputTokenPrice: 0,
-      lastUpdated: Date.now()
+  constructor(private readonly pricingProvider: PricingProvider) {
+    if (!pricingProvider) {
+      throw new Error('PricingProvider required for CostCalculator')
     }
-  ]
+  }
 
   /**
    * Calculate cost for model tokens
-   * @param model Model name (e.g., 'gpt-4o')
+   *
+   * @param model Model identifier (e.g., 'gpt-4o', 'claude-3-5-sonnet')
+   * @param provider Provider name (e.g., 'openai', 'anthropic')
    * @param inputTokens Number of input tokens
    * @param outputTokens Number of output tokens
    * @returns Cost in USD
+   * @throws If model/provider not found in pricing provider
+   *
+   * Formula:
+   * ```
+   * cost = (inputTokens / 1000) * inputPer1k + (outputTokens / 1000) * outputPer1k
+   * ```
    */
-  static calculateTokenCost(
+  async calculateTokenCost(
     model: string,
+    provider: string,
     inputTokens: number,
     outputTokens: number
-  ): number {
-    const pricing = this.getModelPricing(model)
-    const inputCost = (inputTokens / 1000) * pricing.inputTokenPrice
-    const outputCost = (outputTokens / 1000) * pricing.outputTokenPrice
+  ): Promise<number> {
+    const pricing = await this.pricingProvider.getPricing(model, provider)
+    const inputCost = (inputTokens / 1000) * pricing.inputPer1k
+    const outputCost = (outputTokens / 1000) * pricing.outputPer1k
     return inputCost + outputCost
   }
 
   /**
-   * Calculate compute cost (executor infrastructure)
-   * Deprecation path: Will be removed when costs are model-specific
+   * List all available models
    */
-  static calculateComputeCost(
-    executor: 'docker' | 'cloud' | 'local',
-    durationMs: number
-  ): number {
-    // BYOK: No infrastructure costs, only model API costs
-    // These are kept for backward compatibility but should be $0
-    const costPerMs = executor === 'local' ? 0 : 0 // All free for BYOK
-    return durationMs * costPerMs
+  async listAvailableModels(): Promise<string[]> {
+    return this.pricingProvider.listAvailableModels()
   }
 
   /**
-   * Get pricing for a model
-   * TODO: In Phase 2.5C, fetch from LiteLLM pricing API
+   * List all supported providers
    */
-  private static getModelPricing(model: string): ModelPricing {
-    const pricing = this.MODEL_PRICING.find(
-      p => p.model.toLowerCase() === model.toLowerCase()
-    )
-    if (!pricing) {
-      throw new Error(
-        `Unknown model: ${model}. ` +
-        `Phase 2.5C will auto-fetch pricing from LiteLLM. ` +
-        `Supported: ${this.listAvailableModels().join(', ')}`
-      )
-    }
-    return pricing
-  }
-
-  /**
-   * List available models
-   * TODO: In Phase 2.5C, fetch from LiteLLM (100+ models)
-   */
-  static listAvailableModels(): string[] {
-    return this.MODEL_PRICING.map(p => p.model)
-  }
-
-  /**
-   * List supported providers
-   * TODO: In Phase 2.5C, integrate all LiteLLM providers
-   */
-  static listSupportedProviders(): string[] {
-    const providers = new Set(this.MODEL_PRICING.map(p => p.provider))
-    return Array.from(providers)
+  async listSupportedProviders(): Promise<string[]> {
+    return this.pricingProvider.listSupportedProviders()
   }
 }

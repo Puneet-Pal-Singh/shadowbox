@@ -59,3 +59,11 @@ export type { ExecutionSpan, ExecutionTimeline } from './observability/index.js'
 export { InMemoryArtifactStore, FileArtifactStore } from './artifacts/index.js'
 export type { FileArtifactStoreConfig } from './artifacts/index.js'
 export type { ArtifactStore } from './types/index.js'
+
+// Pricing
+export { StaticPricingProvider } from './pricing/index.js'
+export type { PricingProvider, ModelPricingData } from './pricing/index.js'
+
+// Cost tracking
+export { CostTracker, CostCalculator } from './cost/index.js'
+export type { Cost, CostSummary } from './cost/index.js'
