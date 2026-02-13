@@ -93,18 +93,13 @@ export class DependencyResolver implements IDependencyResolver {
   topologicalSort(tasks: Task[]): Task[] {
     const taskMap = new Map(tasks.map((t) => [t.id, t]));
 
-    // Calculate in-degree for each task
+    // Calculate in-degree: how many dependencies each task has
     const inDegree = new Map<string, number>();
     for (const task of tasks) {
-      if (!inDegree.has(task.id)) {
-        inDegree.set(task.id, 0);
-      }
-      for (const dep of task.dependencies) {
-        inDegree.set(dep, (inDegree.get(dep) ?? 0) + 1);
-      }
+      inDegree.set(task.id, task.dependencies.length);
     }
 
-    // Find all tasks with no dependencies
+    // Find all tasks with no dependencies (in-degree = 0)
     const queue: string[] = [];
     for (const task of tasks) {
       if (task.dependencies.length === 0) {
@@ -120,11 +115,12 @@ export class DependencyResolver implements IDependencyResolver {
         sorted.push(task);
       }
 
-      // For each task that depends on this one, reduce its in-degree
+      // For each task that depends on this completed task, reduce its in-degree
       for (const candidate of tasks) {
         if (candidate.dependencies.includes(taskId)) {
           const degree = (inDegree.get(candidate.id) ?? 0) - 1;
           inDegree.set(candidate.id, degree);
+          // When all dependencies are processed, add to queue
           if (degree === 0) {
             queue.push(candidate.id);
           }

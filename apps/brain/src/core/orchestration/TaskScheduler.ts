@@ -72,14 +72,24 @@ export class TaskScheduler implements ITaskScheduler {
     // Execute all tasks in parallel
     const promises = tasks.map((task) =>
       this.executeSingle(task.id, runId).catch((error) => {
-        // Log but don't throw - allow other tasks to continue
+        // Collect errors but continue batch execution
         console.error(
           `[task/scheduler] Batch task ${task.id} failed:`,
-          error,
+          error instanceof Error ? error.message : String(error),
         );
+        // Return empty result to keep batch processing
+        return {
+          taskId: task.id,
+          status: "FAILED" as const,
+          error: {
+            message: error instanceof Error ? error.message : "Unknown error",
+          },
+          completedAt: new Date(),
+        };
       }),
     );
 
+    // Wait for all tasks to complete (both success and failure)
     await Promise.all(promises);
   }
 

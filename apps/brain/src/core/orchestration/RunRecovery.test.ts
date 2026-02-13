@@ -2,23 +2,27 @@
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { RunRecovery } from "./RunRecovery";
-import { Run, RunRepository } from "../run";
-import { Task, TaskRepository } from "../task";
+import { Run } from "../run";
+import { Task } from "../task";
 
 describe("RunRecovery", () => {
   let recovery: RunRecovery;
-  let mockRunRepo: any;
-  let mockTaskRepo: any;
+  let mockRunRepo: ReturnType<typeof createMockRunRepo>;
+  let mockTaskRepo: ReturnType<typeof createMockTaskRepo>;
+
+  const createMockRunRepo = () => ({
+    getById: vi.fn(),
+    update: vi.fn(),
+  });
+
+  const createMockTaskRepo = () => ({
+    getByRun: vi.fn(),
+  });
 
   beforeEach(() => {
-    mockRunRepo = {
-      getById: vi.fn(),
-      update: vi.fn(),
-    };
-    mockTaskRepo = {
-      getByRun: vi.fn(),
-    };
-    recovery = new RunRecovery(mockRunRepo, mockTaskRepo);
+    mockRunRepo = createMockRunRepo();
+    mockTaskRepo = createMockTaskRepo();
+    recovery = new RunRecovery(mockRunRepo as any, mockTaskRepo as any);
   });
 
   describe("resumeRun", () => {
@@ -80,8 +84,8 @@ describe("RunRecovery", () => {
         prompt: "test",
       });
       const tasks = [
-        new Task("1", "run1", "analyze", "DONE", []),
-        new Task("2", "run1", "edit", "DONE", []),
+        new Task("1", "run1", "analyze", "DONE", [], {}),
+        new Task("2", "run1", "edit", "DONE", [], {}),
       ];
       mockTaskRepo.getByRun.mockResolvedValue(tasks);
 
@@ -96,8 +100,8 @@ describe("RunRecovery", () => {
         prompt: "test",
       });
       const tasks = [
-        new Task("1", "run1", "analyze", "DONE", []),
-        new Task("2", "run1", "edit", "FAILED", []),
+        new Task("1", "run1", "analyze", "DONE", [], {}),
+        new Task("2", "run1", "edit", "FAILED", [], {}),
       ];
       mockTaskRepo.getByRun.mockResolvedValue(tasks);
 
@@ -113,7 +117,7 @@ describe("RunRecovery", () => {
         prompt: "test",
       });
       const tasks = [
-        new Task("1", "run1", "analyze", "CANCELLED", []),
+        new Task("1", "run1", "analyze", "CANCELLED", [], {}),
       ];
       mockTaskRepo.getByRun.mockResolvedValue(tasks);
 
@@ -128,8 +132,8 @@ describe("RunRecovery", () => {
         prompt: "test",
       });
       const tasks = [
-        new Task("1", "run1", "analyze", "DONE", []),
-        new Task("2", "run1", "edit", "PENDING", []),
+        new Task("1", "run1", "analyze", "DONE", [], {}),
+        new Task("2", "run1", "edit", "PENDING", [], {}),
       ];
       mockTaskRepo.getByRun.mockResolvedValue(tasks);
 
@@ -155,9 +159,9 @@ describe("RunRecovery", () => {
   describe("findLastIncompleteTask", () => {
     it("should find last incomplete task", async () => {
       const tasks = [
-        new Task("1", "run1", "analyze", "DONE", []),
-        new Task("2", "run1", "edit", "PENDING", []),
-        new Task("3", "run1", "test", "DONE", []),
+        new Task("1", "run1", "analyze", "DONE", [], {}),
+        new Task("2", "run1", "edit", "PENDING", [], {}),
+        new Task("3", "run1", "test", "DONE", [], {}),
       ];
       mockTaskRepo.getByRun.mockResolvedValue(tasks);
 
@@ -168,8 +172,8 @@ describe("RunRecovery", () => {
 
     it("should return null when all tasks complete", async () => {
       const tasks = [
-        new Task("1", "run1", "analyze", "DONE", []),
-        new Task("2", "run1", "edit", "DONE", []),
+        new Task("1", "run1", "analyze", "DONE", [], {}),
+        new Task("2", "run1", "edit", "DONE", [], {}),
       ];
       mockTaskRepo.getByRun.mockResolvedValue(tasks);
 
@@ -180,7 +184,7 @@ describe("RunRecovery", () => {
 
     it("should return null when all tasks failed", async () => {
       const tasks = [
-        new Task("1", "run1", "analyze", "FAILED", []),
+        new Task("1", "run1", "analyze", "FAILED", [], {}),
       ];
       mockTaskRepo.getByRun.mockResolvedValue(tasks);
 
@@ -191,8 +195,8 @@ describe("RunRecovery", () => {
 
     it("should return running task", async () => {
       const tasks = [
-        new Task("1", "run1", "analyze", "DONE", []),
-        new Task("2", "run1", "edit", "RUNNING", []),
+        new Task("1", "run1", "analyze", "DONE", [], {}),
+        new Task("2", "run1", "edit", "RUNNING", [], {}),
       ];
       mockTaskRepo.getByRun.mockResolvedValue(tasks);
 
@@ -201,7 +205,7 @@ describe("RunRecovery", () => {
       expect(incomplete?.id).toBe("2");
     });
 
-    it("should return empty array when no tasks", async () => {
+    it("should return null when no tasks", async () => {
       mockTaskRepo.getByRun.mockResolvedValue([]);
 
       const incomplete = await recovery.findLastIncompleteTask("run1");
