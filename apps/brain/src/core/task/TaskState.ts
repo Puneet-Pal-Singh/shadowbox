@@ -31,6 +31,18 @@ export class TaskState {
     return this.VALID_TRANSITIONS[status] || [];
   }
 
+  /**
+   * Check if a status is terminal (no further normal progression).
+   *
+   * Note on FAILED: From an orchestration perspective, FAILED is terminal -
+   * the task will not proceed to completion through normal execution.
+   * However, FAILED can transition to RETRYING as part of the retry mechanism.
+   * This is semantically similar to how a "dead letter queue" works: the item
+   * is "dead" but can be "resurrected" through explicit retry action.
+   *
+   * The retry logic in TaskScheduler uses canRetry() which checks both
+   * status === "FAILED" AND retryCount < maxRetries, not just isTerminal().
+   */
   static isTerminal(status: TaskStatus): boolean {
     return ["DONE", "CANCELLED", "FAILED"].includes(status);
   }
