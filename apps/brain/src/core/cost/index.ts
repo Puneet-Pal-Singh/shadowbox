@@ -6,16 +6,25 @@ export {
   CostTrackingError,
   type ICostTracker,
 } from "./CostTracker";
+export { CostLedger, type ICostLedger } from "./CostLedger";
 
 export {
   PricingRegistry,
   PricingError,
   type IPricingRegistry,
 } from "./PricingRegistry";
+export {
+  PricingResolver,
+  type IPricingResolver,
+  type PricingResolution,
+  type PricingResolverOptions,
+} from "./PricingResolver";
 
 export {
   BudgetManager,
   BudgetExceededError,
+  SessionBudgetExceededError,
+  type BudgetPolicy,
   type IBudgetManager,
 } from "./BudgetManager";
 

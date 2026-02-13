@@ -6,6 +6,7 @@ import type { ICostTracker } from "./CostTracker";
 import type { IPricingRegistry } from "./PricingRegistry";
 import type { BudgetConfig, BudgetCheckResult, LLMUsage } from "./types";
 import { DEFAULT_BUDGET } from "./types";
+import type { LLMCallContext } from "../llm/types";
 
 export interface IBudgetManager {
   checkBudget(
@@ -25,6 +26,11 @@ export interface IBudgetManager {
   loadSessionCosts(): Promise<void>;
 }
 
+export interface BudgetPolicy {
+  preflight(context: LLMCallContext, estimatedUsage: LLMUsage): Promise<void>;
+  postCommit(context: LLMCallContext, actualCostUsd: number): Promise<void>;
+}
+
 /**
  * BudgetManager - Enforces cost limits per run and per session
  *
@@ -40,7 +46,7 @@ export interface IBudgetManager {
  */
 const SESSION_COSTS_KEY = "session:costs";
 
-export class BudgetManager implements IBudgetManager {
+export class BudgetManager implements IBudgetManager, BudgetPolicy {
   private config: BudgetConfig;
   private sessionCosts: Map<string, number> = new Map();
   private storage?: DurableObjectState;
@@ -371,6 +377,49 @@ export class BudgetManager implements IBudgetManager {
     // Otherwise use PricingRegistry to calculate
     const calculated = this.pricingRegistry.calculateCost(usage);
     return calculated.totalCost;
+  }
+
+  async preflight(
+    context: LLMCallContext,
+    estimatedUsage: LLMUsage,
+  ): Promise<void> {
+    const runCheck = await this.checkBudget(context.runId, estimatedUsage);
+    if (!runCheck.allowed) {
+      console.warn(
+        `[budget/policy] deny scope=run run=${context.runId} reason=${runCheck.reason ?? "budget exceeded"}`,
+      );
+      throw new BudgetExceededError(
+        context.runId,
+        runCheck.projectedCost,
+        this.config.maxCostPerRun,
+      );
+    }
+
+    const sessionCheck = await this.checkSessionBudget(
+      context.sessionId,
+      estimatedUsage,
+    );
+    if (!sessionCheck.allowed) {
+      console.warn(
+        `[budget/policy] deny scope=session session=${context.sessionId} reason=${sessionCheck.reason ?? "budget exceeded"}`,
+      );
+      throw new SessionBudgetExceededError(
+        context.sessionId,
+        sessionCheck.projectedCost,
+        this.config.maxCostPerSession,
+      );
+    }
+
+    console.log(
+      `[budget/policy] allow run=${context.runId} session=${context.sessionId} phase=${context.phase}`,
+    );
+  }
+
+  async postCommit(
+    context: LLMCallContext,
+    actualCostUsd: number,
+  ): Promise<void> {
+    await this.recordSessionCost(context.sessionId, actualCostUsd);
   }
 }
 

@@ -1,12 +1,13 @@
 // apps/brain/src/core/cost/PricingRegistry.ts
-// Phase 3.1: Three-tier pricing strategy (Provider → LiteLLM → Registry)
+// Phase 3.1: Registry pricing with boot-time seed loading
 
-import type {
-  LLMUsage,
-  CalculatedCost,
-  PricingEntry,
-  PricingSource,
-} from "./types";
+import defaultPricing from "./pricing.default.json";
+import type { LLMUsage, CalculatedCost, PricingEntry } from "./types";
+
+export interface PricingRegistryOptions {
+  failOnUnseededPricing?: boolean;
+  isProduction?: boolean;
+}
 
 export interface IPricingRegistry {
   getPrice(provider: string, model: string): PricingEntry | null;
@@ -16,72 +17,35 @@ export interface IPricingRegistry {
   getAllPrices(): Record<string, PricingEntry>;
 }
 
-/**
- * PricingRegistry implements cost calculation for LLM usage.
- *
- * Current implementation (two-tier fallback):
- * 1. If provider returns cost (usage.cost) → trust it
- * 2. Else → lookup in registry via getPrice()
- * 3. If not found → return zero cost with warning
- *
- * Note: A future implementation may add LiteLLM as an intermediate tier
- * (Tier 2) when LiteLLM provides cost data via response metadata.
- * TODO: Add LiteLLM tier when LiteLLM SDK supports cost extraction.
- * Placeholder for where LiteLLM cost lookup would be implemented:
- * - Check if usage.raw contains LiteLLM cost data
- * - If present, parse and return that cost
- * - Then fall through to registry lookup
- *
- * @see PricingRegistry.calculateCost() for the actual implementation
- * @see IPricingRegistry interface for the contract
- */
 export class PricingRegistry implements IPricingRegistry {
   private prices = new Map<string, PricingEntry>();
+  private readonly options: Required<PricingRegistryOptions>;
 
-  /**
-   * Create a new PricingRegistry
-   * @param initialPricing - Optional initial pricing data loaded from external config
-   */
-  constructor(initialPricing?: Record<string, PricingEntry>) {
+  constructor(
+    initialPricing?: Record<string, PricingEntry>,
+    options?: PricingRegistryOptions,
+  ) {
+    this.options = {
+      failOnUnseededPricing: options?.failOnUnseededPricing ?? false,
+      isProduction: options?.isProduction ?? detectProductionEnvironment(),
+    };
+
     if (initialPricing) {
       this.loadFromJSON(initialPricing);
+      return;
     }
+
+    this.loadDefaultSeedPricing();
   }
 
-  /**
-   * Get pricing for a specific provider:model combination
-   */
   getPrice(provider: string, model: string): PricingEntry | null {
-    const key = `${provider}:${model}`;
-    return this.prices.get(key) ?? null;
+    return this.prices.get(`${provider}:${model}`) ?? null;
   }
 
-  /**
-   * Calculate cost using tiered fallback:
-   *
-   * Tier 1 (Provider): If usage.cost is provided by the provider, trust it
-   * - Provider returns pre-calculated cost in usage.cost
-   *
-   * Tier 2 (LiteLLM): Not yet implemented
-   * - TODO: Check usage.raw for LiteLLM cost metadata
-   * - Would parse LiteLLM response for cost data
-   *
-   * Tier 3 (Registry): Fallback to internal pricing lookup
-   * - Uses getPrice() to lookup provider:model pricing
-   * - Calculates cost using inputPrice/outputPrice per 1K tokens
-   *
-   * Tier 4 (Unknown): No pricing available
-   * - Returns zero cost with pricingSource: "unknown"
-   * - Logs warning for visibility
-   *
-   * @param usage - LLMUsage with token counts and optional provider cost
-   * @returns CalculatedCost with breakdown and source indicator
-   */
   calculateCost(usage: LLMUsage): CalculatedCost {
-    // Tier 1: If provider returned cost, trust it
     if (usage.cost !== undefined && usage.cost > 0) {
       return {
-        inputCost: 0, // Provider didn't break it down
+        inputCost: 0,
         outputCost: 0,
         totalCost: usage.cost,
         currency: "USD",
@@ -89,80 +53,81 @@ export class PricingRegistry implements IPricingRegistry {
       };
     }
 
-    // Tier 2 (placeholder for LiteLLM):
-    // TODO: Check usage.raw for LiteLLM cost data
-    // if (usage.raw?.litellm_cost) { ... }
-
-    // Tier 3: Look up in registry
     const pricing = this.getPrice(usage.provider, usage.model);
-    if (pricing) {
-      const inputCost = (usage.promptTokens / 1000) * pricing.inputPrice;
-      const outputCost = (usage.completionTokens / 1000) * pricing.outputPrice;
-
+    if (!pricing) {
       return {
-        inputCost,
-        outputCost,
-        totalCost: inputCost + outputCost,
-        currency: pricing.currency,
-        pricingSource: "registry",
+        inputCost: 0,
+        outputCost: 0,
+        totalCost: 0,
+        currency: "USD",
+        pricingSource: "unknown",
       };
     }
 
-    // Tier 4: Unknown pricing - return zero cost with "unknown" source
-    console.warn(
-      `[cost/pricing] Unknown pricing for ${usage.provider}:${usage.model}. ` +
-        `Cost tracking disabled for this call.`,
-    );
+    const inputCost = (usage.promptTokens / 1000) * pricing.inputPrice;
+    const outputCost = (usage.completionTokens / 1000) * pricing.outputPrice;
 
     return {
-      inputCost: 0,
-      outputCost: 0,
-      totalCost: 0,
-      currency: "USD",
-      pricingSource: "unknown",
+      inputCost,
+      outputCost,
+      totalCost: inputCost + outputCost,
+      currency: pricing.currency,
+      pricingSource: "registry",
     };
   }
 
-  /**
-   * Register custom pricing for a provider:model
-   */
   registerPrice(provider: string, model: string, entry: PricingEntry): void {
-    const key = `${provider}:${model}`;
-    this.prices.set(key, entry);
-    console.log(`[cost/pricing] Registered pricing: ${key}`);
+    this.prices.set(`${provider}:${model}`, entry);
+    console.log(`[cost/pricing] Registered pricing: ${provider}:${model}`);
   }
 
-  /**
-   * Load pricing data from JSON object
-   */
   loadFromJSON(pricingData: Record<string, PricingEntry>): void {
     for (const [key, entry] of Object.entries(pricingData)) {
       this.prices.set(key, entry);
     }
   }
 
-  /**
-   * Get all registered prices as a record
-   */
   getAllPrices(): Record<string, PricingEntry> {
-    const result: Record<string, PricingEntry> = {};
-    for (const [key, entry] of this.prices.entries()) {
-      result[key] = entry;
+    const prices: Record<string, PricingEntry> = {};
+    for (const [key, value] of this.prices.entries()) {
+      prices[key] = value;
     }
-    return result;
+    return prices;
   }
 
-  /**
-   * Clear all pricing data
-   */
   clear(): void {
     this.prices.clear();
   }
+
+  private loadDefaultSeedPricing(): void {
+    try {
+      this.loadFromJSON(defaultPricing as Record<string, PricingEntry>);
+      console.log(
+        `[cost/pricing] Loaded ${Object.keys(defaultPricing).length} seeded prices`,
+      );
+    } catch (error) {
+      const failClosed =
+        this.options.failOnUnseededPricing || this.options.isProduction;
+      if (failClosed) {
+        throw new PricingError("Failed to load pricing.default.json", error);
+      }
+      console.warn(
+        "[cost/pricing] Failed to load seeded pricing. Continuing in non-production mode.",
+      );
+    }
+  }
+}
+
+function detectProductionEnvironment(): boolean {
+  if (typeof process === "undefined") {
+    return false;
+  }
+  return process.env?.NODE_ENV === "production";
 }
 
 export class PricingError extends Error {
-  constructor(message: string) {
-    super(`[cost/pricing] ${message}`);
+  constructor(message: string, cause?: unknown) {
+    super(`[cost/pricing] ${message}`, { cause });
     this.name = "PricingError";
   }
 }
