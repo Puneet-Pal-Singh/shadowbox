@@ -28,6 +28,8 @@ interface ChatRequest {
   runId: string;
 }
 
+const SAFE_IDENTIFIER_REGEX = /^[A-Za-z0-9-]+$/;
+
 /**
  * ChatController
  * Orchestrates the chat flow across multiple services
@@ -318,6 +320,11 @@ function parseRequiredIdentifier(
   const normalized = identifier.trim();
   if (normalized.length > 128) {
     throw new RequestValidationError(`Invalid ${fieldName}: too long`);
+  }
+  if (!SAFE_IDENTIFIER_REGEX.test(normalized)) {
+    throw new RequestValidationError(
+      `Invalid ${fieldName}: only letters, numbers, and hyphens are allowed`,
+    );
   }
   return normalized;
 }
