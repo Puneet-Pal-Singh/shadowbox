@@ -127,53 +127,93 @@ export class ChatController {
         ? lastUserMessage.content
         : JSON.stringify(lastUserMessage.content);
 
-    const durableState = createKVBackedDurableObjectState(
-      env.SESSIONS,
-      `${sessionId}:${runId}`,
-    );
-    assertRuntimeStateSemantics(durableState, {
-      requireStrictDoSemantics:
-        parseBooleanEnv(env.REQUIRE_STRICT_STATE_SEMANTICS) ?? false,
-      runtimePath: "ChatController.handleWithRunEngine",
-    });
-
-    const runEngine = new RunEngine(durableState, {
-      env,
-      sessionId,
-      runId,
-      correlationId,
-      requestOrigin: req.headers.get("Origin") || undefined,
-    });
-
     try {
-      const response = await runEngine.execute(
-        {
-          agentType: mapAgentIdToType(body.agentId),
-          prompt,
-          sessionId,
-        },
+      const executeInput = {
+        agentType: mapAgentIdToType(body.agentId),
+        prompt,
+        sessionId,
+      };
+      const strictSemanticsRequired =
+        parseBooleanEnv(env.REQUIRE_STRICT_STATE_SEMANTICS) ?? true;
+
+      if (env.RUN_ENGINE_RUNTIME) {
+        const doResponse = await ChatController.executeViaRunEngineDurableObject(
+          env,
+          runId,
+          {
+            runId,
+            sessionId,
+            correlationId,
+            requestOrigin: req.headers.get("Origin") || undefined,
+            input: executeInput,
+            messages: coreMessages,
+          },
+        );
+        return withEngineHeaders(req, doResponse, runId);
+      }
+
+      if (strictSemanticsRequired) {
+        throw new Error(
+          "RUN_ENGINE_RUNTIME binding is required when strict state semantics are enabled",
+        );
+      }
+
+      const durableState = createKVBackedDurableObjectState(
+        env.SESSIONS,
+        `${sessionId}:${runId}`,
+      );
+      assertRuntimeStateSemantics(durableState, {
+        requireStrictDoSemantics: strictSemanticsRequired,
+        runtimePath: "ChatController.handleWithRunEngine",
+      });
+
+      const runEngine = new RunEngine(durableState, {
+        env,
+        sessionId,
+        runId,
+        correlationId,
+        requestOrigin: req.headers.get("Origin") || undefined,
+      });
+      const fallbackResponse = await runEngine.execute(
+        executeInput,
         coreMessages,
         {},
       );
-
-      const headers = new Headers(response.headers);
-      headers.set("X-Engine-Version", "3.0");
-      headers.set("X-Run-Id", runId);
-
-      const corsHeaders = getCorsHeaders(req);
-      Object.entries(corsHeaders).forEach(([key, value]) => {
-        headers.set(key, value);
-      });
-
-      return new Response(response.body, {
-        status: response.status,
-        statusText: response.statusText,
-        headers,
-      });
+      return withEngineHeaders(req, fallbackResponse, runId);
     } catch (error) {
       console.error(`[chat/controller] RunEngine execution failed:`, error);
       throw error;
     }
+  }
+
+  private static async executeViaRunEngineDurableObject(
+    env: Env,
+    runId: string,
+    payload: {
+      runId: string;
+      sessionId: string;
+      correlationId: string;
+      requestOrigin?: string;
+      input: {
+        agentType: AgentType;
+        prompt: string;
+        sessionId: string;
+      };
+      messages: CoreMessage[];
+    },
+  ): Promise<Response> {
+    if (!env.RUN_ENGINE_RUNTIME) {
+      throw new Error("RUN_ENGINE_RUNTIME binding is unavailable");
+    }
+
+    const id = env.RUN_ENGINE_RUNTIME.idFromName(runId);
+    const stub = env.RUN_ENGINE_RUNTIME.get(id);
+    const runtimeResponse = await stub.fetch("https://run-engine/execute", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    return runtimeResponse as unknown as Response;
   }
 }
 
@@ -249,6 +289,27 @@ function errorResponse(
   return new Response(JSON.stringify({ error: message }), {
     status,
     headers: { ...getCorsHeaders(req), "Content-Type": "application/json" },
+  });
+}
+
+function withEngineHeaders(
+  req: Request,
+  response: Response,
+  runId: string,
+): Response {
+  const headers = new Headers(response.headers);
+  headers.set("X-Engine-Version", "3.0");
+  headers.set("X-Run-Id", runId);
+
+  const corsHeaders = getCorsHeaders(req);
+  Object.entries(corsHeaders).forEach(([key, value]) => {
+    headers.set(key, value);
+  });
+
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
   });
 }
 

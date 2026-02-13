@@ -1,5 +1,10 @@
 // apps/brain/src/types/ai.ts
-import type { Ai, Fetcher, KVNamespace } from "@cloudflare/workers-types";
+import type {
+  Ai,
+  DurableObjectNamespace,
+  Fetcher,
+  KVNamespace,
+} from "@cloudflare/workers-types";
 
 export interface Env {
   // Existing bindings
@@ -33,6 +38,9 @@ export interface Env {
 
   // KV Namespace for sessions
   SESSIONS: KVNamespace;
+
+  // Durable Object binding for RunEngine runtime state
+  RUN_ENGINE_RUNTIME?: DurableObjectNamespace;
 }
 
 // export interface Env {

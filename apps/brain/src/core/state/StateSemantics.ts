@@ -1,5 +1,3 @@
-import type { DurableObjectState } from "@cloudflare/workers-types";
-
 type RuntimeStateSemantics = "do" | "kv" | "unknown";
 
 interface SemanticsTaggedState {
@@ -7,14 +5,14 @@ interface SemanticsTaggedState {
 }
 
 export function getRuntimeStateSemantics(
-  state: DurableObjectState,
+  state: object,
 ): RuntimeStateSemantics {
-  const taggedState = state as DurableObjectState & SemanticsTaggedState;
+  const taggedState = state as SemanticsTaggedState;
   return taggedState.__shadowboxStateSemantics ?? "unknown";
 }
 
 export function assertRuntimeStateSemantics(
-  state: DurableObjectState,
+  state: object,
   options: { requireStrictDoSemantics: boolean; runtimePath: string },
 ): void {
   if (!options.requireStrictDoSemantics) {
@@ -29,11 +27,11 @@ export function assertRuntimeStateSemantics(
   }
 }
 
-export function tagRuntimeStateSemantics(
-  state: DurableObjectState,
+export function tagRuntimeStateSemantics<T extends object>(
+  state: T,
   semantics: "do" | "kv",
-): DurableObjectState {
-  const taggedState = state as DurableObjectState & SemanticsTaggedState;
+): T {
+  const taggedState = state as T & SemanticsTaggedState;
   taggedState.__shadowboxStateSemantics = semantics;
   return taggedState;
 }

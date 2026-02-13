@@ -20,6 +20,22 @@
     },
   ],
 
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "RUN_ENGINE_RUNTIME",
+        "class_name": "RunEngineRuntime",
+      },
+    ],
+  },
+
+  "migrations": [
+    {
+      "tag": "v1-run-engine-runtime",
+      "new_classes": ["RunEngineRuntime"],
+    },
+  ],
+
   // 3. GitHub Integration Configuration
   // Add these environment variables:
   // GITHUB_CLIENT_ID, GITHUB_REDIRECT_URI, FRONTEND_URL (public)

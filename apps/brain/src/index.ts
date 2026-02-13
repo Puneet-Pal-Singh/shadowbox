@@ -5,6 +5,9 @@ import { GitHubController } from "./controllers/GitHubController";
 import { GitController } from "./controllers/GitController";
 import { handleOptions, CORS_HEADERS } from "./lib/cors";
 import { Env } from "./types/ai";
+import { RunEngineRuntime } from "./runtime/RunEngineRuntime";
+
+export { RunEngineRuntime };
 
 /**
  * Route configuration type with HTTP method support
