@@ -215,7 +215,9 @@ export class TaskScheduler implements ITaskScheduler {
 
     // Verify all requested dependencies were found
     if (dependencies.length !== task.dependencies.length) {
-      await this.failTaskMissingDeps(task);
+      const foundIds = new Set(dependencies.map((d) => d.id));
+      const missingIds = task.dependencies.filter((id) => !foundIds.has(id));
+      await this.failTaskMissingDeps(task, missingIds);
       return false;
     }
 
@@ -237,12 +239,13 @@ export class TaskScheduler implements ITaskScheduler {
     return false;
   }
 
-  private async failTaskMissingDeps(task: Task): Promise<void> {
-    // Missing deps already identified by count mismatch
-    const missingCount = task.dependencies.length;
+  private async failTaskMissingDeps(
+    task: Task,
+    missingIds: string[],
+  ): Promise<void> {
     task.transition("FAILED", {
       error: {
-        message: `Missing dependencies: ${missingCount} not found`,
+        message: `Missing dependencies: ${missingIds.join(", ")}`,
       },
     });
     await this.taskRepo.update(task);
@@ -260,8 +263,11 @@ export class TaskScheduler implements ITaskScheduler {
 
   private async hasExecutableTasks(runId: string): Promise<boolean> {
     const allTasks = await this.taskRepo.getByRun(runId);
-    // Check for READY tasks or PENDING tasks that can be made ready
-    return allTasks.some((task) => task.isReady());
+    // Check for READY or PENDING tasks
+    // PENDING tasks will be evaluated in findAllReadyTasks() for dependency resolution
+    return allTasks.some(
+      (task) => task.status === "READY" || task.status === "PENDING",
+    );
   }
 
   private async hasPendingTasks(runId: string): Promise<boolean> {
