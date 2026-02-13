@@ -145,10 +145,9 @@ export class ChatController {
     const { body, correlationId, sessionId, runId } = chatRequest;
 
     // Convert messages to CoreMessage format
-    const coreMessages: CoreMessage[] = body.messages!.map((m) => ({
-      role: m.role as "system" | "user" | "assistant",
-      content: m.content,
-    }));
+    // Cast to CoreMessage to preserve all valid roles (system, user, assistant, tool)
+    const coreMessages: CoreMessage[] =
+      body.messages! as unknown as CoreMessage[];
 
     // Get last user message as the prompt
     const lastUserMessage = coreMessages.filter((m) => m.role === "user").pop();
@@ -186,10 +185,16 @@ export class ChatController {
         {}, // Tools are handled internally by RunEngine in Phase 3B
       );
 
-      // Add engine version header
+      // Add engine version and CORS headers
       const headers = new Headers(response.headers);
       headers.set("X-Engine-Version", "3.0");
       headers.set("X-Run-Id", runId);
+
+      // Add CORS headers as required by AGENTS.md
+      const corsHeaders = getCorsHeaders(req);
+      Object.entries(corsHeaders).forEach(([key, value]) => {
+        headers.set(key, value);
+      });
 
       return new Response(response.body, {
         status: response.status,
@@ -347,9 +352,34 @@ async function hydrateAndPrune(
 
 /**
  * Create a minimal mock DurableObjectState for RunEngine
- * In production, this should be the actual DO state
+ *
+ * ⚠️ CRITICAL: This is a MOCK implementation for development/testing only!
+ * In production, this MUST be replaced with the actual DurableObjectState
+ * from a real Durable Object. Using this mock in production will cause:
+ * - State loss between requests (in-memory Map is not persisted)
+ * - Concurrency issues (no real atomic operations)
+ * - Data inconsistency across requests
+ *
+ * TODO: Remove this mock and integrate with actual DO state before enabling
+ * USE_RUN_ENGINE in production environments.
  */
 function createMockDurableObjectState(): DurableObjectState {
+  // Production safety check - throw if NODE_ENV indicates production
+  if (
+    typeof process !== "undefined" &&
+    process.env?.NODE_ENV === "production"
+  ) {
+    throw new Error(
+      "[CRITICAL] createMockDurableObjectState() must not be used in production. " +
+        "RunEngine requires a real DurableObjectState from a Durable Object. " +
+        "Please integrate with the actual DO state before enabling RunEngine.",
+    );
+  }
+
+  console.warn(
+    "[chat/controller] Using mock DurableObjectState - state will NOT persist between requests!",
+  );
+
   const storage = new Map<string, unknown>();
 
   return {
