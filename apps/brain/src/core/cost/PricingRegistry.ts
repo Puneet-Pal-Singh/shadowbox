@@ -8,6 +8,7 @@ export interface IPricingRegistry {
   calculateCost(usage: LLMUsage): CalculatedCost;
   registerPrice(provider: string, model: string, entry: PricingEntry): void;
   loadFromJSON(pricingData: Record<string, PricingEntry>): void;
+  getAllPrices(): Record<string, PricingEntry>;
 }
 
 /**
@@ -15,59 +16,21 @@ export interface IPricingRegistry {
  * 1. If provider returns cost → trust it
  * 2. Else if LiteLLM provides cost → use it
  * 3. Else → compute using internal pricing registry
+ *
+ * Note: Pricing data should be loaded from external configuration (env vars, config files, or API)
+ * to avoid hardcoding and allow dynamic updates without code changes.
  */
 export class PricingRegistry implements IPricingRegistry {
   private prices = new Map<string, PricingEntry>();
 
-  // Built-in pricing data (versioned)
-  private static readonly DEFAULT_PRICING: Record<string, PricingEntry> = {
-    "openai:gpt-4o": {
-      inputPrice: 0.005,
-      outputPrice: 0.015,
-      currency: "USD",
-      effectiveDate: "2024-01-01",
-    },
-    "openai:gpt-4o-mini": {
-      inputPrice: 0.00015,
-      outputPrice: 0.0006,
-      currency: "USD",
-      effectiveDate: "2024-01-01",
-    },
-    "openai:gpt-4-turbo": {
-      inputPrice: 0.01,
-      outputPrice: 0.03,
-      currency: "USD",
-      effectiveDate: "2024-01-01",
-    },
-    "openai:gpt-3.5-turbo": {
-      inputPrice: 0.0005,
-      outputPrice: 0.0015,
-      currency: "USD",
-      effectiveDate: "2024-01-01",
-    },
-    "anthropic:claude-3-opus": {
-      inputPrice: 0.015,
-      outputPrice: 0.075,
-      currency: "USD",
-      effectiveDate: "2024-01-01",
-    },
-    "anthropic:claude-3-sonnet": {
-      inputPrice: 0.003,
-      outputPrice: 0.015,
-      currency: "USD",
-      effectiveDate: "2024-01-01",
-    },
-    "anthropic:claude-3-haiku": {
-      inputPrice: 0.00025,
-      outputPrice: 0.00125,
-      currency: "USD",
-      effectiveDate: "2024-01-01",
-    },
-  };
-
-  constructor() {
-    // Load default pricing on instantiation
-    this.loadFromJSON(PricingRegistry.DEFAULT_PRICING);
+  /**
+   * Create a new PricingRegistry
+   * @param initialPricing - Optional initial pricing data loaded from external config
+   */
+  constructor(initialPricing?: Record<string, PricingEntry>) {
+    if (initialPricing) {
+      this.loadFromJSON(initialPricing);
+    }
   }
 
   /**
@@ -142,6 +105,24 @@ export class PricingRegistry implements IPricingRegistry {
     for (const [key, entry] of Object.entries(pricingData)) {
       this.prices.set(key, entry);
     }
+  }
+
+  /**
+   * Get all registered prices as a record
+   */
+  getAllPrices(): Record<string, PricingEntry> {
+    const result: Record<string, PricingEntry> = {};
+    for (const [key, entry] of this.prices.entries()) {
+      result[key] = entry;
+    }
+    return result;
+  }
+
+  /**
+   * Clear all pricing data
+   */
+  clear(): void {
+    this.prices.clear();
   }
 }
 

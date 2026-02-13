@@ -2,6 +2,7 @@
 // Phase 3.1: Budget enforcement for cost control
 
 import type { ICostTracker } from "./CostTracker";
+import type { IPricingRegistry } from "./PricingRegistry";
 import type { BudgetConfig, BudgetCheckResult, LLMUsage } from "./types";
 import { DEFAULT_BUDGET } from "./types";
 
@@ -19,15 +20,19 @@ export interface IBudgetManager {
  *
  * Design principles:
  * 1. Check budget BEFORE each LLM call (fail fast)
- * 2. Use estimated costs based on token limits
+ * 2. Use estimated costs based on PricingRegistry
  * 3. Record actual costs after call completes
  * 4. Allow warning at threshold, block at limit
+ *
+ * Note: PricingRegistry must be injected to avoid hardcoding rates.
+ * The registry should be loaded from external configuration.
  */
 export class BudgetManager implements IBudgetManager {
   private config: BudgetConfig;
 
   constructor(
     private costTracker: ICostTracker,
+    private pricingRegistry: IPricingRegistry,
     config?: Partial<BudgetConfig>,
   ) {
     this.config = { ...DEFAULT_BUDGET, ...config };
@@ -43,10 +48,8 @@ export class BudgetManager implements IBudgetManager {
   ): Promise<BudgetCheckResult> {
     const currentCost = await this.costTracker.getCurrentCost(runId);
 
-    // Calculate estimated cost for this call
-    // Use the estimated cost from usage if provided, otherwise use pricing registry
-    const estimatedCallCost =
-      estimatedUsage.cost ?? this.estimateCost(estimatedUsage);
+    // Calculate estimated cost for this call using PricingRegistry
+    const estimatedCallCost = this.estimateCost(estimatedUsage);
     const projectedCost = currentCost + estimatedCallCost;
     const remainingBudget = this.config.maxCostPerRun - currentCost;
 
@@ -124,18 +127,18 @@ export class BudgetManager implements IBudgetManager {
   }
 
   /**
-   * Simple cost estimation based on token counts
-   * Conservative estimate assuming GPT-4o pricing
+   * Estimate cost using PricingRegistry
+   * If no pricing found, returns 0 with warning logged by PricingRegistry
    */
   private estimateCost(usage: LLMUsage): number {
-    // Conservative estimate using GPT-4o rates as baseline
-    const inputRate = 0.005; // $0.005 per 1K tokens
-    const outputRate = 0.015; // $0.015 per 1K tokens
+    // If usage already has cost from provider, use that
+    if (usage.cost !== undefined && usage.cost > 0) {
+      return usage.cost;
+    }
 
-    const inputCost = (usage.promptTokens / 1000) * inputRate;
-    const outputCost = (usage.completionTokens / 1000) * outputRate;
-
-    return inputCost + outputCost;
+    // Otherwise use PricingRegistry to calculate
+    const calculated = this.pricingRegistry.calculateCost(usage);
+    return calculated.totalCost;
   }
 }
 

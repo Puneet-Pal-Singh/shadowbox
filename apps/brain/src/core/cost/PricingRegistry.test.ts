@@ -8,8 +8,24 @@ import type { LLMUsage } from "./types";
 describe("PricingRegistry", () => {
   let registry: PricingRegistry;
 
+  // Sample pricing data for testing
+  const testPricing = {
+    "openai:gpt-4o": {
+      inputPrice: 0.005,
+      outputPrice: 0.015,
+      currency: "USD",
+      effectiveDate: "2024-01-01",
+    },
+    "anthropic:claude-3-opus": {
+      inputPrice: 0.015,
+      outputPrice: 0.075,
+      currency: "USD",
+      effectiveDate: "2024-01-01",
+    },
+  };
+
   beforeEach(() => {
-    registry = new PricingRegistry();
+    registry = new PricingRegistry(testPricing);
   });
 
   describe("getPrice", () => {
@@ -84,23 +100,7 @@ describe("PricingRegistry", () => {
       expect(cost.pricingSource).toBe("registry");
     });
 
-    it("should calculate cost for GPT-4o-mini correctly", () => {
-      const usage: LLMUsage = {
-        provider: "openai",
-        model: "gpt-4o-mini",
-        promptTokens: 2000,
-        completionTokens: 1000,
-        totalTokens: 3000,
-      };
-
-      const cost = registry.calculateCost(usage);
-
-      // GPT-4o-mini: $0.00015/1K prompt, $0.0006/1K completion
-      // 2000 prompt = $0.0003, 1000 completion = $0.0006
-      expect(cost.totalCost).toBeCloseTo(0.0009, 6);
-    });
-
-    it("should calculate cost for Claude 3 Opus correctly", () => {
+    it("should calculate cost for Anthropic correctly", () => {
       const usage: LLMUsage = {
         provider: "anthropic",
         model: "claude-3-opus",
@@ -162,13 +162,32 @@ describe("PricingRegistry", () => {
         },
       };
 
-      registry.loadFromJSON(pricingData);
+      const newRegistry = new PricingRegistry();
+      newRegistry.loadFromJSON(pricingData);
 
-      const gpt4Turbo = registry.getPrice("openai", "gpt-4-turbo");
+      const gpt4Turbo = newRegistry.getPrice("openai", "gpt-4-turbo");
       expect(gpt4Turbo?.inputPrice).toBe(0.01);
 
-      const claudeHaiku = registry.getPrice("anthropic", "claude-3-haiku");
+      const claudeHaiku = newRegistry.getPrice("anthropic", "claude-3-haiku");
       expect(claudeHaiku?.outputPrice).toBe(0.00125);
+    });
+  });
+
+  describe("getAllPrices", () => {
+    it("should return all registered prices", () => {
+      const allPrices = registry.getAllPrices();
+
+      expect(allPrices["openai:gpt-4o"]).toBeDefined();
+      expect(allPrices["anthropic:claude-3-opus"]).toBeDefined();
+    });
+  });
+
+  describe("clear", () => {
+    it("should clear all pricing data", () => {
+      registry.clear();
+
+      expect(registry.getPrice("openai", "gpt-4o")).toBeNull();
+      expect(registry.getPrice("anthropic", "claude-3-opus")).toBeNull();
     });
   });
 });

@@ -82,7 +82,10 @@ export class RunEngine implements IRunEngine {
     this.taskRepo = new TaskRepository(ctx);
     this.pricingRegistry = new PricingRegistry();
     this.costTracker = new CostTracker(ctx, this.pricingRegistry);
-    this.budgetManager = new BudgetManager(this.costTracker);
+    this.budgetManager = new BudgetManager(
+      this.costTracker,
+      this.pricingRegistry,
+    );
     this.aiService = new AIService(options.env);
     this.planner = new PlannerService(this.aiService);
     this.agent = agent;

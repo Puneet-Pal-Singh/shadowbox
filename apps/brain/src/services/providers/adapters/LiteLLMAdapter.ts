@@ -15,6 +15,7 @@ interface LiteLLMConfig {
   apiKey: string;
   baseURL: string;
   defaultModel?: string;
+  supportedModels?: string[];
 }
 
 /**
@@ -24,6 +25,8 @@ interface LiteLLMConfig {
  * - Standardizes token usage to LLMUsage format
  * - Returns cost-calculable metadata
  * - Supports both streaming and non-streaming generation
+ *
+ * Note: Model lists should be configured externally, not hardcoded.
  */
 export class LiteLLMAdapter implements ProviderAdapter {
   readonly provider = "litellm";
@@ -36,21 +39,17 @@ export class LiteLLMAdapter implements ProviderAdapter {
       baseURL: config.baseURL,
       apiKey: config.apiKey,
     });
-    this.defaultModel = config.defaultModel ?? "gpt-4o-mini";
 
-    // LiteLLM supports all OpenAI-compatible models
-    this.supportedModels = [
-      "gpt-4o",
-      "gpt-4o-mini",
-      "gpt-4-turbo",
-      "gpt-3.5-turbo",
-      "claude-3-opus",
-      "claude-3-sonnet",
-      "claude-3-haiku",
-    ];
+    // Use provided values or allow empty (will be validated at runtime)
+    this.defaultModel = config.defaultModel ?? "";
+    this.supportedModels = config.supportedModels ?? [];
   }
 
   supportsModel(model: string): boolean {
+    // If no models configured, allow all (trust the provider)
+    if (this.supportedModels.length === 0) {
+      return true;
+    }
     return this.supportedModels.includes(model);
   }
 

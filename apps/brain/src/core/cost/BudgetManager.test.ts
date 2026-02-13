@@ -4,10 +4,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { BudgetManager, BudgetExceededError } from "./BudgetManager";
 import type { ICostTracker } from "./CostTracker";
+import type { IPricingRegistry } from "./PricingRegistry";
 import type { LLMUsage, BudgetConfig } from "./types";
 
 describe("BudgetManager", () => {
   let mockCostTracker: ICostTracker;
+  let mockPricingRegistry: IPricingRegistry;
   let budgetManager: BudgetManager;
   const defaultConfig: BudgetConfig = {
     maxCostPerRun: 1.0, // $1.00 limit for testing
@@ -23,18 +25,43 @@ describe("BudgetManager", () => {
       getCurrentCost: vi.fn().mockResolvedValue(0),
     };
 
-    budgetManager = new BudgetManager(mockCostTracker, defaultConfig);
+    mockPricingRegistry = {
+      getPrice: vi.fn(),
+      calculateCost: vi.fn().mockReturnValue({
+        inputCost: 0.01,
+        outputCost: 0.005,
+        totalCost: 0.015,
+        currency: "USD",
+        pricingSource: "registry",
+      }),
+      registerPrice: vi.fn(),
+      loadFromJSON: vi.fn(),
+      getAllPrices: vi.fn().mockReturnValue({}),
+    };
+
+    budgetManager = new BudgetManager(
+      mockCostTracker,
+      mockPricingRegistry,
+      defaultConfig,
+    );
   });
 
   describe("checkBudget", () => {
     it("should allow calls within budget", async () => {
+      vi.mocked(mockPricingRegistry.calculateCost).mockReturnValue({
+        inputCost: 0.01,
+        outputCost: 0.005,
+        totalCost: 0.1,
+        currency: "USD",
+        pricingSource: "registry",
+      });
+
       const usage: LLMUsage = {
         provider: "openai",
         model: "gpt-4o",
         promptTokens: 1000,
         completionTokens: 500,
         totalTokens: 1500,
-        cost: 0.1, // $0.10
       };
 
       const result = await budgetManager.checkBudget("run-1", usage);
@@ -46,8 +73,14 @@ describe("BudgetManager", () => {
     });
 
     it("should deny calls that exceed budget", async () => {
-      // Set current cost close to limit
       vi.mocked(mockCostTracker.getCurrentCost).mockResolvedValue(0.95);
+      vi.mocked(mockPricingRegistry.calculateCost).mockReturnValue({
+        inputCost: 0.1,
+        outputCost: 0.1,
+        totalCost: 0.2,
+        currency: "USD",
+        pricingSource: "registry",
+      });
 
       const usage: LLMUsage = {
         provider: "openai",
@@ -55,7 +88,6 @@ describe("BudgetManager", () => {
         promptTokens: 1000,
         completionTokens: 500,
         totalTokens: 1500,
-        cost: 0.2, // Would exceed $1.00 limit
       };
 
       const result = await budgetManager.checkBudget("run-1", usage);
@@ -66,26 +98,33 @@ describe("BudgetManager", () => {
       expect(result.reason).toContain("Budget limit exceeded");
     });
 
-    it("should estimate cost when not provided", async () => {
+    it("should use provided cost in usage if available", async () => {
       const usage: LLMUsage = {
         provider: "openai",
         model: "gpt-4o",
         promptTokens: 1000,
         completionTokens: 500,
         totalTokens: 1500,
-        // cost is undefined
+        cost: 0.05, // Provider returns cost
       };
 
       const result = await budgetManager.checkBudget("run-1", usage);
 
       expect(result.allowed).toBe(true);
-      // Should estimate based on tokens
-      expect(result.projectedCost).toBeGreaterThan(0);
+      expect(result.projectedCost).toBe(0.05);
+      // Should not call pricing registry if cost is provided
+      expect(mockPricingRegistry.calculateCost).not.toHaveBeenCalled();
     });
 
     it("should warn when approaching budget limit", async () => {
-      // Set current cost at 85% of limit (above 80% warning threshold)
       vi.mocked(mockCostTracker.getCurrentCost).mockResolvedValue(0.85);
+      vi.mocked(mockPricingRegistry.calculateCost).mockReturnValue({
+        inputCost: 0.04,
+        outputCost: 0.01,
+        totalCost: 0.05,
+        currency: "USD",
+        pricingSource: "registry",
+      });
 
       const usage: LLMUsage = {
         provider: "openai",
@@ -93,7 +132,6 @@ describe("BudgetManager", () => {
         promptTokens: 100,
         completionTokens: 50,
         totalTokens: 150,
-        cost: 0.05,
       };
 
       const consoleSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -154,7 +192,7 @@ describe("BudgetManager", () => {
 
   describe("configuration", () => {
     it("should use default config when none provided", () => {
-      const manager = new BudgetManager(mockCostTracker);
+      const manager = new BudgetManager(mockCostTracker, mockPricingRegistry);
       const config = manager.getConfig();
 
       expect(config.maxCostPerRun).toBe(5.0); // Default from DEFAULT_BUDGET
@@ -168,7 +206,11 @@ describe("BudgetManager", () => {
         warningThreshold: 0.9,
       };
 
-      const manager = new BudgetManager(mockCostTracker, customConfig);
+      const manager = new BudgetManager(
+        mockCostTracker,
+        mockPricingRegistry,
+        customConfig,
+      );
       const config = manager.getConfig();
 
       expect(config.maxCostPerRun).toBe(2.5);

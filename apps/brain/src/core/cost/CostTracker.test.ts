@@ -13,6 +13,28 @@ describe("CostTracker", () => {
   let pricingRegistry: PricingRegistry;
   let costTracker: CostTracker;
 
+  // Sample pricing for tests
+  const testPricing = {
+    "openai:gpt-4o": {
+      inputPrice: 0.005,
+      outputPrice: 0.015,
+      currency: "USD",
+      effectiveDate: "2024-01-01",
+    },
+    "openai:gpt-4o-mini": {
+      inputPrice: 0.00015,
+      outputPrice: 0.0006,
+      currency: "USD",
+      effectiveDate: "2024-01-01",
+    },
+    "anthropic:claude-3-sonnet": {
+      inputPrice: 0.003,
+      outputPrice: 0.015,
+      currency: "USD",
+      effectiveDate: "2024-01-01",
+    },
+  };
+
   beforeEach(() => {
     mockStorage = new Map();
     mockCtx = {
@@ -35,7 +57,7 @@ describe("CostTracker", () => {
       ),
     };
 
-    pricingRegistry = new PricingRegistry();
+    pricingRegistry = new PricingRegistry(testPricing);
     costTracker = new CostTracker(
       mockCtx as DurableObjectState,
       pricingRegistry,
