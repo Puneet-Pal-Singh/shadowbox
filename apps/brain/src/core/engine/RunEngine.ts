@@ -252,7 +252,10 @@ export class RunEngine implements IRunEngine {
       );
       return this.agent.plan({ run, prompt, history: undefined });
     }
-    return this.planner.plan(run, prompt);
+    // Planner returns { plan, usage } - record the planning cost
+    const { plan, usage } = await this.planner.plan(run, prompt);
+    await this.costTracker.recordLLMUsage(run.id, usage);
+    return plan;
   }
 
   private async generateSynthesis(
