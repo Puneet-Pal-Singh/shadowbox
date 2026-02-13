@@ -13,3 +13,8 @@ export {
 } from "./DurableObjectStateManager";
 
 export { createKVBackedDurableObjectState } from "./KVBackedDurableObjectState";
+export {
+  assertRuntimeStateSemantics,
+  getRuntimeStateSemantics,
+  tagRuntimeStateSemantics,
+} from "./StateSemantics";

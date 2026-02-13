@@ -4,6 +4,7 @@ import type {
   DurableObjectStorage,
   KVNamespace,
 } from "@cloudflare/workers-types";
+import { tagRuntimeStateSemantics } from "./StateSemantics";
 
 interface KVListOptions {
   start?: string;
@@ -143,7 +144,7 @@ export function createKVBackedDurableObjectState(
     },
   } as unknown as DurableObjectStorage;
 
-  return {
+  const state = {
     storage,
     id: { toString: () => `kv:${namespace}` } as DurableObjectId,
     waitUntil: async (promise: Promise<unknown>) => {
@@ -163,4 +164,6 @@ export function createKVBackedDurableObjectState(
       return closure();
     },
   } as unknown as DurableObjectState;
+
+  return tagRuntimeStateSemantics(state, "kv");
 }

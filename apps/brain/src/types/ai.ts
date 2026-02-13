@@ -19,6 +19,7 @@ export interface Env {
   LITELLM_BASE_URL?: string;
   COST_UNKNOWN_PRICING_MODE?: "warn" | "block";
   COST_FAIL_ON_UNSEEDED_PRICING?: "true" | "false";
+  REQUIRE_STRICT_STATE_SEMANTICS?: "true" | "false";
   MAX_RUN_BUDGET?: string;
   MAX_SESSION_BUDGET?: string;
 
