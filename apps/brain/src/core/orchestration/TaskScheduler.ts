@@ -178,67 +178,90 @@ export class TaskScheduler implements ITaskScheduler {
         continue;
       }
 
-      if (task.status === "PENDING" && task.dependencies.length === 0) {
-        // No dependencies - can start immediately
-        task.transition("READY");
-        await this.taskRepo.update(task);
-        readyTasks.push(task);
+      if (task.status !== "PENDING") {
         continue;
       }
 
-      if (task.status === "PENDING" && task.dependencies.length > 0) {
-        // Check if dependencies are complete
-        const dependencies = await this.taskRepo.getByIds(
-          task.dependencies,
-          runId,
-        );
-
-        // Verify all requested dependencies were found
-        if (dependencies.length !== task.dependencies.length) {
-          const foundIds = new Set(dependencies.map((d) => d.id));
-          const missingIds = task.dependencies.filter(
-            (id) => !foundIds.has(id)
-          );
-          task.transition("FAILED", {
-            error: {
-              message: `Missing dependencies: ${missingIds.join(", ")}`,
-            },
-          });
-          await this.taskRepo.update(task);
-          continue;
-        }
-
-        // Check for failed dependencies and cascade failure
-        const failedDeps = dependencies.filter((dep) =>
-          dep.status === "FAILED"
-        );
-        if (failedDeps.length > 0) {
-          const failedDep = failedDeps[0];
-          task.transition("FAILED", {
-            error: {
-              message: `Dependency task ${failedDep?.id || "unknown"} failed`,
-            },
-          });
-          await this.taskRepo.update(task);
-          continue;
-        }
-
-        const allDone = dependencies.every((dep) => dep.status === "DONE");
-
-        if (allDone) {
-          task.transition("READY");
-          await this.taskRepo.update(task);
-          readyTasks.push(task);
-        }
+      // Handle PENDING tasks
+      const isReady = await this.preparePendingTask(task, runId);
+      if (isReady) {
+        readyTasks.push(task);
       }
     }
 
     return readyTasks;
   }
 
+  private async preparePendingTask(
+    task: Task,
+    runId: string,
+  ): Promise<boolean> {
+    // No dependencies - can start immediately
+    if (task.dependencies.length === 0) {
+      task.transition("READY");
+      await this.taskRepo.update(task);
+      return true;
+    }
+
+    // Has dependencies - check if all are done
+    return await this.checkDependencies(task, runId);
+  }
+
+  private async checkDependencies(task: Task, runId: string): Promise<boolean> {
+    const dependencies = await this.taskRepo.getByIds(
+      task.dependencies,
+      runId,
+    );
+
+    // Verify all requested dependencies were found
+    if (dependencies.length !== task.dependencies.length) {
+      await this.failTaskMissingDeps(task);
+      return false;
+    }
+
+    // Check for failed dependencies
+    const failedDep = dependencies.find((d) => d.status === "FAILED");
+    if (failedDep) {
+      await this.failTaskDependencyFailed(task, failedDep);
+      return false;
+    }
+
+    // All dependencies done?
+    const allDone = dependencies.every((d) => d.status === "DONE");
+    if (allDone) {
+      task.transition("READY");
+      await this.taskRepo.update(task);
+      return true;
+    }
+
+    return false;
+  }
+
+  private async failTaskMissingDeps(task: Task): Promise<void> {
+    // Missing deps already identified by count mismatch
+    const missingCount = task.dependencies.length;
+    task.transition("FAILED", {
+      error: {
+        message: `Missing dependencies: ${missingCount} not found`,
+      },
+    });
+    await this.taskRepo.update(task);
+  }
+
+  private async failTaskDependencyFailed(
+    task: Task,
+    failedDep: Task,
+  ): Promise<void> {
+    task.transition("FAILED", {
+      error: { message: `Dependency task ${failedDep.id} failed` },
+    });
+    await this.taskRepo.update(task);
+  }
+
   private async hasExecutableTasks(runId: string): Promise<boolean> {
     const allTasks = await this.taskRepo.getByRun(runId);
-    return allTasks.some((task) => task.status === "READY");
+    // Check for READY tasks or PENDING tasks that can be made ready
+    return allTasks.some((task) => task.isReady());
   }
 
   private async hasPendingTasks(runId: string): Promise<boolean> {
