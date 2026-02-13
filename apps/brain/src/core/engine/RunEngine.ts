@@ -6,7 +6,12 @@ import type { DurableObjectState } from "@cloudflare/workers-types";
 import type { CoreMessage, CoreTool } from "ai";
 import { Run, RunRepository } from "../run";
 import { Task, TaskRepository } from "../task";
-import { CostTracker, PricingRegistry } from "../cost";
+import {
+  CostTracker,
+  PricingRegistry,
+  BudgetManager,
+  BudgetExceededError,
+} from "../cost";
 import { PlannerService } from "../planner";
 import { TaskScheduler } from "../orchestration";
 import { DefaultTaskExecutor, AgentTaskExecutor } from "./TaskExecutor";
@@ -21,6 +26,7 @@ import type {
 } from "../../types";
 import type { Plan, PlannedTask } from "../planner";
 import { CORS_HEADERS } from "../../lib/cors";
+import type { LLMUsage } from "../cost/types";
 
 export interface IRunEngine {
   execute(
@@ -61,6 +67,7 @@ export class RunEngine implements IRunEngine {
   private taskRepo: TaskRepository;
   private costTracker: CostTracker;
   private pricingRegistry: PricingRegistry;
+  private budgetManager: BudgetManager;
   private planner: PlannerService;
   private scheduler: TaskScheduler;
   private aiService: AIService;
@@ -75,6 +82,7 @@ export class RunEngine implements IRunEngine {
     this.taskRepo = new TaskRepository(ctx);
     this.pricingRegistry = new PricingRegistry();
     this.costTracker = new CostTracker(ctx, this.pricingRegistry);
+    this.budgetManager = new BudgetManager(this.costTracker);
     this.aiService = new AIService(options.env);
     this.planner = new PlannerService(this.aiService);
     this.agent = agent;
@@ -290,17 +298,42 @@ Provide a concise summary of what was accomplished.`;
     ];
 
     try {
+      // Phase 3.1: Budget check before LLM call
+      const estimatedUsage: LLMUsage = {
+        provider: "litellm",
+        model: "llama-3.3-70b-versatile",
+        promptTokens: synthesisPrompt.length / 4, // Rough estimate: 4 chars per token
+        completionTokens: 500, // Conservative estimate
+        totalTokens: synthesisPrompt.length / 4 + 500,
+      };
+
+      const budgetCheck = await this.budgetManager.checkBudget(
+        runId,
+        estimatedUsage,
+      );
+      if (!budgetCheck.allowed) {
+        throw new BudgetExceededError(
+          runId,
+          budgetCheck.currentCost,
+          this.budgetManager.getConfig().maxCostPerRun,
+        );
+      }
+
       // Phase 3.1: generateText now returns { text, usage }
       const result = await this.aiService.generateText({
         messages,
         temperature: 0.7,
       });
 
-      // Record cost for this LLM call
+      // Phase 3.1: Record cost for this LLM call
       await this.costTracker.recordLLMUsage(runId, result.usage);
 
       return result.text;
     } catch (error) {
+      if (error instanceof BudgetExceededError) {
+        console.error(`[run/engine] Budget exceeded for run ${runId}`);
+        return `## Summary\n\n⚠️ Budget limit reached ($${error.limit.toFixed(2)}).\n\nCompleted ${completedTasks.length} tasks for your request.\n\n${taskResults}`;
+      }
       console.error("[run/engine] Synthesis failed:", error);
       // Fallback to simple summary if LLM call fails
       return `## Summary\n\nCompleted ${completedTasks.length} tasks for your request.\n\n${taskResults}`;
