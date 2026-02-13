@@ -7,7 +7,7 @@ import type {
 } from "./types";
 
 export interface ICostLedger {
-  append(event: CostEvent): Promise<void>;
+  append(event: CostEvent): Promise<boolean>;
   getEvents(runId: string): Promise<CostEvent[]>;
   aggregate(runId: string): Promise<CostSnapshot>;
   getCurrentCost(runId: string): Promise<number>;
@@ -19,7 +19,7 @@ export class CostLedger implements ICostLedger {
 
   constructor(private storage: DurableObjectState) {}
 
-  async append(event: CostEvent): Promise<void> {
+  async append(event: CostEvent): Promise<boolean> {
     const eventsKey = this.getEventsKey(event.runId);
     const idempotencyKey = this.getIdempotencyIndexKey(
       event.runId,
@@ -51,6 +51,8 @@ export class CostLedger implements ICostLedger {
         `[cost/ledger] append run=${event.runId} phase=${event.phase} source=${event.pricingSource} cost=${event.calculatedCostUsd.toFixed(6)}`,
       );
     }
+
+    return appended;
   }
 
   async getEvents(runId: string): Promise<CostEvent[]> {

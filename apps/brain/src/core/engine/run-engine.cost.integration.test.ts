@@ -167,7 +167,7 @@ describe("RunEngine cost integrity", () => {
     ).rejects.toBeInstanceOf(UnknownPricingError);
 
     const events = await costLedger.getEvents(runId);
-    expect(events[0].pricingSource).toBe("unknown");
+    expect(events).toHaveLength(0);
   });
 });
 
