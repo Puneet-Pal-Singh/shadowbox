@@ -6,13 +6,19 @@ import type { DurableObjectState } from "@cloudflare/workers-types";
 import type { CoreMessage, CoreTool } from "ai";
 import { Run, RunRepository } from "../run";
 import { Task, TaskRepository } from "../task";
-import { CostTracker } from "../cost";
+import { CostTracker, PricingRegistry } from "../cost";
 import { PlannerService } from "../planner";
 import { TaskScheduler } from "../orchestration";
 import { DefaultTaskExecutor, AgentTaskExecutor } from "./TaskExecutor";
 import { AIService } from "../../services/AIService";
 import type { Env } from "../../types/ai";
-import type { RunInput, RunResult, RunStatus, CostSnapshot, IAgent } from "../../types";
+import type {
+  RunInput,
+  RunResult,
+  RunStatus,
+  CostSnapshot,
+  IAgent,
+} from "../../types";
 import type { Plan, PlannedTask } from "../planner";
 import { CORS_HEADERS } from "../../lib/cors";
 
@@ -54,6 +60,7 @@ export class RunEngine implements IRunEngine {
   private runRepo: RunRepository;
   private taskRepo: TaskRepository;
   private costTracker: CostTracker;
+  private pricingRegistry: PricingRegistry;
   private planner: PlannerService;
   private scheduler: TaskScheduler;
   private aiService: AIService;
@@ -66,7 +73,8 @@ export class RunEngine implements IRunEngine {
   ) {
     this.runRepo = new RunRepository(ctx);
     this.taskRepo = new TaskRepository(ctx);
-    this.costTracker = new CostTracker(ctx);
+    this.pricingRegistry = new PricingRegistry();
+    this.costTracker = new CostTracker(ctx, this.pricingRegistry);
     this.aiService = new AIService(options.env);
     this.planner = new PlannerService(this.aiService);
     this.agent = agent;
@@ -223,7 +231,9 @@ export class RunEngine implements IRunEngine {
 
   private async generatePlan(run: Run, prompt: string): Promise<Plan> {
     if (this.agent) {
-      console.log(`[run/engine] Using agent-based planning (${this.agent.type})`);
+      console.log(
+        `[run/engine] Using agent-based planning (${this.agent.type})`,
+      );
       return this.agent.plan({ run, prompt, history: undefined });
     }
     return this.planner.plan(run, prompt);
@@ -234,7 +244,9 @@ export class RunEngine implements IRunEngine {
     originalPrompt: string,
   ): Promise<string> {
     if (this.agent) {
-      console.log(`[run/engine] Using agent-based synthesis (${this.agent.type})`);
+      console.log(
+        `[run/engine] Using agent-based synthesis (${this.agent.type})`,
+      );
       const tasks = await this.taskRepo.getByRun(runId);
       const completedTasks = tasks
         .filter((t) => t.status === "DONE")
@@ -334,7 +346,7 @@ Provide a concise summary of what was accomplished.`;
   }
 
   async getCostSnapshot(runId: string): Promise<CostSnapshot> {
-    return this.costTracker.getCostSnapshot(runId);
+    return this.costTracker.aggregateRunCost(runId);
   }
 
   async getTasksForRun(runId: string) {

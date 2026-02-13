@@ -1,152 +1,160 @@
 // apps/brain/src/core/cost/CostTracker.ts
-// Phase 3A: Cost tracking per run with model-based rates
+// Phase 3.1: Upgraded cost tracking with append-only CostEvent storage
 
 import type { DurableObjectState } from "@cloudflare/workers-types";
-import type { TokenUsage, CostSnapshot, ModelCost } from "../../types";
+import type {
+  LLMUsage,
+  CostEvent,
+  CostSnapshot,
+  ModelCost,
+  ProviderCost,
+} from "./types";
+import type { IPricingRegistry } from "./PricingRegistry";
 
 export interface ICostTracker {
-  recordUsage(runId: string, usage: TokenUsage): Promise<void>;
-  getCostSnapshot(runId: string): Promise<CostSnapshot>;
-  estimateCost(
-    model: string,
-    promptTokens: number,
-    completionTokens: number,
-  ): number;
-  getTotalCostForSession(sessionId: string): Promise<number>;
+  recordLLMUsage(runId: string, usage: LLMUsage): Promise<void>;
+  getCostEvents(runId: string): Promise<CostEvent[]>;
+  aggregateRunCost(runId: string): Promise<CostSnapshot>;
+  getCurrentCost(runId: string): Promise<number>;
 }
 
+/**
+ * CostTracker - Append-only cost event storage
+ *
+ * Design principles:
+ * 1. Never overwrite cost data - only append new events
+ * 2. Aggregate on read (computed, not stored)
+ * 3. Full audit trail via CostEvent log
+ */
 export class CostTracker implements ICostTracker {
-  private readonly COST_KEY_PREFIX = "cost:";
-  private readonly SESSION_COST_KEY_PREFIX = "session_cost:";
+  private readonly EVENTS_KEY_PREFIX = "run:";
+  private readonly EVENTS_KEY_SUFFIX = ":cost:events";
 
-  // Cost per 1K tokens in USD
-  private readonly MODEL_RATES: Record<
-    string,
-    { prompt: number; completion: number }
-  > = {
-    "gpt-4": { prompt: 0.03, completion: 0.06 },
-    "gpt-4-turbo": { prompt: 0.01, completion: 0.03 },
-    "gpt-4o": { prompt: 0.005, completion: 0.015 },
-    "gpt-3.5-turbo": { prompt: 0.0015, completion: 0.002 },
-    "llama-3.3-70b-versatile": { prompt: 0.00059, completion: 0.00079 },
-    "llama-3.1-8b-instant": { prompt: 0.0001, completion: 0.0001 },
-    default: { prompt: 0.001, completion: 0.002 },
-  };
+  constructor(
+    private storage: DurableObjectState,
+    private pricingRegistry: IPricingRegistry,
+  ) {}
 
-  constructor(private ctx: DurableObjectState) {}
+  /**
+   * Record LLM usage as append-only CostEvent
+   * Called by RunEngine after each LLM call
+   *
+   * Never overwrites - always appends new event
+   */
+  async recordLLMUsage(runId: string, usage: LLMUsage): Promise<void> {
+    const calculatedCost = this.pricingRegistry.calculateCost(usage);
 
-  private getCostKey(runId: string): string {
-    return `${this.COST_KEY_PREFIX}${runId}`;
-  }
+    const event: CostEvent = {
+      runId,
+      timestamp: new Date().toISOString(),
+      provider: usage.provider,
+      model: usage.model,
+      promptTokens: usage.promptTokens,
+      completionTokens: usage.completionTokens,
+      totalTokens: usage.totalTokens,
+      cost: calculatedCost.totalCost,
+      pricingSource: calculatedCost.pricingSource,
+    };
 
-  private getSessionCostKey(sessionId: string): string {
-    return `${this.SESSION_COST_KEY_PREFIX}${sessionId}`;
-  }
-
-  async recordUsage(runId: string, usage: TokenUsage): Promise<void> {
-    const costKey = this.getCostKey(runId);
-
-    await this.ctx.blockConcurrencyWhile(async () => {
-      const current =
-        (await this.ctx.storage.get<CostSnapshot>(costKey)) ??
-        this.createEmptySnapshot(runId);
-      const cost = this.calculateCost(usage);
-
-      const updated: CostSnapshot = {
-        ...current,
-        totalCost: current.totalCost + cost,
-        totalTokens:
-          current.totalTokens + usage.promptTokens + usage.completionTokens,
-        byModel: this.updateModelCost(
-          current.byModel,
-          usage.model,
-          usage,
-          cost,
-        ),
-      };
-
-      await this.ctx.storage.put(costKey, updated);
+    await this.storage.blockConcurrencyWhile(async () => {
+      // Append-only: Never update, always push new event
+      const key = this.getEventsKey(runId);
+      const existing = (await this.storage.storage.get<CostEvent[]>(key)) ?? [];
+      existing.push(event);
+      await this.storage.storage.put(key, existing);
     });
 
     console.log(
-      `[cost/tracker] Recorded usage for run ${runId}: ${usage.model}`,
+      `[cost/tracker] Recorded event for run ${runId}: ` +
+        `${usage.provider}:${usage.model} - $${event.cost.toFixed(6)} ` +
+        `(${usage.totalTokens} tokens)`,
     );
   }
 
-  async getCostSnapshot(runId: string): Promise<CostSnapshot> {
-    const costKey = this.getCostKey(runId);
-    const snapshot = await this.ctx.storage.get<CostSnapshot>(costKey);
-    return snapshot || this.createEmptySnapshot(runId);
+  /**
+   * Get all cost events for a run
+   */
+  async getCostEvents(runId: string): Promise<CostEvent[]> {
+    const key = this.getEventsKey(runId);
+    return (await this.storage.storage.get<CostEvent[]>(key)) ?? [];
   }
 
-  estimateCost(
-    model: string,
-    promptTokens: number,
-    completionTokens: number,
-  ): number {
-    const rates = this.MODEL_RATES[model] ?? this.MODEL_RATES["default"];
-    if (!rates) {
-      return 0;
+  /**
+   * Aggregate costs from events (computed on read, never stored)
+   *
+   * This ensures:
+   * - No pre-computed totals that can drift
+   * - Always accurate based on event log
+   * - Full transparency in aggregation
+   */
+  async aggregateRunCost(runId: string): Promise<CostSnapshot> {
+    const events = await this.getCostEvents(runId);
+
+    const byModel: Record<string, ModelCost> = {};
+    const byProvider: Record<string, ProviderCost> = {};
+    let totalCost = 0;
+    let totalTokens = 0;
+
+    for (const event of events) {
+      totalCost += event.cost;
+      totalTokens += event.totalTokens;
+
+      // Aggregate by model
+      const modelKey = `${event.provider}:${event.model}`;
+      if (!byModel[modelKey]) {
+        byModel[modelKey] = {
+          model: event.model,
+          provider: event.provider,
+          promptTokens: 0,
+          completionTokens: 0,
+          cost: 0,
+        };
+      }
+      const modelData = byModel[modelKey];
+      if (modelData) {
+        modelData.promptTokens += event.promptTokens;
+        modelData.completionTokens += event.completionTokens;
+        modelData.cost += event.cost;
+      }
+
+      // Aggregate by provider
+      if (!byProvider[event.provider]) {
+        byProvider[event.provider] = {
+          provider: event.provider,
+          promptTokens: 0,
+          completionTokens: 0,
+          cost: 0,
+        };
+      }
+      const providerData = byProvider[event.provider];
+      if (providerData) {
+        providerData.promptTokens += event.promptTokens;
+        providerData.completionTokens += event.completionTokens;
+        providerData.cost += event.cost;
+      }
     }
-    const promptCost = (promptTokens / 1000) * rates.prompt;
-    const completionCost = (completionTokens / 1000) * rates.completion;
-    return promptCost + completionCost;
-  }
 
-  async getTotalCostForSession(sessionId: string): Promise<number> {
-    const sessionCostKey = this.getSessionCostKey(sessionId);
-    const cached = await this.ctx.storage.get<number>(sessionCostKey);
-    return cached ?? 0;
-  }
-
-  async updateSessionCost(sessionId: string, runCost: number): Promise<void> {
-    const sessionCostKey = this.getSessionCostKey(sessionId);
-
-    await this.ctx.blockConcurrencyWhile(async () => {
-      const current = (await this.ctx.storage.get<number>(sessionCostKey)) ?? 0;
-      await this.ctx.storage.put(sessionCostKey, current + runCost);
-    });
-  }
-
-  private createEmptySnapshot(runId: string): CostSnapshot {
     return {
       runId,
-      totalCost: 0,
-      totalTokens: 0,
-      byModel: {},
+      totalCost,
+      totalTokens,
+      eventCount: events.length,
+      byModel,
+      byProvider,
+      timestamp: new Date().toISOString(),
     };
   }
 
-  private calculateCost(usage: TokenUsage): number {
-    return this.estimateCost(
-      usage.model,
-      usage.promptTokens,
-      usage.completionTokens,
-    );
+  /**
+   * Get current accumulated cost for a run
+   */
+  async getCurrentCost(runId: string): Promise<number> {
+    const events = await this.getCostEvents(runId);
+    return events.reduce((sum, event) => sum + event.cost, 0);
   }
 
-  private updateModelCost(
-    existing: Record<string, ModelCost>,
-    model: string,
-    usage: TokenUsage,
-    cost: number,
-  ): Record<string, ModelCost> {
-    const current = existing[model] || {
-      model,
-      promptTokens: 0,
-      completionTokens: 0,
-      cost: 0,
-    };
-
-    return {
-      ...existing,
-      [model]: {
-        model,
-        promptTokens: current.promptTokens + usage.promptTokens,
-        completionTokens: current.completionTokens + usage.completionTokens,
-        cost: current.cost + cost,
-      },
-    };
+  private getEventsKey(runId: string): string {
+    return `${this.EVENTS_KEY_PREFIX}${runId}${this.EVENTS_KEY_SUFFIX}`;
   }
 }
 
