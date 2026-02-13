@@ -30,18 +30,59 @@ interface FeatureEnv {
 }
 
 /**
+ * Parse boolean from env string
+ * - "true" → true
+ * - "false" → false
+ * - undefined/other → default value
+ */
+function parseBooleanEnv(
+  value: string | undefined,
+  defaultValue: boolean,
+): boolean {
+  if (value === undefined) {
+    return defaultValue;
+  }
+  return value.toLowerCase() === "true";
+}
+
+/**
+ * Parse percentage from env string
+ * - Valid number (0-100) → that number
+ * - Invalid/NaN → default value
+ */
+function parsePercentageEnv(
+  value: string | undefined,
+  defaultValue: number,
+): number {
+  if (value === undefined) {
+    return defaultValue;
+  }
+  const parsed = parseInt(value, 10);
+  if (isNaN(parsed)) {
+    console.warn(
+      `[config/features] Invalid RUN_ENGINE_TRAFFIC_PERCENTAGE: "${value}", using default ${defaultValue}`,
+    );
+    return defaultValue;
+  }
+  // Clamp to valid range
+  return Math.max(0, Math.min(100, parsed));
+}
+
+/**
  * Get feature flags from environment or request context
  * Accepts any object that might contain feature flag properties
  */
 export function getFeatureFlags(env?: Record<string, unknown>): FeatureFlags {
   const featureEnv = env as FeatureEnv | undefined;
+
   return {
-    USE_RUN_ENGINE:
-      featureEnv?.USE_RUN_ENGINE === "true" ||
+    USE_RUN_ENGINE: parseBooleanEnv(
+      featureEnv?.USE_RUN_ENGINE,
       DEFAULT_FEATURE_FLAGS.USE_RUN_ENGINE,
-    RUN_ENGINE_TRAFFIC_PERCENTAGE: parseInt(
-      featureEnv?.RUN_ENGINE_TRAFFIC_PERCENTAGE || "0",
-      10,
+    ),
+    RUN_ENGINE_TRAFFIC_PERCENTAGE: parsePercentageEnv(
+      featureEnv?.RUN_ENGINE_TRAFFIC_PERCENTAGE,
+      DEFAULT_FEATURE_FLAGS.RUN_ENGINE_TRAFFIC_PERCENTAGE,
     ),
   };
 }
