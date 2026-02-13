@@ -89,11 +89,7 @@ export class PricingRegistry implements IPricingRegistry {
   }
 
   loadFromJSON(pricingData: Record<string, PricingEntry>): void {
-    for (const [key, entry] of Object.entries(pricingData)) {
-      const normalized = this.normalizePricingEntry(key, entry);
-      this.validateStaleness(key, normalized);
-      this.prices.set(key, normalized);
-    }
+    this.loadPricingEntries(pricingData, false);
   }
 
   getAllPrices(): Record<string, PricingEntry> {
@@ -109,14 +105,19 @@ export class PricingRegistry implements IPricingRegistry {
   }
 
   private loadDefaultSeedPricing(): void {
+    const failClosed =
+      this.options.failOnUnseededPricing || this.options.isProduction;
+
     try {
-      this.loadFromJSON(defaultPricing as Record<string, PricingEntry>);
+      const parsedSeed = this.parsePricingData(defaultPricing);
+      const loadedCount = this.loadPricingEntries(parsedSeed, !failClosed);
       console.log(
-        `[cost/pricing] Loaded ${Object.keys(defaultPricing).length} seeded prices`,
+        `[cost/pricing] Loaded ${loadedCount} seeded prices`,
       );
+      if (loadedCount === 0 && failClosed) {
+        throw new PricingError("No valid entries found in pricing.default.json");
+      }
     } catch (error) {
-      const failClosed =
-        this.options.failOnUnseededPricing || this.options.isProduction;
       if (failClosed) {
         throw new PricingError("Failed to load pricing.default.json", error);
       }
@@ -127,7 +128,18 @@ export class PricingRegistry implements IPricingRegistry {
   }
 
   private normalizePricingEntry(key: string, entry: PricingEntry): PricingEntry {
-    const effectiveDate = entry.effectiveDate ?? entry.lastUpdated;
+    const rawEntry = this.parsePricingDataEntry(key, entry);
+    const inputPrice = this.parseFiniteNumber(rawEntry.inputPrice, key, "inputPrice");
+    const outputPrice = this.parseFiniteNumber(
+      rawEntry.outputPrice,
+      key,
+      "outputPrice",
+    );
+    const currency = this.parseCurrency(rawEntry.currency, key);
+    const effectiveDateCandidate = this.parseOptionalString(rawEntry.effectiveDate);
+    const lastUpdatedCandidate = this.parseOptionalString(rawEntry.lastUpdated);
+    const effectiveDate = effectiveDateCandidate ?? lastUpdatedCandidate;
+
     if (!effectiveDate) {
       throw new PricingError(
         `Pricing entry ${key} must include effectiveDate or lastUpdated`,
@@ -135,10 +147,12 @@ export class PricingRegistry implements IPricingRegistry {
     }
 
     return {
-      ...entry,
+      inputPrice,
+      outputPrice,
+      currency,
       effectiveDate,
-      lastUpdated: entry.lastUpdated ?? effectiveDate,
-      metadata: entry.metadata ?? {},
+      lastUpdated: lastUpdatedCandidate ?? effectiveDate,
+      metadata: this.parseMetadata(rawEntry.metadata, key),
     };
   }
 
@@ -174,6 +188,119 @@ export class PricingRegistry implements IPricingRegistry {
       console.warn(`[cost/pricing] ${message}`);
     }
   }
+
+  private loadPricingEntries(
+    pricingData: Record<string, PricingEntry>,
+    skipInvalidEntries: boolean,
+  ): number {
+    let loadedCount = 0;
+    for (const [key, entry] of Object.entries(pricingData)) {
+      try {
+        const normalized = this.normalizePricingEntry(key, entry);
+        this.validateStaleness(key, normalized);
+        this.prices.set(key, normalized);
+        loadedCount += 1;
+      } catch (error) {
+        if (!skipInvalidEntries) {
+          throw error;
+        }
+        console.warn(
+          `[cost/pricing] Skipping invalid pricing entry ${key}: ${getErrorMessage(error)}`,
+        );
+      }
+    }
+    return loadedCount;
+  }
+
+  private parsePricingData(pricingData: unknown): Record<string, PricingEntry> {
+    if (
+      !pricingData ||
+      typeof pricingData !== "object" ||
+      Array.isArray(pricingData)
+    ) {
+      throw new PricingError("Pricing JSON must be an object map");
+    }
+    return pricingData as Record<string, PricingEntry>;
+  }
+
+  private parsePricingDataEntry(
+    key: string,
+    entry: PricingEntry,
+  ): Record<string, unknown> {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      throw new PricingError(`Pricing entry ${key} must be an object`);
+    }
+    return entry as unknown as Record<string, unknown>;
+  }
+
+  private parseFiniteNumber(
+    value: unknown,
+    key: string,
+    fieldName: "inputPrice" | "outputPrice",
+  ): number {
+    const parsed =
+      typeof value === "number"
+        ? value
+        : typeof value === "string"
+          ? Number(value)
+          : Number.NaN;
+    if (!Number.isFinite(parsed)) {
+      throw new PricingError(`Pricing entry ${key} has invalid ${fieldName}`);
+    }
+    return parsed;
+  }
+
+  private parseCurrency(value: unknown, key: string): string {
+    if (typeof value === "string" && value.trim().length > 0) {
+      return value;
+    }
+    throw new PricingError(`Pricing entry ${key} has invalid currency`);
+  }
+
+  private parseOptionalString(value: unknown): string | undefined {
+    if (value === undefined || value === null) {
+      return undefined;
+    }
+    if (typeof value !== "string") {
+      throw new PricingError("Pricing date fields must be strings");
+    }
+    const normalized = value.trim();
+    return normalized.length > 0 ? normalized : undefined;
+  }
+
+  private parseMetadata(
+    value: unknown,
+    key: string,
+  ): { source?: string; version?: string } {
+    if (value === undefined || value === null) {
+      return {};
+    }
+    if (typeof value !== "object" || Array.isArray(value)) {
+      throw new PricingError(`Pricing entry ${key} has invalid metadata`);
+    }
+    const metadata = value as Record<string, unknown>;
+    const source = this.parseMetadataField(metadata.source, "source", key);
+    const version = this.parseMetadataField(metadata.version, "version", key);
+    return {
+      ...(source ? { source } : {}),
+      ...(version ? { version } : {}),
+    };
+  }
+
+  private parseMetadataField(
+    value: unknown,
+    field: "source" | "version",
+    key: string,
+  ): string | undefined {
+    if (value === undefined || value === null) {
+      return undefined;
+    }
+    if (typeof value !== "string") {
+      throw new PricingError(`Pricing entry ${key} has invalid metadata.${field}`);
+    }
+    const normalized = value.trim();
+    return normalized.length > 0 ? normalized : undefined;
+  }
 }
 
 function detectProductionEnvironment(): boolean {
@@ -195,4 +322,8 @@ export class PricingError extends Error {
     super(`[cost/pricing] ${message}`, { cause });
     this.name = "PricingError";
   }
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "unknown pricing error";
 }
