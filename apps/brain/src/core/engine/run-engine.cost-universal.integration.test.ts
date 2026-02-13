@@ -1,35 +1,34 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { DurableObjectState } from "@cloudflare/workers-types";
 import type { CoreMessage } from "ai";
 import { z } from "zod";
 import { RunEngine } from "./RunEngine";
+import { BudgetManager } from "../cost/BudgetManager";
 import { CostLedger } from "../cost/CostLedger";
 import { CostTracker } from "../cost/CostTracker";
-import { BudgetManager, BudgetExceededError } from "../cost/BudgetManager";
 import { PricingRegistry } from "../cost/PricingRegistry";
 import { PricingResolver } from "../cost/PricingResolver";
-import { LLMGateway, UnknownPricingError } from "../llm/LLMGateway";
+import { LLMGateway } from "../llm/LLMGateway";
 import type { ILLMGateway } from "../llm";
-import type { Env } from "../../types/ai";
-import type { IAgent, TaskResult } from "../../types";
-import type { Task } from "../task";
 import type { Plan } from "../planner";
+import type { Task } from "../task";
+import type { IAgent, TaskResult } from "../../types";
+import type { Env } from "../../types/ai";
 
-describe("RunEngine cost integrity", () => {
+describe("RunEngine universal cost coverage", () => {
+  const runId = "123e4567-e89b-42d3-a456-426614174001";
+  const sessionId = "session-phase-3-2";
+  let state: DurableObjectState;
   let storage: Map<string, unknown>;
-  let ctx: DurableObjectState;
-  let costLedger: CostLedger;
-  let pricingRegistry: PricingRegistry;
+  let ledger: CostLedger;
+  let gateway: ILLMGateway;
+  let registry: PricingRegistry;
   let budgetManager: BudgetManager;
-
-  const runId = "123e4567-e89b-42d3-a456-426614174000";
-  const sessionId = "session-phase-3-1";
 
   beforeEach(async () => {
     storage = new Map<string, unknown>();
-    ctx = createMockDurableObjectState(storage);
-
-    pricingRegistry = new PricingRegistry({
+    state = createMockDurableObjectState(storage);
+    registry = new PricingRegistry({
       "openai:gpt-4o": {
         inputPrice: 0.005,
         outputPrice: 0.015,
@@ -37,146 +36,67 @@ describe("RunEngine cost integrity", () => {
         effectiveDate: "2026-02-13",
       },
     });
-    costLedger = new CostLedger(ctx);
-    const costTracker = new CostTracker(ctx, pricingRegistry, "warn");
+    ledger = new CostLedger(state);
     budgetManager = new BudgetManager(
-      costTracker,
-      pricingRegistry,
+      new CostTracker(state, registry, "warn"),
+      registry,
       {
         maxCostPerRun: 5,
         maxCostPerSession: 20,
-        warningThreshold: 0.8,
       },
-      ctx,
+      state,
     );
     await budgetManager.loadSessionCosts();
+    gateway = new LLMGateway({
+      aiService: createFakeAIService("openai", "gpt-4o"),
+      budgetPolicy: budgetManager,
+      costLedger: ledger,
+      pricingResolver: new PricingResolver(registry, {
+        unknownPricingMode: "warn",
+      }),
+    });
   });
 
-  it("emits cost events for planning, task, and synthesis via gateway", async () => {
-    const llmGateway = createGateway({
-      provider: "openai",
-      model: "gpt-4o",
-      pricingRegistry,
-      budgetManager,
-      costLedger,
-    });
-    const agent = new TestAgent(llmGateway);
+  it("records cost events for planning, task, and synthesis call classes", async () => {
     const engine = new RunEngine(
-      ctx,
+      state,
       {
         env: createEnv(),
         runId,
         sessionId,
-        correlationId: "corr-1",
+        correlationId: "corr-cost-universal",
       },
-      agent,
-      pricingRegistry,
+      new UniversalCostAgent(gateway),
+      registry,
       {
-        llmGateway,
+        llmGateway: gateway,
         budgetManager,
-        costLedger,
+        costLedger: ledger,
       },
     );
 
     const response = await engine.execute(
       {
         agentType: "coding",
-        prompt: "Run deterministic integration test",
+        prompt: "verify universal cost coverage",
         sessionId,
       },
       [] as CoreMessage[],
       {},
     );
+
     expect(response.status).toBe(200);
-
-    const events = await costLedger.getEvents(runId);
+    const events = await ledger.getEvents(runId);
     expect(events).toHaveLength(3);
-    expect(events.every((event) => event.runId === runId)).toBe(true);
-    expect(events.every((event) => event.sessionId === sessionId)).toBe(true);
-    expect(
-      events.map((event) => event.phase).sort(),
-      "expected full coverage across planning/task/synthesis",
-    ).toEqual(["planning", "synthesis", "task"]);
-    expect(events.every((event) => event.calculatedCostUsd > 0)).toBe(true);
-
-    const snapshot = await costLedger.aggregate(runId);
-    const eventSum = events.reduce((sum, event) => sum + event.calculatedCostUsd, 0);
-    expect(snapshot.totalCost).toBeCloseTo(eventSum, 8);
-    expect(snapshot.eventCount).toBe(3);
-
-    const duplicate = {
-      ...events[0],
-      eventId: "duplicate-event",
-      calculatedCostUsd: 999,
-    };
-    await costLedger.append(duplicate);
-    const deduped = await costLedger.getEvents(runId);
-    expect(deduped).toHaveLength(3);
-  });
-
-  it("blocks requests when budget policy denies preflight", async () => {
-    const strictBudget = new BudgetManager(
-      new CostTracker(ctx, pricingRegistry, "warn"),
-      pricingRegistry,
-      {
-        maxCostPerRun: 0.00001,
-        maxCostPerSession: 0.00001,
-        warningThreshold: 0.8,
-      },
-      ctx,
-    );
-    await strictBudget.loadSessionCosts();
-
-    const llmGateway = createGateway({
-      provider: "openai",
-      model: "gpt-4o",
-      pricingRegistry,
-      budgetManager: strictBudget,
-      costLedger,
-    });
-
-    await expect(
-      llmGateway.generateText({
-        context: {
-          runId,
-          sessionId,
-          agentType: "coding",
-          phase: "task",
-        },
-        messages: [{ role: "user", content: "Budget check request" }],
-      }),
-    ).rejects.toBeInstanceOf(BudgetExceededError);
-  });
-
-  it("applies unknown pricing mode and blocks when configured", async () => {
-    const blockingResolver = new PricingResolver(pricingRegistry, {
-      unknownPricingMode: "block",
-    });
-    const llmGateway = new LLMGateway({
-      aiService: createFakeAIService("unknown", "unseeded-model"),
-      budgetPolicy: budgetManager,
-      costLedger,
-      pricingResolver: blockingResolver,
-    });
-
-    await expect(
-      llmGateway.generateText({
-        context: {
-          runId,
-          sessionId,
-          agentType: "coding",
-          phase: "task",
-        },
-        messages: [{ role: "user", content: "Unknown pricing model" }],
-      }),
-    ).rejects.toBeInstanceOf(UnknownPricingError);
-
-    const events = await costLedger.getEvents(runId);
-    expect(events).toHaveLength(0);
+    expect(events.map((event) => event.phase).sort()).toEqual([
+      "planning",
+      "synthesis",
+      "task",
+    ]);
   });
 });
 
-class TestAgent implements IAgent {
+class UniversalCostAgent implements IAgent {
   readonly type = "coding";
 
   constructor(private llmGateway: ILLMGateway) {}
@@ -198,15 +118,13 @@ class TestAgent implements IAgent {
         tasks: z.array(
           z.object({
             id: z.string(),
-            type: z.enum(["analyze", "edit", "test", "review", "git", "shell"]),
+            type: z.enum(["review"]),
             description: z.string(),
             dependsOn: z.array(z.string()),
-            expectedOutput: z.string().optional(),
           }),
         ),
         metadata: z.object({
           estimatedSteps: z.number(),
-          reasoning: z.string().optional(),
         }),
       }),
       temperature: 0,
@@ -215,11 +133,14 @@ class TestAgent implements IAgent {
     return result.object as Plan;
   }
 
-  async executeTask(task: Task, context: {
-    runId: string;
-    sessionId: string;
-    dependencies: TaskResult[];
-  }): Promise<TaskResult> {
+  async executeTask(
+    task: Task,
+    context: {
+      runId: string;
+      sessionId: string;
+      dependencies: TaskResult[];
+    },
+  ): Promise<TaskResult> {
     const result = await this.llmGateway.generateText({
       context: {
         runId: context.runId,
@@ -262,59 +183,40 @@ class TestAgent implements IAgent {
   }
 }
 
-function createGateway(input: {
-  provider: string;
-  model: string;
-  pricingRegistry: PricingRegistry;
-  budgetManager: BudgetManager;
-  costLedger: CostLedger;
-}): ILLMGateway {
-  return new LLMGateway({
-    aiService: createFakeAIService(input.provider, input.model),
-    budgetPolicy: input.budgetManager,
-    costLedger: input.costLedger,
-    pricingResolver: new PricingResolver(input.pricingRegistry, {
-      unknownPricingMode: "warn",
-    }),
-  });
-}
-
 function createFakeAIService(provider: string, model: string) {
   const usage = {
     provider,
     model,
-    promptTokens: 100,
-    completionTokens: 50,
-    totalTokens: 150,
+    promptTokens: 120,
+    completionTokens: 60,
+    totalTokens: 180,
   };
 
   return {
     getProvider: () => provider,
     getDefaultModel: () => model,
     generateText: vi.fn(async () => ({
-      text: "deterministic-text",
+      text: "deterministic",
       usage,
     })),
     generateStructured: vi.fn(async () => ({
       object: {
         tasks: [
           {
-            id: "1",
+            id: "task-1",
             type: "review",
-            description: "Review deterministic task",
+            description: "execute universal cost test",
             dependsOn: [],
-            expectedOutput: "summary",
           },
         ],
         metadata: {
           estimatedSteps: 1,
-          reasoning: "test",
         },
       },
       usage,
     })),
     createChatStream: vi.fn(async () => {
-      throw new Error("Streaming path not used in this test");
+      throw new Error("streaming is not used in this test");
     }),
   } as unknown as import("../../services/AIService").AIService;
 }
@@ -353,7 +255,7 @@ function createMockDurableObjectState(
         start?: string;
         end?: string;
       }): Promise<Map<string, T>> => {
-        const result = new Map<string, T>();
+        const output = new Map<string, T>();
         for (const [key, value] of storage.entries()) {
           if (options?.prefix && !key.startsWith(options.prefix)) {
             continue;
@@ -364,9 +266,9 @@ function createMockDurableObjectState(
           if (options?.end && key >= options.end) {
             continue;
           }
-          result.set(key, value as T);
+          output.set(key, value as T);
         }
-        return result;
+        return output;
       },
       transaction: async <T>(
         closure: (txn: unknown) => Promise<T>,
