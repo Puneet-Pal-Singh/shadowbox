@@ -1,7 +1,6 @@
 // apps/brain/src/core/agents/BaseAgent.ts
 // Phase 3D: Abstract base agent with shared planning and execution contracts
 
-import type { AIService } from "../../services/AIService";
 import type { ExecutionService } from "../../services/ExecutionService";
 import type {
   AgentCapability,
@@ -14,6 +13,7 @@ import type {
 import type { Run } from "../run";
 import type { Task } from "../task";
 import type { Plan } from "../planner";
+import type { ILLMGateway } from "../llm";
 
 export type { AgentCapability, PlanContext, ExecutionContext, SynthesisContext, IAgent };
 
@@ -21,7 +21,7 @@ export abstract class BaseAgent implements IAgent {
   abstract readonly type: string;
 
   constructor(
-    protected readonly aiService: AIService,
+    protected readonly llmGateway: ILLMGateway,
     protected readonly executionService: ExecutionService,
   ) {}
 

@@ -23,7 +23,13 @@ export class CodingAgent extends BaseAgent {
     console.log(`[agents/coding] Generating plan for run ${context.run.id}`);
 
     const messages = this.buildPlanMessages(context.run, context.prompt);
-    const result = await this.aiService.generateStructured({
+    const result = await this.llmGateway.generateStructured({
+      context: {
+        runId: context.run.id,
+        sessionId: context.run.sessionId,
+        agentType: this.type,
+        phase: "planning",
+      },
       messages,
       schema: PlanSchema,
       temperature: 0.2,
@@ -55,7 +61,7 @@ export class CodingAgent extends BaseAgent {
       case "git":
         return this.executeGit(task);
       case "review":
-        return this.executeReview(task);
+        return this.executeReview(task, context.sessionId);
       default:
         throw new UnsupportedTaskTypeError(task.type);
     }
@@ -73,7 +79,13 @@ export class CodingAgent extends BaseAgent {
       )
       .join("\n");
 
-    const result = await this.aiService.generateText({
+    const result = await this.llmGateway.generateText({
+      context: {
+        runId: context.runId,
+        sessionId: context.sessionId,
+        agentType: this.type,
+        phase: "synthesis",
+      },
       messages: [
         {
           role: "system",
@@ -190,8 +202,18 @@ Rules:
     return this.buildSuccessResult(task.id, String(result));
   }
 
-  private async executeReview(task: Task): Promise<TaskResult> {
-    const result = await this.aiService.generateText({
+  private async executeReview(
+    task: Task,
+    sessionId: string,
+  ): Promise<TaskResult> {
+    const result = await this.llmGateway.generateText({
+      context: {
+        runId: task.runId,
+        sessionId,
+        taskId: task.id,
+        agentType: this.type,
+        phase: "task",
+      },
       messages: [
         {
           role: "system",

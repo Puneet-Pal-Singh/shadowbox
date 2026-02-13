@@ -13,7 +13,7 @@ export class ExecutionService {
   constructor(
     private env: Env,
     private sessionId: string,
-    private runId: string = sessionId,
+    private runId: string,
     private userId?: string,
   ) {}
 

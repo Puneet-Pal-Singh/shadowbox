@@ -11,3 +11,5 @@ export {
   DurableObjectStateManager,
   StateManagerError,
 } from "./DurableObjectStateManager";
+
+export { createKVBackedDurableObjectState } from "./KVBackedDurableObjectState";

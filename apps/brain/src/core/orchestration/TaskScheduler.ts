@@ -6,7 +6,7 @@ import { Task, TaskState } from "../task";
 import type { TaskResult } from "../../types";
 
 export interface ITaskScheduler {
-  execute(runId: string): Promise<void>;
+  execute(runId: string, hooks?: SchedulerHooks): Promise<void>;
   executeSingle(taskId: string, runId: string): Promise<TaskResult>;
 }
 
@@ -16,6 +16,12 @@ export interface TaskExecutor {
 
 export interface SchedulerConfig {
   concurrencyLimit?: number;
+}
+
+export interface SchedulerHooks {
+  beforeTask?: (task: Task) => Promise<void>;
+  afterTask?: (task: Task, result: TaskResult) => Promise<void>;
+  onTaskError?: (task: Task, error: unknown) => Promise<void>;
 }
 
 /**
@@ -37,7 +43,7 @@ export class TaskScheduler implements ITaskScheduler {
     }
   }
 
-  async execute(runId: string): Promise<void> {
+  async execute(runId: string, hooks?: SchedulerHooks): Promise<void> {
     console.log(
       `[task/scheduler] Starting execution for run ${runId} (concurrency: ${this.concurrencyLimit})`,
     );
@@ -62,16 +68,20 @@ export class TaskScheduler implements ITaskScheduler {
         `[task/scheduler] Executing batch of ${batch.length} task(s)`,
       );
 
-      await this.executeBatch(batch, runId);
+      await this.executeBatch(batch, runId, hooks);
     }
 
     console.log(`[task/scheduler] Execution complete for run ${runId}`);
   }
 
-  private async executeBatch(tasks: Task[], runId: string): Promise<void> {
+  private async executeBatch(
+    tasks: Task[],
+    runId: string,
+    hooks?: SchedulerHooks,
+  ): Promise<void> {
     // Execute all tasks in parallel
     const promises = tasks.map((task) =>
-      this.executeSingle(task.id, runId).catch((error) => {
+      this.executeSingleWithHooks(task.id, runId, hooks).catch((error) => {
         // Collect errors but continue batch execution
         console.error(
           `[task/scheduler] Batch task ${task.id} failed:`,
@@ -94,6 +104,14 @@ export class TaskScheduler implements ITaskScheduler {
   }
 
   async executeSingle(taskId: string, runId: string): Promise<TaskResult> {
+    return this.executeSingleWithHooks(taskId, runId, undefined);
+  }
+
+  private async executeSingleWithHooks(
+    taskId: string,
+    runId: string,
+    hooks?: SchedulerHooks,
+  ): Promise<TaskResult> {
     const task = await this.taskRepo.getById(taskId, runId);
     if (!task) {
       throw new SchedulerError(`Task ${taskId} not found in run ${runId}`);
@@ -107,6 +125,10 @@ export class TaskScheduler implements ITaskScheduler {
     }
 
     console.log(`[task/scheduler] Executing task ${task.id} (${task.type})`);
+
+    if (hooks?.beforeTask) {
+      await hooks.beforeTask(task);
+    }
 
     // Transition to RUNNING
     task.transition("RUNNING");
@@ -122,10 +144,21 @@ export class TaskScheduler implements ITaskScheduler {
 
       console.log(`[task/scheduler] Task ${task.id} completed successfully`);
 
+      if (hooks?.afterTask) {
+        await hooks.afterTask(task, result);
+      }
+
       return result;
     } catch (error) {
+      if (hooks?.onTaskError) {
+        await hooks.onTaskError(task, error);
+      }
       // Handle failure with retry logic
-      return this.handleTaskFailure(task, error);
+      const failed = await this.handleTaskFailure(task, error);
+      if (hooks?.afterTask) {
+        await hooks.afterTask(task, failed);
+      }
+      return failed;
     }
   }
 
