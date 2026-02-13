@@ -64,6 +64,7 @@ export class RunEngine implements IRunEngine {
   private aiService?: AIService;
   private llmGateway: ILLMGateway;
   private agent?: IAgent;
+  private readonly sessionCostsLoaded: Promise<void>;
 
   constructor(
     ctx: DurableObjectState,
@@ -99,7 +100,7 @@ export class RunEngine implements IRunEngine {
         this.getBudgetConfig(options.env),
         ctx,
       );
-    void this.budgetManager.loadSessionCosts();
+    this.sessionCostsLoaded = this.budgetManager.loadSessionCosts();
 
     if (dependencies.aiService) {
       this.aiService = dependencies.aiService;
@@ -145,6 +146,7 @@ export class RunEngine implements IRunEngine {
     const { runId, sessionId } = this.options;
 
     try {
+      await this.sessionCostsLoaded;
       const run = await this.getOrCreateRun(input, runId, sessionId);
 
       console.log(`[run/engine] Planning phase for run ${runId}`);
