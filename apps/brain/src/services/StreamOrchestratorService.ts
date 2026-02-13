@@ -79,15 +79,18 @@ export class StreamOrchestratorService {
         },
       });
 
-      // Return stream with proper headers for Vercel AI SDK
-      return new Response(stream, {
+      // Use Vercel AI SDK compatible streaming response
+      const response = new Response(stream, {
         headers: {
-          "Content-Type": "text/plain; charset=utf-8",
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache",
+          Connection: "keep-alive",
           "Access-Control-Allow-Origin": requestOrigin || "*",
           "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
           "Access-Control-Allow-Headers": "Content-Type, Authorization",
         },
       });
+      return response;
     } catch (error) {
       console.error(`[Brain:${correlationId}] Stream creation error:`, error);
       throw error;
