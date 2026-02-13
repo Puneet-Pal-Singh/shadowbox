@@ -4,16 +4,16 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { AgentRegistry, AgentNotFoundError } from "./AgentRegistry";
 import { CodingAgent } from "./CodingAgent";
 import { ReviewAgent } from "./ReviewAgent";
-import type { AIService } from "../../services/AIService";
 import type { ExecutionService } from "../../services/ExecutionService";
 import type { Plan } from "../planner";
 import { Run } from "../run";
+import type { ILLMGateway } from "../llm";
 
-const createMockAIService = () =>
+const createMockLLMGateway = () =>
   ({
     generateStructured: vi.fn(),
     generateText: vi.fn(),
-  }) as unknown as AIService;
+  }) as unknown as ILLMGateway;
 
 const createMockExecutionService = () =>
   ({
@@ -41,24 +41,24 @@ const createMockPlan = (): Plan => ({
 
 describe("AgentRegistry", () => {
   let registry: AgentRegistry;
-  let mockAI: AIService;
+  let mockGateway: ILLMGateway;
   let mockExec: ExecutionService;
 
   beforeEach(() => {
     registry = new AgentRegistry();
-    mockAI = createMockAIService();
+    mockGateway = createMockLLMGateway();
     mockExec = createMockExecutionService();
   });
 
   it("should register and retrieve an agent", () => {
-    const agent = new CodingAgent(mockAI, mockExec);
+    const agent = new CodingAgent(mockGateway, mockExec);
     registry.register(agent);
 
     expect(registry.get("coding")).toBe(agent);
   });
 
   it("should report has() correctly", () => {
-    const agent = new CodingAgent(mockAI, mockExec);
+    const agent = new CodingAgent(mockGateway, mockExec);
     registry.register(agent);
 
     expect(registry.has("coding")).toBe(true);
@@ -66,8 +66,8 @@ describe("AgentRegistry", () => {
   });
 
   it("should return available types", () => {
-    registry.register(new CodingAgent(mockAI, mockExec));
-    registry.register(new ReviewAgent(mockAI, mockExec));
+    registry.register(new CodingAgent(mockGateway, mockExec));
+    registry.register(new ReviewAgent(mockGateway, mockExec));
 
     const types = registry.getAvailableTypes();
     expect(types).toContain("coding");
@@ -82,13 +82,13 @@ describe("AgentRegistry", () => {
 
 describe("CodingAgent", () => {
   let agent: CodingAgent;
-  let mockAI: AIService;
+  let mockGateway: ILLMGateway;
   let mockExec: ExecutionService;
 
   beforeEach(() => {
-    mockAI = createMockAIService();
+    mockGateway = createMockLLMGateway();
     mockExec = createMockExecutionService();
-    agent = new CodingAgent(mockAI, mockExec);
+    agent = new CodingAgent(mockGateway, mockExec);
   });
 
   it("should return coding capabilities", () => {
@@ -107,10 +107,9 @@ describe("CodingAgent", () => {
     expect(agent.type).toBe("coding");
   });
 
-  it("should generate a valid plan via AIService", async () => {
+  it("should generate a valid plan via gateway", async () => {
     const mockPlan = createMockPlan();
-    // Phase 3.1: generateStructured now returns { object, usage }
-    (mockAI.generateStructured as ReturnType<typeof vi.fn>).mockResolvedValue({
+    (mockGateway.generateStructured as ReturnType<typeof vi.fn>).mockResolvedValue({
       object: mockPlan,
       usage: {
         provider: "litellm",
@@ -126,19 +125,19 @@ describe("CodingAgent", () => {
 
     expect(plan.tasks).toHaveLength(1);
     expect(plan.tasks[0].type).toBe("analyze");
-    expect(mockAI.generateStructured).toHaveBeenCalledOnce();
+    expect(mockGateway.generateStructured).toHaveBeenCalledOnce();
   });
 });
 
 describe("ReviewAgent", () => {
   let agent: ReviewAgent;
-  let mockAI: AIService;
+  let mockGateway: ILLMGateway;
   let mockExec: ExecutionService;
 
   beforeEach(() => {
-    mockAI = createMockAIService();
+    mockGateway = createMockLLMGateway();
     mockExec = createMockExecutionService();
-    agent = new ReviewAgent(mockAI, mockExec);
+    agent = new ReviewAgent(mockGateway, mockExec);
   });
 
   it("should return review capabilities", () => {
@@ -155,10 +154,9 @@ describe("ReviewAgent", () => {
     expect(agent.type).toBe("review");
   });
 
-  it("should generate a valid plan via AIService", async () => {
+  it("should generate a valid plan via gateway", async () => {
     const mockPlan = createMockPlan();
-    // Phase 3.1: generateStructured now returns { object, usage }
-    (mockAI.generateStructured as ReturnType<typeof vi.fn>).mockResolvedValue({
+    (mockGateway.generateStructured as ReturnType<typeof vi.fn>).mockResolvedValue({
       object: mockPlan,
       usage: {
         provider: "litellm",
@@ -173,6 +171,6 @@ describe("ReviewAgent", () => {
     const plan = await agent.plan({ run, prompt: "Review the code" });
 
     expect(plan.tasks).toHaveLength(1);
-    expect(mockAI.generateStructured).toHaveBeenCalledOnce();
+    expect(mockGateway.generateStructured).toHaveBeenCalledOnce();
   });
 });
