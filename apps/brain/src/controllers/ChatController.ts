@@ -1,4 +1,9 @@
 import type { CoreMessage, CoreTool, Message } from "ai";
+import type {
+  DurableObjectState,
+  DurableObjectStorage,
+  DurableObjectId,
+} from "@cloudflare/workers-types";
 import { createToolRegistry } from "../orchestrator/tools";
 import { Env } from "../types/ai";
 import { getCorsHeaders } from "../lib/cors";
@@ -10,6 +15,8 @@ import { PersistenceService } from "../services/PersistenceService";
 import { SystemPromptService } from "../services/SystemPromptService";
 import { StreamOrchestratorService } from "../services/StreamOrchestratorService";
 import type { AgentType } from "../types";
+import { getFeatureFlags, shouldUseRunEngine } from "../config/features";
+import { RunEngine } from "../core/engine/RunEngine";
 
 interface ChatRequestBody {
   messages?: Message[];
@@ -29,6 +36,11 @@ interface ChatRequest {
  * ChatController
  * Orchestrates the chat flow across multiple services
  * Single Responsibility: Coordinate request handling and service composition
+ *
+ * Phase 3 Enhancement: Added RunEngine integration with feature flag routing
+ * - Uses RunEngine when USE_RUN_ENGINE flag is enabled
+ * - Falls back to StreamOrchestratorService for backward compatibility
+ * - Supports gradual rollout via traffic percentage
  */
 export class ChatController {
   static async handle(req: Request, env: Env): Promise<Response> {
@@ -39,8 +51,12 @@ export class ChatController {
       const body = await parseRequestBody(req);
       const identifiers = extractIdentifiers(body);
 
-      console.log(`[Brain:${correlationId}] Incoming request for session: ${identifiers.sessionId}, run: ${identifiers.runId}`);
-      console.log(`[Brain:${correlationId}] Messages count in request: ${body.messages?.length || 0}`);
+      console.log(
+        `[Brain:${correlationId}] Incoming request for session: ${identifiers.sessionId}, run: ${identifiers.runId}`,
+      );
+      console.log(
+        `[Brain:${correlationId}] Messages count in request: ${body.messages?.length || 0}`,
+      );
 
       if (!body.messages || !Array.isArray(body.messages)) {
         return errorResponse(req, "Invalid messages", 400);
@@ -53,7 +69,24 @@ export class ChatController {
         runId: identifiers.runId,
       };
 
-      return await this.handleChatRequest(req, chatRequest, env);
+      // Phase 3: Check feature flags for RunEngine routing
+      const features = getFeatureFlags(
+        env as unknown as Record<string, unknown>,
+      );
+      const useRunEngine = shouldUseRunEngine(
+        features,
+        body.agentId || "default",
+      );
+
+      if (useRunEngine) {
+        console.log(`[Brain:${correlationId}] Routing to RunEngine (Phase 3)`);
+        return await ChatController.handleWithRunEngine(req, chatRequest, env);
+      } else {
+        console.log(
+          `[Brain:${correlationId}] Routing to legacy StreamOrchestrator`,
+        );
+        return await ChatController.handleLegacy(req, chatRequest, env);
+      }
     } catch (error: unknown) {
       console.error(`[Brain:${correlationId}] Error:`, error);
       const errorMessage =
@@ -70,15 +103,24 @@ export class ChatController {
         type: "coding" as AgentType,
         capabilities: [
           { name: "code_generation", description: "Generate and modify code" },
-          { name: "file_operations", description: "Read, write, and manage files" },
+          {
+            name: "file_operations",
+            description: "Read, write, and manage files",
+          },
           { name: "shell_execution", description: "Execute shell commands" },
         ],
       },
       {
         type: "review" as AgentType,
         capabilities: [
-          { name: "code_review", description: "Review code for quality and issues" },
-          { name: "security_audit", description: "Check for security vulnerabilities" },
+          {
+            name: "code_review",
+            description: "Review code for quality and issues",
+          },
+          {
+            name: "security_audit",
+            description: "Check for security vulnerabilities",
+          },
         ],
       },
     ];
@@ -91,7 +133,80 @@ export class ChatController {
     });
   }
 
-  private static async handleChatRequest(
+  /**
+   * Phase 3: Handle chat request using new RunEngine
+   * Provides explicit planning, task orchestration, and better visibility
+   */
+  private static async handleWithRunEngine(
+    req: Request,
+    chatRequest: ChatRequest,
+    env: Env,
+  ): Promise<Response> {
+    const { body, correlationId, sessionId, runId } = chatRequest;
+
+    // Convert messages to CoreMessage format
+    const coreMessages: CoreMessage[] = body.messages!.map((m) => ({
+      role: m.role as "system" | "user" | "assistant",
+      content: m.content,
+    }));
+
+    // Get last user message as the prompt
+    const lastUserMessage = coreMessages.filter((m) => m.role === "user").pop();
+
+    if (!lastUserMessage) {
+      return errorResponse(req, "No user message found", 400);
+    }
+
+    const prompt =
+      typeof lastUserMessage.content === "string"
+        ? lastUserMessage.content
+        : JSON.stringify(lastUserMessage.content);
+
+    // Initialize RunEngine
+    // Note: In a real DO setup, we'd pass the actual DurableObjectState
+    // For now, we create a minimal mock for the RunEngine constructor
+    const mockCtx = createMockDurableObjectState();
+    const runEngine = new RunEngine(mockCtx, {
+      env,
+      sessionId,
+      runId,
+      correlationId,
+      requestOrigin: req.headers.get("Origin") || undefined,
+    });
+
+    try {
+      // Execute using RunEngine
+      const response = await runEngine.execute(
+        {
+          agentType: mapAgentIdToType(body.agentId),
+          prompt,
+          sessionId,
+        },
+        coreMessages,
+        {}, // Tools are handled internally by RunEngine in Phase 3B
+      );
+
+      // Add engine version header
+      const headers = new Headers(response.headers);
+      headers.set("X-Engine-Version", "3.0");
+      headers.set("X-Run-Id", runId);
+
+      return new Response(response.body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers,
+      });
+    } catch (error) {
+      console.error(`[chat/controller] RunEngine execution failed:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Legacy handler using StreamOrchestratorService
+   * Preserved for backward compatibility during gradual rollout
+   */
+  private static async handleLegacy(
     req: Request,
     chatRequest: ChatRequest,
     env: Env,
@@ -126,7 +241,7 @@ export class ChatController {
     const systemPrompt = services.promptService.generatePrompt(
       runId,
       env.SYSTEM_PROMPT,
-      body.agentId, // Use agentId as custom prompt if needed, or similar logic
+      body.agentId,
     );
 
     // Create tools registry
@@ -183,7 +298,11 @@ function mapAgentIdToType(agentId?: string): AgentType {
   return agentTypeMap[agentId] ?? "coding";
 }
 
-function errorResponse(req: Request, message: string, status: number): Response {
+function errorResponse(
+  req: Request,
+  message: string,
+  status: number,
+): Response {
   return new Response(JSON.stringify({ error: message }), {
     status,
     headers: { ...getCorsHeaders(req), "Content-Type": "application/json" },
@@ -224,4 +343,54 @@ async function hydrateAndPrune(
   console.log("[Brain] Hydrating and pruning context...");
   const hydrated = await hydrationService.hydrateMessages(messages);
   return hydrationService.pruneToolResults(hydrated);
+}
+
+/**
+ * Create a minimal mock DurableObjectState for RunEngine
+ * In production, this should be the actual DO state
+ */
+function createMockDurableObjectState(): DurableObjectState {
+  const storage = new Map<string, unknown>();
+
+  return {
+    storage: {
+      get: async <T>(key: string): Promise<T | undefined> => {
+        return storage.get(key) as T | undefined;
+      },
+      put: async <T>(key: string, value: T): Promise<void> => {
+        storage.set(key, value);
+      },
+      delete: async (key: string): Promise<boolean> => {
+        return storage.delete(key);
+      },
+      list: async <T>(options?: {
+        start?: string;
+        end?: string;
+        reverse?: boolean;
+        limit?: number;
+      }): Promise<Map<string, T>> => {
+        const result = new Map<string, T>();
+        for (const [key, value] of storage) {
+          if (options?.start && key < options.start) continue;
+          if (options?.end && key > options.end) continue;
+          result.set(key, value as T);
+        }
+        return result;
+      },
+      transaction: async <T>(
+        closure: (txn: unknown) => Promise<T>,
+      ): Promise<T> => {
+        return closure({});
+      },
+      blockConcurrencyWhile: async <T>(
+        closure: () => Promise<T>,
+      ): Promise<T> => {
+        return closure();
+      },
+    } as unknown as DurableObjectStorage,
+    id: { toString: () => "mock-id" } as unknown as DurableObjectId,
+    waitUntil: async (promise: Promise<unknown>): Promise<void> => {
+      await promise;
+    },
+  } as unknown as DurableObjectState;
 }
