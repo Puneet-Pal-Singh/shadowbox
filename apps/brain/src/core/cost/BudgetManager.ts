@@ -426,12 +426,12 @@ export class BudgetManager implements IBudgetManager, BudgetPolicy {
 export class BudgetExceededError extends Error {
   constructor(
     public readonly runId: string,
-    public readonly currentCost: number,
+    public readonly projectedCost: number,
     public readonly limit: number,
   ) {
     super(
       `[cost/budget] Budget exceeded for run ${runId}: ` +
-        `$${currentCost.toFixed(4)} > $${limit.toFixed(2)}`,
+        `$${projectedCost.toFixed(4)} > $${limit.toFixed(2)}`,
     );
     this.name = "BudgetExceededError";
   }
@@ -440,12 +440,12 @@ export class BudgetExceededError extends Error {
 export class SessionBudgetExceededError extends Error {
   constructor(
     public readonly sessionId: string,
-    public readonly currentCost: number,
+    public readonly projectedCost: number,
     public readonly limit: number,
   ) {
     super(
       `[cost/budget] Session budget exceeded for ${sessionId}: ` +
-        `$${currentCost.toFixed(4)} > $${limit.toFixed(2)}`,
+        `$${projectedCost.toFixed(4)} > $${limit.toFixed(2)}`,
     );
     this.name = "SessionBudgetExceededError";
   }

@@ -84,10 +84,11 @@ export class ChatController {
         return await ChatController.handleLegacy(req, chatRequest, env);
       }
     } catch (error: unknown) {
-      console.error(`[Brain:${correlationId}] Error:`, error);
       if (error instanceof RequestValidationError) {
+        console.warn(`[Brain:${correlationId}] ${error.logMessage}`);
         return errorResponse(req, error.message, 400);
       }
+      console.error(`[Brain:${correlationId}] Error:`, error);
       const errorMessage =
         error instanceof Error ? error.message : "Internal Server Error";
       return errorResponse(req, errorMessage, 500);
@@ -384,8 +385,15 @@ const UUID_V4_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 class RequestValidationError extends Error {
+  public readonly logMessage: string;
+
   constructor(message: string) {
-    super(`[chat/validation] ${message}`);
+    super(message);
     this.name = "RequestValidationError";
+    this.logMessage = `[chat/validation] ${message}`;
+  }
+
+  toString(): string {
+    return this.logMessage;
   }
 }
