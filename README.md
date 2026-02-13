@@ -23,11 +23,11 @@ pnpm dev
 
 ### Apps and Packages
 
-- `apps/secure-agent-api`: Cloudflare Workers-based secure runtime engine with Durable Objects
-- `apps/ui`: React/Vite frontend with terminal interface and chat capabilities
-- `apps/brain`: AI orchestration layer (coming soon)
-- `apps/www`: Landing page and documentation (Astro)
-- `packages/ui`: Shared React components
+- `apps/brain`: Orchestration layer (request validation, run coordination, provider wiring)
+- `apps/secure-agent-api`: Secure execution runtime (Durable Objects + Sandbox plugins)
+- `apps/web`: React/Vite frontend
+- `packages/execution-engine`: Deterministic runtime engine package
+- `packages/shared-types`: Cross-package type contracts
 - `packages/eslint-config`: ESLint configurations
 - `packages/typescript-config`: TypeScript configurations
 
@@ -46,10 +46,8 @@ pnpm dev
 
 🚧 **In Development**
 
-- **Intelligent Orchestration**: AI-powered reasoning layer
-- **Chat-First Interface**: Modern UI like Cursor
-- **Git Integration**: Diff views and PR workflows
-- **Self-Hosting**: Easy deployment guides
+- **Phase 3.2 hardening**: single runtime path, security boundary hardening, runtime extraction
+- **Phase 4 prep**: memory/persistence entry gates and replay semantics
 
 ### Utilities
 
@@ -180,6 +178,9 @@ pnpm test
 
 # Run tests for a specific package
 pnpm test --filter=secure-agent-api
+
+# Run Phase 3.2 readiness gates
+pnpm e2e:phase-3.2
 ```
 
 ## Contributing
