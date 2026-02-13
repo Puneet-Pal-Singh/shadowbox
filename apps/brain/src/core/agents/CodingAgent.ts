@@ -23,16 +23,16 @@ export class CodingAgent extends BaseAgent {
     console.log(`[agents/coding] Generating plan for run ${context.run.id}`);
 
     const messages = this.buildPlanMessages(context.run, context.prompt);
-    const plan = await this.aiService.generateStructured({
+    const result = await this.aiService.generateStructured({
       messages,
       schema: PlanSchema,
       temperature: 0.2,
     });
 
     console.log(
-      `[agents/coding] Generated plan with ${plan.tasks.length} tasks`,
+      `[agents/coding] Generated plan with ${result.object.tasks.length} tasks`,
     );
-    return plan as Plan;
+    return result.object as Plan;
   }
 
   async executeTask(
@@ -62,17 +62,23 @@ export class CodingAgent extends BaseAgent {
   }
 
   async synthesize(context: SynthesisContext): Promise<string> {
-    console.log(`[agents/coding] Synthesizing results for run ${context.runId}`);
+    console.log(
+      `[agents/coding] Synthesizing results for run ${context.runId}`,
+    );
 
     const taskSummaries = context.completedTasks
-      .map((t) => `- Task ${t.id}: ${t.status} — ${t.output?.content ?? "no output"}`)
+      .map(
+        (t) =>
+          `- Task ${t.id}: ${t.status} — ${t.output?.content ?? "no output"}`,
+      )
       .join("\n");
 
-    return this.aiService.generateText({
+    const result = await this.aiService.generateText({
       messages: [
         {
           role: "system",
-          content: "Summarize the completed coding tasks into a concise final report.",
+          content:
+            "Summarize the completed coding tasks into a concise final report.",
         },
         {
           role: "user",
@@ -80,6 +86,7 @@ export class CodingAgent extends BaseAgent {
         },
       ],
     });
+    return result.text;
   }
 
   getCapabilities(): AgentCapability[] {
@@ -118,7 +125,8 @@ Rules:
   }
 
   private async executeAnalyze(task: Task): Promise<TaskResult> {
-    const path = extractStructuredField(task.input, "path") ?? task.input.description;
+    const path =
+      extractStructuredField(task.input, "path") ?? task.input.description;
     validateSafePath(path);
 
     const result = await this.executionService.execute("filesystem", "read", {
@@ -128,7 +136,8 @@ Rules:
   }
 
   private async executeEdit(task: Task): Promise<TaskResult> {
-    const path = extractStructuredField(task.input, "path") ?? task.input.description;
+    const path =
+      extractStructuredField(task.input, "path") ?? task.input.description;
     validateSafePath(path);
 
     const content = extractStructuredField(task.input, "content");
@@ -144,7 +153,8 @@ Rules:
   }
 
   private async executeTest(task: Task): Promise<TaskResult> {
-    const command = extractStructuredField(task.input, "command") ?? task.input.description;
+    const command =
+      extractStructuredField(task.input, "command") ?? task.input.description;
     validateShellCommand(command);
 
     const result = await this.executionService.execute("shell", "execute", {
@@ -154,7 +164,8 @@ Rules:
   }
 
   private async executeShell(task: Task): Promise<TaskResult> {
-    const command = extractStructuredField(task.input, "command") ?? task.input.description;
+    const command =
+      extractStructuredField(task.input, "command") ?? task.input.description;
     validateShellCommand(command);
 
     const result = await this.executionService.execute("shell", "execute", {
@@ -166,7 +177,10 @@ Rules:
   private async executeGit(task: Task): Promise<TaskResult> {
     const action = extractStructuredField(task.input, "action");
     if (!action) {
-      throw new TaskInputError("git", "Missing 'action' field in task input (e.g., 'commit', 'push', 'status')");
+      throw new TaskInputError(
+        "git",
+        "Missing 'action' field in task input (e.g., 'commit', 'push', 'status')",
+      );
     }
     validateGitAction(action);
 
@@ -177,13 +191,16 @@ Rules:
   }
 
   private async executeReview(task: Task): Promise<TaskResult> {
-    const content = await this.aiService.generateText({
+    const result = await this.aiService.generateText({
       messages: [
-        { role: "system", content: "Review the following code and provide feedback." },
+        {
+          role: "system",
+          content: "Review the following code and provide feedback.",
+        },
         { role: "user", content: task.input.description },
       ],
     });
-    return this.buildSuccessResult(task.id, content);
+    return this.buildSuccessResult(task.id, result.text);
   }
 
   private buildSuccessResult(taskId: string, content: string): TaskResult {
@@ -197,13 +214,30 @@ Rules:
 }
 
 const ALLOWED_GIT_ACTIONS = [
-  "commit", "push", "pull", "status", "diff", "log",
-  "add", "checkout", "branch", "merge", "rebase", "stash",
-  "clone", "fetch", "reset", "tag",
+  "commit",
+  "push",
+  "pull",
+  "status",
+  "diff",
+  "log",
+  "add",
+  "checkout",
+  "branch",
+  "merge",
+  "rebase",
+  "stash",
+  "clone",
+  "fetch",
+  "reset",
+  "tag",
 ] as const;
 
 function validateGitAction(action: string): void {
-  if (!ALLOWED_GIT_ACTIONS.includes(action as typeof ALLOWED_GIT_ACTIONS[number])) {
+  if (
+    !ALLOWED_GIT_ACTIONS.includes(
+      action as (typeof ALLOWED_GIT_ACTIONS)[number],
+    )
+  ) {
     throw new TaskInputError(
       "git",
       `Invalid git action: "${action}". Allowed: ${ALLOWED_GIT_ACTIONS.join(", ")}`,

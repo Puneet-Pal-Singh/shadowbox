@@ -6,15 +6,28 @@ import type { DurableObjectState } from "@cloudflare/workers-types";
 import type { CoreMessage, CoreTool } from "ai";
 import { Run, RunRepository } from "../run";
 import { Task, TaskRepository } from "../task";
-import { CostTracker } from "../cost";
+import {
+  CostTracker,
+  PricingRegistry,
+  BudgetManager,
+  BudgetExceededError,
+  type IPricingRegistry,
+} from "../cost";
 import { PlannerService } from "../planner";
 import { TaskScheduler } from "../orchestration";
 import { DefaultTaskExecutor, AgentTaskExecutor } from "./TaskExecutor";
 import { AIService } from "../../services/AIService";
 import type { Env } from "../../types/ai";
-import type { RunInput, RunResult, RunStatus, CostSnapshot, IAgent } from "../../types";
+import type {
+  RunInput,
+  RunResult,
+  RunStatus,
+  CostSnapshot,
+  IAgent,
+} from "../../types";
 import type { Plan, PlannedTask } from "../planner";
 import { CORS_HEADERS } from "../../lib/cors";
+import type { LLMUsage } from "../cost/types";
 
 export interface IRunEngine {
   execute(
@@ -50,10 +63,17 @@ export interface RunEngineOptions {
  * - Sequential task execution
  * - Brain controls tool execution
  */
+
+// Token estimation constants
+const TOKEN_CHARS_RATIO = 4; // Approximate chars per token
+const DEFAULT_COMPLETION_TOKENS = 500; // Conservative estimate for completion
+
 export class RunEngine implements IRunEngine {
   private runRepo: RunRepository;
   private taskRepo: TaskRepository;
   private costTracker: CostTracker;
+  private pricingRegistry: PricingRegistry;
+  private budgetManager: BudgetManager;
   private planner: PlannerService;
   private scheduler: TaskScheduler;
   private aiService: AIService;
@@ -63,10 +83,19 @@ export class RunEngine implements IRunEngine {
     ctx: DurableObjectState,
     private options: RunEngineOptions,
     agent?: IAgent,
+    pricingRegistry?: PricingRegistry,
   ) {
     this.runRepo = new RunRepository(ctx);
     this.taskRepo = new TaskRepository(ctx);
-    this.costTracker = new CostTracker(ctx);
+    this.pricingRegistry = pricingRegistry ?? new PricingRegistry();
+    this.costTracker = new CostTracker(ctx, this.pricingRegistry);
+    this.budgetManager = new BudgetManager(
+      this.costTracker,
+      this.pricingRegistry,
+      undefined,
+      ctx,
+    );
+    this.budgetManager.loadSessionCosts();
     this.aiService = new AIService(options.env);
     this.planner = new PlannerService(this.aiService);
     this.agent = agent;
@@ -223,10 +252,15 @@ export class RunEngine implements IRunEngine {
 
   private async generatePlan(run: Run, prompt: string): Promise<Plan> {
     if (this.agent) {
-      console.log(`[run/engine] Using agent-based planning (${this.agent.type})`);
+      console.log(
+        `[run/engine] Using agent-based planning (${this.agent.type})`,
+      );
       return this.agent.plan({ run, prompt, history: undefined });
     }
-    return this.planner.plan(run, prompt);
+    // Planner returns { plan, usage } - record the planning cost
+    const { plan, usage } = await this.planner.plan(run, prompt);
+    await this.costTracker.recordLLMUsage(run.id, usage);
+    return plan;
   }
 
   private async generateSynthesis(
@@ -234,7 +268,9 @@ export class RunEngine implements IRunEngine {
     originalPrompt: string,
   ): Promise<string> {
     if (this.agent) {
-      console.log(`[run/engine] Using agent-based synthesis (${this.agent.type})`);
+      console.log(
+        `[run/engine] Using agent-based synthesis (${this.agent.type})`,
+      );
       const tasks = await this.taskRepo.getByRun(runId);
       const completedTasks = tasks
         .filter((t) => t.status === "DONE")
@@ -278,12 +314,45 @@ Provide a concise summary of what was accomplished.`;
     ];
 
     try {
-      const response = await this.aiService.generateText({
+      // Phase 3.1: Budget check before LLM call
+      const estimatedPromptTokens = Math.ceil(
+        synthesisPrompt.length / TOKEN_CHARS_RATIO,
+      );
+      const estimatedUsage: LLMUsage = {
+        provider: this.aiService.getProvider(),
+        model: this.aiService.getDefaultModel(),
+        promptTokens: estimatedPromptTokens,
+        completionTokens: DEFAULT_COMPLETION_TOKENS,
+        totalTokens: estimatedPromptTokens + DEFAULT_COMPLETION_TOKENS,
+      };
+
+      const budgetCheck = await this.budgetManager.checkBudget(
+        runId,
+        estimatedUsage,
+      );
+      if (!budgetCheck.allowed) {
+        throw new BudgetExceededError(
+          runId,
+          budgetCheck.currentCost,
+          this.budgetManager.getConfig().maxCostPerRun,
+        );
+      }
+
+      // Phase 3.1: generateText now returns { text, usage }
+      const result = await this.aiService.generateText({
         messages,
         temperature: 0.7,
       });
-      return response;
+
+      // Phase 3.1: Record cost for this LLM call
+      await this.costTracker.recordLLMUsage(runId, result.usage);
+
+      return result.text;
     } catch (error) {
+      if (error instanceof BudgetExceededError) {
+        console.error(`[run/engine] Budget exceeded for run ${runId}`);
+        return `## Summary\n\n⚠️ Budget limit reached ($${error.limit.toFixed(2)}).\n\nCompleted ${completedTasks.length} tasks for your request.\n\n${taskResults}`;
+      }
       console.error("[run/engine] Synthesis failed:", error);
       // Fallback to simple summary if LLM call fails
       return `## Summary\n\nCompleted ${completedTasks.length} tasks for your request.\n\n${taskResults}`;
@@ -334,7 +403,7 @@ Provide a concise summary of what was accomplished.`;
   }
 
   async getCostSnapshot(runId: string): Promise<CostSnapshot> {
-    return this.costTracker.getCostSnapshot(runId);
+    return this.costTracker.aggregateRunCost(runId);
   }
 
   async getTasksForRun(runId: string) {

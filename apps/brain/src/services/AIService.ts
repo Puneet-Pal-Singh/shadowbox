@@ -1,150 +1,403 @@
-import { createOpenAI, type OpenAIProvider } from "@ai-sdk/openai";
-import {
-  generateObject,
-  generateText,
-  streamText,
-  type CoreTool,
-  type CoreMessage,
-  type TextStreamPart,
-} from "ai";
+// apps/brain/src/services/AIService.ts
+// Phase 3.1: Pure inference layer using provider adapters
+// Returns standardized LLMUsage for cost tracking
+
+import { generateObject, type CoreMessage, type CoreTool } from "ai";
+import { createOpenAI } from "@ai-sdk/openai";
+import { createAnthropic } from "@ai-sdk/anthropic";
 import type { ZodSchema } from "zod";
-import { Env } from "../types/ai";
+import type { Env } from "../types/ai";
+import type { LLMUsage } from "../core/cost/types";
+import {
+  LiteLLMAdapter,
+  OpenAIAdapter,
+  AnthropicAdapter,
+  type ProviderAdapter,
+  type GenerationParams,
+  ProviderError,
+} from "./providers";
 
-// Use generic stream result type from AI SDK
-interface StreamResult {
+/**
+ * Result from text generation with usage
+ */
+export interface GenerateTextResult {
   text: string;
-  toolCalls: Array<{
-    toolName: string;
-    args: unknown;
-  }>;
-  toolResults: Array<unknown>;
-  finishReason: string;
-  usage: {
-    promptTokens: number;
-    completionTokens: number;
-  };
-  response: {
-    messages: CoreMessage[];
-  };
-  // Additional fields that may be present
-  fullMessages?: CoreMessage[];
-  steps?: unknown[];
+  usage: LLMUsage;
+  finishReason?: string;
 }
 
-interface CreateChatStreamOptions {
-  messages: CoreMessage[];
-  fullHistory: CoreMessage[];
-  systemPrompt: string;
-  tools: Record<string, CoreTool>;
-  model?: string;
-  onFinish?: (result: StreamResult) => Promise<void> | void;
-  onChunk?: (event: {
-    chunk: TextStreamPart<Record<string, CoreTool>>;
-  }) => void;
+/**
+ * Result from streaming text generation
+ */
+export interface GenerateStreamResult {
+  stream: ReadableStream<string>;
+  finalResult: Promise<GenerateTextResult>;
 }
 
+/**
+ * Result from structured generation with usage
+ */
+export interface GenerateStructuredResult<T> {
+  object: T;
+  usage: LLMUsage;
+}
+
+/**
+ * AIService - Pure inference layer
+ *
+ * This service:
+ * 1. Selects the appropriate provider adapter based on env config
+ * 2. Delegates all LLM calls to the adapter
+ * 3. Returns standardized results including LLMUsage
+ * 4. Does NOT perform cost tracking (handled by RunEngine)
+ *
+ * Design: The AIService is a thin wrapper around provider adapters.
+ * Cost tracking happens at the RunEngine level via CostTracker.
+ */
 export class AIService {
-  private groq: OpenAIProvider;
+  private adapter: ProviderAdapter;
+  private defaultModel: string;
 
   constructor(private env: Env) {
-    const apiKey = env.GROQ_API_KEY;
-    if (!apiKey) throw new Error("Missing GROQ_API_KEY");
-
-    this.groq = createOpenAI({
-      baseURL: "https://api.groq.com/openai/v1",
-      apiKey: apiKey,
-    });
+    this.adapter = this.createAdapter();
+    this.defaultModel = env.DEFAULT_MODEL ?? "llama-3.3-70b-versatile";
   }
 
-  async createChatStream({
+  /**
+   * Get the current provider name
+   */
+  getProvider(): string {
+    return this.adapter.provider;
+  }
+
+  /**
+   * Get the default model
+   */
+  getDefaultModel(): string {
+    return this.defaultModel;
+  }
+
+  /**
+   * Generate text with usage tracking
+   * Pure inference - no cost tracking
+   */
+  async generateText({
     messages,
-    fullHistory,
-    systemPrompt,
-    tools,
-    model = "llama-3.3-70b-versatile",
-    onFinish,
-    onChunk,
-  }: CreateChatStreamOptions) {
-    // Ensure we have a valid history to fall back on if constructor args are empty
-    const baseHistory = fullHistory.length > 0 ? fullHistory : messages;
+    model,
+    temperature = 0.7,
+    system,
+  }: {
+    messages: CoreMessage[];
+    model?: string;
+    temperature?: number;
+    system?: string;
+  }): Promise<GenerateTextResult> {
+    const selectedModel = model ?? this.defaultModel;
 
-    return streamText({
-      model: this.groq(model),
-      messages: messages,
-      system: systemPrompt,
-      tools,
-      // Phase 3B: Removed maxSteps - Brain now controls execution flow
-      // Previously: maxSteps: 15 (LLM controlled tool loop)
-      // Now: Tasks are executed explicitly by TaskScheduler
-      onFinish: async (result) => {
-        console.log(
-          `[AIService] AI Stream Finished. Reason: ${result.finishReason}`,
-        );
+    const params: GenerationParams = {
+      messages,
+      system,
+      temperature,
+      model: selectedModel,
+    };
 
-        if (onFinish) {
-          // Construct history: Base (all previous + current user) + New (AI + Tools)
-          const newMessages = result.response.messages || [];
+    const result = await this.adapter.generate(params);
 
-          // Safety: If result.response.messages is somehow missing the text but we have it in result.text
-          if (newMessages.length === 0 && result.text) {
-            newMessages.push({
-              id: `assistant-${Date.now()}`,
-              role: "assistant",
-              content: result.text,
-            });
-          }
-
-          const finalMessages: CoreMessage[] = [...baseHistory, ...newMessages];
-
-          console.log(
-            `[AIService] Persisting ${finalMessages.length} messages. Roles: ${finalMessages.map((m) => m.role).join(" -> ")}`,
-          );
-          await onFinish({
-            ...result,
-            fullMessages: finalMessages,
-          } as unknown as StreamResult);
-        }
-      },
-      onChunk,
-    });
+    return {
+      text: result.content,
+      usage: result.usage,
+      finishReason: result.finishReason,
+    };
   }
 
+  /**
+   * Generate structured output with usage tracking
+   * Pure inference - no cost tracking
+   */
   async generateStructured<T>({
     messages,
     schema,
-    model = "llama-3.3-70b-versatile",
+    model,
     temperature = 0.2,
   }: {
-    messages: Array<{ role: "system" | "user"; content: string }>;
+    messages: CoreMessage[];
     schema: ZodSchema<T>;
     model?: string;
     temperature?: number;
-  }): Promise<T> {
+  }): Promise<GenerateStructuredResult<T>> {
+    const selectedModel = model ?? this.defaultModel;
+
+    // For structured generation, we use the AI SDK's generateObject
+    // This doesn't go through the provider adapter (yet)
+    // TODO: Add structured generation support to provider adapters
+
     const result = await generateObject({
-      model: this.groq(model),
+      model: this.getSDKModel(selectedModel),
       messages,
       schema,
       temperature,
     });
 
-    return result.object;
+    // Standardize usage
+    const usage: LLMUsage = {
+      provider: this.adapter.provider,
+      model: selectedModel,
+      promptTokens: result.usage?.promptTokens ?? 0,
+      completionTokens: result.usage?.completionTokens ?? 0,
+      totalTokens:
+        (result.usage?.promptTokens ?? 0) +
+        (result.usage?.completionTokens ?? 0),
+    };
+
+    return {
+      object: result.object,
+      usage,
+    };
   }
 
-  async generateText({
+  /**
+   * Create a streaming chat response
+   * Pure inference - no cost tracking
+   */
+  async createChatStream({
     messages,
-    model = "llama-3.3-70b-versatile",
+    system,
+    tools,
+    model,
     temperature = 0.7,
+    onFinish,
+    onChunk,
   }: {
-    messages: Array<{ role: "system" | "user"; content: string }>;
+    messages: CoreMessage[];
+    system?: string;
+    tools?: Record<string, CoreTool>;
     model?: string;
     temperature?: number;
-  }): Promise<string> {
-    const result = await generateText({
-      model: this.groq(model),
+    onFinish?: (result: GenerateTextResult) => Promise<void> | void;
+    onChunk?: (chunk: {
+      content?: string;
+      toolCall?: { toolName: string; args: unknown };
+    }) => void;
+  }): Promise<ReadableStream<Uint8Array>> {
+    const selectedModel = model ?? this.defaultModel;
+
+    const params: GenerationParams = {
       messages,
+      system,
+      tools,
       temperature,
+      model: selectedModel,
+    };
+
+    const encoder = new TextEncoder();
+    let accumulatedText = "";
+    let finalUsage: LLMUsage | undefined;
+    let finalFinishReason: string | undefined;
+
+    const stream = new ReadableStream<Uint8Array>({
+      start: async (controller) => {
+        try {
+          const generator = this.adapter.generateStream(params);
+
+          for await (const chunk of generator) {
+            switch (chunk.type) {
+              case "text":
+                if (chunk.content) {
+                  accumulatedText += chunk.content;
+                  controller.enqueue(encoder.encode(chunk.content));
+                  if (onChunk) {
+                    onChunk({ content: chunk.content });
+                  }
+                }
+                break;
+
+              case "tool-call":
+                if (onChunk && chunk.toolCall) {
+                  onChunk({ toolCall: chunk.toolCall });
+                }
+                break;
+
+              case "finish":
+                finalUsage = chunk.usage;
+                finalFinishReason = chunk.finishReason;
+                break;
+            }
+          }
+
+          const finalResult: GenerateTextResult = {
+            text: accumulatedText,
+            usage: finalUsage ?? {
+              provider: this.adapter.provider,
+              model: selectedModel,
+              promptTokens: 0,
+              completionTokens: 0,
+              totalTokens: 0,
+            },
+            finishReason: finalFinishReason,
+          };
+
+          if (onFinish) {
+            await onFinish(finalResult);
+          }
+
+          controller.close();
+        } catch (error) {
+          controller.error(error);
+        }
+      },
     });
 
-    return result.text;
+    return stream;
+  }
+
+  /**
+   * Get the underlying provider adapter
+   * For advanced use cases
+   */
+  getProviderAdapter(): ProviderAdapter {
+    return this.adapter;
+  }
+
+  /**
+   * Create the appropriate provider adapter based on env config
+   */
+  private createAdapter(): ProviderAdapter {
+    const provider = this.env.LLM_PROVIDER ?? "litellm";
+
+    switch (provider) {
+      case "litellm":
+        return this.createLiteLLMAdapter();
+
+      case "openai":
+        return this.createOpenAIAdapter();
+
+      case "anthropic":
+        return this.createAnthropicAdapter();
+
+      default:
+        console.warn(
+          `[ai/service] Unknown provider "${provider}", falling back to LiteLLM`,
+        );
+        return this.createLiteLLMAdapter();
+    }
+  }
+
+  private createLiteLLMAdapter(): LiteLLMAdapter {
+    const apiKey = this.env.GROQ_API_KEY ?? this.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      throw new ProviderError(
+        "litellm",
+        "Missing GROQ_API_KEY or OPENAI_API_KEY",
+      );
+    }
+
+    const baseURL =
+      this.env.LITELLM_BASE_URL ?? "https://api.groq.com/openai/v1";
+
+    const defaultModel = this.env.DEFAULT_MODEL;
+    if (!defaultModel) {
+      throw new ProviderError(
+        "litellm",
+        "DEFAULT_MODEL is required for LiteLLM provider",
+      );
+    }
+
+    return new LiteLLMAdapter({
+      apiKey,
+      baseURL,
+      defaultModel,
+    });
+  }
+
+  private createOpenAIAdapter(): OpenAIAdapter {
+    const apiKey = this.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      throw new ProviderError("openai", "Missing OPENAI_API_KEY");
+    }
+
+    return new OpenAIAdapter({
+      apiKey,
+      defaultModel: this.env.DEFAULT_MODEL,
+    });
+  }
+
+  private createAnthropicAdapter(): AnthropicAdapter {
+    const apiKey = this.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      throw new ProviderError("anthropic", "Missing ANTHROPIC_API_KEY");
+    }
+
+    return new AnthropicAdapter({
+      apiKey,
+      defaultModel: this.env.DEFAULT_MODEL,
+    });
+  }
+
+  /**
+   * Get the appropriate AI SDK model for structured generation
+   * Uses the configured provider from env
+   */
+  private getSDKModel(model: string) {
+    const provider = this.env.LLM_PROVIDER ?? "litellm";
+    const selectedModel = model ?? this.defaultModel;
+
+    switch (provider) {
+      case "anthropic":
+        return this.getAnthropicModel(selectedModel);
+      case "openai":
+        return this.getOpenAICompatibleModel(selectedModel, "openai");
+      case "litellm":
+      default:
+        return this.getOpenAICompatibleModel(selectedModel, "litellm");
+    }
+  }
+
+  private getOpenAICompatibleModel(model: string, provider: string) {
+    let apiKey: string;
+    let baseURL: string;
+
+    if (provider === "openai") {
+      apiKey = this.env.OPENAI_API_KEY ?? "";
+      if (!apiKey) {
+        throw new ProviderError("openai", "Missing OPENAI_API_KEY");
+      }
+      baseURL = "https://api.openai.com/v1";
+    } else {
+      apiKey = this.env.GROQ_API_KEY ?? this.env.OPENAI_API_KEY ?? "";
+      if (!apiKey) {
+        throw new ProviderError(
+          "litellm",
+          "Missing GROQ_API_KEY or OPENAI_API_KEY",
+        );
+      }
+      baseURL = this.env.LITELLM_BASE_URL ?? "https://api.groq.com/openai/v1";
+    }
+
+    const client = createOpenAI({
+      baseURL,
+      apiKey,
+    });
+
+    return client(model);
+  }
+
+  private getAnthropicModel(model: string) {
+    const apiKey = this.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      throw new ProviderError("anthropic", "Missing ANTHROPIC_API_KEY");
+    }
+
+    const client = createAnthropic({
+      apiKey,
+    });
+
+    return client(model);
+  }
+}
+
+export class AIServiceError extends Error {
+  constructor(message: string) {
+    super(`[ai/service] ${message}`);
+    this.name = "AIServiceError";
   }
 }

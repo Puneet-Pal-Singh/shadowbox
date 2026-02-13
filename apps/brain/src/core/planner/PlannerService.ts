@@ -4,9 +4,10 @@
 import type { AIService } from "../../services/AIService";
 import type { Run } from "../run";
 import { PlanSchema, type Plan } from "./PlanSchema";
+import type { LLMUsage } from "../cost/types";
 
 export interface IPlannerService {
-  plan(run: Run, prompt: string): Promise<Plan>;
+  plan(run: Run, prompt: string): Promise<{ plan: Plan; usage: LLMUsage }>;
 }
 
 export interface PlanContext {
@@ -18,17 +19,21 @@ export interface PlanContext {
 export class PlannerService implements IPlannerService {
   constructor(private aiService: AIService) {}
 
-  async plan(run: Run, prompt: string): Promise<Plan> {
+  async plan(
+    run: Run,
+    prompt: string,
+  ): Promise<{ plan: Plan; usage: LLMUsage }> {
+    const messages = this.buildMessages(run, prompt);
+
     console.log(`[planner/service] Generating plan for run ${run.id}`);
 
-    const messages = this.buildMessages(run, prompt);
-    const plan = await this.callLLM(messages);
+    const { plan, usage } = await this.callLLM(messages);
 
     console.log(
       `[planner/service] Generated plan with ${plan.tasks.length} tasks`,
     );
 
-    return plan;
+    return { plan, usage };
   }
 
   private buildMessages(
@@ -90,16 +95,17 @@ Generate a plan to accomplish this request.`;
 
   private async callLLM(
     messages: Array<{ role: "system" | "user"; content: string }>,
-  ): Promise<Plan> {
-    // generateStructured returns Zod-validated Plan directly
+  ): Promise<{ plan: Plan; usage: LLMUsage }> {
+    // Phase 3.1: generateStructured now returns { object, usage }
     try {
       const result = await this.aiService.generateStructured({
         messages,
         schema: PlanSchema,
         temperature: 0.2, // Deterministic planning
       });
-      // Type assertion is safe here because Zod validation already occurred
-      return result as Plan;
+      // Return both plan and usage - rely on generic typing
+      const plan = result.object as unknown as Plan;
+      return { plan, usage: result.usage };
     } catch (error) {
       console.error("[planner/service] Failed to generate plan:", error);
       throw new PlannerError("Failed to generate valid plan from LLM");

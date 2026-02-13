@@ -10,7 +10,13 @@ export interface Env {
   GOOGLE_GENERATIVE_AI_API_KEY?: string;
   ANTHROPIC_API_KEY?: string;
   GROQ_API_KEY?: string;
+  OPENAI_API_KEY?: string;
   SYSTEM_PROMPT?: string;
+
+  // ✅ LLM Provider Configuration (Phase 3.1)
+  LLM_PROVIDER?: "litellm" | "openai" | "anthropic";
+  DEFAULT_MODEL?: string;
+  LITELLM_BASE_URL?: string;
 
   // ✅ GitHub OAuth & Session Management
   GITHUB_CLIENT_ID: string;
