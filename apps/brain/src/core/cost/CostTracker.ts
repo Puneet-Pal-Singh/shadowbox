@@ -8,7 +8,11 @@ import { PricingResolver } from "./PricingResolver";
  * Compatibility wrapper retained during migration to CostLedger.
  */
 export interface ICostTracker {
-  recordLLMUsage(runId: string, usage: LLMUsage): Promise<void>;
+  recordLLMUsage(
+    runId: string,
+    usage: LLMUsage,
+    options?: { distinguishingValue?: string },
+  ): Promise<void>;
   getCostEvents(runId: string): Promise<CostEvent[]>;
   aggregateRunCost(runId: string): Promise<CostSnapshot>;
   getCurrentCost(runId: string): Promise<number>;
@@ -29,13 +33,22 @@ export class CostTracker implements ICostTracker {
     });
   }
 
-  async recordLLMUsage(runId: string, usage: LLMUsage): Promise<void> {
+  async recordLLMUsage(
+    runId: string,
+    usage: LLMUsage,
+    options?: { distinguishingValue?: string },
+  ): Promise<void> {
     const resolution = this.pricingResolver.resolve(usage, usage.raw);
     const timestamp = new Date().toISOString();
-    const idempotencyKey = await this.buildIdempotencyKey(runId, usage);
+    const eventId = crypto.randomUUID();
+    const idempotencyKey = await this.buildIdempotencyKey(
+      runId,
+      usage,
+      options?.distinguishingValue ?? eventId,
+    );
 
     const event: CostEvent = {
-      eventId: crypto.randomUUID(),
+      eventId,
       idempotencyKey,
       runId,
       // Compatibility path does not have explicit sessionId/task context.
@@ -71,6 +84,7 @@ export class CostTracker implements ICostTracker {
   private async buildIdempotencyKey(
     runId: string,
     usage: LLMUsage,
+    distinguishingValue?: string,
   ): Promise<string> {
     const fingerprint = [
       runId,
@@ -80,6 +94,7 @@ export class CostTracker implements ICostTracker {
       usage.completionTokens.toString(),
       usage.totalTokens.toString(),
       typeof usage.cost === "number" ? usage.cost.toString() : "",
+      distinguishingValue ?? crypto.randomUUID(),
     ].join("|");
 
     const encoded = new TextEncoder().encode(fingerprint);

@@ -32,7 +32,8 @@ export class LLMGateway implements ILLMGateway {
     this.assertPricingAllowed(req.context, estimatedUsage);
     const requestWithIdempotency = this.withIdempotencyKey(
       req,
-      req.context.idempotencyKey ?? crypto.randomUUID(),
+      req.context.idempotencyKey ??
+        this.createIdempotencyKey(req.context, estimatedUsage),
     );
 
     const result = await this.deps.aiService.generateText({
@@ -59,7 +60,8 @@ export class LLMGateway implements ILLMGateway {
     this.assertPricingAllowed(req.context, estimatedUsage);
     const requestWithIdempotency = this.withIdempotencyKey(
       req,
-      req.context.idempotencyKey ?? crypto.randomUUID(),
+      req.context.idempotencyKey ??
+        this.createIdempotencyKey(req.context, estimatedUsage),
     );
 
     const result = await this.deps.aiService.generateStructured({
