@@ -1,7 +1,12 @@
 // apps/brain/src/core/cost/PricingRegistry.ts
 // Phase 3.1: Three-tier pricing strategy (Provider → LiteLLM → Registry)
 
-import type { LLMUsage, CalculatedCost, PricingEntry } from "./types";
+import type {
+  LLMUsage,
+  CalculatedCost,
+  PricingEntry,
+  PricingSource,
+} from "./types";
 
 export interface IPricingRegistry {
   getPrice(provider: string, model: string): PricingEntry | null;

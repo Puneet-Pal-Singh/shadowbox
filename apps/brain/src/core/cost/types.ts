@@ -16,6 +16,11 @@ export interface LLMUsage {
 }
 
 /**
+ * Pricing source union type
+ */
+export type PricingSource = "provider" | "litellm" | "registry" | "unknown";
+
+/**
  * Cost calculation result
  */
 export interface CalculatedCost {
@@ -23,7 +28,7 @@ export interface CalculatedCost {
   outputCost: number; // Cost for output tokens
   totalCost: number; // Total cost in USD
   currency: string; // Always "USD" for now
-  pricingSource: "provider" | "litellm" | "registry" | "unknown"; // Where pricing came from
+  pricingSource: PricingSource; // Where pricing came from
 }
 
 /**
@@ -39,7 +44,7 @@ export interface CostEvent {
   completionTokens: number;
   totalTokens: number;
   cost: number; // Calculated cost in USD
-  pricingSource: string; // Where cost calculation came from
+  pricingSource: PricingSource; // Where cost calculation came from
 }
 
 /**

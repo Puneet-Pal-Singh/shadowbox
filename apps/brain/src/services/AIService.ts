@@ -3,6 +3,8 @@
 // Returns standardized LLMUsage for cost tracking
 
 import { generateObject, type CoreMessage, type CoreTool } from "ai";
+import { createOpenAI } from "@ai-sdk/openai";
+import { createAnthropic } from "@ai-sdk/anthropic";
 import type { ZodSchema } from "zod";
 import type { Env } from "../types/ai";
 import type { LLMUsage } from "../core/cost/types";
@@ -59,6 +61,20 @@ export class AIService {
   constructor(private env: Env) {
     this.adapter = this.createAdapter();
     this.defaultModel = env.DEFAULT_MODEL ?? "llama-3.3-70b-versatile";
+  }
+
+  /**
+   * Get the current provider name
+   */
+  getProvider(): string {
+    return this.adapter.provider;
+  }
+
+  /**
+   * Get the default model
+   */
+  getDefaultModel(): string {
+    return this.defaultModel;
   }
 
   /**
@@ -174,17 +190,20 @@ export class AIService {
     };
 
     const encoder = new TextEncoder();
+    let accumulatedText = "";
+    let finalUsage: LLMUsage | undefined;
+    let finalFinishReason: string | undefined;
 
     const stream = new ReadableStream<Uint8Array>({
       start: async (controller) => {
         try {
           const generator = this.adapter.generateStream(params);
-          let finalResult: GenerateTextResult | undefined;
 
           for await (const chunk of generator) {
             switch (chunk.type) {
               case "text":
                 if (chunk.content) {
+                  accumulatedText += chunk.content;
                   controller.enqueue(encoder.encode(chunk.content));
                   if (onChunk) {
                     onChunk({ content: chunk.content });
@@ -199,34 +218,25 @@ export class AIService {
                 break;
 
               case "finish":
-                if (chunk.usage) {
-                  finalResult = {
-                    text: "", // Will be set from generator return
-                    usage: chunk.usage,
-                    finishReason: chunk.finishReason,
-                  };
-                }
+                finalUsage = chunk.usage;
+                finalFinishReason = chunk.finishReason;
                 break;
             }
           }
 
-          // Get final result from generator
-          const result = await generator.next();
-          if (!result.done && result.value) {
-            finalResult = {
-              text: result.value.content ?? "",
-              usage: result.value.usage ?? {
-                provider: this.adapter.provider,
-                model: selectedModel,
-                promptTokens: 0,
-                completionTokens: 0,
-                totalTokens: 0,
-              },
-              finishReason: result.value.finishReason,
-            };
-          }
+          const finalResult: GenerateTextResult = {
+            text: accumulatedText,
+            usage: finalUsage ?? {
+              provider: this.adapter.provider,
+              model: selectedModel,
+              promptTokens: 0,
+              completionTokens: 0,
+              totalTokens: 0,
+            },
+            finishReason: finalFinishReason,
+          };
 
-          if (finalResult && onFinish) {
+          if (onFinish) {
             await onFinish(finalResult);
           }
 
@@ -317,16 +327,42 @@ export class AIService {
 
   /**
    * Get the appropriate AI SDK model for structured generation
-   * This is temporary until provider adapters support structured generation
+   * Uses the configured provider from env
    */
   private getSDKModel(model: string) {
-    const { createOpenAI } = require("@ai-sdk/openai");
+    const provider = this.env.LLM_PROVIDER ?? "litellm";
+    const selectedModel = model ?? this.defaultModel;
+
+    switch (provider) {
+      case "anthropic":
+        return this.getAnthropicModel(selectedModel);
+      case "openai":
+      case "litellm":
+      default:
+        return this.getOpenAICompatibleModel(selectedModel);
+    }
+  }
+
+  private getOpenAICompatibleModel(model: string) {
     const apiKey = this.env.GROQ_API_KEY ?? this.env.OPENAI_API_KEY;
     const baseURL =
       this.env.LITELLM_BASE_URL ?? "https://api.groq.com/openai/v1";
 
     const client = createOpenAI({
       baseURL,
+      apiKey,
+    });
+
+    return client(model);
+  }
+
+  private getAnthropicModel(model: string) {
+    const apiKey = this.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      throw new ProviderError("anthropic", "Missing ANTHROPIC_API_KEY");
+    }
+
+    const client = createAnthropic({
       apiKey,
     });
 

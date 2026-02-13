@@ -34,6 +34,7 @@ export interface StreamOrchestratorOptions {
 
 export class StreamOrchestratorService {
   private accumulatedContent = "";
+  private accumulatedToolCalls: Array<{ toolName: string; args: unknown }> = [];
   private lastSyncTime = Date.now();
   private readonly HEARTBEAT_INTERVAL = 5000;
 
@@ -45,6 +46,10 @@ export class StreamOrchestratorService {
   async createStream(options: StreamOrchestratorOptions): Promise<Response> {
     const { messages, systemPrompt, tools, correlationId, requestOrigin } =
       options;
+
+    // Reset accumulators for new stream
+    this.accumulatedContent = "";
+    this.accumulatedToolCalls = [];
 
     console.log(
       `[Brain:${correlationId}] Starting AI stream with ${messages.length} messages`,
@@ -59,10 +64,10 @@ export class StreamOrchestratorService {
         onChunk: (chunk) => this.handleChunk(chunk, options),
         onFinish: async (finalResult) => {
           await this.handleFinish(finalResult, options);
-          // Convert GenerateTextResult to StreamResult format
+          // Convert GenerateTextResult to StreamResult format with accumulated tool calls
           const streamResult: StreamResult = {
             text: finalResult.text,
-            toolCalls: [], // TODO: Track tool calls from chunks
+            toolCalls: [...this.accumulatedToolCalls],
             toolResults: [],
             finishReason: finalResult.finishReason ?? "stop",
             usage: {
@@ -74,19 +79,15 @@ export class StreamOrchestratorService {
         },
       });
 
-      // Prepare headers for stream response
-      const headers: Record<string, string> = {
-        "Access-Control-Allow-Origin": requestOrigin || "*",
-        "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-        "Access-Control-Allow-Headers":
-          "Content-Type, Authorization, x-vercel-ai-data-stream, x-ai-sdk-data-stream",
-        "Access-Control-Expose-Headers":
-          "x-vercel-ai-data-stream, x-ai-sdk-data-stream",
-        "Access-Control-Allow-Credentials": "true",
-        "Content-Type": "text/plain; charset=utf-8",
-      };
-
-      return new Response(stream, { headers });
+      // Return stream with proper headers for Vercel AI SDK
+      return new Response(stream, {
+        headers: {
+          "Content-Type": "text/plain; charset=utf-8",
+          "Access-Control-Allow-Origin": requestOrigin || "*",
+          "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+          "Access-Control-Allow-Headers": "Content-Type, Authorization",
+        },
+      });
     } catch (error) {
       console.error(`[Brain:${correlationId}] Stream creation error:`, error);
       throw error;
@@ -109,6 +110,8 @@ export class StreamOrchestratorService {
         `[Brain:${correlationId}] Tool call chunk:`,
         chunk.toolCall.toolName,
       );
+      // Accumulate tool calls
+      this.accumulatedToolCalls.push(chunk.toolCall);
     }
 
     this.maybeSendHeartbeat(sessionId, runId);

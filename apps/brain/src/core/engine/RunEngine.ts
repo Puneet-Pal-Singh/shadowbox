@@ -62,6 +62,11 @@ export interface RunEngineOptions {
  * - Sequential task execution
  * - Brain controls tool execution
  */
+
+// Token estimation constants
+const TOKEN_CHARS_RATIO = 4; // Approximate chars per token
+const DEFAULT_COMPLETION_TOKENS = 500; // Conservative estimate for completion
+
 export class RunEngine implements IRunEngine {
   private runRepo: RunRepository;
   private taskRepo: TaskRepository;
@@ -302,12 +307,15 @@ Provide a concise summary of what was accomplished.`;
 
     try {
       // Phase 3.1: Budget check before LLM call
+      const estimatedPromptTokens = Math.ceil(
+        synthesisPrompt.length / TOKEN_CHARS_RATIO,
+      );
       const estimatedUsage: LLMUsage = {
-        provider: "litellm",
-        model: "llama-3.3-70b-versatile",
-        promptTokens: synthesisPrompt.length / 4, // Rough estimate: 4 chars per token
-        completionTokens: 500, // Conservative estimate
-        totalTokens: synthesisPrompt.length / 4 + 500,
+        provider: this.aiService.getProvider(),
+        model: this.aiService.getDefaultModel(),
+        promptTokens: estimatedPromptTokens,
+        completionTokens: DEFAULT_COMPLETION_TOKENS,
+        totalTokens: estimatedPromptTokens + DEFAULT_COMPLETION_TOKENS,
       };
 
       const budgetCheck = await this.budgetManager.checkBudget(
