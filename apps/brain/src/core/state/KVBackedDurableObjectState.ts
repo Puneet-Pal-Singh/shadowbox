@@ -11,6 +11,8 @@ interface KVListOptions {
   reverse?: boolean;
   limit?: number;
   prefix?: string;
+  keysOnly?: boolean;
+  readConcurrency?: number;
 }
 
 /**
@@ -22,6 +24,10 @@ export function createKVBackedDurableObjectState(
   namespace: string,
 ): DurableObjectState {
   const keyPrefix = `run-engine:${namespace}:`;
+  const maxReadConcurrency = 32;
+  let warnedStorageTransaction = false;
+  let warnedStorageBlockConcurrencyWhile = false;
+  let warnedStateBlockConcurrencyWhile = false;
 
   const storage: DurableObjectStorage = {
     get: async <T>(key: string): Promise<T | undefined> => {
@@ -41,26 +47,61 @@ export function createKVBackedDurableObjectState(
       let cursor: string | undefined;
       let consumed = 0;
       const limit = options?.limit ?? 1000;
+      const keysOnly = options?.keysOnly ?? false;
+      const readConcurrency = Math.max(
+        1,
+        Math.min(options?.readConcurrency ?? 8, maxReadConcurrency),
+      );
 
       do {
         const page = await kv.list({ prefix: listPrefix, cursor });
+        const valueReads: Array<{ storageKey: string; originalKey: string }> = [];
         for (const key of page.keys) {
           const originalKey = key.name.replace(keyPrefix, "");
           if (options?.start && originalKey < options.start) {
             continue;
           }
-          if (options?.end && originalKey > options.end) {
+          // Durable Object storage.list uses an exclusive end boundary: [start, end).
+          if (options?.end && originalKey >= options.end) {
             continue;
           }
-          const value = await kv.get(key.name, "json");
-          if (value !== null) {
-            found.set(originalKey, value as T);
+          if (keysOnly) {
+            found.set(originalKey, undefined as T);
             consumed += 1;
             if (consumed >= limit) {
               break;
             }
+            continue;
+          }
+          valueReads.push({
+            storageKey: key.name,
+            originalKey,
+          });
+        }
+
+        if (!keysOnly && valueReads.length > 0) {
+          for (
+            let batchStart = 0;
+            batchStart < valueReads.length && consumed < limit;
+            batchStart += readConcurrency
+          ) {
+            const batch = valueReads.slice(batchStart, batchStart + readConcurrency);
+            const values = await Promise.all(
+              batch.map((item) => kv.get(item.storageKey, "json")),
+            );
+            for (const [index, batchItem] of batch.entries()) {
+              if (consumed >= limit) {
+                break;
+              }
+              const value = values[index];
+              if (value !== null) {
+                found.set(batchItem.originalKey, value as T);
+                consumed += 1;
+              }
+            }
           }
         }
+
         if (consumed >= limit || page.list_complete) {
           break;
         }
@@ -72,12 +113,32 @@ export function createKVBackedDurableObjectState(
       }
       return found;
     },
+    /**
+     * Warning: this is a passthrough for compatibility with DurableObjectStorage.
+     * KV-backed storage cannot provide real atomic transaction semantics.
+     */
     transaction: async <T>(
       closure: (txn: DurableObjectStorage) => Promise<T>,
     ): Promise<T> => {
+      if (!warnedStorageTransaction) {
+        console.warn(
+          "[state/kv] storage.transaction is passthrough only with KV-backed state; atomic isolation is not provided",
+        );
+        warnedStorageTransaction = true;
+      }
       return closure(storage);
     },
+    /**
+     * Warning: this is a passthrough for compatibility with DurableObjectStorage.
+     * KV-backed storage cannot provide real lock-based exclusion semantics.
+     */
     blockConcurrencyWhile: async <T>(closure: () => Promise<T>): Promise<T> => {
+      if (!warnedStorageBlockConcurrencyWhile) {
+        console.warn(
+          "[state/kv] storage.blockConcurrencyWhile is passthrough only with KV-backed state; mutual exclusion is not provided",
+        );
+        warnedStorageBlockConcurrencyWhile = true;
+      }
       return closure();
     },
   } as unknown as DurableObjectStorage;
@@ -88,7 +149,17 @@ export function createKVBackedDurableObjectState(
     waitUntil: async (promise: Promise<unknown>) => {
       await promise;
     },
+    /**
+     * Warning: this is a passthrough for API compatibility.
+     * KV-backed state does not provide true Durable Object concurrency blocking.
+     */
     blockConcurrencyWhile: async <T>(closure: () => Promise<T>): Promise<T> => {
+      if (!warnedStateBlockConcurrencyWhile) {
+        console.warn(
+          "[state/kv] state.blockConcurrencyWhile is passthrough only with KV-backed state; mutual exclusion is not provided",
+        );
+        warnedStateBlockConcurrencyWhile = true;
+      }
       return closure();
     },
   } as unknown as DurableObjectState;
