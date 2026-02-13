@@ -23,16 +23,16 @@ export class ReviewAgent extends BaseAgent {
     console.log(`[agents/review] Generating plan for run ${context.run.id}`);
 
     const messages = this.buildPlanMessages(context.run, context.prompt);
-    const plan = await this.aiService.generateStructured({
+    const result = await this.aiService.generateStructured({
       messages,
       schema: PlanSchema,
       temperature: 0.2,
     });
 
     console.log(
-      `[agents/review] Generated plan with ${plan.tasks.length} tasks`,
+      `[agents/review] Generated plan with ${result.object.tasks.length} tasks`,
     );
-    return plan as Plan;
+    return result.object as Plan;
   }
 
   async executeTask(
@@ -54,19 +54,21 @@ export class ReviewAgent extends BaseAgent {
   }
 
   async synthesize(context: SynthesisContext): Promise<string> {
-    console.log(
-      `[agents/review] Synthesizing review for run ${context.runId}`,
-    );
+    console.log(`[agents/review] Synthesizing review for run ${context.runId}`);
 
     const taskSummaries = context.completedTasks
-      .map((t) => `- Task ${t.id}: ${t.status} — ${t.output?.content ?? "no output"}`)
+      .map(
+        (t) =>
+          `- Task ${t.id}: ${t.status} — ${t.output?.content ?? "no output"}`,
+      )
       .join("\n");
 
-    return this.aiService.generateText({
+    const result = await this.aiService.generateText({
       messages: [
         {
           role: "system",
-          content: "Summarize the code review findings into a structured report with issues, suggestions, and overall assessment.",
+          content:
+            "Summarize the code review findings into a structured report with issues, suggestions, and overall assessment.",
         },
         {
           role: "user",
@@ -74,6 +76,7 @@ export class ReviewAgent extends BaseAgent {
         },
       ],
     });
+    return result.text;
   }
 
   getCapabilities(): AgentCapability[] {
@@ -106,38 +109,44 @@ Rules:
     task: Task,
     _context: ExecutionContext,
   ): Promise<TaskResult> {
-    const path = extractStructuredField(task.input, "path") ?? task.input.description;
+    const path =
+      extractStructuredField(task.input, "path") ?? task.input.description;
     validateSafePath(path);
 
     const result = await this.executionService.execute("filesystem", "read", {
       path,
     });
 
-    const analysis = await this.aiService.generateText({
+    const analysisResult = await this.aiService.generateText({
       messages: [
-        { role: "system", content: "Analyze the following code for quality, patterns, and potential issues." },
+        {
+          role: "system",
+          content:
+            "Analyze the following code for quality, patterns, and potential issues.",
+        },
         { role: "user", content: String(result) },
       ],
     });
 
-    return this.buildSuccessResult(task.id, analysis);
+    return this.buildSuccessResult(task.id, analysisResult.text);
   }
 
   private async executeReview(
     task: Task,
     _context: ExecutionContext,
   ): Promise<TaskResult> {
-    const content = await this.aiService.generateText({
+    const reviewResult = await this.aiService.generateText({
       messages: [
         {
           role: "system",
-          content: "Provide a detailed code review with issues, suggestions, and severity ratings.",
+          content:
+            "Provide a detailed code review with issues, suggestions, and severity ratings.",
         },
         { role: "user", content: task.input.description },
       ],
     });
 
-    return this.buildSuccessResult(task.id, content);
+    return this.buildSuccessResult(task.id, reviewResult.text);
   }
 
   private buildSuccessResult(taskId: string, content: string): TaskResult {

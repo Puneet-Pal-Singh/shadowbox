@@ -1,7 +1,5 @@
-import type { CoreMessage, CoreTool, TextStreamPart } from "ai";
-import type { StreamTextResult } from "ai";
-import { AIService } from "./AIService";
-import { getCorsHeaders } from "../lib/cors";
+import type { CoreMessage, CoreTool } from "ai";
+import type { AIService, GenerateTextResult } from "./AIService";
 import { Env } from "../types/ai";
 
 // Use generic stream result type from AI SDK
@@ -45,22 +43,34 @@ export class StreamOrchestratorService {
   ) {}
 
   async createStream(options: StreamOrchestratorOptions): Promise<Response> {
-    const { messages, systemPrompt, tools, correlationId, requestOrigin } = options;
+    const { messages, systemPrompt, tools, correlationId, requestOrigin } =
+      options;
 
     console.log(
       `[Brain:${correlationId}] Starting AI stream with ${messages.length} messages`,
     );
 
     try {
-      const result = await this.aiService.createChatStream({
+      // Phase 3.1: createChatStream now returns a ReadableStream<Uint8Array>
+      const stream = await this.aiService.createChatStream({
         messages,
-        fullHistory: options.fullHistory,
-        systemPrompt,
+        system: systemPrompt,
         tools,
-        onChunk: (event) => this.handleChunk(event.chunk, options),
+        onChunk: (chunk) => this.handleChunk(chunk, options),
         onFinish: async (finalResult) => {
           await this.handleFinish(finalResult, options);
-          await options.onFinish(finalResult);
+          // Convert GenerateTextResult to StreamResult format
+          const streamResult: StreamResult = {
+            text: finalResult.text,
+            toolCalls: [], // TODO: Track tool calls from chunks
+            toolResults: [],
+            finishReason: finalResult.finishReason ?? "stop",
+            usage: {
+              promptTokens: finalResult.usage.promptTokens,
+              completionTokens: finalResult.usage.completionTokens,
+            },
+          };
+          await options.onFinish(streamResult);
         },
       });
 
@@ -68,14 +78,15 @@ export class StreamOrchestratorService {
       const headers: Record<string, string> = {
         "Access-Control-Allow-Origin": requestOrigin || "*",
         "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type, Authorization, x-vercel-ai-data-stream, x-ai-sdk-data-stream",
-        "Access-Control-Expose-Headers": "x-vercel-ai-data-stream, x-ai-sdk-data-stream",
+        "Access-Control-Allow-Headers":
+          "Content-Type, Authorization, x-vercel-ai-data-stream, x-ai-sdk-data-stream",
+        "Access-Control-Expose-Headers":
+          "x-vercel-ai-data-stream, x-ai-sdk-data-stream",
         "Access-Control-Allow-Credentials": "true",
+        "Content-Type": "text/plain; charset=utf-8",
       };
 
-      return (result as StreamTextResult<Record<string, CoreTool>, unknown>).toDataStreamResponse({
-        headers,
-      });
+      return new Response(stream, { headers });
     } catch (error) {
       console.error(`[Brain:${correlationId}] Stream creation error:`, error);
       throw error;
@@ -83,18 +94,21 @@ export class StreamOrchestratorService {
   }
 
   private handleChunk(
-    chunk: TextStreamPart<Record<string, CoreTool>>,
+    chunk: { content?: string; toolCall?: { toolName: string; args: unknown } },
     options: StreamOrchestratorOptions,
   ): void {
     const { correlationId, sessionId, runId } = options;
 
-    if (chunk.type === "text-delta") {
+    if (chunk.content) {
       console.log(
-        `[Brain:${correlationId}] Text chunk: "${chunk.textDelta?.substring(0, 30)}"`,
+        `[Brain:${correlationId}] Text chunk: "${chunk.content.substring(0, 30)}"`,
       );
-      this.accumulatedContent += chunk.textDelta;
-    } else if (chunk.type === "tool-call") {
-      console.log(`[Brain:${correlationId}] Tool call chunk:`, chunk.toolName);
+      this.accumulatedContent += chunk.content;
+    } else if (chunk.toolCall) {
+      console.log(
+        `[Brain:${correlationId}] Tool call chunk:`,
+        chunk.toolCall.toolName,
+      );
     }
 
     this.maybeSendHeartbeat(sessionId, runId);
@@ -122,11 +136,14 @@ export class StreamOrchestratorService {
   }
 
   private async handleFinish(
-    finalResult: StreamResult,
+    finalResult: GenerateTextResult,
     options: StreamOrchestratorOptions,
   ): Promise<void> {
     const { correlationId, runId } = options;
 
     console.log(`[Brain:${correlationId}] Stream finished for run: ${runId}`);
+    console.log(
+      `[Brain:${correlationId}] Usage: ${finalResult.usage.totalTokens} tokens`,
+    );
   }
 }

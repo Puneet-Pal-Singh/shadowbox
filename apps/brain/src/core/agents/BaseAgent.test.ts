@@ -109,9 +109,17 @@ describe("CodingAgent", () => {
 
   it("should generate a valid plan via AIService", async () => {
     const mockPlan = createMockPlan();
-    (mockAI.generateStructured as ReturnType<typeof vi.fn>).mockResolvedValue(
-      mockPlan,
-    );
+    // Phase 3.1: generateStructured now returns { object, usage }
+    (mockAI.generateStructured as ReturnType<typeof vi.fn>).mockResolvedValue({
+      object: mockPlan,
+      usage: {
+        provider: "litellm",
+        model: "test-model",
+        promptTokens: 100,
+        completionTokens: 50,
+        totalTokens: 150,
+      },
+    });
 
     const run = createTestRun();
     const plan = await agent.plan({ run, prompt: "Fix the bug" });
@@ -149,9 +157,17 @@ describe("ReviewAgent", () => {
 
   it("should generate a valid plan via AIService", async () => {
     const mockPlan = createMockPlan();
-    (mockAI.generateStructured as ReturnType<typeof vi.fn>).mockResolvedValue(
-      mockPlan,
-    );
+    // Phase 3.1: generateStructured now returns { object, usage }
+    (mockAI.generateStructured as ReturnType<typeof vi.fn>).mockResolvedValue({
+      object: mockPlan,
+      usage: {
+        provider: "litellm",
+        model: "test-model",
+        promptTokens: 100,
+        completionTokens: 50,
+        totalTokens: 150,
+      },
+    });
 
     const run = createTestRun();
     const plan = await agent.plan({ run, prompt: "Review the code" });

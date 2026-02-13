@@ -214,8 +214,14 @@ export class AIService {
           const result = await generator.next();
           if (!result.done && result.value) {
             finalResult = {
-              text: result.value.content,
-              usage: result.value.usage,
+              text: result.value.content ?? "",
+              usage: result.value.usage ?? {
+                provider: this.adapter.provider,
+                model: selectedModel,
+                promptTokens: 0,
+                completionTokens: 0,
+                totalTokens: 0,
+              },
               finishReason: result.value.finishReason,
             };
           }
