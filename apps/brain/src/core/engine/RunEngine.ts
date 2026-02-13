@@ -290,11 +290,16 @@ Provide a concise summary of what was accomplished.`;
     ];
 
     try {
-      const response = await this.aiService.generateText({
+      // Phase 3.1: generateText now returns { text, usage }
+      const result = await this.aiService.generateText({
         messages,
         temperature: 0.7,
       });
-      return response;
+
+      // Record cost for this LLM call
+      await this.costTracker.recordLLMUsage(runId, result.usage);
+
+      return result.text;
     } catch (error) {
       console.error("[run/engine] Synthesis failed:", error);
       // Fallback to simple summary if LLM call fails
