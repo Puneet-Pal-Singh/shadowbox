@@ -12,13 +12,23 @@ export interface IPricingRegistry {
 }
 
 /**
- * PricingRegistry implements three-tier fallback strategy:
- * 1. If provider returns cost → trust it
- * 2. Else if LiteLLM provides cost → use it
- * 3. Else → compute using internal pricing registry
+ * PricingRegistry implements cost calculation for LLM usage.
  *
- * Note: Pricing data should be loaded from external configuration (env vars, config files, or API)
- * to avoid hardcoding and allow dynamic updates without code changes.
+ * Current implementation (two-tier fallback):
+ * 1. If provider returns cost (usage.cost) → trust it
+ * 2. Else → lookup in registry via getPrice()
+ * 3. If not found → return zero cost with warning
+ *
+ * Note: A future implementation may add LiteLLM as an intermediate tier
+ * (Tier 2) when LiteLLM provides cost data via response metadata.
+ * TODO: Add LiteLLM tier when LiteLLM SDK supports cost extraction.
+ * Placeholder for where LiteLLM cost lookup would be implemented:
+ * - Check if usage.raw contains LiteLLM cost data
+ * - If present, parse and return that cost
+ * - Then fall through to registry lookup
+ *
+ * @see PricingRegistry.calculateCost() for the actual implementation
+ * @see IPricingRegistry interface for the contract
  */
 export class PricingRegistry implements IPricingRegistry {
   private prices = new Map<string, PricingEntry>();
@@ -42,10 +52,25 @@ export class PricingRegistry implements IPricingRegistry {
   }
 
   /**
-   * Calculate cost using three-tier fallback:
-   * 1. Provider cost (if available)
-   * 2. LiteLLM cost (if available)
-   * 3. Registry lookup
+   * Calculate cost using tiered fallback:
+   *
+   * Tier 1 (Provider): If usage.cost is provided by the provider, trust it
+   * - Provider returns pre-calculated cost in usage.cost
+   *
+   * Tier 2 (LiteLLM): Not yet implemented
+   * - TODO: Check usage.raw for LiteLLM cost metadata
+   * - Would parse LiteLLM response for cost data
+   *
+   * Tier 3 (Registry): Fallback to internal pricing lookup
+   * - Uses getPrice() to lookup provider:model pricing
+   * - Calculates cost using inputPrice/outputPrice per 1K tokens
+   *
+   * Tier 4 (Unknown): No pricing available
+   * - Returns zero cost with pricingSource: "unknown"
+   * - Logs warning for visibility
+   *
+   * @param usage - LLMUsage with token counts and optional provider cost
+   * @returns CalculatedCost with breakdown and source indicator
    */
   calculateCost(usage: LLMUsage): CalculatedCost {
     // Tier 1: If provider returned cost, trust it
@@ -59,7 +84,11 @@ export class PricingRegistry implements IPricingRegistry {
       };
     }
 
-    // Tier 2: Look up in registry
+    // Tier 2 (placeholder for LiteLLM):
+    // TODO: Check usage.raw for LiteLLM cost data
+    // if (usage.raw?.litellm_cost) { ... }
+
+    // Tier 3: Look up in registry
     const pricing = this.getPrice(usage.provider, usage.model);
     if (pricing) {
       const inputCost = (usage.promptTokens / 1000) * pricing.inputPrice;
@@ -74,7 +103,7 @@ export class PricingRegistry implements IPricingRegistry {
       };
     }
 
-    // Tier 3: Unknown pricing - return zero cost with warning
+    // Tier 4: Unknown pricing - return zero cost with "unknown" source
     console.warn(
       `[cost/pricing] Unknown pricing for ${usage.provider}:${usage.model}. ` +
         `Cost tracking disabled for this call.`,
@@ -85,7 +114,7 @@ export class PricingRegistry implements IPricingRegistry {
       outputCost: 0,
       totalCost: 0,
       currency: "USD",
-      pricingSource: "registry",
+      pricingSource: "unknown",
     };
   }
 

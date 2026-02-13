@@ -23,7 +23,7 @@ export interface CalculatedCost {
   outputCost: number; // Cost for output tokens
   totalCost: number; // Total cost in USD
   currency: string; // Always "USD" for now
-  pricingSource: "provider" | "litellm" | "registry"; // Where pricing came from
+  pricingSource: "provider" | "litellm" | "registry" | "unknown"; // Where pricing came from
 }
 
 /**
@@ -97,6 +97,8 @@ export interface BudgetCheckResult {
   currentCost: number;
   projectedCost: number;
   remainingBudget: number;
+  sessionCost?: number;
+  sessionRemainingBudget?: number;
   reason?: string;
 }
 

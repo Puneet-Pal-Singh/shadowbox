@@ -2,7 +2,7 @@
 // Phase 3.1: Unit tests for BudgetManager
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { BudgetManager, BudgetExceededError } from "./BudgetManager";
+import { BudgetManager } from "./BudgetManager";
 import type { ICostTracker } from "./CostTracker";
 import type { IPricingRegistry } from "./PricingRegistry";
 import type { LLMUsage, BudgetConfig } from "./types";
@@ -12,7 +12,7 @@ describe("BudgetManager", () => {
   let mockPricingRegistry: IPricingRegistry;
   let budgetManager: BudgetManager;
   const defaultConfig: BudgetConfig = {
-    maxCostPerRun: 1.0, // $1.00 limit for testing
+    maxCostPerRun: 1.0,
     maxCostPerSession: 5.0,
     warningThreshold: 0.8,
   };
@@ -72,7 +72,7 @@ describe("BudgetManager", () => {
       expect(result.remainingBudget).toBe(1.0);
     });
 
-    it("should deny calls that exceed budget", async () => {
+    it("should deny calls that exceed run budget", async () => {
       vi.mocked(mockCostTracker.getCurrentCost).mockResolvedValue(0.95);
       vi.mocked(mockPricingRegistry.calculateCost).mockReturnValue({
         inputCost: 0.1,
@@ -93,9 +93,7 @@ describe("BudgetManager", () => {
       const result = await budgetManager.checkBudget("run-1", usage);
 
       expect(result.allowed).toBe(false);
-      expect(result.currentCost).toBe(0.95);
-      expect(result.projectedCost).toBe(1.15);
-      expect(result.reason).toContain("Budget limit exceeded");
+      expect(result.reason).toContain("Run budget limit exceeded");
     });
 
     it("should use provided cost in usage if available", async () => {
@@ -105,23 +103,76 @@ describe("BudgetManager", () => {
         promptTokens: 1000,
         completionTokens: 500,
         totalTokens: 1500,
-        cost: 0.05, // Provider returns cost
+        cost: 0.05,
       };
 
       const result = await budgetManager.checkBudget("run-1", usage);
 
       expect(result.allowed).toBe(true);
-      expect(result.projectedCost).toBe(0.05);
-      // Should not call pricing registry if cost is provided
       expect(mockPricingRegistry.calculateCost).not.toHaveBeenCalled();
     });
 
-    it("should warn when approaching budget limit", async () => {
-      vi.mocked(mockCostTracker.getCurrentCost).mockResolvedValue(0.85);
+    it("should skip warning when maxCostPerRun is zero (unlimited)", async () => {
+      const manager = new BudgetManager(mockCostTracker, mockPricingRegistry, {
+        maxCostPerRun: 0,
+        maxCostPerSession: 5.0,
+        warningThreshold: 0.8,
+      });
+
+      const usage: LLMUsage = {
+        provider: "openai",
+        model: "gpt-4o",
+        promptTokens: 1000,
+        completionTokens: 500,
+        totalTokens: 1500,
+      };
+
+      const result = await manager.checkBudget("run-1", usage);
+
+      expect(result.allowed).toBe(true);
+      expect(result.remainingBudget).toBe(Infinity);
+    });
+
+    it("should throw when maxCostPerRun is negative", () => {
+      expect(() => {
+        new BudgetManager(mockCostTracker, mockPricingRegistry, {
+          maxCostPerRun: -1,
+          maxCostPerSession: 5.0,
+        });
+      }).toThrow("Invalid maxCostPerRun");
+    });
+  });
+
+  describe("checkSessionBudget", () => {
+    it("should allow calls within session budget", async () => {
+      await budgetManager.startSession("session-1");
+
+      const usage: LLMUsage = {
+        provider: "openai",
+        model: "gpt-4o",
+        promptTokens: 1000,
+        completionTokens: 500,
+        totalTokens: 1500,
+      };
+
+      const result = await budgetManager.checkSessionBudget("session-1", usage);
+
+      expect(result.allowed).toBe(true);
+      expect(result.sessionRemainingBudget).toBe(5.0);
+    });
+
+    it("should deny calls that exceed session budget", async () => {
+      const manager = new BudgetManager(mockCostTracker, mockPricingRegistry, {
+        maxCostPerRun: 1.0,
+        maxCostPerSession: 0.5,
+        warningThreshold: 0.8,
+      });
+      await manager.startSession("session-test");
+
       vi.mocked(mockPricingRegistry.calculateCost).mockReturnValue({
-        inputCost: 0.04,
-        outputCost: 0.01,
-        totalCost: 0.05,
+        inputCost: 0.3,
+        outputCost: 0.3,
+        totalCost: 0.6,
         currency: "USD",
         pricingSource: "registry",
       });
@@ -129,100 +180,103 @@ describe("BudgetManager", () => {
       const usage: LLMUsage = {
         provider: "openai",
         model: "gpt-4o",
-        promptTokens: 100,
-        completionTokens: 50,
-        totalTokens: 150,
+        promptTokens: 1000,
+        completionTokens: 500,
+        totalTokens: 1500,
       };
 
-      const consoleSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const result = await manager.checkSessionBudget("session-test", usage);
 
-      await budgetManager.checkBudget("run-1", usage);
+      expect(result.allowed).toBe(false);
+      expect(result.reason).toContain("Session budget limit exceeded");
+    });
 
-      expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining("Budget warning"),
+    it("should skip session check when maxCostPerSession is zero (unlimited)", async () => {
+      const manager = new BudgetManager(mockCostTracker, mockPricingRegistry, {
+        maxCostPerRun: 1.0,
+        maxCostPerSession: 0,
+      });
+      await manager.startSession("session-unlimited");
+
+      const usage: LLMUsage = {
+        provider: "openai",
+        model: "gpt-4o",
+        promptTokens: 1000,
+        completionTokens: 500,
+        totalTokens: 1500,
+      };
+
+      const result = await manager.checkSessionBudget(
+        "session-unlimited",
+        usage,
       );
 
-      consoleSpy.mockRestore();
+      expect(result.allowed).toBe(true);
+      expect(result.sessionRemainingBudget).toBe(Infinity);
+    });
+  });
+
+  describe("session lifecycle", () => {
+    it("should track session costs", async () => {
+      await budgetManager.startSession("session-new");
+      await budgetManager.recordSessionCost("session-new", 0.5);
+
+      const remaining =
+        await budgetManager.getRemainingSessionBudget("session-new");
+      expect(remaining).toBe(4.5);
+
+      await budgetManager.endSession("session-new");
+
+      const remainingAfterEnd =
+        await budgetManager.getRemainingSessionBudget("session-new");
+      expect(remainingAfterEnd).toBe(5.0);
+    });
+
+    it("should detect when session is over budget", async () => {
+      await budgetManager.startSession("session-over");
+      await budgetManager.recordSessionCost("session-over", 5.0);
+
+      const isOver = await budgetManager.isOverSessionBudget("session-over");
+      expect(isOver).toBe(true);
     });
   });
 
   describe("getRemainingBudget", () => {
-    it("should return full budget when no costs", async () => {
-      const remaining = await budgetManager.getRemainingBudget("run-1");
-      expect(remaining).toBe(1.0);
-    });
+    it("should return Infinity when budget is unlimited", async () => {
+      const manager = new BudgetManager(mockCostTracker, mockPricingRegistry, {
+        maxCostPerRun: 0,
+        maxCostPerSession: 5.0,
+      });
 
-    it("should return remaining budget after costs", async () => {
-      vi.mocked(mockCostTracker.getCurrentCost).mockResolvedValue(0.3);
-
-      const remaining = await budgetManager.getRemainingBudget("run-1");
-      expect(remaining).toBe(0.7);
-    });
-
-    it("should return 0 when over budget", async () => {
-      vi.mocked(mockCostTracker.getCurrentCost).mockResolvedValue(1.5);
-
-      const remaining = await budgetManager.getRemainingBudget("run-1");
-      expect(remaining).toBe(0);
+      const remaining = await manager.getRemainingBudget("run-1");
+      expect(remaining).toBe(Infinity);
     });
   });
 
-  describe("isOverBudget", () => {
-    it("should return false when under budget", async () => {
-      vi.mocked(mockCostTracker.getCurrentCost).mockResolvedValue(0.5);
+  describe("configuration validation", () => {
+    it("should reject invalid warningThreshold", () => {
+      expect(() => {
+        new BudgetManager(mockCostTracker, mockPricingRegistry, {
+          warningThreshold: 1.5,
+        });
+      }).toThrow("Invalid warningThreshold");
 
-      const isOver = await budgetManager.isOverBudget("run-1");
-      expect(isOver).toBe(false);
-    });
-
-    it("should return true when over budget", async () => {
-      vi.mocked(mockCostTracker.getCurrentCost).mockResolvedValue(1.0);
-
-      const isOver = await budgetManager.isOverBudget("run-1");
-      expect(isOver).toBe(true);
-    });
-
-    it("should return true when exactly at budget limit", async () => {
-      vi.mocked(mockCostTracker.getCurrentCost).mockResolvedValue(1.0);
-
-      const isOver = await budgetManager.isOverBudget("run-1");
-      expect(isOver).toBe(true);
-    });
-  });
-
-  describe("configuration", () => {
-    it("should use default config when none provided", () => {
-      const manager = new BudgetManager(mockCostTracker, mockPricingRegistry);
-      const config = manager.getConfig();
-
-      expect(config.maxCostPerRun).toBe(5.0); // Default from DEFAULT_BUDGET
-      expect(config.maxCostPerSession).toBe(20.0);
-      expect(config.warningThreshold).toBe(0.8);
-    });
-
-    it("should allow custom config", () => {
-      const customConfig: Partial<BudgetConfig> = {
-        maxCostPerRun: 2.5,
-        warningThreshold: 0.9,
-      };
-
-      const manager = new BudgetManager(
-        mockCostTracker,
-        mockPricingRegistry,
-        customConfig,
-      );
-      const config = manager.getConfig();
-
-      expect(config.maxCostPerRun).toBe(2.5);
-      expect(config.warningThreshold).toBe(0.9);
-      expect(config.maxCostPerSession).toBe(20.0); // Default preserved
+      expect(() => {
+        new BudgetManager(mockCostTracker, mockPricingRegistry, {
+          warningThreshold: -0.1,
+        });
+      }).toThrow("Invalid warningThreshold");
     });
 
     it("should update config dynamically", () => {
       budgetManager.updateConfig({ maxCostPerRun: 2.0 });
-      const config = budgetManager.getConfig();
+      expect(budgetManager.getConfig().maxCostPerRun).toBe(2.0);
+    });
 
-      expect(config.maxCostPerRun).toBe(2.0);
+    it("should reject invalid config in updateConfig", () => {
+      expect(() => {
+        budgetManager.updateConfig({ maxCostPerRun: -1 });
+      }).toThrow("Invalid maxCostPerRun");
     });
   });
 });

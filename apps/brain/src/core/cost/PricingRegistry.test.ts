@@ -85,7 +85,7 @@ describe("PricingRegistry", () => {
       expect(cost.pricingSource).toBe("registry");
     });
 
-    it("should return zero cost for unknown models", () => {
+    it("should return zero cost for unknown models with 'unknown' source", () => {
       const usage: LLMUsage = {
         provider: "unknown",
         model: "unknown-model",
@@ -97,7 +97,7 @@ describe("PricingRegistry", () => {
       const cost = registry.calculateCost(usage);
 
       expect(cost.totalCost).toBe(0);
-      expect(cost.pricingSource).toBe("registry");
+      expect(cost.pricingSource).toBe("unknown");
     });
 
     it("should calculate cost for Anthropic correctly", () => {
