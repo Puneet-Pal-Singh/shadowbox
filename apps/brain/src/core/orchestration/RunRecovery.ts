@@ -41,14 +41,17 @@ export class RunRecovery implements IRunRecovery {
       );
     }
 
-    console.log(`[recovery/run] Resumed run ${runId} from status ${run.status}`);
+    console.log(
+      `[recovery/run] Resumed run ${runId} from status ${run.status}`,
+    );
     return run;
   }
 
   /**
    * Reconstruct run state based on task completion
-   * - If all tasks DONE, set run to COMPLETED
+   * - If any task CANCELLED, set run to CANCELLED
    * - If any task FAILED and not retryable, set run to FAILED
+   * - If all tasks DONE, set run to COMPLETED
    * - Otherwise, keep current status (PLANNING, RUNNING, etc)
    */
   async reconstructState(run: Run): Promise<void> {
@@ -65,10 +68,10 @@ export class RunRecovery implements IRunRecovery {
     const cancelledCount = statuses.filter((s) => s === "CANCELLED").length;
     const terminalCount = doneCount + failedCount + cancelledCount;
 
-    // All tasks completed successfully
-    if (terminalCount === tasks.length && failedCount === 0) {
-      if (run.status !== "COMPLETED") {
-        run.transition("COMPLETED");
+    // Run has cancelled tasks - prioritize this check
+    if (cancelledCount > 0) {
+      if (run.status !== "CANCELLED") {
+        run.transition("CANCELLED");
         await this.runRepo.update(run);
       }
       return;
@@ -84,10 +87,10 @@ export class RunRecovery implements IRunRecovery {
       return;
     }
 
-    // Run has cancelled tasks
-    if (cancelledCount > 0) {
-      if (run.status !== "CANCELLED") {
-        run.transition("CANCELLED");
+    // All tasks completed successfully
+    if (terminalCount === tasks.length && failedCount === 0) {
+      if (run.status !== "COMPLETED") {
+        run.transition("COMPLETED");
         await this.runRepo.update(run);
       }
       return;
