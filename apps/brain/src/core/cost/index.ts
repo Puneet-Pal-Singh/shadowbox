@@ -13,6 +13,12 @@ export {
   type IPricingRegistry,
 } from "./PricingRegistry";
 
+export {
+  BudgetManager,
+  BudgetExceededError,
+  type IBudgetManager,
+} from "./BudgetManager";
+
 export type {
   LLMUsage,
   CalculatedCost,
@@ -21,4 +27,8 @@ export type {
   ModelCost,
   ProviderCost,
   PricingEntry,
+  BudgetConfig,
+  BudgetCheckResult,
 } from "./types";
+
+export { DEFAULT_BUDGET } from "./types";

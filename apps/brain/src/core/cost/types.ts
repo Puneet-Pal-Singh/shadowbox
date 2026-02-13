@@ -79,3 +79,32 @@ export interface PricingEntry {
   currency: string;
   effectiveDate: string; // ISO date for versioning
 }
+
+/**
+ * Budget configuration for cost enforcement
+ */
+export interface BudgetConfig {
+  maxCostPerRun: number; // Maximum cost allowed per run in USD
+  maxCostPerSession: number; // Maximum cost allowed per session in USD
+  warningThreshold: number; // Percentage at which to warn (e.g., 0.8 for 80%)
+}
+
+/**
+ * Budget check result
+ */
+export interface BudgetCheckResult {
+  allowed: boolean;
+  currentCost: number;
+  projectedCost: number;
+  remainingBudget: number;
+  reason?: string;
+}
+
+/**
+ * Default budget configuration
+ */
+export const DEFAULT_BUDGET: BudgetConfig = {
+  maxCostPerRun: 5.0, // $5.00 per run
+  maxCostPerSession: 20.0, // $20.00 per session
+  warningThreshold: 0.8, // Warn at 80%
+};
