@@ -356,7 +356,7 @@ function createMockDurableObjectState(
           if (options?.start && key < options.start) {
             continue;
           }
-          if (options?.end && key > options.end) {
+          if (options?.end && key >= options.end) {
             continue;
           }
           result.set(key, value as T);

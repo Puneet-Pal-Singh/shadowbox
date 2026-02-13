@@ -10,6 +10,12 @@ import {
   PricingRegistry,
   PricingResolver,
   SessionBudgetExceededError,
+  type BudgetPolicy,
+  type IBudgetManager,
+  type ICostLedger,
+  type ICostTracker,
+  type IPricingRegistry,
+  type IPricingResolver,
   type CostSnapshot,
 } from "../cost";
 import { PlannerService } from "../planner";
@@ -43,11 +49,11 @@ export interface RunEngineOptions {
 export interface RunEngineDependencies {
   aiService?: AIService;
   llmGateway?: ILLMGateway;
-  costLedger?: CostLedger;
-  costTracker?: CostTracker;
-  pricingRegistry?: PricingRegistry;
-  pricingResolver?: PricingResolver;
-  budgetManager?: BudgetManager;
+  costLedger?: ICostLedger;
+  costTracker?: ICostTracker;
+  pricingRegistry?: IPricingRegistry;
+  pricingResolver?: IPricingResolver;
+  budgetManager?: IBudgetManager & BudgetPolicy;
   planner?: PlannerService;
   scheduler?: TaskScheduler;
 }
@@ -55,10 +61,10 @@ export interface RunEngineDependencies {
 export class RunEngine implements IRunEngine {
   private runRepo: RunRepository;
   private taskRepo: TaskRepository;
-  private pricingRegistry: PricingRegistry;
-  private costLedger: CostLedger;
-  private costTracker: CostTracker;
-  private budgetManager: BudgetManager;
+  private pricingRegistry: IPricingRegistry;
+  private costLedger: ICostLedger;
+  private costTracker: ICostTracker;
+  private budgetManager: IBudgetManager & BudgetPolicy;
   private planner: PlannerService;
   private scheduler: TaskScheduler;
   private aiService?: AIService;
@@ -70,7 +76,7 @@ export class RunEngine implements IRunEngine {
     ctx: DurableObjectState,
     private options: RunEngineOptions,
     agent?: IAgent,
-    pricingRegistry?: PricingRegistry,
+    pricingRegistry?: IPricingRegistry,
     dependencies: RunEngineDependencies = {},
   ) {
     this.runRepo = new RunRepository(ctx);
@@ -411,8 +417,15 @@ Provide a concise summary of what was accomplished.`;
   }
 
   private getUnknownPricingMode(env: Env): "warn" | "block" {
-    if (env.COST_UNKNOWN_PRICING_MODE) {
-      return env.COST_UNKNOWN_PRICING_MODE;
+    const configuredMode = env.COST_UNKNOWN_PRICING_MODE as unknown;
+    if (typeof configuredMode === "string") {
+      const normalized = configuredMode.trim().toLowerCase();
+      if (normalized === "warn" || normalized === "block") {
+        return normalized;
+      }
+      console.warn(
+        `[run/engine] Invalid COST_UNKNOWN_PRICING_MODE=${configuredMode}. Falling back to NODE_ENV default.`,
+      );
     }
     const nodeEnv =
       typeof process !== "undefined" ? process.env?.NODE_ENV : undefined;
