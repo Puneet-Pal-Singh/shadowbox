@@ -6,7 +6,8 @@
     "dev": "turbo run dev",
     "lint": "turbo run lint --continue",
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",
-    "check-types": "turbo run check-types --continue"
+    "check-types": "turbo run check-types --continue",
+    "e2e:phase-3.2": "bash scripts/e2e/phase-3.2-readiness.sh"
   },
   "devDependencies": {
     "prettier": "^3.7.4",
