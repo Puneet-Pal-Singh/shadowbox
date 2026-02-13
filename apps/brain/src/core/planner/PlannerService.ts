@@ -1,13 +1,12 @@
 // apps/brain/src/core/planner/PlannerService.ts
 // Phase 3B: LLM-based planning service that generates execution plans
 
-import type { AIService } from "../../services/AIService";
 import type { Run } from "../run";
 import { PlanSchema, type Plan } from "./PlanSchema";
-import type { LLMUsage } from "../cost/types";
+import type { ILLMGateway } from "../llm";
 
 export interface IPlannerService {
-  plan(run: Run, prompt: string): Promise<{ plan: Plan; usage: LLMUsage }>;
+  plan(run: Run, prompt: string): Promise<Plan>;
 }
 
 export interface PlanContext {
@@ -17,23 +16,20 @@ export interface PlanContext {
 }
 
 export class PlannerService implements IPlannerService {
-  constructor(private aiService: AIService) {}
+  constructor(private llmGateway: ILLMGateway) {}
 
-  async plan(
-    run: Run,
-    prompt: string,
-  ): Promise<{ plan: Plan; usage: LLMUsage }> {
+  async plan(run: Run, prompt: string): Promise<Plan> {
     const messages = this.buildMessages(run, prompt);
 
     console.log(`[planner/service] Generating plan for run ${run.id}`);
 
-    const { plan, usage } = await this.callLLM(messages);
+    const plan = await this.callLLM(run, messages);
 
     console.log(
       `[planner/service] Generated plan with ${plan.tasks.length} tasks`,
     );
 
-    return { plan, usage };
+    return plan;
   }
 
   private buildMessages(
@@ -94,18 +90,22 @@ Generate a plan to accomplish this request.`;
   }
 
   private async callLLM(
+    run: Run,
     messages: Array<{ role: "system" | "user"; content: string }>,
-  ): Promise<{ plan: Plan; usage: LLMUsage }> {
-    // Phase 3.1: generateStructured now returns { object, usage }
+  ): Promise<Plan> {
     try {
-      const result = await this.aiService.generateStructured({
+      const result = await this.llmGateway.generateStructured({
+        context: {
+          runId: run.id,
+          sessionId: run.sessionId,
+          agentType: run.agentType,
+          phase: "planning",
+        },
         messages,
         schema: PlanSchema,
         temperature: 0.2, // Deterministic planning
       });
-      // Return both plan and usage - rely on generic typing
-      const plan = result.object as unknown as Plan;
-      return { plan, usage: result.usage };
+      return result.object as Plan;
     } catch (error) {
       console.error("[planner/service] Failed to generate plan:", error);
       throw new PlannerError("Failed to generate valid plan from LLM");

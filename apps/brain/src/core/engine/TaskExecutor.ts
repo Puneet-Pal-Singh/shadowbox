@@ -36,6 +36,7 @@ export class AgentTaskExecutor implements ITaskExecutor {
   constructor(
     private agent: IAgent,
     private runId: string,
+    private sessionId: string,
     private taskRepo: TaskRepository,
   ) {}
 
@@ -48,6 +49,7 @@ export class AgentTaskExecutor implements ITaskExecutor {
 
     return this.agent.executeTask(task, {
       runId: this.runId,
+      sessionId: this.sessionId,
       dependencies,
     });
   }

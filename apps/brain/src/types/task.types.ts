@@ -97,11 +97,13 @@ export interface PlanContext {
 
 export interface ExecutionContext {
   runId: string;
+  sessionId: string;
   dependencies: TaskResult[];
 }
 
 export interface SynthesisContext {
   runId: string;
+  sessionId: string;
   completedTasks: SerializedTask[];
   originalPrompt: string;
 }

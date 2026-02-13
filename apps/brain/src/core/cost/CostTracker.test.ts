@@ -83,7 +83,7 @@ describe("CostTracker", () => {
       expect(events[0].model).toBe("gpt-4o");
       expect(events[0].promptTokens).toBe(1000);
       expect(events[0].completionTokens).toBe(500);
-      expect(events[0].cost).toBeGreaterThan(0);
+      expect(events[0].calculatedCostUsd).toBeGreaterThan(0);
     });
 
     it("should accumulate multiple usages as separate events", async () => {
@@ -123,7 +123,7 @@ describe("CostTracker", () => {
 
       const events = await costTracker.getCostEvents("run-1");
       expect(events).toHaveLength(1);
-      expect(events[0].cost).toBe(0); // Unknown pricing returns 0
+      expect(events[0].calculatedCostUsd).toBe(0);
     });
   });
 
@@ -230,7 +230,7 @@ describe("CostTracker", () => {
       expect(events[0].pricingSource).toBe("registry");
       // GPT-4o: $0.005/1K prompt, $0.015/1K completion
       // 1000 prompt = $0.005, 500 completion = $0.0075
-      expect(events[0].cost).toBeCloseTo(0.0125, 4);
+      expect(events[0].calculatedCostUsd).toBeCloseTo(0.0125, 4);
     });
 
     it("should use provider cost if available in usage", async () => {
@@ -247,7 +247,7 @@ describe("CostTracker", () => {
 
       const events = await costTracker.getCostEvents("run-1");
       expect(events[0].pricingSource).toBe("provider");
-      expect(events[0].cost).toBe(0.015);
+      expect(events[0].calculatedCostUsd).toBe(0.015);
     });
   });
 });

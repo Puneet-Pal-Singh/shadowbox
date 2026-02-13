@@ -1,9 +1,4 @@
 import type { CoreMessage, CoreTool, Message } from "ai";
-import type {
-  DurableObjectState,
-  DurableObjectStorage,
-  DurableObjectId,
-} from "@cloudflare/workers-types";
 import { createToolRegistry } from "../orchestrator/tools";
 import { Env } from "../types/ai";
 import { getCorsHeaders } from "../lib/cors";
@@ -17,6 +12,7 @@ import { StreamOrchestratorService } from "../services/StreamOrchestratorService
 import type { AgentType } from "../types";
 import { getFeatureFlags, shouldUseRunEngine } from "../config/features";
 import { RunEngine } from "../core/engine/RunEngine";
+import { createKVBackedDurableObjectState } from "../core/state/KVBackedDurableObjectState";
 
 interface ChatRequestBody {
   messages?: Message[];
@@ -31,6 +27,8 @@ interface ChatRequest {
   sessionId: string;
   runId: string;
 }
+
+const SAFE_IDENTIFIER_REGEX = /^[A-Za-z0-9-]+$/;
 
 /**
  * ChatController
@@ -88,6 +86,10 @@ export class ChatController {
         return await ChatController.handleLegacy(req, chatRequest, env);
       }
     } catch (error: unknown) {
+      if (error instanceof RequestValidationError) {
+        console.warn(`[Brain:${correlationId}] ${error.logMessage}`);
+        return errorResponse(req, error.message, 400);
+      }
       console.error(`[Brain:${correlationId}] Error:`, error);
       const errorMessage =
         error instanceof Error ? error.message : "Internal Server Error";
@@ -161,11 +163,11 @@ export class ChatController {
         ? lastUserMessage.content
         : JSON.stringify(lastUserMessage.content);
 
-    // Initialize RunEngine
-    // Note: In a real DO setup, we'd pass the actual DurableObjectState
-    // For now, we create a minimal mock for the RunEngine constructor
-    const mockCtx = createMockDurableObjectState();
-    const runEngine = new RunEngine(mockCtx, {
+    const durableState = createKVBackedDurableObjectState(
+      env.SESSIONS,
+      `${sessionId}:${runId}`,
+    );
+    const runEngine = new RunEngine(durableState, {
       env,
       sessionId,
       runId,
@@ -284,11 +286,47 @@ async function parseRequestBody(req: Request): Promise<ChatRequestBody> {
 }
 
 function extractIdentifiers(body: ChatRequestBody) {
+  const sessionId = parseRequiredIdentifier(body.sessionId, "sessionId");
+  const runId = parseRunId(body.runId);
+
   return {
-    sessionId: body.sessionId || "default",
-    runId: body.runId || body.agentId || "default",
+    sessionId,
+    runId,
     agentType: mapAgentIdToType(body.agentId),
   };
+}
+
+function parseRunId(runId?: string): string {
+  if (!runId || runId.trim().length === 0) {
+    return crypto.randomUUID();
+  }
+  const normalized = runId.trim();
+  if (!UUID_V4_REGEX.test(normalized)) {
+    throw new RequestValidationError(
+      "Invalid runId. Expected a UUID v4 string.",
+    );
+  }
+  return normalized;
+}
+
+function parseRequiredIdentifier(
+  identifier: string | undefined,
+  fieldName: string,
+): string {
+  if (!identifier || identifier.trim().length === 0) {
+    throw new RequestValidationError(`Missing required field: ${fieldName}`);
+  }
+
+  const normalized = identifier.trim();
+  if (normalized.length > 128) {
+    throw new RequestValidationError(`Invalid ${fieldName}: too long`);
+  }
+  if (!SAFE_IDENTIFIER_REGEX.test(normalized)) {
+    throw new RequestValidationError(
+      `Invalid ${fieldName}: only letters, numbers, and hyphens are allowed`,
+    );
+  }
+  return normalized;
 }
 
 function mapAgentIdToType(agentId?: string): AgentType {
@@ -350,77 +388,19 @@ async function hydrateAndPrune(
   return hydrationService.pruneToolResults(hydrated);
 }
 
-/**
- * Create a minimal mock DurableObjectState for RunEngine
- *
- * ⚠️ CRITICAL: This is a MOCK implementation for development/testing only!
- * In production, this MUST be replaced with the actual DurableObjectState
- * from a real Durable Object. Using this mock in production will cause:
- * - State loss between requests (in-memory Map is not persisted)
- * - Concurrency issues (no real atomic operations)
- * - Data inconsistency across requests
- *
- * TODO: Remove this mock and integrate with actual DO state before enabling
- * USE_RUN_ENGINE in production environments.
- */
-function createMockDurableObjectState(): DurableObjectState {
-  // Production safety check - throw if NODE_ENV indicates production
-  if (
-    typeof process !== "undefined" &&
-    process.env?.NODE_ENV === "production"
-  ) {
-    throw new Error(
-      "[CRITICAL] createMockDurableObjectState() must not be used in production. " +
-        "RunEngine requires a real DurableObjectState from a Durable Object. " +
-        "Please integrate with the actual DO state before enabling RunEngine.",
-    );
+const UUID_V4_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+class RequestValidationError extends Error {
+  public readonly logMessage: string;
+
+  constructor(message: string) {
+    super(message);
+    this.name = "RequestValidationError";
+    this.logMessage = `[chat/validation] ${message}`;
   }
 
-  console.warn(
-    "[chat/controller] Using mock DurableObjectState - state will NOT persist between requests!",
-  );
-
-  const storage = new Map<string, unknown>();
-
-  return {
-    storage: {
-      get: async <T>(key: string): Promise<T | undefined> => {
-        return storage.get(key) as T | undefined;
-      },
-      put: async <T>(key: string, value: T): Promise<void> => {
-        storage.set(key, value);
-      },
-      delete: async (key: string): Promise<boolean> => {
-        return storage.delete(key);
-      },
-      list: async <T>(options?: {
-        start?: string;
-        end?: string;
-        reverse?: boolean;
-        limit?: number;
-      }): Promise<Map<string, T>> => {
-        const result = new Map<string, T>();
-        for (const [key, value] of storage) {
-          if (options?.start && key < options.start) continue;
-          if (options?.end && key > options.end) continue;
-          result.set(key, value as T);
-        }
-        return result;
-      },
-      transaction: async <T>(
-        closure: (txn: unknown) => Promise<T>,
-      ): Promise<T> => {
-        return closure({});
-      },
-      blockConcurrencyWhile: async <T>(
-        closure: () => Promise<T>,
-      ): Promise<T> => {
-        return closure();
-      },
-    } as unknown as DurableObjectStorage,
-    id: { toString: () => "mock-id" } as unknown as DurableObjectId,
-    waitUntil: async (promise: Promise<unknown>): Promise<void> => {
-      await promise;
-    },
-  } as unknown as DurableObjectState;
+  toString(): string {
+    return this.logMessage;
+  }
 }

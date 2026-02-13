@@ -17,6 +17,10 @@ export interface Env {
   LLM_PROVIDER?: "litellm" | "openai" | "anthropic";
   DEFAULT_MODEL?: string;
   LITELLM_BASE_URL?: string;
+  COST_UNKNOWN_PRICING_MODE?: "warn" | "block";
+  COST_FAIL_ON_UNSEEDED_PRICING?: "true" | "false";
+  MAX_RUN_BUDGET?: string;
+  MAX_SESSION_BUDGET?: string;
 
   // ✅ GitHub OAuth & Session Management
   GITHUB_CLIENT_ID: string;
@@ -50,7 +54,7 @@ export interface Tool {
   description: string;
   parameters: {
     type: "object";
-    properties: Record<string, any>;
+    properties: Record<string, unknown>;
     required?: string[];
   };
 }
@@ -58,7 +62,7 @@ export interface Tool {
 export interface ToolCall {
   id: string;
   name: string;
-  arguments: any; // Ideally typed further based on tool schema
+  arguments: unknown;
 }
 
 export interface AgentResult {

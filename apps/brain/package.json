@@ -7,6 +7,7 @@
     "dev": "wrangler dev --port 8788 --inspector-port 9230",
     "deploy": "wrangler deploy",
     "check-types": "tsc --noEmit",
+    "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest"
   },
@@ -14,7 +15,9 @@
     "@cloudflare/workers-types": "^4.20240208.0",
     "@repo/typescript-config": "workspace:*",
     "@types/node": "^20.0.0",
+    "eslint": "^9.39.1",
     "typescript": "^5.0.0",
+    "typescript-eslint": "^8.46.4",
     "vitest": "^1.0.0",
     "wrangler": "^4.61.0"
   },

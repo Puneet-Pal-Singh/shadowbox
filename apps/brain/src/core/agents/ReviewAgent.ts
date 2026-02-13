@@ -23,7 +23,13 @@ export class ReviewAgent extends BaseAgent {
     console.log(`[agents/review] Generating plan for run ${context.run.id}`);
 
     const messages = this.buildPlanMessages(context.run, context.prompt);
-    const result = await this.aiService.generateStructured({
+    const result = await this.llmGateway.generateStructured({
+      context: {
+        runId: context.run.id,
+        sessionId: context.run.sessionId,
+        agentType: this.type,
+        phase: "planning",
+      },
       messages,
       schema: PlanSchema,
       temperature: 0.2,
@@ -63,7 +69,13 @@ export class ReviewAgent extends BaseAgent {
       )
       .join("\n");
 
-    const result = await this.aiService.generateText({
+    const result = await this.llmGateway.generateText({
+      context: {
+        runId: context.runId,
+        sessionId: context.sessionId,
+        agentType: this.type,
+        phase: "synthesis",
+      },
       messages: [
         {
           role: "system",
@@ -107,7 +119,7 @@ Rules:
 
   private async executeAnalyze(
     task: Task,
-    _context: ExecutionContext,
+    context: ExecutionContext,
   ): Promise<TaskResult> {
     const path =
       extractStructuredField(task.input, "path") ?? task.input.description;
@@ -117,7 +129,14 @@ Rules:
       path,
     });
 
-    const analysisResult = await this.aiService.generateText({
+    const analysisResult = await this.llmGateway.generateText({
+      context: {
+        runId: context.runId,
+        sessionId: context.sessionId,
+        taskId: task.id,
+        agentType: this.type,
+        phase: "task",
+      },
       messages: [
         {
           role: "system",
@@ -133,9 +152,16 @@ Rules:
 
   private async executeReview(
     task: Task,
-    _context: ExecutionContext,
+    context: ExecutionContext,
   ): Promise<TaskResult> {
-    const reviewResult = await this.aiService.generateText({
+    const reviewResult = await this.llmGateway.generateText({
+      context: {
+        runId: context.runId,
+        sessionId: context.sessionId,
+        taskId: task.id,
+        agentType: this.type,
+        phase: "task",
+      },
       messages: [
         {
           role: "system",

@@ -1,12 +1,15 @@
 // apps/brain/src/core/cost/PricingRegistry.ts
-// Phase 3.1: Three-tier pricing strategy (Provider → LiteLLM → Registry)
+// Phase 3.1: Registry pricing with boot-time seed loading
 
-import type {
-  LLMUsage,
-  CalculatedCost,
-  PricingEntry,
-  PricingSource,
-} from "./types";
+import defaultPricing from "./pricing.default.json";
+import type { LLMUsage, CalculatedCost, PricingEntry } from "./types";
+
+export interface PricingRegistryOptions {
+  failOnUnseededPricing?: boolean;
+  isProduction?: boolean;
+  staleThresholdDays?: number;
+  failOnStale?: boolean;
+}
 
 export interface IPricingRegistry {
   getPrice(provider: string, model: string): PricingEntry | null;
@@ -16,72 +19,37 @@ export interface IPricingRegistry {
   getAllPrices(): Record<string, PricingEntry>;
 }
 
-/**
- * PricingRegistry implements cost calculation for LLM usage.
- *
- * Current implementation (two-tier fallback):
- * 1. If provider returns cost (usage.cost) → trust it
- * 2. Else → lookup in registry via getPrice()
- * 3. If not found → return zero cost with warning
- *
- * Note: A future implementation may add LiteLLM as an intermediate tier
- * (Tier 2) when LiteLLM provides cost data via response metadata.
- * TODO: Add LiteLLM tier when LiteLLM SDK supports cost extraction.
- * Placeholder for where LiteLLM cost lookup would be implemented:
- * - Check if usage.raw contains LiteLLM cost data
- * - If present, parse and return that cost
- * - Then fall through to registry lookup
- *
- * @see PricingRegistry.calculateCost() for the actual implementation
- * @see IPricingRegistry interface for the contract
- */
 export class PricingRegistry implements IPricingRegistry {
   private prices = new Map<string, PricingEntry>();
+  private readonly options: Required<PricingRegistryOptions>;
 
-  /**
-   * Create a new PricingRegistry
-   * @param initialPricing - Optional initial pricing data loaded from external config
-   */
-  constructor(initialPricing?: Record<string, PricingEntry>) {
+  constructor(
+    initialPricing?: Record<string, PricingEntry>,
+    options?: PricingRegistryOptions,
+  ) {
+    this.options = {
+      failOnUnseededPricing: options?.failOnUnseededPricing ?? false,
+      isProduction: options?.isProduction ?? detectProductionEnvironment(),
+      staleThresholdDays: options?.staleThresholdDays ?? 90,
+      failOnStale: options?.failOnStale ?? false,
+    };
+
     if (initialPricing) {
       this.loadFromJSON(initialPricing);
+      return;
     }
+
+    this.loadDefaultSeedPricing();
   }
 
-  /**
-   * Get pricing for a specific provider:model combination
-   */
   getPrice(provider: string, model: string): PricingEntry | null {
-    const key = `${provider}:${model}`;
-    return this.prices.get(key) ?? null;
+    return this.prices.get(`${provider}:${model}`) ?? null;
   }
 
-  /**
-   * Calculate cost using tiered fallback:
-   *
-   * Tier 1 (Provider): If usage.cost is provided by the provider, trust it
-   * - Provider returns pre-calculated cost in usage.cost
-   *
-   * Tier 2 (LiteLLM): Not yet implemented
-   * - TODO: Check usage.raw for LiteLLM cost metadata
-   * - Would parse LiteLLM response for cost data
-   *
-   * Tier 3 (Registry): Fallback to internal pricing lookup
-   * - Uses getPrice() to lookup provider:model pricing
-   * - Calculates cost using inputPrice/outputPrice per 1K tokens
-   *
-   * Tier 4 (Unknown): No pricing available
-   * - Returns zero cost with pricingSource: "unknown"
-   * - Logs warning for visibility
-   *
-   * @param usage - LLMUsage with token counts and optional provider cost
-   * @returns CalculatedCost with breakdown and source indicator
-   */
   calculateCost(usage: LLMUsage): CalculatedCost {
-    // Tier 1: If provider returned cost, trust it
     if (usage.cost !== undefined && usage.cost > 0) {
       return {
-        inputCost: 0, // Provider didn't break it down
+        inputCost: 0,
         outputCost: 0,
         totalCost: usage.cost,
         currency: "USD",
@@ -89,80 +57,273 @@ export class PricingRegistry implements IPricingRegistry {
       };
     }
 
-    // Tier 2 (placeholder for LiteLLM):
-    // TODO: Check usage.raw for LiteLLM cost data
-    // if (usage.raw?.litellm_cost) { ... }
-
-    // Tier 3: Look up in registry
     const pricing = this.getPrice(usage.provider, usage.model);
-    if (pricing) {
-      const inputCost = (usage.promptTokens / 1000) * pricing.inputPrice;
-      const outputCost = (usage.completionTokens / 1000) * pricing.outputPrice;
-
+    if (!pricing) {
       return {
-        inputCost,
-        outputCost,
-        totalCost: inputCost + outputCost,
-        currency: pricing.currency,
-        pricingSource: "registry",
+        inputCost: 0,
+        outputCost: 0,
+        totalCost: 0,
+        currency: "USD",
+        pricingSource: "unknown",
       };
     }
 
-    // Tier 4: Unknown pricing - return zero cost with "unknown" source
-    console.warn(
-      `[cost/pricing] Unknown pricing for ${usage.provider}:${usage.model}. ` +
-        `Cost tracking disabled for this call.`,
-    );
+    const inputCost = (usage.promptTokens / 1000) * pricing.inputPrice;
+    const outputCost = (usage.completionTokens / 1000) * pricing.outputPrice;
 
     return {
-      inputCost: 0,
-      outputCost: 0,
-      totalCost: 0,
-      currency: "USD",
-      pricingSource: "unknown",
+      inputCost,
+      outputCost,
+      totalCost: inputCost + outputCost,
+      currency: pricing.currency,
+      pricingSource: "registry",
     };
   }
 
-  /**
-   * Register custom pricing for a provider:model
-   */
   registerPrice(provider: string, model: string, entry: PricingEntry): void {
     const key = `${provider}:${model}`;
-    this.prices.set(key, entry);
+    const normalized = this.normalizePricingEntry(key, entry);
+    this.validateStaleness(key, normalized);
+    this.prices.set(key, normalized);
     console.log(`[cost/pricing] Registered pricing: ${key}`);
   }
 
-  /**
-   * Load pricing data from JSON object
-   */
   loadFromJSON(pricingData: Record<string, PricingEntry>): void {
-    for (const [key, entry] of Object.entries(pricingData)) {
-      this.prices.set(key, entry);
-    }
+    this.loadPricingEntries(pricingData, false);
   }
 
-  /**
-   * Get all registered prices as a record
-   */
   getAllPrices(): Record<string, PricingEntry> {
-    const result: Record<string, PricingEntry> = {};
-    for (const [key, entry] of this.prices.entries()) {
-      result[key] = entry;
+    const prices: Record<string, PricingEntry> = {};
+    for (const [key, value] of this.prices.entries()) {
+      prices[key] = value;
     }
-    return result;
+    return prices;
   }
 
-  /**
-   * Clear all pricing data
-   */
   clear(): void {
     this.prices.clear();
   }
+
+  private loadDefaultSeedPricing(): void {
+    const failClosed =
+      this.options.failOnUnseededPricing || this.options.isProduction;
+
+    try {
+      const parsedSeed = this.parsePricingData(defaultPricing);
+      const loadedCount = this.loadPricingEntries(parsedSeed, !failClosed);
+      console.log(
+        `[cost/pricing] Loaded ${loadedCount} seeded prices`,
+      );
+      if (loadedCount === 0 && failClosed) {
+        throw new PricingError("No valid entries found in pricing.default.json");
+      }
+    } catch (error) {
+      if (failClosed) {
+        throw new PricingError("Failed to load pricing.default.json", error);
+      }
+      console.warn(
+        "[cost/pricing] Failed to load seeded pricing. Continuing in non-production mode.",
+      );
+    }
+  }
+
+  private normalizePricingEntry(key: string, entry: PricingEntry): PricingEntry {
+    const rawEntry = this.parsePricingDataEntry(key, entry);
+    const inputPrice = this.parseFiniteNumber(rawEntry.inputPrice, key, "inputPrice");
+    const outputPrice = this.parseFiniteNumber(
+      rawEntry.outputPrice,
+      key,
+      "outputPrice",
+    );
+    const currency = this.parseCurrency(rawEntry.currency, key);
+    const effectiveDateCandidate = this.parseOptionalString(rawEntry.effectiveDate);
+    const lastUpdatedCandidate = this.parseOptionalString(rawEntry.lastUpdated);
+    const effectiveDate = effectiveDateCandidate ?? lastUpdatedCandidate;
+
+    if (!effectiveDate) {
+      throw new PricingError(
+        `Pricing entry ${key} must include effectiveDate or lastUpdated`,
+      );
+    }
+
+    return {
+      inputPrice,
+      outputPrice,
+      currency,
+      effectiveDate,
+      lastUpdated: lastUpdatedCandidate ?? effectiveDate,
+      metadata: this.parseMetadata(rawEntry.metadata, key),
+    };
+  }
+
+  private validateStaleness(key: string, entry: PricingEntry): void {
+    const dateString = entry.effectiveDate ?? entry.lastUpdated;
+    if (!dateString) {
+      return;
+    }
+
+    const parsed = new Date(dateString);
+    if (Number.isNaN(parsed.getTime())) {
+      throw new PricingError(
+        `Pricing entry ${key} has invalid date: ${dateString}`,
+      );
+    }
+
+    const ageMs = Date.now() - parsed.getTime();
+    const ageDays = Math.floor(ageMs / (1000 * 60 * 60 * 24));
+    if (ageDays <= this.options.staleThresholdDays) {
+      return;
+    }
+
+    const source = entry.metadata?.source ?? "unknown";
+    const version = entry.metadata?.version ?? "unknown";
+    const message =
+      `Stale pricing detected for ${key}: ${ageDays} days old ` +
+      `(threshold=${this.options.staleThresholdDays}, source=${source}, version=${version})`;
+
+    if (this.options.failOnStale || this.options.isProduction) {
+      throw new PricingError(message);
+    }
+    if (!detectTestEnvironment()) {
+      console.warn(`[cost/pricing] ${message}`);
+    }
+  }
+
+  private loadPricingEntries(
+    pricingData: Record<string, PricingEntry>,
+    skipInvalidEntries: boolean,
+  ): number {
+    let loadedCount = 0;
+    for (const [key, entry] of Object.entries(pricingData)) {
+      try {
+        const normalized = this.normalizePricingEntry(key, entry);
+        this.validateStaleness(key, normalized);
+        this.prices.set(key, normalized);
+        loadedCount += 1;
+      } catch (error) {
+        if (!skipInvalidEntries) {
+          throw error;
+        }
+        console.warn(
+          `[cost/pricing] Skipping invalid pricing entry ${key}: ${getErrorMessage(error)}`,
+        );
+      }
+    }
+    return loadedCount;
+  }
+
+  private parsePricingData(pricingData: unknown): Record<string, PricingEntry> {
+    if (
+      !pricingData ||
+      typeof pricingData !== "object" ||
+      Array.isArray(pricingData)
+    ) {
+      throw new PricingError("Pricing JSON must be an object map");
+    }
+    return pricingData as Record<string, PricingEntry>;
+  }
+
+  private parsePricingDataEntry(
+    key: string,
+    entry: PricingEntry,
+  ): Record<string, unknown> {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      throw new PricingError(`Pricing entry ${key} must be an object`);
+    }
+    return entry as unknown as Record<string, unknown>;
+  }
+
+  private parseFiniteNumber(
+    value: unknown,
+    key: string,
+    fieldName: "inputPrice" | "outputPrice",
+  ): number {
+    const parsed =
+      typeof value === "number"
+        ? value
+        : typeof value === "string"
+          ? Number(value)
+          : Number.NaN;
+    if (!Number.isFinite(parsed)) {
+      throw new PricingError(`Pricing entry ${key} has invalid ${fieldName}`);
+    }
+    return parsed;
+  }
+
+  private parseCurrency(value: unknown, key: string): string {
+    if (typeof value === "string" && value.trim().length > 0) {
+      return value;
+    }
+    throw new PricingError(`Pricing entry ${key} has invalid currency`);
+  }
+
+  private parseOptionalString(value: unknown): string | undefined {
+    if (value === undefined || value === null) {
+      return undefined;
+    }
+    if (typeof value !== "string") {
+      throw new PricingError("Pricing date fields must be strings");
+    }
+    const normalized = value.trim();
+    return normalized.length > 0 ? normalized : undefined;
+  }
+
+  private parseMetadata(
+    value: unknown,
+    key: string,
+  ): { source?: string; version?: string } {
+    if (value === undefined || value === null) {
+      return {};
+    }
+    if (typeof value !== "object" || Array.isArray(value)) {
+      throw new PricingError(`Pricing entry ${key} has invalid metadata`);
+    }
+    const metadata = value as Record<string, unknown>;
+    const source = this.parseMetadataField(metadata.source, "source", key);
+    const version = this.parseMetadataField(metadata.version, "version", key);
+    return {
+      ...(source ? { source } : {}),
+      ...(version ? { version } : {}),
+    };
+  }
+
+  private parseMetadataField(
+    value: unknown,
+    field: "source" | "version",
+    key: string,
+  ): string | undefined {
+    if (value === undefined || value === null) {
+      return undefined;
+    }
+    if (typeof value !== "string") {
+      throw new PricingError(`Pricing entry ${key} has invalid metadata.${field}`);
+    }
+    const normalized = value.trim();
+    return normalized.length > 0 ? normalized : undefined;
+  }
+}
+
+function detectProductionEnvironment(): boolean {
+  if (typeof process === "undefined") {
+    return false;
+  }
+  return process.env?.NODE_ENV === "production";
+}
+
+function detectTestEnvironment(): boolean {
+  if (typeof process === "undefined") {
+    return false;
+  }
+  return process.env?.NODE_ENV === "test";
 }
 
 export class PricingError extends Error {
-  constructor(message: string) {
-    super(`[cost/pricing] ${message}`);
+  constructor(message: string, cause?: unknown) {
+    super(`[cost/pricing] ${message}`, { cause });
     this.name = "PricingError";
   }
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "unknown pricing error";
 }

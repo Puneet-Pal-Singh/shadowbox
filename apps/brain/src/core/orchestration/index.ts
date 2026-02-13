@@ -5,6 +5,7 @@ export {
   TaskScheduler,
   SchedulerError,
   type ITaskScheduler,
+  type SchedulerHooks,
   type TaskExecutor as ITaskExecutor,
 } from "./TaskScheduler";
 
