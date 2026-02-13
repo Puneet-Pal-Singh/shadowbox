@@ -14,6 +14,7 @@ import type { Plan } from "../planner";
 import { PlanSchema } from "../planner";
 import { BaseAgent } from "./BaseAgent";
 import { UnsupportedTaskTypeError } from "./CodingAgent";
+import { validateSafePath, extractStructuredField } from "./validation";
 
 export class ReviewAgent extends BaseAgent {
   readonly type: AgentType = "review";
@@ -105,8 +106,11 @@ Rules:
     task: Task,
     _context: ExecutionContext,
   ): Promise<TaskResult> {
+    const path = extractStructuredField(task.input, "path") ?? task.input.description;
+    validateSafePath(path);
+
     const result = await this.executionService.execute("filesystem", "read", {
-      path: task.input.description,
+      path,
     });
 
     const analysis = await this.aiService.generateText({

@@ -8,11 +8,13 @@ import type {
   SynthesisContext,
   AgentType,
   TaskResult,
+  TaskInput,
 } from "../../types";
 import type { Task } from "../task";
 import type { Plan } from "../planner";
 import { PlanSchema } from "../planner";
 import { BaseAgent } from "./BaseAgent";
+import { validateSafePath, extractStructuredField } from "./validation";
 
 export class CodingAgent extends BaseAgent {
   readonly type: AgentType = "coding";
@@ -43,17 +45,17 @@ export class CodingAgent extends BaseAgent {
 
     switch (task.type) {
       case "analyze":
-        return this.executeAnalyze(task, context);
+        return this.executeAnalyze(task);
       case "edit":
-        return this.executeEdit(task, context);
+        return this.executeEdit(task);
       case "test":
-        return this.executeTest(task, context);
+        return this.executeTest(task);
       case "shell":
-        return this.executeShell(task, context);
+        return this.executeShell(task);
       case "git":
-        return this.executeGit(task, context);
+        return this.executeGit(task);
       case "review":
-        return this.executeReview(task, context);
+        return this.executeReview(task);
       default:
         throw new UnsupportedTaskTypeError(task.type);
     }
@@ -101,6 +103,11 @@ Output a JSON object with this structure:
   "metadata": { "estimatedSteps": 3, "reasoning": "..." }
 }
 
+For "edit" tasks, include a "content" field in the task input with the file content to write.
+For "git" tasks, include an "action" field with the git operation (e.g., "commit", "push", "status").
+For "test" tasks, include a "command" field with the test command to run (e.g., "npm test").
+For "shell" tasks, include a "command" field with the shell command.
+
 Rules:
 1. Start with "analyze" tasks to understand the codebase
 2. Follow with "edit" tasks to make changes
@@ -110,63 +117,66 @@ Rules:
 6. Keep tasks atomic and under 20 total`;
   }
 
-  private async executeAnalyze(
-    task: Task,
-    _context: ExecutionContext,
-  ): Promise<TaskResult> {
+  private async executeAnalyze(task: Task): Promise<TaskResult> {
+    const path = extractStructuredField(task.input, "path") ?? task.input.description;
+    validateSafePath(path);
+
     const result = await this.executionService.execute("filesystem", "read", {
-      path: task.input.description,
+      path,
     });
     return this.buildSuccessResult(task.id, String(result));
   }
 
-  private async executeEdit(
-    task: Task,
-    _context: ExecutionContext,
-  ): Promise<TaskResult> {
+  private async executeEdit(task: Task): Promise<TaskResult> {
+    const path = extractStructuredField(task.input, "path") ?? task.input.description;
+    validateSafePath(path);
+
+    const content = extractStructuredField(task.input, "content");
+    if (!content) {
+      throw new TaskInputError("edit", "Missing 'content' field in task input");
+    }
+
     const result = await this.executionService.execute("filesystem", "write", {
-      path: task.input.description,
-      content: task.input.expectedOutput ?? "",
+      path,
+      content,
     });
     return this.buildSuccessResult(task.id, String(result));
   }
 
-  private async executeTest(
-    task: Task,
-    _context: ExecutionContext,
-  ): Promise<TaskResult> {
+  private async executeTest(task: Task): Promise<TaskResult> {
+    const command = extractStructuredField(task.input, "command") ?? task.input.description;
+    validateShellCommand(command);
+
     const result = await this.executionService.execute("shell", "execute", {
-      command: "npm test",
+      command,
     });
     return this.buildSuccessResult(task.id, String(result));
   }
 
-  private async executeShell(
-    task: Task,
-    _context: ExecutionContext,
-  ): Promise<TaskResult> {
+  private async executeShell(task: Task): Promise<TaskResult> {
+    const command = extractStructuredField(task.input, "command") ?? task.input.description;
+    validateShellCommand(command);
+
     const result = await this.executionService.execute("shell", "execute", {
-      command: task.input.description,
+      command,
     });
     return this.buildSuccessResult(task.id, String(result));
   }
 
-  private async executeGit(
-    task: Task,
-    _context: ExecutionContext,
-  ): Promise<TaskResult> {
-    const result = await this.executionService.execute(
-      "git",
-      task.input.description,
-      {},
-    );
+  private async executeGit(task: Task): Promise<TaskResult> {
+    const action = extractStructuredField(task.input, "action");
+    if (!action) {
+      throw new TaskInputError("git", "Missing 'action' field in task input (e.g., 'commit', 'push', 'status')");
+    }
+    validateGitAction(action);
+
+    const result = await this.executionService.execute("git", action, {
+      message: task.input.description,
+    });
     return this.buildSuccessResult(task.id, String(result));
   }
 
-  private async executeReview(
-    task: Task,
-    _context: ExecutionContext,
-  ): Promise<TaskResult> {
+  private async executeReview(task: Task): Promise<TaskResult> {
     const content = await this.aiService.generateText({
       messages: [
         { role: "system", content: "Review the following code and provide feedback." },
@@ -186,9 +196,37 @@ Rules:
   }
 }
 
+const ALLOWED_GIT_ACTIONS = [
+  "commit", "push", "pull", "status", "diff", "log",
+  "add", "checkout", "branch", "merge", "rebase", "stash",
+  "clone", "fetch", "reset", "tag",
+] as const;
+
+function validateGitAction(action: string): void {
+  if (!ALLOWED_GIT_ACTIONS.includes(action as typeof ALLOWED_GIT_ACTIONS[number])) {
+    throw new TaskInputError(
+      "git",
+      `Invalid git action: "${action}". Allowed: ${ALLOWED_GIT_ACTIONS.join(", ")}`,
+    );
+  }
+}
+
+function validateShellCommand(command: string): void {
+  if (!command || command.trim().length === 0) {
+    throw new TaskInputError("shell", "Empty shell command");
+  }
+}
+
 export class UnsupportedTaskTypeError extends Error {
   constructor(taskType: string) {
     super(`[agents/coding] Unsupported task type: ${taskType}`);
     this.name = "UnsupportedTaskTypeError";
+  }
+}
+
+export class TaskInputError extends Error {
+  constructor(taskType: string, message: string) {
+    super(`[agents/coding] ${taskType}: ${message}`);
+    this.name = "TaskInputError";
   }
 }

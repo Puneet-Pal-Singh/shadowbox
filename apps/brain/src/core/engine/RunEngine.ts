@@ -72,7 +72,7 @@ export class RunEngine implements IRunEngine {
     this.agent = agent;
 
     const taskExecutor = agent
-      ? new AgentTaskExecutor(agent, options.runId)
+      ? new AgentTaskExecutor(agent, options.runId, this.taskRepo)
       : new DefaultTaskExecutor();
     this.scheduler = new TaskScheduler(this.taskRepo, taskExecutor);
   }

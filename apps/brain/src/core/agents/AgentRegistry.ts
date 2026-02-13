@@ -1,12 +1,17 @@
 // apps/brain/src/core/agents/AgentRegistry.ts
 // Phase 3D: Registry for looking up agents by type
 
-import type { AgentType, IAgent } from "../../types";
+import type { AgentType, IAgent, IAgentRegistry } from "../../types";
 
-export class AgentRegistry {
+export class AgentRegistry implements IAgentRegistry {
   private agents: Map<string, IAgent> = new Map();
 
   register(agent: IAgent): void {
+    if (this.agents.has(agent.type)) {
+      console.warn(
+        `[agents/registry] Overwriting existing agent for type: ${agent.type}`,
+      );
+    }
     console.log(`[agents/registry] Registered agent: ${agent.type}`);
     this.agents.set(agent.type, agent);
   }

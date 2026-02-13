@@ -92,7 +92,7 @@ export interface AgentCapability {
 export interface PlanContext {
   run: import("../core/run").Run;
   prompt: string;
-  history: unknown;
+  history?: unknown;
 }
 
 export interface ExecutionContext {
@@ -116,7 +116,7 @@ export interface IAgent {
 
 export interface IAgentRegistry {
   register(agent: IAgent): void;
-  get(type: string): IAgent | undefined;
+  get(type: string): IAgent;
   has(type: string): boolean;
   getAvailableTypes(): string[];
 }
