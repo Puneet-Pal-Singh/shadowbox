@@ -70,3 +70,6 @@ export { MockPricingProvider } from './pricing/index.js'
 // Cost tracking
 export { CostTracker, CostCalculator } from './cost/index.js'
 export type { Cost, CostSummary } from './cost/index.js'
+
+// Runtime extraction surface (Phase 3.2+)
+export * from './runtime/index.js'
