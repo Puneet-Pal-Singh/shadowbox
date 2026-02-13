@@ -81,10 +81,13 @@ export class DurableObjectStateManager implements StateManager {
         throw new StateManagerError(`Run not found: ${runId}`);
       }
 
+      // Capture old status before transition for logging
+      const oldStatus = run.status;
+
       // Validate state transition
-      if (!this.isValidRunTransition(run.status, newState)) {
+      if (!this.isValidRunTransition(oldStatus, newState)) {
         throw new StateManagerError(
-          `Invalid state transition: ${run.status} -> ${newState}`,
+          `Invalid state transition: ${oldStatus} -> ${newState}`,
         );
       }
 
@@ -96,7 +99,7 @@ export class DurableObjectStateManager implements StateManager {
 
       await this.runRepository.update(run);
       console.log(
-        `[state/manager] Transitioned run ${runId}: ${run.status} -> ${newState}`,
+        `[state/manager] Transitioned run ${runId}: ${oldStatus} -> ${newState}`,
       );
 
       return run;
@@ -161,6 +164,9 @@ export class DurableObjectStateManager implements StateManager {
         throw new StateManagerError(`Task not found: ${taskId}`);
       }
 
+      // Capture old status before transition for logging
+      const oldStatus = task.status;
+
       const updateData: {
         output?: typeof task.output;
         error?: typeof task.error;
@@ -179,7 +185,7 @@ export class DurableObjectStateManager implements StateManager {
       await this.taskRepository.update(task);
 
       console.log(
-        `[state/manager] Transitioned task ${taskId}: ${task.status} -> ${newState}`,
+        `[state/manager] Transitioned task ${taskId}: ${oldStatus} -> ${newState}`,
       );
 
       return task;
@@ -232,6 +238,8 @@ export class DurableObjectStateManager implements StateManager {
   /**
    * Cancel run and all pending tasks
    * Wraps in blockConcurrencyWhile for thread safety
+   * Note: This method inlines the run transition logic to avoid nested
+   * blockConcurrencyWhile calls which can cause reentrancy issues.
    */
   async cancelRun(runId: string, reason: string): Promise<Run> {
     return await this.storage.blockConcurrencyWhile(async () => {
@@ -245,13 +253,33 @@ export class DurableObjectStateManager implements StateManager {
         }
       }
 
-      // Cancel the run
-      const run = await this.transitionRun(runId, "CANCELLED", {
+      // Cancel the run - inline the transition logic to avoid nested blockConcurrencyWhile
+      const run = await this.runRepository.getById(runId);
+      if (!run) {
+        throw new StateManagerError(`Run not found: ${runId}`);
+      }
+
+      const oldStatus = run.status;
+
+      // Validate transition
+      if (!this.isValidRunTransition(oldStatus, "CANCELLED")) {
+        throw new StateManagerError(
+          `Invalid state transition: ${oldStatus} -> CANCELLED`,
+        );
+      }
+
+      run.transition("CANCELLED");
+      Object.assign(run.metadata, {
         cancelledReason: reason,
         cancelledAt: new Date().toISOString(),
       });
 
+      await this.runRepository.update(run);
+      console.log(
+        `[state/manager] Transitioned run ${runId}: ${oldStatus} -> CANCELLED`,
+      );
       console.log(`[state/manager] Cancelled run ${runId}: ${reason}`);
+
       return run;
     });
   }
