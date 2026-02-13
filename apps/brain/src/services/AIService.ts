@@ -294,10 +294,18 @@ export class AIService {
     const baseURL =
       this.env.LITELLM_BASE_URL ?? "https://api.groq.com/openai/v1";
 
+    const defaultModel = this.env.DEFAULT_MODEL;
+    if (!defaultModel) {
+      throw new ProviderError(
+        "litellm",
+        "DEFAULT_MODEL is required for LiteLLM provider",
+      );
+    }
+
     return new LiteLLMAdapter({
       apiKey,
       baseURL,
-      defaultModel: this.env.DEFAULT_MODEL,
+      defaultModel,
     });
   }
 
@@ -337,16 +345,33 @@ export class AIService {
       case "anthropic":
         return this.getAnthropicModel(selectedModel);
       case "openai":
+        return this.getOpenAICompatibleModel(selectedModel, "openai");
       case "litellm":
       default:
-        return this.getOpenAICompatibleModel(selectedModel);
+        return this.getOpenAICompatibleModel(selectedModel, "litellm");
     }
   }
 
-  private getOpenAICompatibleModel(model: string) {
-    const apiKey = this.env.GROQ_API_KEY ?? this.env.OPENAI_API_KEY;
-    const baseURL =
-      this.env.LITELLM_BASE_URL ?? "https://api.groq.com/openai/v1";
+  private getOpenAICompatibleModel(model: string, provider: string) {
+    let apiKey: string;
+    let baseURL: string;
+
+    if (provider === "openai") {
+      apiKey = this.env.OPENAI_API_KEY ?? "";
+      if (!apiKey) {
+        throw new ProviderError("openai", "Missing OPENAI_API_KEY");
+      }
+      baseURL = "https://api.openai.com/v1";
+    } else {
+      apiKey = this.env.GROQ_API_KEY ?? this.env.OPENAI_API_KEY ?? "";
+      if (!apiKey) {
+        throw new ProviderError(
+          "litellm",
+          "Missing GROQ_API_KEY or OPENAI_API_KEY",
+        );
+      }
+      baseURL = this.env.LITELLM_BASE_URL ?? "https://api.groq.com/openai/v1";
+    }
 
     const client = createOpenAI({
       baseURL,

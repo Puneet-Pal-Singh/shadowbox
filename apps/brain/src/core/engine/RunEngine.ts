@@ -11,6 +11,7 @@ import {
   PricingRegistry,
   BudgetManager,
   BudgetExceededError,
+  type IPricingRegistry,
 } from "../cost";
 import { PlannerService } from "../planner";
 import { TaskScheduler } from "../orchestration";
@@ -82,15 +83,19 @@ export class RunEngine implements IRunEngine {
     ctx: DurableObjectState,
     private options: RunEngineOptions,
     agent?: IAgent,
+    pricingRegistry?: PricingRegistry,
   ) {
     this.runRepo = new RunRepository(ctx);
     this.taskRepo = new TaskRepository(ctx);
-    this.pricingRegistry = new PricingRegistry();
+    this.pricingRegistry = pricingRegistry ?? new PricingRegistry();
     this.costTracker = new CostTracker(ctx, this.pricingRegistry);
     this.budgetManager = new BudgetManager(
       this.costTracker,
       this.pricingRegistry,
+      undefined,
+      ctx,
     );
+    this.budgetManager.loadSessionCosts();
     this.aiService = new AIService(options.env);
     this.planner = new PlannerService(this.aiService);
     this.agent = agent;

@@ -66,7 +66,7 @@ describe("PricingRegistry", () => {
       expect(cost.pricingSource).toBe("provider");
     });
 
-    it("should use Tier 2: registry pricing for known models", () => {
+    it("should use Tier 3: registry pricing for known models", () => {
       const usage: LLMUsage = {
         provider: "openai",
         model: "gpt-4o",

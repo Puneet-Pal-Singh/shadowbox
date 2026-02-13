@@ -1,6 +1,7 @@
 // apps/brain/src/core/cost/BudgetManager.ts
 // Phase 3.1: Budget enforcement for cost control
 
+import type { DurableObjectState } from "@cloudflare/workers-types";
 import type { ICostTracker } from "./CostTracker";
 import type { IPricingRegistry } from "./PricingRegistry";
 import type { BudgetConfig, BudgetCheckResult, LLMUsage } from "./types";
@@ -21,6 +22,7 @@ export interface IBudgetManager {
   isOverSessionBudget(sessionId: string): Promise<boolean>;
   startSession(sessionId: string): Promise<void>;
   endSession(sessionId: string): Promise<void>;
+  loadSessionCosts(): Promise<void>;
 }
 
 /**
@@ -36,17 +38,49 @@ export interface IBudgetManager {
  * Note: PricingRegistry must be injected to avoid hardcoding rates.
  * The registry should be loaded from external configuration.
  */
+const SESSION_COSTS_KEY = "session:costs";
+
 export class BudgetManager implements IBudgetManager {
   private config: BudgetConfig;
   private sessionCosts: Map<string, number> = new Map();
+  private storage?: DurableObjectState;
 
   constructor(
     private costTracker: ICostTracker,
     private pricingRegistry: IPricingRegistry,
     config?: Partial<BudgetConfig>,
+    storage?: DurableObjectState,
   ) {
     this.config = { ...DEFAULT_BUDGET, ...config };
+    this.storage = storage;
     this.validateConfig();
+  }
+
+  async loadSessionCosts(): Promise<void> {
+    if (!this.storage) {
+      console.log(
+        "[cost/budget] No storage available, using in-memory session costs",
+      );
+      return;
+    }
+
+    const savedCosts =
+      await this.storage.storage.get<Record<string, number>>(SESSION_COSTS_KEY);
+    if (savedCosts) {
+      this.sessionCosts = new Map(Object.entries(savedCosts));
+      console.log(
+        `[cost/budget] Loaded ${this.sessionCosts.size} session costs from storage`,
+      );
+    }
+  }
+
+  private async persistSessionCosts(): Promise<void> {
+    if (!this.storage) {
+      return;
+    }
+
+    const costsObj = Object.fromEntries(this.sessionCosts);
+    await this.storage.storage.put(SESSION_COSTS_KEY, costsObj);
   }
 
   /**
@@ -207,14 +241,6 @@ export class BudgetManager implements IBudgetManager {
   }
 
   /**
-   * Record actual cost after LLM call completes (run-level)
-   */
-  async recordRunCost(runId: string, actualCost: number): Promise<void> {
-    const currentCost = await this.costTracker.getCurrentCost(runId);
-    // CostTracker handles the actual recording
-  }
-
-  /**
    * Record actual cost after LLM call completes (session-level)
    */
   async recordSessionCost(
@@ -223,6 +249,7 @@ export class BudgetManager implements IBudgetManager {
   ): Promise<void> {
     const currentCost = this.sessionCosts.get(sessionId) ?? 0;
     this.sessionCosts.set(sessionId, currentCost + actualCost);
+    await this.persistSessionCosts();
     console.log(
       `[cost/budget] Recorded session cost for ${sessionId}: $${actualCost.toFixed(4)} (total: $${(currentCost + actualCost).toFixed(4)})`,
     );
@@ -278,6 +305,7 @@ export class BudgetManager implements IBudgetManager {
   async startSession(sessionId: string): Promise<void> {
     if (!this.sessionCosts.has(sessionId)) {
       this.sessionCosts.set(sessionId, 0);
+      await this.persistSessionCosts();
       console.log(`[cost/budget] Started session ${sessionId}`);
     }
   }
@@ -288,6 +316,7 @@ export class BudgetManager implements IBudgetManager {
   async endSession(sessionId: string): Promise<void> {
     const cost = this.sessionCosts.get(sessionId) ?? 0;
     this.sessionCosts.delete(sessionId);
+    await this.persistSessionCosts();
     console.log(
       `[cost/budget] Ended session ${sessionId} (total cost: $${cost.toFixed(4)})`,
     );

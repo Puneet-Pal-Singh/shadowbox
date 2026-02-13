@@ -10,7 +10,7 @@ import {
 interface LiteLLMConfig {
   apiKey: string;
   baseURL: string;
-  defaultModel?: string;
+  defaultModel: string;
   supportedModels?: string[];
 }
 
@@ -19,10 +19,16 @@ export class LiteLLMAdapter extends OpenAICompatibleAdapter {
   readonly supportedModels: string[];
 
   constructor(config: LiteLLMConfig) {
+    if (!config.defaultModel || config.defaultModel.trim() === "") {
+      throw new Error(
+        "[adapter/litellm] defaultModel is required and cannot be empty",
+      );
+    }
+
     const adapterConfig: OpenAICompatibleConfig = {
       apiKey: config.apiKey,
       baseURL: config.baseURL,
-      defaultModel: config.defaultModel ?? "",
+      defaultModel: config.defaultModel,
       supportedModels: config.supportedModels ?? [],
     };
     super(adapterConfig);
