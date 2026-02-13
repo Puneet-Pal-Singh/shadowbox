@@ -7,6 +7,8 @@ import type { LLMUsage, CalculatedCost, PricingEntry } from "./types";
 export interface PricingRegistryOptions {
   failOnUnseededPricing?: boolean;
   isProduction?: boolean;
+  staleThresholdDays?: number;
+  failOnStale?: boolean;
 }
 
 export interface IPricingRegistry {
@@ -28,6 +30,8 @@ export class PricingRegistry implements IPricingRegistry {
     this.options = {
       failOnUnseededPricing: options?.failOnUnseededPricing ?? false,
       isProduction: options?.isProduction ?? detectProductionEnvironment(),
+      staleThresholdDays: options?.staleThresholdDays ?? 90,
+      failOnStale: options?.failOnStale ?? false,
     };
 
     if (initialPricing) {
@@ -77,13 +81,18 @@ export class PricingRegistry implements IPricingRegistry {
   }
 
   registerPrice(provider: string, model: string, entry: PricingEntry): void {
-    this.prices.set(`${provider}:${model}`, entry);
-    console.log(`[cost/pricing] Registered pricing: ${provider}:${model}`);
+    const key = `${provider}:${model}`;
+    const normalized = this.normalizePricingEntry(key, entry);
+    this.validateStaleness(key, normalized);
+    this.prices.set(key, normalized);
+    console.log(`[cost/pricing] Registered pricing: ${key}`);
   }
 
   loadFromJSON(pricingData: Record<string, PricingEntry>): void {
     for (const [key, entry] of Object.entries(pricingData)) {
-      this.prices.set(key, entry);
+      const normalized = this.normalizePricingEntry(key, entry);
+      this.validateStaleness(key, normalized);
+      this.prices.set(key, normalized);
     }
   }
 
@@ -116,6 +125,55 @@ export class PricingRegistry implements IPricingRegistry {
       );
     }
   }
+
+  private normalizePricingEntry(key: string, entry: PricingEntry): PricingEntry {
+    const effectiveDate = entry.effectiveDate ?? entry.lastUpdated;
+    if (!effectiveDate) {
+      throw new PricingError(
+        `Pricing entry ${key} must include effectiveDate or lastUpdated`,
+      );
+    }
+
+    return {
+      ...entry,
+      effectiveDate,
+      lastUpdated: entry.lastUpdated ?? effectiveDate,
+      metadata: entry.metadata ?? {},
+    };
+  }
+
+  private validateStaleness(key: string, entry: PricingEntry): void {
+    const dateString = entry.effectiveDate ?? entry.lastUpdated;
+    if (!dateString) {
+      return;
+    }
+
+    const parsed = new Date(dateString);
+    if (Number.isNaN(parsed.getTime())) {
+      throw new PricingError(
+        `Pricing entry ${key} has invalid date: ${dateString}`,
+      );
+    }
+
+    const ageMs = Date.now() - parsed.getTime();
+    const ageDays = Math.floor(ageMs / (1000 * 60 * 60 * 24));
+    if (ageDays <= this.options.staleThresholdDays) {
+      return;
+    }
+
+    const source = entry.metadata?.source ?? "unknown";
+    const version = entry.metadata?.version ?? "unknown";
+    const message =
+      `Stale pricing detected for ${key}: ${ageDays} days old ` +
+      `(threshold=${this.options.staleThresholdDays}, source=${source}, version=${version})`;
+
+    if (this.options.failOnStale || this.options.isProduction) {
+      throw new PricingError(message);
+    }
+    if (!detectTestEnvironment()) {
+      console.warn(`[cost/pricing] ${message}`);
+    }
+  }
 }
 
 function detectProductionEnvironment(): boolean {
@@ -123,6 +181,13 @@ function detectProductionEnvironment(): boolean {
     return false;
   }
   return process.env?.NODE_ENV === "production";
+}
+
+function detectTestEnvironment(): boolean {
+  if (typeof process === "undefined") {
+    return false;
+  }
+  return process.env?.NODE_ENV === "test";
 }
 
 export class PricingError extends Error {

@@ -32,10 +32,11 @@ export class CostTracker implements ICostTracker {
   async recordLLMUsage(runId: string, usage: LLMUsage): Promise<void> {
     const resolution = this.pricingResolver.resolve(usage, usage.raw);
     const timestamp = new Date().toISOString();
+    const idempotencyKey = await this.buildIdempotencyKey(runId, usage);
 
     const event: CostEvent = {
       eventId: crypto.randomUUID(),
-      idempotencyKey: crypto.randomUUID(),
+      idempotencyKey,
       runId,
       // Compatibility path does not have explicit sessionId/task context.
       sessionId: runId,
@@ -65,6 +66,29 @@ export class CostTracker implements ICostTracker {
 
   async getCurrentCost(runId: string): Promise<number> {
     return this.ledger.getCurrentCost(runId);
+  }
+
+  private async buildIdempotencyKey(
+    runId: string,
+    usage: LLMUsage,
+  ): Promise<string> {
+    const fingerprint = [
+      runId,
+      usage.provider,
+      usage.model,
+      usage.promptTokens.toString(),
+      usage.completionTokens.toString(),
+      usage.totalTokens.toString(),
+      typeof usage.cost === "number" ? usage.cost.toString() : "",
+    ].join("|");
+
+    const encoded = new TextEncoder().encode(fingerprint);
+    const digest = await crypto.subtle.digest("SHA-256", encoded);
+    const hash = Array.from(new Uint8Array(digest))
+      .map((byte) => byte.toString(16).padStart(2, "0"))
+      .join("");
+
+    return `compat:${hash}`;
   }
 }
 

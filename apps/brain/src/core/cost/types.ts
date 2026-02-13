@@ -80,7 +80,12 @@ export interface PricingEntry {
   inputPrice: number;
   outputPrice: number;
   currency: string;
-  effectiveDate: string;
+  effectiveDate?: string;
+  lastUpdated?: string;
+  metadata?: {
+    source?: string;
+    version?: string;
+  };
 }
 
 export interface BudgetConfig {
