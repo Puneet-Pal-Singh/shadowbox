@@ -77,3 +77,46 @@ export interface TaskExecutionContext {
   runId: string;
   dependencies: TaskResult[];
 }
+
+/**
+ * Agent-related types for Phase 3D agent-based routing.
+ * These types are consumed by RunEngine and ChatController
+ * and implemented by the agents module (apps/brain/src/core/agents/).
+ */
+
+export interface AgentCapability {
+  name: string;
+  description: string;
+}
+
+export interface PlanContext {
+  run: import("../core/run").Run;
+  prompt: string;
+  history?: unknown;
+}
+
+export interface ExecutionContext {
+  runId: string;
+  dependencies: TaskResult[];
+}
+
+export interface SynthesisContext {
+  runId: string;
+  completedTasks: SerializedTask[];
+  originalPrompt: string;
+}
+
+export interface IAgent {
+  readonly type: string;
+  plan(context: PlanContext): Promise<import("../core/planner").Plan>;
+  executeTask(task: import("../core/task").Task, context: ExecutionContext): Promise<TaskResult>;
+  synthesize(context: SynthesisContext): Promise<string>;
+  getCapabilities(): AgentCapability[];
+}
+
+export interface IAgentRegistry {
+  register(agent: IAgent): void;
+  get(type: string): IAgent;
+  has(type: string): boolean;
+  getAvailableTypes(): string[];
+}

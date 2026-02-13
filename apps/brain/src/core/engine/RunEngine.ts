@@ -1,6 +1,6 @@
 // apps/brain/src/core/engine/RunEngine.ts
 // Phase 3B: RunEngine with explicit planning and task orchestration
-// Replaces the wrapped StreamOrchestratorService from Phase 3A
+// Phase 3D: Added IAgent-based routing for agent-driven execution
 
 import type { DurableObjectState } from "@cloudflare/workers-types";
 import type { CoreMessage, CoreTool } from "ai";
@@ -9,10 +9,10 @@ import { Task, TaskRepository } from "../task";
 import { CostTracker } from "../cost";
 import { PlannerService } from "../planner";
 import { TaskScheduler } from "../orchestration";
-import { DefaultTaskExecutor } from "./TaskExecutor";
+import { DefaultTaskExecutor, AgentTaskExecutor } from "./TaskExecutor";
 import { AIService } from "../../services/AIService";
 import type { Env } from "../../types/ai";
-import type { RunInput, RunResult, RunStatus, CostSnapshot } from "../../types";
+import type { RunInput, RunResult, RunStatus, CostSnapshot, IAgent } from "../../types";
 import type { Plan, PlannedTask } from "../planner";
 import { CORS_HEADERS } from "../../lib/cors";
 
@@ -57,17 +57,23 @@ export class RunEngine implements IRunEngine {
   private planner: PlannerService;
   private scheduler: TaskScheduler;
   private aiService: AIService;
+  private agent?: IAgent;
 
   constructor(
-    private ctx: DurableObjectState,
+    ctx: DurableObjectState,
     private options: RunEngineOptions,
+    agent?: IAgent,
   ) {
     this.runRepo = new RunRepository(ctx);
     this.taskRepo = new TaskRepository(ctx);
     this.costTracker = new CostTracker(ctx);
     this.aiService = new AIService(options.env);
     this.planner = new PlannerService(this.aiService);
-    const taskExecutor = new DefaultTaskExecutor();
+    this.agent = agent;
+
+    const taskExecutor = agent
+      ? new AgentTaskExecutor(agent, options.runId, this.taskRepo)
+      : new DefaultTaskExecutor();
     this.scheduler = new TaskScheduler(this.taskRepo, taskExecutor);
   }
 
@@ -88,7 +94,7 @@ export class RunEngine implements IRunEngine {
         run.transition("PLANNING");
         await this.runRepo.update(run);
 
-        const plan = await this.planner.plan(run, input.prompt);
+        const plan = await this.generatePlan(run, input.prompt);
         console.log(
           `[run/engine] Generated plan with ${plan.tasks.length} tasks`,
         );
@@ -115,7 +121,7 @@ export class RunEngine implements IRunEngine {
 
       // 5. SYNTHESIS PHASE - Generate final response
       console.log(`[run/engine] Synthesis phase for run ${runId}`);
-      const finalOutput = await this.synthesizeResult(run.id, input.prompt);
+      const finalOutput = await this.generateSynthesis(run.id, input.prompt);
 
       // 6. Complete the run
       run.transition("COMPLETED");
@@ -213,6 +219,29 @@ export class RunEngine implements IRunEngine {
         expectedOutput: planned.expectedOutput,
       },
     );
+  }
+
+  private async generatePlan(run: Run, prompt: string): Promise<Plan> {
+    if (this.agent) {
+      console.log(`[run/engine] Using agent-based planning (${this.agent.type})`);
+      return this.agent.plan({ run, prompt, history: undefined });
+    }
+    return this.planner.plan(run, prompt);
+  }
+
+  private async generateSynthesis(
+    runId: string,
+    originalPrompt: string,
+  ): Promise<string> {
+    if (this.agent) {
+      console.log(`[run/engine] Using agent-based synthesis (${this.agent.type})`);
+      const tasks = await this.taskRepo.getByRun(runId);
+      const completedTasks = tasks
+        .filter((t) => t.status === "DONE")
+        .map((t) => t.toJSON());
+      return this.agent.synthesize({ runId, completedTasks, originalPrompt });
+    }
+    return this.synthesizeResult(runId, originalPrompt);
   }
 
   private async synthesizeResult(

@@ -9,6 +9,7 @@ import { ContextHydrationService } from "../services/ContextHydrationService";
 import { PersistenceService } from "../services/PersistenceService";
 import { SystemPromptService } from "../services/SystemPromptService";
 import { StreamOrchestratorService } from "../services/StreamOrchestratorService";
+import type { AgentType } from "../types";
 
 interface ChatRequestBody {
   messages?: Message[];
@@ -59,6 +60,35 @@ export class ChatController {
         error instanceof Error ? error.message : "Internal Server Error";
       return errorResponse(req, errorMessage, 500);
     }
+  }
+
+  static async handleAgentInfo(req: Request, _env: Env): Promise<Response> {
+    console.log("[chat/agent-info] Returning available agent types");
+
+    const availableAgents = [
+      {
+        type: "coding" as AgentType,
+        capabilities: [
+          { name: "code_generation", description: "Generate and modify code" },
+          { name: "file_operations", description: "Read, write, and manage files" },
+          { name: "shell_execution", description: "Execute shell commands" },
+        ],
+      },
+      {
+        type: "review" as AgentType,
+        capabilities: [
+          { name: "code_review", description: "Review code for quality and issues" },
+          { name: "security_audit", description: "Check for security vulnerabilities" },
+        ],
+      },
+    ];
+
+    return new Response(JSON.stringify({ agents: availableAgents }), {
+      headers: {
+        ...getCorsHeaders(req),
+        "Content-Type": "application/json",
+      },
+    });
   }
 
   private static async handleChatRequest(
@@ -137,7 +167,20 @@ function extractIdentifiers(body: ChatRequestBody) {
   return {
     sessionId: body.sessionId || "default",
     runId: body.runId || body.agentId || "default",
+    agentType: mapAgentIdToType(body.agentId),
   };
+}
+
+function mapAgentIdToType(agentId?: string): AgentType {
+  if (!agentId) return "coding";
+
+  const agentTypeMap: Record<string, AgentType> = {
+    review: "review",
+    ci: "ci",
+    coding: "coding",
+  };
+
+  return agentTypeMap[agentId] ?? "coding";
 }
 
 function errorResponse(req: Request, message: string, status: number): Response {

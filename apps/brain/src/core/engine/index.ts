@@ -8,4 +8,4 @@ export {
   type RunEngineOptions,
 } from "./RunEngine";
 
-export { DefaultTaskExecutor } from "./TaskExecutor";
+export { DefaultTaskExecutor, AgentTaskExecutor } from "./TaskExecutor";
