@@ -46,7 +46,6 @@ const UpsertSnapshotPayloadSchema = z.object({
 export class SessionMemoryRuntime extends DurableObject {
   private memoryStore: SessionMemoryStore;
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   constructor(ctx: any, _env: Env) {
     super(ctx, _env);
     this.memoryStore = new SessionMemoryStore({ ctx });
