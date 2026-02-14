@@ -76,7 +76,7 @@ export class RunEngineRuntime extends DurableObject {
 
   private async withExecutionLock<T>(operation: () => Promise<T>): Promise<T> {
     const previous = this.executionQueue;
-    let release: (() => void) | null = null;
+    let release: () => void = () => {};
     this.executionQueue = new Promise<void>((resolve) => {
       release = resolve;
     });
@@ -85,7 +85,7 @@ export class RunEngineRuntime extends DurableObject {
     try {
       return await operation();
     } finally {
-      release?.();
+      release();
     }
   }
 }
