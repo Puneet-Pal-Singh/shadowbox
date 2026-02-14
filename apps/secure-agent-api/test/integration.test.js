@@ -1,7 +1,9 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
+import { isApiAvailable } from './utils.js';
 
 const API_URL = "http://localhost:8787";
+const API_AVAILABLE = await isApiAvailable();
 // Use a random session ID so tests don't conflict with each other
 const SESSION_ID = "test-session-" + Math.floor(Math.random() * 10000);
 
@@ -14,7 +16,7 @@ async function sendCommand(plugin, payload) {
   return response.json();
 }
 
-describe('AgentRuntime Integration', () => {
+describe('AgentRuntime Integration', { skip: !API_AVAILABLE }, () => {
 
   it('should run basic Python math', async () => {
     const result = await sendCommand("python", {
