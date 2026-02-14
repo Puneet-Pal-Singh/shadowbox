@@ -6,8 +6,9 @@ import { GitController } from "./controllers/GitController";
 import { handleOptions, getCorsHeaders } from "./lib/cors";
 import { Env } from "./types/ai";
 import { RunEngineRuntime } from "./runtime/RunEngineRuntime";
+import { SessionMemoryRuntime } from "./runtime/SessionMemoryRuntime";
 
-export { RunEngineRuntime };
+export { RunEngineRuntime, SessionMemoryRuntime };
 
 /**
  * Route configuration type with HTTP method support
