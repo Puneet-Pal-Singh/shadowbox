@@ -21,7 +21,7 @@ type DurableObjectState = ConstructorParameters<
 export class SessionMemoryRuntime extends DurableObject {
   private memoryStore: SessionMemoryStore;
 
-  constructor(ctx: unknown, _env: Env) {
+  constructor(ctx: unknown, private _env: Env) {
     super(ctx as ConstructorParameters<typeof DurableObject>[0], _env);
     this.memoryStore = new SessionMemoryStore({
       ctx: ctx as unknown as import("@shadowbox/execution-engine/runtime").RuntimeDurableObjectState,
@@ -30,7 +30,7 @@ export class SessionMemoryRuntime extends DurableObject {
 
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
-    const corsHeaders = getCorsHeaders(request);
+    const corsHeaders = getCorsHeaders(request, this._env);
 
     if (request.method === "OPTIONS") {
       return new Response(null, { headers: corsHeaders });
@@ -108,7 +108,7 @@ export class SessionMemoryRuntime extends DurableObject {
 
     const body = await request.json();
     const schema = z.object({
-      sessionId: z.string(),
+      sessionId: z.string().min(1),
       prompt: z.string(),
       limit: z.number().optional(),
     });
@@ -131,7 +131,7 @@ export class SessionMemoryRuntime extends DurableObject {
   ): Promise<Response> {
     if (request.method === "GET") {
       const sessionId = url.searchParams.get("sessionId");
-      if (!sessionId) {
+      if (!sessionId || sessionId.length === 0) {
         return new Response(JSON.stringify({ error: "sessionId required" }), {
           status: 400,
           headers: { "Content-Type": "application/json", ...headers },
@@ -190,7 +190,7 @@ export class SessionMemoryRuntime extends DurableObject {
     }
 
     const body = await request.json();
-    const { sessionId } = z.object({ sessionId: z.string() }).parse(body);
+    const { sessionId } = z.object({ sessionId: z.string().min(1) }).parse(body);
 
     await this.memoryStore.clearSessionMemory(sessionId);
     return new Response(JSON.stringify({ success: true }), {

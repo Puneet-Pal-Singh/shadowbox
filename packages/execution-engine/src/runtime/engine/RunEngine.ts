@@ -199,18 +199,19 @@ export class RunEngine implements IRunEngine {
       const run = await this.getOrCreateRun(input, runId, sessionId);
 
       console.log(`[run/engine] Retrieving memory context for run ${runId}`);
-      this.currentMemoryContext = await this.memoryCoordinator.retrieveContext({
-        runId,
-        sessionId,
-        prompt: input.prompt,
-        phase: "planning",
-      });
+      this.currentMemoryContext = await this.safeMemoryOperation(
+        () =>
+          this.memoryCoordinator.retrieveContext({
+            runId,
+            sessionId,
+            prompt: input.prompt,
+            phase: "planning",
+          }),
+        undefined,
+      );
 
-      await this.persistConversationMessages(
-        runId,
-        sessionId,
-        messages,
-        "user",
+      await this.safeMemoryOperation(() =>
+        this.persistConversationMessages(runId, sessionId, messages, "user"),
       );
 
       console.log(`[run/engine] Planning phase for run ${runId}`);
@@ -225,13 +226,15 @@ export class RunEngine implements IRunEngine {
         );
         await this.createTasksFromPlan(run.id, plan);
 
-        await this.memoryCoordinator.createCheckpoint({
-          runId,
-          sequence: 1,
-          phase: "planning",
-          runStatus: run.status,
-          taskStatuses: {},
-        });
+        await this.safeMemoryOperation(() =>
+          this.memoryCoordinator.createCheckpoint({
+            runId,
+            sequence: 1,
+            phase: "planning",
+            runStatus: run.status,
+            taskStatuses: {},
+          }),
+        );
       } catch (planError) {
         run.transition("FAILED");
         run.metadata.error =
@@ -271,24 +274,30 @@ export class RunEngine implements IRunEngine {
       });
 
       for (const { taskId, content } of taskResults) {
-        await this.memoryCoordinator.extractAndPersist({
-          runId,
-          sessionId,
-          taskId,
-          source: "task",
-          content,
-          phase: "execution",
-        });
+        await this.safeMemoryOperation(() =>
+          this.memoryCoordinator.extractAndPersist({
+            runId,
+            sessionId,
+            taskId,
+            source: "task",
+            content,
+            phase: "execution",
+          }),
+        );
       }
 
       const allTasks = await this.taskRepo.getByRun(runId);
-      await this.memoryCoordinator.createCheckpoint({
-        runId,
-        sequence: 2,
-        phase: "execution",
-        runStatus: run.status,
-        taskStatuses: Object.fromEntries(allTasks.map((t) => [t.id, t.status])),
-      });
+      await this.safeMemoryOperation(() =>
+        this.memoryCoordinator.createCheckpoint({
+          runId,
+          sequence: 2,
+          phase: "execution",
+          runStatus: run.status,
+          taskStatuses: Object.fromEntries(
+            allTasks.map((t) => [t.id, t.status]),
+          ),
+        }),
+      );
 
       console.log(`[run/engine] Synthesis phase for run ${runId}`);
       const finalOutput = await this.generateSynthesis(
@@ -297,27 +306,33 @@ export class RunEngine implements IRunEngine {
         this.currentMemoryContext,
       );
 
-      await this.memoryCoordinator.extractAndPersist({
-        runId,
-        sessionId,
-        source: "synthesis",
-        content: finalOutput,
-        phase: "synthesis",
-      });
+      await this.safeMemoryOperation(() =>
+        this.memoryCoordinator.extractAndPersist({
+          runId,
+          sessionId,
+          source: "synthesis",
+          content: finalOutput,
+          phase: "synthesis",
+        }),
+      );
 
-      await this.memoryCoordinator.createCheckpoint({
-        runId,
-        sequence: 3,
-        phase: "synthesis",
-        runStatus: "COMPLETED",
-        taskStatuses: {},
-      });
+      await this.safeMemoryOperation(() =>
+        this.memoryCoordinator.createCheckpoint({
+          runId,
+          sequence: 3,
+          phase: "synthesis",
+          runStatus: "COMPLETED",
+          taskStatuses: {},
+        }),
+      );
 
-      await this.persistConversationMessages(
-        runId,
-        sessionId,
-        [{ role: "assistant", content: finalOutput }],
-        "assistant",
+      await this.safeMemoryOperation(() =>
+        this.persistConversationMessages(
+          runId,
+          sessionId,
+          [{ role: "assistant", content: finalOutput }],
+          "assistant",
+        ),
       );
 
       run.transition("COMPLETED");
@@ -605,6 +620,18 @@ Provide a concise summary of what was accomplished.`;
     }
 
     console.error(`[run/engine] Run ${runId} failed:`, errorMessage);
+  }
+
+  private async safeMemoryOperation<T>(
+    operation: () => Promise<T>,
+    fallback?: T,
+  ): Promise<T> {
+    try {
+      return await operation();
+    } catch (error) {
+      console.warn("[run/engine] Memory subsystem operation failed:", error);
+      return fallback as T;
+    }
   }
 
   async getCostSnapshot(runId: string): Promise<CostSnapshot> {

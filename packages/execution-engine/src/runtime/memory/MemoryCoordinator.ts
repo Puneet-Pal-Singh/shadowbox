@@ -75,7 +75,7 @@ export class MemoryCoordinator {
     runStatus: string;
     taskStatuses: Record<string, string>;
   }): Promise<ReplayCheckpoint> {
-    const latestSnapshot = await this.repository.getLatestCheckpoint(
+    const latestCheckpoint = await this.repository.getLatestCheckpoint(
       params.runId,
     );
     const memoryEvents = await this.repository.getEvents(params.runId, "run");
@@ -87,7 +87,7 @@ export class MemoryCoordinator {
       phase: params.phase,
       runStatus: params.runStatus,
       taskStatuses: params.taskStatuses,
-      memorySnapshotVersion: latestSnapshot ? 1 : 0,
+      memorySnapshotVersion: latestCheckpoint ? 1 : 0,
       memoryEventWatermark: memoryEvents.length,
       transcriptSequenceWatermark: params.sequence,
       hash: this.computeCheckpointHash(params),
@@ -111,7 +111,7 @@ export class MemoryCoordinator {
     ]);
 
     if (this.policy.shouldCompact(runEvents.length, "run")) {
-      await this.compactRunMemory(runId, runEvents);
+      await this.compactRunMemory(runId, sessionId, runEvents);
     }
 
     if (this.policy.shouldCompact(sessionEvents.length, "session")) {
@@ -121,14 +121,11 @@ export class MemoryCoordinator {
 
   private async compactRunMemory(
     runId: string,
+    sessionId: string,
     events: MemoryEvent[],
   ): Promise<void> {
-    const snapshot = this.extractor.buildSnapshot(events, "", runId);
-    await this.repository.updateSnapshot({
-      ...snapshot,
-      runId,
-      sessionId: "",
-    });
+    const snapshot = this.extractor.buildSnapshot(events, sessionId, runId);
+    await this.repository.updateSnapshot(snapshot);
   }
 
   private async compactSessionMemory(

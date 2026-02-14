@@ -187,7 +187,7 @@ export class AgentRuntime extends DurableObject {
         tool_call_id: message.tool_call_id,
         id:
           message.id ||
-          `${runId}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          `${runId}-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`,
       };
 
       const processedMessage = await this.storageService.processMessage(
@@ -221,7 +221,8 @@ export class AgentRuntime extends DurableObject {
       }
 
       const timestamp = Date.now().toString().padStart(15, "0");
-      const key = `chat:${runId}:${timestamp}`;
+      const disambiguator = Math.random().toString(36).substring(2, 7);
+      const key = `chat:${runId}:${timestamp}-${disambiguator}`;
       await this.ctx.storage.put(key, processedMessage);
 
       // Store idempotency key
@@ -264,7 +265,11 @@ export class AgentRuntime extends DurableObject {
 
       const allKeysToDelete = [...chatKeys, ...idempotencyKeys];
       if (allKeysToDelete.length > 0) {
-        await this.ctx.storage.delete(allKeysToDelete);
+        // Durable Object storage.delete() has a limit of 128 keys per call
+        for (let i = 0; i < allKeysToDelete.length; i += 128) {
+          const chunk = allKeysToDelete.slice(i, i + 128);
+          await this.ctx.storage.delete(chunk);
+        }
       }
 
       for (let i = 0; i < messages.length; i++) {

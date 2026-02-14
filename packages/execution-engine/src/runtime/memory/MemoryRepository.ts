@@ -105,8 +105,13 @@ export class MemoryRepository {
 
   async updateSnapshot(snapshot: MemorySnapshot): Promise<void> {
     const validated = MemorySnapshotSchema.parse(snapshot);
-    const id = snapshot.runId ?? snapshot.sessionId;
+    const id = snapshot.runId || snapshot.sessionId;
     const scope: MemoryScope = snapshot.runId ? "run" : "session";
+
+    if (!id) {
+      throw new Error("Snapshot must have either runId or sessionId");
+    }
+
     const snapshotKey = this.getSnapshotKey(id, scope);
     await this.ctx.storage.put(snapshotKey, validated);
   }
@@ -173,10 +178,23 @@ export class MemoryRepository {
       this.getSnapshotKey(runId, "run"),
     ];
 
-    const prefix = `run:${runId}:memory:idempotency:`;
-    const idempotencyKeys = await this.ctx.storage.list({ prefix });
+    const idempotencyPrefix = `run:${runId}:memory:idempotency:`;
+    const idempotencyKeys = await this.ctx.storage.list({
+      prefix: idempotencyPrefix,
+    });
     keysToDelete.push(...Array.from(idempotencyKeys.keys()));
 
-    await this.ctx.storage.delete(keysToDelete);
+    const checkpointPrefix = `run:${runId}:memory:checkpoint:`;
+    const checkpointKeys = await this.ctx.storage.list({
+      prefix: checkpointPrefix,
+    });
+    keysToDelete.push(...Array.from(checkpointKeys.keys()));
+
+    if (keysToDelete.length > 0) {
+      for (let i = 0; i < keysToDelete.length; i += 128) {
+        const chunk = keysToDelete.slice(i, i + 128);
+        await this.ctx.storage.delete(chunk);
+      }
+    }
   }
 }

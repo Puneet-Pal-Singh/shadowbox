@@ -213,10 +213,9 @@ export class MemoryExtractor {
   private isConstraintIndicator(line: string): boolean {
     const indicators = [
       "constraint:",
-      "must:",
-      "should:",
+      "must adhere:",
       "requirement:",
-      "important:",
+      "critical path:",
     ];
     return indicators.some((ind) => line.toLowerCase().startsWith(ind));
   }
@@ -224,28 +223,24 @@ export class MemoryExtractor {
   private isDecisionIndicator(line: string): boolean {
     const indicators = [
       "decision:",
-      "decided:",
-      "will:",
-      "choose:",
-      "selected:",
-      "using:",
+      "decided to:",
+      "architectural choice:",
+      "selected approach:",
     ];
     return indicators.some((ind) => line.toLowerCase().startsWith(ind));
   }
 
   private isTodoIndicator(line: string): boolean {
-    const indicators = ["todo:", "task:", "action:", "next:", "then:", "step:"];
+    const indicators = ["todo:", "backlog:", "pending task:", "action item:"];
     return indicators.some((ind) => line.toLowerCase().startsWith(ind));
   }
 
   private isFactIndicator(line: string): boolean {
     const indicators = [
       "fact:",
-      "note:",
-      "remember:",
-      "context:",
-      "the user:",
-      "the project:",
+      "verified context:",
+      "established fact:",
+      "system property:",
     ];
     return indicators.some((ind) => line.toLowerCase().startsWith(ind));
   }
@@ -253,7 +248,8 @@ export class MemoryExtractor {
   private extractContentAfterIndicator(line: string): string | null {
     const colonIndex = line.indexOf(":");
     if (colonIndex > 0 && colonIndex < line.length - 1) {
-      return line.slice(colonIndex + 1).trim();
+      const content = line.slice(colonIndex + 1).trim();
+      return content.length >= 5 ? content : null;
     }
     return null;
   }

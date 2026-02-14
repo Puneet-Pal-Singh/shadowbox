@@ -17,8 +17,12 @@ export class SessionMemoryStore {
     this.ctx = deps.ctx;
   }
 
-  private getSessionEventKey(sessionId: string, eventId: string): string {
-    return `session:${sessionId}:memory:event:${eventId}`;
+  private getSessionEventKey(
+    sessionId: string,
+    createdAt: string,
+    eventId: string,
+  ): string {
+    return `session:${sessionId}:memory:event:${createdAt}:${eventId}`;
   }
 
   private getSessionSnapshotKey(sessionId: string): string {
@@ -46,7 +50,11 @@ export class SessionMemoryStore {
       }
 
       const validated = MemoryEventSchema.parse(event);
-      const eventKey = this.getSessionEventKey(event.sessionId, event.eventId);
+      const eventKey = this.getSessionEventKey(
+        event.sessionId,
+        event.createdAt,
+        event.eventId,
+      );
 
       await this.ctx.storage.put(eventKey, validated);
       await this.ctx.storage.put(idempotencyKey, event.eventId);

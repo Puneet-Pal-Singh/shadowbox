@@ -141,7 +141,6 @@ import {
   validateRequestBody,
   errorResponse,
 } from "./schemas/http-api";
-import { z } from "zod";
 
 export { Sandbox, AgentRuntime };
 
@@ -275,9 +274,9 @@ export default {
       // 4. Final step: Inject CORS into the generated response
       const finalResponse = new Response(response.body, response);
       const corsHeaders = getCorsHeaders(request, env);
-      Object.entries(corsHeaders).forEach(([k, v]) =>
-        finalResponse.headers.set(k, v),
-      );
+      for (const [k, v] of Object.entries(corsHeaders)) {
+        finalResponse.headers.set(k, v);
+      }
       return finalResponse;
     } catch (e: unknown) {
       const error = sanitizeUnknownError(e);
