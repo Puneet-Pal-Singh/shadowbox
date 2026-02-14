@@ -2,9 +2,6 @@ import type { CoreMessage, Message } from "ai";
 import { getCorsHeaders } from "../lib/cors";
 import type { AgentType } from "../types";
 import type { Env } from "../types/ai";
-import { RunEngine } from "../core/engine/RunEngine";
-import { createKVBackedDurableObjectState } from "../core/state/KVBackedDurableObjectState";
-import { assertRuntimeStateSemantics } from "../core/state/StateSemantics";
 
 interface ChatRequestBody {
   messages?: Message[];
@@ -133,53 +130,19 @@ export class ChatController {
         prompt,
         sessionId,
       };
-      const strictSemanticsRequired =
-        parseBooleanEnv(env.REQUIRE_STRICT_STATE_SEMANTICS) ?? true;
-
-      if (env.RUN_ENGINE_RUNTIME) {
-        const doResponse = await ChatController.executeViaRunEngineDurableObject(
-          env,
-          runId,
-          {
-            runId,
-            sessionId,
-            correlationId,
-            requestOrigin: req.headers.get("Origin") || undefined,
-            input: executeInput,
-            messages: coreMessages,
-          },
-        );
-        return withEngineHeaders(req, doResponse, runId);
-      }
-
-      if (strictSemanticsRequired) {
-        throw new Error(
-          "RUN_ENGINE_RUNTIME binding is required when strict state semantics are enabled",
-        );
-      }
-
-      const durableState = createKVBackedDurableObjectState(
-        env.SESSIONS,
-        `${sessionId}:${runId}`,
-      );
-      assertRuntimeStateSemantics(durableState, {
-        requireStrictDoSemantics: strictSemanticsRequired,
-        runtimePath: "ChatController.handleWithRunEngine",
-      });
-
-      const runEngine = new RunEngine(durableState, {
+      const doResponse = await ChatController.executeViaRunEngineDurableObject(
         env,
-        sessionId,
         runId,
-        correlationId,
-        requestOrigin: req.headers.get("Origin") || undefined,
-      });
-      const fallbackResponse = await runEngine.execute(
-        executeInput,
-        coreMessages,
-        {},
+        {
+          runId,
+          sessionId,
+          correlationId,
+          requestOrigin: req.headers.get("Origin") || undefined,
+          input: executeInput,
+          messages: coreMessages,
+        },
       );
-      return withEngineHeaders(req, fallbackResponse, runId);
+      return withEngineHeaders(req, doResponse, runId);
     } catch (error) {
       console.error(`[chat/controller] RunEngine execution failed:`, error);
       throw error;
@@ -300,6 +263,7 @@ function withEngineHeaders(
   const headers = new Headers(response.headers);
   headers.set("X-Engine-Version", "3.0");
   headers.set("X-Run-Id", runId);
+  headers.set("X-Run-Engine-Runtime", "do");
 
   const corsHeaders = getCorsHeaders(req);
   Object.entries(corsHeaders).forEach(([key, value]) => {
@@ -325,19 +289,4 @@ class RequestValidationError extends Error {
   toString(): string {
     return this.logMessage;
   }
-}
-
-function parseBooleanEnv(input: string | undefined): boolean | undefined {
-  if (input === undefined) {
-    return undefined;
-  }
-
-  const normalized = input.trim().toLowerCase();
-  if (normalized === "true") {
-    return true;
-  }
-  if (normalized === "false") {
-    return false;
-  }
-  return undefined;
 }

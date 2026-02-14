@@ -4,7 +4,7 @@ import {
   assertRuntimeStateSemantics,
   getRuntimeStateSemantics,
   tagRuntimeStateSemantics,
-} from "./StateSemantics";
+} from "../../../../../packages/execution-engine/src/runtime";
 
 describe("StateSemantics", () => {
   it("defaults to unknown semantics when state is untagged", () => {

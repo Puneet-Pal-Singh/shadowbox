@@ -3,7 +3,7 @@ import type { CoreMessage } from "ai";
 import { DurableObject } from "cloudflare:workers";
 import { z } from "zod";
 import { RunEngine } from "../core/engine/RunEngine";
-import { tagRuntimeStateSemantics } from "../core/state";
+import { tagRuntimeStateSemantics } from "../../../../packages/execution-engine/src/runtime";
 import type { Env } from "../types/ai";
 
 const ExecuteRunPayloadSchema = z.object({

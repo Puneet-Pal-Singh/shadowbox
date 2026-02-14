@@ -12,9 +12,8 @@ export {
   StateManagerError,
 } from "./DurableObjectStateManager";
 
-export { createKVBackedDurableObjectState } from "./KVBackedDurableObjectState";
 export {
   assertRuntimeStateSemantics,
   getRuntimeStateSemantics,
   tagRuntimeStateSemantics,
-} from "./StateSemantics";
+} from "../../../../../packages/execution-engine/src/runtime";

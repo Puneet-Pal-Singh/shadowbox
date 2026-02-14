@@ -232,6 +232,7 @@ function createEnv(): Env {
     SESSION_SECRET: "x",
     FRONTEND_URL: "x",
     SESSIONS: {} as Env["SESSIONS"],
+    RUN_ENGINE_RUNTIME: {} as Env["RUN_ENGINE_RUNTIME"],
     COST_UNKNOWN_PRICING_MODE: "warn",
   };
 }
