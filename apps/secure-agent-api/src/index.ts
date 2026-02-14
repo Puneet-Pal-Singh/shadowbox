@@ -18,7 +18,7 @@
 //       const sessionId = url.searchParams.get("session") || "default";
 //       const id = env.AGENT_RUNTIME.idFromName(sessionId);
 //       const stub = env.AGENT_RUNTIME.get(id);
-      
+
 //       // Pass the Upgrade request to the Durable Object
 //       return stub.fetch(request);
 //     }
@@ -29,9 +29,9 @@
 //       // Since the schema is code-defined, any instance will return the same result.
 //       const id = env.AGENT_RUNTIME.idFromName("system-registry");
 //       const stub = env.AGENT_RUNTIME.get(id);
-      
+
 //       const tools = await stub.getManifest();
-      
+
 //       return Response.json({
 //         runtime: "agent-runtime-cf",
 //         version: "1.0.0",
@@ -50,7 +50,7 @@
 //       const stub = env.AGENT_RUNTIME.get(id);
 
 //       const body = await request.json() as { plugin: string; payload: any };
-      
+
 //       if (!body.plugin) {
 //         return Response.json({ error: "Missing 'plugin' field" }, { status: 400 });
 //       }
@@ -100,14 +100,14 @@
 //         const id = env.AGENT_RUNTIME.idFromName("system-registry");
 //         const tools = await env.AGENT_RUNTIME.get(id).getManifest();
 //         response = Response.json({ tools });
-//       } 
+//       }
 //       else if (request.method === "POST") {
 //         const sessionId = url.searchParams.get("session") || "default";
 //         const body = await request.json() as { plugin: string; payload: any };
 //         const id = env.AGENT_RUNTIME.idFromName(sessionId);
 //         const result = await env.AGENT_RUNTIME.get(id).run(body.plugin, body.payload);
 //         response = Response.json(result);
-//       } 
+//       }
 //       else {
 //         response = new Response("Not Found", { status: 404 });
 //       }
@@ -121,19 +121,26 @@
 //   },
 // };
 
-
 // solid compliant
 // apps/secure-agent-api/src/index.ts
 import { AgentRuntime } from "./core/AgentRuntime";
-import { Sandbox } from '@cloudflare/sandbox';
+import { Sandbox } from "@cloudflare/sandbox";
 import {
   handleCreateSession,
   handleExecuteTask,
   handleStreamLogs,
-  handleDeleteSession
-} from './api/SessionAPI'
+  handleDeleteSession,
+} from "./api/SessionAPI";
 import { getCorsHeaders, handleCorsPreflight } from "./lib/cors";
 import { sanitizeUnknownError } from "./core/security/LogSanitizer";
+import {
+  ChatHistoryQuerySchema,
+  ChatAppendRequestSchema,
+  validateQueryParams,
+  validateRequestBody,
+  errorResponse,
+} from "./schemas/http-api";
+import { z } from "zod";
 
 export { Sandbox, AgentRuntime };
 
@@ -174,45 +181,72 @@ export default {
       // NEW: HTTP API Routes for CloudSandboxExecutor Integration
       if (url.pathname === "/api/v1/session" && request.method === "POST") {
         response = await handleCreateSession(request, stub);
-      } else if (url.pathname === "/api/v1/execute" && request.method === "POST") {
+      } else if (
+        url.pathname === "/api/v1/execute" &&
+        request.method === "POST"
+      ) {
         response = await handleExecuteTask(request, stub);
       } else if (url.pathname === "/api/v1/logs" && request.method === "GET") {
         response = handleStreamLogs(request);
-      } else if (url.pathname.startsWith("/api/v1/session/") && request.method === "DELETE") {
+      } else if (
+        url.pathname.startsWith("/api/v1/session/") &&
+        request.method === "DELETE"
+      ) {
         response = handleDeleteSession(request);
-      }
-
-      else if (url.pathname === "/connect") {
+      } else if (url.pathname === "/connect") {
         // Upgrade to WebSocket
         return stub.fetch(request);
-      }
-
-      else if (url.pathname === "/tools") {
+      } else if (url.pathname === "/tools") {
         // Dynamic Tool Discovery for the Brain
         const tools = await stub.getManifest();
         response = Response.json({ tools });
-      } 
-      else if (url.pathname === "/chat") {
-        const runId = url.searchParams.get("runId") || "default";
-        
-        if (request.method === "GET") {
-          const history = await stub.getHistory(runId);
-          response = Response.json(history);
-        } 
-        else if (request.method === "POST") {
-          const body = await request.json() as { message?: any, messages?: any[] };
-          if (body.message) {
-            await stub.appendMessage(runId, body.message);
-          } else if (body.messages) {
-            await stub.saveHistory(runId, body.messages);
+      } else if (url.pathname === "/chat") {
+        const queryValidation = validateQueryParams(
+          url,
+          ChatHistoryQuerySchema,
+        );
+        if (!queryValidation.valid) {
+          response = errorResponse(
+            queryValidation.error,
+            "VALIDATION_ERROR",
+            400,
+          );
+        } else {
+          const { runId, cursor, limit } = queryValidation.data;
+
+          if (request.method === "GET") {
+            const historyResult = await stub.getHistory(runId, cursor, limit);
+            response = Response.json(historyResult);
+          } else if (request.method === "POST") {
+            const bodyValidation = await validateRequestBody(
+              request,
+              ChatAppendRequestSchema,
+            );
+            if (!bodyValidation.valid) {
+              response = errorResponse(
+                bodyValidation.error,
+                "VALIDATION_ERROR",
+                400,
+              );
+            } else {
+              const { message, messages, idempotencyKey } = bodyValidation.data;
+              const requestIdempotencyKey =
+                idempotencyKey ||
+                request.headers.get("X-Idempotency-Key") ||
+                undefined;
+
+              if (message) {
+                await stub.appendMessage(runId, message, requestIdempotencyKey);
+              } else if (messages) {
+                await stub.saveHistory(runId, messages, requestIdempotencyKey);
+              }
+              response = Response.json({ success: true });
+            }
+          } else {
+            response = new Response("Method Not Allowed", { status: 405 });
           }
-          response = Response.json({ success: true });
         }
-        else {
-          response = new Response("Method Not Allowed", { status: 405 });
-        }
-      }
-      else if (url.pathname === "/artifact") {
+      } else if (url.pathname === "/artifact") {
         const key = url.searchParams.get("key");
         if (!key) {
           response = new Response("Missing artifact key", { status: 400 });
@@ -224,28 +258,30 @@ export default {
             response = new Response(content, { status: 200 });
           }
         }
-      }
-      else if (request.method === "POST") {
+      } else if (request.method === "POST") {
         // Command Execution
-        const body = await request.json() as ExecutionBody;
-        
+        const body = (await request.json()) as ExecutionBody;
+
         if (!body.plugin) {
-          response = Response.json({ error: "Missing 'plugin' field" }, { status: 400 });
+          response = Response.json(
+            { error: "Missing 'plugin' field" },
+            { status: 400 },
+          );
         } else {
           const result = await stub.run(body.plugin, body.payload);
           response = Response.json(result);
         }
-      } 
-      else {
+      } else {
         response = new Response("Route Not Found", { status: 404 });
       }
 
       // 4. Final step: Inject CORS into the generated response
       const finalResponse = new Response(response.body, response);
       const corsHeaders = getCorsHeaders(request, env);
-      Object.entries(corsHeaders).forEach(([k, v]) => finalResponse.headers.set(k, v));
+      Object.entries(corsHeaders).forEach(([k, v]) =>
+        finalResponse.headers.set(k, v),
+      );
       return finalResponse;
-
     } catch (e: unknown) {
       const error = sanitizeUnknownError(e);
       return Response.json(
