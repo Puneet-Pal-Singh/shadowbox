@@ -5,20 +5,20 @@ export {
   CostTracker,
   CostTrackingError,
   type ICostTracker,
-} from "./CostTracker";
-export { CostLedger, type ICostLedger } from "./CostLedger";
+} from "./CostTracker.js";
+export { CostLedger, type ICostLedger } from "./CostLedger.js";
 
 export {
   PricingRegistry,
   PricingError,
   type IPricingRegistry,
-} from "./PricingRegistry";
+} from "./PricingRegistry.js";
 export {
   PricingResolver,
   type IPricingResolver,
   type PricingResolution,
   type PricingResolverOptions,
-} from "./PricingResolver";
+} from "./PricingResolver.js";
 
 export {
   BudgetManager,
@@ -26,7 +26,7 @@ export {
   SessionBudgetExceededError,
   type BudgetPolicy,
   type IBudgetManager,
-} from "./BudgetManager";
+} from "./BudgetManager.js";
 
 export type {
   LLMUsage,
@@ -38,6 +38,6 @@ export type {
   PricingEntry,
   BudgetConfig,
   BudgetCheckResult,
-} from "./types";
+} from "./types.js";
 
-export { DEFAULT_BUDGET } from "./types";
+export { DEFAULT_BUDGET } from "./types.js";

@@ -1,6 +1,6 @@
 import type { CoreMessage, CoreTool } from "ai";
 import type { ZodSchema } from "zod";
-import type { LLMUsage } from "../cost";
+import type { LLMUsage } from "../cost/index.js";
 
 export type LLMPhase = "planning" | "task" | "synthesis";
 
@@ -48,4 +48,29 @@ export interface ILLMGateway {
     req: LLMStructuredRequest<T>,
   ): Promise<LLMStructuredResponse<T>>;
   generateStream(req: LLMTextRequest): Promise<ReadableStream<Uint8Array>>;
+}
+
+export interface LLMRuntimeAIService {
+  getProvider(): string;
+  getDefaultModel(): string;
+  generateText(input: {
+    messages: CoreMessage[];
+    model?: string;
+    temperature?: number;
+    system?: string;
+  }): Promise<{ text: string; usage: LLMUsage }>;
+  generateStructured<T>(input: {
+    messages: CoreMessage[];
+    schema: ZodSchema<T>;
+    model?: string;
+    temperature?: number;
+  }): Promise<{ object: T; usage: LLMUsage }>;
+  createChatStream(input: {
+    messages: CoreMessage[];
+    system?: string;
+    tools?: Record<string, CoreTool>;
+    model?: string;
+    temperature?: number;
+    onFinish?: (result: { usage: LLMUsage }) => void | Promise<void>;
+  }): Promise<ReadableStream<Uint8Array>>;
 }

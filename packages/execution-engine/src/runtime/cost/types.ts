@@ -1,6 +1,16 @@
 // apps/brain/src/core/cost/types.ts
 // Phase 3.1: Cost hardening canonical types
 
+export interface RuntimeStorage {
+  get<T>(key: string): Promise<T | undefined>;
+  put<T>(key: string, value: T): Promise<void>;
+}
+
+export interface RuntimeDurableObjectState {
+  storage: RuntimeStorage;
+  blockConcurrencyWhile<T>(closure: () => Promise<T>): Promise<T>;
+}
+
 /**
  * Standardized LLM usage metadata returned by provider adapters.
  */

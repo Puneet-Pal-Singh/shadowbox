@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { PricingResolver } from "./PricingResolver";
-import { PricingRegistry } from "./PricingRegistry";
-import type { LLMUsage } from "./types";
+import { PricingResolver } from "../../../src/runtime/cost/PricingResolver.js";
+import { PricingRegistry } from "../../../src/runtime/cost/PricingRegistry.js";
+import type { LLMUsage } from "../../../src/runtime/cost/types.js";
 
 describe("PricingResolver", () => {
   const registry = new PricingRegistry({

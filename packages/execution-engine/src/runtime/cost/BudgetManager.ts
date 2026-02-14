@@ -1,12 +1,16 @@
 // apps/brain/src/core/cost/BudgetManager.ts
 // Phase 3.1: Budget enforcement for cost control
 
-import type { DurableObjectState } from "@cloudflare/workers-types";
-import type { ICostTracker } from "./CostTracker";
-import type { IPricingRegistry } from "./PricingRegistry";
-import type { BudgetConfig, BudgetCheckResult, LLMUsage } from "./types";
-import { DEFAULT_BUDGET } from "./types";
-import type { LLMCallContext } from "../llm/types";
+import type { ICostTracker } from "./CostTracker.js";
+import type { IPricingRegistry } from "./PricingRegistry.js";
+import type {
+  BudgetConfig,
+  BudgetCheckResult,
+  LLMUsage,
+  RuntimeDurableObjectState,
+} from "./types.js";
+import { DEFAULT_BUDGET } from "./types.js";
+import type { LLMCallContext } from "../llm/types.js";
 
 export interface IBudgetManager {
   checkBudget(
@@ -49,13 +53,13 @@ const SESSION_COSTS_KEY = "session:costs";
 export class BudgetManager implements IBudgetManager, BudgetPolicy {
   private config: BudgetConfig;
   private sessionCosts: Map<string, number> = new Map();
-  private storage?: DurableObjectState;
+  private storage?: RuntimeDurableObjectState;
 
   constructor(
     private costTracker: ICostTracker,
     private pricingRegistry: IPricingRegistry,
     config?: Partial<BudgetConfig>,
-    storage?: DurableObjectState,
+    storage?: RuntimeDurableObjectState,
   ) {
     this.config = { ...DEFAULT_BUDGET, ...config };
     this.storage = storage;

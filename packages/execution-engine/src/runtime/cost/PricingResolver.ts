@@ -1,5 +1,5 @@
-import type { IPricingRegistry } from "./PricingRegistry";
-import type { LLMUsage, PricingSource } from "./types";
+import type { IPricingRegistry } from "./PricingRegistry.js";
+import type { LLMUsage, PricingSource } from "./types.js";
 
 export interface PricingResolution {
   providerCostUsd?: number;

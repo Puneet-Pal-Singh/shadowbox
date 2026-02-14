@@ -1,8 +1,12 @@
-import type { DurableObjectState } from "@cloudflare/workers-types";
-import type { CostEvent, CostSnapshot, LLMUsage } from "./types";
-import type { IPricingRegistry } from "./PricingRegistry";
-import { CostLedger, type ICostLedger } from "./CostLedger";
-import { PricingResolver } from "./PricingResolver";
+import type {
+  CostEvent,
+  CostSnapshot,
+  LLMUsage,
+  RuntimeDurableObjectState,
+} from "./types.js";
+import type { IPricingRegistry } from "./PricingRegistry.js";
+import { CostLedger, type ICostLedger } from "./CostLedger.js";
+import { PricingResolver } from "./PricingResolver.js";
 
 /**
  * Compatibility wrapper retained during migration to CostLedger.
@@ -23,7 +27,7 @@ export class CostTracker implements ICostTracker {
   private readonly pricingResolver: PricingResolver;
 
   constructor(
-    storage: DurableObjectState,
+    storage: RuntimeDurableObjectState,
     pricingRegistry: IPricingRegistry,
     unknownPricingMode: "warn" | "block" = "warn",
   ) {

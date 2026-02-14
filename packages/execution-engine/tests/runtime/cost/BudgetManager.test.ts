@@ -2,10 +2,10 @@
 // Phase 3.1: Unit tests for BudgetManager
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { BudgetManager } from "./BudgetManager";
-import type { ICostTracker } from "./CostTracker";
-import type { IPricingRegistry } from "./PricingRegistry";
-import type { LLMUsage, BudgetConfig } from "./types";
+import { BudgetManager } from "../../../src/runtime/cost/BudgetManager.js";
+import type { ICostTracker } from "../../../src/runtime/cost/CostTracker.js";
+import type { IPricingRegistry } from "../../../src/runtime/cost/PricingRegistry.js";
+import type { LLMUsage, BudgetConfig } from "../../../src/runtime/cost/types.js";
 
 describe("BudgetManager", () => {
   let mockCostTracker: ICostTracker;

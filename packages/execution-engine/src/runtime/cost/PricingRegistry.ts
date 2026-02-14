@@ -1,8 +1,8 @@
 // apps/brain/src/core/cost/PricingRegistry.ts
 // Phase 3.1: Registry pricing with boot-time seed loading
 
-import defaultPricing from "./pricing.default.json";
-import type { LLMUsage, CalculatedCost, PricingEntry } from "./types";
+import type { LLMUsage, CalculatedCost, PricingEntry } from "./types.js";
+import { DEFAULT_SEED_PRICING } from "./pricing.default.js";
 
 export interface PricingRegistryOptions {
   failOnUnseededPricing?: boolean;
@@ -109,17 +109,17 @@ export class PricingRegistry implements IPricingRegistry {
       this.options.failOnUnseededPricing || this.options.isProduction;
 
     try {
-      const parsedSeed = this.parsePricingData(defaultPricing);
+      const parsedSeed = this.parsePricingData(DEFAULT_SEED_PRICING);
       const loadedCount = this.loadPricingEntries(parsedSeed, !failClosed);
       console.log(
         `[cost/pricing] Loaded ${loadedCount} seeded prices`,
       );
       if (loadedCount === 0 && failClosed) {
-        throw new PricingError("No valid entries found in pricing.default.json");
+        throw new PricingError("No valid entries found in default seed pricing");
       }
     } catch (error) {
       if (failClosed) {
-        throw new PricingError("Failed to load pricing.default.json", error);
+        throw new PricingError("Failed to load default seed pricing", error);
       }
       console.warn(
         "[cost/pricing] Failed to load seeded pricing. Continuing in non-production mode.",
@@ -319,7 +319,10 @@ function detectTestEnvironment(): boolean {
 
 export class PricingError extends Error {
   constructor(message: string, cause?: unknown) {
-    super(`[cost/pricing] ${message}`, { cause });
+    super(`[cost/pricing] ${message}`);
+    if (cause instanceof Error) {
+      this.stack = `${this.stack}\nCaused by: ${cause.stack ?? cause.message}`;
+    }
     this.name = "PricingError";
   }
 }

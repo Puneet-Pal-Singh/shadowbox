@@ -1,11 +1,10 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import type { DurableObjectState } from "@cloudflare/workers-types";
-import { CostLedger } from "./CostLedger";
-import type { CostEvent } from "./types";
+import { CostLedger } from "../../../src/runtime/cost/CostLedger.js";
+import type { CostEvent, RuntimeDurableObjectState } from "../../../src/runtime/cost/types.js";
 
 describe("CostLedger", () => {
   let storage: Map<string, unknown>;
-  let ctx: DurableObjectState;
+  let ctx: RuntimeDurableObjectState;
   let ledger: CostLedger;
 
   beforeEach(() => {
@@ -21,11 +20,11 @@ describe("CostLedger", () => {
           return true;
         }),
         list: vi.fn(async () => new Map()),
-      } as unknown as DurableObjectState["storage"],
+      } as RuntimeDurableObjectState["storage"],
       blockConcurrencyWhile: vi.fn(async <T>(closure: () => Promise<T>) =>
         closure(),
       ),
-    } as unknown as DurableObjectState;
+    } as RuntimeDurableObjectState;
 
     ledger = new CostLedger(ctx);
   });

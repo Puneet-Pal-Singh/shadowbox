@@ -2,14 +2,13 @@
 // Phase 3.1: Unit tests for CostTracker with PricingRegistry
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { CostTracker } from "./CostTracker";
-import { PricingRegistry } from "./PricingRegistry";
-import type { DurableObjectState } from "@cloudflare/workers-types";
-import type { LLMUsage } from "./types";
+import { CostTracker } from "../../../src/runtime/cost/CostTracker.js";
+import { PricingRegistry } from "../../../src/runtime/cost/PricingRegistry.js";
+import type { LLMUsage, RuntimeDurableObjectState } from "../../../src/runtime/cost/types.js";
 
 describe("CostTracker", () => {
   let mockStorage: Map<string, unknown>;
-  let mockCtx: Partial<DurableObjectState>;
+  let mockCtx: Partial<RuntimeDurableObjectState>;
   let pricingRegistry: PricingRegistry;
   let costTracker: CostTracker;
 
@@ -51,7 +50,7 @@ describe("CostTracker", () => {
           return Promise.resolve(true);
         }),
         list: vi.fn(() => Promise.resolve(new Map())),
-      } as unknown as DurableObjectState["storage"],
+      } as RuntimeDurableObjectState["storage"],
       blockConcurrencyWhile: vi.fn((callback: () => Promise<unknown>) =>
         callback(),
       ),
@@ -59,7 +58,7 @@ describe("CostTracker", () => {
 
     pricingRegistry = new PricingRegistry(testPricing);
     costTracker = new CostTracker(
-      mockCtx as DurableObjectState,
+      mockCtx as RuntimeDurableObjectState,
       pricingRegistry,
     );
   });

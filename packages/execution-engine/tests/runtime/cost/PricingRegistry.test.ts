@@ -2,8 +2,8 @@
 // Phase 3.1: Unit tests for PricingRegistry three-tier pricing strategy
 
 import { describe, it, expect, beforeEach } from "vitest";
-import { PricingRegistry, PricingError } from "./PricingRegistry";
-import type { LLMUsage } from "./types";
+import { PricingRegistry, PricingError } from "../../../src/runtime/cost/PricingRegistry.js";
+import type { LLMUsage } from "../../../src/runtime/cost/types.js";
 
 describe("PricingRegistry", () => {
   let registry: PricingRegistry;

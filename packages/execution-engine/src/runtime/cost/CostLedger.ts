@@ -1,10 +1,10 @@
-import type { DurableObjectState } from "@cloudflare/workers-types";
 import type {
   CostEvent,
   CostSnapshot,
   ModelCost,
   ProviderCost,
-} from "./types";
+  RuntimeDurableObjectState,
+} from "./types.js";
 
 export interface ICostLedger {
   append(event: CostEvent): Promise<boolean>;
@@ -17,7 +17,7 @@ export class CostLedger implements ICostLedger {
   private readonly EVENTS_KEY_SUFFIX = ":cost:events";
   private readonly IDEMPOTENCY_KEY_PREFIX = ":cost:idempotency:";
 
-  constructor(private storage: DurableObjectState) {}
+  constructor(private storage: RuntimeDurableObjectState) {}
 
   async append(event: CostEvent): Promise<boolean> {
     const eventsKey = this.getEventsKey(event.runId);

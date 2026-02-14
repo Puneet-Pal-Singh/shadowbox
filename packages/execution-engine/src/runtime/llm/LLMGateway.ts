@@ -1,23 +1,23 @@
 import type { CoreMessage } from "ai";
-import type { AIService } from "../../services/AIService";
-import type { BudgetPolicy } from "../cost/BudgetManager";
-import type { CostEvent, LLMUsage } from "../cost/types";
-import type { ICostLedger } from "../cost/CostLedger";
-import type { IPricingResolver } from "../cost/PricingResolver";
+import type { BudgetPolicy } from "../cost/BudgetManager.js";
+import type { CostEvent, LLMUsage } from "../cost/types.js";
+import type { ICostLedger } from "../cost/CostLedger.js";
+import type { IPricingResolver } from "../cost/PricingResolver.js";
 import type {
   ILLMGateway,
   LLMCallContext,
+  LLMRuntimeAIService,
   LLMTextRequest,
   LLMTextResponse,
   LLMStructuredRequest,
   LLMStructuredResponse,
-} from "./types";
+} from "./types.js";
 
 const TOKEN_CHAR_RATIO = 4;
 const DEFAULT_COMPLETION_TOKENS = 500;
 
 export interface LLMGatewayDependencies {
-  aiService: AIService;
+  aiService: LLMRuntimeAIService;
   budgetPolicy: BudgetPolicy;
   costLedger: ICostLedger;
   pricingResolver: IPricingResolver;
