@@ -243,10 +243,39 @@ export class RunEngine implements IRunEngine {
   ): Promise<Run> {
     const existing = await this.runRepo.getById(runId);
     if (existing) {
+      if (existing.sessionId !== sessionId) {
+        throw new RunEngineError(
+          `runId ${runId} is already associated with a different session`,
+        );
+      }
+
+      if (this.isTerminalRun(existing.status)) {
+        await this.taskRepo.deleteByRun(runId);
+        const resetRun = this.createFreshRun(runId, sessionId, input);
+        await this.runRepo.update(resetRun);
+        console.log(
+          `[run/engine] Reset terminal run ${runId} (${existing.status}) for next turn`,
+        );
+        return resetRun;
+      }
+
       return existing;
     }
 
-    const run = new Run(
+    const run = this.createFreshRun(runId, sessionId, input);
+
+    await this.runRepo.create(run);
+    console.log(`[run/engine] Created new run ${runId}`);
+
+    return run;
+  }
+
+  private createFreshRun(
+    runId: string,
+    sessionId: string,
+    input: RunInput,
+  ): Run {
+    return new Run(
       runId,
       sessionId,
       "CREATED",
@@ -255,11 +284,10 @@ export class RunEngine implements IRunEngine {
       undefined,
       { prompt: input.prompt },
     );
+  }
 
-    await this.runRepo.create(run);
-    console.log(`[run/engine] Created new run ${runId}`);
-
-    return run;
+  private isTerminalRun(status: RunStatus): boolean {
+    return status === "COMPLETED" || status === "FAILED" || status === "CANCELLED";
   }
 
   private async createTasksFromPlan(runId: string, plan: Plan): Promise<void> {
@@ -390,7 +418,15 @@ Provide a concise summary of what was accomplished.`;
     try {
       const run = await this.runRepo.getById(runId);
       if (run) {
-        run.transition("FAILED");
+        if (run.status !== "FAILED" && run.status !== "CANCELLED") {
+          if (run.status === "COMPLETED") {
+            console.warn(
+              `[run/engine] Preserving COMPLETED state for run ${runId} after post-completion error`,
+            );
+          } else {
+            run.transition("FAILED");
+          }
+        }
         run.metadata.error = errorMessage;
         await this.runRepo.update(run);
       }

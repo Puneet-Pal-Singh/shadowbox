@@ -22,6 +22,8 @@ const ExecuteRunPayloadSchema = z.object({
 type ExecuteRunPayload = z.infer<typeof ExecuteRunPayloadSchema>;
 
 export class RunEngineRuntime extends DurableObject {
+  private executionQueue: Promise<void> = Promise.resolve();
+
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
   }
@@ -47,23 +49,21 @@ export class RunEngineRuntime extends DurableObject {
     }
 
     try {
-      const runtimeState = tagRuntimeStateSemantics(
-        this.ctx as unknown as LegacyDurableObjectState,
-        "do",
-      );
-      const runEngine = new RunEngine(runtimeState, {
-        env: this.env as Env,
-        sessionId: payload.sessionId,
-        runId: payload.runId,
-        correlationId: payload.correlationId,
-        requestOrigin: payload.requestOrigin,
-      });
+      return await this.withExecutionLock(async () => {
+        const runtimeState = tagRuntimeStateSemantics(
+          this.ctx as unknown as LegacyDurableObjectState,
+          "do",
+        );
+        const runEngine = new RunEngine(runtimeState, {
+          env: this.env as Env,
+          sessionId: payload.sessionId,
+          runId: payload.runId,
+          correlationId: payload.correlationId,
+          requestOrigin: payload.requestOrigin,
+        });
 
-      return await runEngine.execute(
-        payload.input,
-        payload.messages as CoreMessage[],
-        {},
-      );
+        return runEngine.execute(payload.input, payload.messages as CoreMessage[], {});
+      });
     } catch (error: unknown) {
       const message =
         error instanceof Error ? error.message : "RunEngine DO execution failed";
@@ -71,6 +71,21 @@ export class RunEngineRuntime extends DurableObject {
         status: 500,
         headers: { "Content-Type": "application/json" },
       });
+    }
+  }
+
+  private async withExecutionLock<T>(operation: () => Promise<T>): Promise<T> {
+    const previous = this.executionQueue;
+    let release: (() => void) | null = null;
+    this.executionQueue = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    await previous;
+    try {
+      return await operation();
+    } finally {
+      release?.();
     }
   }
 }
