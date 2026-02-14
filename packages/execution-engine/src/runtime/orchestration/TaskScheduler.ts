@@ -171,8 +171,14 @@ export class TaskScheduler implements ITaskScheduler {
 
     console.error(`[task/scheduler] Task ${task.id} failed:`, errorMessage);
 
-    if (task.canRetry() && task.status !== "RETRYING") {
-      // Avoid infinite recursion by checking if task is already retrying
+    // Move RUNNING -> FAILED first so retry eligibility reflects task state machine.
+    task.transition("FAILED", {
+      error: {
+        message: errorMessage,
+      },
+    });
+
+    if (task.canRetry()) {
       task.incrementRetry();
       task.transition("RETRYING");
       await this.taskRepo.update(task);
@@ -185,12 +191,6 @@ export class TaskScheduler implements ITaskScheduler {
       return this.executeSingle(task.id, task.runId);
     }
 
-    // Mark as FAILED
-    task.transition("FAILED", {
-      error: {
-        message: errorMessage,
-      },
-    });
     await this.taskRepo.update(task);
 
     return {

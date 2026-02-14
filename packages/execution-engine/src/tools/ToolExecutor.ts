@@ -94,10 +94,7 @@ export class ToolExecutor {
     timeoutMs: number
   ): Promise<ToolResult> {
     try {
-      const result = await Promise.race([
-        tool.execute(args, context),
-        createTimeoutPromise(timeoutMs)
-      ])
+      const result = await runWithTimeout(tool.execute(args, context), timeoutMs)
 
       const duration = Date.now() - startTime
       result.duration = duration
@@ -146,10 +143,36 @@ export class ToolExecutor {
   }
 }
 
-function createTimeoutPromise(timeoutMs: number): Promise<never> {
-  return new Promise((_, reject) => {
-    setTimeout(() => {
+function runWithTimeout<T>(
+  operation: Promise<T>,
+  timeoutMs: number
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    let settled = false
+    const timeoutHandle = setTimeout(() => {
+      if (settled) {
+        return
+      }
+      settled = true
       reject(new Error(`Tool execution timeout after ${timeoutMs}ms`))
     }, timeoutMs)
+
+    operation
+      .then((value) => {
+        if (settled) {
+          return
+        }
+        settled = true
+        clearTimeout(timeoutHandle)
+        resolve(value)
+      })
+      .catch((error: unknown) => {
+        if (settled) {
+          return
+        }
+        settled = true
+        clearTimeout(timeoutHandle)
+        reject(error)
+      })
   })
 }
