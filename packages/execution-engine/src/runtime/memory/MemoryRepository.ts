@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { RuntimeDurableObjectState } from "../types.js";
 import {
   MemoryEventSchema,
   type MemoryEvent,
@@ -9,47 +10,37 @@ import {
   type MemoryScope,
 } from "./types.js";
 
-interface DurableObjectStorage {
-  get<T>(key: string): Promise<T | undefined>;
-  put<T>(key: string, value: T): Promise<void>;
-  delete(key: string | string[]): Promise<boolean | number>;
-  list<T>(options?: { prefix?: string }): Promise<Map<string, T>>;
-  transaction<T>(
-    closure: (txn: DurableObjectStorage) => Promise<T>,
-  ): Promise<T>;
-}
-
 export interface MemoryRepositoryDependencies {
-  storage: DurableObjectStorage;
+  ctx: RuntimeDurableObjectState;
 }
 
 export class MemoryRepository {
-  private storage: DurableObjectStorage;
+  private ctx: RuntimeDurableObjectState;
 
   constructor(deps: MemoryRepositoryDependencies) {
-    this.storage = deps.storage;
+    this.ctx = deps.ctx;
   }
 
-  private getEventsKey(runId: string, scope: MemoryScope): string {
+  private getEventsKey(id: string, scope: MemoryScope): string {
     return scope === "run"
-      ? `run:${runId}:memory:events`
-      : `session:${runId}:memory:events`;
+      ? `run:${id}:memory:events`
+      : `session:${id}:memory:events`;
   }
 
-  private getSnapshotKey(runId: string, scope: MemoryScope): string {
+  private getSnapshotKey(id: string, scope: MemoryScope): string {
     return scope === "run"
-      ? `run:${runId}:memory:snapshot`
-      : `session:${runId}:memory:snapshot`;
+      ? `run:${id}:memory:snapshot`
+      : `session:${id}:memory:snapshot`;
   }
 
   private getIdempotencyKey(
-    runId: string,
+    id: string,
     idempotencyKey: string,
     scope: MemoryScope,
   ): string {
     return scope === "run"
-      ? `run:${runId}:memory:idempotency:${idempotencyKey}`
-      : `session:${runId}:memory:idempotency:${idempotencyKey}`;
+      ? `run:${id}:memory:idempotency:${idempotencyKey}`
+      : `session:${id}:memory:idempotency:${idempotencyKey}`;
   }
 
   private getCheckpointKey(runId: string, sequence: number): string {
@@ -57,29 +48,28 @@ export class MemoryRepository {
   }
 
   async appendEvent(event: MemoryEvent): Promise<boolean> {
-    return this.storage.transaction(async (txn) => {
+    return this.ctx.blockConcurrencyWhile(async () => {
+      const id = event.scope === "run" ? event.runId : event.sessionId;
       const idempotencyKey = this.getIdempotencyKey(
-        event.scope === "run" ? event.runId : event.sessionId,
+        id,
         event.idempotencyKey,
         event.scope,
       );
 
-      const existing = await txn.get<string>(idempotencyKey);
+      const existing = await this.ctx.storage.get<string>(idempotencyKey);
       if (existing) {
         return false;
       }
 
       const validated = MemoryEventSchema.parse(event);
-      const eventsKey = this.getEventsKey(
-        event.scope === "run" ? event.runId : event.sessionId,
-        event.scope,
-      );
+      const eventsKey = this.getEventsKey(id, event.scope);
 
-      const events = (await txn.get<MemoryEvent[]>(eventsKey)) ?? [];
+      const events =
+        (await this.ctx.storage.get<MemoryEvent[]>(eventsKey)) ?? [];
       events.push(validated);
 
-      await txn.put(eventsKey, events);
-      await txn.put(idempotencyKey, event.eventId);
+      await this.ctx.storage.put(eventsKey, events);
+      await this.ctx.storage.put(idempotencyKey, event.eventId);
 
       return true;
     });
@@ -91,7 +81,7 @@ export class MemoryRepository {
     options?: { limit?: number; afterSequence?: number },
   ): Promise<MemoryEvent[]> {
     const eventsKey = this.getEventsKey(id, scope);
-    const events = (await this.storage.get<MemoryEvent[]>(eventsKey)) ?? [];
+    const events = (await this.ctx.storage.get<MemoryEvent[]>(eventsKey)) ?? [];
 
     let filtered = events;
     if (options?.afterSequence !== undefined) {
@@ -109,17 +99,16 @@ export class MemoryRepository {
     scope: MemoryScope,
   ): Promise<MemorySnapshot | undefined> {
     const snapshotKey = this.getSnapshotKey(id, scope);
-    const snapshot = await this.storage.get<MemorySnapshot>(snapshotKey);
+    const snapshot = await this.ctx.storage.get<MemorySnapshot>(snapshotKey);
     return snapshot ? MemorySnapshotSchema.parse(snapshot) : undefined;
   }
 
   async updateSnapshot(snapshot: MemorySnapshot): Promise<void> {
     const validated = MemorySnapshotSchema.parse(snapshot);
-    const snapshotKey = this.getSnapshotKey(
-      snapshot.runId ?? snapshot.sessionId,
-      snapshot.runId ? "run" : "session",
-    );
-    await this.storage.put(snapshotKey, validated);
+    const id = snapshot.runId ?? snapshot.sessionId;
+    const scope: MemoryScope = snapshot.runId ? "run" : "session";
+    const snapshotKey = this.getSnapshotKey(id, scope);
+    await this.ctx.storage.put(snapshotKey, validated);
   }
 
   async createCheckpoint(checkpoint: ReplayCheckpoint): Promise<void> {
@@ -128,7 +117,7 @@ export class MemoryRepository {
       checkpoint.runId,
       checkpoint.sequence,
     );
-    await this.storage.put(checkpointKey, validated);
+    await this.ctx.storage.put(checkpointKey, validated);
   }
 
   async getCheckpoint(
@@ -136,7 +125,8 @@ export class MemoryRepository {
     sequence: number,
   ): Promise<ReplayCheckpoint | undefined> {
     const checkpointKey = this.getCheckpointKey(runId, sequence);
-    const checkpoint = await this.storage.get<ReplayCheckpoint>(checkpointKey);
+    const checkpoint =
+      await this.ctx.storage.get<ReplayCheckpoint>(checkpointKey);
     return checkpoint ? ReplayCheckpointSchema.parse(checkpoint) : undefined;
   }
 
@@ -144,7 +134,9 @@ export class MemoryRepository {
     runId: string,
   ): Promise<ReplayCheckpoint | undefined> {
     const prefix = `run:${runId}:memory:checkpoint:`;
-    const checkpoints = await this.storage.list<ReplayCheckpoint>({ prefix });
+    const checkpoints = await this.ctx.storage.list<ReplayCheckpoint>({
+      prefix,
+    });
 
     if (checkpoints.size === 0) {
       return undefined;
@@ -156,17 +148,22 @@ export class MemoryRepository {
         const seqB = parseInt(b[0].split(":").pop() ?? "0", 10);
         return seqB - seqA;
       })
-      .map(([, value]) => value);
+      .map(([, value]) => value as ReplayCheckpoint);
 
     return sorted[0] ? ReplayCheckpointSchema.parse(sorted[0]) : undefined;
   }
 
   async getAllCheckpoints(runId: string): Promise<ReplayCheckpoint[]> {
     const prefix = `run:${runId}:memory:checkpoint:`;
-    const checkpoints = await this.storage.list<ReplayCheckpoint>({ prefix });
+    const checkpoints = await this.ctx.storage.list<ReplayCheckpoint>({
+      prefix,
+    });
 
     return Array.from(checkpoints.values())
-      .sort((a, b) => a.sequence - b.sequence)
+      .sort(
+        (a, b) =>
+          (a as ReplayCheckpoint).sequence - (b as ReplayCheckpoint).sequence,
+      )
       .map((c) => ReplayCheckpointSchema.parse(c));
   }
 
@@ -177,9 +174,11 @@ export class MemoryRepository {
     ];
 
     const prefix = `run:${runId}:memory:idempotency:`;
-    const idempotencyKeys = await this.storage.list({ prefix });
+    const idempotencyKeys = await this.ctx.storage.list({ prefix });
     keysToDelete.push(...Array.from(idempotencyKeys.keys()));
 
-    await this.storage.delete(keysToDelete);
+    for (const key of keysToDelete) {
+      await this.ctx.storage.delete(key);
+    }
   }
 }

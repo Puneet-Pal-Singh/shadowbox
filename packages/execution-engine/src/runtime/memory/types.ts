@@ -15,6 +15,7 @@ export type MemoryKind = z.infer<typeof MemoryKindSchema>;
 
 export const MemorySourceSchema = z.enum([
   "user",
+  "assistant",
   "planner",
   "task",
   "synthesis",

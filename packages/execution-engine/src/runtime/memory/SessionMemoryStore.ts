@@ -1,3 +1,4 @@
+import type { RuntimeDurableObjectState } from "../types.js";
 import {
   MemoryEventSchema,
   type MemoryEvent,
@@ -5,25 +6,15 @@ import {
   MemorySnapshotSchema,
 } from "./types.js";
 
-interface DurableObjectStorage {
-  get<T>(key: string): Promise<T | undefined>;
-  put<T>(key: string, value: T): Promise<void>;
-  delete(key: string | string[]): Promise<boolean | number>;
-  list<T>(options?: { prefix?: string }): Promise<Map<string, T>>;
-  transaction<T>(
-    closure: (txn: DurableObjectStorage) => Promise<T>,
-  ): Promise<T>;
-}
-
 export interface SessionMemoryStoreDependencies {
-  storage: DurableObjectStorage;
+  ctx: RuntimeDurableObjectState;
 }
 
 export class SessionMemoryStore {
-  private storage: DurableObjectStorage;
+  private ctx: RuntimeDurableObjectState;
 
   constructor(deps: SessionMemoryStoreDependencies) {
-    this.storage = deps.storage;
+    this.ctx = deps.ctx;
   }
 
   private getSessionEventsKey(sessionId: string): string {
@@ -43,13 +34,13 @@ export class SessionMemoryStore {
       throw new Error("SessionMemoryStore only accepts session-scoped events");
     }
 
-    return this.storage.transaction(async (txn) => {
+    return this.ctx.blockConcurrencyWhile(async () => {
       const idempotencyKey = this.getIdempotencyKey(
         event.sessionId,
         event.idempotencyKey,
       );
 
-      const existing = await txn.get<string>(idempotencyKey);
+      const existing = await this.ctx.storage.get<string>(idempotencyKey);
       if (existing) {
         return false;
       }
@@ -57,11 +48,12 @@ export class SessionMemoryStore {
       const validated = MemoryEventSchema.parse(event);
       const eventsKey = this.getSessionEventsKey(event.sessionId);
 
-      const events = (await txn.get<MemoryEvent[]>(eventsKey)) ?? [];
+      const events =
+        (await this.ctx.storage.get<MemoryEvent[]>(eventsKey)) ?? [];
       events.push(validated);
 
-      await txn.put(eventsKey, events);
-      await txn.put(idempotencyKey, event.eventId);
+      await this.ctx.storage.put(eventsKey, events);
+      await this.ctx.storage.put(idempotencyKey, event.eventId);
 
       return true;
     });
@@ -95,7 +87,7 @@ export class SessionMemoryStore {
     limit?: number,
   ): Promise<MemoryEvent[]> {
     const eventsKey = this.getSessionEventsKey(sessionId);
-    const events = (await this.storage.get<MemoryEvent[]>(eventsKey)) ?? [];
+    const events = (await this.ctx.storage.get<MemoryEvent[]>(eventsKey)) ?? [];
 
     const limited = limit ? events.slice(-limit) : events;
     return limited.map((e) => MemoryEventSchema.parse(e));
@@ -105,7 +97,7 @@ export class SessionMemoryStore {
     sessionId: string,
   ): Promise<MemorySnapshot | undefined> {
     const snapshotKey = this.getSessionSnapshotKey(sessionId);
-    const snapshot = await this.storage.get<MemorySnapshot>(snapshotKey);
+    const snapshot = await this.ctx.storage.get<MemorySnapshot>(snapshotKey);
     return snapshot ? MemorySnapshotSchema.parse(snapshot) : undefined;
   }
 
@@ -116,7 +108,7 @@ export class SessionMemoryStore {
 
     const validated = MemorySnapshotSchema.parse(snapshot);
     const snapshotKey = this.getSessionSnapshotKey(snapshot.sessionId);
-    await this.storage.put(snapshotKey, validated);
+    await this.ctx.storage.put(snapshotKey, validated);
   }
 
   async clearSessionMemory(sessionId: string): Promise<void> {
@@ -126,10 +118,12 @@ export class SessionMemoryStore {
     ];
 
     const prefix = `session:${sessionId}:memory:idempotency:`;
-    const idempotencyKeys = await this.storage.list({ prefix });
+    const idempotencyKeys = await this.ctx.storage.list({ prefix });
     keysToDelete.push(...Array.from(idempotencyKeys.keys()));
 
-    await this.storage.delete(keysToDelete);
+    for (const key of keysToDelete) {
+      await this.ctx.storage.delete(key);
+    }
   }
 
   async getSessionMemoryStats(sessionId: string): Promise<{

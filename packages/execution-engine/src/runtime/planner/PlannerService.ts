@@ -4,22 +4,28 @@
 import type { Run } from "../run/index.js";
 import { PlanSchema, type Plan } from "./PlanSchema.js";
 import type { ILLMGateway } from "../llm/index.js";
+import type { MemoryContext } from "../memory/index.js";
 
 export interface IPlannerService {
-  plan(run: Run, prompt: string): Promise<Plan>;
+  plan(run: Run, prompt: string, memoryContext?: MemoryContext): Promise<Plan>;
 }
 
 export interface PlanContext {
   run: Run;
   prompt: string;
   history?: string;
+  memoryContext?: MemoryContext;
 }
 
 export class PlannerService implements IPlannerService {
   constructor(private llmGateway: ILLMGateway) {}
 
-  async plan(run: Run, prompt: string): Promise<Plan> {
-    const messages = this.buildMessages(run, prompt);
+  async plan(
+    run: Run,
+    prompt: string,
+    memoryContext?: MemoryContext,
+  ): Promise<Plan> {
+    const messages = this.buildMessages(run, prompt, memoryContext);
 
     console.log(`[planner/service] Generating plan for run ${run.id}`);
 
@@ -35,6 +41,7 @@ export class PlannerService implements IPlannerService {
   private buildMessages(
     run: Run,
     prompt: string,
+    memoryContext?: MemoryContext,
   ): Array<{
     role: "system" | "user";
     content: string;
@@ -46,7 +53,7 @@ export class PlannerService implements IPlannerService {
       },
       {
         role: "user",
-        content: this.formatUserPrompt(run, prompt),
+        content: this.formatUserPrompt(run, prompt, memoryContext),
       },
     ];
   }
@@ -79,12 +86,29 @@ Rules:
 5. Keep tasks under 20 total`;
   }
 
-  private formatUserPrompt(run: Run, prompt: string): string {
+  private formatUserPrompt(
+    run: Run,
+    prompt: string,
+    memoryContext?: MemoryContext,
+  ): string {
+    const memorySection =
+      memoryContext && memoryContext.relevantEvents.length > 0
+        ? `
+
+Previous Context:
+${memoryContext.summary || ""}
+
+Key Constraints:
+${memoryContext.constraints.map((c) => `- ${c}`).join("\n")}
+`
+        : "";
+
     return `Run ID: ${run.id}
 Agent Type: ${run.agentType}
 
 User Request:
 ${prompt}
+${memorySection}
 
 Generate a plan to accomplish this request.`;
   }
