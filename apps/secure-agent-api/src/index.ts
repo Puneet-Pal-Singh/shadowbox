@@ -132,6 +132,7 @@ import {
   handleStreamLogs,
   handleDeleteSession
 } from './api/SessionAPI'
+import { getCorsHeaders, handleCorsPreflight } from "./lib/cors";
 
 export { Sandbox, AgentRuntime };
 
@@ -142,6 +143,8 @@ export interface Env {
   AGENT_RUNTIME: DurableObjectNamespace<AgentRuntime>;
   Sandbox: DurableObjectNamespace<Sandbox>;
   ARTIFACTS: R2Bucket;
+  CORS_ALLOWED_ORIGINS?: string;
+  CORS_ALLOW_DEV_ORIGINS?: "true" | "false";
 }
 
 interface ExecutionBody {
@@ -149,23 +152,13 @@ interface ExecutionBody {
   payload: Record<string, unknown>;
 }
 
-/**
- * SOLID: Open/Closed Principle
- * We allow any origin for development but maintain a strict structure for headers
- */
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*", // Allow Brain (8788) and Web (5173)
-  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
-};
-
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
-    // 1. Handle CORS Preflight (Standard Gateway Pattern)
-    if (request.method === "OPTIONS") {
-      return new Response(null, { headers: corsHeaders });
+    const preflightResponse = handleCorsPreflight(request, env);
+    if (preflightResponse) {
+      return preflightResponse;
     }
 
     // 2. Identify the Session (Multi-Agent Support)
@@ -248,12 +241,16 @@ export default {
 
       // 4. Final step: Inject CORS into the generated response
       const finalResponse = new Response(response.body, response);
+      const corsHeaders = getCorsHeaders(request, env);
       Object.entries(corsHeaders).forEach(([k, v]) => finalResponse.headers.set(k, v));
       return finalResponse;
 
     } catch (e: unknown) {
       const error = e instanceof Error ? e.message : "Internal Gateway Error";
-      return Response.json({ error }, { status: 500, headers: corsHeaders });
+      return Response.json(
+        { error },
+        { status: 500, headers: getCorsHeaders(request, env) },
+      );
     }
   },
 };

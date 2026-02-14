@@ -34,6 +34,8 @@ export interface Env {
   GITHUB_TOKEN_ENCRYPTION_KEY: string;
   SESSION_SECRET: string;
   FRONTEND_URL: string;
+  CORS_ALLOWED_ORIGINS?: string;
+  CORS_ALLOW_DEV_ORIGINS?: "true" | "false";
 
   // KV Namespace for sessions
   SESSIONS: KVNamespace;

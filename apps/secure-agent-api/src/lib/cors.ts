@@ -1,15 +1,11 @@
-interface CorsEnvConfig {
+export interface CorsEnvConfig {
   CORS_ALLOWED_ORIGINS?: string;
   CORS_ALLOW_DEV_ORIGINS?: "true" | "false";
-  FRONTEND_URL?: string;
 }
 
 const BASE_CORS_HEADERS = {
-  "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-  "Access-Control-Allow-Headers":
-    "Content-Type, Authorization, x-vercel-ai-data-stream, x-ai-sdk-data-stream",
-  "Access-Control-Expose-Headers":
-    "x-vercel-ai-data-stream, x-ai-sdk-data-stream",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS, DELETE",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
   "X-Content-Type-Options": "nosniff",
   Vary: "Origin",
 } as const;
@@ -35,7 +31,7 @@ export function getCorsHeaders(
   };
 }
 
-export function handleOptions(
+export function handleCorsPreflight(
   request: Request,
   env?: CorsEnvConfig,
 ): Response | null {
@@ -69,7 +65,7 @@ function resolveAllowedOrigin(
     return null;
   }
 
-  const configuredOrigins = parseAllowedOrigins(env);
+  const configuredOrigins = parseAllowedOrigins(env?.CORS_ALLOWED_ORIGINS);
   if (configuredOrigins.has(normalized)) {
     return normalized;
   }
@@ -81,20 +77,15 @@ function resolveAllowedOrigin(
   return null;
 }
 
-function parseAllowedOrigins(env?: CorsEnvConfig): Set<string> {
-  const originList = new Set<string>();
-  const raw = [env?.CORS_ALLOWED_ORIGINS, env?.FRONTEND_URL]
-    .filter((value): value is string => typeof value === "string")
-    .join(",");
-
-  for (const candidate of raw.split(",")) {
-    const normalized = normalizeOrigin(candidate);
+function parseAllowedOrigins(raw: string | undefined): Set<string> {
+  const origins = new Set<string>();
+  for (const item of (raw ?? "").split(",")) {
+    const normalized = normalizeOrigin(item);
     if (normalized) {
-      originList.add(normalized);
+      origins.add(normalized);
     }
   }
-
-  return originList;
+  return origins;
 }
 
 function normalizeOrigin(value: string): string | null {
@@ -102,6 +93,7 @@ function normalizeOrigin(value: string): string | null {
   if (!trimmed) {
     return null;
   }
+
   try {
     return new URL(trimmed).origin;
   } catch {

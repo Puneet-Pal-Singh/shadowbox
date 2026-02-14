@@ -1,5 +1,5 @@
 import { Env } from "../types/ai";
-import { CORS_HEADERS } from "../lib/cors";
+import { getCorsHeaders } from "../lib/cors";
 import type {
   GitStatusResponse,
   DiffContent,
@@ -24,7 +24,7 @@ export class GitController {
       const runId = url.searchParams.get("runId");
 
       if (!runId) {
-        return errorResponse("runId is required", 400);
+        return errorResponse(req, env, "runId is required", 400);
       }
 
       const response = await fetch(
@@ -33,7 +33,6 @@ export class GitController {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            ...CORS_HEADERS,
           },
           body: JSON.stringify({
             plugin: "git",
@@ -51,16 +50,12 @@ export class GitController {
 
       const data = (await response.json()) as GitStatusResponse;
 
-      return new Response(JSON.stringify(data), {
-        status: 200,
-        headers: {
-          "Content-Type": "application/json",
-          ...CORS_HEADERS,
-        },
-      });
+      return corsJsonResponse(req, env, data);
     } catch (error) {
       console.error("[GitController:getStatus] Error:", error);
       return errorResponse(
+        req,
+        env,
         error instanceof Error ? error.message : "Failed to get git status",
         500,
       );
@@ -78,7 +73,7 @@ export class GitController {
       const staged = url.searchParams.get("staged") === "true";
 
       if (!runId) {
-        return errorResponse("runId is required", 400);
+        return errorResponse(req, env, "runId is required", 400);
       }
 
       const response = await fetch(
@@ -87,7 +82,6 @@ export class GitController {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            ...CORS_HEADERS,
           },
           body: JSON.stringify({
             plugin: "git",
@@ -107,16 +101,12 @@ export class GitController {
 
       const data = (await response.json()) as DiffContent;
 
-      return new Response(JSON.stringify(data), {
-        status: 200,
-        headers: {
-          "Content-Type": "application/json",
-          ...CORS_HEADERS,
-        },
-      });
+      return corsJsonResponse(req, env, data);
     } catch (error) {
       console.error("[GitController:getDiff] Error:", error);
       return errorResponse(
+        req,
+        env,
         error instanceof Error ? error.message : "Failed to get diff",
         500,
       );
@@ -132,7 +122,7 @@ export class GitController {
       const { runId, files, unstage = false } = body;
 
       if (!runId || !files || !Array.isArray(files)) {
-        return errorResponse("runId and files array are required", 400);
+        return errorResponse(req, env, "runId and files array are required", 400);
       }
 
       const response = await fetch(
@@ -141,7 +131,6 @@ export class GitController {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            ...CORS_HEADERS,
           },
           body: JSON.stringify({
             plugin: "git",
@@ -158,16 +147,12 @@ export class GitController {
         throw new Error(`Muscle returned ${response.status}`);
       }
 
-      return new Response(JSON.stringify({ success: true }), {
-        status: 200,
-        headers: {
-          "Content-Type": "application/json",
-          ...CORS_HEADERS,
-        },
-      });
+      return corsJsonResponse(req, env, { success: true });
     } catch (error) {
       console.error("[GitController:stageFiles] Error:", error);
       return errorResponse(
+        req,
+        env,
         error instanceof Error ? error.message : "Failed to stage files",
         500,
       );
@@ -183,7 +168,7 @@ export class GitController {
       const { runId, message, files } = body;
 
       if (!runId || !message) {
-        return errorResponse("runId and message are required", 400);
+        return errorResponse(req, env, "runId and message are required", 400);
       }
 
       const response = await fetch(
@@ -192,7 +177,6 @@ export class GitController {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            ...CORS_HEADERS,
           },
           body: JSON.stringify({
             plugin: "git",
@@ -210,16 +194,12 @@ export class GitController {
         throw new Error(`Muscle returned ${response.status}`);
       }
 
-      return new Response(JSON.stringify({ success: true }), {
-        status: 200,
-        headers: {
-          "Content-Type": "application/json",
-          ...CORS_HEADERS,
-        },
-      });
+      return corsJsonResponse(req, env, { success: true });
     } catch (error) {
       console.error("[GitController:commit] Error:", error);
       return errorResponse(
+        req,
+        env,
         error instanceof Error ? error.message : "Failed to commit",
         500,
       );
@@ -227,12 +207,27 @@ export class GitController {
   }
 }
 
-function errorResponse(message: string, status: number): Response {
+function corsJsonResponse(
+  req: Request,
+  env: Env,
+  data: unknown,
+  status: number = 200,
+): Response {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: {
+      "Content-Type": "application/json",
+      ...getCorsHeaders(req, env),
+    },
+  });
+}
+
+function errorResponse(req: Request, env: Env, message: string, status: number): Response {
   return new Response(JSON.stringify({ error: message }), {
     status,
     headers: {
       "Content-Type": "application/json",
-      ...CORS_HEADERS,
+      ...getCorsHeaders(req, env),
     },
   });
 }

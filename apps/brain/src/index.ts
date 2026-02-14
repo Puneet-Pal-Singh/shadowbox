@@ -3,7 +3,7 @@ import { ChatController } from "./controllers/ChatController";
 import { AuthController } from "./controllers/AuthController";
 import { GitHubController } from "./controllers/GitHubController";
 import { GitController } from "./controllers/GitController";
-import { handleOptions, CORS_HEADERS } from "./lib/cors";
+import { handleOptions, getCorsHeaders } from "./lib/cors";
 import { Env } from "./types/ai";
 import { RunEngineRuntime } from "./runtime/RunEngineRuntime";
 
@@ -92,7 +92,7 @@ function createRouter(): Router {
  */
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
-    const optionsResponse = handleOptions(request);
+    const optionsResponse = handleOptions(request, env);
     if (optionsResponse) return optionsResponse;
 
     const router = createRouter();
@@ -111,7 +111,10 @@ export default {
         }),
         {
           status: 404,
-          headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+          headers: {
+            ...getCorsHeaders(request, env),
+            "Content-Type": "application/json",
+          },
         },
       );
     } catch (error: unknown) {
@@ -121,7 +124,10 @@ export default {
 
       return new Response(JSON.stringify({ error: message }), {
         status: 500,
-        headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+        headers: {
+          ...getCorsHeaders(request, env),
+          "Content-Type": "application/json",
+        },
       });
     }
   },

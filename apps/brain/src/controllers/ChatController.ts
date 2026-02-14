@@ -42,7 +42,7 @@ export class ChatController {
       );
 
       if (!body.messages || !Array.isArray(body.messages)) {
-        return errorResponse(req, "Invalid messages", 400);
+        return errorResponse(req, env, "Invalid messages", 400);
       }
 
       const chatRequest: ChatRequest = {
@@ -57,12 +57,12 @@ export class ChatController {
     } catch (error: unknown) {
       if (error instanceof RequestValidationError) {
         console.warn(`[Brain:${correlationId}] ${error.logMessage}`);
-        return errorResponse(req, error.message, 400);
+        return errorResponse(req, env, error.message, 400);
       }
       console.error(`[Brain:${correlationId}] Error:`, error);
       const errorMessage =
         error instanceof Error ? error.message : "Internal Server Error";
-      return errorResponse(req, errorMessage, 500);
+      return errorResponse(req, env, errorMessage, 500);
     }
   }
 
@@ -98,7 +98,7 @@ export class ChatController {
 
     return new Response(JSON.stringify({ agents: availableAgents }), {
       headers: {
-        ...getCorsHeaders(req),
+        ...getCorsHeaders(req, _env),
         "Content-Type": "application/json",
       },
     });
@@ -116,7 +116,7 @@ export class ChatController {
     const lastUserMessage = coreMessages.filter((m) => m.role === "user").pop();
 
     if (!lastUserMessage) {
-      return errorResponse(req, "No user message found", 400);
+      return errorResponse(req, env, "No user message found", 400);
     }
 
     const prompt =
@@ -142,7 +142,7 @@ export class ChatController {
           messages: coreMessages,
         },
       );
-      return withEngineHeaders(req, doResponse, runId);
+      return withEngineHeaders(req, env, doResponse, runId);
     } catch (error) {
       console.error(`[chat/controller] RunEngine execution failed:`, error);
       throw error;
@@ -246,17 +246,19 @@ function mapAgentIdToType(agentId?: string): AgentType {
 
 function errorResponse(
   req: Request,
+  env: Env,
   message: string,
   status: number,
 ): Response {
   return new Response(JSON.stringify({ error: message }), {
     status,
-    headers: { ...getCorsHeaders(req), "Content-Type": "application/json" },
+    headers: { ...getCorsHeaders(req, env), "Content-Type": "application/json" },
   });
 }
 
 function withEngineHeaders(
   req: Request,
+  env: Env,
   response: Response,
   runId: string,
 ): Response {
@@ -265,7 +267,7 @@ function withEngineHeaders(
   headers.set("X-Run-Id", runId);
   headers.set("X-Run-Engine-Runtime", "do");
 
-  const corsHeaders = getCorsHeaders(req);
+  const corsHeaders = getCorsHeaders(req, env);
   Object.entries(corsHeaders).forEach(([key, value]) => {
     headers.set(key, value);
   });
