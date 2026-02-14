@@ -57,6 +57,12 @@ export class ExecutionContextManager {
     // Store step output
     if (result.output !== undefined) {
       this.stepOutputs.set(stepId, result.output)
+      if (typeof result.output === 'object' && result.output !== null) {
+        Object.assign(
+          this.context.previousStepOutputs,
+          result.output as Record<string, unknown>
+        )
+      }
     }
 
     // Update token usage if available in output

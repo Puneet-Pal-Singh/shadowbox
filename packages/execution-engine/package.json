@@ -17,6 +17,50 @@
     "./core": {
       "types": "./dist/core/index.d.ts",
       "import": "./dist/core/index.js"
+    },
+    "./runtime": {
+      "types": "./dist/runtime/index.d.ts",
+      "import": "./dist/runtime/index.js"
+    },
+    "./runtime/agents": {
+      "types": "./dist/runtime/agents/index.d.ts",
+      "import": "./dist/runtime/agents/index.js"
+    },
+    "./runtime/cost": {
+      "types": "./dist/runtime/cost/index.d.ts",
+      "import": "./dist/runtime/cost/index.js"
+    },
+    "./runtime/engine": {
+      "types": "./dist/runtime/engine/index.d.ts",
+      "import": "./dist/runtime/engine/index.js"
+    },
+    "./runtime/llm": {
+      "types": "./dist/runtime/llm/index.d.ts",
+      "import": "./dist/runtime/llm/index.js"
+    },
+    "./runtime/orchestration": {
+      "types": "./dist/runtime/orchestration/index.d.ts",
+      "import": "./dist/runtime/orchestration/index.js"
+    },
+    "./runtime/planner": {
+      "types": "./dist/runtime/planner/index.d.ts",
+      "import": "./dist/runtime/planner/index.js"
+    },
+    "./runtime/run": {
+      "types": "./dist/runtime/run/index.d.ts",
+      "import": "./dist/runtime/run/index.js"
+    },
+    "./runtime/state": {
+      "types": "./dist/runtime/state/index.d.ts",
+      "import": "./dist/runtime/state/index.js"
+    },
+    "./runtime/task": {
+      "types": "./dist/runtime/task/index.d.ts",
+      "import": "./dist/runtime/task/index.js"
+    },
+    "./runtime/*": {
+      "types": "./dist/runtime/*.d.ts",
+      "import": "./dist/runtime/*.js"
     }
   },
   "files": [
@@ -25,7 +69,7 @@
   "scripts": {
     "build": "tsc",
     "type-check": "tsc --noEmit",
-    "test": "vitest",
+    "test": "vitest run",
     "test:watch": "vitest --watch",
     "test:coverage": "vitest --coverage"
   },

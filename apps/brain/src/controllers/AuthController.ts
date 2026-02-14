@@ -45,6 +45,7 @@ export class AuthController {
         );
         return errorResponse(
           request,
+          env,
           "Server configuration error: Missing GitHub OAuth credentials. " +
             "Please check your .dev.vars file and ensure GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET are set.",
           500,
@@ -55,6 +56,7 @@ export class AuthController {
         console.error("[Auth] Missing GITHUB_REDIRECT_URI");
         return errorResponse(
           request,
+          env,
           "Server configuration error: Missing redirect URI",
           500,
         );
@@ -93,12 +95,12 @@ export class AuthController {
         status: 302,
         headers: {
           Location: authUrl,
-          ...getCorsHeaders(request),
+          ...getCorsHeaders(request, env),
         },
       });
     } catch (error) {
       console.error("[Auth] Login error:", error);
-      return errorResponse(request, "Failed to initiate authentication", 500);
+      return errorResponse(request, env, "Failed to initiate authentication", 500);
     }
   }
 
@@ -124,18 +126,18 @@ export class AuthController {
       // Handle OAuth errors from GitHub
       if (error) {
         console.error("[Auth] GitHub OAuth error:", error);
-        return errorResponse(request, `GitHub authentication failed: ${error}`, 400);
+        return errorResponse(request, env, `GitHub authentication failed: ${error}`, 400);
       }
 
       if (!code || !state) {
-        return errorResponse(request, "Missing code or state parameter", 400);
+        return errorResponse(request, env, "Missing code or state parameter", 400);
       }
 
       // Verify state to prevent CSRF
       const sessionData = await env.SESSIONS.get(`oauth_state:${state}`);
       if (!sessionData) {
         console.error("[Auth] State not found in KV store");
-        return errorResponse(request, "Invalid or expired session", 400);
+        return errorResponse(request, env, "Invalid or expired session", 400);
       }
 
       const session: AuthSession = JSON.parse(sessionData);
@@ -143,12 +145,12 @@ export class AuthController {
       // Check session expiration
       if (Date.now() - session.createdAt > SESSION_TTL) {
         await env.SESSIONS.delete(`oauth_state:${state}`);
-        return errorResponse(request, "Session expired", 400);
+        return errorResponse(request, env, "Session expired", 400);
       }
 
       // Verify state matches
       if (!verifyState(state, session.state)) {
-        return errorResponse(request, "Invalid state parameter", 400);
+        return errorResponse(request, env, "Invalid state parameter", 400);
       }
 
       // Clean up state
@@ -159,6 +161,7 @@ export class AuthController {
         console.error("[Auth] Missing GitHub OAuth credentials");
         return errorResponse(
           request,
+          env,
           "Server configuration error: Missing GitHub credentials",
           500,
         );
@@ -218,7 +221,7 @@ export class AuthController {
         status: 302,
         headers: {
           Location: redirectUrl.toString(),
-          ...getCorsHeaders(request),
+          ...getCorsHeaders(request, env),
           "Set-Cookie": createSessionCookie(sessionToken),
         },
       });
@@ -226,7 +229,7 @@ export class AuthController {
       console.error("[Auth] Callback error:", error);
       const message =
         error instanceof Error ? error.message : "Authentication failed";
-      return errorResponse(request, message, 500);
+      return errorResponse(request, env, message, 500);
     }
   }
 
@@ -238,22 +241,22 @@ export class AuthController {
     try {
       const sessionToken = extractSessionToken(request);
       if (!sessionToken) {
-        return jsonResponse(request, { authenticated: false });
+        return jsonResponse(request, env, { authenticated: false });
       }
 
       const userId = await verifySessionToken(sessionToken, env);
       if (!userId) {
-        return jsonResponse(request, { authenticated: false });
+        return jsonResponse(request, env, { authenticated: false });
       }
 
       const sessionData = await env.SESSIONS.get(`user_session:${userId}`);
       if (!sessionData) {
-        return jsonResponse(request, { authenticated: false });
+        return jsonResponse(request, env, { authenticated: false });
       }
 
       const session = JSON.parse(sessionData);
 
-      return jsonResponse(request, {
+      return jsonResponse(request, env, {
         authenticated: true,
         user: {
           id: session.userId,
@@ -264,7 +267,7 @@ export class AuthController {
       });
     } catch (error) {
       console.error("[Auth] Session error:", error);
-      return errorResponse(request, "Failed to get session", 500);
+      return errorResponse(request, env, "Failed to get session", 500);
     }
   }
 
@@ -284,6 +287,7 @@ export class AuthController {
 
       return jsonResponse(
         request,
+        env,
         { success: true },
         {
           "Set-Cookie":
@@ -292,7 +296,7 @@ export class AuthController {
       );
     } catch (error) {
       console.error("[Auth] Logout error:", error);
-      return errorResponse(request, "Logout failed", 500);
+      return errorResponse(request, env, "Logout failed", 500);
     }
   }
 }
@@ -331,6 +335,7 @@ function createSessionCookie(token: string): string {
  */
 function jsonResponse(
   request: Request,
+  env: Env,
   data: unknown,
   headers: Record<string, string> = {},
 ): Response {
@@ -338,7 +343,7 @@ function jsonResponse(
     status: 200,
     headers: {
       "Content-Type": "application/json",
-      ...getCorsHeaders(request),
+      ...getCorsHeaders(request, env),
       ...headers,
     },
   });
@@ -347,12 +352,17 @@ function jsonResponse(
 /**
  * Error response helper
  */
-function errorResponse(request: Request, message: string, status: number): Response {
+function errorResponse(
+  request: Request,
+  env: Env,
+  message: string,
+  status: number,
+): Response {
   return new Response(JSON.stringify({ error: message }), {
     status,
     headers: {
       "Content-Type": "application/json",
-      ...getCorsHeaders(request),
+      ...getCorsHeaders(request, env),
     },
   });
 }

@@ -10,7 +10,7 @@
 		"start": "wrangler dev",
 		"cf-typegen": "wrangler types",
 		"check-types": "tsc --noEmit",
-		"test": "node --test test/**/*.test.js"
+		"test": "node --test test/**/*.test.js && vitest run --dir src"
 	},
 	"devDependencies": {
 		"@cloudflare/sandbox": "*",
@@ -18,8 +18,12 @@
 		"@repo/typescript-config": "workspace:*",
 		"@types/node": "^24.10.9",
 		"typescript": "^5.9.3",
+		"vitest": "^1.0.0",
 		"wrangler": "^4.61.0",
 		"ws": "^8.19.0"
+	},
+	"dependencies": {
+		"zod": "^3.25.1"
 	},
 	"author": "",
 	"license": "MIT"

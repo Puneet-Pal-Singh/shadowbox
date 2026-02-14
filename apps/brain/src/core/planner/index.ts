@@ -1,17 +1,2 @@
-// apps/brain/src/core/planner/index.ts
-// Phase 3B: Planner module barrel exports
-
-export {
-  PlannerService,
-  PlannerError,
-  type IPlannerService,
-  type PlanContext,
-} from "./PlannerService";
-export {
-  PlanSchema,
-  PlannedTaskSchema,
-  validatePlan,
-  safeValidatePlan,
-  type Plan,
-  type PlannedTask,
-} from "./PlanSchema";
+export { PlanSchema, PlannedTaskSchema, PlannerError, PlannerService, safeValidatePlan, validatePlan } from "@shadowbox/execution-engine/runtime/planner";
+export type { IPlannerService, Plan, PlanContext, PlannedTask } from "@shadowbox/execution-engine/runtime/planner";

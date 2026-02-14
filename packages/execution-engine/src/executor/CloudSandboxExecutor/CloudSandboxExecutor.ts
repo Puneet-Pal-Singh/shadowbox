@@ -265,7 +265,7 @@ export class CloudSandboxExecutor extends EnvironmentManager {
     // Only check for path traversal (critical security issue)
     // Absolute paths are allowed in sandboxed contexts (/workspace is valid)
     if (task.cwd.includes('..')) {
-      throw new Error('Invalid path: traversal sequences (..) not allowed')
+      throw new Error('Path traversal not allowed: traversal sequences (..) not allowed')
     }
 
     // Reject Windows-style paths in Unix contexts
@@ -515,6 +515,10 @@ export class CloudSandboxExecutor extends EnvironmentManager {
     try {
       return await fn()
     } catch (error) {
+      if (!this.isRetryableError(error)) {
+        throw error
+      }
+
       if (attemptNumber >= this.retryConfig.maxRetries) {
         throw error
       }
@@ -524,6 +528,25 @@ export class CloudSandboxExecutor extends EnvironmentManager {
 
       return this.retryWithBackoff(fn, attemptNumber + 1)
     }
+  }
+
+  private isRetryableError(error: unknown): boolean {
+    if (!(error instanceof Error)) {
+      return false
+    }
+
+    const message = error.message
+    const nonRetryablePatterns = [
+      /401/,
+      /403/,
+      /404/,
+      /Invalid session response format/,
+      /Invalid execution response format/,
+      /Invalid log entry format/,
+      /Logs response must be an array/
+    ]
+
+    return !nonRetryablePatterns.some(pattern => pattern.test(message))
   }
 
   /**

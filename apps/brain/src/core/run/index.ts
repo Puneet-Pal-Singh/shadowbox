@@ -1,15 +1,2 @@
-// apps/brain/src/core/run/index.ts
-// Phase 3A: Run module barrel exports
-
-export { Run, InvalidStateTransitionError } from "./Run";
-export {
-  RunRepository,
-  RunNotFoundError,
-  type IRunRepository,
-} from "./RunRepository";
-export {
-  RunStateMachine,
-  validateStateTransition,
-  StateMachineError,
-  type StateTransition,
-} from "./RunStateMachine";
+export { InvalidStateTransitionError, Run, RunNotFoundError, RunRepository, RunStateMachine, StateMachineError, validateStateTransition } from "@shadowbox/execution-engine/runtime/run";
+export type { IRunRepository, StateTransition } from "@shadowbox/execution-engine/runtime/run";

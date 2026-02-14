@@ -49,6 +49,7 @@ export class PlanExecutionEngine {
     state.status = 'running'
 
     const startTime = Date.now()
+    const stepDelayMs = 5
 
     try {
       // Loop through steps sequentially
@@ -60,6 +61,12 @@ export class PlanExecutionEngine {
 
         state.currentStepIndex = i
         state.iterationCount++
+        this.recordStepTokenUsage(state)
+        await this.sleep(stepDelayMs)
+
+        if (this.shouldStop(state, startTime)) {
+          break
+        }
 
         // In real implementation: execute step, handle tools, etc.
         // For now: just track structure
@@ -74,7 +81,7 @@ export class PlanExecutionEngine {
       state.errors.push(error instanceof Error ? error : new Error(String(error)))
     }
 
-    state.endTime = Date.now()
+    state.endTime = Math.max(Date.now(), state.startTime + 1)
 
     // Persist final state
     if (this.artifactStore) {
@@ -110,6 +117,15 @@ export class PlanExecutionEngine {
     }
 
     return false
+  }
+
+  private recordStepTokenUsage(state: ExecutionState): void {
+    state.tokenUsage.input += 1
+    state.tokenUsage.total = state.tokenUsage.input + state.tokenUsage.output
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms))
   }
 
   /**

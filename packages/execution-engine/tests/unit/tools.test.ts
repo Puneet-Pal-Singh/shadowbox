@@ -187,6 +187,41 @@ describe('ToolExecutor', () => {
     expect(result.error).toContain('timeout')
   })
 
+  it('does not trigger unhandled rejections when tool returns before timeout', async () => {
+    class FastTool extends Tool {
+      getName(): string {
+        return 'fast'
+      }
+      getDescription(): string {
+        return 'Fast tool'
+      }
+      getInputSchema(): Record<string, unknown> {
+        return {}
+      }
+      async execute(): Promise<ToolResult> {
+        return createToolResult('fast', {}, 'success', { ok: true })
+      }
+    }
+
+    let unhandledRejectionCount = 0
+    const onUnhandledRejection = () => {
+      unhandledRejectionCount += 1
+    }
+    process.on('unhandledRejection', onUnhandledRejection)
+
+    try {
+      executor.registerTool(new FastTool())
+      const result = await executor.execute('fast', {}, context, 20)
+
+      expect(result.status).toBe('success')
+
+      await new Promise(resolve => setTimeout(resolve, 40))
+      expect(unhandledRejectionCount).toBe(0)
+    } finally {
+      process.off('unhandledRejection', onUnhandledRejection)
+    }
+  })
+
   it('gets available tools', () => {
     const tool1 = new MockTool('tool1')
     const tool2 = new MockTool('tool2')

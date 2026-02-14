@@ -93,12 +93,8 @@ export class ToolExecutor {
     startTime: number,
     timeoutMs: number
   ): Promise<ToolResult> {
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
-
     try {
-      const result = await tool.execute(args, context)
-      clearTimeout(timeoutId)
+      const result = await runWithTimeout(tool.execute(args, context), timeoutMs)
 
       const duration = Date.now() - startTime
       result.duration = duration
@@ -106,8 +102,6 @@ export class ToolExecutor {
 
       return result
     } catch (error) {
-      clearTimeout(timeoutId)
-
       const duration = Date.now() - startTime
       const errorMsg =
         error instanceof Error
@@ -147,4 +141,38 @@ export class ToolExecutor {
 
     return lastResult!
   }
+}
+
+function runWithTimeout<T>(
+  operation: Promise<T>,
+  timeoutMs: number
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    let settled = false
+    const timeoutHandle = setTimeout(() => {
+      if (settled) {
+        return
+      }
+      settled = true
+      reject(new Error(`Tool execution timeout after ${timeoutMs}ms`))
+    }, timeoutMs)
+
+    operation
+      .then((value) => {
+        if (settled) {
+          return
+        }
+        settled = true
+        clearTimeout(timeoutHandle)
+        resolve(value)
+      })
+      .catch((error: unknown) => {
+        if (settled) {
+          return
+        }
+        settled = true
+        clearTimeout(timeoutHandle)
+        reject(error)
+      })
+  })
 }

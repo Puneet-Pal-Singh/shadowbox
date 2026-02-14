@@ -1,15 +1,11 @@
-// apps/brain/src/core/state/index.ts
-// Phase 3 Enhancement: State management exports
-
 export {
   type StateManager,
   type CreateRunParams,
   type CreateTaskParams,
-} from "./StateManager";
-
+} from "@shadowbox/execution-engine/runtime/state";
 export {
-  DurableObjectStateManager,
-  StateManagerError,
-} from "./DurableObjectStateManager";
-
-export { createKVBackedDurableObjectState } from "./KVBackedDurableObjectState";
+  assertRuntimeStateSemantics,
+  getRuntimeStateSemantics,
+  tagRuntimeStateSemantics,
+  type RuntimeStateSemantics,
+} from "@shadowbox/execution-engine/runtime/state";

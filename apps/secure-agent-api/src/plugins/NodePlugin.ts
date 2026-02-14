@@ -1,55 +1,156 @@
 import { Sandbox } from "@cloudflare/sandbox";
 import { IPlugin, PluginResult, LogCallback } from "../interfaces/types";
 import { NodeTool } from "../schemas/node";
+import { z } from "zod";
+import { getWorkspaceRoot, normalizeRunId } from "./security/PathGuard";
+import { runSafeCommand } from "./security/SafeCommand";
+
+const DEFAULT_ALLOWED_COMMANDS = ["node", "npm", "pnpm", "yarn", "npx", "tsx"];
+
+const RunCommandPayloadSchema = z.object({
+  action: z.literal("run"),
+  runId: z.string().optional(),
+  command: z.string().min(1),
+  args: z.array(z.string()).optional(),
+});
+
+const ExecuteCodePayloadSchema = z.object({
+  runId: z.string().optional(),
+  code: z.string().min(1),
+  isTypeScript: z.boolean().optional(),
+});
 
 export class NodePlugin implements IPlugin {
   name = "node";
   tools = [NodeTool];
 
-  async execute(sandbox: Sandbox, payload: any, onLog?: LogCallback): Promise<PluginResult> {
-    const runId = payload.runId || "default";
-    const workspaceRoot = `/home/sandbox/workspaces/${runId}`;
-    
-    // Ensure workspace exists
-    await sandbox.exec(`mkdir -p ${workspaceRoot}`);
-
-    // Action: run_command
-    if (payload.action === "run") {
-      if (onLog) onLog(`[System] Executing in workspace: ${payload.command}\n`);
-      // Prefix with cd to workspace
-      const result = await sandbox.exec(`cd ${workspaceRoot} && ${payload.command}`);
-      
-      if (onLog) {
-        if (result.stdout) onLog(result.stdout);
-        if (result.stderr) onLog(`\x1b[31m${result.stderr}\x1b[0m`);
+  async execute(
+    sandbox: Sandbox,
+    payload: unknown,
+    onLog?: LogCallback,
+  ): Promise<PluginResult> {
+    try {
+      if (isRunActionPayload(payload)) {
+        return await this.executeRunCommand(sandbox, payload, onLog);
       }
-
-      return {
-        success: result.exitCode === 0,
-        output: result.stdout,
-        error: result.exitCode !== 0 ? result.stderr : undefined
-      };
+      return await this.executeCodeBlock(sandbox, payload, onLog);
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error ? error.message : "Node plugin execution failed";
+      return { success: false, error: message };
     }
+  }
 
-    // Default legacy behavior for code-blocks
-    const ext = payload.isTypeScript ? "ts" : "js";
-    const fileName = `${workspaceRoot}/index.${ext}`;
-    const runner = payload.isTypeScript ? "tsx" : "node";
+  private async executeRunCommand(
+    sandbox: Sandbox,
+    payload: unknown,
+    onLog?: LogCallback,
+  ): Promise<PluginResult> {
+    const parsed = RunCommandPayloadSchema.parse(payload);
+    const runId = normalizeRunId(parsed.runId);
+    const workspaceRoot = getWorkspaceRoot(runId);
 
-    await sandbox.writeFile(fileName, payload.code);
-    if (onLog) onLog(`[System] Running ${runner} index.${ext}...\n`);
+    await runSafeCommand(
+      sandbox,
+      { command: "mkdir", args: ["-p", workspaceRoot] },
+      ["mkdir"],
+    );
 
-    const result = await sandbox.exec(`cd ${workspaceRoot} && ${runner} index.${ext}`);
+    const commandParts = normalizeCommandParts(parsed.command, parsed.args);
+    const command = commandParts[0];
+    if (!command) {
+      return { success: false, error: "Missing command" };
+    }
+    const args = commandParts.slice(1);
 
     if (onLog) {
-        if (result.stdout) onLog(result.stdout);
-        if (result.stderr) onLog(`\x1b[31m${result.stderr}\x1b[0m`);
+      onLog(`[node/plugin] Running ${command} in ${workspaceRoot}\n`);
+    }
+
+    const result = await runSafeCommand(
+      sandbox,
+      { command, args, cwd: workspaceRoot },
+      DEFAULT_ALLOWED_COMMANDS,
+    );
+
+    if (onLog) {
+      if (result.stdout) onLog(result.stdout);
+      if (result.stderr) onLog(`\x1b[31m${result.stderr}\x1b[0m`);
     }
 
     return {
       success: result.exitCode === 0,
       output: result.stdout,
-      error: result.exitCode !== 0 ? result.stderr : undefined
+      error: result.exitCode !== 0 ? result.stderr : undefined,
     };
   }
+
+  private async executeCodeBlock(
+    sandbox: Sandbox,
+    payload: unknown,
+    onLog?: LogCallback,
+  ): Promise<PluginResult> {
+    const parsed = ExecuteCodePayloadSchema.parse(payload);
+    const runId = normalizeRunId(parsed.runId);
+    const workspaceRoot = getWorkspaceRoot(runId);
+
+    await runSafeCommand(
+      sandbox,
+      { command: "mkdir", args: ["-p", workspaceRoot] },
+      ["mkdir"],
+    );
+
+    const ext = parsed.isTypeScript ? "ts" : "js";
+    const fileName = `${workspaceRoot}/index.${ext}`;
+    const runner = parsed.isTypeScript ? "tsx" : "node";
+    await sandbox.writeFile(fileName, parsed.code);
+
+    if (onLog) {
+      onLog(`[node/plugin] Running ${runner} index.${ext}\n`);
+    }
+
+    const result = await runSafeCommand(
+      sandbox,
+      { command: runner, args: [`index.${ext}`], cwd: workspaceRoot },
+      DEFAULT_ALLOWED_COMMANDS,
+    );
+
+    if (onLog) {
+      if (result.stdout) onLog(result.stdout);
+      if (result.stderr) onLog(`\x1b[31m${result.stderr}\x1b[0m`);
+    }
+
+    return {
+      success: result.exitCode === 0,
+      output: result.stdout,
+      error: result.exitCode !== 0 ? result.stderr : undefined,
+    };
+  }
+}
+
+function isRunActionPayload(payload: unknown): boolean {
+  if (!payload || typeof payload !== "object") {
+    return false;
+  }
+  const candidate = payload as { action?: unknown };
+  return candidate.action === "run";
+}
+
+function normalizeCommandParts(command: string, args?: string[]): string[] {
+  const disallowedShellTokens = /[|&;$`><\r\n]/;
+  if (disallowedShellTokens.test(command)) {
+    throw new Error("Unsafe shell token detected in command");
+  }
+  if (args && args.some((arg) => disallowedShellTokens.test(arg))) {
+    throw new Error("Unsafe shell token detected in args");
+  }
+
+  if (args && args.length > 0) {
+    return [command.trim(), ...args];
+  }
+
+  return command
+    .trim()
+    .split(/\s+/)
+    .filter((segment) => segment.length > 0);
 }

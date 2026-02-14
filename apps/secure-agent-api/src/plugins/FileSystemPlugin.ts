@@ -2,100 +2,185 @@
 import { Sandbox } from "@cloudflare/sandbox";
 import { IPlugin, PluginResult, LogCallback } from "../interfaces/types";
 import { FileSystemTools } from "../schemas/filesystem";
+import { z } from "zod";
+import path from "node:path";
+import {
+  getWorkspaceRoot,
+  normalizeRunId,
+  resolveWorkspacePath,
+} from "./security/PathGuard";
+import { runSafeCommand } from "./security/SafeCommand";
+
+const FileSystemPayloadSchema = z.discriminatedUnion("action", [
+  z.object({
+    action: z.literal("list_files"),
+    path: z.string().optional(),
+    runId: z.string().optional(),
+  }),
+  z.object({
+    action: z.literal("read_file"),
+    path: z.string().min(1),
+    runId: z.string().optional(),
+  }),
+  z.object({
+    action: z.literal("write_file"),
+    path: z.string().min(1),
+    content: z.string(),
+    runId: z.string().optional(),
+  }),
+  z.object({
+    action: z.literal("make_dir"),
+    path: z.string().min(1),
+    runId: z.string().optional(),
+  }),
+]);
+
+type FileSystemPayload = z.infer<typeof FileSystemPayloadSchema>;
 
 export class FileSystemPlugin implements IPlugin {
   name = "filesystem";
   tools = FileSystemTools;
 
-  async execute(sandbox: Sandbox, payload: any, onLog?: LogCallback): Promise<PluginResult> {
-    // The payload will come in as { tool: "list_files", ...args } 
-    // OR we need to handle the routing in AgentRuntime better.
-    // For now, let's assume the AgentRuntime passes the specific tool name or we infer it.
-    
-    // Actually, looking at AgentRuntime, it passes 'payload'. 
-    // We need to know WHICH tool was called. 
-    // Let's assume the payload includes an 'action' field or we check the structure.
-    // Standard pattern: { action: "list_files", path: "..." }
-    
-    const action = payload.action; 
-    const runId = payload.runId || "default";
-    const workspaceRoot = `/home/sandbox/workspaces/${runId}`;
-
+  async execute(
+    sandbox: Sandbox,
+    payload: unknown,
+    _onLog?: LogCallback,
+  ): Promise<PluginResult> {
     try {
-      // Ensure workspace exists before any operation
-      await sandbox.exec(`mkdir -p ${workspaceRoot}`);
+      const parsedPayload = FileSystemPayloadSchema.parse(payload);
+      const runId = normalizeRunId(parsedPayload.runId);
+      const workspaceRoot = getWorkspaceRoot(runId);
 
-      if (action === "list_files") {
-        const path = payload.path || ".";
-        const targetDir = `${workspaceRoot}/${path}`.replace(/\/+$/, '');
-        
-        // Safety check: prevent directory escape
-        if (!targetDir.startsWith(workspaceRoot)) {
-          return { success: false, error: "Access Denied: Path escapes workspace" };
-        }
+      await runSafeCommand(
+        sandbox,
+        { command: "mkdir", args: ["-p", workspaceRoot] },
+        ["mkdir"],
+      );
 
-        const res = await sandbox.exec(`ls -1p ${targetDir}`); // -1p: one per line, / for folders, no * for executables
-        
-        if (res.exitCode !== 0) {
-          return { success: false, error: res.stderr || "Directory not found" };
-        }
-
-        const files = res.stdout.trim().split("\n").filter(f => f.length > 0);
-        const total = files.length;
-        
-        if (total > 20) {
-          const limited = files.slice(0, 20).join("\n");
-          const output = `${limited}\n\n... and ${total - 20} more files (Total: ${total})`;
-          return { success: true, output };
-        }
-
-        return { success: true, output: res.stdout };
+      if (parsedPayload.action === "list_files") {
+        return await this.listFiles(sandbox, workspaceRoot, parsedPayload);
       }
-
-      if (action === "read_file") {
-        const targetPath = `${workspaceRoot}/${payload.path}`;
-        if (!targetPath.startsWith(workspaceRoot)) {
-          return { success: false, error: "Access Denied: Path escapes workspace" };
-        }
-
-        // Check if file is binary first
-        const check = await sandbox.exec(`file -b --mime-type ${targetPath}`);
-        if (check.stdout.includes('binary') || check.stdout.includes('application/octet-stream') || check.stdout.includes('executable')) {
-           return { success: true, output: "[BINARY_FILE_DETECTED]", isBinary: true };
-        }
-
-        const res = await sandbox.exec(`cat ${targetPath}`);
-        if (res.exitCode !== 0) throw new Error(`File not found: ${res.stderr}`);
-        return { success: true, output: res.stdout };
+      if (parsedPayload.action === "read_file") {
+        return await this.readFile(sandbox, workspaceRoot, parsedPayload);
       }
-
-      if (action === "write_file") {
-        const targetPath = `${workspaceRoot}/${payload.path}`;
-        if (!targetPath.startsWith(workspaceRoot)) {
-          return { success: false, error: "Access Denied: Path escapes workspace" };
-        }
-
-        // Ensure parent directory exists
-        const parentDir = targetPath.split('/').slice(0, -1).join('/');
-        await sandbox.exec(`mkdir -p ${parentDir}`);
-
-        await sandbox.writeFile(targetPath, payload.content);
-        return { success: true, output: `Wrote ${payload.content.length} bytes to ${payload.path}` };
+      if (parsedPayload.action === "write_file") {
+        return await this.writeFile(sandbox, workspaceRoot, parsedPayload);
       }
-
-      if (action === "make_dir") {
-        const targetPath = `${workspaceRoot}/${payload.path}`;
-        if (!targetPath.startsWith(workspaceRoot)) {
-          return { success: false, error: "Access Denied: Path escapes workspace" };
-        }
-        const res = await sandbox.exec(`mkdir -p ${targetPath}`);
-        return { success: res.exitCode === 0, output: res.exitCode === 0 ? "Directory created" : res.stderr };
-      }
-
-      return { success: false, error: `Unknown filesystem action: ${action}` };
-
-    } catch (e: any) {
-      return { success: false, error: e.message };
+      return await this.makeDirectory(sandbox, workspaceRoot, parsedPayload);
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error ? error.message : "Filesystem operation failed";
+      return { success: false, error: message };
     }
   }
+
+  private async listFiles(
+    sandbox: Sandbox,
+    workspaceRoot: string,
+    payload: Extract<FileSystemPayload, { action: "list_files" }>,
+  ): Promise<PluginResult> {
+    const targetDir = resolveWorkspacePath(workspaceRoot, payload.path ?? ".");
+    const result = await runSafeCommand(
+      sandbox,
+      { command: "ls", args: ["-1p", targetDir] },
+      ["ls"],
+    );
+
+    if (result.exitCode !== 0) {
+      return { success: false, error: result.stderr || "Directory not found" };
+    }
+
+    const files = result.stdout
+      .trim()
+      .split("\n")
+      .filter((entry) => entry.length > 0);
+    const totalFiles = files.length;
+    if (totalFiles > 20) {
+      const limited = files.slice(0, 20).join("\n");
+      return {
+        success: true,
+        output: `${limited}\n\n... and ${totalFiles - 20} more files (Total: ${totalFiles})`,
+      };
+    }
+
+    return { success: true, output: result.stdout };
+  }
+
+  private async readFile(
+    sandbox: Sandbox,
+    workspaceRoot: string,
+    payload: Extract<FileSystemPayload, { action: "read_file" }>,
+  ): Promise<PluginResult> {
+    const targetPath = resolveWorkspacePath(workspaceRoot, payload.path);
+    const fileTypeResult = await runSafeCommand(
+      sandbox,
+      { command: "file", args: ["-b", "--mime-type", targetPath] },
+      ["file"],
+    );
+    if (fileTypeResult.exitCode !== 0) {
+      return { success: false, error: fileTypeResult.stderr || "Unable to read file type" };
+    }
+
+    const mimeType = fileTypeResult.stdout.trim().toLowerCase();
+    if (isBinaryMimeType(mimeType)) {
+      return { success: true, output: "[BINARY_FILE_DETECTED]", isBinary: true };
+    }
+
+    const result = await runSafeCommand(
+      sandbox,
+      { command: "cat", args: [targetPath] },
+      ["cat"],
+    );
+    if (result.exitCode !== 0) {
+      return { success: false, error: result.stderr || "File read failed" };
+    }
+    return { success: true, output: result.stdout };
+  }
+
+  private async writeFile(
+    sandbox: Sandbox,
+    workspaceRoot: string,
+    payload: Extract<FileSystemPayload, { action: "write_file" }>,
+  ): Promise<PluginResult> {
+    const targetPath = resolveWorkspacePath(workspaceRoot, payload.path);
+    const parentDir = path.posix.dirname(targetPath);
+
+    await runSafeCommand(
+      sandbox,
+      { command: "mkdir", args: ["-p", parentDir] },
+      ["mkdir"],
+    );
+
+    await sandbox.writeFile(targetPath, payload.content);
+    return {
+      success: true,
+      output: `Wrote ${payload.content.length} bytes to ${payload.path}`,
+    };
+  }
+
+  private async makeDirectory(
+    sandbox: Sandbox,
+    workspaceRoot: string,
+    payload: Extract<FileSystemPayload, { action: "make_dir" }>,
+  ): Promise<PluginResult> {
+    const targetPath = resolveWorkspacePath(workspaceRoot, payload.path);
+    const result = await runSafeCommand(
+      sandbox,
+      { command: "mkdir", args: ["-p", targetPath] },
+      ["mkdir"],
+    );
+    return {
+      success: result.exitCode === 0,
+      output: result.exitCode === 0 ? "Directory created" : result.stderr,
+      error: result.exitCode === 0 ? undefined : result.stderr,
+    };
+  }
+}
+
+function isBinaryMimeType(mimeType: string): boolean {
+  return (
+    mimeType.includes("application/octet-stream") ||
+    mimeType.includes("application/x-executable") ||
+    mimeType.includes("application/x-sharedlib")
+  );
 }

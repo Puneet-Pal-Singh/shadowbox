@@ -1,10 +1,2 @@
-export { LLMGateway, UnknownPricingError, type LLMGatewayDependencies } from "./LLMGateway";
-export type {
-  ILLMGateway,
-  LLMPhase,
-  LLMCallContext,
-  LLMTextRequest,
-  LLMStructuredRequest,
-  LLMTextResponse,
-  LLMStructuredResponse,
-} from "./types";
+export { LLMGateway, UnknownPricingError } from "@shadowbox/execution-engine/runtime/llm";
+export type { ILLMGateway, LLMCallContext, LLMGatewayDependencies, LLMPhase, LLMRuntimeAIService, LLMStructuredRequest, LLMStructuredResponse, LLMTextRequest, LLMTextResponse } from "@shadowbox/execution-engine/runtime/llm";

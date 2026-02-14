@@ -1,5 +1,9 @@
 import { Env } from "../types/ai";
 import { decryptToken } from "@shadowbox/github-bridge";
+import {
+  sanitizeLogPayload,
+  sanitizeUnknownError,
+} from "../core/security/LogSanitizer";
 
 /**
  * ExecutionService - Handles plugin execution with secure token pass-through
@@ -22,7 +26,10 @@ export class ExecutionService {
     action: string,
     payload: Record<string, unknown>,
   ) {
-    console.log(`[ExecutionService] ${plugin}:${action}`, payload);
+    console.log(
+      `[ExecutionService] ${plugin}:${action}`,
+      sanitizeLogPayload(payload),
+    );
 
     try {
       // Check if this is a git operation and we have a userId
@@ -58,7 +65,10 @@ export class ExecutionService {
         return text;
       }
     } catch (error) {
-      console.error(`[ExecutionService] Error:`, error);
+      console.error(
+        `[ExecutionService] Error:`,
+        sanitizeUnknownError(error),
+      );
       throw error;
     }
   }
@@ -116,7 +126,10 @@ export class ExecutionService {
       );
       return token;
     } catch (error) {
-      console.error(`[ExecutionService] Failed to get GitHub token:`, error);
+      console.error(
+        `[ExecutionService] Failed to get GitHub token:`,
+        sanitizeUnknownError(error),
+      );
       return null;
     }
   }

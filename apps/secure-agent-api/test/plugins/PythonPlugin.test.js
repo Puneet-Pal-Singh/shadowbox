@@ -1,8 +1,10 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
-import { sendCommand, generateSessionId } from '../utils.js';
+import { sendCommand, generateSessionId, isApiAvailable } from '../utils.js';
 
-describe('Plugin: Python', () => {
+const API_AVAILABLE = await isApiAvailable();
+
+describe('Plugin: Python', { skip: !API_AVAILABLE }, () => {
   const sessionId = generateSessionId();
 
   it('should execute valid python code', async () => {

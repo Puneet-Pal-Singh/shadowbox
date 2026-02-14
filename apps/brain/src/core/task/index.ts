@@ -1,17 +1,2 @@
-// apps/brain/src/core/task/index.ts
-// Phase 3A: Task module barrel exports
-
-export { Task, InvalidTaskStateTransitionError } from "./Task";
-export {
-  TaskRepository,
-  TaskNotFoundError,
-  type ITaskRepository,
-} from "./TaskRepository";
-export {
-  TaskState,
-  validateTaskStateTransition,
-  TaskStateError,
-  createStateSnapshot,
-  type TaskStateSnapshot,
-  type TaskStateTransition,
-} from "./TaskState";
+export { InvalidTaskStateTransitionError, Task, TaskNotFoundError, TaskRepository, TaskState, TaskStateError, createStateSnapshot, validateTaskStateTransition } from "@shadowbox/execution-engine/runtime/task";
+export type { ITaskRepository, TaskStateSnapshot, TaskStateTransition } from "@shadowbox/execution-engine/runtime/task";

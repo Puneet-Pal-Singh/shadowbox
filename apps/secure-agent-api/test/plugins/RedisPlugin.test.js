@@ -1,8 +1,10 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
-import { sendCommand, generateSessionId } from '../utils.js';
+import { sendCommand, generateSessionId, isApiAvailable } from '../utils.js';
 
-describe('Plugin: Redis (Go Sidecar)', () => {
+const API_AVAILABLE = await isApiAvailable();
+
+describe('Plugin: Redis (Go Sidecar)', { skip: !API_AVAILABLE }, () => {
   const sessionId = generateSessionId();
 
   it('should verify the sidecar is running', async () => {

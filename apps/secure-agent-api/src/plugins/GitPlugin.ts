@@ -1,123 +1,77 @@
 import { Sandbox } from "@cloudflare/sandbox";
+import { z } from "zod";
 import type { IPlugin, PluginResult, LogCallback } from "../interfaces/types";
+import { GitTools } from "../schemas/git";
 import type {
-  GitStatusResponse,
-  FileStatus,
   DiffContent,
   DiffHunk,
+  FileStatus,
+  GitStatusResponse,
 } from "../../../../packages/shared-types/src/git";
+import {
+  getWorkspaceRoot,
+  normalizeRunId,
+  validateRepoRelativePath,
+} from "./security/PathGuard";
+import { runSafeCommand } from "./security/SafeCommand";
 
-/**
- * Git payload interface with optional token for authentication
- * Following GEMINI.md: Clear interfaces for all tool inputs
- */
-interface GitPayload {
-  action: GitAction;
-  runId: string;
-  url?: string;
-  token?: string;
-  message?: string;
-  branch?: string;
-  path?: string;
-  files?: string[];
-  remote?: string;
-  staged?: boolean;
-}
+const GIT_ACTIONS = [
+  "status",
+  "diff",
+  "stage",
+  "unstage",
+  "commit",
+  "push",
+  "git_clone",
+  "git_diff",
+  "git_commit",
+  "git_push",
+  "git_pull",
+  "git_fetch",
+  "git_branch_create",
+  "git_branch_switch",
+  "git_branch_list",
+  "git_stage",
+  "git_status",
+  "git_config",
+] as const;
 
-type GitAction =
-  | "status"
-  | "diff"
-  | "stage"
-  | "unstage"
-  | "commit"
-  | "push"
-  | "git_clone"
-  | "git_diff"
-  | "git_commit"
-  | "git_push"
-  | "git_pull"
-  | "git_fetch"
-  | "git_branch_create"
-  | "git_branch_switch"
-  | "git_branch_list"
-  | "git_stage"
-  | "git_status"
-  | "git_config";
+type GitAction = (typeof GIT_ACTIONS)[number];
 
-/**
- * GitPlugin - Handles all Git operations in the sandbox
- *
- * Security Notes:
- * - Tokens are passed securely from Brain and never logged
- * - All operations happen in isolated sandbox environment
- * - runId isolation maintained per GEMINI.md
- */
+const GitPayloadSchema = z.object({
+  action: z.enum(GIT_ACTIONS),
+  runId: z.string().optional(),
+  url: z.string().optional(),
+  token: z.string().optional(),
+  message: z.string().optional(),
+  branch: z.string().optional(),
+  path: z.string().optional(),
+  files: z.array(z.string()).optional(),
+  remote: z.string().optional(),
+  staged: z.boolean().optional(),
+});
+
+type GitPayload = z.infer<typeof GitPayloadSchema>;
+
+const SAFE_GIT_REF_REGEX = /^[A-Za-z0-9._/-]{1,200}$/;
+
 export class GitPlugin implements IPlugin {
   name = "git";
-
-  // Tool definitions for AI agent integration
-  tools = [
-    {
-      name: "git_status",
-      description:
-        "Get the current git status including modified, added, and deleted files",
-      parameters: {
-        type: "object" as const,
-        properties: {},
-        required: [],
-      },
-    },
-    {
-      name: "git_diff",
-      description: "View changes made to files",
-      parameters: {
-        type: "object" as const,
-        properties: {
-          path: { type: "string" },
-          staged: { type: "boolean" },
-        },
-        required: [],
-      },
-    },
-    {
-      name: "git_stage",
-      description: "Stage files for commit",
-      parameters: {
-        type: "object" as const,
-        properties: {
-          files: { type: "array", items: { type: "string" } },
-        },
-        required: ["files"],
-      },
-    },
-    {
-      name: "git_commit",
-      description: "Commit staged changes",
-      parameters: {
-        type: "object" as const,
-        properties: {
-          message: { type: "string" },
-        },
-        required: ["message"],
-      },
-    },
-  ];
+  tools = GitTools;
 
   async execute(
     sandbox: Sandbox,
-    payload: GitPayload,
+    payload: unknown,
     onLog?: LogCallback,
   ): Promise<PluginResult> {
-    const { action, runId, token } = payload;
-    const worktree = `/home/sandbox/runs/${runId}`;
-
     try {
-      // Configure git authentication if token provided
-      if (token) {
-        await this.configureGitAuth(sandbox, token);
-      }
+      const parsed = GitPayloadSchema.parse(payload);
+      const runId = normalizeRunId(parsed.runId);
+      const worktree = getWorkspaceRoot(runId);
 
-      switch (action) {
+      await this.ensureWorkspace(sandbox, worktree);
+
+      switch (parsed.action) {
         case "status":
         case "git_status":
           return await this.getStatus(sandbox, worktree);
@@ -126,118 +80,129 @@ export class GitPlugin implements IPlugin {
           return await this.getDiff(
             sandbox,
             worktree,
-            payload.path,
-            payload.staged,
+            parsed.path,
+            parsed.staged,
           );
         case "stage":
         case "git_stage":
-          return await this.stageFiles(sandbox, worktree, payload.files);
+          return await this.stageFiles(sandbox, worktree, parsed.files);
         case "unstage":
-          return await this.unstageFiles(sandbox, worktree, payload.files);
+          return await this.unstageFiles(sandbox, worktree, parsed.files);
         case "commit":
         case "git_commit":
           return await this.commit(
             sandbox,
             worktree,
-            payload.message,
-            payload.files,
+            parsed.message,
+            parsed.files,
           );
         case "push":
         case "git_push":
-          return await this.push(sandbox, worktree, payload.remote, payload.branch);
+          return await this.push(
+            sandbox,
+            worktree,
+            parsed.remote,
+            parsed.branch,
+            parsed.token,
+          );
         case "git_clone":
-          return await this.clone(sandbox, payload.url, token, onLog);
+          return await this.clone(
+            sandbox,
+            worktree,
+            parsed.url,
+            parsed.token,
+            onLog,
+          );
         case "git_pull":
-          return await this.pull(sandbox, worktree, payload.remote, payload.branch);
+          return await this.pull(
+            sandbox,
+            worktree,
+            parsed.remote,
+            parsed.branch,
+            parsed.token,
+          );
         case "git_fetch":
-          return await this.fetch(sandbox, worktree, payload.remote);
+          return await this.fetch(sandbox, worktree, parsed.remote, parsed.token);
         case "git_branch_create":
-          return await this.createBranch(sandbox, worktree, payload.branch);
+          return await this.createBranch(sandbox, worktree, parsed.branch);
         case "git_branch_switch":
-          return await this.switchBranch(sandbox, worktree, payload.branch);
+          return await this.switchBranch(sandbox, worktree, parsed.branch);
         case "git_branch_list":
           return await this.listBranches(sandbox, worktree);
         case "git_config":
-          return await this.configureGitAuth(sandbox, token || "");
+          return this.validateTokenOnly(parsed.token);
         default:
-          return { success: false, error: `Unsupported git action: ${action}` };
+          return { success: false, error: "Unsupported git action" };
       }
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : "Git operation failed";
-      return { success: false, error: msg };
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Git operation failed";
+      return { success: false, error: message };
     }
   }
 
-  /**
-   * Configure git authentication with token
-   * Uses credential.helper for secure HTTPS authentication
-   * Token is never logged or exposed
-   */
-  private async configureGitAuth(
-    sandbox: Sandbox,
-    token: string,
-  ): Promise<PluginResult> {
-    if (!token) {
-      return { success: false, error: "Token is required for authentication" };
-    }
-
-    // Configure git to use token for HTTPS authentication
-    const res = await sandbox.exec(
-      `git config --global credential.helper '!f() { echo "username=x-access-token"; echo "password=${token}"; }; f'`,
+  private async ensureWorkspace(sandbox: Sandbox, worktree: string): Promise<void> {
+    await runSafeCommand(
+      sandbox,
+      { command: "mkdir", args: ["-p", worktree] },
+      ["mkdir"],
     );
-
-    if (res.exitCode !== 0) {
-      return {
-        success: false,
-        error: "Failed to configure git authentication",
-      };
-    }
-
-    return { success: true, output: "Git authentication configured" };
   }
 
-  /**
-   * Clone a repository
-   * Supports both public and private repositories with token auth
-   */
+  private validateTokenOnly(token: string | undefined): PluginResult {
+    if (!token || token.trim().length === 0) {
+      return { success: false, error: "Token is required for git_config" };
+    }
+    if (containsIllegalTokenChars(token)) {
+      return { success: false, error: "Invalid token format" };
+    }
+    return { success: true, output: "Token validated for authenticated git actions" };
+  }
+
   private async clone(
     sandbox: Sandbox,
-    url?: string,
-    token?: string,
+    worktree: string,
+    url: string | undefined,
+    token: string | undefined,
     onLog?: LogCallback,
   ): Promise<PluginResult> {
-    if (!url) throw new Error("Clone URL is required");
-    if (onLog) onLog(`Cloning repository: ${url}...\n`);
+    const safeUrl = validateCloneUrl(url);
+    const authArgs = this.buildGitAuthArgs(token);
 
-    // If token provided, inject it into the URL for authentication
-    const cloneUrl = token
-      ? url.replace("https://", `https://x-access-token:${token}@`)
-      : url;
+    if (onLog) {
+      onLog(`[git/plugin] Cloning repository into ${worktree}\n`);
+    }
 
-    const res = await sandbox.exec(`git clone ${cloneUrl} /root/repo`);
-    if (res.exitCode !== 0) return { success: false, error: res.stderr };
-
-    return {
-      success: true,
-      output: "Repository cloned successfully to /root/repo",
-    };
+    const result = await runSafeCommand(
+      sandbox,
+      { command: "git", args: [...authArgs, "clone", safeUrl, worktree] },
+      ["git"],
+    );
+    return buildGitResult(result, "Repository cloned successfully");
   }
 
   private async getStatus(
     sandbox: Sandbox,
     worktree: string,
   ): Promise<PluginResult> {
-    // Get porcelain status for parsing
-    const statusRes = await sandbox.exec(
-      `git -C ${worktree} status --porcelain -b`,
+    const statusResult = await runSafeCommand(
+      sandbox,
+      {
+        command: "git",
+        args: ["-C", worktree, "status", "--porcelain", "-b"],
+      },
+      ["git"],
     );
 
-    if (statusRes.exitCode !== 0) {
-      return { success: false, error: statusRes.stderr };
+    if (statusResult.exitCode !== 0) {
+      return { success: false, error: statusResult.stderr };
     }
 
-    // Parse branch info from first line
-    const lines = statusRes.stdout.split("\n").filter((l) => l.trim());
+    const parsed = this.parseStatus(statusResult.stdout);
+    return { success: true, output: JSON.stringify(parsed) };
+  }
+
+  private parseStatus(stdout: string): GitStatusResponse {
+    const lines = stdout.split("\n").filter((line) => line.trim().length > 0);
     const branchLine = lines[0];
     let branch = "main";
     let ahead = 0;
@@ -245,83 +210,59 @@ export class GitPlugin implements IPlugin {
 
     if (branchLine && branchLine.startsWith("##")) {
       const match = branchLine.match(/##\s*(.+?)(?:\.\.\.|$)/);
-      if (match && match[1]) branch = match[1];
+      if (match && match[1]) {
+        branch = match[1];
+      }
 
       const aheadMatch = branchLine.match(/ahead\s+(\d+)/);
       const behindMatch = branchLine.match(/behind\s+(\d+)/);
-      if (aheadMatch && aheadMatch[1]) ahead = parseInt(aheadMatch[1]);
-      if (behindMatch && behindMatch[1]) behind = parseInt(behindMatch[1]);
-    }
-
-    // Parse file statuses
-    const files: FileStatus[] = [];
-    const fileLines = lines.slice(1);
-
-    for (const line of fileLines) {
-      if (line.length < 3) continue;
-
-      const stagedStatus = line[0];
-      const unstagedStatus = line[1];
-      const filePath = line.substring(3).trim();
-
-      // Determine overall status
-      let status: FileStatus["status"] = "modified";
-      let isStaged = stagedStatus !== " " && stagedStatus !== "?";
-
-      if (stagedStatus === "A" || unstagedStatus === "A") status = "added";
-      else if (stagedStatus === "D" || unstagedStatus === "D")
-        status = "deleted";
-      else if (stagedStatus === "R" || unstagedStatus === "R")
-        status = "renamed";
-      else if (stagedStatus === "?" || unstagedStatus === "?") {
-        status = "untracked";
-        isStaged = false;
+      if (aheadMatch && aheadMatch[1]) {
+        ahead = Number.parseInt(aheadMatch[1], 10);
       }
-
-      files.push({
-        path: filePath,
-        status,
-        additions: 0,
-        deletions: 0,
-        isStaged,
-      });
+      if (behindMatch && behindMatch[1]) {
+        behind = Number.parseInt(behindMatch[1], 10);
+      }
     }
 
-    const result: GitStatusResponse = {
+    const files: FileStatus[] = lines.slice(1).flatMap((line) =>
+      parseStatusLine(line),
+    );
+
+    return {
       files,
       ahead,
       behind,
       branch,
-      hasStaged: files.some((f) => f.isStaged),
-      hasUnstaged: files.some((f) => !f.isStaged),
+      hasStaged: files.some((file) => file.isStaged),
+      hasUnstaged: files.some((file) => !file.isStaged),
     };
-
-    return { success: true, output: JSON.stringify(result) };
   }
 
   private async getDiff(
     sandbox: Sandbox,
     worktree: string,
-    path?: string,
-    staged?: boolean,
+    filePath: string | undefined,
+    staged: boolean | undefined,
   ): Promise<PluginResult> {
-    const cmd = staged
-      ? `git -C ${worktree} diff --staged ${path || ""}`
-      : `git -C ${worktree} diff ${path || ""}`;
-
-    const res = await sandbox.exec(cmd);
-
-    if (res.exitCode !== 0) {
-      return { success: false, error: res.stderr };
+    const args = ["-C", worktree, "diff"];
+    if (staged) {
+      args.push("--staged");
+    }
+    if (filePath) {
+      args.push(validateRepoRelativePath(filePath));
     }
 
-    // Parse diff output
-    const diffContent = this.parseDiff(res.stdout, path);
+    const diffResult = await runSafeCommand(
+      sandbox,
+      { command: "git", args },
+      ["git"],
+    );
+    if (diffResult.exitCode !== 0) {
+      return { success: false, error: diffResult.stderr };
+    }
 
-    return {
-      success: true,
-      output: JSON.stringify(diffContent),
-    };
+    const parsedDiff = this.parseDiff(diffResult.stdout, filePath);
+    return { success: true, output: JSON.stringify(parsedDiff) };
   }
 
   private parseDiff(diffOutput: string, filePath?: string): DiffContent {
@@ -335,32 +276,33 @@ export class GitPlugin implements IPlugin {
     let isDeleted = false;
 
     for (const line of lines) {
-      // Parse file headers
       if (line.startsWith("--- ")) {
         oldPath = line.substring(4).replace(/^a\//, "");
-        if (line.includes("/dev/null")) isNewFile = true;
+        if (line.includes("/dev/null")) {
+          isNewFile = true;
+        }
       } else if (line.startsWith("+++ ")) {
         newPath = line.substring(4).replace(/^b\//, "");
-        if (line.includes("/dev/null")) isDeleted = true;
-      }
-      // Parse hunk header
-      else if (line.startsWith("@@")) {
-        if (currentHunk) hunks.push(currentHunk);
+        if (line.includes("/dev/null")) {
+          isDeleted = true;
+        }
+      } else if (line.startsWith("@@")) {
+        if (currentHunk) {
+          hunks.push(currentHunk);
+        }
 
         const match = line.match(/@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/);
         if (match && match[1] && match[3]) {
           currentHunk = {
-            oldStart: parseInt(match[1]),
-            oldLines: parseInt(match[2] || "1"),
-            newStart: parseInt(match[3]),
-            newLines: parseInt(match[4] || "1"),
+            oldStart: Number.parseInt(match[1], 10),
+            oldLines: Number.parseInt(match[2] || "1", 10),
+            newStart: Number.parseInt(match[3], 10),
+            newLines: Number.parseInt(match[4] || "1", 10),
             lines: [],
             header: line,
           };
         }
-      }
-      // Parse diff lines
-      else if (
+      } else if (
         currentHunk &&
         (line.startsWith(" ") || line.startsWith("+") || line.startsWith("-"))
       ) {
@@ -376,7 +318,9 @@ export class GitPlugin implements IPlugin {
       }
     }
 
-    if (currentHunk) hunks.push(currentHunk);
+    if (currentHunk) {
+      hunks.push(currentHunk);
+    }
 
     return {
       oldPath,
@@ -391,144 +335,288 @@ export class GitPlugin implements IPlugin {
   private async stageFiles(
     sandbox: Sandbox,
     worktree: string,
-    files?: string[],
+    files: string[] | undefined,
   ): Promise<PluginResult> {
-    const fileList = files && files.length > 0 ? files.map(f => `"${f}"`).join(" ") : ".";
-    const res = await sandbox.exec(`git -C ${worktree} add ${fileList}`);
+    const safeFiles = normalizeFileList(files);
+    const result = await runSafeCommand(
+      sandbox,
+      {
+        command: "git",
+        args: ["-C", worktree, "add", "--", ...safeFiles],
+      },
+      ["git"],
+    );
 
-    return {
-      success: res.exitCode === 0,
-      output: res.exitCode === 0 ? "Files staged" : res.stderr,
-    };
+    return buildGitResult(result, "Files staged");
   }
 
   private async unstageFiles(
     sandbox: Sandbox,
     worktree: string,
-    files?: string[],
+    files: string[] | undefined,
   ): Promise<PluginResult> {
-    const fileList = files && files.length > 0 ? files.map(f => `"${f}"`).join(" ") : ".";
-    const res = await sandbox.exec(`git -C ${worktree} reset HEAD ${fileList}`);
+    const safeFiles = normalizeFileList(files);
+    const result = await runSafeCommand(
+      sandbox,
+      {
+        command: "git",
+        args: ["-C", worktree, "reset", "HEAD", "--", ...safeFiles],
+      },
+      ["git"],
+    );
 
-    return {
-      success: res.exitCode === 0,
-      output: res.exitCode === 0 ? "Files unstaged" : res.stderr,
-    };
+    return buildGitResult(result, "Files unstaged");
   }
 
   private async commit(
     sandbox: Sandbox,
     worktree: string,
-    message?: string,
-    files?: string[],
+    message: string | undefined,
+    files: string[] | undefined,
   ): Promise<PluginResult> {
-    if (!message) {
+    if (!message || message.trim().length === 0) {
       return { success: false, error: "Commit message is required" };
     }
-
-    // Stage specific files if provided
-    if (files && files.length > 0) {
-      const stageRes = await this.stageFiles(sandbox, worktree, files);
-      if (!stageRes.success) return stageRes;
+    if (/[\0\r\n]/.test(message)) {
+      return { success: false, error: "Commit message contains invalid characters" };
     }
 
-    const res = await sandbox.exec(`git -C ${worktree} commit -m "${message}"`);
+    if (files && files.length > 0) {
+      const stageResult = await this.stageFiles(sandbox, worktree, files);
+      if (!stageResult.success) {
+        return stageResult;
+      }
+    }
 
-    return {
-      success: res.exitCode === 0,
-      output: res.exitCode === 0 ? "Changes committed" : res.stderr,
-    };
+    const result = await runSafeCommand(
+      sandbox,
+      {
+        command: "git",
+        args: ["-C", worktree, "commit", "-m", message],
+      },
+      ["git"],
+    );
+
+    return buildGitResult(result, "Changes committed");
   }
 
   private async push(
     sandbox: Sandbox,
     worktree: string,
-    remote?: string,
-    branch?: string,
+    remote: string | undefined,
+    branch: string | undefined,
+    token: string | undefined,
   ): Promise<PluginResult> {
-    const targetRemote = remote || "origin";
-    const targetBranch = branch || "";
-    const res = await sandbox.exec(`git -C ${worktree} push ${targetRemote} ${targetBranch}`.trim());
+    const safeRemote = sanitizeRef(remote || "origin", "remote");
+    const authArgs = this.buildGitAuthArgs(token);
+    const args = [...authArgs, "-C", worktree, "push", safeRemote];
 
-    return {
-      success: res.exitCode === 0,
-      output: res.exitCode === 0 ? "Changes pushed" : res.stderr,
-    };
+    if (branch && branch.trim().length > 0) {
+      args.push(sanitizeRef(branch, "branch"));
+    }
+
+    const result = await runSafeCommand(
+      sandbox,
+      { command: "git", args },
+      ["git"],
+    );
+    return buildGitResult(result, "Changes pushed");
   }
 
   private async pull(
     sandbox: Sandbox,
     worktree: string,
-    remote?: string,
-    branch?: string,
+    remote: string | undefined,
+    branch: string | undefined,
+    token: string | undefined,
   ): Promise<PluginResult> {
-    const targetRemote = remote || "origin";
-    const targetBranch = branch || "";
+    const safeRemote = sanitizeRef(remote || "origin", "remote");
+    const authArgs = this.buildGitAuthArgs(token);
+    const args = [...authArgs, "-C", worktree, "pull", safeRemote];
 
-    const res = await sandbox.exec(
-      `git -C ${worktree} pull ${targetRemote} ${targetBranch}`.trim(),
+    if (branch && branch.trim().length > 0) {
+      args.push(sanitizeRef(branch, "branch"));
+    }
+
+    const result = await runSafeCommand(
+      sandbox,
+      { command: "git", args },
+      ["git"],
     );
-
-    return {
-      success: res.exitCode === 0,
-      output: res.exitCode === 0 ? "Changes pulled successfully" : res.stderr,
-    };
+    return buildGitResult(result, "Changes pulled successfully");
   }
 
   private async fetch(
     sandbox: Sandbox,
     worktree: string,
-    remote?: string,
+    remote: string | undefined,
+    token: string | undefined,
   ): Promise<PluginResult> {
-    const targetRemote = remote || "origin";
-
-    const res = await sandbox.exec(`git -C ${worktree} fetch ${targetRemote}`);
-
-    return {
-      success: res.exitCode === 0,
-      output: res.exitCode === 0 ? "Fetched successfully" : res.stderr,
-    };
+    const safeRemote = sanitizeRef(remote || "origin", "remote");
+    const authArgs = this.buildGitAuthArgs(token);
+    const result = await runSafeCommand(
+      sandbox,
+      {
+        command: "git",
+        args: [...authArgs, "-C", worktree, "fetch", safeRemote],
+      },
+      ["git"],
+    );
+    return buildGitResult(result, "Fetched successfully");
   }
 
   private async createBranch(
     sandbox: Sandbox,
     worktree: string,
-    branch?: string,
+    branch: string | undefined,
   ): Promise<PluginResult> {
-    if (!branch) throw new Error("Branch name is required");
+    if (!branch) {
+      return { success: false, error: "Branch name is required" };
+    }
+    const safeBranch = sanitizeRef(branch, "branch");
+    const result = await runSafeCommand(
+      sandbox,
+      {
+        command: "git",
+        args: ["-C", worktree, "checkout", "-b", safeBranch],
+      },
+      ["git"],
+    );
 
-    const res = await sandbox.exec(`git -C ${worktree} checkout -b ${branch}`);
-
-    return {
-      success: res.exitCode === 0,
-      output:
-        res.exitCode === 0
-          ? `Created and switched to branch: ${branch}`
-          : res.stderr,
-    };
+    return buildGitResult(result, `Created and switched to branch: ${safeBranch}`);
   }
 
   private async switchBranch(
     sandbox: Sandbox,
     worktree: string,
-    branch?: string,
+    branch: string | undefined,
   ): Promise<PluginResult> {
-    if (!branch) throw new Error("Branch name is required");
+    if (!branch) {
+      return { success: false, error: "Branch name is required" };
+    }
+    const safeBranch = sanitizeRef(branch, "branch");
+    const result = await runSafeCommand(
+      sandbox,
+      {
+        command: "git",
+        args: ["-C", worktree, "checkout", safeBranch],
+      },
+      ["git"],
+    );
 
-    const res = await sandbox.exec(`git -C ${worktree} checkout ${branch}`);
+    return buildGitResult(result, `Switched to branch: ${safeBranch}`);
+  }
+
+  private async listBranches(
+    sandbox: Sandbox,
+    worktree: string,
+  ): Promise<PluginResult> {
+    const result = await runSafeCommand(
+      sandbox,
+      {
+        command: "git",
+        args: ["-C", worktree, "branch", "-a"],
+      },
+      ["git"],
+    );
 
     return {
-      success: res.exitCode === 0,
-      output: res.exitCode === 0 ? `Switched to branch: ${branch}` : res.stderr,
+      success: result.exitCode === 0,
+      output: result.stdout || "No branches found",
+      error: result.exitCode === 0 ? undefined : result.stderr,
     };
   }
 
-  private async listBranches(sandbox: Sandbox, worktree: string): Promise<PluginResult> {
-    const res = await sandbox.exec(`git -C ${worktree} branch -a`);
+  private buildGitAuthArgs(token: string | undefined): string[] {
+    if (!token || token.trim().length === 0) {
+      return [];
+    }
+    if (containsIllegalTokenChars(token)) {
+      throw new Error("Invalid token format");
+    }
 
-    return {
-      success: res.exitCode === 0,
-      output: res.stdout || "No branches found",
-    };
+    const authValue = Buffer.from(`x-access-token:${token}`, "utf8").toString(
+      "base64",
+    );
+    return ["-c", `http.extraheader=AUTHORIZATION: basic ${authValue}`];
   }
+}
+
+function parseStatusLine(line: string): FileStatus[] {
+  if (line.length < 3) {
+    return [];
+  }
+
+  const stagedStatus = line[0];
+  const unstagedStatus = line[1];
+  const filePath = line.substring(3).trim();
+
+  let status: FileStatus["status"] = "modified";
+  let isStaged = stagedStatus !== " " && stagedStatus !== "?";
+
+  if (stagedStatus === "A" || unstagedStatus === "A") {
+    status = "added";
+  } else if (stagedStatus === "D" || unstagedStatus === "D") {
+    status = "deleted";
+  } else if (stagedStatus === "R" || unstagedStatus === "R") {
+    status = "renamed";
+  } else if (stagedStatus === "?" || unstagedStatus === "?") {
+    status = "untracked";
+    isStaged = false;
+  }
+
+  return [
+    {
+      path: filePath,
+      status,
+      additions: 0,
+      deletions: 0,
+      isStaged,
+    },
+  ];
+}
+
+function normalizeFileList(files: string[] | undefined): string[] {
+  if (!files || files.length === 0) {
+    return ["."];
+  }
+  return files.map((file) => validateRepoRelativePath(file));
+}
+
+function sanitizeRef(value: string, label: "branch" | "remote"): string {
+  const normalized = value.trim();
+  if (!SAFE_GIT_REF_REGEX.test(normalized)) {
+    throw new Error(`Invalid ${label} name`);
+  }
+  return normalized;
+}
+
+function validateCloneUrl(url: string | undefined): string {
+  if (!url || url.trim().length === 0) {
+    throw new Error("Clone URL is required");
+  }
+
+  const parsed = new URL(url);
+  if (parsed.protocol !== "https:") {
+    throw new Error("Only https clone URLs are supported");
+  }
+  if (parsed.username || parsed.password) {
+    throw new Error("Tokenized clone URLs are not allowed");
+  }
+  return parsed.toString();
+}
+
+function containsIllegalTokenChars(token: string): boolean {
+  return /[\0\r\n]/.test(token);
+}
+
+function buildGitResult(
+  result: { exitCode: number; stdout: string; stderr: string },
+  successMessage: string,
+): PluginResult {
+  return {
+    success: result.exitCode === 0,
+    output: result.exitCode === 0 ? successMessage : undefined,
+    error: result.exitCode === 0 ? undefined : result.stderr,
+  };
 }

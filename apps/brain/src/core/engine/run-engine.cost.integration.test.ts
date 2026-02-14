@@ -93,6 +93,11 @@ describe("RunEngine cost integrity", () => {
     expect(events).toHaveLength(3);
     expect(events.every((event) => event.runId === runId)).toBe(true);
     expect(events.every((event) => event.sessionId === sessionId)).toBe(true);
+    expect(
+      events.map((event) => event.phase).sort(),
+      "expected full coverage across planning/task/synthesis",
+    ).toEqual(["planning", "synthesis", "task"]);
+    expect(events.every((event) => event.calculatedCostUsd > 0)).toBe(true);
 
     const snapshot = await costLedger.aggregate(runId);
     const eventSum = events.reduce((sum, event) => sum + event.calculatedCostUsd, 0);
@@ -325,6 +330,7 @@ function createEnv(): Env {
     SESSION_SECRET: "x",
     FRONTEND_URL: "x",
     SESSIONS: {} as Env["SESSIONS"],
+    RUN_ENGINE_RUNTIME: {} as Env["RUN_ENGINE_RUNTIME"],
     COST_UNKNOWN_PRICING_MODE: "warn",
   };
 }

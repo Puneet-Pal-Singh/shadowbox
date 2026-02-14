@@ -72,7 +72,7 @@ export class ExecutionLogger {
 
     switch (event.type) {
       case 'execution_started':
-        message = `Execution started for plan ${event.planId}`
+        message = `execution started for plan ${event.planId}`
         context = { planId: event.planId }
         level = 'info'
         break
