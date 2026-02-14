@@ -88,7 +88,17 @@ export class MemoryPolicy {
       };
     }
 
-    const suspiciousPatterns = [/[<>]/g, /javascript:/gi, /data:text\/html/gi];
+    const suspiciousPatterns = [
+      /<script\b[^>]*>([\s\S]*?)<\/script>/gim,
+      /on\w+\s*=\s*["']?[\s\S]*?["']?/gim,
+      /javascript:\s*[\s\S]*/gim,
+      /data:text\/html\s*[\s\S]*/gim,
+      /<\s*iframe\b[\s\S]*?>/gim,
+      /<\s*object\b[\s\S]*?>/gim,
+      /<\s*embed\b[\s\S]*?>/gim,
+      /expression\s*\([\s\S]*?\)/gim,
+      /[<>]/g,
+    ];
 
     for (const pattern of suspiciousPatterns) {
       if (pattern.test(content)) {

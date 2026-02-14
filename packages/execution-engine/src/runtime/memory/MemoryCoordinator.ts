@@ -10,7 +10,7 @@ import { MemoryRepository } from "./MemoryRepository.js";
 import { MemoryExtractor } from "./MemoryExtractor.js";
 import { MemoryRetriever } from "./MemoryRetriever.js";
 import { MemoryPolicy, type MemoryPolicyDependencies } from "./MemoryPolicy.js";
-import { randomUUID } from "crypto";
+import { createHash, randomUUID } from "crypto";
 
 export interface MemoryCoordinatorDependencies {
   repository: MemoryRepository;
@@ -191,11 +191,6 @@ export class MemoryCoordinator {
       taskStatuses: Object.entries(params.taskStatuses).sort(),
     });
 
-    let hash = 0;
-    for (let i = 0; i < data.length; i++) {
-      const char = data.charCodeAt(i);
-      hash = ((hash << 5) - hash + char) | 0;
-    }
-    return hash.toString(16);
+    return createHash("sha256").update(data).digest("hex");
   }
 }

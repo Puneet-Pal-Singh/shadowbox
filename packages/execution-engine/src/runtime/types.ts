@@ -1,7 +1,7 @@
 export interface RuntimeStorage {
   get<T>(key: string): Promise<T | undefined>;
   put<T>(key: string, value: T): Promise<void>;
-  delete(key: string): Promise<boolean>;
+  delete(key: string | string[]): Promise<boolean | number>;
   list<T>(options?: {
     prefix?: string;
     start?: string;

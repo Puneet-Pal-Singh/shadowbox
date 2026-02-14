@@ -177,8 +177,6 @@ export class MemoryRepository {
     const idempotencyKeys = await this.ctx.storage.list({ prefix });
     keysToDelete.push(...Array.from(idempotencyKeys.keys()));
 
-    for (const key of keysToDelete) {
-      await this.ctx.storage.delete(key);
-    }
+    await this.ctx.storage.delete(keysToDelete);
   }
 }

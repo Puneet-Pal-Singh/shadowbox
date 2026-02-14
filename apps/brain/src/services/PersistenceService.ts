@@ -5,19 +5,17 @@ import { Env } from "../types/ai";
 export class PersistenceService {
   constructor(private env: Env) {}
 
-  private generateIdempotencyKey(
+  private async generateIdempotencyKey(
     sessionId: string,
     runId: string,
     role: string,
     content: string,
-  ): string {
-    const data = `${sessionId}:${runId}:${role}:${content.slice(0, 50)}`;
-    let hash = 0;
-    for (let i = 0; i < data.length; i++) {
-      const char = data.charCodeAt(i);
-      hash = ((hash << 5) - hash + char) | 0;
-    }
-    return Math.abs(hash).toString(36);
+  ): Promise<string> {
+    const data = `${sessionId}:${runId}:${role}:${content}`;
+    const msgUint8 = new TextEncoder().encode(data);
+    const hashBuffer = await crypto.subtle.digest("SHA-256", msgUint8);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
   }
 
   async persistUserMessage(
@@ -31,7 +29,7 @@ export class PersistenceService {
           ? message.content
           : JSON.stringify(message.content);
 
-      const idempotencyKey = this.generateIdempotencyKey(
+      const idempotencyKey = await this.generateIdempotencyKey(
         sessionId,
         runId,
         message.role,
@@ -74,7 +72,7 @@ export class PersistenceService {
       );
 
       if (prunedHistory.length > 0) {
-        const idempotencyKey = this.generateIdempotencyKey(
+        const idempotencyKey = await this.generateIdempotencyKey(
           sessionId,
           runId,
           "batch",

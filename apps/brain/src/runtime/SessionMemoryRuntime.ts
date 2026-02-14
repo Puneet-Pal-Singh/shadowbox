@@ -16,39 +16,12 @@ type DurableObjectState = ConstructorParameters<
   ? C
   : LegacyDurableObjectState;
 
-const AppendEventPayloadSchema = z.object({
-  event: MemoryEventSchema,
-});
-
-const GetContextPayloadSchema = z.object({
-  sessionId: z.string(),
-  prompt: z.string(),
-  limit: z.number().optional(),
-});
-
-const GetSnapshotPayloadSchema = z.object({
-  sessionId: z.string(),
-});
-
-const UpsertSnapshotPayloadSchema = z.object({
-  snapshot: z.object({
-    sessionId: z.string(),
-    summary: z.string(),
-    constraints: z.array(z.string()),
-    decisions: z.array(z.string()),
-    todos: z.array(z.string()),
-    updatedAt: z.string(),
-    version: z.number(),
-    runId: z.string().optional(),
-  }),
-});
-
 export class SessionMemoryRuntime extends DurableObject {
   private memoryStore: SessionMemoryStore;
 
-  constructor(ctx: any, _env: Env) {
+  constructor(ctx: ConstructorParameters<typeof DurableObject>[0], _env: Env) {
     super(ctx, _env);
-    this.memoryStore = new SessionMemoryStore({ ctx });
+    this.memoryStore = new SessionMemoryStore({ ctx: ctx as any });
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -65,118 +38,16 @@ export class SessionMemoryRuntime extends DurableObject {
 
     try {
       switch (url.pathname) {
-        case "/append": {
-          if (request.method !== "POST") {
-            return new Response("Method Not Allowed", {
-              status: 405,
-              headers: corsHeaders,
-            });
-          }
-          const body = await request.json();
-          const { event } = AppendEventPayloadSchema.parse(body);
-          const result = await this.memoryStore.appendSessionMemory(event);
-          return new Response(JSON.stringify({ success: result }), {
-            headers: { "Content-Type": "application/json", ...corsHeaders },
-          });
-        }
-
-        case "/context": {
-          if (request.method !== "POST") {
-            return new Response("Method Not Allowed", {
-              status: 405,
-              headers: corsHeaders,
-            });
-          }
-          const body = await request.json();
-          const { sessionId, prompt, limit } =
-            GetContextPayloadSchema.parse(body);
-          const result = await this.memoryStore.getSessionMemoryContext(
-            sessionId,
-            prompt,
-            limit,
-          );
-          return new Response(JSON.stringify(result), {
-            headers: { "Content-Type": "application/json", ...corsHeaders },
-          });
-        }
-
-        case "/snapshot": {
-          if (request.method === "GET") {
-            const sessionId = url.searchParams.get("sessionId");
-            if (!sessionId) {
-              return new Response(
-                JSON.stringify({ error: "sessionId required" }),
-                {
-                  status: 400,
-                  headers: {
-                    "Content-Type": "application/json",
-                    ...corsHeaders,
-                  },
-                },
-              );
-            }
-            const snapshot =
-              await this.memoryStore.getSessionSnapshot(sessionId);
-            return new Response(JSON.stringify({ snapshot }), {
-              headers: { "Content-Type": "application/json", ...corsHeaders },
-            });
-          }
-
-          if (request.method === "POST") {
-            const body = await request.json();
-            const { snapshot } = UpsertSnapshotPayloadSchema.parse(body);
-            await this.memoryStore.upsertSessionSnapshot(
-              snapshot as MemorySnapshot,
-            );
-            return new Response(JSON.stringify({ success: true }), {
-              headers: { "Content-Type": "application/json", ...corsHeaders },
-            });
-          }
-
-          return new Response("Method Not Allowed", {
-            status: 405,
-            headers: corsHeaders,
-          });
-        }
-
-        case "/stats": {
-          if (request.method !== "GET") {
-            return new Response("Method Not Allowed", {
-              status: 405,
-              headers: corsHeaders,
-            });
-          }
-          const sessionId = url.searchParams.get("sessionId");
-          if (!sessionId) {
-            return new Response(
-              JSON.stringify({ error: "sessionId required" }),
-              {
-                status: 400,
-                headers: { "Content-Type": "application/json", ...corsHeaders },
-              },
-            );
-          }
-          const stats = await this.memoryStore.getSessionMemoryStats(sessionId);
-          return new Response(JSON.stringify(stats), {
-            headers: { "Content-Type": "application/json", ...corsHeaders },
-          });
-        }
-
-        case "/clear": {
-          if (request.method !== "POST") {
-            return new Response("Method Not Allowed", {
-              status: 405,
-              headers: corsHeaders,
-            });
-          }
-          const body = await request.json();
-          const { sessionId } = z.object({ sessionId: z.string() }).parse(body);
-          await this.memoryStore.clearSessionMemory(sessionId);
-          return new Response(JSON.stringify({ success: true }), {
-            headers: { "Content-Type": "application/json", ...corsHeaders },
-          });
-        }
-
+        case "/append":
+          return await this.handleAppend(request, corsHeaders);
+        case "/context":
+          return await this.handleContext(request, corsHeaders);
+        case "/snapshot":
+          return await this.handleSnapshot(request, url, corsHeaders);
+        case "/stats":
+          return await this.handleStats(request, url, corsHeaders);
+        case "/clear":
+          return await this.handleClear(request, corsHeaders);
         default:
           return new Response("Not Found", {
             status: 404,
@@ -184,6 +55,22 @@ export class SessionMemoryRuntime extends DurableObject {
           });
       }
     } catch (error: unknown) {
+      if (error instanceof z.ZodError || error instanceof SyntaxError) {
+        return new Response(
+          JSON.stringify({
+            error:
+              error instanceof z.ZodError
+                ? "Validation failed"
+                : "Invalid JSON body",
+            details: error.message,
+          }),
+          {
+            status: 400,
+            headers: { "Content-Type": "application/json", ...corsHeaders },
+          },
+        );
+      }
+
       const message = error instanceof Error ? error.message : "Unknown error";
       console.error("[session/memory] Error:", message);
       return new Response(JSON.stringify({ error: message }), {
@@ -191,5 +78,132 @@ export class SessionMemoryRuntime extends DurableObject {
         headers: { "Content-Type": "application/json", ...corsHeaders },
       });
     }
+  }
+
+  private async handleAppend(
+    request: Request,
+    headers: Record<string, string>,
+  ): Promise<Response> {
+    if (request.method !== "POST") {
+      return new Response("Method Not Allowed", { status: 405, headers });
+    }
+
+    const body = await request.json();
+    const schema = z.object({ event: MemoryEventSchema });
+    const { event } = schema.parse(body);
+
+    const result = await this.memoryStore.appendSessionMemory(event);
+    return new Response(JSON.stringify({ success: result }), {
+      headers: { "Content-Type": "application/json", ...headers },
+    });
+  }
+
+  private async handleContext(
+    request: Request,
+    headers: Record<string, string>,
+  ): Promise<Response> {
+    if (request.method !== "POST") {
+      return new Response("Method Not Allowed", { status: 405, headers });
+    }
+
+    const body = await request.json();
+    const schema = z.object({
+      sessionId: z.string(),
+      prompt: z.string(),
+      limit: z.number().optional(),
+    });
+    const { sessionId, prompt, limit } = schema.parse(body);
+
+    const result = await this.memoryStore.getSessionMemoryContext(
+      sessionId,
+      prompt,
+      limit,
+    );
+    return new Response(JSON.stringify(result), {
+      headers: { "Content-Type": "application/json", ...headers },
+    });
+  }
+
+  private async handleSnapshot(
+    request: Request,
+    url: URL,
+    headers: Record<string, string>,
+  ): Promise<Response> {
+    if (request.method === "GET") {
+      const sessionId = url.searchParams.get("sessionId");
+      if (!sessionId) {
+        return new Response(JSON.stringify({ error: "sessionId required" }), {
+          status: 400,
+          headers: { "Content-Type": "application/json", ...headers },
+        });
+      }
+      const snapshot = await this.memoryStore.getSessionSnapshot(sessionId);
+      return new Response(JSON.stringify({ snapshot }), {
+        headers: { "Content-Type": "application/json", ...headers },
+      });
+    }
+
+    if (request.method === "POST") {
+      const body = await request.json();
+      const schema = z.object({
+        snapshot: z.object({
+          sessionId: z.string(),
+          summary: z.string(),
+          constraints: z.array(z.string()),
+          decisions: z.array(z.string()),
+          todos: z.array(z.string()),
+          updatedAt: z.string(),
+          version: z.number(),
+          runId: z.string().optional(),
+        }),
+      });
+      const { snapshot } = schema.parse(body);
+      await this.memoryStore.upsertSessionSnapshot(snapshot as MemorySnapshot);
+      return new Response(JSON.stringify({ success: true }), {
+        headers: { "Content-Type": "application/json", ...headers },
+      });
+    }
+
+    return new Response("Method Not Allowed", { status: 405, headers });
+  }
+
+  private async handleStats(
+    request: Request,
+    url: URL,
+    headers: Record<string, string>,
+  ): Promise<Response> {
+    if (request.method !== "GET") {
+      return new Response("Method Not Allowed", { status: 405, headers });
+    }
+
+    const sessionId = url.searchParams.get("sessionId");
+    if (!sessionId) {
+      return new Response(JSON.stringify({ error: "sessionId required" }), {
+        status: 400,
+        headers: { "Content-Type": "application/json", ...headers },
+      });
+    }
+
+    const stats = await this.memoryStore.getSessionMemoryStats(sessionId);
+    return new Response(JSON.stringify(stats), {
+      headers: { "Content-Type": "application/json", ...headers },
+    });
+  }
+
+  private async handleClear(
+    request: Request,
+    headers: Record<string, string>,
+  ): Promise<Response> {
+    if (request.method !== "POST") {
+      return new Response("Method Not Allowed", { status: 405, headers });
+    }
+
+    const body = await request.json();
+    const { sessionId } = z.object({ sessionId: z.string() }).parse(body);
+
+    await this.memoryStore.clearSessionMemory(sessionId);
+    return new Response(JSON.stringify({ success: true }), {
+      headers: { "Content-Type": "application/json", ...headers },
+    });
   }
 }
