@@ -1,1 +1,4 @@
-export * from "@shadowbox/execution-engine/runtime";
+export {
+  DurableObjectStateManager,
+  StateManagerError,
+} from "@shadowbox/execution-engine/runtime/state/DurableObjectStateManager";

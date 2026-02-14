@@ -1,1 +1,4 @@
-export * from "@shadowbox/execution-engine/runtime";
+export {
+  CostLedger,
+  type ICostLedger,
+} from "@shadowbox/execution-engine/runtime/cost/CostLedger";
