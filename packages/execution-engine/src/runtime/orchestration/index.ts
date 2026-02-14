@@ -29,4 +29,5 @@ export {
   RunRecovery,
   RunRecoveryError,
   type IRunRecovery,
+  type ReplayContext,
 } from "./RunRecovery.js";
