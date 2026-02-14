@@ -16,6 +16,10 @@ import { GitPlugin } from "../plugins/GitPlugin";
 import { NodePlugin } from "../plugins/NodePlugin";
 import { RustPlugin } from "../plugins/RustPlugin";
 import { Env } from "../index";
+import {
+  sanitizeLogText,
+  sanitizeUnknownError,
+} from "./security/LogSanitizer";
 
 export class AgentRuntime extends DurableObject {
   private sandbox: Sandbox | null = null;
@@ -102,8 +106,7 @@ export class AgentRuntime extends DurableObject {
     if (!plugin) return { success: false, error: "Plugin not found" };
 
     const onLog: LogCallback = (text) => {
-      // Clean the text before broadcasting
-      this.stream.broadcast("log", text);
+      this.stream.broadcast("log", sanitizeLogText(text));
     };
 
     try {
@@ -114,7 +117,7 @@ export class AgentRuntime extends DurableObject {
       this.stream.broadcast("finish", { success: result.success });
       return result;
     } catch (e: unknown) {
-      const error = e instanceof Error ? e.message : "Unknown execution error";
+      const error = sanitizeUnknownError(e);
       this.stream.broadcast("error", error);
       return { success: false, error };
     }

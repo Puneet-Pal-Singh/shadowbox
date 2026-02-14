@@ -133,6 +133,7 @@ import {
   handleDeleteSession
 } from './api/SessionAPI'
 import { getCorsHeaders, handleCorsPreflight } from "./lib/cors";
+import { sanitizeUnknownError } from "./core/security/LogSanitizer";
 
 export { Sandbox, AgentRuntime };
 
@@ -246,7 +247,7 @@ export default {
       return finalResponse;
 
     } catch (e: unknown) {
-      const error = e instanceof Error ? e.message : "Internal Gateway Error";
+      const error = sanitizeUnknownError(e);
       return Response.json(
         { error },
         { status: 500, headers: getCorsHeaders(request, env) },
