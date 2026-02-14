@@ -94,6 +94,100 @@ describe("RunEngine universal cost coverage", () => {
       "task",
     ]);
   });
+
+  it("supports multiple turns for the same runId without stale tasks", async () => {
+    const engine = new RunEngine(
+      state,
+      {
+        env: createEnv(),
+        runId,
+        sessionId,
+        correlationId: "corr-multi-turn",
+      },
+      new TurnAwareAgent(),
+      registry,
+      {
+        llmGateway: gateway,
+        budgetManager,
+        costLedger: ledger,
+      },
+    );
+
+    const firstResponse = await engine.execute(
+      {
+        agentType: "coding",
+        prompt: "turn one",
+        sessionId,
+      },
+      [] as CoreMessage[],
+      {},
+    );
+    expect(firstResponse.status).toBe(200);
+
+    const firstTasks = await engine.getTasksForRun(runId);
+    expect(firstTasks).toHaveLength(1);
+    expect(firstTasks[0]?.id).toBe("task-turn-1");
+
+    const secondResponse = await engine.execute(
+      {
+        agentType: "coding",
+        prompt: "turn two",
+        sessionId,
+      },
+      [] as CoreMessage[],
+      {},
+    );
+    expect(secondResponse.status).toBe(200);
+
+    const secondTasks = await engine.getTasksForRun(runId);
+    expect(secondTasks).toHaveLength(1);
+    expect(secondTasks[0]?.id).toBe("task-turn-2");
+    expect(await engine.getRunStatus(runId)).toBe("COMPLETED");
+  });
+
+  it("marks second-turn planning errors as FAILED without invalid transition regressions", async () => {
+    const engine = new RunEngine(
+      state,
+      {
+        env: createEnv(),
+        runId,
+        sessionId,
+        correlationId: "corr-fail-second-turn",
+      },
+      new FailSecondTurnAgent(),
+      registry,
+      {
+        llmGateway: gateway,
+        budgetManager,
+        costLedger: ledger,
+      },
+    );
+
+    const firstResponse = await engine.execute(
+      {
+        agentType: "coding",
+        prompt: "turn one",
+        sessionId,
+      },
+      [] as CoreMessage[],
+      {},
+    );
+    expect(firstResponse.status).toBe(200);
+
+    await expect(
+      engine.execute(
+        {
+          agentType: "coding",
+          prompt: "turn two should fail",
+          sessionId,
+        },
+        [] as CoreMessage[],
+        {},
+      ),
+    ).rejects.toThrow("forced second-turn planning failure");
+
+    expect(await engine.getRunStatus(runId)).toBe("FAILED");
+  });
 });
 
 class UniversalCostAgent implements IAgent {
@@ -176,6 +270,101 @@ class UniversalCostAgent implements IAgent {
       messages: [{ role: "user", content: context.originalPrompt }],
     });
     return result.text;
+  }
+
+  getCapabilities() {
+    return [];
+  }
+}
+
+class TurnAwareAgent implements IAgent {
+  readonly type = "coding";
+  private turnCounter = 0;
+
+  async plan(context: {
+    run: import("../run").Run;
+    prompt: string;
+    history?: unknown;
+  }): Promise<Plan> {
+    this.turnCounter += 1;
+    return {
+      tasks: [
+        {
+          id: `task-turn-${this.turnCounter}`,
+          type: "review",
+          description: `handle ${context.prompt}`,
+          dependsOn: [],
+        },
+      ],
+      metadata: { estimatedSteps: 1 },
+    };
+  }
+
+  async executeTask(task: Task): Promise<TaskResult> {
+    return {
+      taskId: task.id,
+      status: "DONE",
+      output: { content: `done:${task.id}` },
+      completedAt: new Date(),
+    };
+  }
+
+  async synthesize(_context: {
+    runId: string;
+    sessionId: string;
+    completedTasks: import("../../types").SerializedTask[];
+    originalPrompt: string;
+  }): Promise<string> {
+    return "ok";
+  }
+
+  getCapabilities() {
+    return [];
+  }
+}
+
+class FailSecondTurnAgent implements IAgent {
+  readonly type = "coding";
+  private turnCounter = 0;
+
+  async plan(_context: {
+    run: import("../run").Run;
+    prompt: string;
+    history?: unknown;
+  }): Promise<Plan> {
+    this.turnCounter += 1;
+    if (this.turnCounter === 2) {
+      throw new Error("forced second-turn planning failure");
+    }
+    return {
+      tasks: [
+        {
+          id: "task-pass",
+          type: "review",
+          description: "first turn",
+          dependsOn: [],
+        },
+      ],
+      metadata: { estimatedSteps: 1 },
+    };
+  }
+
+  async executeTask(task: Task): Promise<TaskResult> {
+    return {
+      taskId: task.id,
+      status: "DONE",
+      output: { content: "done" },
+      completedAt: new Date(),
+    };
+  }
+
+  async synthesize(_context: {
+    runId: string;
+    sessionId: string;
+    completedTasks: import("../../types").SerializedTask[];
+    originalPrompt: string;
+  }): Promise<string> {
+    return "ok";
   }
 
   getCapabilities() {
