@@ -10,7 +10,7 @@
 		"start": "wrangler dev",
 		"cf-typegen": "wrangler types",
 		"check-types": "tsc --noEmit",
-		"test": "node --test test/**/*.test.js"
+		"test": "node --test test/**/*.test.js && vitest run --dir src"
 	},
 	"devDependencies": {
 		"@cloudflare/sandbox": "*",
