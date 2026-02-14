@@ -29,6 +29,16 @@ Treat PRs as **reports first, code second**.
 
 Always pause between steps to evaluate technical direction, not just command success.
 
+## Repository Overrides (Shadowbox)
+
+When this skill is used in the Shadowbox repo, these rules are mandatory:
+
+- Follow `AGENTS.md` as the source of truth when instructions conflict.
+- Use atomic commits and stage files with explicit paths only.
+- Never use `git add -A` or `git add .`.
+- Prefer non-interactive git flows in automated sessions.
+- Use the required PR description structure from `AGENTS.md` Section 18.
+
 ## PR Quality Bar
 
 Before any PR operation, ensure:
@@ -179,8 +189,10 @@ git rebase origin/main
 # Check current commits
 git log --oneline main..HEAD
 
-# If messy, reorganize with interactive rebase
-git rebase -i main
+# If commit history is messy, prefer non-interactive cleanup:
+# - create focused fixup commits
+# - optionally squash with explicit commit hashes
+# git rebase --onto <newbase> <upstream> <branch>  # advanced, optional
 
 # Follow conventional commits:
 # feat: add user authentication
@@ -560,8 +572,8 @@ git rebase origin/main
 
 # 3. Resolve conflicts (edit files)
 
-# 4. Continue rebase
-git add .
+# 4. Continue rebase (stage only intended files)
+git add <resolved-file-1> <resolved-file-2>
 git rebase --continue
 
 # 5. Force push
@@ -574,8 +586,8 @@ git push --force-with-lease
 # 1. Make requested changes
 # Edit files...
 
-# 2. Stage changes
-git add -A
+# 2. Stage changes (explicit paths only)
+git add path/to/file1 path/to/file2
 
 # 3. Commit with amend if small fix
 git commit --amend --no-edit
@@ -616,5 +628,6 @@ This skill implements:
 - Section 9 (Git & Workflow Protocol)
 - Section 12 (Multi-Agent Safety Rules)
 - Section 13 (Testing Guidelines)
+- Section 18 (PR Documentation Standard)
 
 Reference AGENTS.md for complete workflow specifications and constraints.
