@@ -81,12 +81,13 @@ export class TaskScheduler implements ITaskScheduler {
   ): Promise<void> {
     // Execute all tasks in parallel
     const promises = tasks.map((task) =>
-      this.executeSingleWithHooks(task.id, runId, hooks).catch((error) => {
+      this.executeSingleWithHooks(task.id, runId, hooks).catch(async (error) => {
         // Collect errors but continue batch execution
         console.error(
           `[task/scheduler] Batch task ${task.id} failed:`,
           error instanceof Error ? error.message : String(error),
         );
+        await this.bestEffortFinalizeRunningTask(task.id, runId, error);
         // Return empty result to keep batch processing
         return {
           taskId: task.id,
@@ -101,6 +102,31 @@ export class TaskScheduler implements ITaskScheduler {
 
     // Wait for all tasks to complete (both success and failure)
     await Promise.all(promises);
+  }
+
+  private async bestEffortFinalizeRunningTask(
+    taskId: string,
+    runId: string,
+    error: unknown,
+  ): Promise<void> {
+    const persistedTask = await this.taskRepo.getById(taskId, runId);
+    if (!persistedTask || persistedTask.status !== "RUNNING") {
+      return;
+    }
+
+    try {
+      const message = error instanceof Error ? error.message : "Unknown error";
+      persistedTask.transition("FAILED", { error: { message } });
+      await this.taskRepo.update(persistedTask);
+      console.warn(
+        `[task/scheduler] Forced RUNNING -> FAILED for task ${taskId} after batch-level failure`,
+      );
+    } catch (finalizeError) {
+      console.error(
+        `[task/scheduler] Failed to force-fail task ${taskId} after batch-level failure:`,
+        finalizeError instanceof Error ? finalizeError.message : String(finalizeError),
+      );
+    }
   }
 
   async executeSingle(taskId: string, runId: string): Promise<TaskResult> {

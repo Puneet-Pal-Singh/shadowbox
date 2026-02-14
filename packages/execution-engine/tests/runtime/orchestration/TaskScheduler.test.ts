@@ -36,6 +36,18 @@ class InMemoryTaskRepository {
   }
 }
 
+class FailOnceOnFailedUpdateRepository extends InMemoryTaskRepository {
+  private failedOnce = false;
+
+  override async update(task: Task): Promise<void> {
+    if (task.status === "FAILED" && !this.failedOnce) {
+      this.failedOnce = true;
+      throw new Error("simulated repository write failure");
+    }
+    await super.update(task);
+  }
+}
+
 describe("TaskScheduler retry handling", () => {
   it("retries after failure by transitioning RUNNING -> FAILED -> RETRYING", async () => {
     const task = new Task(
@@ -82,5 +94,38 @@ describe("TaskScheduler retry handling", () => {
     const storedTask = await repository.getById("task-1", "run-1");
     expect(storedTask?.status).toBe("DONE");
     expect(storedTask?.retryCount).toBe(1);
+  });
+
+  it("best-effort marks task FAILED when batch-level catch handles an update failure", async () => {
+    const task = new Task(
+      "task-batch-1",
+      "run-batch-1",
+      "shell",
+      "PENDING",
+      [],
+      { description: "batch failover task" },
+      undefined,
+      undefined,
+      0,
+      0,
+    );
+
+    const repository = new FailOnceOnFailedUpdateRepository([task]);
+    const executor: TaskExecutor = {
+      execute: async () => {
+        throw new Error("executor failure");
+      },
+    };
+
+    const scheduler = new TaskScheduler(
+      repository as unknown as TaskRepository,
+      executor,
+    );
+
+    await scheduler.execute("run-batch-1");
+
+    const persistedTask = await repository.getById("task-batch-1", "run-batch-1");
+    expect(persistedTask?.status).toBe("FAILED");
+    expect(persistedTask?.error?.message).toContain("executor failure");
   });
 });
