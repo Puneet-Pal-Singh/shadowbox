@@ -79,6 +79,7 @@ export class MemoryCoordinator {
       params.runId,
     );
     const memoryEvents = await this.repository.getEvents(params.runId, "run");
+    const snapshot = await this.repository.getSnapshot(params.runId, "run");
 
     const checkpoint: ReplayCheckpoint = {
       checkpointId: randomUUID(),
@@ -87,7 +88,7 @@ export class MemoryCoordinator {
       phase: params.phase,
       runStatus: params.runStatus,
       taskStatuses: params.taskStatuses,
-      memorySnapshotVersion: latestCheckpoint ? 1 : 0,
+      memorySnapshotVersion: snapshot?.version ?? 0,
       memoryEventWatermark: memoryEvents.length,
       transcriptSequenceWatermark: params.sequence,
       hash: this.computeCheckpointHash(params),

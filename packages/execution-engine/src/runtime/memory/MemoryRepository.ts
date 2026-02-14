@@ -104,25 +104,29 @@ export class MemoryRepository {
   }
 
   async updateSnapshot(snapshot: MemorySnapshot): Promise<void> {
-    const validated = MemorySnapshotSchema.parse(snapshot);
-    const id = snapshot.runId || snapshot.sessionId;
-    const scope: MemoryScope = snapshot.runId ? "run" : "session";
+    return this.ctx.blockConcurrencyWhile(async () => {
+      const validated = MemorySnapshotSchema.parse(snapshot);
+      const id = snapshot.runId || snapshot.sessionId;
+      const scope: MemoryScope = snapshot.runId ? "run" : "session";
 
-    if (!id) {
-      throw new Error("Snapshot must have either runId or sessionId");
-    }
+      if (!id) {
+        throw new Error("Snapshot must have either runId or sessionId");
+      }
 
-    const snapshotKey = this.getSnapshotKey(id, scope);
-    await this.ctx.storage.put(snapshotKey, validated);
+      const snapshotKey = this.getSnapshotKey(id, scope);
+      await this.ctx.storage.put(snapshotKey, validated);
+    });
   }
 
   async createCheckpoint(checkpoint: ReplayCheckpoint): Promise<void> {
-    const validated = ReplayCheckpointSchema.parse(checkpoint);
-    const checkpointKey = this.getCheckpointKey(
-      checkpoint.runId,
-      checkpoint.sequence,
-    );
-    await this.ctx.storage.put(checkpointKey, validated);
+    return this.ctx.blockConcurrencyWhile(async () => {
+      const validated = ReplayCheckpointSchema.parse(checkpoint);
+      const checkpointKey = this.getCheckpointKey(
+        checkpoint.runId,
+        checkpoint.sequence,
+      );
+      await this.ctx.storage.put(checkpointKey, validated);
+    });
   }
 
   async getCheckpoint(
