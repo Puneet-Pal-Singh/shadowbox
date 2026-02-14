@@ -1,1 +1,1 @@
-export * from "@shadowbox/execution-engine/runtime/task/Task";
+export { InvalidTaskStateTransitionError, Task } from "@shadowbox/execution-engine/runtime/task/Task";
