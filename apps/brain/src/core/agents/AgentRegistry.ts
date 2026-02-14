@@ -1,1 +1,1 @@
-export * from "../../../../../packages/execution-engine/src/runtime/agents/AgentRegistry";
+export * from "@shadowbox/execution-engine/runtime";

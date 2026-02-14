@@ -1,1 +1,1 @@
-export * from "../../../../../packages/execution-engine/src/runtime/orchestration/DependencyResolver";
+export * from "@shadowbox/execution-engine/runtime";
