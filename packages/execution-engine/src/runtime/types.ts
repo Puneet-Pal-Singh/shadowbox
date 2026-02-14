@@ -6,6 +6,7 @@ export interface RuntimeStorage {
     prefix?: string;
     start?: string;
     end?: string;
+    limit?: number;
   }): Promise<Map<string, T>>;
 }
 

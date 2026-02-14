@@ -153,23 +153,6 @@ export class ChatController {
         },
       );
 
-      if (doResponse.ok && doResponse.body) {
-        const clonedResponse = doResponse.clone();
-        const assistantContent = await clonedResponse.text();
-
-        if (assistantContent) {
-          const assistantMessage: CoreMessage = {
-            role: "assistant",
-            content: assistantContent,
-          };
-          await persistenceService.persistUserMessage(
-            sessionId,
-            runId,
-            assistantMessage,
-          );
-        }
-      }
-
       return withEngineHeaders(req, env, doResponse, runId);
     } catch (error) {
       console.error(`[chat/controller] RunEngine execution failed:`, error);

@@ -17,14 +17,9 @@ export class MemoryExtractor {
   private generateId: () => string;
   private getTimestamp: () => string;
 
-  constructor(
-    deps: MemoryExtractorDependencies = {
-      generateId: () => randomUUID(),
-      getTimestamp: () => new Date().toISOString(),
-    },
-  ) {
-    this.generateId = deps.generateId;
-    this.getTimestamp = deps.getTimestamp;
+  constructor(deps: Partial<MemoryExtractorDependencies> = {}) {
+    this.generateId = deps.generateId ?? (() => randomUUID());
+    this.getTimestamp = deps.getTimestamp ?? (() => new Date().toISOString());
   }
 
   extract(input: MemoryExtractionInput): MemoryEvent[] {
@@ -266,7 +261,7 @@ export class MemoryExtractor {
   private extractSection(content: string, sectionName: string): string | null {
     const regex = new RegExp(
       `(?:^|\n)\\s*${sectionName}s?:?\\s*\n(.*?)(?:\n\s*(?:constraint|decision|todo|fact|note)s?:?\s*\n|$)`,
-      "i",
+      "is",
     );
     const match = content.match(regex);
     return match?.[1]?.trim() ?? null;

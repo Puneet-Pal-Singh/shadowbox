@@ -136,6 +136,7 @@ import { sanitizeUnknownError } from "./core/security/LogSanitizer";
 import {
   ChatHistoryQuerySchema,
   ChatAppendRequestSchema,
+  ExecutionBodySchema,
   validateQueryParams,
   validateRequestBody,
   errorResponse,
@@ -153,11 +154,6 @@ export interface Env {
   ARTIFACTS: R2Bucket;
   CORS_ALLOWED_ORIGINS?: string;
   CORS_ALLOW_DEV_ORIGINS?: "true" | "false";
-}
-
-interface ExecutionBody {
-  plugin: string;
-  payload: Record<string, unknown>;
 }
 
 export default {
@@ -260,15 +256,16 @@ export default {
         }
       } else if (request.method === "POST") {
         // Command Execution
-        const body = (await request.json()) as ExecutionBody;
+        const validation = await validateRequestBody(
+          request,
+          ExecutionBodySchema,
+        );
 
-        if (!body.plugin) {
-          response = Response.json(
-            { error: "Missing 'plugin' field" },
-            { status: 400 },
-          );
+        if (!validation.valid) {
+          response = errorResponse(validation.error, "VALIDATION_ERROR", 400);
         } else {
-          const result = await stub.run(body.plugin, body.payload);
+          const { plugin, payload } = validation.data;
+          const result = await stub.run(plugin, payload);
           response = Response.json(result);
         }
       } else {

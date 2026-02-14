@@ -281,14 +281,13 @@ export class RunEngine implements IRunEngine {
         });
       }
 
+      const allTasks = await this.taskRepo.getByRun(runId);
       await this.memoryCoordinator.createCheckpoint({
         runId,
         sequence: 2,
         phase: "execution",
         runStatus: run.status,
-        taskStatuses: Object.fromEntries(
-          taskResults.map((r) => [r.taskId, "DONE"]),
-        ),
+        taskStatuses: Object.fromEntries(allTasks.map((t) => [t.id, t.status])),
       });
 
       console.log(`[run/engine] Synthesis phase for run ${runId}`);

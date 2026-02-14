@@ -17,8 +17,8 @@ export class SessionMemoryStore {
     this.ctx = deps.ctx;
   }
 
-  private getSessionEventsKey(sessionId: string): string {
-    return `session:${sessionId}:memory:events`;
+  private getSessionEventKey(sessionId: string, eventId: string): string {
+    return `session:${sessionId}:memory:event:${eventId}`;
   }
 
   private getSessionSnapshotKey(sessionId: string): string {
@@ -46,13 +46,9 @@ export class SessionMemoryStore {
       }
 
       const validated = MemoryEventSchema.parse(event);
-      const eventsKey = this.getSessionEventsKey(event.sessionId);
+      const eventKey = this.getSessionEventKey(event.sessionId, event.eventId);
 
-      const events =
-        (await this.ctx.storage.get<MemoryEvent[]>(eventsKey)) ?? [];
-      events.push(validated);
-
-      await this.ctx.storage.put(eventsKey, events);
+      await this.ctx.storage.put(eventKey, validated);
       await this.ctx.storage.put(idempotencyKey, event.eventId);
 
       return true;
@@ -86,11 +82,13 @@ export class SessionMemoryStore {
     sessionId: string,
     limit?: number,
   ): Promise<MemoryEvent[]> {
-    const eventsKey = this.getSessionEventsKey(sessionId);
-    const events = (await this.ctx.storage.get<MemoryEvent[]>(eventsKey)) ?? [];
+    const prefix = `session:${sessionId}:memory:event:`;
+    const eventsMap = await this.ctx.storage.list<MemoryEvent>({
+      prefix,
+      limit,
+    });
 
-    const limited = limit ? events.slice(-limit) : events;
-    return limited.map((e) => MemoryEventSchema.parse(e));
+    return Array.from(eventsMap.values()).map((e) => MemoryEventSchema.parse(e));
   }
 
   async getSessionSnapshot(
@@ -112,13 +110,16 @@ export class SessionMemoryStore {
   }
 
   async clearSessionMemory(sessionId: string): Promise<void> {
-    const keysToDelete: string[] = [
-      this.getSessionEventsKey(sessionId),
-      this.getSessionSnapshotKey(sessionId),
-    ];
+    const keysToDelete: string[] = [this.getSessionSnapshotKey(sessionId)];
 
-    const prefix = `session:${sessionId}:memory:idempotency:`;
-    const idempotencyKeys = await this.ctx.storage.list({ prefix });
+    const eventPrefix = `session:${sessionId}:memory:event:`;
+    const eventKeys = await this.ctx.storage.list({ prefix: eventPrefix });
+    keysToDelete.push(...Array.from(eventKeys.keys()));
+
+    const idempotencyPrefix = `session:${sessionId}:memory:idempotency:`;
+    const idempotencyKeys = await this.ctx.storage.list({
+      prefix: idempotencyPrefix,
+    });
     keysToDelete.push(...Array.from(idempotencyKeys.keys()));
 
     await this.ctx.storage.delete(keysToDelete);

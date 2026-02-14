@@ -6,8 +6,10 @@ import {
   type MemoryEvent,
   type MemorySnapshot,
   MemoryEventSchema,
+  MemorySnapshotSchema,
 } from "@shadowbox/execution-engine/runtime";
 import type { Env } from "../types/ai";
+import { getCorsHeaders } from "../lib/cors";
 
 // Type alias for the DurableObjectState from cloudflare:workers
 type DurableObjectState = ConstructorParameters<
@@ -19,18 +21,16 @@ type DurableObjectState = ConstructorParameters<
 export class SessionMemoryRuntime extends DurableObject {
   private memoryStore: SessionMemoryStore;
 
-  constructor(ctx: ConstructorParameters<typeof DurableObject>[0], _env: Env) {
-    super(ctx, _env);
-    this.memoryStore = new SessionMemoryStore({ ctx: ctx as any });
+  constructor(ctx: unknown, _env: Env) {
+    super(ctx as ConstructorParameters<typeof DurableObject>[0], _env);
+    this.memoryStore = new SessionMemoryStore({
+      ctx: ctx as unknown as import("@shadowbox/execution-engine/runtime").RuntimeDurableObjectState,
+    });
   }
 
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
-    const corsHeaders = {
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type, Authorization",
-    };
+    const corsHeaders = getCorsHeaders(request);
 
     if (request.method === "OPTIONS") {
       return new Response(null, { headers: corsHeaders });
@@ -146,19 +146,10 @@ export class SessionMemoryRuntime extends DurableObject {
     if (request.method === "POST") {
       const body = await request.json();
       const schema = z.object({
-        snapshot: z.object({
-          sessionId: z.string(),
-          summary: z.string(),
-          constraints: z.array(z.string()),
-          decisions: z.array(z.string()),
-          todos: z.array(z.string()),
-          updatedAt: z.string(),
-          version: z.number(),
-          runId: z.string().optional(),
-        }),
+        snapshot: MemorySnapshotSchema,
       });
       const { snapshot } = schema.parse(body);
-      await this.memoryStore.upsertSessionSnapshot(snapshot as MemorySnapshot);
+      await this.memoryStore.upsertSessionSnapshot(snapshot);
       return new Response(JSON.stringify({ success: true }), {
         headers: { "Content-Type": "application/json", ...headers },
       });

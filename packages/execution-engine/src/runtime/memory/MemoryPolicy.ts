@@ -1,5 +1,8 @@
 import { type MemoryPolicyConfig, DEFAULT_MEMORY_POLICY } from "./types.js";
 
+const AVG_CHARS_PER_TOKEN = 4;
+const PINNED_BUDGET_RATIO = 0.3;
+
 export interface MemoryPolicyDependencies {
   config?: MemoryPolicyConfig;
 }
@@ -37,9 +40,14 @@ export class MemoryPolicy {
         ? this.config.maxEventsPerRun
         : this.config.maxEventsPerSession;
 
-    return (
-      eventCount >= maxEvents || eventCount >= this.config.compactionThreshold
+    // Compaction should trigger if we hit the scope-specific max,
+    // OR if we've reached a general threshold that indicates it's time to clean up.
+    // Use the lower of the two to ensure we don't exceed specific limits.
+    const effectiveThreshold = Math.min(
+      maxEvents,
+      this.config.compactionThreshold,
     );
+    return eventCount >= effectiveThreshold;
   }
 
   calculateTokenBudget(options: { pinnedTokens: number; maxTokens: number }): {
@@ -50,7 +58,7 @@ export class MemoryPolicy {
 
     const pinnedAllocation = Math.min(
       pinnedTokens,
-      Math.floor(maxTokens * 0.3),
+      Math.floor(maxTokens * PINNED_BUDGET_RATIO),
     );
 
     const remainingAllocation = maxTokens - pinnedAllocation;
@@ -88,6 +96,7 @@ export class MemoryPolicy {
       };
     }
 
+    // Refined patterns to catch actual injection while allowing legitimate code (like TS generics <T>)
     const suspiciousPatterns = [
       /<script\b[^>]*>([\s\S]*?)<\/script>/gim,
       /on\w+\s*=\s*["']?[\s\S]*?["']?/gim,
@@ -97,7 +106,6 @@ export class MemoryPolicy {
       /<\s*object\b[\s\S]*?>/gim,
       /<\s*embed\b[\s\S]*?>/gim,
       /expression\s*\([\s\S]*?\)/gim,
-      /[<>]/g,
     ];
 
     for (const pattern of suspiciousPatterns) {
@@ -122,7 +130,13 @@ export class MemoryPolicy {
         pattern: /\b\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}\b/g,
         replacement: "[CARD_REDACTED]",
       },
-      { pattern: /\b[A-Za-z0-9]{32,}\b/g, replacement: "[TOKEN_REDACTED]" },
+      // Tighten token regex to avoid redacting UUIDs or SHAs.
+      // Typically looking for common prefixes or entropy-heavy strings used as keys/tokens.
+      {
+        pattern:
+          /\b(?:ghp_|gho_|ghu_|ghs_|ghr_|sk-)[A-Za-z0-9]{30,}\b|\b[A-Za-z0-9]{40,}\b/g,
+        replacement: "[TOKEN_REDACTED]",
+      },
       { pattern: /password[=:]\s*\S+/gi, replacement: "password=[REDACTED]" },
       { pattern: /token[=:]\s*\S+/gi, replacement: "token=[REDACTED]" },
       { pattern: /api[_-]?key[=:]\s*\S+/gi, replacement: "api_key=[REDACTED]" },
@@ -138,8 +152,7 @@ export class MemoryPolicy {
   }
 
   estimateTokens(content: string): number {
-    const avgCharsPerToken = 4;
-    return Math.ceil(content.length / avgCharsPerToken);
+    return Math.ceil(content.length / AVG_CHARS_PER_TOKEN);
   }
 
   truncateToTokenBudget(content: string, maxTokens: number): string {
@@ -149,7 +162,7 @@ export class MemoryPolicy {
       return content;
     }
 
-    const targetChars = maxTokens * 4;
+    const targetChars = maxTokens * AVG_CHARS_PER_TOKEN;
     const truncated = content.slice(0, targetChars - 3);
     return truncated + "...";
   }

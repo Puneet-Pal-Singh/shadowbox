@@ -255,9 +255,16 @@ export class AgentRuntime extends DurableObject {
       const existing = await this.ctx.storage.list({
         prefix: `chat:${runId}:`,
       });
-      const keysToDelete = Array.from(existing.keys());
-      if (keysToDelete.length > 0) {
-        await this.ctx.storage.delete(keysToDelete);
+      const chatKeys = Array.from(existing.keys());
+
+      const idempotency = await this.ctx.storage.list({
+        prefix: `idempotency:${runId}:`,
+      });
+      const idempotencyKeys = Array.from(idempotency.keys());
+
+      const allKeysToDelete = [...chatKeys, ...idempotencyKeys];
+      if (allKeysToDelete.length > 0) {
+        await this.ctx.storage.delete(allKeysToDelete);
       }
 
       for (let i = 0; i < messages.length; i++) {
