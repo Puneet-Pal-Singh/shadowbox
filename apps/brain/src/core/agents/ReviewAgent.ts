@@ -1,1 +1,1 @@
-export { ReviewAgent } from "@shadowbox/execution-engine/runtime/agents/ReviewAgent";
+export { ReviewAgent } from "@shadowbox/execution-engine/runtime/agents";

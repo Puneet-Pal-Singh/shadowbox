@@ -1,1 +1,1 @@
-export { CodingAgent, TaskInputError, UnsupportedTaskTypeError } from "@shadowbox/execution-engine/runtime/agents/CodingAgent";
+export { CodingAgent, TaskInputError, UnsupportedTaskTypeError } from "@shadowbox/execution-engine/runtime/agents";

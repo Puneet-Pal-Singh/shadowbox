@@ -1,1 +1,1 @@
-export { InvalidStateTransitionError, Run } from "@shadowbox/execution-engine/runtime/run/Run";
+export { InvalidStateTransitionError, Run } from "@shadowbox/execution-engine/runtime/run";

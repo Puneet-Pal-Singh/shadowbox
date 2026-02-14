@@ -1,1 +1,1 @@
-export type { ILLMGateway, LLMCallContext, LLMPhase, LLMRuntimeAIService, LLMStructuredRequest, LLMStructuredResponse, LLMTextRequest, LLMTextResponse } from "@shadowbox/execution-engine/runtime/llm/types";
+export type { ILLMGateway, LLMCallContext, LLMPhase, LLMRuntimeAIService, LLMStructuredRequest, LLMStructuredResponse, LLMTextRequest, LLMTextResponse } from "@shadowbox/execution-engine/runtime/llm";

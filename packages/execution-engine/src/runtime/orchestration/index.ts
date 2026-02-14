@@ -5,7 +5,9 @@ export {
   TaskScheduler,
   SchedulerError,
   type ITaskScheduler,
+  type SchedulerConfig,
   type SchedulerHooks,
+  type TaskExecutor,
   type TaskExecutor as ITaskExecutor,
 } from "./TaskScheduler.js";
 

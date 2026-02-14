@@ -2,6 +2,13 @@
 // Phase 3D: Agents module barrel exports
 
 export { BaseAgent } from "./BaseAgent.js";
+export type {
+  AgentCapability,
+  ExecutionContext,
+  IAgent,
+  PlanContext,
+  SynthesisContext,
+} from "./BaseAgent.js";
 export {
   CodingAgent,
   UnsupportedTaskTypeError,

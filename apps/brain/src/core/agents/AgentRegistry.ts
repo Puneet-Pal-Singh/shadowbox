@@ -1,1 +1,1 @@
-export { AgentNotFoundError, AgentRegistry } from "@shadowbox/execution-engine/runtime/agents/AgentRegistry";
+export { AgentNotFoundError, AgentRegistry } from "@shadowbox/execution-engine/runtime/agents";

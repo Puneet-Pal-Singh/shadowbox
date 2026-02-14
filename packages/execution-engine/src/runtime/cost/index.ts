@@ -12,6 +12,7 @@ export {
   PricingRegistry,
   PricingError,
   type IPricingRegistry,
+  type PricingRegistryOptions,
 } from "./PricingRegistry.js";
 export {
   PricingResolver,
@@ -34,6 +35,7 @@ export type {
   CostEvent,
   CostSnapshot,
   ModelCost,
+  PricingSource,
   ProviderCost,
   PricingEntry,
   BudgetConfig,

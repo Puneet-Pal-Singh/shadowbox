@@ -5,6 +5,8 @@ export {
   RunEngine,
   RunEngineError,
   type IRunEngine,
+  type RunEngineDependencies,
+  type RunEngineEnv,
   type RunEngineOptions,
 } from "./RunEngine.js";
 

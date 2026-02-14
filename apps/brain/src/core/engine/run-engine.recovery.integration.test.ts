@@ -1,6 +1,6 @@
 import type { DurableObjectState } from "@cloudflare/workers-types";
 import { beforeEach, describe, expect, it } from "vitest";
-import { DurableObjectStateManager } from "../state";
+import { DurableObjectStateManager } from "@shadowbox/execution-engine/runtime/state";
 import { Run, RunRepository } from "../run";
 import { RunRecovery } from "../orchestration";
 import { TaskRepository } from "../task";
