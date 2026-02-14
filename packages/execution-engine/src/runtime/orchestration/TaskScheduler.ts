@@ -184,7 +184,7 @@ export class TaskScheduler implements ITaskScheduler {
         await hooks.onTaskError(task, error);
       }
       // Handle failure with retry logic
-      const failed = await this.handleTaskFailure(task, error);
+      const failed = await this.handleTaskFailure(task, error, hooks);
       if (hooks?.afterTask) {
         await hooks.afterTask(task, failed);
       }
@@ -195,6 +195,7 @@ export class TaskScheduler implements ITaskScheduler {
   private async handleTaskFailure(
     task: Task,
     error: unknown,
+    hooks?: SchedulerHooks,
   ): Promise<TaskResult> {
     const errorMessage =
       error instanceof Error ? error.message : "Unknown error";
@@ -217,8 +218,8 @@ export class TaskScheduler implements ITaskScheduler {
         `[task/scheduler] Retrying task ${task.id} (attempt ${task.retryCount})`,
       );
 
-      // Execute again
-      return this.executeSingle(task.id, task.runId);
+      // Execute again with hooks to maintain visibility during retries
+      return this.executeSingleWithHooks(task.id, task.runId, hooks);
     }
 
     await this.taskRepo.update(task);
