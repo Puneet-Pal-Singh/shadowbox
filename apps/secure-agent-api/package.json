@@ -18,6 +18,7 @@
 		"@repo/typescript-config": "workspace:*",
 		"@types/node": "^24.10.9",
 		"typescript": "^5.9.3",
+		"vitest": "^1.0.0",
 		"wrangler": "^4.61.0",
 		"ws": "^8.19.0"
 	},
