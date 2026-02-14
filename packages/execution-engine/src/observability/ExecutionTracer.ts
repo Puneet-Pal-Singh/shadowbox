@@ -119,12 +119,12 @@ export class ExecutionTracer {
   getCriticalPath(): ExecutionSpan[] {
     const rootSpans = this.timeline.spans.filter(s => !s.parentId)
     let longestPath: ExecutionSpan[] = []
-    let longestDuration = 0
+    let longestDuration = -1
 
     for (const span of rootSpans) {
       const path = this.getSpanPath(span)
       const duration = this.calculatePathDuration(path)
-      if (duration > longestDuration) {
+      if (duration >= longestDuration) {
         longestPath = path
         longestDuration = duration
       }

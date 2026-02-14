@@ -48,7 +48,7 @@ export function validateCommand(command: string): {
 
   // Reject dangerous patterns
   const dangerousPatterns = [
-    /;\s*rm\s/i, // rm commands
+    /(^|[;&|]\s*)rm\s+/i, // rm commands
     />\s*\/dev\/null/i, // redirects to /dev/null
     /;\s*killall/i, // killall commands
     /\$\(/i, // command substitution
