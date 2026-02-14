@@ -1,5 +1,5 @@
-// apps/brain/src/core/orchestration/TaskScheduler.ts
-// Phase 3C: Parallel task execution scheduler with concurrency limits
+// packages/execution-engine/src/runtime/orchestration/TaskScheduler.ts
+// Phase 3.2: Parallel task execution scheduler with concurrency limits
 
 import type { TaskRepository } from "../task/index.js";
 import { Task, TaskState } from "../task/index.js";
@@ -81,23 +81,25 @@ export class TaskScheduler implements ITaskScheduler {
   ): Promise<void> {
     // Execute all tasks in parallel
     const promises = tasks.map((task) =>
-      this.executeSingleWithHooks(task.id, runId, hooks).catch(async (error) => {
-        // Collect errors but continue batch execution
-        console.error(
-          `[task/scheduler] Batch task ${task.id} failed:`,
-          error instanceof Error ? error.message : String(error),
-        );
-        await this.bestEffortFinalizeRunningTask(task.id, runId, error);
-        // Return empty result to keep batch processing
-        return {
-          taskId: task.id,
-          status: "FAILED" as const,
-          error: {
-            message: error instanceof Error ? error.message : "Unknown error",
-          },
-          completedAt: new Date(),
-        };
-      }),
+      this.executeSingleWithHooks(task.id, runId, hooks).catch(
+        async (error) => {
+          // Collect errors but continue batch execution
+          console.error(
+            `[task/scheduler] Batch task ${task.id} failed:`,
+            error instanceof Error ? error.message : String(error),
+          );
+          await this.bestEffortFinalizeRunningTask(task.id, runId, error);
+          // Return empty result to keep batch processing
+          return {
+            taskId: task.id,
+            status: "FAILED" as const,
+            error: {
+              message: error instanceof Error ? error.message : "Unknown error",
+            },
+            completedAt: new Date(),
+          };
+        },
+      ),
     );
 
     // Wait for all tasks to complete (both success and failure)
@@ -124,7 +126,9 @@ export class TaskScheduler implements ITaskScheduler {
     } catch (finalizeError) {
       console.error(
         `[task/scheduler] Failed to force-fail task ${taskId} after batch-level failure:`,
-        finalizeError instanceof Error ? finalizeError.message : String(finalizeError),
+        finalizeError instanceof Error
+          ? finalizeError.message
+          : String(finalizeError),
       );
     }
   }
@@ -144,7 +148,7 @@ export class TaskScheduler implements ITaskScheduler {
     }
 
     // Validate task is ready before executing (allow RETRYING for retry logic)
-    if (!["READY", "PENDING", "RETRYING"].includes(task.status)) {
+    if (!["READY", "RETRYING"].includes(task.status)) {
       throw new SchedulerError(
         `Task ${taskId} is not ready for execution (status: ${task.status})`,
       );
@@ -267,10 +271,7 @@ export class TaskScheduler implements ITaskScheduler {
   }
 
   private async checkDependencies(task: Task, runId: string): Promise<boolean> {
-    const dependencies = await this.taskRepo.getByIds(
-      task.dependencies,
-      runId,
-    );
+    const dependencies = await this.taskRepo.getByIds(task.dependencies, runId);
 
     // Verify all requested dependencies were found
     if (dependencies.length !== task.dependencies.length) {

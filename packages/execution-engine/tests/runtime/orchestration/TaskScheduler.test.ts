@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { TaskScheduler, type TaskExecutor } from "../../../src/runtime/orchestration/TaskScheduler.js";
+import {
+  TaskScheduler,
+  type TaskExecutor,
+} from "../../../src/runtime/orchestration/TaskScheduler.js";
 import { Task } from "../../../src/runtime/task/Task.js";
 import type { TaskRepository } from "../../../src/runtime/task/TaskRepository.js";
 import type { TaskResult } from "../../../src/runtime/types.js";
@@ -18,7 +21,9 @@ class InMemoryTaskRepository {
   }
 
   async getByRun(runId: string): Promise<Task[]> {
-    return Array.from(this.tasks.values()).filter((task) => task.runId === runId);
+    return Array.from(this.tasks.values()).filter(
+      (task) => task.runId === runId,
+    );
   }
 
   async getByIds(taskIds: string[], runId: string): Promise<Task[]> {
@@ -39,12 +44,36 @@ class InMemoryTaskRepository {
 class FailOnceOnFailedUpdateRepository extends InMemoryTaskRepository {
   private failedOnce = false;
 
+  override async getById(taskId: string, runId: string): Promise<Task | null> {
+    const task = await super.getById(taskId, runId);
+    // Clone the task to simulate real repository behavior (serialization/deserialization)
+    // This ensures the persisted task remains RUNNING after failed update
+    return task ? this.cloneTask(task) : null;
+  }
+
   override async update(task: Task): Promise<void> {
     if (task.status === "FAILED" && !this.failedOnce) {
       this.failedOnce = true;
       throw new Error("simulated repository write failure");
     }
     await super.update(task);
+  }
+
+  private cloneTask(task: Task): Task {
+    return new Task(
+      task.id,
+      task.runId,
+      task.type,
+      task.status,
+      [...task.dependencies],
+      { ...task.input },
+      task.output ? { ...task.output } : undefined,
+      task.error ? { ...task.error } : undefined,
+      task.retryCount,
+      task.maxRetries,
+      task.createdAt,
+      task.updatedAt,
+    );
   }
 }
 
@@ -124,7 +153,10 @@ describe("TaskScheduler retry handling", () => {
 
     await scheduler.execute("run-batch-1");
 
-    const persistedTask = await repository.getById("task-batch-1", "run-batch-1");
+    const persistedTask = await repository.getById(
+      "task-batch-1",
+      "run-batch-1",
+    );
     expect(persistedTask?.status).toBe("FAILED");
     expect(persistedTask?.error?.message).toContain("executor failure");
   });

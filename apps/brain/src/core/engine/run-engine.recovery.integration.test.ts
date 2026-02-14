@@ -80,7 +80,9 @@ describe("RunEngine recovery integration", () => {
     );
 
     const resumedRun = await restartedRecovery.resumeRun(run.id);
-    const incompleteTask = await restartedRecovery.findLastIncompleteTask(run.id);
+    const incompleteTask = await restartedRecovery.findLastIncompleteTask(
+      run.id,
+    );
 
     expect(resumedRun.status).toBe("RUNNING");
     expect(incompleteTask?.id).toBe(secondTask.id);
@@ -212,8 +214,8 @@ function createMockDurableObjectState(
   return {
     storage: storage as DurableObjectState["storage"],
     id: { toString: () => "mock-recovery-do" } as DurableObjectState["id"],
-    waitUntil: async (promise: Promise<unknown>): Promise<void> => {
-      await promise;
+    waitUntil: (promise: Promise<unknown>): void => {
+      promise.catch(() => {});
     },
     blockConcurrencyWhile: async <T>(closure: () => Promise<T>): Promise<T> =>
       runExclusive(closure),

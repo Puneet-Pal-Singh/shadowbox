@@ -1,5 +1,5 @@
-// apps/brain/src/core/orchestration/index.ts
-// Phase 3C: Orchestration module barrel exports
+// packages/execution-engine/src/runtime/orchestration/index.ts
+// Phase 3.2: Orchestration module barrel exports
 
 export {
   TaskScheduler,
