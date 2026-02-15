@@ -20,9 +20,24 @@ import {
 import { PlannerService } from "../planner/index.js";
 import { TaskScheduler } from "../orchestration/index.js";
 import { DefaultTaskExecutor, AgentTaskExecutor } from "./TaskExecutor.js";
-import type { RunInput, RunStatus, IAgent, RuntimeDurableObjectState } from "../types.js";
+import type {
+  RunInput,
+  RunStatus,
+  IAgent,
+  RuntimeDurableObjectState,
+} from "../types.js";
 import type { Plan, PlannedTask } from "../planner/index.js";
-import { LLMGateway, type ILLMGateway, type LLMRuntimeAIService } from "../llm/index.js";
+import {
+  LLMGateway,
+  type ILLMGateway,
+  type LLMRuntimeAIService,
+} from "../llm/index.js";
+import {
+  MemoryCoordinator,
+  MemoryRepository,
+  type MemoryCoordinatorDependencies,
+  type MemoryContext,
+} from "../memory/index.js";
 
 const RUNTIME_CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -69,6 +84,7 @@ export interface RunEngineDependencies {
   budgetManager?: IBudgetManager & BudgetPolicy;
   planner?: PlannerService;
   scheduler?: TaskScheduler;
+  memoryCoordinator?: MemoryCoordinator;
 }
 
 export class RunEngine implements IRunEngine {
@@ -83,6 +99,8 @@ export class RunEngine implements IRunEngine {
   private aiService?: LLMRuntimeAIService;
   private llmGateway: ILLMGateway;
   private agent?: IAgent;
+  private memoryCoordinator: MemoryCoordinator;
+  private currentMemoryContext?: MemoryContext;
   private readonly sessionCostsLoaded: Promise<void>;
 
   constructor(
@@ -149,15 +167,29 @@ export class RunEngine implements IRunEngine {
     this.agent = agent;
 
     const taskExecutor = agent
-      ? new AgentTaskExecutor(agent, options.runId, options.sessionId, this.taskRepo)
+      ? new AgentTaskExecutor(
+          agent,
+          options.runId,
+          options.sessionId,
+          this.taskRepo,
+        )
       : new DefaultTaskExecutor();
     this.scheduler =
       dependencies.scheduler ?? new TaskScheduler(this.taskRepo, taskExecutor);
+
+    if (dependencies.memoryCoordinator) {
+      this.memoryCoordinator = dependencies.memoryCoordinator;
+    } else {
+      const memoryRepo = new MemoryRepository({ ctx });
+      this.memoryCoordinator = new MemoryCoordinator({
+        repository: memoryRepo,
+      });
+    }
   }
 
   async execute(
     input: RunInput,
-    _messages: CoreMessage[],
+    messages: CoreMessage[],
     _tools: Record<string, CoreTool>,
   ): Promise<Response> {
     const { runId, sessionId } = this.options;
@@ -166,17 +198,49 @@ export class RunEngine implements IRunEngine {
       await this.sessionCostsLoaded;
       const run = await this.getOrCreateRun(input, runId, sessionId);
 
+      console.log(`[run/engine] Retrieving memory context for run ${runId}`);
+      this.currentMemoryContext = await this.safeMemoryOperation(
+        () =>
+          this.memoryCoordinator.retrieveContext({
+            runId,
+            sessionId,
+            prompt: input.prompt,
+            phase: "planning",
+          }),
+        undefined,
+      );
+
+      await this.safeMemoryOperation(() =>
+        this.persistConversationMessages(runId, sessionId, messages, "user"),
+      );
+
       console.log(`[run/engine] Planning phase for run ${runId}`);
       try {
         run.transition("PLANNING");
         await this.runRepo.update(run);
 
-        const plan = await this.generatePlan(run, input.prompt);
+        const plan = await this.generatePlan(
+          run,
+          input.prompt,
+          this.currentMemoryContext,
+        );
         await this.createTasksFromPlan(run.id, plan);
+
+        await this.safeMemoryOperation(() =>
+          this.memoryCoordinator.createCheckpoint({
+            runId,
+            sequence: 1,
+            phase: "planning",
+            runStatus: run.status,
+            taskStatuses: {},
+          }),
+        );
       } catch (planError) {
         run.transition("FAILED");
         run.metadata.error =
-          planError instanceof Error ? planError.message : "Planning phase failed";
+          planError instanceof Error
+            ? planError.message
+            : "Planning phase failed";
         await this.runRepo.update(run);
         throw planError;
       }
@@ -184,6 +248,8 @@ export class RunEngine implements IRunEngine {
       console.log(`[run/engine] Execution phase for run ${runId}`);
       run.transition("RUNNING");
       await this.runRepo.update(run);
+
+      const taskResults: Array<{ taskId: string; content: string }> = [];
 
       await this.scheduler.execute(run.id, {
         beforeTask: async (task) => {
@@ -195,14 +261,79 @@ export class RunEngine implements IRunEngine {
           console.log(
             `[task/scheduler] afterTask run=${run.id} task=${task.id} status=${result.status}`,
           );
+          if (result.output?.content) {
+            taskResults.push({
+              taskId: task.id,
+              content: result.output.content,
+            });
+          }
         },
         onTaskError: async (task, error) => {
           console.error(`[task/scheduler] onTaskError task=${task.id}`, error);
         },
       });
 
+      for (const { taskId, content } of taskResults) {
+        await this.safeMemoryOperation(() =>
+          this.memoryCoordinator.extractAndPersist({
+            runId,
+            sessionId,
+            taskId,
+            source: "task",
+            content,
+            phase: "execution",
+          }),
+        );
+      }
+
+      const allTasks = await this.taskRepo.getByRun(runId);
+      await this.safeMemoryOperation(() =>
+        this.memoryCoordinator.createCheckpoint({
+          runId,
+          sequence: 2,
+          phase: "execution",
+          runStatus: run.status,
+          taskStatuses: Object.fromEntries(
+            allTasks.map((t) => [t.id, t.status]),
+          ),
+        }),
+      );
+
       console.log(`[run/engine] Synthesis phase for run ${runId}`);
-      const finalOutput = await this.generateSynthesis(run, input.prompt);
+      const finalOutput = await this.generateSynthesis(
+        run,
+        input.prompt,
+        this.currentMemoryContext,
+      );
+
+      await this.safeMemoryOperation(() =>
+        this.memoryCoordinator.extractAndPersist({
+          runId,
+          sessionId,
+          source: "synthesis",
+          content: finalOutput,
+          phase: "synthesis",
+        }),
+      );
+
+      await this.safeMemoryOperation(() =>
+        this.memoryCoordinator.createCheckpoint({
+          runId,
+          sequence: 3,
+          phase: "synthesis",
+          runStatus: "COMPLETED",
+          taskStatuses: {},
+        }),
+      );
+
+      await this.safeMemoryOperation(() =>
+        this.persistConversationMessages(
+          runId,
+          sessionId,
+          [{ role: "assistant", content: finalOutput }],
+          "assistant",
+        ),
+      );
 
       run.transition("COMPLETED");
       run.output = { content: finalOutput };
@@ -213,6 +344,25 @@ export class RunEngine implements IRunEngine {
     } catch (error) {
       await this.handleExecutionError(runId, error);
       throw error;
+    }
+  }
+
+  private async persistConversationMessages(
+    runId: string,
+    sessionId: string,
+    messages: CoreMessage[],
+    role: "user" | "assistant",
+  ): Promise<void> {
+    for (const message of messages) {
+      if (typeof message.content === "string" && message.content.trim()) {
+        await this.memoryCoordinator.extractAndPersist({
+          runId,
+          sessionId,
+          source: role,
+          content: message.content,
+          phase: role === "user" ? "planning" : "synthesis",
+        });
+      }
     }
   }
 
@@ -298,7 +448,9 @@ export class RunEngine implements IRunEngine {
   }
 
   private isTerminalRun(status: RunStatus): boolean {
-    return status === "COMPLETED" || status === "FAILED" || status === "CANCELLED";
+    return (
+      status === "COMPLETED" || status === "FAILED" || status === "CANCELLED"
+    );
   }
 
   private async createTasksFromPlan(runId: string, plan: Plan): Promise<void> {
@@ -326,14 +478,22 @@ export class RunEngine implements IRunEngine {
     );
   }
 
-  private async generatePlan(run: Run, prompt: string): Promise<Plan> {
+  private async generatePlan(
+    run: Run,
+    prompt: string,
+    memoryContext?: MemoryContext,
+  ): Promise<Plan> {
     if (this.agent) {
       return this.agent.plan({ run, prompt, history: undefined });
     }
-    return this.planner.plan(run, prompt);
+    return this.planner.plan(run, prompt, memoryContext);
   }
 
-  private async generateSynthesis(run: Run, originalPrompt: string): Promise<string> {
+  private async generateSynthesis(
+    run: Run,
+    originalPrompt: string,
+    memoryContext?: MemoryContext,
+  ): Promise<string> {
     if (this.agent) {
       const tasks = await this.taskRepo.getByRun(run.id);
       const completedTasks = tasks
@@ -346,10 +506,14 @@ export class RunEngine implements IRunEngine {
         originalPrompt,
       });
     }
-    return this.synthesizeResult(run, originalPrompt);
+    return this.synthesizeResult(run, originalPrompt, memoryContext);
   }
 
-  private async synthesizeResult(run: Run, originalPrompt: string): Promise<string> {
+  private async synthesizeResult(
+    run: Run,
+    originalPrompt: string,
+    memoryContext?: MemoryContext,
+  ): Promise<string> {
     const tasks = await this.taskRepo.getByRun(run.id);
     const completedTasks = tasks.filter((task) => task.status === "DONE");
 
@@ -360,11 +524,15 @@ export class RunEngine implements IRunEngine {
       )
       .join("\n");
 
+    const memorySection = memoryContext
+      ? this.memoryCoordinator.formatContextForPrompt(memoryContext)
+      : "";
+
     const synthesisPrompt = `Based on the following completed tasks, provide a final summary:
 
 Original Request: ${originalPrompt}
 
-Completed Tasks:
+${memorySection ? `Memory Context:\n${memorySection}\n\n` : ""}Completed Tasks:
 ${taskResults}
 
 Provide a concise summary of what was accomplished.`;
@@ -422,7 +590,10 @@ Provide a concise summary of what was accomplished.`;
     });
   }
 
-  private async handleExecutionError(runId: string, error: unknown): Promise<void> {
+  private async handleExecutionError(
+    runId: string,
+    error: unknown,
+  ): Promise<void> {
     const errorMessage =
       error instanceof Error ? error.message : "Unknown execution error";
 
@@ -449,6 +620,18 @@ Provide a concise summary of what was accomplished.`;
     }
 
     console.error(`[run/engine] Run ${runId} failed:`, errorMessage);
+  }
+
+  private async safeMemoryOperation<T>(
+    operation: () => Promise<T>,
+    fallback?: T,
+  ): Promise<T> {
+    try {
+      return await operation();
+    } catch (error) {
+      console.warn("[run/engine] Memory subsystem operation failed:", error);
+      return fallback as T;
+    }
   }
 
   async getCostSnapshot(runId: string): Promise<CostSnapshot> {

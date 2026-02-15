@@ -16,10 +16,7 @@ import { GitPlugin } from "../plugins/GitPlugin";
 import { NodePlugin } from "../plugins/NodePlugin";
 import { RustPlugin } from "../plugins/RustPlugin";
 import { Env } from "../index";
-import {
-  sanitizeLogText,
-  sanitizeUnknownError,
-} from "./security/LogSanitizer";
+import { sanitizeLogText, sanitizeUnknownError } from "./security/LogSanitizer";
 
 export class AgentRuntime extends DurableObject {
   private sandbox: Sandbox | null = null;
@@ -128,21 +125,59 @@ export class AgentRuntime extends DurableObject {
   }
 
   // 5. SRP: History Management
-  async getHistory(runId: string): Promise<Message[]> {
-    const list = await this.ctx.storage.list<Message>({
+  async getHistory(
+    runId: string,
+    cursor?: string,
+    limit: number = 50,
+  ): Promise<{ messages: Message[]; nextCursor?: string }> {
+    const listOptions: { prefix: string; limit: number; start?: string } = {
       prefix: `chat:${runId}:`,
-      limit: 100,
-    });
+      limit: limit + 1,
+    };
+
+    if (cursor) {
+      listOptions.start = cursor;
+    }
+
+    const list = await this.ctx.storage.list<Message>(listOptions);
+    const entries = Array.from(list.entries());
+
+    let nextCursor: string | undefined;
+    if (entries.length > limit) {
+      const lastEntry = entries.pop();
+      if (lastEntry) {
+        nextCursor = lastEntry[0];
+      }
+    }
+
     // Ensure all messages have unique IDs for React rendering
-    return Array.from(list.entries()).map(([_, msg], index) => ({
+    const messages = entries.map(([_, msg], index) => ({
       ...msg,
       id: msg.id || `${runId}-${index}-${Date.now()}`,
     }));
+
+    return { messages, nextCursor };
   }
 
-  async appendMessage(runId: string, message: Message): Promise<void> {
+  async appendMessage(
+    runId: string,
+    message: Message,
+    idempotencyKey?: string,
+  ): Promise<void> {
     await this.ctx.blockConcurrencyWhile(async () => {
       const sessionId = this.ctx.id.toString();
+
+      // Check idempotency
+      if (idempotencyKey) {
+        const existingKey = `idempotency:${runId}:${idempotencyKey}`;
+        const exists = await this.ctx.storage.get<string>(existingKey);
+        if (exists) {
+          console.log(
+            `[AgentRuntime] Duplicate message ignored for idempotency key: ${idempotencyKey}`,
+          );
+          return;
+        }
+      }
 
       // Ensure message has an ID
       const messageWithId: Message = {
@@ -150,7 +185,9 @@ export class AgentRuntime extends DurableObject {
         content: message.content,
         tool_calls: message.tool_calls,
         tool_call_id: message.tool_call_id,
-        id: message.id || `${runId}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        id:
+          message.id ||
+          `${runId}-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`,
       };
 
       const processedMessage = await this.storageService.processMessage(
@@ -184,21 +221,55 @@ export class AgentRuntime extends DurableObject {
       }
 
       const timestamp = Date.now().toString().padStart(15, "0");
-      const key = `chat:${runId}:${timestamp}`;
+      const disambiguator = Math.random().toString(36).substring(2, 7);
+      const key = `chat:${runId}:${timestamp}-${disambiguator}`;
       await this.ctx.storage.put(key, processedMessage);
+
+      // Store idempotency key
+      if (idempotencyKey) {
+        const existingKey = `idempotency:${runId}:${idempotencyKey}`;
+        await this.ctx.storage.put(existingKey, key);
+      }
     });
   }
 
-  async saveHistory(runId: string, messages: Message[]): Promise<void> {
+  async saveHistory(
+    runId: string,
+    messages: Message[],
+    idempotencyKey?: string,
+  ): Promise<void> {
     await this.ctx.blockConcurrencyWhile(async () => {
       const sessionId = this.ctx.id.toString();
+
+      // Check idempotency
+      if (idempotencyKey) {
+        const existingKey = `idempotency:${runId}:batch:${idempotencyKey}`;
+        const exists = await this.ctx.storage.get<string>(existingKey);
+        if (exists) {
+          console.log(
+            `[AgentRuntime] Duplicate batch ignored for idempotency key: ${idempotencyKey}`,
+          );
+          return;
+        }
+      }
 
       const existing = await this.ctx.storage.list({
         prefix: `chat:${runId}:`,
       });
-      const keysToDelete = Array.from(existing.keys());
-      if (keysToDelete.length > 0) {
-        await this.ctx.storage.delete(keysToDelete);
+      const chatKeys = Array.from(existing.keys());
+
+      const idempotency = await this.ctx.storage.list({
+        prefix: `idempotency:${runId}:`,
+      });
+      const idempotencyKeys = Array.from(idempotency.keys());
+
+      const allKeysToDelete = [...chatKeys, ...idempotencyKeys];
+      if (allKeysToDelete.length > 0) {
+        // Durable Object storage.delete() has a limit of 128 keys per call
+        for (let i = 0; i < allKeysToDelete.length; i += 128) {
+          const chunk = allKeysToDelete.slice(i, i + 128);
+          await this.ctx.storage.delete(chunk);
+        }
       }
 
       for (let i = 0; i < messages.length; i++) {
@@ -219,8 +290,14 @@ export class AgentRuntime extends DurableObject {
           msgWithId,
         );
         const timestamp = Date.now().toString().padStart(15, "0");
-        const key = `chat:${runId}:${timestamp}-${i.toString().padStart(3, '0')}`;
+        const key = `chat:${runId}:${timestamp}-${i.toString().padStart(3, "0")}`;
         await this.ctx.storage.put(key, processedMessage);
+      }
+
+      // Store idempotency key
+      if (idempotencyKey) {
+        const existingKey = `idempotency:${runId}:batch:${idempotencyKey}`;
+        await this.ctx.storage.put(existingKey, "saved");
       }
     });
   }

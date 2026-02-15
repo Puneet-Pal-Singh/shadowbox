@@ -1,31 +1,49 @@
 // apps/brain/src/core/orchestration/RunRecovery.ts
-// Phase 3C: Run recovery and state reconstruction
+// Phase 3C + Phase 4E: Run recovery and state reconstruction with memory checkpoints
 
 import type { Run, RunRepository } from "../run/index.js";
 import type { Task, TaskRepository } from "../task/index.js";
+import type {
+  MemoryCoordinator,
+  ReplayCheckpoint,
+  MemoryContext,
+} from "../memory/index.js";
 
 export interface IRunRecovery {
-  resumeRun(runId: string): Promise<Run>;
+  resumeRun(runId: string, sessionId: string): Promise<Run>;
   reconstructState(run: Run): Promise<void>;
   findLastIncompleteTask(runId: string): Promise<Task | null>;
+  replayFromCheckpoint(
+    runId: string,
+    sessionId: string,
+  ): Promise<ReplayContext>;
+}
+
+export interface ReplayContext {
+  checkpoint: ReplayCheckpoint;
+  memoryContext: MemoryContext;
+  run: Run;
+  tasks: Task[];
 }
 
 /**
  * RunRecovery manages recovery from interruptions and state reconstruction.
- * Enables runs to resume from the last incomplete task.
+ * Enables runs to resume from the last incomplete task with memory context.
  */
 export class RunRecovery implements IRunRecovery {
   constructor(
     private runRepo: RunRepository,
     private taskRepo: TaskRepository,
+    private memoryCoordinator: MemoryCoordinator,
   ) {}
 
   /**
-   * Resume a run after interruption
+   * Resume a run after interruption with memory context
    * @param runId The run to resume
+   * @param sessionId The session ID for memory retrieval
    * @returns The resumed run
    */
-  async resumeRun(runId: string): Promise<Run> {
+  async resumeRun(runId: string, sessionId: string): Promise<Run> {
     const run = await this.runRepo.getById(runId);
     if (!run) {
       throw new RunRecoveryError(`Run ${runId} not found`);
@@ -45,6 +63,55 @@ export class RunRecovery implements IRunRecovery {
       `[recovery/run] Resumed run ${runId} from status ${run.status}`,
     );
     return run;
+  }
+
+  /**
+   * Replay from checkpoint to reconstruct memory and run context
+   * @param runId The run to replay
+   * @param sessionId The session ID for memory retrieval
+   * @returns Replay context with checkpoint, memory, run, and tasks
+   */
+  async replayFromCheckpoint(
+    runId: string,
+    sessionId: string,
+  ): Promise<ReplayContext> {
+    // Get latest checkpoint
+    const checkpoint =
+      await this.memoryCoordinator.getCheckpointForResume(runId);
+    if (!checkpoint) {
+      throw new RunRecoveryError(`No checkpoint found for run ${runId}`);
+    }
+
+    // Get run
+    const run = await this.runRepo.getById(runId);
+    if (!run) {
+      throw new RunRecoveryError(`Run ${runId} not found during replay`);
+    }
+
+    // Reconstruct state
+    await this.reconstructState(run);
+
+    // Get tasks
+    const tasks = await this.taskRepo.getByRun(runId);
+
+    // Retrieve memory context for the phase at checkpoint
+    const memoryContext = await this.memoryCoordinator.retrieveContext({
+      runId,
+      sessionId,
+      prompt: run.input.prompt,
+      phase: checkpoint.phase,
+    });
+
+    console.log(
+      `[recovery/run] Replayed from checkpoint ${checkpoint.checkpointId} at sequence ${checkpoint.sequence}`,
+    );
+
+    return {
+      checkpoint,
+      memoryContext,
+      run,
+      tasks,
+    };
   }
 
   /**

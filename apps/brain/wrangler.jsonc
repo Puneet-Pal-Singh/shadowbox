@@ -26,6 +26,10 @@
         "name": "RUN_ENGINE_RUNTIME",
         "class_name": "RunEngineRuntime",
       },
+      {
+        "name": "SESSION_MEMORY_RUNTIME",
+        "class_name": "SessionMemoryRuntime",
+      },
     ],
   },
 
@@ -33,6 +37,10 @@
     {
       "tag": "v1-run-engine-runtime",
       "new_classes": ["RunEngineRuntime"],
+    },
+    {
+      "tag": "v2-session-memory-runtime",
+      "new_classes": ["SessionMemoryRuntime"],
     },
   ],
 

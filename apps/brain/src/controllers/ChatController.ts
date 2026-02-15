@@ -2,6 +2,7 @@ import type { CoreMessage, Message } from "ai";
 import { getCorsHeaders } from "../lib/cors";
 import type { AgentType } from "../types";
 import type { Env } from "../types/ai";
+import { PersistenceService } from "../services/PersistenceService";
 
 interface ChatRequestBody {
   messages?: Message[];
@@ -124,12 +125,21 @@ export class ChatController {
         ? lastUserMessage.content
         : JSON.stringify(lastUserMessage.content);
 
+    const persistenceService = new PersistenceService(env);
+
     try {
+      await persistenceService.persistUserMessage(
+        sessionId,
+        runId,
+        lastUserMessage,
+      );
+
       const executeInput = {
         agentType: mapAgentIdToType(body.agentId),
         prompt,
         sessionId,
       };
+
       const doResponse = await ChatController.executeViaRunEngineDurableObject(
         env,
         runId,
@@ -142,6 +152,7 @@ export class ChatController {
           messages: coreMessages,
         },
       );
+
       return withEngineHeaders(req, env, doResponse, runId);
     } catch (error) {
       console.error(`[chat/controller] RunEngine execution failed:`, error);
@@ -252,7 +263,10 @@ function errorResponse(
 ): Response {
   return new Response(JSON.stringify({ error: message }), {
     status,
-    headers: { ...getCorsHeaders(req, env), "Content-Type": "application/json" },
+    headers: {
+      ...getCorsHeaders(req, env),
+      "Content-Type": "application/json",
+    },
   });
 }
 
