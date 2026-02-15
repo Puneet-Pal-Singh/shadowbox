@@ -85,7 +85,7 @@ export interface RunEngineDependencies {
   planner?: PlannerService;
   scheduler?: TaskScheduler;
   memoryCoordinator?: MemoryCoordinator;
-  sessionMemoryClient?: unknown;
+  sessionMemoryClient?: MemoryCoordinatorDependencies["sessionMemoryClient"];
 }
 
 export class RunEngine implements IRunEngine {
@@ -189,6 +189,7 @@ export class RunEngine implements IRunEngine {
       const memoryRepo = new MemoryRepository({ ctx });
       this.memoryCoordinator = new MemoryCoordinator({
         repository: memoryRepo,
+        sessionMemoryClient: dependencies.sessionMemoryClient,
       });
     }
   }

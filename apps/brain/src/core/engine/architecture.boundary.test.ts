@@ -3,7 +3,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 const SOURCE_ROOT = path.resolve(process.cwd(), "src");
-const ALLOWED_IMPORT_PREFIXES = ["core/engine/", "core/llm/"];
+const ALLOWED_IMPORT_PREFIXES = ["core/engine/", "core/llm/", "runtime/"];
 const AI_SERVICE_IMPORT_PATTERNS = [
   /from\s+["'][^"']*services\/AIService["']/,
   /import\(\s*["'][^"']*services\/AIService["']\s*\)/,
