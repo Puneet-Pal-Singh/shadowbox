@@ -85,6 +85,7 @@ export interface RunEngineDependencies {
   planner?: PlannerService;
   scheduler?: TaskScheduler;
   memoryCoordinator?: MemoryCoordinator;
+  sessionMemoryClient?: unknown;
 }
 
 export class RunEngine implements IRunEngine {
@@ -166,14 +167,19 @@ export class RunEngine implements IRunEngine {
     this.planner = dependencies.planner ?? new PlannerService(this.llmGateway);
     this.agent = agent;
 
-    const taskExecutor = agent
-      ? new AgentTaskExecutor(
-          agent,
-          options.runId,
-          options.sessionId,
-          this.taskRepo,
-        )
-      : new DefaultTaskExecutor();
+    if (!agent) {
+      throw new RunEngineError(
+        "Agent is required for production runtime execution. " +
+          "No agent provided and DefaultTaskExecutor is only available for test harness use.",
+      );
+    }
+
+    const taskExecutor = new AgentTaskExecutor(
+      agent,
+      options.runId,
+      options.sessionId,
+      this.taskRepo,
+    );
     this.scheduler =
       dependencies.scheduler ?? new TaskScheduler(this.taskRepo, taskExecutor);
 
