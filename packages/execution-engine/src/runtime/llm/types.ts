@@ -2,7 +2,7 @@ import type { CoreMessage, CoreTool } from "ai";
 import type { ZodSchema } from "zod";
 import type { LLMUsage } from "../cost/index.js";
 
-export type LLMPhase = "planning" | "task" | "synthesis";
+export type LLMPhase = "planning" | "task" | "synthesis" | "memory";
 
 export interface LLMCallContext {
   runId: string;
