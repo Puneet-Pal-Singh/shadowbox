@@ -45,6 +45,9 @@ export interface Env {
 
   // Session Memory Runtime for cross-run memory storage
   SESSION_MEMORY_RUNTIME: DurableObjectNamespace;
+
+  // Environment
+  NODE_ENV?: string;
 }
 
 // export interface Env {

@@ -50,13 +50,8 @@ export function Workspace({
     setIsLoadingContent,
   } = useWorkspaceState();
 
-  const {
-    repoTree,
-    isLoadingTree,
-    repo,
-    branch,
-    isGitHubLoaded,
-  } = useGitHubTree(repository);
+  const { repoTree, isLoadingTree, repo, branch, isGitHubLoaded } =
+    useGitHubTree(repository);
 
   const { status } = useGitStatus();
   const { fetch: fetchDiff, diff } = useGitDiff();
@@ -83,8 +78,11 @@ export function Workspace({
   });
 
   useEffect(() => {
-    sessionStorage.setItem("currentRunId", activeRunId);
-  }, [activeRunId]);
+    // Persist runId to localStorage scoped by sessionId for cross-tab/refreshes persistence
+    if (sessionId && activeRunId) {
+      localStorage.setItem(`shadowbox_runId:${sessionId}`, activeRunId);
+    }
+  }, [sessionId, activeRunId]);
 
   useEffect(() => {
     explorerRef.current?.refresh();

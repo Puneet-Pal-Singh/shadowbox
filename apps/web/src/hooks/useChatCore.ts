@@ -1,10 +1,5 @@
 import { useChat as useVercelChat, type Message } from "@ai-sdk/react";
-import {
-  useCallback,
-  useMemo,
-  useState,
-  type FormEvent,
-} from "react";
+import { useCallback, useMemo, useState, type FormEvent } from "react";
 
 interface UseChatCoreResult {
   messages: Message[];
@@ -58,8 +53,8 @@ export function useChatCore(
     if (!externalRunId) {
       setInternalRunId(crypto.randomUUID());
     }
-    setMessages([]);
-  }, [externalRunId, setMessages]);
+    // setMessages will be called after the new instance is created via instanceKey change
+  }, [externalRunId]);
 
   const handleSubmit = useCallback(
     (e?: FormEvent) => {

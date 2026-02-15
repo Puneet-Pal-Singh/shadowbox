@@ -205,6 +205,11 @@ export class RunEngineRuntime extends DurableObject {
           fetch: (request: Request) => Promise<Response>;
         },
       });
+    } else if (env.NODE_ENV === "production") {
+      console.warn(
+        "[runtime/RunEngineRuntime] SESSION_MEMORY_RUNTIME binding is not configured. " +
+          "Session memory will be disabled. This may cause unexpected behavior.",
+      );
     }
 
     return {
