@@ -1,6 +1,6 @@
 import type { Message } from "@ai-sdk/react";
 
-type ToolInvocation = NonNullable<Message['toolInvocations']>[number];
+type ToolInvocation = NonNullable<Message["toolInvocations"]>[number];
 
 interface ServerToolCall {
   id?: string;
@@ -11,7 +11,7 @@ interface ServerToolCall {
 }
 
 interface CorePart {
-  type: 'text' | 'tool-call';
+  type: "text" | "tool-call";
   text?: string;
   toolName?: string;
   toolCallId?: string;
@@ -24,6 +24,11 @@ interface ServerMessage {
   content: string | CorePart[];
   tool_calls?: ServerToolCall[];
   createdAt?: string | Date;
+}
+
+interface PaginatedHistoryResponse {
+  messages: ServerMessage[];
+  nextCursor?: string;
 }
 
 export interface HydrationResult {
@@ -39,34 +44,92 @@ export class ChatHydrationService {
     runId: string,
   ): Promise<HydrationResult> {
     try {
-      const res = await fetch(
-        `${this.apiUrl}/chat?session=${sessionId}&runId=${runId}`,
-      );
+      const allMessages: ServerMessage[] = [];
+      let cursor: string | undefined;
+      const maxPages = 10; // Prevent infinite loops
 
-      if (!res.ok) {
-        return {
-          messages: [],
-          error: `History fetch failed: ${res.status} ${res.statusText}`,
-        };
+      for (let page = 0; page < maxPages; page++) {
+        const result = await this.fetchHistoryPage(
+          sessionId,
+          runId,
+          cursor,
+          50, // page size
+        );
+
+        if (result.error) {
+          return { messages: [], error: result.error };
+        }
+
+        allMessages.push(...result.messages);
+
+        if (!result.nextCursor) {
+          break; // No more pages
+        }
+
+        cursor = result.nextCursor;
       }
 
-      const history: unknown = await res.json();
-
-      if (!Array.isArray(history)) {
-        return { messages: [], error: "Invalid history format" };
-      }
-
-      const messages = this.convertServerMessages(
-        history as ServerMessage[],
-        runId,
-      );
-
+      const messages = this.convertServerMessages(allMessages, runId);
       return { messages };
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : "Unknown error";
       return { messages: [], error: errorMessage };
     }
+  }
+
+  private async fetchHistoryPage(
+    sessionId: string,
+    runId: string,
+    cursor?: string,
+    limit: number = 50,
+  ): Promise<{
+    messages: ServerMessage[];
+    nextCursor?: string;
+    error?: string;
+  }> {
+    const url = new URL(`${this.apiUrl}/chat`);
+    url.searchParams.set("session", sessionId);
+    url.searchParams.set("runId", runId);
+    url.searchParams.set("limit", limit.toString());
+    if (cursor) {
+      url.searchParams.set("cursor", cursor);
+    }
+
+    const res = await fetch(url.toString());
+
+    if (!res.ok) {
+      return {
+        messages: [],
+        error: `History fetch failed: ${res.status} ${res.statusText}`,
+      };
+    }
+
+    const data: unknown = await res.json();
+
+    // Handle paginated response format: { messages, nextCursor }
+    if (
+      data &&
+      typeof data === "object" &&
+      "messages" in data &&
+      Array.isArray(data.messages)
+    ) {
+      const paginatedResponse = data as PaginatedHistoryResponse;
+      return {
+        messages: paginatedResponse.messages,
+        nextCursor: paginatedResponse.nextCursor,
+      };
+    }
+
+    // Backward compatibility: handle legacy array response
+    if (Array.isArray(data)) {
+      console.warn(
+        "[ChatHydrationService] Received legacy array response, consider updating server",
+      );
+      return { messages: data as ServerMessage[] };
+    }
+
+    return { messages: [], error: "Invalid history format" };
   }
 
   private convertServerMessages(
@@ -79,20 +142,20 @@ export class ChatHydrationService {
         let content = "";
         let toolInvocations: ToolInvocation[] = [];
 
-        if (typeof msg.content === 'string') {
+        if (typeof msg.content === "string") {
           content = msg.content;
         } else if (Array.isArray(msg.content)) {
           // Handle CoreMessage parts
-          msg.content.forEach(part => {
-            if (part.type === 'text' && part.text) {
+          msg.content.forEach((part) => {
+            if (part.type === "text" && part.text) {
               content += part.text;
-            } else if (part.type === 'tool-call') {
+            } else if (part.type === "tool-call") {
               toolInvocations.push({
-                state: 'result',
+                state: "result",
                 toolCallId: part.toolCallId || `${runId}-tool-${index}`,
-                toolName: part.toolName || 'unknown',
+                toolName: part.toolName || "unknown",
                 args: part.args || {},
-                result: null // Results are pruned or handled separately
+                result: null, // Results are pruned or handled separately
               });
             }
           });
@@ -128,7 +191,7 @@ export class ChatHydrationService {
       toolCallId: tc.id || `${runId}-tool-${tcIndex}`,
       toolName: tc.function?.name || "unknown",
       args: this.parseToolArguments(tc.function?.arguments),
-      result: null
+      result: null,
     }));
   }
 
