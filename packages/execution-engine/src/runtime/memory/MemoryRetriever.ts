@@ -5,6 +5,8 @@ import {
   type MemorySnapshot,
   MemoryScopeSchema,
   type MemoryPolicyConfig,
+  MemoryEventSchema,
+  MemorySnapshotSchema,
 } from "./types.js";
 import { MemoryRepository } from "./MemoryRepository.js";
 import { MemoryPolicy } from "./MemoryPolicy.js";
@@ -107,9 +109,28 @@ export class MemoryRetriever {
           prompt || "",
           100,
         );
+        // Validate events and snapshot using schemas for runtime type safety
+        const validatedEvents: MemoryEvent[] = [];
+        for (const event of result.events) {
+          const parseResult = MemoryEventSchema.safeParse(event);
+          if (parseResult.success) {
+            validatedEvents.push(parseResult.data);
+          }
+        }
+
+        let validatedSnapshot: MemorySnapshot | undefined;
+        if (result.snapshot) {
+          const snapshotResult = MemorySnapshotSchema.safeParse(
+            result.snapshot,
+          );
+          if (snapshotResult.success) {
+            validatedSnapshot = snapshotResult.data;
+          }
+        }
+
         return {
-          events: (result.events as MemoryEvent[]) || [],
-          snapshot: result.snapshot as MemorySnapshot | undefined,
+          events: validatedEvents,
+          snapshot: validatedSnapshot,
         };
       } catch (error) {
         console.warn(

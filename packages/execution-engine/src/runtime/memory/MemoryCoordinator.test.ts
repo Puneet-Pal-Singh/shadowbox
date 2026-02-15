@@ -21,7 +21,9 @@ class MockStorage {
 
   async delete(key: string | string[]): Promise<boolean> {
     if (Array.isArray(key)) {
-      key.forEach((k) => this.data.delete(k));
+      key.forEach((k) => {
+        this.data.delete(k);
+      });
       return true;
     }
 
@@ -68,7 +70,9 @@ class InMemorySessionMemoryClient {
     }
 
     const existing = this.eventsBySession.get(parsed.sessionId) ?? [];
-    if (existing.some((item) => item.idempotencyKey === parsed.idempotencyKey)) {
+    if (
+      existing.some((item) => item.idempotencyKey === parsed.idempotencyKey)
+    ) {
       return false;
     }
 
@@ -90,9 +94,7 @@ class InMemorySessionMemoryClient {
     };
   }
 
-  async getSessionSnapshot(
-    sessionId: string,
-  ): Promise<unknown | undefined> {
+  async getSessionSnapshot(sessionId: string): Promise<unknown | undefined> {
     return this.snapshotsBySession.get(sessionId);
   }
 

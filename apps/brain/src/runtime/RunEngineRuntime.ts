@@ -24,6 +24,22 @@ import type {
   RunEngineDependencies,
 } from "@shadowbox/execution-engine/runtime";
 
+// Basic message validation schema
+const CoreMessageSchema = z.union([
+  z.object({ role: z.literal("system"), content: z.string() }),
+  z.object({ role: z.literal("user"), content: z.unknown() }),
+  z.object({
+    role: z.literal("assistant"),
+    content: z.unknown(),
+    tool_calls: z.array(z.unknown()).optional(),
+  }),
+  z.object({
+    role: z.literal("tool"),
+    content: z.unknown(),
+    tool_call_id: z.string(),
+  }),
+]);
+
 const ExecuteRunPayloadSchema = z.object({
   runId: z.string().min(1),
   sessionId: z.string().min(1),
@@ -34,7 +50,7 @@ const ExecuteRunPayloadSchema = z.object({
     prompt: z.string().min(1),
     sessionId: z.string().min(1),
   }),
-  messages: z.array(z.unknown()),
+  messages: z.array(CoreMessageSchema),
 });
 
 type ExecuteRunPayload = z.infer<typeof ExecuteRunPayloadSchema>;
@@ -90,6 +106,7 @@ export class RunEngineRuntime extends DurableObject {
           dependencies.runEngineDeps,
         );
 
+        // Messages validated by zod schema above, cast to CoreMessage[] for type safety
         return runEngine.execute(
           payload.input,
           payload.messages as CoreMessage[],
@@ -128,6 +145,64 @@ export class RunEngineRuntime extends DurableObject {
     runEngineDeps: RunEngineDependencies;
   } {
     const env = this.env as Env;
+
+    const { llmRuntimeService, llmGateway } = this.buildLLMGateway(env);
+    const {
+      pricingRegistry,
+      costLedger,
+      costTracker,
+      budgetManager,
+      pricingResolver,
+    } = this.buildPricingAndBudgeting(env);
+
+    const executionService = new ExecutionService(
+      env,
+      payload.sessionId,
+      payload.runId,
+    );
+
+    const runtimeExecutionService = {
+      execute: (
+        plugin: string,
+        action: string,
+        payloadData: Record<string, unknown>,
+      ) => executionService.execute(plugin, action, payloadData),
+    };
+
+    const registry = this.buildAgentRegistry(
+      llmGateway,
+      runtimeExecutionService,
+    );
+    const resolvedAgentType = this.resolveAgentType(
+      payload.input.agentType,
+      registry,
+    );
+    const agent = registry.get(resolvedAgentType);
+
+    const sessionMemoryClient = this.buildSessionMemoryClient(
+      env,
+      payload.sessionId,
+    );
+
+    return {
+      agent,
+      runEngineDeps: {
+        aiService: llmRuntimeService,
+        llmGateway,
+        costLedger,
+        costTracker,
+        pricingRegistry,
+        pricingResolver,
+        budgetManager,
+        sessionMemoryClient,
+      },
+    };
+  }
+
+  private buildLLMGateway(env: Env): {
+    llmRuntimeService: LLMRuntimeAIService;
+    llmGateway: LLMGateway;
+  } {
     const aiService = new AIService(env);
 
     const llmRuntimeService: LLMRuntimeAIService = {
@@ -142,9 +217,52 @@ export class RunEngineRuntime extends DurableObject {
       failOnUnseededPricing: env.COST_FAIL_ON_UNSEEDED_PRICING === "true",
     });
 
+    const pricingResolver = new PricingResolver(pricingRegistry, {
+      unknownPricingMode: this.getUnknownPricingMode(env),
+    });
+
     const costLedger = new CostLedger(
       this.ctx as unknown as LegacyDurableObjectState,
     );
+
+    const costTracker = new CostTracker(
+      this.ctx as unknown as LegacyDurableObjectState,
+      pricingRegistry,
+      this.getUnknownPricingMode(env),
+    );
+
+    const budgetManager = new BudgetManager(
+      costTracker,
+      pricingRegistry,
+      this.getBudgetConfig(env),
+      this.ctx as unknown as LegacyDurableObjectState,
+    );
+
+    const llmGateway = new LLMGateway({
+      aiService: llmRuntimeService,
+      budgetPolicy: budgetManager,
+      costLedger,
+      pricingResolver,
+    });
+
+    return { llmRuntimeService, llmGateway };
+  }
+
+  private buildPricingAndBudgeting(env: Env): {
+    pricingRegistry: PricingRegistry;
+    costLedger: CostLedger;
+    costTracker: CostTracker;
+    budgetManager: BudgetManager;
+    pricingResolver: PricingResolver;
+  } {
+    const pricingRegistry = new PricingRegistry(undefined, {
+      failOnUnseededPricing: env.COST_FAIL_ON_UNSEEDED_PRICING === "true",
+    });
+
+    const costLedger = new CostLedger(
+      this.ctx as unknown as LegacyDurableObjectState,
+    );
+
     const costTracker = new CostTracker(
       this.ctx as unknown as LegacyDurableObjectState,
       pricingRegistry,
@@ -162,69 +280,53 @@ export class RunEngineRuntime extends DurableObject {
       unknownPricingMode: this.getUnknownPricingMode(env),
     });
 
-    const llmGateway = new LLMGateway({
-      aiService: llmRuntimeService,
-      budgetPolicy: budgetManager,
+    return {
+      pricingRegistry,
       costLedger,
+      costTracker,
+      budgetManager,
       pricingResolver,
-    });
+    };
+  }
 
-    const executionService = new ExecutionService(
-      env,
-      payload.sessionId,
-      payload.runId,
-    );
-
-    const runtimeExecutionService = {
+  private buildAgentRegistry(
+    llmGateway: LLMGateway,
+    runtimeExecutionService: {
       execute: (
         plugin: string,
         action: string,
         payloadData: Record<string, unknown>,
-      ) => executionService.execute(plugin, action, payloadData),
-    };
-
+      ) => Promise<unknown>;
+    },
+  ): AgentRegistry {
     const registry = new AgentRegistry();
     registry.register(new CodingAgent(llmGateway, runtimeExecutionService));
     registry.register(new ReviewAgent(llmGateway, runtimeExecutionService));
+    return registry;
+  }
 
-    const resolvedAgentType = this.resolveAgentType(
-      payload.input.agentType,
-      registry,
-    );
-    const agent = registry.get(resolvedAgentType);
-
-    let sessionMemoryClient;
-    if (env.SESSION_MEMORY_RUNTIME) {
-      const sessionMemoryId = env.SESSION_MEMORY_RUNTIME.idFromName(
-        payload.sessionId,
-      );
-      const sessionMemoryStub = env.SESSION_MEMORY_RUNTIME.get(sessionMemoryId);
-      sessionMemoryClient = new SessionMemoryClient({
-        durableObjectId: payload.sessionId,
-        durableObjectStub: sessionMemoryStub as unknown as {
-          fetch: (request: Request) => Promise<Response>;
-        },
-      });
-    } else if (env.NODE_ENV === "production") {
-      console.warn(
-        "[runtime/RunEngineRuntime] SESSION_MEMORY_RUNTIME binding is not configured. " +
-          "Session memory will be disabled. This may cause unexpected behavior.",
-      );
+  private buildSessionMemoryClient(
+    env: Env,
+    sessionId: string,
+  ): SessionMemoryClient | undefined {
+    if (!env.SESSION_MEMORY_RUNTIME) {
+      if (env.NODE_ENV === "production") {
+        console.warn(
+          "[runtime/RunEngineRuntime] SESSION_MEMORY_RUNTIME binding is not configured. " +
+            "Session memory will be disabled. This may cause unexpected behavior.",
+        );
+      }
+      return undefined;
     }
 
-    return {
-      agent,
-      runEngineDeps: {
-        aiService: llmRuntimeService,
-        llmGateway,
-        costLedger,
-        costTracker,
-        pricingRegistry,
-        pricingResolver,
-        budgetManager,
-        sessionMemoryClient,
+    const sessionMemoryId = env.SESSION_MEMORY_RUNTIME.idFromName(sessionId);
+    const sessionMemoryStub = env.SESSION_MEMORY_RUNTIME.get(sessionMemoryId);
+    return new SessionMemoryClient({
+      durableObjectId: sessionId,
+      durableObjectStub: sessionMemoryStub as unknown as {
+        fetch: (request: Request) => Promise<Response>;
       },
-    };
+    });
   }
 
   private getUnknownPricingMode(env: Env): "warn" | "block" {
@@ -239,13 +341,21 @@ export class RunEngineRuntime extends DurableObject {
     maxCostPerRun?: number;
     maxCostPerSession?: number;
   } {
+    const parseBudget = (value: string | undefined): number | undefined => {
+      if (!value) return undefined;
+      const parsed = parseFloat(value);
+      if (Number.isNaN(parsed)) {
+        console.warn(
+          `[runtime/RunEngineRuntime] Invalid budget value: ${value}`,
+        );
+        return undefined;
+      }
+      return parsed;
+    };
+
     return {
-      maxCostPerRun: env.MAX_RUN_BUDGET
-        ? parseFloat(env.MAX_RUN_BUDGET)
-        : undefined,
-      maxCostPerSession: env.MAX_SESSION_BUDGET
-        ? parseFloat(env.MAX_SESSION_BUDGET)
-        : undefined,
+      maxCostPerRun: parseBudget(env.MAX_RUN_BUDGET),
+      maxCostPerSession: parseBudget(env.MAX_SESSION_BUDGET),
     };
   }
 
