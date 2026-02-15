@@ -16,6 +16,8 @@ interface UseChatResult {
   isHydrating: boolean;
   stop: () => void;
   artifactState: ArtifactState;
+  runId: string;
+  resetRun: () => void;
 }
 
 /**
@@ -38,6 +40,8 @@ export function useChat(
     isLoading,
     stop,
     setMessages,
+    runId: activeRunId,
+    resetRun,
   } = useChatCore(sessionId, runId);
 
   // Handle message hydration
@@ -73,5 +77,7 @@ export function useChat(
     isHydrating,
     stop,
     artifactState,
+    runId: activeRunId,
+    resetRun,
   };
 }

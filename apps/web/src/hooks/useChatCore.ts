@@ -1,5 +1,11 @@
 import { useChat as useVercelChat, type Message } from "@ai-sdk/react";
-import { useCallback, useMemo, type FormEvent } from "react";
+import {
+  useCallback,
+  useMemo,
+  useState,
+  useEffect,
+  type FormEvent,
+} from "react";
 
 interface UseChatCoreResult {
   messages: Message[];
@@ -10,18 +16,32 @@ interface UseChatCoreResult {
   isLoading: boolean;
   stop: () => void;
   setMessages: (messages: Message[]) => void;
+  runId: string;
+  resetRun: () => void;
 }
 
 /**
  * useChatCore
- * Minimal wrapper around Vercel AI SDK
- * Single Responsibility: Only manage Vercel AI SDK integration
+ * Minimal wrapper around Vercel AI SDK with UUID runId generation
+ * Single Responsibility: Manage Vercel AI SDK integration and run lifecycle
  */
 export function useChatCore(
   sessionId: string,
-  runId: string,
+  externalRunId?: string,
 ): UseChatCoreResult {
-  // Stable instance key - only changes when runId changes
+  // Generate a new UUID v4 runId for each conversation turn
+  const [runId, setRunId] = useState<string>(
+    () => externalRunId || crypto.randomUUID(),
+  );
+
+  // Reset runId when session changes
+  useEffect(() => {
+    if (!externalRunId) {
+      setRunId(crypto.randomUUID());
+    }
+  }, [sessionId, externalRunId]);
+
+  // Stable instance key - changes when runId changes
   const instanceKey = useMemo(() => `chat-${runId}`, [runId]);
 
   const {
@@ -42,6 +62,11 @@ export function useChatCore(
     },
   });
 
+  const resetRun = useCallback(() => {
+    setRunId(crypto.randomUUID());
+    setMessages([]);
+  }, [setMessages]);
+
   const handleSubmit = useCallback(
     (e?: FormEvent) => {
       e?.preventDefault();
@@ -61,5 +86,7 @@ export function useChatCore(
     isLoading,
     stop,
     setMessages,
+    runId,
+    resetRun,
   };
 }
