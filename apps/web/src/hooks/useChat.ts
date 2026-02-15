@@ -16,6 +16,8 @@ interface UseChatResult {
   isHydrating: boolean;
   stop: () => void;
   artifactState: ArtifactState;
+  runId: string;
+  resetRun: () => void;
 }
 
 /**
@@ -25,7 +27,7 @@ interface UseChatResult {
  */
 export function useChat(
   sessionId: string,
-  runId: string = "default",
+  runId?: string,
   onFileCreated?: () => void,
 ): UseChatResult {
   // Core chat functionality
@@ -38,19 +40,22 @@ export function useChat(
     isLoading,
     stop,
     setMessages,
+    runId: activeRunId,
+    resetRun,
   } = useChatCore(sessionId, runId);
 
   // Handle message hydration
   const { isHydrating } = useChatHydration(
     sessionId,
-    runId,
+    activeRunId,
     messages.length,
     setMessages,
   );
 
   // Handle message persistence
   useChatPersistence({
-    runId,
+    sessionId,
+    runId: activeRunId,
     messages,
     messagesLength: messages.length,
     isLoading,
@@ -73,5 +78,7 @@ export function useChat(
     isHydrating,
     stop,
     artifactState,
+    runId: activeRunId,
+    resetRun,
   };
 }

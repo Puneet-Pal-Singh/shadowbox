@@ -16,19 +16,21 @@ import { SidebarContent } from "./workspace/SidebarContent";
 
 interface WorkspaceProps {
   sessionId: string;
+  runId: string;
   repository: string;
   isRightSidebarOpen?: boolean;
   setIsRightSidebarOpen?: (open: boolean) => void;
 }
 
 export function Workspace({
-  sessionId: runId,
+  sessionId,
+  runId: initialRunId,
   repository,
   isRightSidebarOpen = false,
   setIsRightSidebarOpen,
 }: WorkspaceProps) {
   const explorerRef = useRef<FileExplorerHandle>(null);
-  const sandboxId = runId;
+  const sandboxId = sessionId;
 
   // Custom Hooks
   const {
@@ -48,21 +50,8 @@ export function Workspace({
     setIsLoadingContent,
   } = useWorkspaceState();
 
-  const {
-    repoTree,
-    isLoadingTree,
-    repo,
-    branch,
-    isGitHubLoaded
-  } = useGitHubTree(repository);
-
-  const { handleFileClick, handleGitHubFileSelect } = useFileLoader({
-    sandboxId,
-    runId,
-    setIsLoadingContent,
-    setIsViewingContent,
-    setSelectedFile,
-  });
+  const { repoTree, isLoadingTree, repo, branch, isGitHubLoaded } =
+    useGitHubTree(repository);
 
   const { status } = useGitStatus();
   const { fetch: fetchDiff, diff } = useGitDiff();
@@ -75,9 +64,29 @@ export function Workspace({
     handleSubmit,
     isLoading,
     isHydrating,
-  } = useChat(sandboxId, runId, () => {
+    runId: activeRunId,
+  } = useChat(sessionId, initialRunId, () => {
     explorerRef.current?.refresh();
   });
+
+  const { handleFileClick, handleGitHubFileSelect } = useFileLoader({
+    sandboxId,
+    runId: activeRunId,
+    setIsLoadingContent,
+    setIsViewingContent,
+    setSelectedFile,
+  });
+
+  useEffect(() => {
+    // Persist runId to localStorage scoped by sessionId for cross-tab/refreshes persistence
+    if (sessionId && activeRunId) {
+      localStorage.setItem(`shadowbox_runId:${sessionId}`, activeRunId);
+    }
+  }, [sessionId, activeRunId]);
+
+  useEffect(() => {
+    explorerRef.current?.refresh();
+  }, [activeRunId]);
 
   // Sync diff from hook to local state when it loads
   useEffect(() => {
@@ -114,7 +123,7 @@ export function Workspace({
   };
 
   return (
-    <RunContextProvider runId={runId}>
+    <RunContextProvider runId={activeRunId}>
       <div className="flex-1 flex bg-black overflow-hidden relative">
         {/* Chat Area */}
         <main className="flex-1 flex flex-col min-w-0 bg-black relative">
@@ -208,7 +217,7 @@ export function Workspace({
               handleViewChange={handleViewChange}
               explorerRef={explorerRef}
               sandboxId={sandboxId}
-              runId={runId}
+              runId={activeRunId}
             />
           </div>
         </motion.aside>

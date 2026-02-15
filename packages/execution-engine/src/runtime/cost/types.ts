@@ -1,5 +1,7 @@
-// apps/brain/src/core/cost/types.ts
+// packages/execution-engine/src/runtime/cost/types.ts
 // Phase 3.1: Cost hardening canonical types
+
+import type { LLMPhase } from "../llm/types.js";
 
 export interface RuntimeStorage {
   get<T>(key: string): Promise<T | undefined>;
@@ -36,7 +38,7 @@ export interface CostEvent {
   sessionId: string;
   taskId?: string;
   agentType: string;
-  phase: "planning" | "task" | "synthesis";
+  phase: LLMPhase;
   provider: string;
   model: string;
   promptTokens: number;

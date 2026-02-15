@@ -17,6 +17,16 @@ export interface MemoryCoordinatorDependencies {
   extractor?: MemoryExtractor;
   retriever?: MemoryRetriever;
   policy?: MemoryPolicyDependencies;
+  sessionMemoryClient?: {
+    appendSessionMemory(event: unknown): Promise<boolean>;
+    getSessionMemoryContext(
+      sessionId: string,
+      prompt: string,
+      limit?: number,
+    ): Promise<{ events: unknown[]; snapshot?: unknown }>;
+    getSessionSnapshot(sessionId: string): Promise<unknown | undefined>;
+    upsertSessionSnapshot(snapshot: unknown): Promise<void>;
+  };
 }
 
 export class MemoryCoordinator {
@@ -24,6 +34,7 @@ export class MemoryCoordinator {
   private extractor: MemoryExtractor;
   private retriever: MemoryRetriever;
   private policy: MemoryPolicy;
+  private sessionMemoryClient?: MemoryCoordinatorDependencies["sessionMemoryClient"];
 
   constructor(deps: MemoryCoordinatorDependencies) {
     this.repository = deps.repository;
@@ -32,8 +43,10 @@ export class MemoryCoordinator {
       deps.retriever ??
       new MemoryRetriever({
         repository: deps.repository,
+        sessionMemoryClient: deps.sessionMemoryClient,
       });
     this.policy = new MemoryPolicy(deps.policy);
+    this.sessionMemoryClient = deps.sessionMemoryClient;
   }
 
   async retrieveContext(
@@ -61,6 +74,7 @@ export class MemoryCoordinator {
 
       const appended = await this.repository.appendEvent(event);
       if (appended) {
+        await this.appendSessionEventIfNeeded(event);
         validEvents.push(event);
       }
     }
@@ -172,6 +186,21 @@ export class MemoryCoordinator {
 
   formatContextForPrompt(context: MemoryContext): string {
     return this.retriever.formatContextForPrompt(context);
+  }
+
+  private async appendSessionEventIfNeeded(event: MemoryEvent): Promise<void> {
+    if (event.scope !== "session" || !this.sessionMemoryClient) {
+      return;
+    }
+
+    try {
+      await this.sessionMemoryClient.appendSessionMemory(event);
+    } catch (error) {
+      console.warn(
+        "[memory/coordinator] Failed to append session event to session-memory runtime:",
+        error,
+      );
+    }
   }
 
   private computeCheckpointHash(params: {

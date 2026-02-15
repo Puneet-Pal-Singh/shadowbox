@@ -20,15 +20,15 @@ export class ChatPersistenceService {
   /**
    * Get pending query from localStorage
    */
-  getPendingQuery(runId: string): string | null {
-    return localStorage.getItem(`pending_query_${runId}`);
+  getPendingQuery(sessionId: string): string | null {
+    return localStorage.getItem(`pending_query_${sessionId}`);
   }
 
   /**
    * Clear pending query from localStorage
    */
-  clearPendingQuery(runId: string): void {
-    localStorage.removeItem(`pending_query_${runId}`);
+  clearPendingQuery(sessionId: string): void {
+    localStorage.removeItem(`pending_query_${sessionId}`);
   }
 
   /**

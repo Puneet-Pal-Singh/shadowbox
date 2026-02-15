@@ -377,6 +377,7 @@ function AppContent() {
               >
                 <Workspace
                   sessionId={activeSessionId}
+                  runId={activeSession?.runId || ""}
                   repository={activeSession?.repository || ""}
                   isRightSidebarOpen={isRightSidebarOpen}
                   setIsRightSidebarOpen={setIsRightSidebarOpen}

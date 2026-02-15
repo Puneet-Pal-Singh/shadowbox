@@ -72,6 +72,8 @@ export interface RunEngineEnv {
   COST_UNKNOWN_PRICING_MODE?: string;
   MAX_RUN_BUDGET?: string;
   MAX_SESSION_BUDGET?: string;
+  NODE_ENV?: string;
+  ALLOW_DEFAULT_EXECUTOR?: string;
 }
 
 export interface RunEngineDependencies {
@@ -85,6 +87,7 @@ export interface RunEngineDependencies {
   planner?: PlannerService;
   scheduler?: TaskScheduler;
   memoryCoordinator?: MemoryCoordinator;
+  sessionMemoryClient?: MemoryCoordinatorDependencies["sessionMemoryClient"];
 }
 
 export class RunEngine implements IRunEngine {
@@ -166,6 +169,19 @@ export class RunEngine implements IRunEngine {
     this.planner = dependencies.planner ?? new PlannerService(this.llmGateway);
     this.agent = agent;
 
+    // Allow test mode to use DefaultTaskExecutor for isolated testing
+    const isTestMode =
+      options.env?.NODE_ENV === "test" ||
+      options.env?.ALLOW_DEFAULT_EXECUTOR === "true";
+
+    if (!agent && !isTestMode) {
+      throw new RunEngineError(
+        "Agent is required for production runtime execution. " +
+          "Set NODE_ENV=test or ALLOW_DEFAULT_EXECUTOR=true to enable DefaultTaskExecutor for testing.",
+      );
+    }
+
+    // Use AgentTaskExecutor when agent is provided, otherwise use DefaultTaskExecutor in test mode
     const taskExecutor = agent
       ? new AgentTaskExecutor(
           agent,
@@ -183,6 +199,7 @@ export class RunEngine implements IRunEngine {
       const memoryRepo = new MemoryRepository({ ctx });
       this.memoryCoordinator = new MemoryCoordinator({
         repository: memoryRepo,
+        sessionMemoryClient: dependencies.sessionMemoryClient,
       });
     }
   }

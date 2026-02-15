@@ -5,6 +5,8 @@ import {
   type MemorySnapshot,
   MemoryScopeSchema,
   type MemoryPolicyConfig,
+  MemoryEventSchema,
+  MemorySnapshotSchema,
 } from "./types.js";
 import { MemoryRepository } from "./MemoryRepository.js";
 import { MemoryPolicy } from "./MemoryPolicy.js";
@@ -12,6 +14,14 @@ import { MemoryPolicy } from "./MemoryPolicy.js";
 export interface MemoryRetrieverDependencies {
   repository: MemoryRepository;
   policy?: MemoryPolicyConfig;
+  sessionMemoryClient?: {
+    getSessionMemoryContext(
+      sessionId: string,
+      prompt: string,
+      limit?: number,
+    ): Promise<{ events: unknown[]; snapshot?: unknown }>;
+    getSessionSnapshot(sessionId: string): Promise<unknown | undefined>;
+  };
 }
 
 interface ScoredEvent {
@@ -22,26 +32,24 @@ interface ScoredEvent {
 export class MemoryRetriever {
   private repository: MemoryRepository;
   private policy: MemoryPolicy;
+  private sessionMemoryClient?: MemoryRetrieverDependencies["sessionMemoryClient"];
 
   constructor(deps: MemoryRetrieverDependencies) {
     this.repository = deps.repository;
     this.policy = new MemoryPolicy({ config: deps.policy });
+    this.sessionMemoryClient = deps.sessionMemoryClient;
   }
 
   async retrieveContext(
     options: MemoryRetrievalOptions,
   ): Promise<MemoryContext> {
-    const [runEvents, sessionEvents, sessionSnapshot] = await Promise.all([
+    const [runEvents, sessionResult] = await Promise.all([
       this.repository.getEvents(options.runId, MemoryScopeSchema.enum.run),
-      this.repository.getEvents(
-        options.sessionId,
-        MemoryScopeSchema.enum.session,
-      ),
-      this.repository.getSnapshot(
-        options.sessionId,
-        MemoryScopeSchema.enum.session,
-      ),
+      this.getSessionMemory(options.sessionId, options.prompt),
     ]);
+
+    const sessionEvents = sessionResult.events;
+    const sessionSnapshot = sessionResult.snapshot;
 
     const maxTokens = options.maxTokens ?? this.policy.getMaxTokens();
 
@@ -90,6 +98,57 @@ export class MemoryRetriever {
     };
   }
 
+  private async getSessionMemory(
+    sessionId: string,
+    prompt?: string,
+  ): Promise<{ events: MemoryEvent[]; snapshot?: MemorySnapshot }> {
+    if (this.sessionMemoryClient) {
+      try {
+        const result = await this.sessionMemoryClient.getSessionMemoryContext(
+          sessionId,
+          prompt || "",
+          100,
+        );
+        // Validate events and snapshot using schemas for runtime type safety
+        const validatedEvents: MemoryEvent[] = [];
+        for (const event of result.events) {
+          const parseResult = MemoryEventSchema.safeParse(event);
+          if (parseResult.success) {
+            validatedEvents.push(parseResult.data);
+          }
+        }
+
+        let validatedSnapshot: MemorySnapshot | undefined;
+        if (result.snapshot) {
+          const snapshotResult = MemorySnapshotSchema.safeParse(
+            result.snapshot,
+          );
+          if (snapshotResult.success) {
+            validatedSnapshot = snapshotResult.data;
+          }
+        }
+
+        return {
+          events: validatedEvents,
+          snapshot: validatedSnapshot,
+        };
+      } catch (error) {
+        console.warn(
+          "[memory/retriever] Failed to fetch session memory from client, falling back to repository:",
+          error,
+        );
+      }
+    }
+
+    // Fallback to repository for session memory
+    const [events, snapshot] = await Promise.all([
+      this.repository.getEvents(sessionId, MemoryScopeSchema.enum.session),
+      this.repository.getSnapshot(sessionId, MemoryScopeSchema.enum.session),
+    ]);
+
+    return { events, snapshot };
+  }
+
   async getRunMemory(runId: string): Promise<{
     events: MemoryEvent[];
     snapshot?: MemorySnapshot;
@@ -102,7 +161,7 @@ export class MemoryRetriever {
     return { events, snapshot };
   }
 
-  async getSessionMemory(sessionId: string): Promise<{
+  async getSessionMemoryLegacy(sessionId: string): Promise<{
     events: MemoryEvent[];
     snapshot?: MemorySnapshot;
   }> {
