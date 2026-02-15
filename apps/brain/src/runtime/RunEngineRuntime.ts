@@ -18,6 +18,7 @@ import {
   CostTracker,
 } from "@shadowbox/execution-engine/runtime";
 import type {
+  AgentType,
   IAgent,
   LLMRuntimeAIService,
   RunEngineDependencies,
@@ -184,12 +185,13 @@ export class RunEngineRuntime extends DurableObject {
 
     const registry = new AgentRegistry();
     registry.register(new CodingAgent(llmGateway, runtimeExecutionService));
-    // CI agent not yet implemented - will use default behavior
-    // registry.register(new ReviewAgent(llmGateway, runtimeExecutionService));
+    registry.register(new ReviewAgent(llmGateway, runtimeExecutionService));
 
-    const agent = registry.has(payload.input.agentType)
-      ? registry.get(payload.input.agentType)
-      : undefined;
+    const resolvedAgentType = this.resolveAgentType(
+      payload.input.agentType,
+      registry,
+    );
+    const agent = registry.get(resolvedAgentType);
 
     let sessionMemoryClient;
     if (env.SESSION_MEMORY_RUNTIME) {
@@ -240,5 +242,20 @@ export class RunEngineRuntime extends DurableObject {
         ? parseFloat(env.MAX_SESSION_BUDGET)
         : undefined,
     };
+  }
+
+  private resolveAgentType(
+    requestedType: AgentType,
+    registry: AgentRegistry,
+  ): AgentType {
+    if (registry.has(requestedType)) {
+      return requestedType;
+    }
+
+    const fallbackType: AgentType = "coding";
+    console.warn(
+      `[run-engine/runtime] Unsupported agent type "${requestedType}". Falling back to "${fallbackType}".`,
+    );
+    return fallbackType;
   }
 }

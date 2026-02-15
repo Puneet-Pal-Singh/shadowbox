@@ -3,7 +3,6 @@ import {
   useCallback,
   useMemo,
   useState,
-  useEffect,
   type FormEvent,
 } from "react";
 
@@ -29,17 +28,10 @@ export function useChatCore(
   sessionId: string,
   externalRunId?: string,
 ): UseChatCoreResult {
-  // Generate a new UUID v4 runId for each conversation turn
-  const [runId, setRunId] = useState<string>(
-    () => externalRunId || crypto.randomUUID(),
+  const [internalRunId, setInternalRunId] = useState<string>(() =>
+    crypto.randomUUID(),
   );
-
-  // Reset runId when session changes
-  useEffect(() => {
-    if (!externalRunId) {
-      setRunId(crypto.randomUUID());
-    }
-  }, [sessionId, externalRunId]);
+  const runId = externalRunId || internalRunId;
 
   // Stable instance key - changes when runId changes
   const instanceKey = useMemo(() => `chat-${runId}`, [runId]);
@@ -63,9 +55,11 @@ export function useChatCore(
   });
 
   const resetRun = useCallback(() => {
-    setRunId(crypto.randomUUID());
+    if (!externalRunId) {
+      setInternalRunId(crypto.randomUUID());
+    }
     setMessages([]);
-  }, [setMessages]);
+  }, [externalRunId, setMessages]);
 
   const handleSubmit = useCallback(
     (e?: FormEvent) => {

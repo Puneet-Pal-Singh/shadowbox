@@ -3,6 +3,7 @@ import type { Message } from "@ai-sdk/react";
 import { ChatPersistenceService } from "../services/ChatPersistenceService";
 
 interface UseChatPersistenceProps {
+  sessionId: string;
   runId: string;
   messages: Message[];
   messagesLength: number;
@@ -16,6 +17,7 @@ interface UseChatPersistenceProps {
  * Single Responsibility: Only manage persistence lifecycle
  */
 export function useChatPersistence({
+  sessionId,
   runId,
   messages,
   messagesLength,
@@ -31,13 +33,19 @@ export function useChatPersistence({
 
   // Restore pending query from localStorage
   useEffect(() => {
-    const pendingQuery = persistenceService.getPendingQuery(runId);
+    const pendingQuery = persistenceService.getPendingQuery(sessionId);
     if (
       pendingQuery &&
       persistenceService.shouldRestorePendingQuery(messagesLength, isLoading)
     ) {
       append({ role: "user", content: pendingQuery });
-      persistenceService.clearPendingQuery(runId);
+      persistenceService.clearPendingQuery(sessionId);
     }
-  }, [runId, messagesLength, isLoading, append, persistenceService]);
+  }, [
+    sessionId,
+    messagesLength,
+    isLoading,
+    append,
+    persistenceService,
+  ]);
 }

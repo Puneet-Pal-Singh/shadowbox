@@ -74,6 +74,7 @@ export class MemoryCoordinator {
 
       const appended = await this.repository.appendEvent(event);
       if (appended) {
+        await this.appendSessionEventIfNeeded(event);
         validEvents.push(event);
       }
     }
@@ -185,6 +186,21 @@ export class MemoryCoordinator {
 
   formatContextForPrompt(context: MemoryContext): string {
     return this.retriever.formatContextForPrompt(context);
+  }
+
+  private async appendSessionEventIfNeeded(event: MemoryEvent): Promise<void> {
+    if (event.scope !== "session" || !this.sessionMemoryClient) {
+      return;
+    }
+
+    try {
+      await this.sessionMemoryClient.appendSessionMemory(event);
+    } catch (error) {
+      console.warn(
+        "[memory/coordinator] Failed to append session event to session-memory runtime:",
+        error,
+      );
+    }
   }
 
   private computeCheckpointHash(params: {

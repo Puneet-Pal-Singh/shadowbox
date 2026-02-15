@@ -4,6 +4,7 @@ import { agentStore } from "../store/agentStore";
 
 export interface AgentSession {
   id: string;
+  runId: string;
   name: string;
   repository: string;
   status?: "idle" | "running" | "completed" | "error";
@@ -11,6 +12,7 @@ export interface AgentSession {
 
 interface SavedSession {
   id: string;
+  runId?: string;
   name: string;
   repository?: string;
   status?: AgentSession["status"];
@@ -27,6 +29,7 @@ export function useSessionManager() {
       // Migration: Add repository if missing
       return parsed.map((s) => ({
         ...s,
+        runId: s.runId || crypto.randomUUID(),
         repository: s.repository || "New Project",
       })) as AgentSession[];
     } catch (e) {
@@ -91,6 +94,7 @@ export function useSessionManager() {
   const createSession = useCallback(
     (name?: string, repository: string = "New Project") => {
       const id = `agent-${Math.random().toString(36).substring(7)}`;
+      const runId = crypto.randomUUID();
       const sessionName = typeof name === "string" ? name : `New Task`;
 
       // Ensure repository exists in the list
@@ -103,6 +107,7 @@ export function useSessionManager() {
 
       const newSession: AgentSession = {
         id,
+        runId,
         name: sessionName,
         repository,
         status: "idle",
@@ -139,7 +144,7 @@ export function useSessionManager() {
         const sessionsToRemove = prev.filter(
           (s) => s.repository === repository,
         );
-        sessionsToRemove.forEach((s) => agentStore.clearMessages(s.id));
+        sessionsToRemove.forEach((s) => agentStore.clearMessages(s.runId));
         const remaining = prev.filter((s) => s.repository !== repository);
 
         // If active session was in this repo, clear active ID
@@ -167,8 +172,13 @@ export function useSessionManager() {
 
   const removeSession = useCallback(
     (id: string) => {
-      setSessions((prev) => prev.filter((s) => s.id !== id));
-      agentStore.clearMessages(id);
+      setSessions((prev) => {
+        const sessionToRemove = prev.find((s) => s.id === id);
+        if (sessionToRemove) {
+          agentStore.clearMessages(sessionToRemove.runId);
+        }
+        return prev.filter((s) => s.id !== id);
+      });
       if (activeSessionId === id) setActiveSessionId(null);
     },
     [activeSessionId],
