@@ -14,6 +14,8 @@ import { RepoPicker } from "./components/github/RepoPicker";
 import { LoginScreen } from "./components/auth/LoginScreen";
 import type { Repository } from "./services/GitHubService";
 import { Resizer } from "./components/ui/Resizer";
+import { uiShellStore } from "./store/uiShellStore";
+import type { RunInboxItem } from "./components/run/RunInbox";
 
 /**
  * Main App Component
@@ -55,6 +57,55 @@ function AppContent() {
     isLoaded: isGitHubContextLoaded,
   } = useGitHub();
   const [showRepoPicker, setShowRepoPicker] = useState(false);
+
+  // Convert sessions to run inbox items for shell navigation
+  // This supports the run-centric UI model and will be passed to AppShell in future PRs
+  // TODO: Use this in AppShell integration (PR 04)
+  // @ts-expect-error - intentionally unused, will be used in next PR
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const convertSessionsToRuns = (): RunInboxItem[] => {
+    return sessions.map((session) => {
+      let status: "idle" | "queued" | "running" | "waiting" | "failed" | "complete" = "idle";
+      if (session.status === "running") status = "running";
+      else if (session.status === "completed") status = "complete";
+      else if (session.status === "error") status = "failed";
+
+      // Get session's last update time from localStorage or use current time
+      const sessionUpdateKey = `session_updated_at_${session.id}`;
+      const savedUpdateTime = localStorage.getItem(sessionUpdateKey);
+      const updatedAt = savedUpdateTime || new Date().toISOString();
+
+      return {
+        runId: session.runId,
+        sessionId: session.id,
+        title: session.name,
+        status,
+        updatedAt,
+        repository: session.repository,
+      };
+    });
+  };
+
+  // Sync UI shell store with active session
+  useEffect(() => {
+    if (!activeSessionId) return;
+
+    const storeState = uiShellStore.getState();
+
+    // Only sync if the active session actually changed
+    if (storeState.activeSessionId === activeSessionId) {
+      return;
+    }
+
+    uiShellStore.setActiveSessionId(activeSessionId);
+
+    // Find active session's runId and sync it
+    // Note: This lookup is safe because we've already validated activeSessionId exists
+    const activeSession = sessions.find((s) => s.id === activeSessionId);
+    if (activeSession) {
+      uiShellStore.setActiveRunId(activeSession.runId);
+    }
+  }, [activeSessionId, sessions]);
 
   // Sync GitHub context with active session
   useEffect(() => {
