@@ -68,19 +68,19 @@ class UIShellStore {
   }
 
   setActiveWorkspaceId(id: string | null): void {
-    this.state.activeWorkspaceId = id;
+    this.state = { ...this.state, activeWorkspaceId: id };
     this.saveState();
     this.notify();
   }
 
   setActiveSessionId(id: string | null): void {
-    this.state.activeSessionId = id;
+    this.state = { ...this.state, activeSessionId: id };
     this.saveState();
     this.notify();
   }
 
   setActiveRunId(id: string | null): void {
-    this.state.activeRunId = id;
+    this.state = { ...this.state, activeRunId: id };
     this.saveState();
     this.notify();
   }
@@ -88,25 +88,25 @@ class UIShellStore {
   setRightPanelTab(
     tab: "files" | "changes" | "artifacts" | "terminal",
   ): void {
-    this.state.rightPanelTab = tab;
+    this.state = { ...this.state, rightPanelTab: tab };
     this.saveState();
     this.notify();
   }
 
   setLeftPanelCollapsed(collapsed: boolean): void {
-    this.state.leftPanelCollapsed = collapsed;
+    this.state = { ...this.state, leftPanelCollapsed: collapsed };
     this.saveState();
     this.notify();
   }
 
   setRightPanelOpen(open: boolean): void {
-    this.state.rightPanelOpen = open;
+    this.state = { ...this.state, rightPanelOpen: open };
     this.saveState();
     this.notify();
   }
 
   reset(): void {
-    this.state = DEFAULT_STATE;
+    this.state = { ...DEFAULT_STATE };
     localStorage.removeItem(STORAGE_KEY);
     this.notify();
   }
