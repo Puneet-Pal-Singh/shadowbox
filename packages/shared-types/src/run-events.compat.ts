@@ -160,7 +160,7 @@ function transformPayload(
       return {
         toolId: (p.toolId as string) || (p.id as string) || "",
         toolName: (p.toolName as string) || (p.name as string) || "",
-        result: p.result || p.output || null,
+        result: p.result ?? p.output ?? null,
         executionTimeMs: (p.executionTimeMs as number) ?? (p.durationMs as number) ?? 0,
       };
 

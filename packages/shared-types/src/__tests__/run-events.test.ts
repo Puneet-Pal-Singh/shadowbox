@@ -291,6 +291,65 @@ describe("Legacy Event Compatibility", () => {
     }
   });
 
+  it("should preserve falsy-but-valid result values in tool completion (nullish coalescing)", () => {
+    // Test with result = 0 (falsy but valid)
+    const legacyEventZero = {
+      type: LEGACY_EVENT_NAMES.TOOL_COMPLETED_LEGACY,
+      runId: "run-result-zero",
+      timestamp: new Date().toISOString(),
+      payload: {
+        toolId: "tool-123",
+        name: "calculator",
+        result: 0, // Falsy but valid numeric result
+        durationMs: 100,
+      },
+    };
+
+    const convertedZero = convertLegacyEvent(legacyEventZero);
+    expect(convertedZero).not.toBeNull();
+    if (convertedZero?.type === RUN_EVENT_TYPES.TOOL_COMPLETED) {
+      expect(convertedZero.payload.result).toBe(0);
+    }
+
+    // Test with result = false (falsy but valid)
+    const legacyEventFalse = {
+      type: LEGACY_EVENT_NAMES.TOOL_COMPLETED_LEGACY,
+      runId: "run-result-false",
+      timestamp: new Date().toISOString(),
+      payload: {
+        toolId: "tool-456",
+        name: "validator",
+        result: false, // Falsy but valid boolean result
+        durationMs: 50,
+      },
+    };
+
+    const convertedFalse = convertLegacyEvent(legacyEventFalse);
+    expect(convertedFalse).not.toBeNull();
+    if (convertedFalse?.type === RUN_EVENT_TYPES.TOOL_COMPLETED) {
+      expect(convertedFalse.payload.result).toBe(false);
+    }
+
+    // Test with result = "" (falsy but valid)
+    const legacyEventEmpty = {
+      type: LEGACY_EVENT_NAMES.TOOL_COMPLETED_LEGACY,
+      runId: "run-result-empty",
+      timestamp: new Date().toISOString(),
+      payload: {
+        toolId: "tool-789",
+        name: "processor",
+        result: "", // Falsy but valid empty string result
+        durationMs: 75,
+      },
+    };
+
+    const convertedEmpty = convertLegacyEvent(legacyEventEmpty);
+    expect(convertedEmpty).not.toBeNull();
+    if (convertedEmpty?.type === RUN_EVENT_TYPES.TOOL_COMPLETED) {
+      expect(convertedEmpty.payload.result).toBe("");
+    }
+  });
+
   it("should normalize canonical events without conversion", () => {
     const canonicalEvent: RunEvent = {
       version: 1,
