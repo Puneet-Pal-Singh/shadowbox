@@ -42,6 +42,9 @@ importers:
       '@shadowbox/context-pruner':
         specifier: workspace:*
         version: link:../../packages/context-pruner
+      '@shadowbox/execution-engine':
+        specifier: workspace:*
+        version: link:../../packages/execution-engine
       '@shadowbox/github-bridge':
         specifier: workspace:*
         version: link:../../packages/github-bridge
@@ -388,6 +391,10 @@ importers:
         version: 1.6.1(@types/node@20.19.30)(lightningcss@1.30.2)
 
   packages/shared-types:
+    dependencies:
+      zod:
+        specifier: ^3.0.0
+        version: 3.25.1
     devDependencies:
       '@repo/typescript-config':
         specifier: workspace:*
@@ -395,6 +402,9 @@ importers:
       typescript:
         specifier: ^5.0.0
         version: 5.9.3
+      vitest:
+        specifier: ^1.0.0
+        version: 1.6.1(@types/node@24.10.9)(lightningcss@1.30.2)
 
   packages/token-budgeting:
     devDependencies:
