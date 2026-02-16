@@ -88,12 +88,22 @@ function AppContent() {
 
   // Sync UI shell store with active session
   useEffect(() => {
-    if (activeSessionId) {
-      uiShellStore.setActiveSessionId(activeSessionId);
-      const activeSession = sessions.find((s) => s.id === activeSessionId);
-      if (activeSession) {
-        uiShellStore.setActiveRunId(activeSession.runId);
-      }
+    if (!activeSessionId) return;
+
+    const storeState = uiShellStore.getState();
+
+    // Only sync if the active session actually changed
+    if (storeState.activeSessionId === activeSessionId) {
+      return;
+    }
+
+    uiShellStore.setActiveSessionId(activeSessionId);
+
+    // Find active session's runId and sync it
+    // Note: This lookup is safe because we've already validated activeSessionId exists
+    const activeSession = sessions.find((s) => s.id === activeSessionId);
+    if (activeSession) {
+      uiShellStore.setActiveRunId(activeSession.runId);
     }
   }, [activeSessionId, sessions]);
 
