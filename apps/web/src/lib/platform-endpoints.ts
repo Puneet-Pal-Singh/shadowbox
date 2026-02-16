@@ -4,15 +4,43 @@
  * Provides type-safe path builders for all API routes
  */
 
+// Module-level cache for base URLs to avoid repeated warnings
+let brainHttpBaseCache: string | undefined;
+let muscleHttpBaseCache: string | undefined;
+let muscleWsBaseCache: string | undefined;
+
+/**
+ * Reset endpoint cache (for testing only)
+ * @internal
+ */
+export function _resetEndpointCache(): void {
+  brainHttpBaseCache = undefined;
+  muscleHttpBaseCache = undefined;
+  muscleWsBaseCache = undefined;
+}
+
+/**
+ * Strip trailing slashes from URL
+ */
+function stripTrailingSlash(url: string): string {
+  return url.replace(/\/+$/, "");
+}
+
 /**
  * Get the Brain service base HTTP URL
  * Brain handles logic, prompt assembly, and tool selection
  * Default: http://localhost:8788 (dev only)
  */
 export function getBrainHttpBase(): string {
+  // Return cached value if available
+  if (brainHttpBaseCache !== undefined) {
+    return brainHttpBaseCache;
+  }
+
   const url = import.meta.env.VITE_BRAIN_BASE_URL;
   if (url) {
-    return url;
+    brainHttpBaseCache = stripTrailingSlash(url);
+    return brainHttpBaseCache;
   }
 
   // Safe local default for development
@@ -21,7 +49,8 @@ export function getBrainHttpBase(): string {
     "[platform-endpoints] VITE_BRAIN_BASE_URL not set, using default:",
     defaultUrl,
   );
-  return defaultUrl;
+  brainHttpBaseCache = defaultUrl;
+  return brainHttpBaseCache;
 }
 
 /**
@@ -30,9 +59,15 @@ export function getBrainHttpBase(): string {
  * Default: http://localhost:8787 (dev only)
  */
 export function getMuscleHttpBase(): string {
+  // Return cached value if available
+  if (muscleHttpBaseCache !== undefined) {
+    return muscleHttpBaseCache;
+  }
+
   const url = import.meta.env.VITE_MUSCLE_BASE_URL;
   if (url) {
-    return url;
+    muscleHttpBaseCache = stripTrailingSlash(url);
+    return muscleHttpBaseCache;
   }
 
   // Safe local default for development
@@ -41,7 +76,8 @@ export function getMuscleHttpBase(): string {
     "[platform-endpoints] VITE_MUSCLE_BASE_URL not set, using default:",
     defaultUrl,
   );
-  return defaultUrl;
+  muscleHttpBaseCache = defaultUrl;
+  return muscleHttpBaseCache;
 }
 
 /**
@@ -50,9 +86,15 @@ export function getMuscleHttpBase(): string {
  * Default: ws://localhost:8787 (dev only)
  */
 export function getMuscleWsBase(): string {
+  // Return cached value if available
+  if (muscleWsBaseCache !== undefined) {
+    return muscleWsBaseCache;
+  }
+
   const url = import.meta.env.VITE_MUSCLE_WS_URL;
   if (url) {
-    return url;
+    muscleWsBaseCache = stripTrailingSlash(url);
+    return muscleWsBaseCache;
   }
 
   // Safe local default for development
@@ -61,7 +103,8 @@ export function getMuscleWsBase(): string {
     "[platform-endpoints] VITE_MUSCLE_WS_URL not set, using default:",
     defaultUrl,
   );
-  return defaultUrl;
+  muscleWsBaseCache = defaultUrl;
+  return muscleWsBaseCache;
 }
 
 /**
@@ -141,7 +184,7 @@ export function validateEndpointConfig(): void {
   ];
 
   const missingVars = requiredEnvVars.filter(
-    (varName) => !import.meta.env[varName],
+    (varName) => !(import.meta.env as unknown as Record<string, unknown>)[varName],
   );
 
   if (missingVars.length > 0 && import.meta.env.MODE === "production") {

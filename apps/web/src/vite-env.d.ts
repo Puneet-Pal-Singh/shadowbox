@@ -3,7 +3,7 @@ interface ImportMetaEnv {
   readonly VITE_BRAIN_BASE_URL?: string;
   readonly VITE_MUSCLE_BASE_URL?: string;
   readonly VITE_MUSCLE_WS_URL?: string;
-  readonly MODE: "development" | "production";
+  readonly MODE: "development" | "production" | "test";
 }
 
 interface ImportMeta {

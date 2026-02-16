@@ -15,6 +15,7 @@ import {
   terminalConnectPath,
   terminalCommandPath,
   validateEndpointConfig,
+  _resetEndpointCache,
 } from "../platform-endpoints.js";
 
 // Store original env
@@ -32,7 +33,8 @@ const deleteEnv = (key: string): void => {
 
 describe("Platform Endpoints", () => {
   beforeEach(() => {
-    // Clear env vars before each test
+    // Reset module cache and env vars before each test
+    _resetEndpointCache();
     deleteEnv("VITE_BRAIN_BASE_URL");
     deleteEnv("VITE_MUSCLE_BASE_URL");
     deleteEnv("VITE_MUSCLE_WS_URL");
@@ -164,6 +166,23 @@ describe("Platform Endpoints", () => {
 
       expect(warnSpy).toHaveBeenCalledWith(
         expect.stringContaining("Using default endpoints"),
+        expect.any(Array),
+      );
+    });
+
+    it("should error about missing vars in production", () => {
+      (import.meta.env as unknown as Record<string, string>).MODE = "production";
+      deleteEnv("VITE_BRAIN_BASE_URL");
+      deleteEnv("VITE_MUSCLE_BASE_URL");
+      deleteEnv("VITE_MUSCLE_WS_URL");
+
+      const errorSpy = vi.spyOn(console, "error");
+
+      validateEndpointConfig();
+
+      expect(errorSpy).toHaveBeenCalled();
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining("Missing required environment variables in production"),
         expect.any(Array),
       );
     });

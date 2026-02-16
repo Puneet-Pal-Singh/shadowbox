@@ -4,6 +4,8 @@
  * Handles authentication state, repository listing, and GitHub API calls
  */
 
+import { getBrainHttpBase } from "../lib/platform-endpoints.js";
+
 export interface GitHubUser {
   id: string;
   login: string;
@@ -38,8 +40,7 @@ export interface Branch {
   protected: boolean;
 }
 
-const BRAIN_API_URL =
-  import.meta.env.VITE_BRAIN_BASE_URL || "http://localhost:8788";
+const BRAIN_API_URL = getBrainHttpBase();
 
 /**
  * Helper to get fetch options with optional session token

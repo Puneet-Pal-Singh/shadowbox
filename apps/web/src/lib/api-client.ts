@@ -4,7 +4,7 @@
  * Ensures consistent error handling, logging, and retry support
  */
 
-import { normalizeApiError, logApiError, type ApiErrorShape } from "./api-error.js";
+import { ApiError, normalizeApiError, logApiError } from "./api-error.js";
 
 /**
  * Fetch options extended with custom metadata
@@ -55,7 +55,7 @@ async function apiFetch<T>(
     ...fetchInit
   } = options;
 
-  const url = path.startsWith("http") ? path : path;
+  const url = path;
 
   if (logRequest) {
     console.log(`[api/${serviceName}] ${fetchInit.method || "GET"} ${url}`);
@@ -72,7 +72,32 @@ async function apiFetch<T>(
 
     clearTimeout(timeoutId);
 
-    // Parse response
+    // Check for HTTP errors FIRST, before parsing the body
+    if (!response.ok) {
+      // Parse error body
+      let errorData: unknown;
+      try {
+        const contentType = response.headers.get("Content-Type");
+        const isJson = contentType?.includes("application/json");
+        errorData = isJson ? await response.json() : await response.text();
+      } catch {
+        // If error body parsing fails, use response status as error message
+        errorData = undefined;
+      }
+
+      const error = new ApiError({
+        code: `HTTP_${response.status}`,
+        message: `HTTP ${response.status}: ${response.statusText}`,
+        retryable: response.status >= 500 || response.status === 408 || response.status === 429,
+        requestId: response.headers.get("X-Request-ID") ?? undefined,
+        originalError: errorData,
+      });
+
+      logApiError(error, serviceName);
+      throw error;
+    }
+
+    // Parse successful response
     const contentType = response.headers.get("Content-Type");
     const isJson = contentType?.includes("application/json");
 
@@ -83,28 +108,19 @@ async function apiFetch<T>(
       throw normalizeApiError(new Error("Failed to parse response"));
     }
 
-    // Check for HTTP errors
-    if (!response.ok) {
-      const error: ApiErrorShape = {
-        code: `HTTP_${response.status}`,
-        message: `HTTP ${response.status}: ${response.statusText}`,
-        retryable: response.status >= 500 || response.status === 408 || response.status === 429,
-        requestId: response.headers.get("X-Request-ID") ?? undefined,
-        originalError: data,
-      };
-
-      logApiError(error, serviceName);
-      throw error;
-    }
-
     if (logRequest) {
       console.log(`[api/${serviceName}] Response OK (${response.status})`);
     }
 
     return data;
   } catch (error) {
-    // Already normalized
-    if (typeof error === "object" && error !== null && "code" in error) {
+    // Already an ApiError
+    if (error instanceof ApiError) {
+      throw error;
+    }
+
+    // Already normalized ApiErrorShape
+    if (typeof error === "object" && error !== null && "code" in error && "message" in error) {
       throw error;
     }
 

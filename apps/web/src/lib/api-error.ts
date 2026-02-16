@@ -71,18 +71,42 @@ export function normalizeApiError(error: unknown): ApiErrorShape {
     };
   }
 
-  // Handle network/fetch errors
-  if (error instanceof TypeError && error.message.includes("fetch")) {
+  // Handle AbortError/timeout (abort controller timeout)
+  if (
+    error instanceof Error &&
+    (error.name === "AbortError" || error instanceof DOMException)
+  ) {
     return {
-      code: "NETWORK_ERROR",
-      message: "Network request failed. Check your connection.",
+      code: "TIMEOUT_ERROR",
+      message: "Request timed out. Please try again.",
       retryable: true,
       originalError: error,
     };
   }
 
-  // Handle timeout errors
-  if (error instanceof Error && error.message.includes("timeout")) {
+  // Handle network errors - broader detection for fetch failures
+  if (error instanceof TypeError) {
+    // Check for network-related error patterns
+    const message = error.message.toLowerCase();
+    const isNetworkError =
+      message.includes("fetch") ||
+      message.includes("failed to fetch") ||
+      message.includes("networkerror") ||
+      message.includes("network error") ||
+      message === ""; // Empty message often indicates network error
+
+    if (isNetworkError) {
+      return {
+        code: "NETWORK_ERROR",
+        message: "Network request failed. Check your connection.",
+        retryable: true,
+        originalError: error,
+      };
+    }
+  }
+
+  // Handle timeout errors (message-based)
+  if (error instanceof Error && error.message.toLowerCase().includes("timeout")) {
     return {
       code: "TIMEOUT_ERROR",
       message: "Request timed out. Please try again.",
@@ -101,8 +125,15 @@ export function normalizeApiError(error: unknown): ApiErrorShape {
     };
   }
 
-  // Handle unknown errors
-  const message = typeof error === "string" ? error : JSON.stringify(error);
+  // Handle unknown errors - safely stringify
+  let message: string;
+  try {
+    message = JSON.stringify(error);
+  } catch {
+    // Fallback for circular references or non-serializable objects
+    message = String(error) || "<unserializable error>";
+  }
+
   return {
     code: "UNKNOWN_ERROR",
     message: message || "An unknown error occurred",
