@@ -1,0 +1,367 @@
+/**
+ * Run Events Tests - Validate event types, schemas, and compatibility layer
+ */
+
+import { describe, expect, it } from "vitest";
+import {
+  RUN_EVENT_TYPES,
+  isRunEvent,
+  isRunEventOfType,
+  type RunEvent,
+  type RunStartedEvent,
+  type ToolRequestedEvent,
+  type RunCompletedEvent,
+} from "../run-events.js";
+import {
+  parseRunEvent,
+  safeParseRunEvent,
+  validateEventEnvelope,
+} from "../run-events.zod.js";
+import {
+  convertLegacyEvent,
+  getCanonicalEventType,
+  isLegacyEventName,
+  normalizeEvent,
+  LEGACY_EVENT_NAMES,
+} from "../run-events.compat.js";
+import { isRunStatus, RUN_STATUSES } from "../run-status.js";
+
+// ============================================================================
+// Run Status Tests
+// ============================================================================
+
+describe("RunStatus", () => {
+  it("should validate all canonical statuses", () => {
+    expect(isRunStatus(RUN_STATUSES.QUEUED)).toBe(true);
+    expect(isRunStatus(RUN_STATUSES.RUNNING)).toBe(true);
+    expect(isRunStatus(RUN_STATUSES.WAITING)).toBe(true);
+    expect(isRunStatus(RUN_STATUSES.FAILED)).toBe(true);
+    expect(isRunStatus(RUN_STATUSES.COMPLETE)).toBe(true);
+  });
+
+  it("should reject invalid status values", () => {
+    expect(isRunStatus("invalid")).toBe(false);
+    expect(isRunStatus(123)).toBe(false);
+    expect(isRunStatus(null)).toBe(false);
+  });
+});
+
+// ============================================================================
+// Run Event Type Tests
+// ============================================================================
+
+describe("RunEvent Type Guards", () => {
+  const validRunStartedEvent: RunStartedEvent = {
+    version: 1,
+    eventId: "evt-123",
+    runId: "run-456",
+    timestamp: new Date().toISOString(),
+    source: "brain",
+    type: RUN_EVENT_TYPES.RUN_STARTED,
+    payload: {
+      status: "running",
+    },
+  };
+
+  it("should validate a canonical run event", () => {
+    expect(isRunEvent(validRunStartedEvent)).toBe(true);
+  });
+
+  it("should reject non-event objects", () => {
+    expect(isRunEvent(null)).toBe(false);
+    expect(isRunEvent(undefined)).toBe(false);
+    expect(isRunEvent("string")).toBe(false);
+    expect(isRunEvent({ foo: "bar" })).toBe(false);
+  });
+
+  it("should distinguish between event types", () => {
+    expect(isRunEventOfType(validRunStartedEvent, RUN_EVENT_TYPES.RUN_STARTED)).toBe(true);
+    expect(isRunEventOfType(validRunStartedEvent, RUN_EVENT_TYPES.MESSAGE_EMITTED)).toBe(false);
+  });
+});
+
+// ============================================================================
+// Schema Validation Tests
+// ============================================================================
+
+describe("RunEvent Schema Validation", () => {
+  it("should parse valid run.started event", () => {
+    const event = {
+      version: 1,
+      eventId: "evt-123",
+      runId: "run-456",
+      timestamp: new Date().toISOString(),
+      source: "brain" as const,
+      type: RUN_EVENT_TYPES.RUN_STARTED,
+      payload: {
+        status: "running" as const,
+      },
+    };
+
+    const parsed = parseRunEvent(event);
+    expect(parsed.type).toBe(RUN_EVENT_TYPES.RUN_STARTED);
+    if (parsed.type === RUN_EVENT_TYPES.RUN_STARTED) {
+      expect(parsed.payload.status).toBe("running");
+    }
+  });
+
+  it("should parse valid tool.requested event", () => {
+    const event = {
+      version: 1,
+      eventId: "evt-789",
+      runId: "run-456",
+      timestamp: new Date().toISOString(),
+      source: "brain" as const,
+      type: RUN_EVENT_TYPES.TOOL_REQUESTED,
+      payload: {
+        toolId: "tool-123",
+        toolName: "read_file",
+        arguments: { path: "/etc/passwd" },
+      },
+    };
+
+    const parsed = parseRunEvent(event);
+    expect(parsed.type).toBe(RUN_EVENT_TYPES.TOOL_REQUESTED);
+    if (parsed.type === RUN_EVENT_TYPES.TOOL_REQUESTED) {
+      expect(parsed.payload.toolName).toBe("read_file");
+    }
+  });
+
+  it("should reject malformed event (missing required fields)", () => {
+    const event = {
+      version: 1,
+      eventId: "evt-123",
+      // missing runId
+      timestamp: new Date().toISOString(),
+      source: "brain",
+      type: RUN_EVENT_TYPES.RUN_STARTED,
+      payload: { status: "running" },
+    };
+
+    const result = safeParseRunEvent(event);
+    expect(result.success).toBe(false);
+  });
+
+  it("should reject event with invalid timestamp", () => {
+    const event = {
+      version: 1,
+      eventId: "evt-123",
+      runId: "run-456",
+      timestamp: "not-a-date",
+      source: "brain",
+      type: RUN_EVENT_TYPES.RUN_STARTED,
+      payload: { status: "running" },
+    };
+
+    const result = safeParseRunEvent(event);
+    expect(result.success).toBe(false);
+  });
+
+  it("should reject event with invalid payload for type", () => {
+    const event = {
+      version: 1,
+      eventId: "evt-123",
+      runId: "run-456",
+      timestamp: new Date().toISOString(),
+      source: "brain",
+      type: RUN_EVENT_TYPES.TOOL_REQUESTED,
+      payload: {
+        // missing toolId, toolName, arguments
+      },
+    };
+
+    const result = safeParseRunEvent(event);
+    expect(result.success).toBe(false);
+  });
+
+  it("should validate event envelope structure", () => {
+    const envelope = {
+      version: 1,
+      eventId: "evt-123",
+      runId: "run-456",
+      timestamp: new Date().toISOString(),
+      source: "brain",
+      type: RUN_EVENT_TYPES.RUN_STARTED,
+      payload: { status: "running" },
+    };
+
+    const result = validateEventEnvelope(envelope);
+    expect(result.success).toBe(true);
+  });
+});
+
+// ============================================================================
+// Compatibility Layer Tests
+// ============================================================================
+
+describe("Legacy Event Compatibility", () => {
+  it("should identify legacy event names", () => {
+    expect(isLegacyEventName(LEGACY_EVENT_NAMES.EXECUTION_STARTED)).toBe(true);
+    expect(isLegacyEventName(LEGACY_EVENT_NAMES.TOOL_CALLED)).toBe(true);
+    expect(isLegacyEventName("run.started")).toBe(false);
+  });
+
+  it("should map legacy event names to canonical types", () => {
+    expect(getCanonicalEventType(LEGACY_EVENT_NAMES.EXECUTION_STARTED)).toBe(
+      RUN_EVENT_TYPES.RUN_STARTED,
+    );
+    expect(getCanonicalEventType(LEGACY_EVENT_NAMES.TOOL_CALLED)).toBe(
+      RUN_EVENT_TYPES.TOOL_REQUESTED,
+    );
+    expect(getCanonicalEventType("invalid")).toBeNull();
+  });
+
+  it("should convert legacy execution_started event", () => {
+    const legacyEvent = {
+      type: LEGACY_EVENT_NAMES.EXECUTION_STARTED,
+      runId: "run-123",
+      executionId: "exec-456",
+      timestamp: new Date().toISOString(),
+      payload: {
+        status: "running",
+      },
+    };
+
+    const converted = convertLegacyEvent(legacyEvent);
+    expect(converted).not.toBeNull();
+    expect(converted!.type).toBe(RUN_EVENT_TYPES.RUN_STARTED);
+    expect(converted!.runId).toBe("run-123");
+  });
+
+  it("should convert legacy tool_called event", () => {
+    const legacyEvent = {
+      type: LEGACY_EVENT_NAMES.TOOL_CALLED,
+      runId: "run-123",
+      timestamp: new Date().toISOString(),
+      payload: {
+        toolId: "tool-123",
+        name: "read_file",
+        args: { path: "/tmp/test.txt" },
+      },
+    };
+
+    const converted = convertLegacyEvent(legacyEvent);
+    expect(converted).not.toBeNull();
+    expect(converted!.type).toBe(RUN_EVENT_TYPES.TOOL_REQUESTED);
+    expect((converted!.payload as any).toolName).toBe("read_file");
+    expect((converted!.payload as any).arguments).toEqual({ path: "/tmp/test.txt" });
+  });
+
+  it("should convert legacy execution_completed event", () => {
+    const legacyEvent = {
+      type: LEGACY_EVENT_NAMES.EXECUTION_COMPLETED,
+      runId: "run-123",
+      timestamp: new Date().toISOString(),
+      payload: {
+        durationMs: 5000,
+        toolsUsed: 3,
+      },
+    };
+
+    const converted = convertLegacyEvent(legacyEvent);
+    expect(converted).not.toBeNull();
+    expect(converted!.type).toBe(RUN_EVENT_TYPES.RUN_COMPLETED);
+    expect((converted!.payload as any).totalDurationMs).toBe(5000);
+    expect((converted!.payload as any).toolsUsed).toBe(3);
+  });
+
+  it("should normalize canonical events without conversion", () => {
+    const canonicalEvent: RunEvent = {
+      version: 1,
+      eventId: "evt-123",
+      runId: "run-456",
+      timestamp: new Date().toISOString(),
+      source: "brain",
+      type: RUN_EVENT_TYPES.RUN_STARTED,
+      payload: {
+        status: "running",
+      },
+    };
+
+    const normalized = normalizeEvent(canonicalEvent);
+    expect(normalized).not.toBeNull();
+    expect(normalized!.type).toBe(RUN_EVENT_TYPES.RUN_STARTED);
+  });
+
+  it("should return null for unrecognized events", () => {
+    const unknownEvent = {
+      eventId: "evt-123",
+      // missing required fields
+    };
+
+    const normalized = normalizeEvent(unknownEvent);
+    expect(normalized).toBeNull();
+  });
+});
+
+// ============================================================================
+// Full Event Lifecycle Tests
+// ============================================================================
+
+describe("Run Event Lifecycle", () => {
+  it("should create a complete run event sequence", () => {
+    const timestamp = new Date().toISOString();
+    const runId = "run-123";
+
+    // 1. Start
+    const startEvent = parseRunEvent({
+      version: 1,
+      eventId: "evt-1",
+      runId,
+      timestamp,
+      source: "brain" as const,
+      type: RUN_EVENT_TYPES.RUN_STARTED,
+      payload: { status: "running" as const },
+    });
+    expect(startEvent.type).toBe(RUN_EVENT_TYPES.RUN_STARTED);
+
+    // 2. Tool request
+    const toolEvent = parseRunEvent({
+      version: 1,
+      eventId: "evt-2",
+      runId,
+      timestamp,
+      source: "brain" as const,
+      type: RUN_EVENT_TYPES.TOOL_REQUESTED,
+      payload: {
+        toolId: "tool-1",
+        toolName: "search",
+        arguments: { query: "test" },
+      },
+    });
+    expect(toolEvent.type).toBe(RUN_EVENT_TYPES.TOOL_REQUESTED);
+
+    // 3. Tool complete
+    const completeEvent = parseRunEvent({
+      version: 1,
+      eventId: "evt-3",
+      runId,
+      timestamp,
+      source: "brain" as const,
+      type: RUN_EVENT_TYPES.TOOL_COMPLETED,
+      payload: {
+        toolId: "tool-1",
+        toolName: "search",
+        result: { results: [] },
+        executionTimeMs: 150,
+      },
+    });
+    expect(completeEvent.type).toBe(RUN_EVENT_TYPES.TOOL_COMPLETED);
+
+    // 4. Run complete
+    const runCompleteEvent = parseRunEvent({
+      version: 1,
+      eventId: "evt-4",
+      runId,
+      timestamp,
+      source: "brain" as const,
+      type: RUN_EVENT_TYPES.RUN_COMPLETED,
+      payload: {
+        status: "complete" as const,
+        totalDurationMs: 500,
+        toolsUsed: 1,
+      },
+    });
+    expect(runCompleteEvent.type).toBe(RUN_EVENT_TYPES.RUN_COMPLETED);
+  });
+});
