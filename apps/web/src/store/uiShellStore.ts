@@ -41,7 +41,8 @@ class UIShellStore {
     } catch (e) {
       console.error("[uiShellStore] Failed to load state from localStorage:", e);
     }
-    return DEFAULT_STATE;
+    // Spread DEFAULT_STATE to avoid returning shared reference
+    return { ...DEFAULT_STATE };
   }
 
   private saveState(): void {
