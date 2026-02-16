@@ -138,15 +138,15 @@ function transformPayload(
     case LEGACY_EVENT_NAMES.EXECUTION_COMPLETED:
       return {
         status: "complete",
-        totalDurationMs: (p.durationMs as number) || (p.totalDurationMs as number) || 0,
-        toolsUsed: (p.toolsUsed as number) || 0,
+        totalDurationMs: (p.durationMs as number) ?? (p.totalDurationMs as number) ?? 0,
+        toolsUsed: (p.toolsUsed as number) ?? 0,
       };
 
     case LEGACY_EVENT_NAMES.EXECUTION_FAILED:
       return {
         status: "failed",
         error: (p.error as string) || (p.message as string) || "Unknown error",
-        totalDurationMs: (p.durationMs as number) || (p.totalDurationMs as number) || 0,
+        totalDurationMs: (p.durationMs as number) ?? (p.totalDurationMs as number) ?? 0,
       };
 
     case LEGACY_EVENT_NAMES.TOOL_CALLED:
@@ -161,7 +161,7 @@ function transformPayload(
         toolId: (p.toolId as string) || (p.id as string) || "",
         toolName: (p.toolName as string) || (p.name as string) || "",
         result: p.result || p.output || null,
-        executionTimeMs: (p.executionTimeMs as number) || (p.durationMs as number) || 0,
+        executionTimeMs: (p.executionTimeMs as number) ?? (p.durationMs as number) ?? 0,
       };
 
     default:

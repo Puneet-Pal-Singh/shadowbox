@@ -269,6 +269,28 @@ describe("Legacy Event Compatibility", () => {
     }
   });
 
+  it("should preserve zero values in numeric fields (nullish coalescing)", () => {
+    const legacyEvent = {
+      type: LEGACY_EVENT_NAMES.EXECUTION_COMPLETED,
+      runId: "run-zero",
+      timestamp: new Date().toISOString(),
+      payload: {
+        durationMs: 0, // Explicitly 0
+        toolsUsed: 0, // No tools used
+      },
+    };
+
+    const converted = convertLegacyEvent(legacyEvent);
+    expect(converted).not.toBeNull();
+    expect(converted!.type).toBe(RUN_EVENT_TYPES.RUN_COMPLETED);
+    if (converted!.type === RUN_EVENT_TYPES.RUN_COMPLETED) {
+      const payload = converted!.payload;
+      // Zero should be preserved, not replaced with fallback
+      expect(payload.totalDurationMs).toBe(0);
+      expect(payload.toolsUsed).toBe(0);
+    }
+  });
+
   it("should normalize canonical events without conversion", () => {
     const canonicalEvent: RunEvent = {
       version: 1,
