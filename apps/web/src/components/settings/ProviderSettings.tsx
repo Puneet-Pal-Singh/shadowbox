@@ -170,7 +170,7 @@ export function ProviderSettings({ onProviderConnect }: ProviderSettingsProps) {
                 className="w-full bg-zinc-900 text-zinc-200 text-sm rounded px-3 py-2 border border-zinc-700 focus:outline-none focus:border-zinc-500"
               />
               <p className="text-xs text-zinc-500 mt-1">
-                Your API key is never stored in plain text and is never sent to
+                Your API key is not persisted to localStorage and is not sent to
                 logs.
               </p>
             </div>
