@@ -59,22 +59,33 @@ function AppContent() {
   const [showRepoPicker, setShowRepoPicker] = useState(false);
 
   // Convert sessions to run inbox items (will be used in AppShell integration)
-  // @ts-expect-error - currently unused, will be used in shell integration
-  const runs: RunInboxItem[] = sessions.map((session) => {
-    let status: "idle" | "queued" | "running" | "waiting" | "failed" | "complete" = "idle";
-    if (session.status === "running") status = "running";
-    else if (session.status === "completed") status = "complete";
-    else if (session.status === "error") status = "failed";
-    
-    return {
-      runId: session.runId,
-      sessionId: session.id,
-      title: session.name,
-      status,
-      updatedAt: new Date().toISOString(),
-      repository: session.repository,
-    };
-  });
+  // Convert sessions to run inbox items for shell navigation
+  // This supports the run-centric UI model and will be passed to AppShell in future PRs
+  // TODO: Use this in AppShell integration (PR 04)
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  // @ts-expect-error - intentionally unused, will be used in next PR
+  const convertSessionsToRuns = (): RunInboxItem[] => {
+    return sessions.map((session) => {
+      let status: "idle" | "queued" | "running" | "waiting" | "failed" | "complete" = "idle";
+      if (session.status === "running") status = "running";
+      else if (session.status === "completed") status = "complete";
+      else if (session.status === "error") status = "failed";
+
+      // Get session's last update time from localStorage or use current time
+      const sessionUpdateKey = `session_updated_at_${session.id}`;
+      const savedUpdateTime = localStorage.getItem(sessionUpdateKey);
+      const updatedAt = savedUpdateTime || new Date().toISOString();
+
+      return {
+        runId: session.runId,
+        sessionId: session.id,
+        title: session.name,
+        status,
+        updatedAt,
+        repository: session.repository,
+      };
+    });
+  };
 
   // Sync UI shell store with active session
   useEffect(() => {
