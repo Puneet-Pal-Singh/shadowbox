@@ -149,7 +149,9 @@ export function RunInbox({
         {sortedRuns.length === 0 ? (
           <div className="flex items-center justify-center p-4 text-center h-20">
             <p className="text-xs text-zinc-600">
-              No runs with status "{getStatusLabel(filter as RunStatus)}"
+              {filter === "all"
+                ? "No runs yet"
+                : `No runs with status "${getStatusLabel(filter)}"`}
             </p>
           </div>
         ) : (
