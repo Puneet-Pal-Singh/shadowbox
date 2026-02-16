@@ -105,7 +105,8 @@ async function apiFetch<T>(
     try {
       data = isJson ? ((await response.json()) as T) : ((await response.text()) as T);
     } catch {
-      throw normalizeApiError(new Error("Failed to parse response"));
+      const normalized = normalizeApiError(new Error("Failed to parse response"));
+      throw new ApiError(normalized);
     }
 
     if (logRequest) {
@@ -126,7 +127,7 @@ async function apiFetch<T>(
 
     const normalized = normalizeApiError(error);
     logApiError(normalized, serviceName);
-    throw normalized;
+    throw new ApiError(normalized);
   }
 }
 
