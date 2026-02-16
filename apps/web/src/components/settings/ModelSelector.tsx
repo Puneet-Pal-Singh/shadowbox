@@ -76,7 +76,8 @@ export function ModelSelector({
   const handleProviderChange = (newProvider: ProviderId) => {
     setSelectedProvider(newProvider);
     setSelectedModel("");
-    loadModels(newProvider);
+    // Pass empty string explicitly to avoid stale closure of selectedModel
+    loadModels(newProvider, "");
   };
 
   const handleModelChange = (modelId: string) => {
