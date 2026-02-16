@@ -4,6 +4,7 @@ import { FitAddon } from 'xterm-addon-fit';
 import { WebLinksAddon } from 'xterm-addon-web-links';
 import { CommandService } from './command-service';
 import { WSEvent } from '../types/terminal';
+import { terminalConnectPath, terminalCommandPath } from './platform-endpoints.js';
 
 export class TerminalController {
   private term: XTerm;
@@ -60,7 +61,7 @@ export class TerminalController {
   connect() {
     if (this.isDisposed || this.ws) return;
 
-    this.ws = new WebSocket(`ws://localhost:8787/connect?session=${this.sessionId}`);
+    this.ws = new WebSocket(terminalConnectPath(this.sessionId));
     
     this.ws.onopen = () => {
       if (!this.isDisposed) {
@@ -146,7 +147,7 @@ export class TerminalController {
     if (this.isDisposed) return;
     const request = CommandService.parse(input);
     try {
-      await fetch(`http://localhost:8787/?session=${this.sessionId}`, {
+      await fetch(terminalCommandPath(this.sessionId), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(request)

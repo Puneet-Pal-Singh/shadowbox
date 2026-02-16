@@ -1,4 +1,5 @@
 import type { Message } from "@ai-sdk/react";
+import { chatHistoryPath } from "../lib/platform-endpoints.js";
 
 type ToolInvocation = NonNullable<Message["toolInvocations"]>[number];
 
@@ -37,7 +38,7 @@ export interface HydrationResult {
 }
 
 export class ChatHydrationService {
-  constructor(private apiUrl: string = "http://localhost:8787") {}
+  constructor() {}
 
   async hydrateMessages(
     sessionId: string,
@@ -88,9 +89,9 @@ export class ChatHydrationService {
     nextCursor?: string;
     error?: string;
   }> {
-    const url = new URL(`${this.apiUrl}/chat`);
+    const baseUrl = chatHistoryPath(runId);
+    const url = new URL(baseUrl);
     url.searchParams.set("session", sessionId);
-    url.searchParams.set("runId", runId);
     url.searchParams.set("limit", limit.toString());
     if (cursor) {
       url.searchParams.set("cursor", cursor);
