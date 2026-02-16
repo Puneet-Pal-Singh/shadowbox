@@ -65,8 +65,10 @@ const MODEL_CATALOG: Record<ProviderId, ModelDescriptor[]> = {
 };
 
 class ProviderService {
-  private providerConfigs: Map<ProviderId, { apiKey: string; connected: boolean }> =
-    new Map();
+  private providerConfigs: Map<
+    ProviderId,
+    { apiKey: string; connected: boolean; failed?: boolean; errorMessage?: string }
+  > = new Map();
 
   constructor() {
     this.loadFromStorage();
@@ -79,9 +81,18 @@ class ProviderService {
         const configs = JSON.parse(stored);
         for (const [provider, config] of Object.entries(configs)) {
           if (config && typeof config === "object" && "connected" in config) {
+            const apiKey = (config as Record<string, unknown>).apiKey as string || "";
+            const connected = (config as Record<string, unknown>).connected as boolean || false;
+
+            // If marked as connected but no API key present, treat as disconnected
+            // This ensures consistency after page reload
+            if (connected && !apiKey) {
+              continue;
+            }
+
             this.providerConfigs.set(provider as ProviderId, {
-              apiKey: (config as Record<string, unknown>).apiKey as string || "",
-              connected: (config as Record<string, unknown>).connected as boolean || false,
+              apiKey,
+              connected,
             });
           }
         }
@@ -109,19 +120,33 @@ class ProviderService {
   ): Promise<ConnectProviderResponse> {
     try {
       if (!request.apiKey?.trim()) {
+        const errorMessage = "API key cannot be empty";
+        this.providerConfigs.set(request.providerId, {
+          apiKey: "",
+          connected: false,
+          failed: true,
+          errorMessage,
+        });
         return {
           status: "failed",
           providerId: request.providerId,
-          errorMessage: "API key cannot be empty",
+          errorMessage,
         };
       }
 
       // In v1, we validate basic format only
       if (request.apiKey.length < 10) {
+        const errorMessage = "API key appears invalid (too short)";
+        this.providerConfigs.set(request.providerId, {
+          apiKey: "",
+          connected: false,
+          failed: true,
+          errorMessage,
+        });
         return {
           status: "failed",
           providerId: request.providerId,
-          errorMessage: "API key appears invalid (too short)",
+          errorMessage,
         };
       }
 
@@ -129,6 +154,7 @@ class ProviderService {
       this.providerConfigs.set(request.providerId, {
         apiKey: request.apiKey,
         connected: true,
+        failed: false,
       });
 
       this.saveToStorage();
@@ -142,12 +168,19 @@ class ProviderService {
         providerId: request.providerId,
       };
     } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : "Unknown error";
       console.error("[provider/connect] Error:", error);
+      this.providerConfigs.set(request.providerId, {
+        apiKey: "",
+        connected: false,
+        failed: true,
+        errorMessage,
+      });
       return {
         status: "failed",
         providerId: request.providerId,
-        errorMessage:
-          error instanceof Error ? error.message : "Unknown error",
+        errorMessage,
       };
     }
   }
@@ -193,9 +226,19 @@ class ProviderService {
   async getProviderStatus(): Promise<ProviderConnectionStatus[]> {
     return ["openrouter", "openai"].map((providerId) => {
       const config = this.providerConfigs.get(providerId as ProviderId);
+
+      // Determine status: prioritize failed state, then connected, then disconnected
+      let status: "connected" | "failed" | "disconnected" = "disconnected";
+      if (config?.failed) {
+        status = "failed";
+      } else if (config?.connected) {
+        status = "connected";
+      }
+
       return {
         providerId: providerId as ProviderId,
-        status: config?.connected ? "connected" : "disconnected",
+        status,
+        errorMessage: config?.errorMessage,
       };
     });
   }
