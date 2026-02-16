@@ -4,6 +4,7 @@
  */
 
 import { RUN_EVENT_TYPES, type EventSource, type RunEvent, type RunEventType } from "./run-events.js";
+import { safeParseRunEvent } from "./run-events.zod.js";
 
 const ENABLE_LEGACY_EVENT_MAPPING = true;
 
@@ -100,7 +101,18 @@ export function convertLegacyEvent(
     payload: transformPayload(eventType, event.payload || event.data || {}),
   };
 
-  return canonicalEvent as unknown as RunEvent;
+  // Validate the constructed event matches canonical schema
+  const result = safeParseRunEvent(canonicalEvent);
+  if (result.success) {
+    return result.data;
+  }
+
+  // If validation fails, log error and return null
+  console.error(
+    "[run-events/compat] Failed to convert legacy event:",
+    result.error,
+  );
+  return null;
 }
 
 /**
@@ -109,49 +121,51 @@ export function convertLegacyEvent(
  */
 function transformPayload(
   legacyType: LegacyEventName,
-  payload: any,
+  payload: unknown,
 ): Record<string, unknown> {
   if (!payload || typeof payload !== "object") {
     payload = {};
   }
 
+  const p = payload as Record<string, unknown>;
+
   switch (legacyType) {
     case LEGACY_EVENT_NAMES.EXECUTION_STARTED:
       return {
-        status: payload.status || "running",
+        status: p.status || "running",
       };
 
     case LEGACY_EVENT_NAMES.EXECUTION_COMPLETED:
       return {
         status: "complete",
-        totalDurationMs: payload.durationMs || payload.totalDurationMs || 0,
-        toolsUsed: payload.toolsUsed || 0,
+        totalDurationMs: (p.durationMs as number) || (p.totalDurationMs as number) || 0,
+        toolsUsed: (p.toolsUsed as number) || 0,
       };
 
     case LEGACY_EVENT_NAMES.EXECUTION_FAILED:
       return {
         status: "failed",
-        error: payload.error || payload.message || "Unknown error",
-        totalDurationMs: payload.durationMs || payload.totalDurationMs || 0,
+        error: (p.error as string) || (p.message as string) || "Unknown error",
+        totalDurationMs: (p.durationMs as number) || (p.totalDurationMs as number) || 0,
       };
 
     case LEGACY_EVENT_NAMES.TOOL_CALLED:
       return {
-        toolId: payload.toolId || payload.id || "",
-        toolName: payload.toolName || payload.name || "",
-        arguments: payload.arguments || payload.args || {},
+        toolId: (p.toolId as string) || (p.id as string) || "",
+        toolName: (p.toolName as string) || (p.name as string) || "",
+        arguments: (p.arguments as Record<string, unknown>) || (p.args as Record<string, unknown>) || {},
       };
 
     case LEGACY_EVENT_NAMES.TOOL_COMPLETED_LEGACY:
       return {
-        toolId: payload.toolId || payload.id || "",
-        toolName: payload.toolName || payload.name || "",
-        result: payload.result || payload.output || null,
-        executionTimeMs: payload.executionTimeMs || payload.durationMs || 0,
+        toolId: (p.toolId as string) || (p.id as string) || "",
+        toolName: (p.toolName as string) || (p.name as string) || "",
+        result: p.result || p.output || null,
+        executionTimeMs: (p.executionTimeMs as number) || (p.durationMs as number) || 0,
       };
 
     default:
-      return payload;
+      return p;
   }
 }
 
@@ -168,23 +182,21 @@ export function normalizeEvent(event: unknown): RunEvent | null {
   }
 
   const eventObj = event as Record<string, unknown>;
-  const eventType = eventObj.type;
 
-  // Try legacy conversion first
-  const converted = convertLegacyEvent(eventObj);
-  if (converted) {
-    return converted;
+  // Try legacy conversion first if it looks like a legacy event
+  if (typeof eventObj.type === "string" && isLegacyEventName(eventObj.type)) {
+    const converted = convertLegacyEvent(eventObj);
+    if (converted) {
+      return converted;
+    }
   }
 
-  // If not legacy, validate as canonical
-  // For now, just ensure it has required fields
-  if (
-    typeof eventObj.runId === "string" &&
-    typeof eventObj.type === "string" &&
-    typeof eventObj.timestamp === "string"
-  ) {
-    return eventObj as unknown as RunEvent;
+  // If not legacy, validate as canonical with full schema
+  const result = safeParseRunEvent(eventObj);
+  if (result.success) {
+    return result.data;
   }
 
+  // Validation failed
   return null;
 }

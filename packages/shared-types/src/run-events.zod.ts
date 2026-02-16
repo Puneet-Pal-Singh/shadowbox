@@ -50,13 +50,13 @@ const RunStatusChangedPayloadSchema = z.object({
 const MessageEmittedPayloadSchema = z.object({
   content: z.string(),
   role: z.enum(["user", "assistant", "system"]),
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
 const ToolRequestedPayloadSchema = z.object({
   toolId: z.string().min(1),
   toolName: z.string().min(1),
-  arguments: z.record(z.unknown()),
+  arguments: z.record(z.string(), z.unknown()),
 });
 
 const ToolStartedPayloadSchema = z.object({
@@ -250,11 +250,9 @@ export function safeParseRunEvent(
 /**
  * Validate event envelope structure without payload validation
  */
-export function validateEventEnvelope(data: unknown): {
-  success: boolean;
-  error?: string;
-  data?: any;
-} {
+export function validateEventEnvelope(
+  data: unknown,
+): { success: true; data: z.infer<typeof RunEventEnvelopeSchema> } | { success: false; error: string } {
   const result = RunEventEnvelopeSchema.safeParse(data);
   if (result.success) {
     return { success: true, data: result.data };

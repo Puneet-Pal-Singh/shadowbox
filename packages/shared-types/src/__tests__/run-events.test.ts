@@ -9,8 +9,6 @@ import {
   isRunEventOfType,
   type RunEvent,
   type RunStartedEvent,
-  type ToolRequestedEvent,
-  type RunCompletedEvent,
 } from "../run-events.js";
 import {
   parseRunEvent,
@@ -243,8 +241,11 @@ describe("Legacy Event Compatibility", () => {
     const converted = convertLegacyEvent(legacyEvent);
     expect(converted).not.toBeNull();
     expect(converted!.type).toBe(RUN_EVENT_TYPES.TOOL_REQUESTED);
-    expect((converted!.payload as any).toolName).toBe("read_file");
-    expect((converted!.payload as any).arguments).toEqual({ path: "/tmp/test.txt" });
+    if (converted!.type === RUN_EVENT_TYPES.TOOL_REQUESTED) {
+      const payload = converted!.payload;
+      expect(payload.toolName).toBe("read_file");
+      expect(payload.arguments).toEqual({ path: "/tmp/test.txt" });
+    }
   });
 
   it("should convert legacy execution_completed event", () => {
@@ -261,8 +262,11 @@ describe("Legacy Event Compatibility", () => {
     const converted = convertLegacyEvent(legacyEvent);
     expect(converted).not.toBeNull();
     expect(converted!.type).toBe(RUN_EVENT_TYPES.RUN_COMPLETED);
-    expect((converted!.payload as any).totalDurationMs).toBe(5000);
-    expect((converted!.payload as any).toolsUsed).toBe(3);
+    if (converted!.type === RUN_EVENT_TYPES.RUN_COMPLETED) {
+      const payload = converted!.payload;
+      expect(payload.totalDurationMs).toBe(5000);
+      expect(payload.toolsUsed).toBe(3);
+    }
   });
 
   it("should normalize canonical events without conversion", () => {
