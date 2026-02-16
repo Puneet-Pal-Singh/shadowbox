@@ -20,12 +20,22 @@ import {
 // Store original env
 const originalEnv = { ...import.meta.env };
 
+// Helper to safely set env vars
+const setEnv = (key: string, value: string): void => {
+  (import.meta.env as unknown as Record<string, string>)[key] = value;
+};
+
+// Helper to safely delete env vars
+const deleteEnv = (key: string): void => {
+  delete (import.meta.env as unknown as Record<string, unknown>)[key];
+};
+
 describe("Platform Endpoints", () => {
   beforeEach(() => {
     // Clear env vars before each test
-    delete (import.meta.env as Record<string, unknown>).VITE_BRAIN_BASE_URL;
-    delete (import.meta.env as Record<string, unknown>).VITE_MUSCLE_BASE_URL;
-    delete (import.meta.env as Record<string, unknown>).VITE_MUSCLE_WS_URL;
+    deleteEnv("VITE_BRAIN_BASE_URL");
+    deleteEnv("VITE_MUSCLE_BASE_URL");
+    deleteEnv("VITE_MUSCLE_WS_URL");
   });
 
   afterEach(() => {
@@ -36,8 +46,7 @@ describe("Platform Endpoints", () => {
 
   describe("getBrainHttpBase", () => {
     it("should use VITE_BRAIN_BASE_URL when set", () => {
-      (import.meta.env as Record<string, unknown>).VITE_BRAIN_BASE_URL =
-        "https://brain.example.com";
+      setEnv("VITE_BRAIN_BASE_URL", "https://brain.example.com");
       expect(getBrainHttpBase()).toBe("https://brain.example.com");
     });
 
@@ -58,8 +67,7 @@ describe("Platform Endpoints", () => {
 
   describe("getMuscleHttpBase", () => {
     it("should use VITE_MUSCLE_BASE_URL when set", () => {
-      (import.meta.env as Record<string, unknown>).VITE_MUSCLE_BASE_URL =
-        "https://muscle.example.com";
+      setEnv("VITE_MUSCLE_BASE_URL", "https://muscle.example.com");
       expect(getMuscleHttpBase()).toBe("https://muscle.example.com");
     });
 
@@ -71,8 +79,7 @@ describe("Platform Endpoints", () => {
 
   describe("getMuscleWsBase", () => {
     it("should use VITE_MUSCLE_WS_URL when set", () => {
-      (import.meta.env as Record<string, unknown>).VITE_MUSCLE_WS_URL =
-        "wss://ws.example.com";
+      setEnv("VITE_MUSCLE_WS_URL", "wss://ws.example.com");
       expect(getMuscleWsBase()).toBe("wss://ws.example.com");
     });
 
@@ -84,12 +91,9 @@ describe("Platform Endpoints", () => {
 
   describe("Path builders", () => {
     beforeEach(() => {
-      (import.meta.env as Record<string, unknown>).VITE_BRAIN_BASE_URL =
-        "https://brain.local";
-      (import.meta.env as Record<string, unknown>).VITE_MUSCLE_BASE_URL =
-        "https://muscle.local";
-      (import.meta.env as Record<string, unknown>).VITE_MUSCLE_WS_URL =
-        "wss://ws.local";
+      setEnv("VITE_BRAIN_BASE_URL", "https://brain.local");
+      setEnv("VITE_MUSCLE_BASE_URL", "https://muscle.local");
+      setEnv("VITE_MUSCLE_WS_URL", "wss://ws.local");
     });
 
     it("should build chat stream path from Brain", () => {
@@ -153,7 +157,7 @@ describe("Platform Endpoints", () => {
 
   describe("validateEndpointConfig", () => {
     it("should warn about missing vars in dev", () => {
-      (import.meta.env as Record<string, unknown>).MODE = "development";
+      (import.meta.env as unknown as Record<string, string>).MODE = "development";
       const warnSpy = vi.spyOn(console, "warn");
 
       validateEndpointConfig();
@@ -165,13 +169,10 @@ describe("Platform Endpoints", () => {
     });
 
     it("should not error when all vars present in production", () => {
-      (import.meta.env as Record<string, unknown>).MODE = "production";
-      (import.meta.env as Record<string, unknown>).VITE_BRAIN_BASE_URL =
-        "https://brain.prod";
-      (import.meta.env as Record<string, unknown>).VITE_MUSCLE_BASE_URL =
-        "https://muscle.prod";
-      (import.meta.env as Record<string, unknown>).VITE_MUSCLE_WS_URL =
-        "wss://ws.prod";
+      (import.meta.env as unknown as Record<string, string>).MODE = "production";
+      setEnv("VITE_BRAIN_BASE_URL", "https://brain.prod");
+      setEnv("VITE_MUSCLE_BASE_URL", "https://muscle.prod");
+      setEnv("VITE_MUSCLE_WS_URL", "wss://ws.prod");
 
       const errorSpy = vi.spyOn(console, "error");
 

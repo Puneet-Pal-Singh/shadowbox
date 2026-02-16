@@ -1,7 +1,9 @@
 /** Vite environment variables */
 interface ImportMetaEnv {
-  readonly VITE_BRAIN_API_URL: string;
-  // Add other env variables here as needed
+  readonly VITE_BRAIN_BASE_URL?: string;
+  readonly VITE_MUSCLE_BASE_URL?: string;
+  readonly VITE_MUSCLE_WS_URL?: string;
+  readonly MODE: "development" | "production";
 }
 
 interface ImportMeta {

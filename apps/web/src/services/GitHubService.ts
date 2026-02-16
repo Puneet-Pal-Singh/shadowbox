@@ -39,7 +39,7 @@ export interface Branch {
 }
 
 const BRAIN_API_URL =
-  import.meta.env.VITE_BRAIN_API_URL || "http://localhost:8788";
+  import.meta.env.VITE_BRAIN_BASE_URL || "http://localhost:8788";
 
 /**
  * Helper to get fetch options with optional session token

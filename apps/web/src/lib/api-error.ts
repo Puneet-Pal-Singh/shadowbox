@@ -51,7 +51,7 @@ export class ApiError extends Error implements ApiErrorShape {
  * Normalize a fetch response or error into standard ApiErrorShape
  * Handles various error scenarios (network, HTTP errors, parse errors)
  */
-export function normalizeApiError(error: unknown, context: string = "api"): ApiErrorShape {
+export function normalizeApiError(error: unknown): ApiErrorShape {
   // Handle already-normalized ApiError
   if (error instanceof ApiError) {
     return error.toShape();
