@@ -43,10 +43,11 @@ describe("ChatHydrationService", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     const firstUrl = new URL(fetchMock.mock.calls[0]?.[0]);
     const secondUrl = new URL(fetchMock.mock.calls[1]?.[0]);
+    // runId is now in the URL path via chatHistoryPath(runId)
+    expect(firstUrl.pathname).toContain(`/api/chat/history/${runId}`);
     expect(firstUrl.searchParams.get("session")).toBe(sessionId);
-    expect(firstUrl.searchParams.get("runId")).toBe(runId);
+    expect(secondUrl.pathname).toContain(`/api/chat/history/${runId}`);
     expect(secondUrl.searchParams.get("cursor")).toBe("cursor-page-2");
-    expect(secondUrl.searchParams.get("runId")).toBe(runId);
   });
 
   it("supports legacy array chat history responses", async () => {

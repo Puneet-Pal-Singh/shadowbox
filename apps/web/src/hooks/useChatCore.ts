@@ -1,5 +1,6 @@
 import { useChat as useVercelChat, type Message } from "@ai-sdk/react";
 import { useCallback, useMemo, useState, type FormEvent } from "react";
+import { chatStreamPath } from "../lib/platform-endpoints.js";
 
 interface UseChatCoreResult {
   messages: Message[];
@@ -40,7 +41,7 @@ export function useChatCore(
     setMessages,
     append,
   } = useVercelChat({
-    api: "http://localhost:8788/chat",
+    api: chatStreamPath(),
     body: { sessionId, runId },
     initialMessages: [],
     id: instanceKey,
