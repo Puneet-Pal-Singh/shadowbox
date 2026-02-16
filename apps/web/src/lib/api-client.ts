@@ -65,9 +65,14 @@ async function apiFetch<T>(
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeout);
 
+    // Combine timeout signal with any caller-provided signal
+    const combinedSignal = fetchInit.signal
+      ? AbortSignal.any([controller.signal, fetchInit.signal])
+      : controller.signal;
+
     const response = await fetch(url, {
       ...fetchInit,
-      signal: controller.signal,
+      signal: combinedSignal,
     });
 
     clearTimeout(timeoutId);
@@ -115,16 +120,12 @@ async function apiFetch<T>(
 
     return data;
   } catch (error) {
-    // Already an ApiError
+    // Already an ApiError - re-throw as-is
     if (error instanceof ApiError) {
       throw error;
     }
 
-    // Already normalized ApiErrorShape
-    if (typeof error === "object" && error !== null && "code" in error && "message" in error) {
-      throw error;
-    }
-
+    // Normalize any other error type and wrap in ApiError
     const normalized = normalizeApiError(error);
     logApiError(normalized, serviceName);
     throw new ApiError(normalized);
