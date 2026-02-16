@@ -58,12 +58,11 @@ function AppContent() {
   } = useGitHub();
   const [showRepoPicker, setShowRepoPicker] = useState(false);
 
-  // Convert sessions to run inbox items (will be used in AppShell integration)
   // Convert sessions to run inbox items for shell navigation
   // This supports the run-centric UI model and will be passed to AppShell in future PRs
   // TODO: Use this in AppShell integration (PR 04)
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   // @ts-expect-error - intentionally unused, will be used in next PR
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const convertSessionsToRuns = (): RunInboxItem[] => {
     return sessions.map((session) => {
       let status: "idle" | "queued" | "running" | "waiting" | "failed" | "complete" = "idle";
