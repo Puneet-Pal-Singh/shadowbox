@@ -79,7 +79,7 @@ async function apiFetch<T>(
     let data: T;
     try {
       data = isJson ? ((await response.json()) as T) : ((await response.text()) as T);
-    } catch (parseError) {
+    } catch {
       throw normalizeApiError(new Error("Failed to parse response"));
     }
 
