@@ -134,7 +134,7 @@ export function terminalCommandPath(sessionId: string): string {
  * Logs warnings for missing env vars (safe to run with defaults in dev)
  */
 export function validateEndpointConfig(): void {
-  const requiredEnvVars = [
+  const requiredEnvVars: Array<keyof ImportMetaEnv> = [
     "VITE_BRAIN_BASE_URL",
     "VITE_MUSCLE_BASE_URL",
     "VITE_MUSCLE_WS_URL",
