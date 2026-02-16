@@ -31,6 +31,8 @@ export function ModelSelector({
   useEffect(() => {
     const config = providerService.getSessionModelConfig(sessionId);
     const providerId = (config.providerId as ProviderId) || "openrouter";
+    const savedModelId = config.modelId;
+
     if (config.providerId) {
       setSelectedProvider(config.providerId as ProviderId);
     }
@@ -38,17 +40,24 @@ export function ModelSelector({
       setSelectedModel(config.modelId);
     }
 
-    loadModels(providerId);
+    loadModels(providerId, savedModelId);
   }, [sessionId]);
 
-  const loadModels = async (providerId: ProviderId) => {
+  const loadModels = async (
+    providerId: ProviderId,
+    selectedModelOverride?: string,
+  ) => {
     setIsLoading(true);
     setError(null);
 
     try {
       const result = await providerService.getModels(providerId);
       setModels(result.models);
-      if (result.models.length > 0 && !selectedModel) {
+
+      // Use the override (from saved config) if provided, otherwise use component state
+      const modelToCheck = selectedModelOverride ?? selectedModel;
+
+      if (result.models.length > 0 && !modelToCheck) {
         const firstModel = result.models[0];
         if (firstModel) {
           setSelectedModel(firstModel.id);
