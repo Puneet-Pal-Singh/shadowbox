@@ -120,7 +120,7 @@ class ProviderService {
     sessionListeners.add(listener);
 
     // Return unsubscribe function
-    return () => {
+    return (): void => {
       sessionListeners.delete(listener);
       if (sessionListeners.size === 0) {
         this.listeners.delete(sessionId);
@@ -137,7 +137,9 @@ class ProviderService {
   ): void {
     const sessionListeners = this.listeners.get(sessionId);
     if (sessionListeners) {
-      sessionListeners.forEach((listener) => listener(config));
+      sessionListeners.forEach((listener): void => {
+        listener(config);
+      });
     }
   }
 }
