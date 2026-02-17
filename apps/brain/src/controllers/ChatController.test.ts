@@ -35,6 +35,42 @@ describe("ChatController DO runtime migration", () => {
     const body = (await response.json()) as { error: string };
     expect(body.error).toContain("RUN_ENGINE_RUNTIME binding is unavailable");
   });
+
+  it("forwards provider/model override fields to runtime payload", async () => {
+    const runtime = createMockRuntimeNamespace();
+    const env = createEnv(runtime.namespace);
+    const requestWithProviderModel = new Request(
+      "https://brain.local/chat",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sessionId: "session-1",
+          runId: VALID_RUN_ID,
+          providerId: "openai",
+          modelId: "gpt-4",
+          messages: [
+            {
+              role: "user",
+              content: "hello",
+            },
+          ],
+        }),
+      }
+    );
+
+    const response = await ChatController.handle(requestWithProviderModel, env);
+
+    expect(response.status).toBe(200);
+    const fetchCall = runtime.fetch.mock.calls[0];
+    expect(fetchCall).toBeDefined();
+
+    // Verify the payload sent to runtime includes provider/model
+    const payloadStr = (fetchCall[1] as { body: string }).body;
+    const payload = JSON.parse(payloadStr);
+    expect(payload.input.providerId).toBe("openai");
+    expect(payload.input.modelId).toBe("gpt-4");
+  });
 });
 
 function createChatRequest(): Request {

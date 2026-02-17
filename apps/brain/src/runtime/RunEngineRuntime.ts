@@ -49,9 +49,24 @@ const ExecuteRunPayloadSchema = z.object({
     agentType: z.enum(["coding", "review", "ci"]),
     prompt: z.string().min(1),
     sessionId: z.string().min(1),
+    providerId: z.string().optional(),
+    modelId: z.string().optional(),
   }),
   messages: z.array(CoreMessageSchema),
 });
+
+// Validate provider/model override pair: both must be set or both must be omitted
+const validateProviderModelPair = (payload: ExecuteRunPayload) => {
+  const { providerId, modelId } = payload.input;
+  const hasProviderId = providerId !== undefined && providerId !== null;
+  const hasModelId = modelId !== undefined && modelId !== null;
+  
+  if (hasProviderId !== hasModelId) {
+    throw new Error(
+      "Provider and model overrides must both be set or both be omitted"
+    );
+  }
+};
 
 type ExecuteRunPayload = z.infer<typeof ExecuteRunPayloadSchema>;
 
@@ -74,6 +89,7 @@ export class RunEngineRuntime extends DurableObject {
     let payload: ExecuteRunPayload;
     try {
       payload = ExecuteRunPayloadSchema.parse(await request.json());
+      validateProviderModelPair(payload);
     } catch (error: unknown) {
       const message =
         error instanceof Error ? error.message : "Invalid payload";
