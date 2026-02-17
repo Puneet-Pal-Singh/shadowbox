@@ -62,10 +62,27 @@ describe("ProviderController", () => {
       });
 
       const response = await ProviderController.connect(request, mockEnv);
-      expect(response.status).toBe(200);
+      expect(response.status).toBe(400);
 
       const data = await response.json();
-      expect(data.status).toBe("failed");
+      expect(data.error).toContain("at least 10 characters");
+    });
+
+    it("should fail with invalid API key format", async () => {
+      const request = new Request("http://localhost/api/providers/connect", {
+        method: "POST",
+        body: JSON.stringify({
+          providerId: "openai",
+          apiKey: "sk-test@!#$%^invalid",
+        }),
+        headers: { "Content-Type": "application/json" },
+      });
+
+      const response = await ProviderController.connect(request, mockEnv);
+      expect(response.status).toBe(400);
+
+      const data = await response.json();
+      expect(data.error).toContain("invalid characters");
     });
 
     it("should fail with invalid provider ID", async () => {
