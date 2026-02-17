@@ -48,15 +48,59 @@ bash scripts/review-script/fetch-review-comments.sh
 ```
 
 **Output**: `scripts/review-script/ai-review-pr-<number>.md`
+If a file for that PR already exists, the script creates `ai-review-pr-<number>-2.md`, `-3.md`, etc.
+
+### Common Commands (Recommended)
+
+```bash
+# Wait up to 8 minutes for delayed bot comments
+pnpm review:sync -- --wait-minutes 8
+
+# Fetch all commenters (debug mode)
+pnpm review:sync -- --wait-minutes 2 --bots all
+
+# More token-efficient output for agents
+pnpm review:sync -- --wait-minutes 2 --max-body-chars 600
+```
+
+### Why `--` is required with pnpm
+
+`pnpm review:sync` runs the package script.  
+The extra `--` tells pnpm: "everything after this goes to `fetch-review-comments.sh`".
+
+```bash
+# Correct
+pnpm review:sync -- --wait-minutes 8
+
+# Incorrect (flags may not be passed as expected)
+pnpm review:sync --wait-minutes 8
+```
+
+### Why this is better than screenshots
+
+- Text output is more token-efficient and easier for agents to parse than OCR from screenshots.
+- The script now defaults to **line-level review comments only**, which removes large PR summary noise.
+- Compact mode truncates comment bodies for faster agent processing.
+- Output file names are dynamic per PR (`ai-review-pr-43.md`, then `ai-review-pr-43-2.md`, etc.).
+
+### PR #43 Snapshot (Recent Iteration)
+
+- Initial broad output (`review.md`) was about **1260 lines** and too noisy.
+- Current focused output (`ai-review-pr-43.md`) is about **765 lines** and much more actionable.
+- Recommended command for low-token agent input:
+
+```bash
+pnpm review:sync -- --wait-minutes 2 --max-body-chars 600
+```
 
 ### Wait for Reviews (Polling)
 
 ```bash
 # Wait up to 8 minutes for bot reviews to complete
-pnpm review:sync --wait-minutes 8 --poll-seconds 20
+pnpm review:sync -- --wait-minutes 8 --poll-seconds 20
 
 # Stop waiting once you have at least 5 comments
-pnpm review:sync --wait-minutes 10 --min-comments 5
+pnpm review:sync -- --wait-minutes 10 --min-comments 5
 ```
 
 ### Custom Repository & PR
@@ -196,7 +240,7 @@ gh pr create --title "feat: your feature"
 
 ```bash
 # Fetch after giving bots 5-10 minutes to analyze
-pnpm review:sync --wait-minutes 8
+pnpm review:sync -- --wait-minutes 8
 ```
 
 ### Step 3: Review findings
@@ -216,9 +260,10 @@ git push
 ### Step 5: Re-run review (if needed)
 
 ```bash
-rm scripts/review-script/ai-review-pr-<number>.md  # Remove old report
-pnpm review:sync  # Fetch fresh review data
+pnpm review:sync -- --wait-minutes 2  # Fetch fresh review data
 ```
+
+The script auto-creates a new file name for the same PR (for example, `ai-review-pr-43-2.md`).
 
 ## Features
 
