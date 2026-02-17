@@ -52,5 +52,6 @@ dist/
 *.tsbuildinfo
 
 # Internal planning files
+local/
 tasks/
 plans/
