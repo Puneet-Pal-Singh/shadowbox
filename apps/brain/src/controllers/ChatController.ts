@@ -9,6 +9,8 @@ interface ChatRequestBody {
   sessionId?: string;
   agentId?: string;
   runId?: string;
+  providerId?: string;
+  modelId?: string;
 }
 
 interface ChatRequest {
@@ -138,6 +140,8 @@ export class ChatController {
         agentType: mapAgentIdToType(body.agentId),
         prompt,
         sessionId,
+        providerId: body.providerId,
+        modelId: body.modelId,
       };
 
       const doResponse = await ChatController.executeViaRunEngineDurableObject(
