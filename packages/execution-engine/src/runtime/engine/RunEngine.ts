@@ -188,6 +188,7 @@ export class RunEngine implements IRunEngine {
           options.runId,
           options.sessionId,
           this.taskRepo,
+          this.runRepo,
         )
       : new DefaultTaskExecutor();
     this.scheduler =
@@ -574,6 +575,8 @@ Provide a concise summary of what was accomplished.`;
             content: synthesisPrompt,
           },
         ],
+        model: run.input.modelId,
+        providerId: run.input.providerId,
         temperature: 0.7,
       });
 

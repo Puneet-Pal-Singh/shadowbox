@@ -114,6 +114,7 @@ export class LLMGateway implements ILLMGateway {
       system: req.system,
       tools: req.tools,
       model: req.model,
+      providerId: req.providerId,
       temperature: req.temperature,
       onFinish: async (finalResult) => {
         const usage = this.normalizeUsage(finalResult.usage, req.model);

@@ -56,7 +56,7 @@ export class ReviewAgent extends BaseAgent {
       case "review":
         return this.executeReview(task, context);
       default:
-        throw new UnsupportedTaskTypeError(task.type);
+        throw new UnsupportedTaskTypeError(String(task.type));
     }
   }
 
@@ -148,6 +148,8 @@ Rules:
         },
         { role: "user", content: String(result) },
       ],
+      model: context.modelId,
+      providerId: context.providerId,
     });
 
     return this.buildSuccessResult(task.id, analysisResult.text);
@@ -173,6 +175,8 @@ Rules:
         },
         { role: "user", content: task.input.description },
       ],
+      model: context.modelId,
+      providerId: context.providerId,
     });
 
     return this.buildSuccessResult(task.id, reviewResult.text);

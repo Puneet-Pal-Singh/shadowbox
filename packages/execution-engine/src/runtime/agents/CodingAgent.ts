@@ -62,9 +62,9 @@ export class CodingAgent extends BaseAgent {
       case "git":
         return this.executeGit(task);
       case "review":
-        return this.executeReview(task, context.sessionId);
+        return this.executeReview(task, context);
       default:
-        throw new UnsupportedTaskTypeError(task.type);
+        throw new UnsupportedTaskTypeError(String(task.type));
     }
   }
 
@@ -207,12 +207,12 @@ Rules:
 
   private async executeReview(
     task: Task,
-    sessionId: string,
+    context: ExecutionContext,
   ): Promise<TaskResult> {
     const result = await this.llmGateway.generateText({
       context: {
         runId: task.runId,
-        sessionId,
+        sessionId: context.sessionId,
         taskId: task.id,
         agentType: this.type,
         phase: "task",
@@ -224,6 +224,8 @@ Rules:
         },
         { role: "user", content: task.input.description },
       ],
+      model: context.modelId,
+      providerId: context.providerId,
     });
     return this.buildSuccessResult(task.id, result.text);
   }

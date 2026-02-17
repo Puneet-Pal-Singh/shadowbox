@@ -129,6 +129,8 @@ export interface ExecutionContext {
   runId: string;
   sessionId: string;
   dependencies: TaskResult[];
+  modelId?: string;
+  providerId?: string;
 }
 
 export interface SynthesisContext {
