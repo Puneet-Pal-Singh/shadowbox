@@ -1,6 +1,7 @@
 import { useChat as useVercelChat, type Message } from "@ai-sdk/react";
 import { useCallback, useMemo, useState, type FormEvent } from "react";
 import { chatStreamPath } from "../lib/platform-endpoints.js";
+import { providerService } from "../services/ProviderService";
 
 interface UseChatCoreResult {
   messages: Message[];
@@ -19,6 +20,7 @@ interface UseChatCoreResult {
  * useChatCore
  * Minimal wrapper around Vercel AI SDK with UUID runId generation
  * Single Responsibility: Manage Vercel AI SDK integration and run lifecycle
+ * Now includes provider/model selection from session state
  */
 export function useChatCore(
   sessionId: string,
@@ -32,6 +34,12 @@ export function useChatCore(
   // Stable instance key - changes when runId changes
   const instanceKey = useMemo(() => `chat-${runId}`, [runId]);
 
+  // Get session model config (provider/model selection)
+  const sessionModelConfig = useMemo(
+    () => providerService.getSessionModelConfig(sessionId),
+    [sessionId],
+  );
+
   const {
     messages,
     input,
@@ -42,7 +50,16 @@ export function useChatCore(
     append,
   } = useVercelChat({
     api: chatStreamPath(),
-    body: { sessionId, runId },
+    body: {
+      sessionId,
+      runId,
+      ...(sessionModelConfig.providerId && {
+        providerId: sessionModelConfig.providerId,
+      }),
+      ...(sessionModelConfig.modelId && {
+        modelId: sessionModelConfig.modelId,
+      }),
+    },
     initialMessages: [],
     id: instanceKey,
     onError: (error: Error) => {
