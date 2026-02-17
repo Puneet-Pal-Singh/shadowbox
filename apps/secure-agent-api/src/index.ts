@@ -195,7 +195,31 @@ export default {
         // Dynamic Tool Discovery for the Brain
         const tools = await stub.getManifest();
         response = Response.json({ tools });
+      } else if (url.pathname.match(/^\/api\/chat\/history\/([^/]+)$/)) {
+        // CANONICAL: GET /api/chat/history/:runId
+        const runIdMatch = url.pathname.match(/^\/api\/chat\/history\/(.+)$/);
+        const runId = runIdMatch ? decodeURIComponent(runIdMatch[1]) : null;
+
+        if (!runId) {
+          response = new Response("Missing runId in path", { status: 400 });
+        } else {
+          const cursor = url.searchParams.get("cursor") || undefined;
+          const limitStr = url.searchParams.get("limit") || "50";
+          const limit = Math.min(Math.max(1, parseInt(limitStr, 10)), 100);
+
+          if (request.method === "GET") {
+            const historyResult = await stub.getHistory(runId, cursor, limit);
+            response = Response.json(historyResult);
+          } else {
+            response = new Response("Method Not Allowed", { status: 405 });
+          }
+        }
       } else if (url.pathname === "/chat") {
+        // LEGACY (deprecated): Keep for compatibility window
+        // TODO: Remove in M1.3c (target: March 2026)
+        console.warn(
+          "[secure-api] /chat endpoint is deprecated; use GET /api/chat/history/:runId instead",
+        );
         const queryValidation = validateQueryParams(
           url,
           ChatHistoryQuerySchema,
