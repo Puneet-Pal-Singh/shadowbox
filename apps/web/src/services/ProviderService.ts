@@ -16,7 +16,14 @@ import type {
 } from "../types/provider";
 import { ProviderApiClient } from "./ProviderApiClient";
 
+type SessionModelConfigListener = (config: {
+  providerId?: string;
+  modelId?: string;
+}) => void;
+
 class ProviderService {
+  private listeners: Map<string, Set<SessionModelConfigListener>> = new Map();
+
   constructor() {
     // No-op: Session model config is stored separately
   }
@@ -75,6 +82,7 @@ class ProviderService {
 
   /**
    * Set session-level model config in localStorage
+   * Notifies all listeners of the change
    */
   setSessionModelConfig(
     sessionId: string,
@@ -88,11 +96,50 @@ class ProviderService {
         JSON.stringify(config),
       );
       console.log(`[provider/sessionConfig] Session ${sessionId} updated`);
+
+      // Notify all listeners for this session
+      this.notifyListeners(sessionId, config);
     } catch (e) {
       console.error("[provider/sessionConfig] Failed to save config:", e);
     }
   }
 
+  /**
+   * Subscribe to session model config changes
+   * Returns unsubscribe function
+   */
+  subscribeToSessionConfig(
+    sessionId: string,
+    listener: SessionModelConfigListener,
+  ): () => void {
+    if (!this.listeners.has(sessionId)) {
+      this.listeners.set(sessionId, new Set());
+    }
+
+    const sessionListeners = this.listeners.get(sessionId)!;
+    sessionListeners.add(listener);
+
+    // Return unsubscribe function
+    return () => {
+      sessionListeners.delete(listener);
+      if (sessionListeners.size === 0) {
+        this.listeners.delete(sessionId);
+      }
+    };
+  }
+
+  /**
+   * Notify all listeners of a config change
+   */
+  private notifyListeners(
+    sessionId: string,
+    config: { providerId?: string; modelId?: string },
+  ): void {
+    const sessionListeners = this.listeners.get(sessionId);
+    if (sessionListeners) {
+      sessionListeners.forEach((listener) => listener(config));
+    }
+  }
 }
 
 export const providerService = new ProviderService();
