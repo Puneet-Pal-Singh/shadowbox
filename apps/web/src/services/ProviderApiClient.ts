@@ -23,6 +23,19 @@ import type {
  */
 export class ProviderApiClient {
   /**
+   * Safely parse response JSON with text fallback for error messages
+   */
+  private static async parseErrorResponse(response: Response): Promise<string> {
+    try {
+      const data = await response.json();
+      return data.error || JSON.stringify(data);
+    } catch {
+      // If JSON parsing fails, return plain text
+      return await response.text();
+    }
+  }
+
+  /**
    * Connect a provider with backend validation
    */
   static async connect(
@@ -37,9 +50,14 @@ export class ProviderApiClient {
       });
 
       if (!response.ok) {
-        const error = await response.json();
-        console.error("[provider/api] Connect failed:", error);
-        throw new Error(error.error || "Failed to connect provider");
+        const errorMessage = await ProviderApiClient.parseErrorResponse(response);
+        console.error(
+          `[provider/api] Connect failed (${response.status}):`,
+          errorMessage,
+        );
+        throw new Error(
+          `Failed to connect provider (${response.status}): ${errorMessage}`,
+        );
       }
 
       const data = await response.json();
@@ -69,9 +87,14 @@ export class ProviderApiClient {
       });
 
       if (!response.ok) {
-        const error = await response.json();
-        console.error("[provider/api] Disconnect failed:", error);
-        throw new Error(error.error || "Failed to disconnect provider");
+        const errorMessage = await ProviderApiClient.parseErrorResponse(response);
+        console.error(
+          `[provider/api] Disconnect failed (${response.status}):`,
+          errorMessage,
+        );
+        throw new Error(
+          `Failed to disconnect provider (${response.status}): ${errorMessage}`,
+        );
       }
 
       const data = await response.json();
@@ -96,9 +119,14 @@ export class ProviderApiClient {
       });
 
       if (!response.ok) {
-        const error = await response.json();
-        console.error("[provider/api] Status fetch failed:", error);
-        throw new Error(error.error || "Failed to fetch provider status");
+        const errorMessage = await ProviderApiClient.parseErrorResponse(response);
+        console.error(
+          `[provider/api] Status fetch failed (${response.status}):`,
+          errorMessage,
+        );
+        throw new Error(
+          `Failed to fetch provider status (${response.status}): ${errorMessage}`,
+        );
       }
 
       const data = await response.json();
@@ -129,12 +157,14 @@ export class ProviderApiClient {
       });
 
       if (!response.ok) {
-        const error = await response.json();
+        const errorMessage = await ProviderApiClient.parseErrorResponse(response);
         console.error(
-          "[provider/api] Models fetch failed:",
-          error,
+          `[provider/api] Models fetch failed (${response.status}):`,
+          errorMessage,
         );
-        throw new Error(error.error || "Failed to fetch models");
+        throw new Error(
+          `Failed to fetch models (${response.status}): ${errorMessage}`,
+        );
       }
 
       const data = await response.json();
