@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { cn } from "../../lib/utils";
+import { getMuscleHttpBase } from "../../lib/platform-endpoints";
 
 interface ArtifactPreviewProps {
   title: string;
@@ -21,7 +22,10 @@ export function ArtifactPreview({ title, content: initialContent, onOpen, status
       (async () => {
         setIsLoadingContent(true);
         try {
-          const res = await fetch(`http://localhost:8787/artifact?key=${initialContent.key}`);
+          const res = await fetch(`${getMuscleHttpBase()}/artifact?key=${encodeURIComponent(initialContent.key)}`);
+          if (!res.ok) {
+            throw new Error(`Artifact fetch failed: ${res.status}`);
+          }
           const text = await res.text();
           setContent(text);
           setIsLoadingContent(false);
@@ -32,7 +36,6 @@ export function ArtifactPreview({ title, content: initialContent, onOpen, status
         }
       })();
     } else if (typeof initialContent === 'string') {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setContent(initialContent);
     }
   }, [initialContent]);

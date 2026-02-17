@@ -191,6 +191,8 @@ export class ChatController {
         agentType: AgentType;
         prompt: string;
         sessionId: string;
+        providerId?: string;
+        modelId?: string;
       };
       messages: CoreMessage[];
     },

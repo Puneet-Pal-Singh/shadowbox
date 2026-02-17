@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useImperativeHandle, forwardRef } from 'react';
 import { Folder, File, ChevronRight, ChevronDown, Loader2 } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { terminalCommandPath } from '../lib/platform-endpoints';
 
 interface FileItem {
   name: string;
@@ -28,7 +29,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(
 
     const fetchFilesForPath = useCallback(async (path: string, depth: number): Promise<FileItem[]> => {
       try {
-        const res = await fetch(`http://localhost:8787/?session=${sessionId}`, {
+        const res = await fetch(terminalCommandPath(sessionId), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({

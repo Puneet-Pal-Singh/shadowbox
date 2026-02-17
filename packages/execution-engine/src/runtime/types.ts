@@ -30,6 +30,8 @@ export interface RunInput {
   agentType: AgentType;
   prompt: string;
   sessionId: string;
+  providerId?: string;
+  modelId?: string;
   metadata?: Record<string, unknown>;
 }
 

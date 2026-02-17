@@ -1,6 +1,7 @@
 import { useCallback } from "react";
 import { useGitHub } from "../../github/GitHubContextProvider";
 import { getFileContent } from "../../../services/GitHubService";
+import { terminalCommandPath } from "../../../lib/platform-endpoints";
 import type { SelectedFile } from "./useWorkspaceState";
 
 interface UseFileLoaderProps {
@@ -26,7 +27,7 @@ export function useFileLoader({
       setIsViewingContent(true);
       localStorage.setItem("shadowbox_last_viewed_path", path);
       try {
-        const res = await fetch(`http://localhost:8787/?session=${sandboxId}`, {
+        const res = await fetch(terminalCommandPath(sandboxId), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({

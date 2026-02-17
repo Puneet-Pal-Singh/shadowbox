@@ -48,9 +48,9 @@ dist/
 .turbo/
 
 .archive/
-# tasks/
 *.tsbuildinfo
 
 # Internal planning files
+local/
 tasks/
 plans/

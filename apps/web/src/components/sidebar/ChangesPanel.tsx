@@ -7,6 +7,7 @@ import { useGitCommit } from "../../hooks/useGitCommit";
 import { ChangesList } from "../diff/ChangesList";
 import { DiffViewer } from "../diff/DiffViewer";
 import { useRunContext } from "../../hooks/useRunContext";
+import { getMuscleHttpBase } from "../../lib/platform-endpoints";
 
 interface ChangesPanelProps {
   className?: string;
@@ -53,14 +54,12 @@ export function ChangesPanel({
     if (!runId) return;
 
     try {
-      const response = await fetch(
-        `/api/git/${staged ? "stage" : "unstage"}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ runId, files: [path] }),
-        },
-      );
+      const endpoint = `${getMuscleHttpBase()}/api/git/${staged ? "stage" : "unstage"}`;
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ runId, files: [path] }),
+      });
 
       if (response.ok) {
         const newSet = new Set(stagedFiles);
