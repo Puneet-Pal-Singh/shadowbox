@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useSessionManager } from "./hooks/useSessionManager";
+import { useActiveRun } from "./hooks/useActiveRun";
 import { AgentSidebar } from "./components/layout/AgentSidebar";
 import { Workspace } from "./components/layout/Workspace";
 import { AgentSetup } from "./components/agent/AgentSetup";
@@ -16,6 +17,7 @@ import type { Repository } from "./services/GitHubService";
 import { Resizer } from "./components/ui/Resizer";
 import { uiShellStore } from "./store/uiShellStore";
 import type { RunInboxItem } from "./components/run/RunInbox";
+import { SessionStateService } from "./services/SessionStateService";
 
 /**
  * Main App Component
@@ -55,8 +57,13 @@ function AppContent() {
     setContext,
     clearContext,
     isLoaded: isGitHubContextLoaded,
+    saveSessionContext,
   } = useGitHub();
   const [showRepoPicker, setShowRepoPicker] = useState(false);
+
+  // Get active session and run for workspace rendering
+  const activeSession = sessions.find((s) => s.id === activeSessionId);
+  const activeRunId = useActiveRun(activeSession || null);
 
   // Convert sessions to run inbox items for shell navigation
   // This supports the run-centric UI model and will be passed to AppShell in future PRs
@@ -108,31 +115,44 @@ function AppContent() {
   }, [activeSessionId, sessions]);
 
   // Sync GitHub context with active session
+  // Uses SessionStateService for session-scoped storage
   useEffect(() => {
     if (!activeSessionId) return;
 
-    // Try to load context specific to this session
-    const storedSessionContext = localStorage.getItem(
-      `github_context_${activeSessionId}`,
+    // Load session-scoped context from SessionStateService
+    const sessionContext = SessionStateService.loadSessionGitHubContext(
+      activeSessionId,
     );
 
-    if (storedSessionContext) {
-      try {
-        const { repo: storedRepo, branch: storedBranch } =
-          JSON.parse(storedSessionContext);
+    if (sessionContext) {
+      // Reconstruct Repository object from stored context
+      const storedRepo: Repository = {
+        id: 0,
+        name: sessionContext.repoName,
+        full_name: sessionContext.fullName,
+        owner: {
+          login: sessionContext.repoOwner,
+          avatar_url: "",
+        },
+        description: null,
+        private: false,
+        html_url: `https://github.com/${sessionContext.fullName}`,
+        clone_url: `https://github.com/${sessionContext.fullName}.git`,
+        default_branch: sessionContext.branch,
+        stargazers_count: 0,
+        language: null,
+        updated_at: new Date().toISOString(),
+      };
 
-        // Update global context if it differs
-        if (
-          repo?.full_name !== storedRepo.full_name ||
-          branch !== storedBranch
-        ) {
-          console.log(
-            `[App] Switching GitHub context to session ${activeSessionId}: ${storedRepo.full_name}`,
-          );
-          setContext(storedRepo, storedBranch);
-        }
-      } catch (e) {
-        console.error("Failed to parse session GitHub context", e);
+      // Update global context if it differs
+      if (
+        repo?.full_name !== sessionContext.fullName ||
+        branch !== sessionContext.branch
+      ) {
+        console.log(
+          `[App] Switching GitHub context to session ${activeSessionId}: ${sessionContext.fullName}`,
+        );
+        setContext(storedRepo, sessionContext.branch);
       }
     } else {
       // No stored context for this session.
@@ -192,13 +212,12 @@ function AppContent() {
   };
 
   // Get active session name for the header
-  const activeSession = sessions.find((s) => s.id === activeSessionId);
   const taskTitle = activeSession?.name;
   const threadTitle = activeSession?.name;
 
   const handleNewTask = (repositoryName?: string) => {
     console.log("[App] handleNewTask called with:", repositoryName);
-    
+
     // If no repo name provided, try to use the currently active repo
     const targetRepo = repositoryName || repo?.full_name;
 
@@ -210,32 +229,31 @@ function AppContent() {
       // Create a session for this specific repository
       const sessionName = `New Task`;
       const sessionId = createSession(sessionName, targetRepo);
-      
-      // Explicitly clear pending query for new task
-      localStorage.removeItem(`pending_query_${sessionId}`);
-      
+
+      // Clear pending query for new task
+      SessionStateService.clearSessionPendingQuery(sessionId);
+
       setActiveSessionId(sessionId);
 
-      // Sync GitHub context
+      // Sync GitHub context with new session
+      // Use SessionStateService for session-scoped storage
       const otherSessionWithRepo = sessions.find(
         (s) => s.repository === targetRepo,
       );
 
       if (otherSessionWithRepo) {
-        const storedContext = localStorage.getItem(
-          `github_context_${otherSessionWithRepo.id}`,
+        const sessionContext = SessionStateService.loadSessionGitHubContext(
+          otherSessionWithRepo.id,
         );
-        if (storedContext) {
-          localStorage.setItem(`github_context_${sessionId}`, storedContext);
+        if (sessionContext) {
+          SessionStateService.saveSessionGitHubContext(sessionId, sessionContext);
         }
       } else if (repo && repo.full_name === targetRepo) {
-        localStorage.setItem(
-          `github_context_${sessionId}`,
-          JSON.stringify({ repo, branch }),
-        );
+        // Copy current GitHub context to new session
+        saveSessionContext(sessionId);
       }
     } else {
-      // If absolutely no repo is selected, targetRepo is missing, 
+      // If absolutely no repo is selected, targetRepo is missing,
       // or the user has deleted the repo folder
       console.log("[App] No valid target repo found for new task, showing picker");
       setShowRepoPicker(true);
@@ -282,11 +300,13 @@ function AppContent() {
     const sessionId = createSession(sessionName, selectedRepo.full_name);
     setActiveSessionId(sessionId);
 
-    // Store GitHub context for the session
-    localStorage.setItem(
-      `github_context_${sessionId}`,
-      JSON.stringify({ repo: selectedRepo, branch: selectedBranch }),
-    );
+    // Store GitHub context for the session using SessionStateService
+    SessionStateService.saveSessionGitHubContext(sessionId, {
+      repoOwner: selectedRepo.owner.login,
+      repoName: selectedRepo.name,
+      fullName: selectedRepo.full_name,
+      branch: selectedBranch,
+    });
 
     console.log(
       `[App] Selected repository: ${selectedRepo.full_name}@${selectedBranch}, created session: ${sessionId}`,
@@ -328,14 +348,16 @@ function AppContent() {
   }
 
   // Check if current session has a pending query or messages
-  const hasPendingQuery = activeSessionId ? !!localStorage.getItem(`pending_query_${activeSessionId}`) : false;
-  
+  const hasPendingQuery = activeSessionId
+    ? !!SessionStateService.loadSessionPendingQuery(activeSessionId)
+    : false;
+
   // A session is considered to have "started" if:
-  // 1. It has a pending query in localStorage
+  // 1. It has a pending query in session-scoped storage
   // 2. OR its name has been changed from "New Task"
   // 3. OR its status is not "idle"
   const isSessionStarted = activeSession && (
-    hasPendingQuery || 
+    hasPendingQuery ||
     (activeSession.name !== "New Task" && activeSession.name !== "") ||
     (activeSession.status && activeSession.status !== "idle")
   );
@@ -410,10 +432,14 @@ function AppContent() {
                         ? config.task.substring(0, 20) + "..."
                         : config.task;
 
-                    updateSession(activeSessionId, { name, status: 'running' });
-                    localStorage.setItem(`pending_query_${activeSessionId}`, config.task);
+                    updateSession(activeSessionId, { name, status: "running" });
+                    // Store pending query in session-scoped storage
+                    SessionStateService.saveSessionPendingQuery(
+                      activeSessionId,
+                      config.task,
+                    );
                     // Force a re-render to trigger state sync
-                    setActiveSessionId(activeSessionId); 
+                    setActiveSessionId(activeSessionId);
                   }}
                 />
               </motion.div>
@@ -428,7 +454,7 @@ function AppContent() {
               >
                 <Workspace
                   sessionId={activeSessionId}
-                  runId={activeSession?.runId || ""}
+                  runId={activeRunId}
                   repository={activeSession?.repository || ""}
                   isRightSidebarOpen={isRightSidebarOpen}
                   setIsRightSidebarOpen={setIsRightSidebarOpen}
