@@ -521,6 +521,8 @@ export class RunEngine implements IRunEngine {
         sessionId: run.sessionId,
         completedTasks,
         originalPrompt,
+        modelId: run.input.modelId,
+        providerId: run.input.providerId,
       });
     }
     return this.synthesizeResult(run, originalPrompt, memoryContext);
