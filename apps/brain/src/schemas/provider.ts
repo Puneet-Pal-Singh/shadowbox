@@ -10,7 +10,14 @@ export type ProviderId = z.infer<typeof ProviderIdSchema>;
 
 export const ConnectProviderRequestSchema = z.object({
   providerId: ProviderIdSchema,
-  apiKey: z.string().min(1, "API key cannot be empty"),
+  apiKey: z
+    .string()
+    .min(1, "API key cannot be empty")
+    .min(10, "API key must be at least 10 characters")
+    .regex(
+      /^[a-zA-Z0-9\-_]+$/,
+      "API key contains invalid characters (only alphanumeric, hyphens, underscores allowed)",
+    ),
 });
 
 export type ConnectProviderRequest = z.infer<
