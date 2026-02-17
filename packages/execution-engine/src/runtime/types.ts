@@ -136,6 +136,8 @@ export interface SynthesisContext {
   sessionId: string;
   completedTasks: SerializedTask[];
   originalPrompt: string;
+  modelId?: string;
+  providerId?: string;
 }
 
 export interface RuntimeTask {
