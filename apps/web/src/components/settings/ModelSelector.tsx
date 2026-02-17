@@ -3,7 +3,7 @@
  * UI for selecting and configuring model for a session.
  */
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { AlertCircle, ChevronDown } from "lucide-react";
 import { providerService } from "../../services/ProviderService";
 import type { ProviderId, ModelDescriptor } from "../../types/provider";
@@ -27,6 +27,40 @@ export function ModelSelector({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Load models from provider
+  const loadModels = useCallback(
+    async (
+      providerId: ProviderId,
+      selectedModelOverride?: string,
+    ) => {
+      setIsLoading(true);
+      setError(null);
+
+      try {
+        const result = await providerService.getModels(providerId);
+        setModels(result.models);
+
+        // Use the override (from saved config) if provided, otherwise use component state
+        const modelToCheck = selectedModelOverride ?? selectedModel;
+
+        if (result.models.length > 0 && !modelToCheck) {
+          const firstModel = result.models[0];
+          if (firstModel) {
+            setSelectedModel(firstModel.id);
+          }
+        }
+      } catch (e) {
+        setError(
+          e instanceof Error ? e.message : "Failed to load models",
+        );
+        setModels([]);
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [selectedModel],
+  );
+
   // Load saved config and available models
   useEffect(() => {
     const config = providerService.getSessionModelConfig(sessionId);
@@ -41,37 +75,7 @@ export function ModelSelector({
     }
 
     loadModels(providerId, savedModelId);
-  }, [sessionId]);
-
-  const loadModels = async (
-    providerId: ProviderId,
-    selectedModelOverride?: string,
-  ) => {
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      const result = await providerService.getModels(providerId);
-      setModels(result.models);
-
-      // Use the override (from saved config) if provided, otherwise use component state
-      const modelToCheck = selectedModelOverride ?? selectedModel;
-
-      if (result.models.length > 0 && !modelToCheck) {
-        const firstModel = result.models[0];
-        if (firstModel) {
-          setSelectedModel(firstModel.id);
-        }
-      }
-    } catch (e) {
-      setError(
-        e instanceof Error ? e.message : "Failed to load models",
-      );
-      setModels([]);
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  }, [sessionId, loadModels]);
 
   const handleProviderChange = (newProvider: ProviderId) => {
     setSelectedProvider(newProvider);

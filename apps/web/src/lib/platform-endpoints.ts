@@ -173,6 +173,51 @@ export function terminalCommandPath(sessionId: string): string {
 }
 
 /**
+ * Build provider API endpoints
+ * All provider operations are routed through Brain service
+ */
+export function providerConnectPath(): string {
+  return `${getBrainHttpBase()}/api/providers/connect`;
+}
+
+export function providerDisconnectPath(): string {
+  return `${getBrainHttpBase()}/api/providers/disconnect`;
+}
+
+export function providerStatusPath(): string {
+  return `${getBrainHttpBase()}/api/providers/status`;
+}
+
+export function providerModelsPath(): string {
+  return `${getBrainHttpBase()}/api/providers/models`;
+}
+
+/**
+ * Generic endpoint resolver
+ * Maps endpoint keys to their full URLs
+ */
+export function getEndpoint(
+  endpointKey:
+    | "PROVIDER_CONNECT"
+    | "PROVIDER_DISCONNECT"
+    | "PROVIDER_STATUS"
+    | "PROVIDER_MODELS",
+): string {
+  switch (endpointKey) {
+    case "PROVIDER_CONNECT":
+      return providerConnectPath();
+    case "PROVIDER_DISCONNECT":
+      return providerDisconnectPath();
+    case "PROVIDER_STATUS":
+      return providerStatusPath();
+    case "PROVIDER_MODELS":
+      return providerModelsPath();
+    default:
+      throw new Error(`Unknown endpoint: ${endpointKey}`);
+  }
+}
+
+/**
  * Validate all required environment variables at startup
  * Logs warnings for missing env vars (safe to run with defaults in dev)
  */

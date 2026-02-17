@@ -1,6 +1,7 @@
 import { useChat as useVercelChat, type Message } from "@ai-sdk/react";
-import { useCallback, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { chatStreamPath } from "../lib/platform-endpoints.js";
+import { providerService } from "../services/ProviderService";
 
 interface UseChatCoreResult {
   messages: Message[];
@@ -19,6 +20,7 @@ interface UseChatCoreResult {
  * useChatCore
  * Minimal wrapper around Vercel AI SDK with UUID runId generation
  * Single Responsibility: Manage Vercel AI SDK integration and run lifecycle
+ * Now includes provider/model selection from session state (reactive)
  */
 export function useChatCore(
   sessionId: string,
@@ -32,6 +34,34 @@ export function useChatCore(
   // Stable instance key - changes when runId changes
   const instanceKey = useMemo(() => `chat-${runId}`, [runId]);
 
+  // Track session model config reactively with state to update when storage changes
+  const [sessionModelConfig, setSessionModelConfig] = useState(() =>
+    providerService.getSessionModelConfig(sessionId),
+  );
+
+  // Subscribe to config changes when sessionId changes
+  useEffect(() => {
+    // Subscribe to config changes for this session
+    const unsubscribe = providerService.subscribeToSessionConfig(
+      sessionId,
+      (config) => {
+        // Only update if config actually changed (prevent cascading renders)
+        setSessionModelConfig((prev) => {
+          if (
+            prev.providerId === config.providerId &&
+            prev.modelId === config.modelId
+          ) {
+            return prev;
+          }
+          return config;
+        });
+      },
+    );
+
+    // Cleanup subscription when sessionId changes or component unmounts
+    return unsubscribe;
+  }, [sessionId]);
+
   const {
     messages,
     input,
@@ -42,7 +72,16 @@ export function useChatCore(
     append,
   } = useVercelChat({
     api: chatStreamPath(),
-    body: { sessionId, runId },
+    body: {
+      sessionId,
+      runId,
+      ...(sessionModelConfig.providerId && {
+        providerId: sessionModelConfig.providerId,
+      }),
+      ...(sessionModelConfig.modelId && {
+        modelId: sessionModelConfig.modelId,
+      }),
+    },
     initialMessages: [],
     id: instanceKey,
     onError: (error: Error) => {
