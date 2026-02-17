@@ -150,15 +150,18 @@ export class AIService {
   async generateText({
     messages,
     model,
+    providerId,
     temperature = 0.7,
     system,
   }: {
     messages: CoreMessage[];
     model?: string;
+    providerId?: string;
     temperature?: number;
     system?: string;
   }): Promise<GenerateTextResult> {
-    const selectedModel = model ?? this.defaultModel;
+    const selection = this.resolveModelSelection(providerId, model);
+    const selectedModel = selection.model;
 
     const params: GenerationParams = {
       messages,
@@ -184,21 +187,25 @@ export class AIService {
     messages,
     schema,
     model,
+    providerId,
     temperature = 0.2,
   }: {
     messages: CoreMessage[];
     schema: ZodSchema<T>;
     model?: string;
+    providerId?: string;
     temperature?: number;
   }): Promise<GenerateStructuredResult<T>> {
-    const selectedModel = model ?? this.defaultModel;
+    const selection = this.resolveModelSelection(providerId, model);
+    const selectedModel = selection.model;
+    const selectedProvider = selection.provider;
 
     // For structured generation, we use the AI SDK's generateObject
     // This doesn't go through the provider adapter (yet)
     // TODO: Add structured generation support to provider adapters
 
     const result = await generateObject({
-      model: this.getSDKModel(selectedModel),
+      model: this.getSDKModel(selectedModel, selectedProvider),
       messages,
       schema,
       temperature,
@@ -206,7 +213,7 @@ export class AIService {
 
     // Standardize usage
     const usage: LLMUsage = {
-      provider: this.adapter.provider,
+      provider: selectedProvider,
       model: selectedModel,
       promptTokens: result.usage?.promptTokens ?? 0,
       completionTokens: result.usage?.completionTokens ?? 0,
@@ -230,6 +237,7 @@ export class AIService {
     system,
     tools,
     model,
+    providerId,
     temperature = 0.7,
     onFinish,
     onChunk,
@@ -238,6 +246,7 @@ export class AIService {
     system?: string;
     tools?: Record<string, CoreTool>;
     model?: string;
+    providerId?: string;
     temperature?: number;
     onFinish?: (result: GenerateTextResult) => Promise<void> | void;
     onChunk?: (chunk: {
@@ -245,7 +254,8 @@ export class AIService {
       toolCall?: { toolName: string; args: unknown };
     }) => void;
   }): Promise<ReadableStream<Uint8Array>> {
-    const selectedModel = model ?? this.defaultModel;
+    const selection = this.resolveModelSelection(providerId, model);
+    const selectedModel = selection.model;
 
     const params: GenerationParams = {
       messages,
@@ -401,13 +411,13 @@ export class AIService {
 
   /**
    * Get the appropriate AI SDK model for structured generation
-   * Uses the configured provider from env
+   * Uses the configured provider from env or override
    */
-  private getSDKModel(model: string) {
-    const provider = this.env.LLM_PROVIDER ?? "litellm";
+  private getSDKModel(model: string, provider?: string) {
+    const selectedProvider = provider ?? this.env.LLM_PROVIDER ?? "litellm";
     const selectedModel = model ?? this.defaultModel;
 
-    switch (provider) {
+    switch (selectedProvider) {
       case "anthropic":
         return this.getAnthropicModel(selectedModel);
       case "openai":
