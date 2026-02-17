@@ -78,3 +78,26 @@ jobs:
 
       - name: Build project
         run: pnpm build
+
+  m1_3b_reliability_gate:
+    name: M1.3b Reliability Gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 9.0.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Run M1.3b gate
+        run: pnpm gate:m1.3b
