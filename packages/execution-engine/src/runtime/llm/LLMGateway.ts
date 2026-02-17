@@ -39,6 +39,7 @@ export class LLMGateway implements ILLMGateway {
     const result = await this.deps.aiService.generateText({
       messages: req.messages,
       model: req.model,
+      providerId: req.providerId,
       temperature: req.temperature,
       system: req.system,
     });
@@ -68,6 +69,7 @@ export class LLMGateway implements ILLMGateway {
       messages: req.messages,
       schema: req.schema,
       model: req.model,
+      providerId: req.providerId,
       temperature: req.temperature,
     });
 
