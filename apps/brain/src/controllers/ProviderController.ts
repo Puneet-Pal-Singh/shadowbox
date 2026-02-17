@@ -195,13 +195,19 @@ function handleError(
       return errorResponse(req, env, `Validation error: ${error.message}`, 400);
     }
 
+    // Log full error details server-side, but return generic message to client
     console.error(
       `[Provider:${correlationId}] Error in ${operation}:`,
       error,
     );
-    return errorResponse(req, env, error.message, 500);
+    return errorResponse(
+      req,
+      env,
+      "Internal server error",
+      500,
+    );
   }
 
   console.error(`[Provider:${correlationId}] Unknown error in ${operation}:`, error);
-  return errorResponse(req, env, "Internal Server Error", 500);
+  return errorResponse(req, env, "Internal server error", 500);
 }
