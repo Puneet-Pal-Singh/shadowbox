@@ -195,80 +195,104 @@ export default {
         // Dynamic Tool Discovery for the Brain
         const tools = await stub.getManifest();
         response = Response.json({ tools });
-      } else if (url.pathname === "/chat") {
-        const queryValidation = validateQueryParams(
-          url,
-          ChatHistoryQuerySchema,
-        );
-        if (!queryValidation.valid) {
-          response = errorResponse(
-            queryValidation.error,
-            "VALIDATION_ERROR",
-            400,
-          );
-        } else {
-          const { runId, cursor, limit } = queryValidation.data;
+      } else {
+        const historyMatch = url.pathname.match(/^\/api\/chat\/history\/([^/]+)$/);
+        if (historyMatch) {
+          // CANONICAL: GET /api/chat/history/:runId
+          const runId = decodeURIComponent(historyMatch[1]!);
+          const cursor = url.searchParams.get("cursor") || undefined;
+          const limitStr = url.searchParams.get("limit") || "50";
+          const limitNum = parseInt(limitStr, 10);
+          const limit = Number.isNaN(limitNum)
+            ? 50
+            : Math.min(Math.max(1, limitNum), 100);
 
           if (request.method === "GET") {
             const historyResult = await stub.getHistory(runId, cursor, limit);
             response = Response.json(historyResult);
-          } else if (request.method === "POST") {
-            const bodyValidation = await validateRequestBody(
-              request,
-              ChatAppendRequestSchema,
-            );
-            if (!bodyValidation.valid) {
-              response = errorResponse(
-                bodyValidation.error,
-                "VALIDATION_ERROR",
-                400,
-              );
-            } else {
-              const { message, messages, idempotencyKey } = bodyValidation.data;
-              const requestIdempotencyKey =
-                idempotencyKey ||
-                request.headers.get("X-Idempotency-Key") ||
-                undefined;
-
-              if (message) {
-                await stub.appendMessage(runId, message, requestIdempotencyKey);
-              } else if (messages) {
-                await stub.saveHistory(runId, messages, requestIdempotencyKey);
-              }
-              response = Response.json({ success: true });
-            }
           } else {
             response = new Response("Method Not Allowed", { status: 405 });
           }
-        }
-      } else if (url.pathname === "/artifact") {
-        const key = url.searchParams.get("key");
-        if (!key) {
-          response = new Response("Missing artifact key", { status: 400 });
-        } else {
-          const content = await stub.getArtifact(key);
-          if (content === null) {
-            response = new Response("Artifact not found", { status: 404 });
+        } else if (url.pathname === "/chat") {
+          // LEGACY (deprecated): Keep for compatibility window
+          // TODO: Remove in M1.3c (target: March 2026)
+          console.warn(
+            "[secure-api] /chat endpoint is deprecated; use GET /api/chat/history/:runId instead",
+          );
+          const queryValidation = validateQueryParams(
+            url,
+            ChatHistoryQuerySchema,
+          );
+          if (!queryValidation.valid) {
+            response = errorResponse(
+              queryValidation.error,
+              "VALIDATION_ERROR",
+              400,
+            );
           } else {
-            response = new Response(content, { status: 200 });
-          }
-        }
-      } else if (request.method === "POST") {
-        // Command Execution
-        const validation = await validateRequestBody(
-          request,
-          ExecutionBodySchema,
-        );
+            const { runId, cursor, limit } = queryValidation.data;
 
-        if (!validation.valid) {
-          response = errorResponse(validation.error, "VALIDATION_ERROR", 400);
+            if (request.method === "GET") {
+              const historyResult = await stub.getHistory(runId, cursor, limit);
+              response = Response.json(historyResult);
+            } else if (request.method === "POST") {
+              const bodyValidation = await validateRequestBody(
+                request,
+                ChatAppendRequestSchema,
+              );
+              if (!bodyValidation.valid) {
+                response = errorResponse(
+                  bodyValidation.error,
+                  "VALIDATION_ERROR",
+                  400,
+                );
+              } else {
+                const { message, messages, idempotencyKey } = bodyValidation.data;
+                const requestIdempotencyKey =
+                  idempotencyKey ||
+                  request.headers.get("X-Idempotency-Key") ||
+                  undefined;
+
+                if (message) {
+                  await stub.appendMessage(runId, message, requestIdempotencyKey);
+                } else if (messages) {
+                  await stub.saveHistory(runId, messages, requestIdempotencyKey);
+                }
+                response = Response.json({ success: true });
+              }
+            } else {
+              response = new Response("Method Not Allowed", { status: 405 });
+            }
+          }
+        } else if (url.pathname === "/artifact") {
+          const key = url.searchParams.get("key");
+          if (!key) {
+            response = new Response("Missing artifact key", { status: 400 });
+          } else {
+            const content = await stub.getArtifact(key);
+            if (content === null) {
+              response = new Response("Artifact not found", { status: 404 });
+            } else {
+              response = new Response(content, { status: 200 });
+            }
+          }
+        } else if (request.method === "POST") {
+          // Command Execution
+          const validation = await validateRequestBody(
+            request,
+            ExecutionBodySchema,
+          );
+
+          if (!validation.valid) {
+            response = errorResponse(validation.error, "VALIDATION_ERROR", 400);
+          } else {
+            const { plugin, payload } = validation.data;
+            const result = await stub.run(plugin, payload);
+            response = Response.json(result);
+          }
         } else {
-          const { plugin, payload } = validation.data;
-          const result = await stub.run(plugin, payload);
-          response = Response.json(result);
+          response = new Response("Route Not Found", { status: 404 });
         }
-      } else {
-        response = new Response("Route Not Found", { status: 404 });
       }
 
       // 4. Final step: Inject CORS into the generated response

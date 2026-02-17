@@ -4,6 +4,7 @@
 
 import type { Task, TaskRepository } from "../task/index.js";
 import type { TaskResult, TaskOutput, IAgent } from "../types.js";
+import type { RunRepository } from "../run/index.js";
 import type { ITaskExecutor } from "../orchestration/index.js";
 
 /**
@@ -37,6 +38,7 @@ export class AgentTaskExecutor implements ITaskExecutor {
     private runId: string,
     private sessionId: string,
     private taskRepo: TaskRepository,
+    private runRepo: RunRepository,
   ) {}
 
   async execute(task: Task): Promise<TaskResult> {
@@ -45,11 +47,21 @@ export class AgentTaskExecutor implements ITaskExecutor {
     );
 
     const dependencies = await this.resolveDependencies(task);
+    
+    // TODO: Cache run data in constructor to avoid repeated getById calls
+    // Currently fetches on every task execution; can be optimized by passing
+    // modelId/providerId through RunEngine constructor
+    const run = await this.runRepo.getById(this.runId);
+    if (!run) {
+      throw new Error(`[task/executor] Run not found: ${this.runId}`);
+    }
 
     return this.agent.executeTask(task, {
       runId: this.runId,
       sessionId: this.sessionId,
       dependencies,
+      modelId: run.input.modelId,
+      providerId: run.input.providerId,
     });
   }
 

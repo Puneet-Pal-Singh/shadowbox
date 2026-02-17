@@ -60,10 +60,20 @@
 	/**
 	 * Environment Variables
 	 * https://developers.cloudflare.com/workers/wrangler/configuration/#environment-variables
+	 * 
+	 * For local development, create a .dev.vars file in this directory.
+	 * See .dev.vars.example for required configuration.
+	 * 
+	 * CORS Configuration:
+	 * - CORS_ALLOWED_ORIGINS: Comma-separated list of allowed origins for production
+	 * - CORS_ALLOW_DEV_ORIGINS: Set to "true" to allow localhost/127.0.0.1/::1 in development
+	 * 
 	 * Note: Use secrets to store sensitive data.
 	 * https://developers.cloudflare.com/workers/configuration/secrets/
 	 */
-	// "vars": {  "MY_VARIABLE": "production_value" }
+	"vars": {
+		"CORS_ALLOW_DEV_ORIGINS": "false"
+	}
 	/**
 	 * Static Assets
 	 * https://developers.cloudflare.com/workers/static-assets/binding/

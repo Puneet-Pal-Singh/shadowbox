@@ -6,6 +6,7 @@ import { RunEngine } from "../core/engine/RunEngine";
 import { tagRuntimeStateSemantics } from "@shadowbox/execution-engine/runtime";
 import type { Env } from "../types/ai";
 import { AIService } from "../services/AIService";
+import { ProviderConfigService } from "../services/ProviderConfigService";
 import { ExecutionService } from "../services/ExecutionService";
 import { AgentRegistry, CodingAgent, ReviewAgent } from "../core/agents";
 import { SessionMemoryClient } from "../services/memory/SessionMemoryClient";
@@ -219,7 +220,8 @@ export class RunEngineRuntime extends DurableObject {
     llmRuntimeService: LLMRuntimeAIService;
     llmGateway: LLMGateway;
   } {
-    const aiService = new AIService(env);
+    const providerConfigService = new ProviderConfigService(env);
+    const aiService = new AIService(env, providerConfigService);
 
     const llmRuntimeService: LLMRuntimeAIService = {
       getProvider: () => aiService.getProvider(),

@@ -127,6 +127,8 @@ Generate a plan to accomplish this request.`;
         },
         messages,
         schema: PlanSchema,
+        model: run.input.modelId,
+        providerId: run.input.providerId,
         temperature: 0.2, // Deterministic planning
       });
       return result.object as Plan;

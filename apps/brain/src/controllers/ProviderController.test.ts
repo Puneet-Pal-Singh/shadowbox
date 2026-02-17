@@ -6,6 +6,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { ProviderController } from "./ProviderController";
 import type { Env } from "../types/ai";
+import { ProviderConfigService } from "../services/ProviderConfigService";
 
 const mockEnv: Env = {
   RUN_ENGINE_RUNTIME: {} as any,
@@ -15,6 +16,10 @@ const mockEnv: Env = {
 } as unknown as Env;
 
 describe("ProviderController", () => {
+  beforeEach(() => {
+    ProviderConfigService.resetForTests();
+  });
+
   describe("connect", () => {
     it("should connect provider with valid API key", async () => {
       const request = new Request("http://localhost/api/providers/connect", {

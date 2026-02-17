@@ -16,6 +16,7 @@ export interface LLMCallContext {
 export interface LLMTextRequest {
   context: LLMCallContext;
   model?: string;
+  providerId?: string;
   messages: CoreMessage[];
   temperature?: number;
   system?: string;
@@ -25,6 +26,7 @@ export interface LLMTextRequest {
 export interface LLMStructuredRequest<T> {
   context: LLMCallContext;
   model?: string;
+  providerId?: string;
   messages: CoreMessage[];
   schema: ZodSchema<T>;
   temperature?: number;
@@ -56,6 +58,7 @@ export interface LLMRuntimeAIService {
   generateText(input: {
     messages: CoreMessage[];
     model?: string;
+    providerId?: string;
     temperature?: number;
     system?: string;
   }): Promise<{ text: string; usage: LLMUsage }>;
@@ -63,6 +66,7 @@ export interface LLMRuntimeAIService {
     messages: CoreMessage[];
     schema: ZodSchema<T>;
     model?: string;
+    providerId?: string;
     temperature?: number;
   }): Promise<{ object: T; usage: LLMUsage }>;
   createChatStream(input: {
@@ -70,6 +74,7 @@ export interface LLMRuntimeAIService {
     system?: string;
     tools?: Record<string, CoreTool>;
     model?: string;
+    providerId?: string;
     temperature?: number;
     onFinish?: (result: { usage: LLMUsage }) => void | Promise<void>;
   }): Promise<ReadableStream<Uint8Array>>;

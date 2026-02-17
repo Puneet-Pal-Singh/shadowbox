@@ -136,12 +136,17 @@ export function gitStatusPath(runId: string): string {
 
 /**
  * Build the full git stage/unstage endpoint URL
- * Used for staging/unstaging files via Muscle
+ * Used for staging/unstaging files via Brain (proxied to Muscle)
+ * 
+ * Canonical endpoint: POST /api/git/stage with unified contract
+ * Request body: { files: string[], unstage?: boolean }
+ * - unstage: false (or omitted) = stage files
+ * - unstage: true = unstage (restore) files
+ * 
  * Path: /api/git/stage
- * Contract: { files: string[], unstage?: boolean }
  */
-export function gitStagePath(runId: string): string {
-  return `${getMuscleHttpBase()}/api/git/stage/${encodeURIComponent(runId)}`;
+export function gitStagePath(): string {
+  return `${getBrainHttpBase()}/api/git/stage`;
 }
 
 /**

@@ -44,6 +44,16 @@ export interface GenerateStructuredResult<T> {
   usage: LLMUsage;
 }
 
+type RuntimeProvider = "litellm" | "openai" | "anthropic";
+
+interface ModelSelection {
+  model: string;
+  provider: string;
+  runtimeProvider: RuntimeProvider;
+  fallback: boolean;
+  providerId?: ProviderId;
+}
+
 /**
  * AIService - Pure inference layer
  *
@@ -92,12 +102,17 @@ export class AIService {
   resolveModelSelection(
     providerId?: string,
     modelId?: string,
-  ): { model: string; provider: string; fallback: boolean } {
+  ): ModelSelection {
+    const defaultRuntimeProvider = this.getRuntimeProviderFromAdapter(
+      this.adapter.provider,
+    );
+
     // If no override specified, use default
     if (!providerId || !modelId) {
       return {
         model: this.defaultModel,
         provider: this.adapter.provider,
+        runtimeProvider: defaultRuntimeProvider,
         fallback: false,
       };
     }
@@ -111,11 +126,13 @@ export class AIService {
       return {
         model: this.defaultModel,
         provider: this.adapter.provider,
+        runtimeProvider: defaultRuntimeProvider,
         fallback: true,
       };
     }
 
     const validProviderId: ProviderId = parseResult.data;
+    const runtimeProvider = this.mapProviderIdToRuntimeProvider(validProviderId);
 
     // Check if provider is connected and valid
     if (
@@ -128,7 +145,9 @@ export class AIService {
       return {
         model: modelId,
         provider: validProviderId,
+        runtimeProvider,
         fallback: false,
+        providerId: validProviderId,
       };
     }
 
@@ -139,6 +158,7 @@ export class AIService {
     return {
       model: this.defaultModel,
       provider: this.adapter.provider,
+      runtimeProvider: defaultRuntimeProvider,
       fallback: true,
     };
   }
@@ -150,15 +170,19 @@ export class AIService {
   async generateText({
     messages,
     model,
+    providerId,
     temperature = 0.7,
     system,
   }: {
     messages: CoreMessage[];
     model?: string;
+    providerId?: string;
     temperature?: number;
     system?: string;
   }): Promise<GenerateTextResult> {
-    const selectedModel = model ?? this.defaultModel;
+    const selection = this.resolveModelSelection(providerId, model);
+    const selectedModel = selection.model;
+    const selectedAdapter = this.getAdapterForSelection(selection);
 
     const params: GenerationParams = {
       messages,
@@ -167,7 +191,7 @@ export class AIService {
       model: selectedModel,
     };
 
-    const result = await this.adapter.generate(params);
+    const result = await selectedAdapter.generate(params);
 
     return {
       text: result.content,
@@ -184,21 +208,27 @@ export class AIService {
     messages,
     schema,
     model,
+    providerId,
     temperature = 0.2,
   }: {
     messages: CoreMessage[];
     schema: ZodSchema<T>;
     model?: string;
+    providerId?: string;
     temperature?: number;
   }): Promise<GenerateStructuredResult<T>> {
-    const selectedModel = model ?? this.defaultModel;
+    const selection = this.resolveModelSelection(providerId, model);
+    const selectedModel = selection.model;
+    const selectedProvider = selection.provider;
 
     // For structured generation, we use the AI SDK's generateObject
-    // This doesn't go through the provider adapter (yet)
-    // TODO: Add structured generation support to provider adapters
+    // Fetch provider-aware API key if a provider override is selected
+    const overrideApiKey = selection.providerId
+      ? this.providerConfigService?.getApiKey(selection.providerId) ?? undefined
+      : undefined;
 
     const result = await generateObject({
-      model: this.getSDKModel(selectedModel),
+      model: this.getSDKModel(selectedModel, selection.runtimeProvider, overrideApiKey),
       messages,
       schema,
       temperature,
@@ -206,7 +236,7 @@ export class AIService {
 
     // Standardize usage
     const usage: LLMUsage = {
-      provider: this.adapter.provider,
+      provider: selectedProvider,
       model: selectedModel,
       promptTokens: result.usage?.promptTokens ?? 0,
       completionTokens: result.usage?.completionTokens ?? 0,
@@ -230,6 +260,7 @@ export class AIService {
     system,
     tools,
     model,
+    providerId,
     temperature = 0.7,
     onFinish,
     onChunk,
@@ -238,6 +269,7 @@ export class AIService {
     system?: string;
     tools?: Record<string, CoreTool>;
     model?: string;
+    providerId?: string;
     temperature?: number;
     onFinish?: (result: GenerateTextResult) => Promise<void> | void;
     onChunk?: (chunk: {
@@ -245,7 +277,9 @@ export class AIService {
       toolCall?: { toolName: string; args: unknown };
     }) => void;
   }): Promise<ReadableStream<Uint8Array>> {
-    const selectedModel = model ?? this.defaultModel;
+    const selection = this.resolveModelSelection(providerId, model);
+    const selectedModel = selection.model;
+    const selectedAdapter = this.getAdapterForSelection(selection);
 
     const params: GenerationParams = {
       messages,
@@ -263,7 +297,7 @@ export class AIService {
     const stream = new ReadableStream<Uint8Array>({
       start: async (controller) => {
         try {
-          const generator = this.adapter.generateStream(params);
+          const generator = selectedAdapter.generateStream(params);
 
           for await (const chunk of generator) {
             switch (chunk.type) {
@@ -293,7 +327,7 @@ export class AIService {
           const finalResult: GenerateTextResult = {
             text: accumulatedText,
             usage: finalUsage ?? {
-              provider: this.adapter.provider,
+              provider: selectedAdapter.provider,
               model: selectedModel,
               promptTokens: 0,
               completionTokens: 0,
@@ -348,8 +382,9 @@ export class AIService {
     }
   }
 
-  private createLiteLLMAdapter(): LiteLLMAdapter {
-    const apiKey = this.env.GROQ_API_KEY ?? this.env.OPENAI_API_KEY;
+  private createLiteLLMAdapter(overrideApiKey?: string): LiteLLMAdapter {
+    const apiKey =
+      overrideApiKey ?? this.env.GROQ_API_KEY ?? this.env.OPENAI_API_KEY;
     if (!apiKey) {
       throw new ProviderError(
         "litellm",
@@ -375,8 +410,8 @@ export class AIService {
     });
   }
 
-  private createOpenAIAdapter(): OpenAIAdapter {
-    const apiKey = this.env.OPENAI_API_KEY;
+  private createOpenAIAdapter(overrideApiKey?: string): OpenAIAdapter {
+    const apiKey = overrideApiKey ?? this.env.OPENAI_API_KEY;
     if (!apiKey) {
       throw new ProviderError("openai", "Missing OPENAI_API_KEY");
     }
@@ -387,8 +422,8 @@ export class AIService {
     });
   }
 
-  private createAnthropicAdapter(): AnthropicAdapter {
-    const apiKey = this.env.ANTHROPIC_API_KEY;
+  private createAnthropicAdapter(overrideApiKey?: string): AnthropicAdapter {
+    const apiKey = overrideApiKey ?? this.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
       throw new ProviderError("anthropic", "Missing ANTHROPIC_API_KEY");
     }
@@ -401,35 +436,35 @@ export class AIService {
 
   /**
    * Get the appropriate AI SDK model for structured generation
-   * Uses the configured provider from env
+   * Uses the configured provider from env or override
    */
-  private getSDKModel(model: string) {
-    const provider = this.env.LLM_PROVIDER ?? "litellm";
+  private getSDKModel(model: string, provider: RuntimeProvider, overrideApiKey?: string) {
+    const selectedProvider = provider;
     const selectedModel = model ?? this.defaultModel;
 
-    switch (provider) {
+    switch (selectedProvider) {
       case "anthropic":
-        return this.getAnthropicModel(selectedModel);
+        return this.getAnthropicModel(selectedModel, overrideApiKey);
       case "openai":
-        return this.getOpenAICompatibleModel(selectedModel, "openai");
+        return this.getOpenAICompatibleModel(selectedModel, "openai", overrideApiKey);
       case "litellm":
       default:
-        return this.getOpenAICompatibleModel(selectedModel, "litellm");
+        return this.getOpenAICompatibleModel(selectedModel, "litellm", overrideApiKey);
     }
   }
 
-  private getOpenAICompatibleModel(model: string, provider: string) {
+  private getOpenAICompatibleModel(model: string, provider: string, overrideApiKey?: string) {
     let apiKey: string;
     let baseURL: string;
 
     if (provider === "openai") {
-      apiKey = this.env.OPENAI_API_KEY ?? "";
+      apiKey = overrideApiKey ?? this.env.OPENAI_API_KEY ?? "";
       if (!apiKey) {
         throw new ProviderError("openai", "Missing OPENAI_API_KEY");
       }
       baseURL = "https://api.openai.com/v1";
     } else {
-      apiKey = this.env.GROQ_API_KEY ?? this.env.OPENAI_API_KEY ?? "";
+      apiKey = overrideApiKey ?? this.env.GROQ_API_KEY ?? this.env.OPENAI_API_KEY ?? "";
       if (!apiKey) {
         throw new ProviderError(
           "litellm",
@@ -447,8 +482,8 @@ export class AIService {
     return client(model);
   }
 
-  private getAnthropicModel(model: string) {
-    const apiKey = this.env.ANTHROPIC_API_KEY;
+  private getAnthropicModel(model: string, overrideApiKey?: string) {
+    const apiKey = overrideApiKey ?? this.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
       throw new ProviderError("anthropic", "Missing ANTHROPIC_API_KEY");
     }
@@ -458,6 +493,49 @@ export class AIService {
     });
 
     return client(model);
+  }
+
+  private mapProviderIdToRuntimeProvider(providerId: ProviderId): RuntimeProvider {
+    switch (providerId) {
+      case "openrouter":
+        return "litellm";
+      case "openai":
+        return "openai";
+      default: {
+        const _exhaustive: never = providerId;
+        return _exhaustive;
+      }
+    }
+  }
+
+  private getRuntimeProviderFromAdapter(provider: string): RuntimeProvider {
+    if (provider === "openai" || provider === "anthropic") {
+      return provider;
+    }
+    return "litellm";
+  }
+
+  private getAdapterForSelection(selection: ModelSelection): ProviderAdapter {
+    if (
+      selection.fallback ||
+      selection.runtimeProvider === this.getRuntimeProviderFromAdapter(this.adapter.provider)
+    ) {
+      return this.adapter;
+    }
+
+    const overrideApiKey = selection.providerId
+      ? this.providerConfigService?.getApiKey(selection.providerId) ?? undefined
+      : undefined;
+
+    switch (selection.runtimeProvider) {
+      case "openai":
+        return this.createOpenAIAdapter(overrideApiKey);
+      case "anthropic":
+        return this.createAnthropicAdapter(overrideApiKey);
+      case "litellm":
+      default:
+        return this.createLiteLLMAdapter(overrideApiKey);
+    }
   }
 }
 

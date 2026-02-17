@@ -110,7 +110,7 @@ function AppContent() {
     if (activeSession) {
       uiShellStore.setActiveRunId(activeSession.activeRunId);
     }
-  }, [activeSessionId, sessions]);
+  }, [activeSessionId, activeSession]);
 
   // Sync GitHub context with active session
   // Uses SessionStateService for session-scoped storage

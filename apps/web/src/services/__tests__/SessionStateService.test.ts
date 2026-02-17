@@ -215,8 +215,12 @@ describe("SessionStateService", () => {
   });
 
   describe("Session Status Updates", () => {
-    it("should update session status", () => {
+    it("should update session status", async () => {
       const session = SessionStateService.createSession("Test", "repo");
+      
+      // Add small delay to ensure timestamp changes
+      await new Promise(resolve => setTimeout(resolve, 1));
+      
       const updated = SessionStateService.updateSessionStatus(
         session,
         "running",

@@ -129,6 +129,8 @@ export interface ExecutionContext {
   runId: string;
   sessionId: string;
   dependencies: TaskResult[];
+  modelId?: string;
+  providerId?: string;
 }
 
 export interface SynthesisContext {
@@ -136,6 +138,8 @@ export interface SynthesisContext {
   sessionId: string;
   completedTasks: SerializedTask[];
   originalPrompt: string;
+  modelId?: string;
+  providerId?: string;
 }
 
 export interface RuntimeTask {

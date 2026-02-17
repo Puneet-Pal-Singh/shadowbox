@@ -31,6 +31,8 @@ export class ReviewAgent extends BaseAgent {
       },
       messages,
       schema: PlanSchema,
+      model: context.run.input.modelId,
+      providerId: context.run.input.providerId,
       temperature: 0.2,
     });
 
@@ -54,7 +56,7 @@ export class ReviewAgent extends BaseAgent {
       case "review":
         return this.executeReview(task, context);
       default:
-        throw new UnsupportedTaskTypeError(task.type);
+        throw new UnsupportedTaskTypeError(String(task.type));
     }
   }
 
@@ -86,6 +88,8 @@ export class ReviewAgent extends BaseAgent {
           content: `Original request: ${context.originalPrompt}\n\nReview findings:\n${taskSummaries}`,
         },
       ],
+      model: context.modelId,
+      providerId: context.providerId,
     });
     return result.text;
   }
@@ -144,6 +148,8 @@ Rules:
         },
         { role: "user", content: String(result) },
       ],
+      model: context.modelId,
+      providerId: context.providerId,
     });
 
     return this.buildSuccessResult(task.id, analysisResult.text);
@@ -169,6 +175,8 @@ Rules:
         },
         { role: "user", content: task.input.description },
       ],
+      model: context.modelId,
+      providerId: context.providerId,
     });
 
     return this.buildSuccessResult(task.id, reviewResult.text);

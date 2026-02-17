@@ -21,6 +21,8 @@ interface ProviderConfig {
   connectedAt: string;
 }
 
+const providerConfigStore: Map<ProviderId, ProviderConfig> = new Map();
+
 /**
  * ProviderConfigService - In-memory ephemeral storage for v1
  *
@@ -42,9 +44,10 @@ interface ProviderConfig {
  * - All credentials handled server-side, never exposed to client
  */
 export class ProviderConfigService {
-  private configs: Map<ProviderId, ProviderConfig> = new Map();
+  private configs: Map<ProviderId, ProviderConfig>;
 
   constructor(_env: Env) {
+    this.configs = providerConfigStore;
     // In v1, use ephemeral in-memory storage
     // Future: Replace with secure backend storage (KMS, Vault, etc.)
   }
@@ -181,4 +184,14 @@ export class ProviderConfigService {
       errorMessage,
     };
   }
+}
+
+/**
+ * Test-only export: reset provider config state
+ * Only available in test environments
+ */
+if (process.env.NODE_ENV === "test") {
+  (globalThis as any).__resetProviderConfigForTests = () => {
+    providerConfigStore.clear();
+  };
 }

@@ -1,0 +1,17 @@
+# Secure API Local Development Configuration
+# Copy this file to .dev.vars and fill in your values for local development
+
+# CORS Configuration
+# Enable CORS for local development origins (localhost, 127.0.0.1, ::1)
+# Production must use CORS_ALLOWED_ORIGINS instead of this flag
+CORS_ALLOW_DEV_ORIGINS=true
+
+# Production-allowed origins (comma-separated)
+# Used in production to restrict API access to specific domains
+# Format: https://app.example.com,https://api.example.com
+# Leave empty for development (will use CORS_ALLOW_DEV_ORIGINS)
+CORS_ALLOWED_ORIGINS=
+
+# Local development web origin (if deviating from http://localhost:5173)
+# If using a different port or hostname, add it here:
+# CORS_ALLOWED_ORIGINS=http://localhost:3000
