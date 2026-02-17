@@ -124,13 +124,14 @@ function AppContent() {
 
     if (sessionContext) {
       // Reconstruct Repository object from stored context
+      // Only include fields actually needed; others should be loaded on demand
       const storedRepo: Repository = {
         id: 0,
         name: sessionContext.repoName,
         full_name: sessionContext.fullName,
         owner: {
           login: sessionContext.repoOwner,
-          avatar_url: "",
+          avatar_url: "", // Not stored; can be fetched from GitHub API if needed
         },
         description: null,
         private: false,
@@ -436,8 +437,8 @@ function AppContent() {
                       activeSessionId,
                       config.task,
                     );
-                    // Force a re-render to trigger state sync
-                    setActiveSessionId(activeSessionId);
+                    // State updates above (updateSession + saveSessionPendingQuery)
+                    // will naturally trigger re-renders; no manual trigger needed
                   }}
                 />
               </motion.div>

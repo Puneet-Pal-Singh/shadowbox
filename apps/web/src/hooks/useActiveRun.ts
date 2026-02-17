@@ -10,7 +10,6 @@
  * @module hooks/useActiveRun
  */
 
-import { useMemo } from "react";
 import type { AgentSession } from "../types/session";
 
 /**
@@ -18,12 +17,10 @@ import type { AgentSession } from "../types/session";
  * Safe fallback to empty string if session is invalid
  */
 export function useActiveRun(session: AgentSession | null): string {
-  return useMemo(() => {
-    if (!session) return "";
-    if (!session.activeRunId) {
-      console.warn("[useActiveRun] Session missing activeRunId:", session.id);
-      return "";
-    }
-    return session.activeRunId;
-  }, [session?.activeRunId, session?.id]);
+  if (!session) return "";
+  if (!session.activeRunId) {
+    console.warn("[useActiveRun] Session missing activeRunId:", session.id);
+    return "";
+  }
+  return session.activeRunId;
 }

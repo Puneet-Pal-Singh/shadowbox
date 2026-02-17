@@ -32,19 +32,13 @@ export function useSessionManager() {
     return sessions[savedId] ? savedId : null;
   });
 
-  // Persist sessions to localStorage with v2 schema
+  // Persist sessions and active ID to localStorage with v2 schema
   useEffect(() => {
     const sessionsMap = Object.fromEntries(
       sessions.map((s) => [s.id, s]),
     );
-    SessionStateService.saveSessions(sessionsMap);
-  }, [sessions]);
-
-  // Persist activeSessionId to localStorage
-  useEffect(() => {
-    const sessionsMap = Object.fromEntries(
-      sessions.map((s) => [s.id, s]),
-    );
+    // Pass activeSessionId to avoid race condition between load and save
+    SessionStateService.saveSessions(sessionsMap, activeSessionId);
     SessionStateService.saveActiveSessionId(activeSessionId, sessionsMap);
   }, [activeSessionId, sessions]);
 
@@ -181,14 +175,20 @@ export function useSessionManager() {
   /**
    * Update session metadata
    * Validates updates and maintains timestamps
+   * Prevents accidental corruption by disallowing id overwrites
    */
   const updateSession = useCallback(
-    (id: string, updates: Partial<AgentSession>) => {
+    (id: string, updates: Partial<Omit<AgentSession, "id">>) => {
       setSessions((prev) =>
         prev.map((s) => {
           if (s.id !== id) return s;
-          // Merge updates and ensure updatedAt is fresh
-          const updated = { ...s, ...updates };
+          // Merge updates and always refresh updatedAt
+          const updated: AgentSession = {
+            ...s,
+            ...updates,
+            id: s.id, // Preserve original id
+            updatedAt: new Date().toISOString(),
+          };
           // Validate session invariants
           if (!SessionStateService.validateSession(updated)) {
             console.warn("[useSessionManager] Invalid session update:", id, updates);
@@ -204,19 +204,32 @@ export function useSessionManager() {
   /**
    * Clear all sessions and clean up storage
    * Used during logout or factory reset
+   * Clears both session records and per-session scoped storage
    */
   const clearAllSessions = useCallback(() => {
+    // Clear per-session scoped storage before clearing main session store
+    // Prevents orphaned keys: shadowbox:session-context:{id}, shadowbox:pending-query:{id}
+    sessions.forEach((session) => {
+      SessionStateService.clearSessionGitHubContext(session.id);
+      SessionStateService.clearSessionPendingQuery(session.id);
+      // Clear all message runs for this session
+      for (const runId of session.runIds) {
+        agentStore.clearMessages(runId);
+      }
+    });
+
+    // Clear main session state
     setSessions([]);
     setActiveSessionId(null);
     setRepositories([]);
     agentStore.clearAllMessages();
-    
+
     // Clear v2 schema storage
-    SessionStateService.saveSessions({});
+    SessionStateService.saveSessions({}, null);
     SessionStateService.saveActiveSessionId(null, {});
-    
+
     localStorage.removeItem("shadowbox_repositories");
-  }, []);
+  }, [sessions]);
 
   return {
     sessions,

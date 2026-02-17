@@ -66,12 +66,23 @@ export class SessionStateService {
   /**
    * Save all sessions to localStorage
    * Maintains append-only invariant for messages elsewhere
+   *
+   * Note: Pass activeSessionId explicitly to avoid race conditions
+   * where another tab updates the active session between load and save.
    */
-  static saveSessions(sessions: Record<string, AgentSession>): void {
+  static saveSessions(
+    sessions: Record<string, AgentSession>,
+    activeSessionId: string | null = null,
+  ): void {
+    // Use provided activeSessionId or load current value
+    // Prefer parameter to avoid race condition
+    const currentActiveId =
+      activeSessionId !== null ? activeSessionId : this.loadActiveSessionId();
+
     const schema: SessionStorageSchema = {
       version: 2,
       sessions,
-      activeSessionId: this.loadActiveSessionId(),
+      activeSessionId: currentActiveId,
       lastModified: new Date().toISOString(),
     };
 
@@ -238,7 +249,7 @@ export class SessionStateService {
     repository: string,
     status: SessionStatus = "idle",
   ): AgentSession {
-    const sessionId = `agent-${Math.random().toString(36).substring(7)}`;
+    const sessionId = crypto.randomUUID();
     const runId = crypto.randomUUID();
 
     return {
@@ -298,13 +309,17 @@ export class SessionStateService {
    * Returns true if session is valid
    */
   static validateSession(session: AgentSession): boolean {
+    const validStatuses = ["idle", "running", "completed", "error"] as const;
     const checks = [
       { name: "id", pass: !!session.id },
       { name: "name", pass: !!session.name },
       { name: "repository", pass: !!session.repository },
       { name: "activeRunId", pass: !!session.activeRunId },
       { name: "runIds", pass: Array.isArray(session.runIds) },
-      { name: "status", pass: ["idle", "running", "completed", "error"].includes(session.status) },
+      {
+        name: "status",
+        pass: validStatuses.includes(session.status as typeof validStatuses[number]),
+      },
       {
         name: "activeRunId-in-runIds",
         pass: session.runIds.includes(session.activeRunId),
