@@ -43,7 +43,7 @@ export class ProviderApiClient {
       }
 
       return "No response body";
-    } catch (error) {
+    } catch {
       // Fallback if text reading fails
       return "Failed to read response body";
     }
