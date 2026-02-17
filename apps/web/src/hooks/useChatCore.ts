@@ -39,15 +39,23 @@ export function useChatCore(
     providerService.getSessionModelConfig(sessionId),
   );
 
-  // Update sessionModelConfig when sessionId changes and subscribe to updates
+  // Subscribe to config changes when sessionId changes
   useEffect(() => {
-    // Set initial config for this session
-    setSessionModelConfig(providerService.getSessionModelConfig(sessionId));
-
     // Subscribe to config changes for this session
     const unsubscribe = providerService.subscribeToSessionConfig(
       sessionId,
-      setSessionModelConfig,
+      (config) => {
+        // Only update if config actually changed (prevent cascading renders)
+        setSessionModelConfig((prev) => {
+          if (
+            prev.providerId === config.providerId &&
+            prev.modelId === config.modelId
+          ) {
+            return prev;
+          }
+          return config;
+        });
+      },
     );
 
     // Cleanup subscription when sessionId changes or component unmounts
