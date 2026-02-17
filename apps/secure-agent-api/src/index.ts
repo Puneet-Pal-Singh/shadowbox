@@ -198,11 +198,10 @@ export default {
       } else if (url.pathname.match(/^\/api\/chat\/history\/([^/]+)$/)) {
         // CANONICAL: GET /api/chat/history/:runId
         const runIdMatch = url.pathname.match(/^\/api\/chat\/history\/(.+)$/);
-        const runId = runIdMatch ? decodeURIComponent(runIdMatch[1]) : null;
-
-        if (!runId) {
+        if (!runIdMatch || !runIdMatch[1]) {
           response = new Response("Missing runId in path", { status: 400 });
         } else {
+          const runId = decodeURIComponent(runIdMatch[1]);
           const cursor = url.searchParams.get("cursor") || undefined;
           const limitStr = url.searchParams.get("limit") || "50";
           const limit = Math.min(Math.max(1, parseInt(limitStr, 10)), 100);

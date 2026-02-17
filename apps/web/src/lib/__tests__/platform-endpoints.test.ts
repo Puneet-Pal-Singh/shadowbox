@@ -120,9 +120,9 @@ describe("Platform Endpoints", () => {
       );
     });
 
-    it("should build git stage path with runId", () => {
-      expect(gitStagePath("run-789")).toBe(
-        "https://muscle.local/api/git/stage/run-789",
+    it("should build git stage path (unified contract)", () => {
+      expect(gitStagePath()).toBe(
+        "https://brain.local/api/git/stage",
       );
     });
 
