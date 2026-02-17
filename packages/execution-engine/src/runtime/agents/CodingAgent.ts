@@ -31,6 +31,8 @@ export class CodingAgent extends BaseAgent {
       },
       messages,
       schema: PlanSchema,
+      model: context.run.input.modelId,
+      providerId: context.run.input.providerId,
       temperature: 0.2,
     });
 
@@ -96,6 +98,8 @@ export class CodingAgent extends BaseAgent {
           content: `Original request: ${context.originalPrompt}\n\nCompleted tasks:\n${taskSummaries}`,
         },
       ],
+      model: context.modelId,
+      providerId: context.providerId,
     });
     return result.text;
   }
