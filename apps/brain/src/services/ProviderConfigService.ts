@@ -53,13 +53,6 @@ export class ProviderConfigService {
   }
 
   /**
-   * Test helper: clear in-memory provider state
-   */
-  static resetForTests(): void {
-    providerConfigStore.clear();
-  }
-
-  /**
    * Connect a provider with API key validation
    *
    * Zod schema validates:
@@ -191,4 +184,14 @@ export class ProviderConfigService {
       errorMessage,
     };
   }
+}
+
+/**
+ * Test-only export: reset provider config state
+ * Only available in test environments
+ */
+if (process.env.NODE_ENV === "test") {
+  (globalThis as any).__resetProviderConfigForTests = () => {
+    providerConfigStore.clear();
+  };
 }

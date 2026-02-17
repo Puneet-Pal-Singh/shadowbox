@@ -222,11 +222,13 @@ export class AIService {
     const selectedProvider = selection.provider;
 
     // For structured generation, we use the AI SDK's generateObject
-    // This doesn't go through the provider adapter (yet)
-    // TODO: Add structured generation support to provider adapters
+    // Fetch provider-aware API key if a provider override is selected
+    const overrideApiKey = selection.providerId
+      ? this.providerConfigService?.getApiKey(selection.providerId) ?? undefined
+      : undefined;
 
     const result = await generateObject({
-      model: this.getSDKModel(selectedModel, selection.runtimeProvider),
+      model: this.getSDKModel(selectedModel, selection.runtimeProvider, overrideApiKey),
       messages,
       schema,
       temperature,
@@ -436,33 +438,33 @@ export class AIService {
    * Get the appropriate AI SDK model for structured generation
    * Uses the configured provider from env or override
    */
-  private getSDKModel(model: string, provider: RuntimeProvider) {
+  private getSDKModel(model: string, provider: RuntimeProvider, overrideApiKey?: string) {
     const selectedProvider = provider;
     const selectedModel = model ?? this.defaultModel;
 
     switch (selectedProvider) {
       case "anthropic":
-        return this.getAnthropicModel(selectedModel);
+        return this.getAnthropicModel(selectedModel, overrideApiKey);
       case "openai":
-        return this.getOpenAICompatibleModel(selectedModel, "openai");
+        return this.getOpenAICompatibleModel(selectedModel, "openai", overrideApiKey);
       case "litellm":
       default:
-        return this.getOpenAICompatibleModel(selectedModel, "litellm");
+        return this.getOpenAICompatibleModel(selectedModel, "litellm", overrideApiKey);
     }
   }
 
-  private getOpenAICompatibleModel(model: string, provider: string) {
+  private getOpenAICompatibleModel(model: string, provider: string, overrideApiKey?: string) {
     let apiKey: string;
     let baseURL: string;
 
     if (provider === "openai") {
-      apiKey = this.env.OPENAI_API_KEY ?? "";
+      apiKey = overrideApiKey ?? this.env.OPENAI_API_KEY ?? "";
       if (!apiKey) {
         throw new ProviderError("openai", "Missing OPENAI_API_KEY");
       }
       baseURL = "https://api.openai.com/v1";
     } else {
-      apiKey = this.env.GROQ_API_KEY ?? this.env.OPENAI_API_KEY ?? "";
+      apiKey = overrideApiKey ?? this.env.GROQ_API_KEY ?? this.env.OPENAI_API_KEY ?? "";
       if (!apiKey) {
         throw new ProviderError(
           "litellm",
@@ -480,8 +482,8 @@ export class AIService {
     return client(model);
   }
 
-  private getAnthropicModel(model: string) {
-    const apiKey = this.env.ANTHROPIC_API_KEY;
+  private getAnthropicModel(model: string, overrideApiKey?: string) {
+    const apiKey = overrideApiKey ?? this.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
       throw new ProviderError("anthropic", "Missing ANTHROPIC_API_KEY");
     }
@@ -494,10 +496,16 @@ export class AIService {
   }
 
   private mapProviderIdToRuntimeProvider(providerId: ProviderId): RuntimeProvider {
-    if (providerId === "openrouter") {
-      return "litellm";
+    switch (providerId) {
+      case "openrouter":
+        return "litellm";
+      case "openai":
+        return "openai";
+      default: {
+        const _exhaustive: never = providerId;
+        return _exhaustive;
+      }
     }
-    return "openai";
   }
 
   private getRuntimeProviderFromAdapter(provider: string): RuntimeProvider {

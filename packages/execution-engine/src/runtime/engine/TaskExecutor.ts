@@ -47,6 +47,10 @@ export class AgentTaskExecutor implements ITaskExecutor {
     );
 
     const dependencies = await this.resolveDependencies(task);
+    
+    // TODO: Cache run data in constructor to avoid repeated getById calls
+    // Currently fetches on every task execution; can be optimized by passing
+    // modelId/providerId through RunEngine constructor
     const run = await this.runRepo.getById(this.runId);
     if (!run) {
       throw new Error(`[task/executor] Run not found: ${this.runId}`);

@@ -52,5 +52,5 @@ dist/
 
 # Internal planning files
 local/
-# tasks/
+tasks/
 plans/
