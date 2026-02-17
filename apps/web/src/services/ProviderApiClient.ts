@@ -23,15 +23,29 @@ import type {
  */
 export class ProviderApiClient {
   /**
-   * Safely parse response JSON with text fallback for error messages
+   * Safely parse response body with JSON/text fallback for error messages
+   * IMPORTANT: Response body can only be consumed once. Read as text first, then parse.
    */
   private static async parseErrorResponse(response: Response): Promise<string> {
     try {
-      const data = await response.json();
-      return data.error || JSON.stringify(data);
-    } catch {
-      // If JSON parsing fails, return plain text
-      return await response.text();
+      // Read body as text first (can only be consumed once)
+      const text = await response.text();
+
+      // Try to parse as JSON
+      if (text.trim()) {
+        try {
+          const data = JSON.parse(text);
+          return data.error || JSON.stringify(data);
+        } catch {
+          // Return raw text if JSON parsing fails
+          return text;
+        }
+      }
+
+      return "No response body";
+    } catch (error) {
+      // Fallback if text reading fails
+      return "Failed to read response body";
     }
   }
 
