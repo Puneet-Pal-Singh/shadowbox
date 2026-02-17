@@ -18,7 +18,20 @@ export class GitController {
    * Ensures no hardcoded localhost in production paths
    */
   private static getMuscleBaseUrl(env: Env): string {
-    return env.MUSCLE_BASE_URL || "http://localhost:8787";
+    const configuredBaseUrl = env.MUSCLE_BASE_URL?.trim();
+    if (configuredBaseUrl) {
+      return configuredBaseUrl.replace(/\/+$/, "");
+    }
+
+    if (env.NODE_ENV === "production") {
+      throw new Error("MUSCLE_BASE_URL is required in production");
+    }
+
+    const localDevFallback = "http://localhost:8787";
+    console.warn(
+      `[GitController] MUSCLE_BASE_URL not configured, using dev fallback: ${localDevFallback}`,
+    );
+    return localDevFallback;
   }
 
   /**
