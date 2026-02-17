@@ -10,6 +10,7 @@ import {
   Mic,
   ArrowUp,
   Paperclip,
+  Settings,
 } from "lucide-react";
 import {
   staggerContainer,
@@ -19,6 +20,9 @@ import {
 } from "../../lib/animations";
 import { useGitHub } from "../github/GitHubContextProvider";
 import { ChatBranchSelector } from "../chat/ChatBranchSelector";
+import { ModelSelector } from "../settings/ModelSelector";
+import { ProviderSettings } from "../settings/ProviderSettings";
+import type { ProviderId } from "../../types/provider";
 
 interface AgentSetupProps {
   onStart: (config: { repo: string; branch: string; task: string }) => void;
@@ -54,7 +58,14 @@ export function AgentSetup({ onStart, onRepoClick }: AgentSetupProps) {
   const [task, setTask] = useState("");
   const [isInputFocused, setIsInputFocused] = useState(false);
   const [hoveredCard, setHoveredCard] = useState<number | null>(null);
+  const [showProviderSettings, setShowProviderSettings] = useState(false);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [_selectedProvider, setSelectedProvider] = useState<ProviderId>("openrouter");
+  const [selectedModel, setSelectedModel] = useState<string>("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  
+  // Use session ID from active session or create temp ID for UI
+  const sessionId = useRef(Math.random().toString(36).substring(7)).current;
 
   const hasTask = task.trim().length > 0;
 
@@ -250,7 +261,7 @@ export function AgentSetup({ onStart, onRepoClick }: AgentSetupProps) {
 
               {/* Toolbar */}
               <div className="flex items-center justify-between mt-2 pt-2">
-                {/* Left: Add button + Model selector */}
+                {/* Left: Add button + Model selector + Settings */}
                 <div className="flex items-center gap-1.5">
                   <motion.button
                     type="button"
@@ -265,12 +276,25 @@ export function AgentSetup({ onStart, onRepoClick }: AgentSetupProps) {
 
                   <motion.button
                     type="button"
+                    onClick={() => setShowProviderSettings(!showProviderSettings)}
                     whileHover={{ scale: 1.02 }}
                     className="flex items-center gap-1 px-1.5 py-0.5 text-xs text-zinc-500 hover:text-zinc-300 transition-colors duration-150"
+                    title="Configure provider and model"
                   >
-                    <span className="font-medium">GPT-5.2-Codex</span>
-                    <span className="text-zinc-600">Medium</span>
+                    <span className="font-medium">
+                      {selectedModel || "Select Model"}
+                    </span>
                     <ChevronDown size={12} />
+                  </motion.button>
+
+                  <motion.button
+                    type="button"
+                    onClick={() => setShowProviderSettings(!showProviderSettings)}
+                    {...hoverScaleSmall}
+                    className="p-1 text-zinc-500 hover:text-zinc-300 transition-colors duration-150"
+                    title="Provider settings"
+                  >
+                    <Settings size={16} />
                   </motion.button>
                 </div>
 
@@ -319,6 +343,63 @@ export function AgentSetup({ onStart, onRepoClick }: AgentSetupProps) {
           </div>
         </motion.div>
       </div>
+
+      {/* Provider Settings Modal */}
+      {showProviderSettings && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="absolute inset-0 bg-black/50 flex items-center justify-center z-50 rounded-lg"
+          onClick={() => setShowProviderSettings(false)}
+        >
+          <motion.div
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0.9, opacity: 0 }}
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-md mx-4 space-y-4"
+          >
+            {/* ProviderSettings Component */}
+            <div className="bg-zinc-950 rounded-lg border border-zinc-800">
+              <ProviderSettings
+                onProviderConnect={(providerId) => {
+                  setSelectedProvider(providerId);
+                  console.log("[AgentSetup] Provider connected:", providerId);
+                }}
+              />
+            </div>
+
+            {/* ModelSelector Component */}
+            <div className="bg-zinc-950 rounded-lg border border-zinc-800">
+              <ModelSelector
+                sessionId={sessionId}
+                onModelSelect={(providerId, modelId) => {
+                  setSelectedProvider(providerId);
+                  setSelectedModel(modelId);
+                  console.log(
+                    "[AgentSetup] Model selected:",
+                    providerId,
+                    modelId,
+                  );
+                }}
+              />
+            </div>
+
+            {/* Close button */}
+            <div className="flex justify-end">
+              <motion.button
+                onClick={() => setShowProviderSettings(false)}
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white text-sm font-medium rounded transition-colors"
+              >
+                Close
+              </motion.button>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
     </motion.div>
   );
 }
