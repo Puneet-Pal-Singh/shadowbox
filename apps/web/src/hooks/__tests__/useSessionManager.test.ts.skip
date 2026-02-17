@@ -9,6 +9,7 @@
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
+import type { AgentSession } from "../../types/session";
 import { useSessionManager } from "../useSessionManager";
 import { SessionStateService } from "../../services/SessionStateService";
 
@@ -25,7 +26,7 @@ describe("useSessionManager", () => {
     it("should create a new session", () => {
       const { result } = renderHook(() => useSessionManager());
 
-      let sessionId: string;
+      let sessionId = "";
       act(() => {
         sessionId = result.current.createSession("Test Task", "test-repo");
       });
@@ -59,7 +60,7 @@ describe("useSessionManager", () => {
     it("should set created session as active", () => {
       const { result } = renderHook(() => useSessionManager());
 
-      let sessionId: string;
+      let sessionId = "";
       act(() => {
         sessionId = result.current.createSession("Task", "repo");
       });
@@ -70,14 +71,15 @@ describe("useSessionManager", () => {
     it("should generate unique run IDs for each session", () => {
       const { result } = renderHook(() => useSessionManager());
 
-      let sessionId1: string, sessionId2: string;
+      let sessionId1 = "";
+      let sessionId2 = "";
       act(() => {
         sessionId1 = result.current.createSession("Task 1", "repo");
         sessionId2 = result.current.createSession("Task 2", "repo");
       });
 
-      const session1 = result.current.sessions.find((s) => s.id === sessionId1);
-      const session2 = result.current.sessions.find((s) => s.id === sessionId2);
+      const session1 = result.current.sessions.find((s: AgentSession) => s.id === sessionId1);
+      const session2 = result.current.sessions.find((s: AgentSession) => s.id === sessionId2);
 
       expect(session1?.activeRunId).not.toBe(session2?.activeRunId);
     });
@@ -87,10 +89,10 @@ describe("useSessionManager", () => {
     it("should switch active session", () => {
       const { result } = renderHook(() => useSessionManager());
 
-      let sessionId1: string, sessionId2: string;
+      let sessionId1 = "";
       act(() => {
         sessionId1 = result.current.createSession("Task 1", "repo");
-        sessionId2 = result.current.createSession("Task 2", "repo");
+        result.current.createSession("Task 2", "repo");
       });
 
       act(() => {
@@ -103,7 +105,7 @@ describe("useSessionManager", () => {
     it("should persist active session to localStorage", () => {
       const { result } = renderHook(() => useSessionManager());
 
-      let sessionId: string;
+      let sessionId = "";
       act(() => {
         sessionId = result.current.createSession("Task", "repo");
       });
@@ -316,7 +318,7 @@ describe("useSessionManager", () => {
     it("should rename repository", () => {
       const { result } = renderHook(() => useSessionManager());
 
-      let sessionId: string;
+      let sessionId = "";
       act(() => {
         sessionId = result.current.createSession("Task", "old-repo");
       });
@@ -349,7 +351,7 @@ describe("useSessionManager", () => {
       // Create and persist sessions
       const { unmount: unmount1 } = renderHook(() => useSessionManager());
 
-      let sessionId: string;
+      let sessionId = "";
       const { result: result1 } = renderHook(() => useSessionManager());
       act(() => {
         sessionId = result1.current.createSession("Task", "repo");
@@ -366,7 +368,7 @@ describe("useSessionManager", () => {
     it("should persist active session ID", () => {
       const { result } = renderHook(() => useSessionManager());
 
-      let sessionId: string;
+      let sessionId = "";
       act(() => {
         sessionId = result.current.createSession("Task", "repo");
       });
@@ -379,14 +381,15 @@ describe("useSessionManager", () => {
     it("should isolate session state", () => {
       const { result } = renderHook(() => useSessionManager());
 
-      let sessionId1: string, sessionId2: string;
+      let sessionId1 = "";
+      let sessionId2 = "";
       act(() => {
         sessionId1 = result.current.createSession("Task 1", "repo1");
         sessionId2 = result.current.createSession("Task 2", "repo2");
       });
 
-      const session1 = result.current.sessions.find((s) => s.id === sessionId1);
-      const session2 = result.current.sessions.find((s) => s.id === sessionId2);
+      const session1 = result.current.sessions.find((s: AgentSession) => s.id === sessionId1);
+      const session2 = result.current.sessions.find((s: AgentSession) => s.id === sessionId2);
 
       // Verify sessions have different properties
       expect(session1?.name).not.toBe(session2?.name);
@@ -398,14 +401,15 @@ describe("useSessionManager", () => {
       // This test verifies that agentStore properly isolates by runId
       const { result } = renderHook(() => useSessionManager());
 
-      let sessionId1: string, sessionId2: string;
+      let sessionId1 = "";
+      let sessionId2 = "";
       act(() => {
         sessionId1 = result.current.createSession("Task 1", "repo");
         sessionId2 = result.current.createSession("Task 2", "repo");
       });
 
-      const session1 = result.current.sessions.find((s) => s.id === sessionId1);
-      const session2 = result.current.sessions.find((s) => s.id === sessionId2);
+      const session1 = result.current.sessions.find((s: AgentSession) => s.id === sessionId1);
+      const session2 = result.current.sessions.find((s: AgentSession) => s.id === sessionId2);
 
       // Different run IDs should prevent message leakage
       expect(session1?.activeRunId).not.toBe(session2?.activeRunId);

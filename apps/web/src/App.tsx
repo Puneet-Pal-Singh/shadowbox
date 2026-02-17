@@ -1,7 +1,6 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useSessionManager } from "./hooks/useSessionManager";
-import { useActiveRun } from "./hooks/useActiveRun";
 import { AgentSidebar } from "./components/layout/AgentSidebar";
 import { Workspace } from "./components/layout/Workspace";
 import { AgentSetup } from "./components/agent/AgentSetup";
@@ -61,9 +60,9 @@ function AppContent() {
   } = useGitHub();
   const [showRepoPicker, setShowRepoPicker] = useState(false);
 
-  // Get active session and run for workspace rendering
-  const activeSession = sessions.find((s) => s.id === activeSessionId);
-  const activeRunId = useActiveRun(activeSession || null);
+  // Get active session for workspace rendering
+  // Use memoized activeSession to avoid unnecessary re-renders
+  const activeSession = sessions.find((s) => s.id === activeSessionId) || null;
 
   // Convert sessions to run inbox items for shell navigation
   // This supports the run-centric UI model and will be passed to AppShell in future PRs
@@ -83,7 +82,7 @@ function AppContent() {
       const updatedAt = savedUpdateTime || new Date().toISOString();
 
       return {
-        runId: session.runId,
+        runId: session.activeRunId,
         sessionId: session.id,
         title: session.name,
         status,
@@ -108,9 +107,8 @@ function AppContent() {
 
     // Find active session's runId and sync it
     // Note: This lookup is safe because we've already validated activeSessionId exists
-    const activeSession = sessions.find((s) => s.id === activeSessionId);
     if (activeSession) {
-      uiShellStore.setActiveRunId(activeSession.runId);
+      uiShellStore.setActiveRunId(activeSession.activeRunId);
     }
   }, [activeSessionId, sessions]);
 
@@ -454,7 +452,7 @@ function AppContent() {
               >
                 <Workspace
                   sessionId={activeSessionId}
-                  runId={activeRunId}
+                  runId={activeSession?.activeRunId || ""}
                   repository={activeSession?.repository || ""}
                   isRightSidebarOpen={isRightSidebarOpen}
                   setIsRightSidebarOpen={setIsRightSidebarOpen}

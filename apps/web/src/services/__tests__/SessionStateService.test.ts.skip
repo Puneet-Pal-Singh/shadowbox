@@ -9,7 +9,6 @@
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { SessionStateService } from "../SessionStateService";
-import type { AgentSession } from "../../types/session";
 
 describe("SessionStateService", () => {
   beforeEach(() => {
@@ -271,16 +270,17 @@ describe("SessionStateService", () => {
 
     it("should warn when adding duplicate run", () => {
       const session = SessionStateService.createSession("Test", "repo");
-      const consoleSpy = {
-        warn: (msg: string) => {},
-      };
+      const originalWarn = globalThis.console.warn;
+      let warnCalled = false;
 
-      const warnSpy = (consoleSpy.warn = function() {});
-      globalThis.console.warn = warnSpy;
+      globalThis.console.warn = () => {
+        warnCalled = true;
+      };
 
       SessionStateService.addRunToSession(session, session.activeRunId, true);
 
-      globalThis.console.warn = console.warn;
+      globalThis.console.warn = originalWarn;
+      expect(warnCalled).toBe(true);
     });
   });
 

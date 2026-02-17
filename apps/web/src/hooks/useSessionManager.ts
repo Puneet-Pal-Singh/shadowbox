@@ -122,7 +122,12 @@ export function useSessionManager() {
         const sessionsToRemove = prev.filter(
           (s) => s.repository === repository,
         );
-        sessionsToRemove.forEach((s) => agentStore.clearMessages(s.runId));
+        sessionsToRemove.forEach((s) => {
+          // Clear all runs for this session
+          for (const runId of s.runIds) {
+            agentStore.clearMessages(runId);
+          }
+        });
         const remaining = prev.filter((s) => s.repository !== repository);
 
         // If active session was in this repo, clear active ID
