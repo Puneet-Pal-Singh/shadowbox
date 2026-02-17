@@ -2,6 +2,12 @@
  * GitHub Context Hook
  *
  * Manages GitHub repository and branch context throughout the application.
+ * For session-scoped context, use SessionStateService directly.
+ *
+ * NOTE: This hook maintains global context for backward compatibility.
+ * Session-scoped context is now stored separately via SessionStateService.
+ * See App.tsx for per-session GitHub context management.
+ *
  * Follows SOLID principles: Single Responsibility, Dependency Inversion.
  * Business logic extracted from components.
  *
@@ -10,6 +16,8 @@
 
 import { useState, useEffect, useCallback } from "react";
 import type { Repository } from "../services/GitHubService";
+import type { SessionGitHubContext } from "../types/session";
+import { SessionStateService } from "../services/SessionStateService";
 
 /**
  * GitHub context data structure
@@ -50,6 +58,8 @@ interface UseGitHubContextReturn {
   clearContext: () => void;
   /** Refresh context from localStorage */
   refreshContext: () => void;
+  /** Save context to session-scoped storage */
+  saveSessionContext: (sessionId: string) => void;
 }
 
 const STORAGE_KEY = "github_context";
@@ -179,6 +189,22 @@ export function useGitHubContext(): UseGitHubContextReturn {
     }
   }, []);
 
+  /**
+   * Helper: Save context to session-scoped storage
+   * Used by App.tsx to tie context to a specific session
+   */
+  const saveSessionContext = useCallback((sessionId: string) => {
+    if (!repo) return;
+
+    const context: SessionGitHubContext = {
+      repoOwner: repo.owner.login,
+      repoName: repo.name,
+      fullName: repo.full_name,
+      branch,
+    };
+    SessionStateService.saveSessionGitHubContext(sessionId, context);
+  }, [repo, branch]);
+
   return {
     repo,
     branch,
@@ -188,5 +214,6 @@ export function useGitHubContext(): UseGitHubContextReturn {
     switchBranch,
     clearContext,
     refreshContext,
+    saveSessionContext,
   };
 }

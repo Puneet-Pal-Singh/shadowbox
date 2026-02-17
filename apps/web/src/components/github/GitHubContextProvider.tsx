@@ -32,6 +32,8 @@ interface GitHubContextValue {
   clearContext: () => void;
   /** Refresh context from localStorage */
   refreshContext: () => void;
+  /** Save context to session-scoped storage */
+  saveSessionContext: (sessionId: string) => void;
 }
 
 /**
