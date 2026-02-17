@@ -31,6 +31,8 @@ export class ReviewAgent extends BaseAgent {
       },
       messages,
       schema: PlanSchema,
+      model: context.run.input.modelId,
+      providerId: context.run.input.providerId,
       temperature: 0.2,
     });
 
@@ -86,6 +88,8 @@ export class ReviewAgent extends BaseAgent {
           content: `Original request: ${context.originalPrompt}\n\nReview findings:\n${taskSummaries}`,
         },
       ],
+      model: context.modelId,
+      providerId: context.providerId,
     });
     return result.text;
   }
