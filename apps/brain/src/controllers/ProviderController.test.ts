@@ -85,6 +85,40 @@ describe("ProviderController", () => {
       expect(data.error).toContain("invalid characters");
     });
 
+    it("should fail with wrong OpenAI key format", async () => {
+      const request = new Request("http://localhost/api/providers/connect", {
+        method: "POST",
+        body: JSON.stringify({
+          providerId: "openai",
+          apiKey: "invalid-key-format-1234",
+        }),
+        headers: { "Content-Type": "application/json" },
+      });
+
+      const response = await ProviderController.connect(request, mockEnv);
+      expect(response.status).toBe(400);
+
+      const data = await response.json();
+      expect(data.error).toContain("Invalid API key format");
+    });
+
+    it("should fail with wrong OpenRouter key format", async () => {
+      const request = new Request("http://localhost/api/providers/connect", {
+        method: "POST",
+        body: JSON.stringify({
+          providerId: "openrouter",
+          apiKey: "sk-test-1234567890",
+        }),
+        headers: { "Content-Type": "application/json" },
+      });
+
+      const response = await ProviderController.connect(request, mockEnv);
+      expect(response.status).toBe(400);
+
+      const data = await response.json();
+      expect(data.error).toContain("Invalid API key format");
+    });
+
     it("should fail with invalid provider ID", async () => {
       const request = new Request("http://localhost/api/providers/connect", {
         method: "POST",
