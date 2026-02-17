@@ -16,6 +16,7 @@ import {
   type GenerationParams,
   ProviderError,
 } from "./providers";
+import { ProviderConfigService } from "./ProviderConfigService";
 
 /**
  * Result from text generation with usage
@@ -57,10 +58,12 @@ export interface GenerateStructuredResult<T> {
 export class AIService {
   private adapter: ProviderAdapter;
   private defaultModel: string;
+  private providerConfigService?: ProviderConfigService;
 
-  constructor(private env: Env) {
+  constructor(private env: Env, providerConfigService?: ProviderConfigService) {
     this.adapter = this.createAdapter();
     this.defaultModel = env.DEFAULT_MODEL ?? "llama-3.3-70b-versatile";
+    this.providerConfigService = providerConfigService;
   }
 
   /**
@@ -75,6 +78,53 @@ export class AIService {
    */
   getDefaultModel(): string {
     return this.defaultModel;
+  }
+
+  /**
+   * Resolve provider/model override selection
+   * Returns the model to use, falling back to default if selection is invalid
+   *
+   * Logic:
+   * 1. If providerId + modelId provided AND provider is connected -> use selection
+   * 2. Otherwise log warning and fallback to default model
+   */
+  resolveModelSelection(
+    providerId?: string,
+    modelId?: string,
+  ): { model: string; provider: string; fallback: boolean } {
+    // If no override specified, use default
+    if (!providerId || !modelId) {
+      return {
+        model: this.defaultModel,
+        provider: this.adapter.provider,
+        fallback: false,
+      };
+    }
+
+    // Check if provider is connected and valid
+    if (
+      this.providerConfigService &&
+      this.providerConfigService.isConnected(providerId as any)
+    ) {
+      console.log(
+        `[ai/service] Using provider override: providerId=${providerId}, modelId=${modelId}`,
+      );
+      return {
+        model: modelId,
+        provider: providerId,
+        fallback: false,
+      };
+    }
+
+    // Provider disconnected or invalid - fallback to default
+    console.warn(
+      `[ai/service] Provider override failed (disconnected or invalid): providerId=${providerId}, modelId=${modelId}. Falling back to default model=${this.defaultModel}`,
+    );
+    return {
+      model: this.defaultModel,
+      provider: this.adapter.provider,
+      fallback: true,
+    };
   }
 
   /**
