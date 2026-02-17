@@ -11,9 +11,21 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 export default defineConfig([
   globalIgnores(['dist']),
+  // Config files (no type checking)
+  {
+    files: ['vite.config.ts', 'vitest.setup.ts', 'eslint.config.js'],
+    languageOptions: {
+      ecmaVersion: 2020,
+      globals: globals.node,
+      parser: tseslint.parser,
+      parserOptions: {
+        ecmaVersion: 2020,
+      },
+    },
+  },
   {
     files: ['**/*.{ts,tsx}'],
-    ignores: ['vite.config.ts', 'eslint.config.js'],
+    ignores: ['vite.config.ts', 'vitest.setup.ts', 'eslint.config.js'],
     extends: [
       js.configs.recommended,
       tseslint.configs.recommended,
@@ -28,14 +40,6 @@ export default defineConfig([
         tsconfigRootDir: __dirname,
         project: './tsconfig.json',
       },
-    },
-  },
-  // Config files (no type checking)
-  {
-    files: ['vite.config.ts', 'eslint.config.js'],
-    languageOptions: {
-      ecmaVersion: 2020,
-      globals: globals.node,
     },
   },
 ])
