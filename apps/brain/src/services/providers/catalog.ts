@@ -37,7 +37,14 @@ export const PROVIDER_CATALOG: Record<ProviderId, ModelDescriptor[]> = {
   ],
   openai: [
     {
-      id: "gpt-4-turbo-preview",
+      id: "gpt-4o",
+      name: "GPT-4o",
+      provider: "openai",
+      contextWindow: 128000,
+      costPer1kTokens: { input: 0.005, output: 0.015 },
+    },
+    {
+      id: "gpt-4-turbo",
       name: "GPT-4 Turbo",
       provider: "openai",
       contextWindow: 128000,
@@ -47,7 +54,7 @@ export const PROVIDER_CATALOG: Record<ProviderId, ModelDescriptor[]> = {
       id: "gpt-3.5-turbo",
       name: "GPT-3.5 Turbo",
       provider: "openai",
-      contextWindow: 4096,
+      contextWindow: 16385,
       costPer1kTokens: { input: 0.0005, output: 0.0015 },
     },
   ],
