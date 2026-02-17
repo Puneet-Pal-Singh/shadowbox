@@ -3,6 +3,7 @@ import { getCorsHeaders } from "../lib/cors";
 import type { AgentType } from "../types";
 import type { Env } from "../types/ai";
 import { PersistenceService } from "../services/PersistenceService";
+import { ChatProviderSelectionSchema } from "../schemas/provider";
 
 interface ChatRequestBody {
   messages?: Message[];
@@ -43,6 +44,20 @@ export class ChatController {
       console.log(
         `[Brain:${correlationId}] Messages count in request: ${body.messages?.length || 0}`,
       );
+
+      // Validate provider/model selection if provided
+      const providerSelection = ChatProviderSelectionSchema.safeParse({
+        providerId: body.providerId,
+        modelId: body.modelId,
+      });
+
+      if (!providerSelection.success) {
+        console.warn(
+          `[Brain:${correlationId}] Invalid provider/model selection:`,
+          providerSelection.error.errors,
+        );
+        return errorResponse(req, env, "Invalid provider/model selection", 400);
+      }
 
       if (!body.messages || !Array.isArray(body.messages)) {
         return errorResponse(req, env, "Invalid messages", 400);
