@@ -86,10 +86,10 @@ function createRouter(): Router {
   router.add(/\/api\/git\/commit/, GitController.commit, "POST");
 
   // Provider routes (BYOK configuration)
-  router.add(/\/api\/providers\/connect$/, ProviderController.connect, "POST");
-  router.add(/\/api\/providers\/disconnect$/, ProviderController.disconnect, "POST");
-  router.add(/\/api\/providers\/status$/, ProviderController.status, "GET");
-  router.add(/\/api\/providers\/models$/, ProviderController.models, "GET");
+  router.add(/^\/api\/providers\/connect$/, ProviderController.connect, "POST");
+  router.add(/^\/api\/providers\/disconnect$/, ProviderController.disconnect, "POST");
+  router.add(/^\/api\/providers\/status$/, ProviderController.status, "GET");
+  router.add(/^\/api\/providers\/models$/, ProviderController.models, "GET");
 
   return router;
 }
