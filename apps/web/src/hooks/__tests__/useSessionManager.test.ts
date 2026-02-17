@@ -248,7 +248,7 @@ describe("useSessionManager", () => {
       act(() => {
         result.current.updateSession(sessionId, {
           activeRunId: "non-existent-run",
-        } as any);
+        } as unknown as Partial<Omit<AgentSession, "id">>);
       });
 
       // Session should remain unchanged

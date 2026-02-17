@@ -22,7 +22,6 @@ import { useGitHub } from "../github/GitHubContextProvider";
 import { ChatBranchSelector } from "../chat/ChatBranchSelector";
 import { ModelSelector } from "../settings/ModelSelector";
 import { ProviderSettings } from "../settings/ProviderSettings";
-import type { ProviderId } from "../../types/provider";
 
 interface AgentSetupProps {
   onStart: (config: { repo: string; branch: string; task: string }) => void;
@@ -59,13 +58,9 @@ export function AgentSetup({ onStart, onRepoClick }: AgentSetupProps) {
   const [isInputFocused, setIsInputFocused] = useState(false);
   const [hoveredCard, setHoveredCard] = useState<number | null>(null);
   const [showProviderSettings, setShowProviderSettings] = useState(false);
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const [_selectedProvider, setSelectedProvider] = useState<ProviderId>("openrouter");
   const [selectedModel, setSelectedModel] = useState<string>("");
+  const [sessionId] = useState(() => Math.random().toString(36).substring(7));
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  
-  // Use session ID from active session or create temp ID for UI
-  const sessionId = useRef(Math.random().toString(36).substring(7)).current;
 
   const hasTask = task.trim().length > 0;
 
@@ -364,7 +359,6 @@ export function AgentSetup({ onStart, onRepoClick }: AgentSetupProps) {
             <div className="bg-zinc-950 rounded-lg border border-zinc-800">
               <ProviderSettings
                 onProviderConnect={(providerId) => {
-                  setSelectedProvider(providerId);
                   console.log("[AgentSetup] Provider connected:", providerId);
                 }}
               />
@@ -375,7 +369,6 @@ export function AgentSetup({ onStart, onRepoClick }: AgentSetupProps) {
               <ModelSelector
                 sessionId={sessionId}
                 onModelSelect={(providerId, modelId) => {
-                  setSelectedProvider(providerId);
                   setSelectedModel(modelId);
                   console.log(
                     "[AgentSetup] Model selected:",

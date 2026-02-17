@@ -17,6 +17,7 @@ import {
   ProviderError,
 } from "./providers";
 import { ProviderConfigService } from "./ProviderConfigService";
+import { ProviderIdSchema, type ProviderId } from "../schemas/provider";
 
 /**
  * Result from text generation with usage
@@ -101,24 +102,39 @@ export class AIService {
       };
     }
 
+    // Validate providerId is a known provider
+    const parseResult = ProviderIdSchema.safeParse(providerId);
+    if (!parseResult.success) {
+      console.warn(
+        `[ai/service] Invalid providerId: ${providerId}. Falling back to default model=${this.defaultModel}`,
+      );
+      return {
+        model: this.defaultModel,
+        provider: this.adapter.provider,
+        fallback: true,
+      };
+    }
+
+    const validProviderId: ProviderId = parseResult.data;
+
     // Check if provider is connected and valid
     if (
       this.providerConfigService &&
-      this.providerConfigService.isConnected(providerId as any)
+      this.providerConfigService.isConnected(validProviderId)
     ) {
       console.log(
-        `[ai/service] Using provider override: providerId=${providerId}, modelId=${modelId}`,
+        `[ai/service] Using provider override: providerId=${validProviderId}, modelId=${modelId}`,
       );
       return {
         model: modelId,
-        provider: providerId,
+        provider: validProviderId,
         fallback: false,
       };
     }
 
     // Provider disconnected or invalid - fallback to default
     console.warn(
-      `[ai/service] Provider override failed (disconnected or invalid): providerId=${providerId}, modelId=${modelId}. Falling back to default model=${this.defaultModel}`,
+      `[ai/service] Provider override failed (disconnected or invalid): providerId=${validProviderId}, modelId=${modelId}. Falling back to default model=${this.defaultModel}`,
     );
     return {
       model: this.defaultModel,

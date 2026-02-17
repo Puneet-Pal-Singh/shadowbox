@@ -22,7 +22,10 @@ export function ArtifactPreview({ title, content: initialContent, onOpen, status
       (async () => {
         setIsLoadingContent(true);
         try {
-          const res = await fetch(`${getMuscleHttpBase()}/artifact?key=${initialContent.key}`);
+          const res = await fetch(`${getMuscleHttpBase()}/artifact?key=${encodeURIComponent(initialContent.key)}`);
+          if (!res.ok) {
+            throw new Error(`Artifact fetch failed: ${res.status}`);
+          }
           const text = await res.text();
           setContent(text);
           setIsLoadingContent(false);
@@ -33,7 +36,6 @@ export function ArtifactPreview({ title, content: initialContent, onOpen, status
         }
       })();
     } else if (typeof initialContent === 'string') {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setContent(initialContent);
     }
   }, [initialContent]);

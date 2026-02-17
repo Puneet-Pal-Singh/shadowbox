@@ -7,7 +7,7 @@ import { useGitCommit } from "../../hooks/useGitCommit";
 import { ChangesList } from "../diff/ChangesList";
 import { DiffViewer } from "../diff/DiffViewer";
 import { useRunContext } from "../../hooks/useRunContext";
-import { getBrainHttpBase } from "../../lib/platform-endpoints";
+import { getMuscleHttpBase } from "../../lib/platform-endpoints";
 
 interface ChangesPanelProps {
   className?: string;
@@ -54,7 +54,7 @@ export function ChangesPanel({
     if (!runId) return;
 
     try {
-      const endpoint = `${getBrainHttpBase()}/api/git/${staged ? "stage" : "unstage"}`;
+      const endpoint = `${getMuscleHttpBase()}/api/git/${staged ? "stage" : "unstage"}`;
       const response = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

@@ -9,6 +9,7 @@
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { SessionStateService } from "../SessionStateService";
+import type { AgentSession } from "../../types/session";
 
 describe("SessionStateService", () => {
   beforeEach(() => {
@@ -304,13 +305,13 @@ describe("SessionStateService", () => {
 
     it("should reject session with invalid status", () => {
       const session = SessionStateService.createSession("Test", "repo");
-      const invalid = { ...session, status: "invalid" as any };
+      const invalid = { ...session, status: "invalid" as unknown as AgentSession["status"] };
       expect(SessionStateService.validateSession(invalid)).toBe(false);
     });
 
     it("should reject session with non-array runIds", () => {
       const session = SessionStateService.createSession("Test", "repo");
-      const invalid = { ...session, runIds: "not an array" as any };
+      const invalid = { ...session, runIds: "not an array" as unknown as string[] };
       expect(SessionStateService.validateSession(invalid)).toBe(false);
     });
   });

@@ -49,8 +49,8 @@ const ExecuteRunPayloadSchema = z.object({
     agentType: z.enum(["coding", "review", "ci"]),
     prompt: z.string().min(1),
     sessionId: z.string().min(1),
-    providerId: z.string().optional(),
-    modelId: z.string().optional(),
+    providerId: z.string().min(1).optional(),
+    modelId: z.string().min(1).optional(),
   }),
   messages: z.array(CoreMessageSchema),
 });
