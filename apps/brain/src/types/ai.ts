@@ -37,6 +37,9 @@ export interface Env {
   CORS_ALLOWED_ORIGINS?: string;
   CORS_ALLOW_DEV_ORIGINS?: "true" | "false";
 
+  // Service URLs (environment-driven, not hardcoded)
+  MUSCLE_BASE_URL?: string;
+
   // KV Namespace for sessions
   SESSIONS: KVNamespace;
 

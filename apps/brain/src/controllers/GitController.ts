@@ -13,7 +13,13 @@ import type {
  * Single Responsibility: Coordinate git commands and responses
  */
 export class GitController {
-  private static readonly MUSCLE_BASE_URL = "http://localhost:8787";
+  /**
+   * Get Muscle base URL from environment
+   * Ensures no hardcoded localhost in production paths
+   */
+  private static getMuscleBaseUrl(env: Env): string {
+    return env.MUSCLE_BASE_URL || "http://localhost:8787";
+  }
 
   /**
    * Get git status for a run's worktree
@@ -28,7 +34,7 @@ export class GitController {
       }
 
       const response = await fetch(
-        `${this.MUSCLE_BASE_URL}/?session=${runId}`,
+        `${this.getMuscleBaseUrl(env)}/?session=${runId}`,
         {
           method: "POST",
           headers: {
@@ -77,16 +83,16 @@ export class GitController {
       }
 
       const response = await fetch(
-        `${this.MUSCLE_BASE_URL}/?session=${runId}`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            plugin: "git",
-            payload: {
-              action: "diff",
+       `${this.getMuscleBaseUrl(env)}/?session=${runId}`,
+       {
+         method: "POST",
+         headers: {
+           "Content-Type": "application/json",
+         },
+         body: JSON.stringify({
+           plugin: "git",
+           payload: {
+             action: "diff",
               runId,
               path: filePath,
               staged,
@@ -126,7 +132,7 @@ export class GitController {
       }
 
       const response = await fetch(
-        `${this.MUSCLE_BASE_URL}/?session=${runId}`,
+        `${this.getMuscleBaseUrl(env)}/?session=${runId}`,
         {
           method: "POST",
           headers: {
@@ -172,7 +178,7 @@ export class GitController {
       }
 
       const response = await fetch(
-        `${this.MUSCLE_BASE_URL}/?session=${runId}`,
+        `${this.getMuscleBaseUrl(env)}/?session=${runId}`,
         {
           method: "POST",
           headers: {
