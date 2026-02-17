@@ -1,5 +1,6 @@
 {
   "name": "shadowbox",
+  "description": "Multi-agent IDE on Cloudflare primitives",
   "private": true,
   "scripts": {
     "build": "turbo run build --continue",
@@ -7,7 +8,9 @@
     "lint": "turbo run lint --continue",
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",
     "check-types": "turbo run check-types --continue",
-    "e2e:phase-3.2": "bash scripts/e2e/phase-3.2-readiness.sh"
+    "e2e:phase-3.2": "bash scripts/e2e/phase-3.2-readiness.sh",
+    "review:sync": "bash scripts/review-script/fetch-review-comments.sh",
+    "review:help": "bash scripts/review-script/fetch-review-comments.sh --help"
   },
   "devDependencies": {
     "prettier": "^3.7.4",
