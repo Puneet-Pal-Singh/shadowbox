@@ -15,6 +15,19 @@ import {
 } from "../schemas/provider";
 
 /**
+ * Singleton instance of ProviderConfigService
+ * Persists in-memory state across requests within an isolate lifecycle
+ */
+let providerConfigServiceInstance: ProviderConfigService | null = null;
+
+function getProviderConfigService(env: Env): ProviderConfigService {
+  if (!providerConfigServiceInstance) {
+    providerConfigServiceInstance = new ProviderConfigService(env);
+  }
+  return providerConfigServiceInstance;
+}
+
+/**
  * ProviderController - Route handlers for provider API
  * Each method handles one specific endpoint responsibility
  */
@@ -31,7 +44,7 @@ export class ProviderController {
       const body = await parseRequestBody(req);
 
       const validatedRequest = ConnectProviderRequestSchema.parse(body);
-      const service = new ProviderConfigService(env);
+      const service = getProviderConfigService(env);
       const response = await service.connect(validatedRequest);
 
       return successResponse(req, env, response);
@@ -53,7 +66,7 @@ export class ProviderController {
 
       const validatedRequest =
         DisconnectProviderRequestSchema.parse(body);
-      const service = new ProviderConfigService(env);
+      const service = getProviderConfigService(env);
       const response = await service.disconnect(validatedRequest);
 
       return successResponse(req, env, response);
@@ -71,7 +84,7 @@ export class ProviderController {
     console.log(`[Provider:${correlationId}] Status request received`);
 
     try {
-      const service = new ProviderConfigService(env);
+      const service = getProviderConfigService(env);
       const providers = await service.getStatus();
 
       const response = {
@@ -106,7 +119,7 @@ export class ProviderController {
       }
 
       const providerId = ProviderIdSchema.parse(providerIdParam);
-      const service = new ProviderConfigService(env);
+      const service = getProviderConfigService(env);
       const response = await service.getModels(providerId);
 
       return successResponse(req, env, response);
@@ -119,8 +132,9 @@ export class ProviderController {
 async function parseRequestBody(req: Request): Promise<unknown> {
   try {
     return await req.json();
-  } catch {
-    return {};
+  } catch (error) {
+    // Propagate parse errors so handleError can detect and handle them
+    throw error;
   }
 }
 
