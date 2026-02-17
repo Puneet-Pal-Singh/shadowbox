@@ -24,11 +24,22 @@ interface ProviderConfig {
 /**
  * ProviderConfigService - In-memory ephemeral storage for v1
  *
- * Design Notes:
- * - Stores API keys in memory only (ephemeral within request lifecycle)
+ * ⚠️ IMPORTANT: Ephemeral Storage Limitation
+ * - Stores API keys in memory only (scoped to Cloudflare Worker isolate lifecycle)
+ * - Keys are LOST on worker restart, deployment, or isolate reuse
+ * - Cloudflare Workers are ephemeral; this is not suitable for production multi-request persistence
+ *
+ * For M1.3+, migrate to:
+ * - Cloudflare KV (namespace-scoped, encrypted at rest)
+ * - Cloudflare Durable Objects (persistent, consistent)
+ * - OR use a backend vault service (HashiCorp Vault, AWS KMS)
+ *
+ * Design Notes (v1 current approach):
+ * - Stores API keys in memory only (persists within single isolate)
  * - Never persists keys to disk or browser localStorage
- * - Each call to connect() establishes a new, isolated session
- * - Implements server-side validation of provider connections
+ * - Singleton instance provides per-isolate state persistence
+ * - Server-side validation of provider connections
+ * - All credentials handled server-side, never exposed to client
  */
 export class ProviderConfigService {
   private configs: Map<ProviderId, ProviderConfig> = new Map();
@@ -40,27 +51,20 @@ export class ProviderConfigService {
 
   /**
    * Connect a provider with API key validation
+   *
+   * Zod schema validates:
+   * - Not empty
+   * - Minimum length (10+ chars)
+   * - Format (alphanumeric, hyphens, underscores only)
+   *
+   * Note: Schema validation happens before this method is called.
+   * This method only stores the credential and tracks connection time.
    */
   async connect(
     request: ConnectProviderRequest,
   ): Promise<ConnectProviderResponse> {
     try {
       const { providerId, apiKey } = request;
-
-      if (!apiKey || apiKey.trim().length === 0) {
-        return this.failureResponse(
-          providerId,
-          "API key cannot be empty",
-        );
-      }
-
-      // Basic format validation (length check)
-      if (apiKey.length < 10) {
-        return this.failureResponse(
-          providerId,
-          "API key appears invalid (too short)",
-        );
-      }
 
       // Store in memory (ephemeral)
       this.configs.set(providerId, {
