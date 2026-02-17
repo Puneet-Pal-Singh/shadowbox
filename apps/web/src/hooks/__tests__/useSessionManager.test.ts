@@ -8,7 +8,6 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-// @ts-expect-error - testing library react not in types
 import { renderHook, act } from "@testing-library/react";
 import type { AgentSession } from "../../types/session";
 import { useSessionManager } from "../useSessionManager";
@@ -349,18 +348,17 @@ describe("useSessionManager", () => {
     });
 
     it("should restore sessions on mount", () => {
-      // Create and persist sessions
-      const { unmount: unmount1 } = renderHook(() => useSessionManager());
-
+      // Create and persist sessions via first hook instance
       let sessionId = "";
-      const { result: result1 } = renderHook(() => useSessionManager());
+      const { result: result1, unmount } = renderHook(() => useSessionManager());
       act(() => {
         sessionId = result1.current.createSession("Task", "repo");
       });
 
-      unmount1();
+      // Unmount the hook (which persists sessions to localStorage)
+      unmount();
 
-      // Remount and verify restoration
+      // Remount and verify restoration from localStorage
       const { result: result2 } = renderHook(() => useSessionManager());
       expect(result2.current.sessions).toHaveLength(1);
       expect(result2.current.sessions[0]?.id).toBe(sessionId);
@@ -399,7 +397,7 @@ describe("useSessionManager", () => {
     });
 
     it("should not leak messages between sessions", () => {
-      // This test verifies that agentStore properly isolates by runId
+      // This test verifies that agentStore properly isolates messages by runId
       const { result } = renderHook(() => useSessionManager());
 
       let sessionId1 = "";
@@ -412,8 +410,16 @@ describe("useSessionManager", () => {
       const session1 = result.current.sessions.find((s: AgentSession) => s.id === sessionId1);
       const session2 = result.current.sessions.find((s: AgentSession) => s.id === sessionId2);
 
-      // Different run IDs should prevent message leakage
+      // Sessions should have distinct activeRunIds
+      expect(session1?.activeRunId).toBeDefined();
+      expect(session2?.activeRunId).toBeDefined();
       expect(session1?.activeRunId).not.toBe(session2?.activeRunId);
+
+      // Verify each session maintains its own run ID context
+      expect(session1?.runIds).toContain(session1?.activeRunId);
+      expect(session2?.runIds).toContain(session2?.activeRunId);
+      expect(session1?.runIds).not.toContain(session2?.activeRunId);
+      expect(session2?.runIds).not.toContain(session1?.activeRunId);
     });
   });
 
