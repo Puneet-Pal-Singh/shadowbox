@@ -14,7 +14,7 @@ The Secure Agent API (`apps/secure-agent-api`) serves as the execution layer (Mu
    ```
 
 2. Set `CORS_ALLOW_DEV_ORIGINS=true` in your `.dev.vars`:
-   ```
+   ```ini
    CORS_ALLOW_DEV_ORIGINS=true
    ```
 

@@ -118,9 +118,15 @@ export class DurableProviderStore {
   /**
    * Clear all provider credentials
    * ⚠️ DANGEROUS: Only use in testing
+   * 
+   * Note: Uses a marker property instead of process.env to detect test mode,
+   * since Cloudflare Workers don't have a process global by default.
    */
   async clearAll(): Promise<void> {
-    if (typeof process === "undefined" || process.env.NODE_ENV !== "test") {
+    // Check if running in test environment by looking for a marker property
+    // In Cloudflare Workers, process.env may not exist, so we check globalThis
+    const isTestEnv = typeof (globalThis as any).__TEST_MODE__ !== "undefined";
+    if (!isTestEnv) {
       throw new Error(
         "clearAll() is only available in test environments",
       );
