@@ -198,18 +198,45 @@ export default {
       } else {
         const historyMatch = url.pathname.match(/^\/api\/chat\/history\/([^/]+)$/);
         if (historyMatch) {
-          // CANONICAL: GET /api/chat/history/:runId
+          // CANONICAL: GET /api/chat/history/:runId and POST /api/chat/history/:runId
           const runId = decodeURIComponent(historyMatch[1]!);
-          const cursor = url.searchParams.get("cursor") || undefined;
-          const limitStr = url.searchParams.get("limit") || "50";
-          const limitNum = parseInt(limitStr, 10);
-          const limit = Number.isNaN(limitNum)
-            ? 50
-            : Math.min(Math.max(1, limitNum), 100);
 
           if (request.method === "GET") {
+            const cursor = url.searchParams.get("cursor") || undefined;
+            const limitStr = url.searchParams.get("limit") || "50";
+            const limitNum = parseInt(limitStr, 10);
+            const limit = Number.isNaN(limitNum)
+              ? 50
+              : Math.min(Math.max(1, limitNum), 100);
+
             const historyResult = await stub.getHistory(runId, cursor, limit);
             response = Response.json(historyResult);
+          } else if (request.method === "POST") {
+            // CANONICAL POST: Append message(s) to history
+            const bodyValidation = await validateRequestBody(
+              request,
+              ChatAppendRequestSchema,
+            );
+            if (!bodyValidation.valid) {
+              response = errorResponse(
+                bodyValidation.error,
+                "VALIDATION_ERROR",
+                400,
+              );
+            } else {
+              const { message, messages, idempotencyKey } = bodyValidation.data;
+              const requestIdempotencyKey =
+                idempotencyKey ||
+                request.headers.get("X-Idempotency-Key") ||
+                undefined;
+
+              if (message) {
+                await stub.appendMessage(runId, message, requestIdempotencyKey);
+              } else if (messages) {
+                await stub.saveHistory(runId, messages, requestIdempotencyKey);
+              }
+              response = Response.json({ success: true });
+            }
           } else {
             response = new Response("Method Not Allowed", { status: 405 });
           }

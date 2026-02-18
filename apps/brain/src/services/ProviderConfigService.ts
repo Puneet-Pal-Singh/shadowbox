@@ -184,11 +184,20 @@ export class ProviderConfigService {
       errorMessage,
     };
   }
+
+  /**
+   * Reset provider config state for tests
+   * Static method for test isolation
+   */
+  static resetForTests(): void {
+    providerConfigStore.clear();
+  }
 }
 
 /**
  * Test-only export: reset provider config state
  * Only available in test environments
+ * @deprecated Use ProviderConfigService.resetForTests() instead
  */
 if (process.env.NODE_ENV === "test") {
   (globalThis as any).__resetProviderConfigForTests = () => {
