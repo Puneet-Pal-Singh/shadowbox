@@ -40,6 +40,7 @@ export default defineConfig([
       "src/core/llm/**/*",
       "src/services/AIService.ts",
       "src/services/providers/**/*",
+      "src/runtime/**/*",
       "src/legacy/**/*",
     ],
     languageOptions: {

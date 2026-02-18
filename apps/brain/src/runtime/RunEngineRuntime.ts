@@ -7,6 +7,8 @@ import { tagRuntimeStateSemantics } from "@shadowbox/execution-engine/runtime";
 import type { Env } from "../types/ai";
 import { AIService } from "../services/AIService";
 import { ProviderConfigService } from "../services/ProviderConfigService";
+import { ProviderValidationService } from "../services/ProviderValidationService";
+import { DurableProviderStore } from "../services/providers/DurableProviderStore";
 import { ExecutionService } from "../services/ExecutionService";
 import { AgentRegistry, CodingAgent, ReviewAgent } from "../core/agents";
 import { SessionMemoryClient } from "../services/memory/SessionMemoryClient";
@@ -158,12 +160,12 @@ export class RunEngineRuntime extends DurableObject {
   }
 
   private buildRuntimeDependencies(payload: ExecuteRunPayload): {
-    agent: IAgent | undefined;
-    runEngineDeps: RunEngineDependencies;
+   agent: IAgent | undefined;
+   runEngineDeps: RunEngineDependencies;
   } {
-    const env = this.env as Env;
+   const env = this.env as Env;
 
-    const { llmRuntimeService, llmGateway } = this.buildLLMGateway(env);
+   const { llmRuntimeService, llmGateway } = this.buildLLMGateway(env, payload.runId);
     const {
       pricingRegistry,
       costLedger,
@@ -216,11 +218,42 @@ export class RunEngineRuntime extends DurableObject {
     };
   }
 
-  private buildLLMGateway(env: Env): {
+  private buildLLMGateway(env: Env, runId: string): {
     llmRuntimeService: LLMRuntimeAIService;
     llmGateway: LLMGateway;
   } {
-    const providerConfigService = new ProviderConfigService(env);
+    // Preflight validation: fail fast with actionable errors
+    const validationResult = ProviderValidationService.validate(env);
+    if (!validationResult.valid) {
+      const errorMessage = ProviderValidationService.formatErrors(
+        validationResult,
+      );
+      console.error("[ai/runtime] Provider validation failed:\n" + errorMessage);
+      throw new Error(
+        "Provider configuration validation failed. Check logs for details.",
+      );
+    }
+
+    // Log warnings (optional, non-blocking)
+    if (validationResult.warnings.length > 0) {
+      console.warn(
+        "[ai/runtime] Provider warnings:\n" +
+          validationResult.warnings
+            .map((w) => `⚠ [${w.code}] ${w.message}`)
+            .join("\n"),
+      );
+    }
+
+    // Create durable provider store scoped to runId for cross-isolate state persistence
+    const durableProviderStore = new DurableProviderStore(
+      this.ctx as unknown as LegacyDurableObjectState,
+      runId,
+    );
+
+    const providerConfigService = new ProviderConfigService(
+      env,
+      durableProviderStore,
+    );
     const aiService = new AIService(env, providerConfigService);
 
     const llmRuntimeService: LLMRuntimeAIService = {

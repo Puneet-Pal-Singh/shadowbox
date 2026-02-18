@@ -24,6 +24,7 @@ import { ModelSelector } from "../settings/ModelSelector";
 import { ProviderSettings } from "../settings/ProviderSettings";
 
 interface AgentSetupProps {
+  sessionId: string;
   onStart: (config: { repo: string; branch: string; task: string }) => void;
   onRepoClick?: () => void;
 }
@@ -52,15 +53,25 @@ const SUGGESTED_ACTIONS: SuggestedAction[] = [
   },
 ];
 
-export function AgentSetup({ onStart, onRepoClick }: AgentSetupProps) {
+export function AgentSetup({
+  sessionId,
+  onStart,
+  onRepoClick,
+}: AgentSetupProps) {
   const { repo, branch } = useGitHub();
   const [task, setTask] = useState("");
   const [isInputFocused, setIsInputFocused] = useState(false);
   const [hoveredCard, setHoveredCard] = useState<number | null>(null);
   const [showProviderSettings, setShowProviderSettings] = useState(false);
   const [selectedModel, setSelectedModel] = useState<string>("");
-  const [sessionId] = useState(() => Math.random().toString(36).substring(7));
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Reset selected model when session changes to prevent stale state
+  // This is intentional state reset on prop change - component acts as a controlled reset
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSelectedModel("");
+  }, [sessionId]);
 
   const hasTask = task.trim().length > 0;
 
@@ -271,7 +282,9 @@ export function AgentSetup({ onStart, onRepoClick }: AgentSetupProps) {
 
                   <motion.button
                     type="button"
-                    onClick={() => setShowProviderSettings(!showProviderSettings)}
+                    onClick={() =>
+                      setShowProviderSettings(!showProviderSettings)
+                    }
                     whileHover={{ scale: 1.02 }}
                     className="flex items-center gap-1 px-1.5 py-0.5 text-xs text-zinc-500 hover:text-zinc-300 transition-colors duration-150"
                     title="Configure provider and model"
@@ -284,7 +297,9 @@ export function AgentSetup({ onStart, onRepoClick }: AgentSetupProps) {
 
                   <motion.button
                     type="button"
-                    onClick={() => setShowProviderSettings(!showProviderSettings)}
+                    onClick={() =>
+                      setShowProviderSettings(!showProviderSettings)
+                    }
                     {...hoverScaleSmall}
                     className="p-1 text-zinc-500 hover:text-zinc-300 transition-colors duration-150"
                     title="Provider settings"

@@ -98,6 +98,8 @@ export class AIService {
    * Logic:
    * 1. If providerId + modelId provided AND provider is connected -> use selection
    * 2. Otherwise log warning and fallback to default model
+   *
+   * NOTE: Does NOT check durable provider state (that's async). Only validates structure.
    */
   resolveModelSelection(
     providerId?: string,
@@ -134,32 +136,16 @@ export class AIService {
     const validProviderId: ProviderId = parseResult.data;
     const runtimeProvider = this.mapProviderIdToRuntimeProvider(validProviderId);
 
-    // Check if provider is connected and valid
-    if (
-      this.providerConfigService &&
-      this.providerConfigService.isConnected(validProviderId)
-    ) {
-      console.log(
-        `[ai/service] Using provider override: providerId=${validProviderId}, modelId=${modelId}`,
-      );
-      return {
-        model: modelId,
-        provider: validProviderId,
-        runtimeProvider,
-        fallback: false,
-        providerId: validProviderId,
-      };
-    }
-
-    // Provider disconnected or invalid - fallback to default
-    console.warn(
-      `[ai/service] Provider override failed (disconnected or invalid): providerId=${validProviderId}, modelId=${modelId}. Falling back to default model=${this.defaultModel}`,
+    // Attempt to use provider override (actual connection check happens in getAdapterForSelection)
+    console.log(
+      `[ai/service] Attempting provider override: providerId=${validProviderId}, modelId=${modelId}`,
     );
     return {
-      model: this.defaultModel,
-      provider: this.adapter.provider,
-      runtimeProvider: defaultRuntimeProvider,
-      fallback: true,
+      model: modelId,
+      provider: validProviderId,
+      runtimeProvider,
+      fallback: false,
+      providerId: validProviderId,
     };
   }
 
@@ -182,7 +168,7 @@ export class AIService {
   }): Promise<GenerateTextResult> {
     const selection = this.resolveModelSelection(providerId, model);
     const selectedModel = selection.model;
-    const selectedAdapter = this.getAdapterForSelection(selection);
+    const selectedAdapter = await this.getAdapterForSelection(selection);
 
     const params: GenerationParams = {
       messages,
@@ -224,7 +210,7 @@ export class AIService {
     // For structured generation, we use the AI SDK's generateObject
     // Fetch provider-aware API key if a provider override is selected
     const overrideApiKey = selection.providerId
-      ? this.providerConfigService?.getApiKey(selection.providerId) ?? undefined
+      ? await this.providerConfigService?.getApiKey(selection.providerId) ?? undefined
       : undefined;
 
     const result = await generateObject({
@@ -277,9 +263,9 @@ export class AIService {
       toolCall?: { toolName: string; args: unknown };
     }) => void;
   }): Promise<ReadableStream<Uint8Array>> {
-    const selection = this.resolveModelSelection(providerId, model);
-    const selectedModel = selection.model;
-    const selectedAdapter = this.getAdapterForSelection(selection);
+   const selection = this.resolveModelSelection(providerId, model);
+   const selectedModel = selection.model;
+   const selectedAdapter = await this.getAdapterForSelection(selection);
 
     const params: GenerationParams = {
       messages,
@@ -515,7 +501,7 @@ export class AIService {
     return "litellm";
   }
 
-  private getAdapterForSelection(selection: ModelSelection): ProviderAdapter {
+  private async getAdapterForSelection(selection: ModelSelection): Promise<ProviderAdapter> {
     if (
       selection.fallback ||
       selection.runtimeProvider === this.getRuntimeProviderFromAdapter(this.adapter.provider)
@@ -524,7 +510,7 @@ export class AIService {
     }
 
     const overrideApiKey = selection.providerId
-      ? this.providerConfigService?.getApiKey(selection.providerId) ?? undefined
+      ? await this.providerConfigService?.getApiKey(selection.providerId) ?? undefined
       : undefined;
 
     switch (selection.runtimeProvider) {

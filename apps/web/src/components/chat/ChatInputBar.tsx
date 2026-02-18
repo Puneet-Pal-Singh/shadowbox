@@ -1,6 +1,8 @@
 import { useRef, useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { ChevronDown, Plus, Mic, ArrowUp, Paperclip } from "lucide-react";
+import { Plus, Mic, ArrowUp, Paperclip } from "lucide-react";
+import { ModelDropdown } from "./ModelDropdown";
+import type { ProviderId } from "../../types/provider";
 
 interface ChatInputBarProps {
   input: string;
@@ -8,6 +10,8 @@ interface ChatInputBarProps {
   onSubmit: () => void;
   isLoading?: boolean;
   placeholder?: string;
+  sessionId: string;
+  onModelSelect?: (providerId: ProviderId, modelId: string) => void;
 }
 
 export function ChatInputBar({
@@ -16,6 +20,8 @@ export function ChatInputBar({
   onSubmit,
   isLoading = false,
   placeholder = "Ask Shadowbox anything, @ to add files, / for commands",
+  sessionId,
+  onModelSelect,
 }: ChatInputBarProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [isFocused, setIsFocused] = useState(false);
@@ -84,15 +90,11 @@ export function ChatInputBar({
 
             <div className="h-3.5 w-px bg-zinc-800" />
 
-            <motion.button
-              type="button"
-              whileHover={{ scale: 1.02 }}
-              className="flex items-center gap-1 px-1.5 py-0.5 text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
-            >
-              <span className="font-medium">GPT-5.2-Codex</span>
-              <span className="text-zinc-600">Medium</span>
-              <ChevronDown size={12} />
-            </motion.button>
+            <ModelDropdown
+              sessionId={sessionId}
+              onModelSelect={onModelSelect}
+              disabled={isLoading}
+            />
           </div>
 
           {/* Right: Attachment, Mic, Send */}
