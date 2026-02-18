@@ -68,7 +68,7 @@ fi
 echo "✅ Secure API tests passed"
 echo ""
 
-# Gate 4: Web hydration/session tests
+# Gate 4: Web hydration/session tests (FAIL-HARD)
 echo "📋 Gate 4: Web Hydration & Session Tests"
 echo "────────────────────────────────────────────────────────"
 echo "Running critical web tests..."
@@ -76,27 +76,27 @@ if ! pnpm --filter @shadowbox/web test -- --run \
   src/services/ChatHydrationService.test.js \
   src/services/__tests__/SessionStateService.test.ts \
   src/hooks/__tests__/useSessionManager.test.ts \
-  src/lib/__tests__/platform-endpoints.test.ts 2>/dev/null; then
-  echo "⚠️  Note: Some web tests may not exist yet; verifying critical ones..."
-  # Web tests might be optional; focus on existence of test infrastructure
+  src/lib/__tests__/platform-endpoints.test.ts; then
+  echo "❌ FAILED: Web tests failed"
+  exit 4
 fi
-echo "✅ Web test infrastructure validated"
+echo "✅ Web tests passed"
 echo ""
 
-# Gate 5: Regression check - Brain no longer writes to legacy /chat
+# Gate 5: Regression check - Brain no longer writes to legacy /chat (FAIL-HARD)
 echo "📋 Gate 5: Brain Runtime Regression Check"
 echo "────────────────────────────────────────────────────────"
 echo "Verifying Brain no longer writes to deprecated /chat path..."
 
 # Search for any non-test runtime code that writes to legacy /chat
+# Only allow legacy/ and test files
 if grep -r "http://internal/chat" \
   /Users/puneetpalsingh/Documents/Code/dev/Shadowbox/shadowbox/apps/brain/src \
   --include="*.ts" \
   --include="*.tsx" \
   --exclude-dir=node_modules \
   | grep -v "\.test\." \
-  | grep -v "/legacy/" \
-  | grep -v "PersistenceService"; then
+  | grep -v "/legacy/"; then
   echo "❌ REGRESSION: Found legacy /chat write path in Brain runtime code"
   exit 5
 fi

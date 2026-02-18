@@ -1,5 +1,5 @@
-// apps/brain/src/services/DiscoveryService.ts
-import { Env, Tool } from "../types/ai";
+// apps/brain/src/legacy/services/DiscoveryService.ts
+import { Env, Tool } from "../../types/ai";
 
 export class DiscoveryService {
   static async getAvailableTools(env: Env, sessionId: string): Promise<Tool[]> {
