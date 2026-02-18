@@ -131,8 +131,7 @@
 
 4. **Select a different model**:
    - [ ] Click dropdown
-   - [ ] Select "OpenRouter" provider
-   - [ ] Select a model (e.g., "Claude 3.5 Sonnet")
+   - [ ] Select a model (e.g., "llama-3.3-70b-versatile")
    - [ ] Dropdown closes
    - [ ] Button now shows selected model name
 
