@@ -161,7 +161,7 @@ export interface Env {
  */
 async function handleChatAppend(
   request: Request,
-  stub: any,
+  stub: DurableObjectStub<AgentRuntime>,
   runId: string,
 ): Promise<Response> {
   const bodyValidation = await validateRequestBody(

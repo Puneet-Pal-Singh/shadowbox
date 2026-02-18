@@ -16,12 +16,12 @@
 #
 
 set -e
+set -o pipefail
 
 # Resolve repository root relative to this script's location
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 BRAIN_SRC="${REPO_ROOT}/apps/brain/src"
-SECURE_API_SRC="${REPO_ROOT}/apps/secure-agent-api/src"
 
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "  M1.3c Regression Gate: Brain Integration & Dedup"
