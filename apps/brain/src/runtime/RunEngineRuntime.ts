@@ -7,6 +7,7 @@ import { tagRuntimeStateSemantics } from "@shadowbox/execution-engine/runtime";
 import type { Env } from "../types/ai";
 import { AIService } from "../services/AIService";
 import { ProviderConfigService } from "../services/ProviderConfigService";
+import { ProviderValidationService } from "../services/ProviderValidationService";
 import { ExecutionService } from "../services/ExecutionService";
 import { AgentRegistry, CodingAgent, ReviewAgent } from "../core/agents";
 import { SessionMemoryClient } from "../services/memory/SessionMemoryClient";
@@ -220,6 +221,28 @@ export class RunEngineRuntime extends DurableObject {
     llmRuntimeService: LLMRuntimeAIService;
     llmGateway: LLMGateway;
   } {
+    // Preflight validation: fail fast with actionable errors
+    const validationResult = ProviderValidationService.validate(env);
+    if (!validationResult.valid) {
+      const errorMessage = ProviderValidationService.formatErrors(
+        validationResult,
+      );
+      console.error("[ai/runtime] Provider validation failed:\n" + errorMessage);
+      throw new Error(
+        "Provider configuration validation failed. Check logs for details.",
+      );
+    }
+
+    // Log warnings (optional, non-blocking)
+    if (validationResult.warnings.length > 0) {
+      console.warn(
+        "[ai/runtime] Provider warnings:\n" +
+          validationResult.warnings
+            .map((w) => `⚠ [${w.code}] ${w.message}`)
+            .join("\n"),
+      );
+    }
+
     const providerConfigService = new ProviderConfigService(env);
     const aiService = new AIService(env, providerConfigService);
 
