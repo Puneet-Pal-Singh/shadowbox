@@ -4,6 +4,7 @@ import { ChatInputBar } from "./ChatInputBar";
 import { ExploredFilesSummary } from "./ExploredFilesSummary";
 import { ChatBranchSelector } from "./ChatBranchSelector";
 import type { Message } from "@ai-sdk/react";
+import type { ProviderId } from "../../types/provider";
 
 interface ChatInterfaceProps {
   chatProps: {
@@ -13,12 +14,16 @@ interface ChatInterfaceProps {
     handleSubmit: () => void;
     isLoading: boolean;
   };
+  sessionId: string;
   onArtifactOpen?: (path: string, content: string) => void;
+  onModelSelect?: (providerId: ProviderId, modelId: string) => void;
 }
 
 export function ChatInterface({
   chatProps,
+  sessionId,
   onArtifactOpen,
+  onModelSelect,
 }: ChatInterfaceProps) {
   const { messages, input, handleInputChange, handleSubmit, isLoading } =
     chatProps;
@@ -78,6 +83,8 @@ export function ChatInterface({
             onChange={handleInputChangeWrapper}
             onSubmit={handleSubmit}
             isLoading={isLoading}
+            sessionId={sessionId}
+            onModelSelect={onModelSelect}
           />
           <div className="pl-6 mt-1">
             <ChatBranchSelector />

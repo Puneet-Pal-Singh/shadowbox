@@ -145,6 +145,7 @@ export function Workspace({
                 handleSubmit,
                 isLoading,
               }}
+              sessionId={sessionId}
               onArtifactOpen={(path, content) => {
                 setSelectedFile({ path, content });
                 setIsViewingContent(true);
