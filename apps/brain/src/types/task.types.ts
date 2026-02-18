@@ -1,77 +1,90 @@
 // apps/brain/src/types/task.types.ts
-// Phase 3A: Task entity types and state definitions
+// ⚠️ DEPRECATED: Use @shadowbox/execution-engine/runtime types instead
+// This file is kept for backward compatibility only and will be removed in M2.0
+
+import type {
+  TaskType as CanonicalTaskType,
+  TaskStatus as CanonicalTaskStatus,
+  TaskInput as CanonicalTaskInput,
+  TaskOutput as CanonicalTaskOutput,
+  TaskError as CanonicalTaskError,
+  SerializedTask as CanonicalSerializedTask,
+  TaskResult as CanonicalTaskResult,
+  ExecutionContext as CanonicalExecutionContext,
+  SynthesisContext as CanonicalSynthesisContext,
+  AgentCapability as CanonicalAgentCapability,
+  IAgent as CanonicalIAgent,
+  IAgentRegistry as CanonicalIAgentRegistry,
+} from "@shadowbox/execution-engine/runtime";
 
 /**
- * Task Type - Represents different kinds of work units
+ * @deprecated Use TaskType from @shadowbox/execution-engine/runtime instead
  */
-export type TaskType =
-  | "analyze"
-  | "edit"
-  | "test"
-  | "review"
-  | "git"
-  | "shell"
-  | (string & {});
+export type TaskType = CanonicalTaskType;
 
 /**
- * Task Status State Machine
- * PENDING → READY → RUNNING → DONE
- *    ↓        ↓        ↓         ↓
- * CANCELLED  BLOCKED  FAILED  (terminal)
- *               ↑         ↓
- *               └──── RETRYING
+ * @deprecated Use TaskStatus from @shadowbox/execution-engine/runtime instead
  */
-export type TaskStatus =
-  | "PENDING"
-  | "READY"
-  | "RUNNING"
-  | "DONE"
-  | "FAILED"
-  | "BLOCKED"
-  | "CANCELLED"
-  | "RETRYING";
+export type TaskStatus = CanonicalTaskStatus;
 
-export interface TaskInput {
-  description: string;
-  expectedOutput?: string;
-  [key: string]: unknown;
-}
+/**
+ * @deprecated Use TaskInput from @shadowbox/execution-engine/runtime instead
+ */
+export interface TaskInput extends CanonicalTaskInput {}
 
-export interface TaskOutput {
-  content: string;
-  artifacts?: string[];
-  metadata?: Record<string, unknown>;
-}
+/**
+ * @deprecated Use TaskOutput from @shadowbox/execution-engine/runtime instead
+ */
+export interface TaskOutput extends CanonicalTaskOutput {}
 
-export interface TaskError {
-  message: string;
-  code?: string;
-  stack?: string;
-}
+/**
+ * @deprecated Use TaskError from @shadowbox/execution-engine/runtime instead
+ */
+export interface TaskError extends CanonicalTaskError {}
 
-export interface SerializedTask {
-  id: string;
-  runId: string;
-  type: TaskType;
-  status: TaskStatus;
-  dependencies: string[];
-  input: TaskInput;
-  output?: TaskOutput;
-  error?: TaskError;
-  retryCount: number;
-  maxRetries: number;
-  createdAt: string;
-  updatedAt: string;
-}
+/**
+ * @deprecated Use SerializedTask from @shadowbox/execution-engine/runtime instead
+ */
+export interface SerializedTask extends CanonicalSerializedTask {}
 
-export interface TaskResult {
-  taskId: string;
-  status: TaskStatus;
-  output?: TaskOutput;
-  error?: TaskError;
-  completedAt: Date;
-}
+/**
+ * @deprecated Use TaskResult from @shadowbox/execution-engine/runtime instead
+ */
+export interface TaskResult extends CanonicalTaskResult {}
 
+/**
+ * @deprecated Use ExecutionContext from @shadowbox/execution-engine/runtime instead
+ * NOTE: Canonical ExecutionContext includes providerId and modelId fields that
+ * this local type lacks. Migrate to canonical type to enable provider/model overrides.
+ */
+export interface ExecutionContext extends CanonicalExecutionContext {}
+
+/**
+ * @deprecated Use SynthesisContext from @shadowbox/execution-engine/runtime instead
+ * NOTE: Canonical SynthesisContext includes providerId and modelId fields that
+ * this local type lacks. Migrate to canonical type to enable provider/model overrides.
+ */
+export interface SynthesisContext extends CanonicalSynthesisContext {}
+
+/**
+ * @deprecated Use AgentCapability from @shadowbox/execution-engine/runtime instead
+ */
+export interface AgentCapability extends CanonicalAgentCapability {}
+
+/**
+ * @deprecated Use IAgent from @shadowbox/execution-engine/runtime instead
+ */
+export interface IAgent extends CanonicalIAgent {}
+
+/**
+ * @deprecated Use IAgentRegistry from @shadowbox/execution-engine/runtime instead
+ */
+export interface IAgentRegistry extends CanonicalIAgentRegistry {}
+
+/**
+ * @deprecated Use TaskExecutionContext from @shadowbox/execution-engine/runtime instead.
+ * This local type is redundant with the canonical ExecutionContext.
+ */
 export interface TaskExecutionContext {
   task: SerializedTask;
   runId: string;
@@ -79,46 +92,10 @@ export interface TaskExecutionContext {
 }
 
 /**
- * Agent-related types for Phase 3D agent-based routing.
- * These types are consumed by RunEngine and ChatController
- * and implemented by the agents module (apps/brain/src/core/agents/).
+ * @deprecated Use PlanContext from @shadowbox/execution-engine/planner instead
  */
-
-export interface AgentCapability {
-  name: string;
-  description: string;
-}
-
 export interface PlanContext {
-  run: import("../core/run").Run;
+  run: unknown;
   prompt: string;
   history?: unknown;
-}
-
-export interface ExecutionContext {
-  runId: string;
-  sessionId: string;
-  dependencies: TaskResult[];
-}
-
-export interface SynthesisContext {
-  runId: string;
-  sessionId: string;
-  completedTasks: SerializedTask[];
-  originalPrompt: string;
-}
-
-export interface IAgent {
-  readonly type: string;
-  plan(context: PlanContext): Promise<import("../core/planner").Plan>;
-  executeTask(task: import("../core/task").Task, context: ExecutionContext): Promise<TaskResult>;
-  synthesize(context: SynthesisContext): Promise<string>;
-  getCapabilities(): AgentCapability[];
-}
-
-export interface IAgentRegistry {
-  register(agent: IAgent): void;
-  get(type: string): IAgent;
-  has(type: string): boolean;
-  getAvailableTypes(): string[];
 }
