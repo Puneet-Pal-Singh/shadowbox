@@ -11,7 +11,7 @@
  * - Provides atomic operations with transactional guarantees
  */
 
-import type { DurableObjectState } from "cloudflare:workers";
+import type { DurableObjectState } from "@cloudflare/workers-types";
 import type { ProviderId } from "../../schemas/provider";
 
 export interface ProviderCredential {
@@ -97,13 +97,13 @@ export class DurableProviderStore {
    * Get all connected providers
    */
   async getAllProviders(): Promise<ProviderId[]> {
-    const keys = await this.state.storage?.list({ prefix: PROVIDER_STORE_PREFIX });
-    if (!keys) {
+    const entries = await this.state.storage?.list({ prefix: PROVIDER_STORE_PREFIX });
+    if (!entries) {
       return [];
     }
 
     const providerIds: ProviderId[] = [];
-    for (const key of keys) {
+    for (const [key] of entries) {
       const providerId = key.substring(PROVIDER_STORE_PREFIX.length);
       providerIds.push(providerId as ProviderId);
     }
@@ -122,12 +122,12 @@ export class DurableProviderStore {
       );
     }
 
-    const keys = await this.state.storage?.list({
+    const entries = await this.state.storage?.list({
       prefix: PROVIDER_STORE_PREFIX,
     });
-    if (!keys) return;
+    if (!entries) return;
 
-    for (const key of keys) {
+    for (const [key] of entries) {
       await this.state.storage?.delete(key);
     }
 

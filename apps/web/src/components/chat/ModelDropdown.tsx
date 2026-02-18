@@ -79,20 +79,20 @@ export function ModelDropdown({
     setSelectedModel("");
     setIsLoading(true);
     providerService
-      .getModels(newProvider)
-      .then((result) => {
-        setModels(result.models);
-        if (result.models.length > 0 && !selectedModel) {
-          const firstModel = result.models[0];
-          setSelectedModel(firstModel.id);
-          onModelSelect?.(newProvider, firstModel.id);
-          providerService.setSessionModelConfig(
-            sessionId,
-            newProvider,
-            firstModel.id,
-          );
-        }
-      })
+     .getModels(newProvider)
+     .then((result) => {
+       setModels(result.models);
+       const firstModel = result.models[0];
+       if (firstModel && !selectedModel) {
+         setSelectedModel(firstModel.id);
+         onModelSelect?.(newProvider, firstModel.id);
+         providerService.setSessionModelConfig(
+           sessionId,
+           newProvider,
+           firstModel.id,
+         );
+       }
+     })
       .catch((e) => {
         console.error("[ModelDropdown] Failed to load models:", e);
         setModels([]);

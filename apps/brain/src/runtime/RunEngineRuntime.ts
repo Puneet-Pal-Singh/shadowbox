@@ -1,5 +1,4 @@
 import type { DurableObjectState as LegacyDurableObjectState } from "@cloudflare/workers-types";
-import type { DurableObjectState } from "cloudflare:workers";
 import type { CoreMessage } from "ai";
 import { DurableObject } from "cloudflare:workers";
 import { z } from "zod";
@@ -247,7 +246,7 @@ export class RunEngineRuntime extends DurableObject {
 
     // Create durable provider store for cross-isolate state persistence
     const durableProviderStore = new DurableProviderStore(
-      this.ctx as unknown as DurableObjectState,
+      this.ctx as unknown as LegacyDurableObjectState,
     );
 
     const providerConfigService = new ProviderConfigService(
