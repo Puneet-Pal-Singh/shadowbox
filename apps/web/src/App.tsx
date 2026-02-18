@@ -424,6 +424,7 @@ function AppContent() {
                 className="absolute inset-0 flex"
               >
                 <AgentSetup
+                  sessionId={activeSessionId}
                   onRepoClick={() => setShowRepoPicker(true)}
                   onStart={(config) => {
                     const name =

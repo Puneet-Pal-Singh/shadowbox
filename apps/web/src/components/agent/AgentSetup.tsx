@@ -24,6 +24,7 @@ import { ModelSelector } from "../settings/ModelSelector";
 import { ProviderSettings } from "../settings/ProviderSettings";
 
 interface AgentSetupProps {
+  sessionId: string;
   onStart: (config: { repo: string; branch: string; task: string }) => void;
   onRepoClick?: () => void;
 }
@@ -52,14 +53,13 @@ const SUGGESTED_ACTIONS: SuggestedAction[] = [
   },
 ];
 
-export function AgentSetup({ onStart, onRepoClick }: AgentSetupProps) {
+export function AgentSetup({ sessionId, onStart, onRepoClick }: AgentSetupProps) {
   const { repo, branch } = useGitHub();
   const [task, setTask] = useState("");
   const [isInputFocused, setIsInputFocused] = useState(false);
   const [hoveredCard, setHoveredCard] = useState<number | null>(null);
   const [showProviderSettings, setShowProviderSettings] = useState(false);
   const [selectedModel, setSelectedModel] = useState<string>("");
-  const [sessionId] = useState(() => Math.random().toString(36).substring(7));
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const hasTask = task.trim().length > 0;
