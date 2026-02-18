@@ -152,7 +152,7 @@ export function ModelDropdown({
               Provider
             </div>
             <div className="space-y-1">
-              {["openrouter", "openai"].map((provider) => (
+              {["openrouter", "openai", "groq"].map((provider) => (
                 <button
                   key={provider}
                   onClick={() => handleProviderChange(provider as ProviderId)}
@@ -167,7 +167,9 @@ export function ModelDropdown({
                 >
                   {provider === "openrouter"
                     ? "OpenRouter (Recommended)"
-                    : "OpenAI"}
+                    : provider === "groq"
+                      ? "Groq (Fast)"
+                      : "OpenAI"}
                 </button>
               ))}
             </div>

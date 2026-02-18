@@ -17,7 +17,8 @@ interface ProviderSettingsProps {
 
 export function ProviderSettings({ onProviderConnect }: ProviderSettingsProps) {
   const [apiKey, setApiKey] = useState("");
-  const [selectedProvider, setSelectedProvider] = useState<ProviderId>("openrouter");
+  const [selectedProvider, setSelectedProvider] =
+    useState<ProviderId>("openrouter");
   const [providers, setProviders] = useState<ProviderConnectionStatus[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -101,7 +102,7 @@ export function ProviderSettings({ onProviderConnect }: ProviderSettingsProps) {
 
         {/* Provider Status Overview */}
         <div className="space-y-2 mb-6">
-          {["openrouter", "openai"].map((providerId) => {
+          {["openrouter", "openai", "groq"].map((providerId) => {
             const status = getProviderStatus(providerId as ProviderId);
             return (
               <div
@@ -120,9 +121,7 @@ export function ProviderSettings({ onProviderConnect }: ProviderSettingsProps) {
                   </span>
                   {status?.status === "connected" && (
                     <button
-                      onClick={() =>
-                        handleDisconnect(providerId as ProviderId)
-                      }
+                      onClick={() => handleDisconnect(providerId as ProviderId)}
                       disabled={isLoading}
                       className="text-xs px-2 py-1 text-red-400 hover:text-red-300 disabled:opacity-50"
                     >
@@ -152,6 +151,7 @@ export function ProviderSettings({ onProviderConnect }: ProviderSettingsProps) {
               >
                 <option value="openrouter">OpenRouter (Recommended)</option>
                 <option value="openai">OpenAI</option>
+                <option value="groq">Groq (Fast Inference)</option>
               </select>
             </div>
 
