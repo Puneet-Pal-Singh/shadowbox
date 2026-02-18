@@ -2,6 +2,11 @@
  * ProviderConfigService
  * Manages secure provider configuration storage and retrieval
  * Single Responsibility: Provider credential and configuration management
+ *
+ * Storage Strategy:
+ * 1. Memory cache (Map) for fast access within request lifecycle
+ * 2. Durable store (passed in) for cross-isolate persistence
+ * 3. Fallback: Returns cached value if durable store unavailable
  */
 
 import type { Env } from "../types/ai";
@@ -14,6 +19,7 @@ import type {
   ModelsListResponse,
 } from "../schemas/provider";
 import { PROVIDER_CATALOG } from "./providers/catalog";
+import type { DurableProviderStore } from "./providers/DurableProviderStore";
 
 interface ProviderConfig {
   providerId: ProviderId;
@@ -45,11 +51,13 @@ const providerConfigStore: Map<ProviderId, ProviderConfig> = new Map();
  */
 export class ProviderConfigService {
   private configs: Map<ProviderId, ProviderConfig>;
+  private durableStore?: DurableProviderStore;
 
-  constructor(_env: Env) {
+  constructor(_env: Env, durableStore?: DurableProviderStore) {
     this.configs = providerConfigStore;
-    // In v1, use ephemeral in-memory storage
-    // Future: Replace with secure backend storage (KMS, Vault, etc.)
+    this.durableStore = durableStore;
+    // Use ephemeral in-memory storage for fast access
+    // Durable store (if provided) persists for cross-isolate access
   }
 
   /**
@@ -68,22 +76,39 @@ export class ProviderConfigService {
   ): Promise<ConnectProviderResponse> {
     try {
       const { providerId, apiKey } = request;
+      const now = new Date().toISOString();
 
       // Store in memory (ephemeral)
       this.configs.set(providerId, {
         providerId,
         apiKey,
-        connectedAt: new Date().toISOString(),
+        connectedAt: now,
       });
 
-      console.log(
-        `[provider/config] ${providerId} connected (key masked)`,
-      );
+      // Also persist to durable store if available
+      if (this.durableStore) {
+        try {
+          await this.durableStore.setProvider(providerId, apiKey);
+          console.log(
+            `[provider/config] ${providerId} connected and persisted (key masked)`,
+          );
+        } catch (durableError) {
+          console.warn(
+            `[provider/config] Failed to persist ${providerId} to durable store:`,
+            durableError,
+          );
+          // Don't fail the request, but log the issue
+        }
+      } else {
+        console.log(
+          `[provider/config] ${providerId} connected (ephemeral, no durable store)`,
+        );
+      }
 
       return {
         status: "connected" as const,
         providerId,
-        lastValidatedAt: new Date().toISOString(),
+        lastValidatedAt: now,
       };
     } catch (error) {
       const providerId = request.providerId;
@@ -102,14 +127,33 @@ export class ProviderConfigService {
     request: DisconnectProviderRequest,
   ): Promise<{ status: "disconnected"; providerId: ProviderId }> {
     try {
-      this.configs.delete(request.providerId);
-      console.log(
-        `[provider/config] ${request.providerId} disconnected`,
-      );
+      const { providerId } = request;
+
+      // Remove from memory cache
+      this.configs.delete(providerId);
+
+      // Also remove from durable store if available
+      if (this.durableStore) {
+        try {
+          await this.durableStore.deleteProvider(providerId);
+          console.log(
+            `[provider/config] ${providerId} disconnected (removed from durable)`,
+          );
+        } catch (durableError) {
+          console.warn(
+            `[provider/config] Failed to remove ${providerId} from durable store:`,
+            durableError,
+          );
+        }
+      } else {
+        console.log(
+          `[provider/config] ${providerId} disconnected (memory only)`,
+        );
+      }
 
       return {
         status: "disconnected" as const,
-        providerId: request.providerId,
+        providerId,
       };
     } catch (error) {
       console.error(
@@ -162,16 +206,62 @@ export class ProviderConfigService {
   /**
    * Get API key for a provider (internal use only)
    * Returns null if provider not connected
+   * Checks memory cache first, then durable store as fallback
    */
-  getApiKey(providerId: ProviderId): string | null {
-    return this.configs.get(providerId)?.apiKey ?? null;
+  async getApiKey(providerId: ProviderId): Promise<string | null> {
+    // Check memory cache first (fast path)
+    const cached = this.configs.get(providerId)?.apiKey;
+    if (cached) {
+      return cached;
+    }
+
+    // Fallback to durable store if available
+    if (this.durableStore) {
+      try {
+        const key = await this.durableStore.getApiKey(providerId);
+        if (key) {
+          // Populate memory cache for next access
+          this.configs.set(providerId, {
+            providerId,
+            apiKey: key,
+            connectedAt: new Date().toISOString(),
+          });
+        }
+        return key;
+      } catch (e) {
+        console.warn(
+          `[provider/config] Failed to get API key from durable store:`,
+          e,
+        );
+      }
+    }
+
+    return null;
   }
 
   /**
    * Check if provider is connected
+   * Checks memory cache first, then durable store
    */
-  isConnected(providerId: ProviderId): boolean {
-    return this.configs.has(providerId);
+  async isConnected(providerId: ProviderId): Promise<boolean> {
+    // Check memory cache first
+    if (this.configs.has(providerId)) {
+      return true;
+    }
+
+    // Check durable store as fallback
+    if (this.durableStore) {
+      try {
+        return await this.durableStore.isConnected(providerId);
+      } catch (e) {
+        console.warn(
+          `[provider/config] Failed to check durable store:`,
+          e,
+        );
+      }
+    }
+
+    return false;
   }
 
   private failureResponse(

@@ -1,4 +1,5 @@
 import type { DurableObjectState as LegacyDurableObjectState } from "@cloudflare/workers-types";
+import type { DurableObjectState } from "cloudflare:workers";
 import type { CoreMessage } from "ai";
 import { DurableObject } from "cloudflare:workers";
 import { z } from "zod";
@@ -8,6 +9,7 @@ import type { Env } from "../types/ai";
 import { AIService } from "../services/AIService";
 import { ProviderConfigService } from "../services/ProviderConfigService";
 import { ProviderValidationService } from "../services/ProviderValidationService";
+import { DurableProviderStore } from "../services/providers/DurableProviderStore";
 import { ExecutionService } from "../services/ExecutionService";
 import { AgentRegistry, CodingAgent, ReviewAgent } from "../core/agents";
 import { SessionMemoryClient } from "../services/memory/SessionMemoryClient";
@@ -243,7 +245,15 @@ export class RunEngineRuntime extends DurableObject {
       );
     }
 
-    const providerConfigService = new ProviderConfigService(env);
+    // Create durable provider store for cross-isolate state persistence
+    const durableProviderStore = new DurableProviderStore(
+      this.ctx as unknown as DurableObjectState,
+    );
+
+    const providerConfigService = new ProviderConfigService(
+      env,
+      durableProviderStore,
+    );
     const aiService = new AIService(env, providerConfigService);
 
     const llmRuntimeService: LLMRuntimeAIService = {

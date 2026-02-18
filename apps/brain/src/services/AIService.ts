@@ -182,7 +182,7 @@ export class AIService {
   }): Promise<GenerateTextResult> {
     const selection = this.resolveModelSelection(providerId, model);
     const selectedModel = selection.model;
-    const selectedAdapter = this.getAdapterForSelection(selection);
+    const selectedAdapter = await this.getAdapterForSelection(selection);
 
     const params: GenerationParams = {
       messages,
@@ -224,7 +224,7 @@ export class AIService {
     // For structured generation, we use the AI SDK's generateObject
     // Fetch provider-aware API key if a provider override is selected
     const overrideApiKey = selection.providerId
-      ? this.providerConfigService?.getApiKey(selection.providerId) ?? undefined
+      ? await this.providerConfigService?.getApiKey(selection.providerId) ?? undefined
       : undefined;
 
     const result = await generateObject({
@@ -277,9 +277,9 @@ export class AIService {
       toolCall?: { toolName: string; args: unknown };
     }) => void;
   }): Promise<ReadableStream<Uint8Array>> {
-    const selection = this.resolveModelSelection(providerId, model);
-    const selectedModel = selection.model;
-    const selectedAdapter = this.getAdapterForSelection(selection);
+   const selection = this.resolveModelSelection(providerId, model);
+   const selectedModel = selection.model;
+   const selectedAdapter = await this.getAdapterForSelection(selection);
 
     const params: GenerationParams = {
       messages,
@@ -515,7 +515,7 @@ export class AIService {
     return "litellm";
   }
 
-  private getAdapterForSelection(selection: ModelSelection): ProviderAdapter {
+  private async getAdapterForSelection(selection: ModelSelection): Promise<ProviderAdapter> {
     if (
       selection.fallback ||
       selection.runtimeProvider === this.getRuntimeProviderFromAdapter(this.adapter.provider)
@@ -524,7 +524,7 @@ export class AIService {
     }
 
     const overrideApiKey = selection.providerId
-      ? this.providerConfigService?.getApiKey(selection.providerId) ?? undefined
+      ? await this.providerConfigService?.getApiKey(selection.providerId) ?? undefined
       : undefined;
 
     switch (selection.runtimeProvider) {
