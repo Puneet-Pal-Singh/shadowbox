@@ -1,0 +1,31 @@
+# Brain Local Development Configuration
+# Copy this file to .dev.vars and fill in your values for local development
+
+# LLM Provider Configuration (REQUIRED for chat to work)
+# Options: "litellm" (default, uses Groq/OpenAI), "openai", "anthropic"
+LLM_PROVIDER=litellm
+# Default model for chat stream (required when LLM_PROVIDER is set)
+# For LiteLLM/Groq: llama-3.3-70b-versatile, mixtral-8x7b-32768, etc.
+DEFAULT_MODEL=llama-3.3-70b-versatile
+
+# Provider API Keys (at least one required for your chosen LLM_PROVIDER)
+# For LiteLLM (Groq): Required
+GROQ_API_KEY=your-groq-api-key-here
+# For LiteLLM (OpenAI) or OpenAI provider: Optional if using Groq above
+# OPENAI_API_KEY=your-openai-api-key-here
+# For Anthropic provider:
+# ANTHROPIC_API_KEY=your-anthropic-api-key-here
+
+# System Prompt (optional, has sensible default)
+SYSTEM_PROMPT="You are Shadowbox, an autonomous expert software engineer. Work in /home/sandbox/workspaces/${runId}. Answer directly without over-engineering or unnecessary tool use. Use tools ONLY if explicitly asked. Be concise."
+
+# GitHub OAuth Configuration (REQUIRED for GitHub integration)
+# Create OAuth app at https://github.com/settings/developers
+GITHUB_CLIENT_ID=your-github-client-id
+GITHUB_CLIENT_SECRET=your-github-client-secret
+GITHUB_REDIRECT_URI=http://localhost:8788/auth/github/callback
+# Generate a random 20-char hex string for token encryption
+GITHUB_TOKEN_ENCRYPTION_KEY=your-random-20-char-hex-key
+# Generate a random 12-char hex string for session secret
+SESSION_SECRET=your-random-12-char-hex-key
+FRONTEND_URL=http://localhost:5173
