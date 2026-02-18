@@ -1,5 +1,6 @@
 import type { CoreMessage, CoreAssistantMessage, CoreToolMessage } from "ai";
-import { ExecutionService } from "./ExecutionService";
+// ExecutionService was removed; this service is deprecated
+// import { ExecutionService } from "./ExecutionService";
 
 interface ToolCallPart {
   type: "tool-call";
@@ -43,8 +44,13 @@ function hasArrayContent(msg: CoreAssistantMessage): msg is CoreAssistantMessage
   return Array.isArray(msg.content);
 }
 
+/**
+ * @deprecated This service is part of the legacy orchestration-era code.
+ * ExecutionService no longer exists; this class cannot be instantiated.
+ * For M2.0 removal.
+ */
 export class ContextHydrationService {
-  constructor(private executionService: ExecutionService) {}
+  constructor(private executionService: any) {}
 
   async hydrateMessages(messages: CoreMessage[]): Promise<CoreMessage[]> {
     return Promise.all(

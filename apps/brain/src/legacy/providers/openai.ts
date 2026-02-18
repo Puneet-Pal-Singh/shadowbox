@@ -1,4 +1,4 @@
-import { AgentResult, Tool } from "../types/ai";
+import { AgentResult, Tool } from "../../types/ai";
 
 export class OpenAIProvider {
   constructor(

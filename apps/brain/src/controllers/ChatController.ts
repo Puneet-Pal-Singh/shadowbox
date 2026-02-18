@@ -1,6 +1,6 @@
 import type { CoreMessage, Message } from "ai";
+import type { AgentType } from "@shadowbox/execution-engine/runtime";
 import { getCorsHeaders } from "../lib/cors";
-import type { AgentType } from "../types";
 import type { Env } from "../types/ai";
 import { PersistenceService } from "../services/PersistenceService";
 import { ChatProviderSelectionSchema } from "../schemas/provider";

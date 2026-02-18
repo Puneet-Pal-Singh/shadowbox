@@ -23,6 +23,11 @@ const RESTRICTED_IMPORT_RULE = [
         message:
           "Provider adapters are restricted. Use core/llm/LLMGateway instead.",
       },
+      {
+        group: ["**/legacy/**"],
+        message:
+          "Legacy code imports are restricted. This directory is scheduled for removal. See src/legacy/README.md for migration guidance.",
+      },
     ],
   },
 ];
@@ -35,6 +40,7 @@ export default defineConfig([
       "src/core/llm/**/*",
       "src/services/AIService.ts",
       "src/services/providers/**/*",
+      "src/legacy/**/*",
     ],
     languageOptions: {
       parser: tseslint.parser,

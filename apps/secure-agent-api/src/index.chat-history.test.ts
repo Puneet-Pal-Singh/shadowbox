@@ -50,6 +50,95 @@ describe("secure-agent-api chat history routing", () => {
     );
     expect(body.messages[0]?.content).toBe("hello");
   });
+
+  it("appends single message via canonical POST route", async () => {
+    const runtimeStub = createRuntimeStub();
+    const env = createEnv(runtimeStub);
+    const message = { role: "user", content: "test message" };
+    const request = new Request(
+      "https://secure.local/api/chat/history/run%2F456",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message }),
+      },
+    );
+
+    const response = await worker.fetch(request, env);
+    expect(response.status).toBe(200);
+    expect(runtimeStub.appendMessage).toHaveBeenCalledWith(
+      "run/456",
+      message,
+      undefined,
+    );
+  });
+
+  it("appends batch messages via canonical POST route", async () => {
+    const runtimeStub = createRuntimeStub();
+    const env = createEnv(runtimeStub);
+    const messages = [
+      { role: "user", content: "msg1" },
+      { role: "assistant", content: "msg2" },
+    ];
+    const request = new Request(
+      "https://secure.local/api/chat/history/run%2F789",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages }),
+      },
+    );
+
+    const response = await worker.fetch(request, env);
+    expect(response.status).toBe(200);
+    expect(runtimeStub.saveHistory).toHaveBeenCalledWith(
+      "run/789",
+      messages,
+      undefined,
+    );
+  });
+
+  it("forwards idempotency key in canonical POST append", async () => {
+    const runtimeStub = createRuntimeStub();
+    const env = createEnv(runtimeStub);
+    const message = { role: "user", content: "test" };
+    const idempotencyKey = "idem-key-123";
+    const request = new Request(
+      "https://secure.local/api/chat/history/run%2Fabcd",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Idempotency-Key": idempotencyKey,
+        },
+        body: JSON.stringify({ message }),
+      },
+    );
+
+    const response = await worker.fetch(request, env);
+    expect(response.status).toBe(200);
+    expect(runtimeStub.appendMessage).toHaveBeenCalledWith(
+      "run/abcd",
+      message,
+      idempotencyKey,
+    );
+  });
+
+  it("rejects canonical POST with invalid payload", async () => {
+    const runtimeStub = createRuntimeStub();
+    const env = createEnv(runtimeStub);
+    const request = new Request(
+      "https://secure.local/api/chat/history/run%2Fxyz",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ invalidField: "test" }),
+      },
+    );
+
+    const response = await worker.fetch(request, env);
+    expect(response.status).toBe(400);
+  });
 });
 
 function createRuntimeStub() {
@@ -59,6 +148,8 @@ function createRuntimeStub() {
       nextCursor: null,
       hasMore: false,
     })),
+    appendMessage: vi.fn(async () => ({ success: true })),
+    saveHistory: vi.fn(async () => ({ success: true })),
   };
 }
 

@@ -37,7 +37,7 @@ export class PersistenceService {
       );
 
       await this.env.SECURE_API.fetch(
-        `http://internal/chat?session=${sessionId}&runId=${runId}`,
+        `http://internal/api/chat/history/${runId}?session=${sessionId}`,
         {
           method: "POST",
           headers: {
@@ -80,7 +80,7 @@ export class PersistenceService {
         );
 
         await this.env.SECURE_API.fetch(
-          `http://internal/chat?session=${sessionId}&runId=${runId}`,
+          `http://internal/api/chat/history/${runId}?session=${sessionId}`,
           {
             method: "POST",
             headers: {

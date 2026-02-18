@@ -1,57 +1,53 @@
 // apps/brain/src/types/run.types.ts
-// Phase 3A: Run entity types and state definitions
+// ⚠️ DEPRECATED: Use @shadowbox/execution-engine/runtime types instead
+// This file is kept for backward compatibility only and will be removed in M2.0
+
+import type {
+  RunStatus as CanonicalRunStatus,
+  AgentType as CanonicalAgentType,
+  RunInput as CanonicalRunInput,
+  RunOutput as CanonicalRunOutput,
+  RunMetadata as CanonicalRunMetadata,
+  SerializedRun as CanonicalSerializedRun,
+  TaskResult as CanonicalTaskResult,
+} from "@shadowbox/execution-engine/runtime";
 
 /**
- * Run Status State Machine
- * CREATED → PLANNING → RUNNING → COMPLETED
- *                    ↓            ↓
- *                 PAUSED       FAILED
- *                    ↓            ↓
- *                 RUNNING    CANCELLED
+ * @deprecated Use RunStatus from @shadowbox/execution-engine/runtime instead
  */
-export type RunStatus =
-  | "CREATED"
-  | "PLANNING"
-  | "RUNNING"
-  | "PAUSED"
-  | "COMPLETED"
-  | "FAILED"
-  | "CANCELLED";
+export type RunStatus = CanonicalRunStatus;
 
-export type AgentType = "coding" | "review" | "ci" | (string & {});
+/**
+ * @deprecated Use AgentType from @shadowbox/execution-engine/runtime instead
+ */
+export type AgentType = CanonicalAgentType;
 
-export interface RunInput {
-  agentType: AgentType;
-  prompt: string;
-  sessionId: string;
-  metadata?: Record<string, unknown>;
-}
+/**
+ * @deprecated Use RunInput from @shadowbox/execution-engine/runtime instead
+ * NOTE: This is an identity re-export of the canonical type and has all the same fields.
+ * Prefer importing directly from @shadowbox/execution-engine/runtime.
+ */
+export interface RunInput extends CanonicalRunInput {}
 
-export interface RunOutput {
-  content: string;
-  finalSummary?: string;
-}
+/**
+ * @deprecated Use RunOutput from @shadowbox/execution-engine/runtime instead
+ */
+export interface RunOutput extends CanonicalRunOutput {}
 
-export interface RunMetadata {
-  prompt: string;
-  planId?: string;
-  completedAt?: string;
-  error?: string;
-  startedAt?: string;
-}
+/**
+ * @deprecated Use RunMetadata from @shadowbox/execution-engine/runtime instead
+ */
+export interface RunMetadata extends CanonicalRunMetadata {}
 
-export interface SerializedRun {
-  id: string;
-  sessionId: string;
-  status: RunStatus;
-  agentType: AgentType;
-  input: RunInput;
-  output?: RunOutput;
-  metadata: RunMetadata;
-  createdAt: string;
-  updatedAt: string;
-}
+/**
+ * @deprecated Use SerializedRun from @shadowbox/execution-engine/runtime instead
+ */
+export interface SerializedRun extends CanonicalSerializedRun {}
 
+/**
+ * @deprecated This local type is not part of the canonical execution-engine types.
+ * Consider using TaskResult or removing this dependency.
+ */
 export interface RunResult {
   runId: string;
   status: RunStatus;
@@ -60,6 +56,10 @@ export interface RunResult {
   cost: CostSnapshot;
 }
 
+/**
+ * @deprecated This local type is not part of the canonical execution-engine types.
+ * Consider using cost tracking from execution-engine instead.
+ */
 export interface CostSnapshot {
   runId: string;
   totalCost: number;
@@ -67,6 +67,9 @@ export interface CostSnapshot {
   byModel: Record<string, ModelCost>;
 }
 
+/**
+ * @deprecated This local type is not part of the canonical execution-engine types.
+ */
 export interface ModelCost {
   model: string;
   promptTokens: number;
@@ -74,12 +77,20 @@ export interface ModelCost {
   cost: number;
 }
 
+/**
+ * @deprecated This local type is not part of the canonical execution-engine types.
+ * Consider using SerializedTask from execution-engine instead.
+ */
 export interface TaskSummary {
   taskId: string;
   type: string;
   status: string;
 }
 
+/**
+ * @deprecated This local type is not part of the canonical execution-engine types.
+ * Consider using TokenUsage from execution-engine cost types instead.
+ */
 export interface TokenUsage {
   promptTokens: number;
   completionTokens: number;
