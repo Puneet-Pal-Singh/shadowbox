@@ -678,6 +678,15 @@ export class AIService {
         undefined)
       : undefined;
 
+    // For all providers, fall back to default if no explicit override key provided
+    // This ensures BYOK providers are explicitly connected before use
+    if (!overrideApiKey) {
+      console.warn(
+        `[ai/service] Provider ${selection.runtimeProvider} not connected, falling back to default adapter`,
+      );
+      return this.adapter;
+    }
+
     switch (selection.runtimeProvider) {
       case "openai":
         return this.createOpenAIAdapter(overrideApiKey);

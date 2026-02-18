@@ -15,6 +15,8 @@ interface FakeProviderAdapter {
 interface MutableAIService {
   adapter: FakeProviderAdapter;
   createOpenAIAdapter: (overrideApiKey?: string) => FakeProviderAdapter;
+  createOpenRouterAdapter: (overrideApiKey?: string) => FakeProviderAdapter;
+  createGroqAdapter: (overrideApiKey?: string) => FakeProviderAdapter;
 }
 
 const BASE_MESSAGES: CoreMessage[] = [{ role: "user", content: "hello" }];
@@ -128,6 +130,125 @@ describe("AIService provider override routing", () => {
     expect(litellmAdapter.generateStream).not.toHaveBeenCalled();
     expect(finishedProvider).toBe("openai");
   });
+
+  describe("Direct OpenRouter and Groq inference (M1.3e)", () => {
+    it("routes to OpenRouter adapter when OpenRouter provider is connected", async () => {
+      const providerConfig = new ProviderConfigService(createEnv());
+      await providerConfig.connect({
+        providerId: "openrouter",
+        apiKey: "sk-or-test-1234567890",
+      });
+
+      const service = new AIService(createEnv(), providerConfig);
+      const mutableService = service as unknown as MutableAIService;
+      const litellmAdapter = createFakeAdapter("litellm");
+      const openrouterAdapter = createFakeAdapter("openrouter");
+
+      mutableService.adapter = litellmAdapter;
+      mutableService.createOpenRouterAdapter = () => openrouterAdapter;
+
+      const result = await service.generateText({
+        messages: BASE_MESSAGES,
+        providerId: "openrouter",
+        model: "openai/gpt-4-turbo",
+      });
+
+      expect(result.usage.provider).toBe("openrouter");
+      expect(result.usage.model).toBe("openai/gpt-4-turbo");
+    });
+
+    it("routes to Groq adapter when Groq provider is connected", async () => {
+      const providerConfig = new ProviderConfigService(createEnv());
+      await providerConfig.connect({
+        providerId: "groq",
+        apiKey: "gsk_test1234567890",
+      });
+
+      const service = new AIService(createEnv(), providerConfig);
+      const mutableService = service as unknown as MutableAIService;
+      const litellmAdapter = createFakeAdapter("litellm");
+      const groqAdapter = createFakeAdapter("groq");
+
+      mutableService.adapter = litellmAdapter;
+      mutableService.createGroqAdapter = () => groqAdapter;
+
+      const result = await service.generateText({
+        messages: BASE_MESSAGES,
+        providerId: "groq",
+        model: "llama-3.3-70b-versatile",
+      });
+
+      expect(result.usage.provider).toBe("groq");
+      expect(result.usage.model).toBe("llama-3.3-70b-versatile");
+    });
+
+    it("falls back to default adapter when OpenRouter is not connected", async () => {
+      const providerConfig = new ProviderConfigService(createEnv());
+      const service = new AIService(createEnv(), providerConfig);
+      const mutableService = service as unknown as MutableAIService;
+      const litellmAdapter = createFakeAdapter("litellm");
+
+      mutableService.adapter = litellmAdapter;
+
+      const result = await service.generateText({
+        messages: BASE_MESSAGES,
+        providerId: "openrouter",
+        model: "openai/gpt-4-turbo",
+      });
+
+      expect(result.usage.provider).toBe("litellm");
+    });
+
+    it("falls back to default adapter when Groq is not connected", async () => {
+      const providerConfig = new ProviderConfigService(createEnv());
+      const service = new AIService(createEnv(), providerConfig);
+      const mutableService = service as unknown as MutableAIService;
+      const litellmAdapter = createFakeAdapter("litellm");
+
+      mutableService.adapter = litellmAdapter;
+
+      const result = await service.generateText({
+        messages: BASE_MESSAGES,
+        providerId: "groq",
+        model: "llama-3.3-70b-versatile",
+      });
+
+      expect(result.usage.provider).toBe("litellm");
+    });
+
+    it("maintains session isolation for provider/model selection", async () => {
+      const providerConfig = new ProviderConfigService(createEnv());
+
+      await providerConfig.connect({
+        providerId: "groq",
+        apiKey: "gsk_test1234567890",
+      });
+      await providerConfig.connect({
+        providerId: "openrouter",
+        apiKey: "sk-or-test-1234567890",
+      });
+
+      const service = new AIService(createEnv(), providerConfig);
+
+      const selection1 = service.resolveModelSelection(
+        "groq",
+        "llama-3.3-70b-versatile",
+      );
+      expect(selection1.providerId).toBe("groq");
+      expect(selection1.runtimeProvider).toBe("groq");
+
+      const selection2 = service.resolveModelSelection(
+        "openrouter",
+        "openai/gpt-4-turbo",
+      );
+      expect(selection2.providerId).toBe("openrouter");
+      expect(selection2.runtimeProvider).toBe("openrouter");
+
+      const selection3 = service.resolveModelSelection("openai", "gpt-4o");
+      expect(selection3.providerId).toBe("openai");
+      expect(selection3.runtimeProvider).toBe("openai");
+    });
+  });
 });
 
 function createFakeAdapter(provider: string): FakeProviderAdapter {
@@ -143,59 +264,59 @@ function createFakeAdapter(provider: string): FakeProviderAdapter {
     finishReason: "stop",
   }));
 
-  const generateStream = vi.fn(
-    async function* (params: { model?: string }): AsyncGenerator<
-      {
-        type: "text" | "finish";
-        content?: string;
-        usage?: {
-          provider: string;
-          model: string;
-          promptTokens: number;
-          completionTokens: number;
-          totalTokens: number;
-        };
-        finishReason?: string;
-      },
-      {
-        content: string;
-        usage: {
-          provider: string;
-          model: string;
-          promptTokens: number;
-          completionTokens: number;
-          totalTokens: number;
-        };
-        finishReason: string;
-      },
-      unknown
-    > {
-      const model = params.model ?? "default";
-      yield { type: "text", content: `${provider}:${model}` };
-      yield {
-        type: "finish",
-        usage: {
-          provider,
-          model,
-          promptTokens: 1,
-          completionTokens: 1,
-          totalTokens: 2,
-        },
-        finishReason: "stop",
+  const generateStream = vi.fn(async function* (params: {
+    model?: string;
+  }): AsyncGenerator<
+    {
+      type: "text" | "finish";
+      content?: string;
+      usage?: {
+        provider: string;
+        model: string;
+        promptTokens: number;
+        completionTokens: number;
+        totalTokens: number;
       };
-      return {
-        content: `${provider}:${model}`,
-        usage: {
-          provider,
-          model,
-          promptTokens: 1,
-          completionTokens: 1,
-          totalTokens: 2,
-        },
-        finishReason: "stop",
-      };
+      finishReason?: string;
     },
-  );
+    {
+      content: string;
+      usage: {
+        provider: string;
+        model: string;
+        promptTokens: number;
+        completionTokens: number;
+        totalTokens: number;
+      };
+      finishReason: string;
+    },
+    unknown
+  > {
+    const model = params.model ?? "default";
+    yield { type: "text", content: `${provider}:${model}` };
+    yield {
+      type: "finish",
+      usage: {
+        provider,
+        model,
+        promptTokens: 1,
+        completionTokens: 1,
+        totalTokens: 2,
+      },
+      finishReason: "stop",
+    };
+    return {
+      content: `${provider}:${model}`,
+      usage: {
+        provider,
+        model,
+        promptTokens: 1,
+        completionTokens: 1,
+        totalTokens: 2,
+      },
+      finishReason: "stop",
+    };
+  });
 
   return {
     provider,
@@ -206,7 +327,9 @@ function createFakeAdapter(provider: string): FakeProviderAdapter {
   };
 }
 
-async function readUint8Stream(stream: ReadableStream<Uint8Array>): Promise<string> {
+async function readUint8Stream(
+  stream: ReadableStream<Uint8Array>,
+): Promise<string> {
   const reader = stream.getReader();
   const decoder = new TextDecoder();
   let output = "";
