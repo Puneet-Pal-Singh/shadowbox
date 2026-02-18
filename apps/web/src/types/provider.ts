@@ -3,7 +3,7 @@
  * Types for provider configuration and management
  */
 
-export type ProviderId = "openrouter" | "openai";
+export type ProviderId = "openrouter" | "openai" | "groq";
 
 export interface ModelDescriptor {
   id: string;
