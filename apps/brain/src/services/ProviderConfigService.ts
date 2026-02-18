@@ -188,8 +188,16 @@ export class ProviderConfigService {
   /**
    * Reset provider config state for tests
    * Static method for test isolation
+   * ⚠️ SECURITY: Only available in test environments
+   * @throws Error if called in production environments
    */
   static resetForTests(): void {
+    if (process.env.NODE_ENV !== "test") {
+      throw new Error(
+        "ProviderConfigService.resetForTests() is only available in test environments. " +
+        "This prevents accidental credential wipe in production.",
+      );
+    }
     providerConfigStore.clear();
   }
 }

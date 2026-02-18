@@ -24,8 +24,8 @@ export type AgentType = CanonicalAgentType;
 
 /**
  * @deprecated Use RunInput from @shadowbox/execution-engine/runtime instead
- * NOTE: Canonical RunInput includes providerId and modelId fields that this
- * local type lacks. Migrate to canonical type to enable provider/model overrides.
+ * NOTE: This is an identity re-export of the canonical type and has all the same fields.
+ * Prefer importing directly from @shadowbox/execution-engine/runtime.
  */
 export interface RunInput extends CanonicalRunInput {}
 

@@ -155,6 +155,36 @@ export interface Env {
   CORS_ALLOW_DEV_ORIGINS?: "true" | "false";
 }
 
+/**
+ * SRP: Extract shared POST append handler to eliminate duplication
+ * Used by both canonical and legacy chat history routes
+ */
+async function handleChatAppend(
+  request: Request,
+  stub: any,
+  runId: string,
+): Promise<Response> {
+  const bodyValidation = await validateRequestBody(
+    request,
+    ChatAppendRequestSchema,
+  );
+  if (!bodyValidation.valid) {
+    return errorResponse(bodyValidation.error, "VALIDATION_ERROR", 400);
+  }
+
+  const { message, messages, idempotencyKey } = bodyValidation.data;
+  const requestIdempotencyKey =
+    idempotencyKey || request.headers.get("X-Idempotency-Key") || undefined;
+
+  if (message) {
+    await stub.appendMessage(runId, message, requestIdempotencyKey);
+  } else if (messages) {
+    await stub.saveHistory(runId, messages, requestIdempotencyKey);
+  }
+
+  return Response.json({ success: true });
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -202,6 +232,7 @@ export default {
           const runId = decodeURIComponent(historyMatch[1]!);
 
           if (request.method === "GET") {
+            // Validate query parameters (cursor is optional, limit has defaults)
             const cursor = url.searchParams.get("cursor") || undefined;
             const limitStr = url.searchParams.get("limit") || "50";
             const limitNum = parseInt(limitStr, 10);
@@ -212,31 +243,8 @@ export default {
             const historyResult = await stub.getHistory(runId, cursor, limit);
             response = Response.json(historyResult);
           } else if (request.method === "POST") {
-            // CANONICAL POST: Append message(s) to history
-            const bodyValidation = await validateRequestBody(
-              request,
-              ChatAppendRequestSchema,
-            );
-            if (!bodyValidation.valid) {
-              response = errorResponse(
-                bodyValidation.error,
-                "VALIDATION_ERROR",
-                400,
-              );
-            } else {
-              const { message, messages, idempotencyKey } = bodyValidation.data;
-              const requestIdempotencyKey =
-                idempotencyKey ||
-                request.headers.get("X-Idempotency-Key") ||
-                undefined;
-
-              if (message) {
-                await stub.appendMessage(runId, message, requestIdempotencyKey);
-              } else if (messages) {
-                await stub.saveHistory(runId, messages, requestIdempotencyKey);
-              }
-              response = Response.json({ success: true });
-            }
+            // CANONICAL POST: Append message(s) to history (uses shared handler)
+            response = await handleChatAppend(request, stub, runId);
           } else {
             response = new Response("Method Not Allowed", { status: 405 });
           }
@@ -263,30 +271,7 @@ export default {
               const historyResult = await stub.getHistory(runId, cursor, limit);
               response = Response.json(historyResult);
             } else if (request.method === "POST") {
-              const bodyValidation = await validateRequestBody(
-                request,
-                ChatAppendRequestSchema,
-              );
-              if (!bodyValidation.valid) {
-                response = errorResponse(
-                  bodyValidation.error,
-                  "VALIDATION_ERROR",
-                  400,
-                );
-              } else {
-                const { message, messages, idempotencyKey } = bodyValidation.data;
-                const requestIdempotencyKey =
-                  idempotencyKey ||
-                  request.headers.get("X-Idempotency-Key") ||
-                  undefined;
-
-                if (message) {
-                  await stub.appendMessage(runId, message, requestIdempotencyKey);
-                } else if (messages) {
-                  await stub.saveHistory(runId, messages, requestIdempotencyKey);
-                }
-                response = Response.json({ success: true });
-              }
+              response = await handleChatAppend(request, stub, runId);
             } else {
               response = new Response("Method Not Allowed", { status: 405 });
             }

@@ -7,14 +7,21 @@
 #
 # Exit codes:
 #   0 = All gates passed
-#   1 = Type check failure
+#   1 = Type check or legacy isolation failure
 #   2 = Provider test failure
 #   3 = Secure API test failure
 #   4 = Web test failure
 #   5 = Brain runtime regression (legacy /chat writes detected)
+#   6 = Canonical persistence endpoint missing
 #
 
 set -e
+
+# Resolve repository root relative to this script's location
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+BRAIN_SRC="${REPO_ROOT}/apps/brain/src"
+SECURE_API_SRC="${REPO_ROOT}/apps/secure-agent-api/src"
 
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "  M1.3c Regression Gate: Brain Integration & Dedup"
@@ -91,7 +98,7 @@ echo "Verifying Brain no longer writes to deprecated /chat path..."
 # Search for any non-test runtime code that writes to legacy /chat
 # Only allow legacy/ and test files
 if grep -r "http://internal/chat" \
-  /Users/puneetpalsingh/Documents/Code/dev/Shadowbox/shadowbox/apps/brain/src \
+  "${BRAIN_SRC}" \
   --include="*.ts" \
   --include="*.tsx" \
   --exclude-dir=node_modules \
@@ -110,11 +117,11 @@ echo "────────────────────────�
 echo "Verifying Brain uses canonical /api/chat/history/:runId..."
 
 if grep -r "http://internal/api/chat/history/" \
-  /Users/puneetpalsingh/Documents/Code/dev/Shadowbox/shadowbox/apps/brain/src/services/PersistenceService.ts > /dev/null; then
+  "${BRAIN_SRC}/services/PersistenceService.ts" > /dev/null; then
   echo "✅ PersistenceService uses canonical endpoint"
 else
   echo "❌ FAILED: Canonical endpoint not found in PersistenceService"
-  exit 5
+  exit 6
 fi
 echo ""
 
@@ -122,12 +129,12 @@ echo ""
 echo "📋 Gate 7: Legacy Stack Isolation (PR-05cC)"
 echo "────────────────────────────────────────────────────────"
 
-if [ ! -d /Users/puneetpalsingh/Documents/Code/dev/Shadowbox/shadowbox/apps/brain/src/legacy ]; then
+if [ ! -d "${BRAIN_SRC}/legacy" ]; then
   echo "❌ FAILED: Legacy boundary directory not found"
   exit 1
 fi
 
-if [ ! -f /Users/puneetpalsingh/Documents/Code/dev/Shadowbox/shadowbox/apps/brain/src/legacy/README.md ]; then
+if [ ! -f "${BRAIN_SRC}/legacy/README.md" ]; then
   echo "❌ FAILED: Legacy README not found"
   exit 1
 fi
@@ -135,15 +142,16 @@ fi
 echo "✅ Legacy directory structure with guardrails in place"
 echo ""
 
-# Gate 8: Runtime type alignment (PR-05cD)
+# Gate 8: Runtime type alignment (PR-05cD) - BLOCKING
 echo "📋 Gate 8: Runtime Type Source Alignment (PR-05cD)"
 echo "────────────────────────────────────────────────────────"
 echo "Verifying runtime types are canonical..."
 
-if grep -q "RUN_ENGINE_RUNTIME" /Users/puneetpalsingh/Documents/Code/dev/Shadowbox/shadowbox/apps/brain/src/controllers/ChatController.ts; then
+if grep -q "RUN_ENGINE_RUNTIME" "${BRAIN_SRC}/controllers/ChatController.ts"; then
   echo "✅ ChatController references execution-engine runtime contracts"
 else
-  echo "⚠️  Warning: RUN_ENGINE_RUNTIME not found in ChatController"
+  echo "❌ FAILED: ChatController must import from execution-engine runtime contracts"
+  exit 1
 fi
 echo ""
 

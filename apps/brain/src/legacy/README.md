@@ -47,5 +47,6 @@ import { OpenAIProvider } from "./legacy/providers/openai";
 ## Contact
 
 For questions about migration, see:
-- HLD: `local/tasks/roadmap_v2_hlds/05c-M1.3c-Brain-Integration-Dedup-Closure-HLD.md`
-- LLD: `local/tasks/roadmap_v2_llds/05c-M1.3c-Brain-Integration-Dedup-Closure-LLD.md`
+- HLD: [M1.3c Brain Integration & Dedup Closure](../../../docs/roadmap/05c-M1.3c-Brain-Integration-Dedup-Closure-HLD.md)
+- LLD: [M1.3c Brain Integration & Dedup Closure (LLD)](../../../docs/roadmap/05c-M1.3c-Brain-Integration-Dedup-Closure-LLD.md)
+- Audit: [2026-02-18 Brain Integration Audit](../../../local/audits/2026-02-18-brain-integration-and-duplication-audit.md)
