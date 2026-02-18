@@ -5,6 +5,7 @@
 **Duration**: ~10 minutes
 
 **Prerequisites**:
+
 - All M1.3d PRs merged to main
 - `.dev.vars` files created in `apps/secure-agent-api` and `apps/brain` with real API keys
 - Dev servers running: web, brain, secure-agent-api
@@ -19,12 +20,15 @@
 ### Steps:
 
 1. **Start secure-api dev server**:
+
    ```bash
    pnpm --filter @shadowbox/secure-agent-api dev
    ```
+
    - Should listen on `http://localhost:8787`
 
 2. **Test CORS from curl**:
+
    ```bash
    curl -i -H "Origin: http://localhost:5173" \
      http://localhost:8787/api/chat/history/test-run
@@ -36,6 +40,7 @@
    - [ ] **Header present**: `Access-Control-Allow-Credentials: true`
 
 ### Expected Result:
+
 ✅ CORS headers returned for localhost origin
 
 ---
@@ -47,18 +52,21 @@
 ### Steps:
 
 1. **Check brain `.dev.vars`**:
+
    ```bash
    cat apps/brain/.dev.vars | grep -E "(LLM_PROVIDER|DEFAULT_MODEL|GROQ_API_KEY)"
    ```
 
 2. **Should see**:
-    ```ini
-    LLM_PROVIDER=litellm
-    DEFAULT_MODEL=llama-3.3-70b-versatile
-    GROQ_API_KEY=xxx...
-    ```
+
+   ```ini
+   LLM_PROVIDER=litellm
+   DEFAULT_MODEL=llama-3.3-70b-versatile
+   GROQ_API_KEY=xxx...
+   ```
 
 3. **Watch server logs on startup**:
+
    ```bash
    pnpm --filter @shadowbox/brain dev
    ```
@@ -68,6 +76,7 @@
    - [ ] See logs like: `[ai/runtime] Chat stream ready`
 
 ### Expected Result:
+
 ✅ Brain starts without provider config errors
 
 ---
@@ -79,9 +88,11 @@
 ### Steps:
 
 1. **Start web dev server**:
+
    ```bash
    pnpm --filter @shadowbox/web dev
    ```
+
    - Should be at `http://localhost:5173`
 
 2. **Open browser**:
@@ -91,9 +102,9 @@
 3. **Check console**:
    - [ ] No CORS errors (red text)
    - [ ] No 500 errors
-   - [ ] Navigate to http://localhost:5173 in browser
 
 ### Expected Result:
+
 ✅ Web app loads without errors
 
 ---
@@ -126,6 +137,7 @@
    - [ ] Button now shows selected model name
 
 ### Expected Result:
+
 ✅ Model dropdown is functional in setup
 
 ---
@@ -167,6 +179,7 @@
    - [ ] Can send follow-up message
 
 ### Expected Result:
+
 ✅ Chat send/receive works end-to-end
 
 ---
@@ -198,6 +211,7 @@
    - [ ] Session isolation is maintained
 
 ### Expected Result:
+
 ✅ Model selection is per-session and persists
 
 ---
@@ -220,48 +234,54 @@
    - [ ] Usage costs (if logged) show correct provider
 
 ### Expected Result:
+
 ✅ Provider override works with API keys
 
 ---
 
 ## Summary
 
-| Test | Status | Notes |
-|------|--------|-------|
-| CORS Headers | ✅/❌ | `Access-Control-Allow-Origin` present |
-| Provider Config | ✅/❌ | No validation errors on startup |
-| Web Load | ✅/❌ | No console errors |
-| Setup Dropdown | ✅/❌ | Dropdown appears and works |
-| Chat Send | ✅/❌ | Message sends and receives response |
-| Model Persistence | ✅/❌ | Selection persists and per-session |
-| Provider API Keys | ✅/⊘ | Works with connected provider (optional) |
+| Test              | Status | Notes                                    |
+| ----------------- | ------ | ---------------------------------------- |
+| CORS Headers      | ✅/❌  | `Access-Control-Allow-Origin` present    |
+| Provider Config   | ✅/❌  | No validation errors on startup          |
+| Web Load          | ✅/❌  | No console errors                        |
+| Setup Dropdown    | ✅/❌  | Dropdown appears and works               |
+| Chat Send         | ✅/❌  | Message sends and receives response      |
+| Model Persistence | ✅/❌  | Selection persists and per-session       |
+| Provider API Keys | ✅/⊘   | Works with connected provider (optional) |
 
 ---
 
 ## Troubleshooting
 
 ### "CORS error in console"
+
 - **Fix**: Ensure `CORS_ALLOW_DEV_ORIGINS=true` in `apps/secure-agent-api/.dev.vars`
 - **Fix**: Restart secure-agent-api dev server
 - **Check**: `curl -H "Origin: http://localhost:5173"` returns CORS headers
 
 ### "500 error on /chat"
+
 - **Fix**: Check brain logs for provider validation error
 - **Fix**: Ensure `LLM_PROVIDER` and `DEFAULT_MODEL` are set in `apps/brain/.dev.vars`
 - **Fix**: Ensure API key (`GROQ_API_KEY` or `OPENAI_API_KEY`) is set
 - **Check**: Run `pnpm --filter @shadowbox/brain test -- ProviderValidationService.test.ts`
 
 ### "Model dropdown not showing"
+
 - **Fix**: Ensure ChatInputBar has `sessionId` prop
 - **Fix**: Ensure ModelDropdown component exists
 - **Check**: Browser console for JavaScript errors
 
 ### "Model selection not persisting"
+
 - **Fix**: Ensure AgentSetup has `sessionId` prop from App.tsx
 - **Fix**: Ensure real `activeSessionId` is passed (not random)
 - **Check**: localStorage contains `shadowbox_model:${sessionId}` entries
 
 ### "Message doesn't send"
+
 - **Fix**: Ensure model dropdown shows valid selection
 - **Fix**: Check browser network tab for `/chat` request
 - **Fix**: Check brain logs for errors
@@ -273,16 +293,15 @@
 
 **M1.3d is ready for merge when**:
 
-- [x] All 7 smoke tests pass
-- [x] No CORS errors in browser console
-- [x] No 500 errors on `/chat`
-- [x] Chat messages send and receive responses
-- [x] Model selection works and persists per-session
-- [x] Gate script passes: `./scripts/gate-m1.3d.sh`
+- [ ] All 7 smoke tests pass
+- [ ] No CORS errors in browser console
+- [ ] No 500 errors on `/chat`
+- [ ] Chat messages send and receive responses
+- [ ] Model selection works and persists per-session
+- [ ] Gate script passes: `./scripts/gate-m1.3d.sh`
 
 ---
 
-**Smoke Test Date**: ________  
-**Tester**: ________  
+**Smoke Test Date**: **\_\_\_\_**  
+**Tester**: **\_\_\_\_**  
 **Result**: ✅ PASS / ❌ FAIL
-

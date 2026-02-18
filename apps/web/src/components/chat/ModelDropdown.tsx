@@ -20,13 +20,13 @@ export function ModelDropdown({
   disabled,
 }: ModelDropdownProps) {
   const [isOpen, setIsOpen] = useState(false);
-  const [selectedProvider, setSelectedProvider] = useState<ProviderId>(
-    "openrouter",
-  );
+  const [selectedProvider, setSelectedProvider] =
+    useState<ProviderId>("openrouter");
   const [selectedModel, setSelectedModel] = useState<string>("");
   const [models, setModels] = useState<ModelDescriptor[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const inflightProviderRef = useRef<ProviderId | null>(null);
 
   // Load models for selected provider
   useEffect(() => {
@@ -34,21 +34,33 @@ export function ModelDropdown({
     const providerId = (config.providerId ?? "openrouter") as ProviderId;
     setSelectedProvider(providerId);
     setSelectedModel(config.modelId ?? "");
+    setModels([]);
 
+    let cancelled = false;
     const loadModels = async () => {
       setIsLoading(true);
       try {
         const result = await providerService.getModels(providerId);
-        setModels(result.models);
+        if (!cancelled) {
+          setModels(result.models);
+        }
       } catch (e) {
-        console.error("[ModelDropdown] Failed to load models:", e);
-        setModels([]);
+        if (!cancelled) {
+          console.error("[ModelDropdown] Failed to load models:", e);
+          setModels([]);
+        }
       } finally {
-        setIsLoading(false);
+        if (!cancelled) {
+          setIsLoading(false);
+        }
       }
     };
 
     loadModels();
+
+    return () => {
+      cancelled = true;
+    };
   }, [sessionId]);
 
   // Close dropdown on outside click
@@ -73,9 +85,11 @@ export function ModelDropdown({
     setSelectedProvider(newProvider);
     setSelectedModel("");
     setIsLoading(true);
+    inflightProviderRef.current = newProvider;
     providerService
       .getModels(newProvider)
       .then((result) => {
+        if (inflightProviderRef.current !== newProvider) return;
         setModels(result.models);
         const firstModel = result.models[0];
         if (firstModel) {
@@ -89,10 +103,15 @@ export function ModelDropdown({
         }
       })
       .catch((e) => {
+        if (inflightProviderRef.current !== newProvider) return;
         console.error("[ModelDropdown] Failed to load models:", e);
         setModels([]);
       })
-      .finally(() => setIsLoading(false));
+      .finally(() => {
+        if (inflightProviderRef.current === newProvider) {
+          setIsLoading(false);
+        }
+      });
   };
 
   const handleModelChange = (modelId: string) => {
@@ -111,6 +130,9 @@ export function ModelDropdown({
         onClick={() => !disabled && setIsOpen(!isOpen)}
         disabled={disabled || isLoading}
         type="button"
+        aria-haspopup="listbox"
+        aria-expanded={isOpen}
+        aria-label={`Select model: ${displayModel}`}
         className="flex items-center gap-1 px-2 py-1.5 text-xs text-zinc-500 hover:text-zinc-300 transition-colors rounded border border-transparent hover:border-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed"
       >
         <span className="font-medium truncate max-w-[120px]">
@@ -155,9 +177,13 @@ export function ModelDropdown({
           <div className="px-3 py-2 max-h-[180px] overflow-y-auto">
             <div className="text-xs font-medium text-zinc-400 mb-2">Model</div>
             {isLoading ? (
-              <div className="text-xs text-zinc-500 py-2">Loading models...</div>
+              <div className="text-xs text-zinc-500 py-2">
+                Loading models...
+              </div>
             ) : models.length === 0 ? (
-              <div className="text-xs text-zinc-500 py-2">No models available</div>
+              <div className="text-xs text-zinc-500 py-2">
+                No models available
+              </div>
             ) : (
               <div className="space-y-1">
                 {models.map((model) => (

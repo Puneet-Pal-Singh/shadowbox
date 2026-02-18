@@ -52,17 +52,17 @@ log_test() {
 
 log_pass() {
   echo -e "${GREEN}✓ $1${NC}"
-  ((PASSED++))
+  (( ++PASSED ))
 }
 
 log_fail() {
   echo -e "${RED}✗ $1${NC}"
-  ((FAILED++))
+  (( ++FAILED ))
 }
 
 log_skip() {
   echo -e "${YELLOW}⊘ $1${NC}"
-  ((SKIPPED++))
+  (( ++SKIPPED ))
 }
 
 ##########################################################################
@@ -242,7 +242,11 @@ gate_build() {
   fi
 
   log_test "Check for any type annotations"
-  if grep -r ":\s*any" apps/brain/src apps/web/src apps/secure-agent-api/src 2>/dev/null | grep -v ".test.ts" | grep -v "node_modules"; then
+  if grep -r ":\s*any" \
+       "$PROJECT_ROOT/apps/brain/src" \
+       "$PROJECT_ROOT/apps/web/src" \
+       "$PROJECT_ROOT/apps/secure-agent-api/src" \
+       2>/dev/null | grep -v "\.test\.ts" | grep -v "node_modules"; then
     log_fail "Found 'any' type annotations (violates type safety)"
     return 1
   else
@@ -257,7 +261,7 @@ gate_build() {
 main() {
   local filter="${1:-all}"
 
-  log_header "M1.3d REGRESSION GATE - Chat Flow Unbreak + Provider Wiring"
+  log_header "M1.${GATE_NAME} REGRESSION GATE - Chat Flow Unbreak + Provider Wiring"
   echo "Running filter: $filter"
   echo "Date: $(date)"
 
