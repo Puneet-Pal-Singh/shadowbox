@@ -44,7 +44,12 @@ export interface GenerateStructuredResult<T> {
   usage: LLMUsage;
 }
 
-type RuntimeProvider = "litellm" | "openai" | "anthropic";
+type RuntimeProvider =
+  | "litellm"
+  | "openai"
+  | "anthropic"
+  | "openrouter"
+  | "groq";
 
 interface ModelSelection {
   model: string;
@@ -53,6 +58,34 @@ interface ModelSelection {
   fallback: boolean;
   providerId?: ProviderId;
 }
+
+/**
+ * Provider endpoint configuration for direct inference
+ */
+interface ProviderEndpointConfig {
+  baseURL: string;
+  apiKeyPrefix: string;
+  requiresApiKey: boolean;
+}
+
+/**
+ * Direct provider endpoint configurations for BYOK runtime
+ */
+const PROVIDER_ENDPOINTS: Record<
+  Exclude<ProviderId, "openai">,
+  ProviderEndpointConfig
+> = {
+  openrouter: {
+    baseURL: "https://openrouter.ai/api/v1",
+    apiKeyPrefix: "sk-or-",
+    requiresApiKey: true,
+  },
+  groq: {
+    baseURL: "https://api.groq.com/openai/v1",
+    apiKeyPrefix: "gsk_",
+    requiresApiKey: true,
+  },
+};
 
 /**
  * AIService - Pure inference layer
@@ -71,7 +104,10 @@ export class AIService {
   private defaultModel: string;
   private providerConfigService?: ProviderConfigService;
 
-  constructor(private env: Env, providerConfigService?: ProviderConfigService) {
+  constructor(
+    private env: Env,
+    providerConfigService?: ProviderConfigService,
+  ) {
     this.adapter = this.createAdapter();
     this.defaultModel = env.DEFAULT_MODEL ?? "llama-3.3-70b-versatile";
     this.providerConfigService = providerConfigService;
@@ -101,10 +137,7 @@ export class AIService {
    *
    * NOTE: Does NOT check durable provider state (that's async). Only validates structure.
    */
-  resolveModelSelection(
-    providerId?: string,
-    modelId?: string,
-  ): ModelSelection {
+  resolveModelSelection(providerId?: string, modelId?: string): ModelSelection {
     const defaultRuntimeProvider = this.getRuntimeProviderFromAdapter(
       this.adapter.provider,
     );
@@ -134,7 +167,8 @@ export class AIService {
     }
 
     const validProviderId: ProviderId = parseResult.data;
-    const runtimeProvider = this.mapProviderIdToRuntimeProvider(validProviderId);
+    const runtimeProvider =
+      this.mapProviderIdToRuntimeProvider(validProviderId);
 
     // Attempt to use provider override (actual connection check happens in getAdapterForSelection)
     console.log(
@@ -210,11 +244,16 @@ export class AIService {
     // For structured generation, we use the AI SDK's generateObject
     // Fetch provider-aware API key if a provider override is selected
     const overrideApiKey = selection.providerId
-      ? await this.providerConfigService?.getApiKey(selection.providerId) ?? undefined
+      ? ((await this.providerConfigService?.getApiKey(selection.providerId)) ??
+        undefined)
       : undefined;
 
     const result = await generateObject({
-      model: this.getSDKModel(selectedModel, selection.runtimeProvider, overrideApiKey),
+      model: this.getSDKModel(
+        selectedModel,
+        selection.runtimeProvider,
+        overrideApiKey,
+      ),
       messages,
       schema,
       temperature,
@@ -263,9 +302,9 @@ export class AIService {
       toolCall?: { toolName: string; args: unknown };
     }) => void;
   }): Promise<ReadableStream<Uint8Array>> {
-   const selection = this.resolveModelSelection(providerId, model);
-   const selectedModel = selection.model;
-   const selectedAdapter = await this.getAdapterForSelection(selection);
+    const selection = this.resolveModelSelection(providerId, model);
+    const selectedModel = selection.model;
+    const selectedAdapter = await this.getAdapterForSelection(selection);
 
     const params: GenerationParams = {
       messages,
@@ -421,10 +460,70 @@ export class AIService {
   }
 
   /**
+   * Create OpenRouter adapter with direct endpoint
+   * Uses user's BYOK for direct inference
+   */
+  private createOpenRouterAdapter(overrideApiKey?: string): OpenAIAdapter {
+    const apiKey = overrideApiKey;
+    if (!apiKey) {
+      throw new ProviderError(
+        "openrouter",
+        "OpenRouter provider is not connected. Please connect your OpenRouter API key in settings.",
+      );
+    }
+
+    // Validate key format
+    if (!apiKey.startsWith(PROVIDER_ENDPOINTS.openrouter.apiKeyPrefix)) {
+      throw new ProviderError(
+        "openrouter",
+        `Invalid OpenRouter API key format. Key must start with "${PROVIDER_ENDPOINTS.openrouter.apiKeyPrefix}"`,
+      );
+    }
+
+    return new OpenAIAdapter({
+      apiKey,
+      baseURL: PROVIDER_ENDPOINTS.openrouter.baseURL,
+      defaultModel: this.env.DEFAULT_MODEL,
+    });
+  }
+
+  /**
+   * Create Groq adapter with direct endpoint
+   * Uses user's BYOK for direct inference
+   */
+  private createGroqAdapter(overrideApiKey?: string): OpenAIAdapter {
+    const apiKey = overrideApiKey;
+    if (!apiKey) {
+      throw new ProviderError(
+        "groq",
+        "Groq provider is not connected. Please connect your Groq API key in settings.",
+      );
+    }
+
+    // Validate key format
+    if (!apiKey.startsWith(PROVIDER_ENDPOINTS.groq.apiKeyPrefix)) {
+      throw new ProviderError(
+        "groq",
+        `Invalid Groq API key format. Key must start with "${PROVIDER_ENDPOINTS.groq.apiKeyPrefix}"`,
+      );
+    }
+
+    return new OpenAIAdapter({
+      apiKey,
+      baseURL: PROVIDER_ENDPOINTS.groq.baseURL,
+      defaultModel: this.env.DEFAULT_MODEL ?? "llama-3.3-70b-versatile",
+    });
+  }
+
+  /**
    * Get the appropriate AI SDK model for structured generation
    * Uses the configured provider from env or override
    */
-  private getSDKModel(model: string, provider: RuntimeProvider, overrideApiKey?: string) {
+  private getSDKModel(
+    model: string,
+    provider: RuntimeProvider,
+    overrideApiKey?: string,
+  ) {
     const selectedProvider = provider;
     const selectedModel = model ?? this.defaultModel;
 
@@ -432,14 +531,38 @@ export class AIService {
       case "anthropic":
         return this.getAnthropicModel(selectedModel, overrideApiKey);
       case "openai":
-        return this.getOpenAICompatibleModel(selectedModel, "openai", overrideApiKey);
+        return this.getOpenAICompatibleModel(
+          selectedModel,
+          "openai",
+          overrideApiKey,
+        );
+      case "openrouter":
+        return this.getOpenAICompatibleModel(
+          selectedModel,
+          "openrouter",
+          overrideApiKey,
+        );
+      case "groq":
+        return this.getOpenAICompatibleModel(
+          selectedModel,
+          "groq",
+          overrideApiKey,
+        );
       case "litellm":
       default:
-        return this.getOpenAICompatibleModel(selectedModel, "litellm", overrideApiKey);
+        return this.getOpenAICompatibleModel(
+          selectedModel,
+          "litellm",
+          overrideApiKey,
+        );
     }
   }
 
-  private getOpenAICompatibleModel(model: string, provider: string, overrideApiKey?: string) {
+  private getOpenAICompatibleModel(
+    model: string,
+    provider: string,
+    overrideApiKey?: string,
+  ) {
     let apiKey: string;
     let baseURL: string;
 
@@ -449,8 +572,42 @@ export class AIService {
         throw new ProviderError("openai", "Missing OPENAI_API_KEY");
       }
       baseURL = "https://api.openai.com/v1";
+    } else if (provider === "openrouter") {
+      apiKey = overrideApiKey ?? "";
+      if (!apiKey) {
+        throw new ProviderError(
+          "openrouter",
+          "OpenRouter provider is not connected. Please connect your OpenRouter API key in settings.",
+        );
+      }
+      if (!apiKey.startsWith(PROVIDER_ENDPOINTS.openrouter.apiKeyPrefix)) {
+        throw new ProviderError(
+          "openrouter",
+          `Invalid OpenRouter API key format. Key must start with "${PROVIDER_ENDPOINTS.openrouter.apiKeyPrefix}"`,
+        );
+      }
+      baseURL = PROVIDER_ENDPOINTS.openrouter.baseURL;
+    } else if (provider === "groq") {
+      apiKey = overrideApiKey ?? "";
+      if (!apiKey) {
+        throw new ProviderError(
+          "groq",
+          "Groq provider is not connected. Please connect your Groq API key in settings.",
+        );
+      }
+      if (!apiKey.startsWith(PROVIDER_ENDPOINTS.groq.apiKeyPrefix)) {
+        throw new ProviderError(
+          "groq",
+          `Invalid Groq API key format. Key must start with "${PROVIDER_ENDPOINTS.groq.apiKeyPrefix}"`,
+        );
+      }
+      baseURL = PROVIDER_ENDPOINTS.groq.baseURL;
     } else {
-      apiKey = overrideApiKey ?? this.env.GROQ_API_KEY ?? this.env.OPENAI_API_KEY ?? "";
+      apiKey =
+        overrideApiKey ??
+        this.env.GROQ_API_KEY ??
+        this.env.OPENAI_API_KEY ??
+        "";
       if (!apiKey) {
         throw new ProviderError(
           "litellm",
@@ -481,10 +638,14 @@ export class AIService {
     return client(model);
   }
 
-  private mapProviderIdToRuntimeProvider(providerId: ProviderId): RuntimeProvider {
+  private mapProviderIdToRuntimeProvider(
+    providerId: ProviderId,
+  ): RuntimeProvider {
     switch (providerId) {
       case "openrouter":
-        return "litellm";
+        return "openrouter";
+      case "groq":
+        return "groq";
       case "openai":
         return "openai";
       default: {
@@ -501,23 +662,40 @@ export class AIService {
     return "litellm";
   }
 
-  private async getAdapterForSelection(selection: ModelSelection): Promise<ProviderAdapter> {
+  private async getAdapterForSelection(
+    selection: ModelSelection,
+  ): Promise<ProviderAdapter> {
     if (
       selection.fallback ||
-      selection.runtimeProvider === this.getRuntimeProviderFromAdapter(this.adapter.provider)
+      selection.runtimeProvider ===
+        this.getRuntimeProviderFromAdapter(this.adapter.provider)
     ) {
       return this.adapter;
     }
 
     const overrideApiKey = selection.providerId
-      ? await this.providerConfigService?.getApiKey(selection.providerId) ?? undefined
+      ? ((await this.providerConfigService?.getApiKey(selection.providerId)) ??
+        undefined)
       : undefined;
+
+    // For all providers, fall back to default if no explicit override key provided
+    // This ensures BYOK providers are explicitly connected before use
+    if (!overrideApiKey) {
+      console.warn(
+        `[ai/service] Provider ${selection.runtimeProvider} not connected, falling back to default adapter`,
+      );
+      return this.adapter;
+    }
 
     switch (selection.runtimeProvider) {
       case "openai":
         return this.createOpenAIAdapter(overrideApiKey);
       case "anthropic":
         return this.createAnthropicAdapter(overrideApiKey);
+      case "openrouter":
+        return this.createOpenRouterAdapter(overrideApiKey);
+      case "groq":
+        return this.createGroqAdapter(overrideApiKey);
       case "litellm":
       default:
         return this.createLiteLLMAdapter(overrideApiKey);

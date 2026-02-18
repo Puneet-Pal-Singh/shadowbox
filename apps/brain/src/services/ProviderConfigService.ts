@@ -156,10 +156,7 @@ export class ProviderConfigService {
         providerId,
       };
     } catch (error) {
-      console.error(
-        `[provider/config] Error disconnecting:`,
-        error,
-      );
+      console.error(`[provider/config] Error disconnecting:`, error);
       throw error;
     }
   }
@@ -168,7 +165,7 @@ export class ProviderConfigService {
    * Get connection status for all providers
    */
   async getStatus(): Promise<ProviderConnectionStatus[]> {
-    const supportedProviders: ProviderId[] = ["openrouter", "openai"];
+    const supportedProviders: ProviderId[] = ["openrouter", "openai", "groq"];
 
     return supportedProviders.map((providerId) => {
       const config = this.configs.get(providerId);
@@ -254,10 +251,7 @@ export class ProviderConfigService {
       try {
         return await this.durableStore.isConnected(providerId);
       } catch (e) {
-        console.warn(
-          `[provider/config] Failed to check durable store:`,
-          e,
-        );
+        console.warn(`[provider/config] Failed to check durable store:`, e);
       }
     }
 
@@ -285,7 +279,7 @@ export class ProviderConfigService {
     if (process.env.NODE_ENV !== "test") {
       throw new Error(
         "ProviderConfigService.resetForTests() is only available in test environments. " +
-        "This prevents accidental credential wipe in production.",
+          "This prevents accidental credential wipe in production.",
       );
     }
     providerConfigStore.clear();

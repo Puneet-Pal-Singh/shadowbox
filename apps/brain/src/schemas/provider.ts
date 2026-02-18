@@ -5,7 +5,7 @@
 
 import { z } from "zod";
 
-export const ProviderIdSchema = z.enum(["openrouter", "openai"]);
+export const ProviderIdSchema = z.enum(["openrouter", "openai", "groq"]);
 export type ProviderId = z.infer<typeof ProviderIdSchema>;
 
 export const ConnectProviderRequestSchema = z
@@ -28,6 +28,9 @@ export const ConnectProviderRequestSchema = z
       }
       if (data.providerId === "openrouter") {
         return data.apiKey.startsWith("sk-or-");
+      }
+      if (data.providerId === "groq") {
+        return data.apiKey.startsWith("gsk_");
       }
       return true;
     },
@@ -124,7 +127,10 @@ export const ChatProviderSelectionSchema = z
   .refine(
     (data) => {
       // If either providerId or modelId is provided, both should be provided together
-      if ((data.providerId && !data.modelId) || (!data.providerId && data.modelId)) {
+      if (
+        (data.providerId && !data.modelId) ||
+        (!data.providerId && data.modelId)
+      ) {
         return false;
       }
       return true;
@@ -136,6 +142,4 @@ export const ChatProviderSelectionSchema = z
     },
   );
 
-export type ChatProviderSelection = z.infer<
-  typeof ChatProviderSelectionSchema
->;
+export type ChatProviderSelection = z.infer<typeof ChatProviderSelectionSchema>;
