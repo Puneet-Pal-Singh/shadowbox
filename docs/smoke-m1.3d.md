@@ -52,11 +52,11 @@
    ```
 
 2. **Should see**:
-   ```
-   LLM_PROVIDER=litellm
-   DEFAULT_MODEL=llama-3.3-70b-versatile
-   GROQ_API_KEY=xxx...
-   ```
+    ```ini
+    LLM_PROVIDER=litellm
+    DEFAULT_MODEL=llama-3.3-70b-versatile
+    GROQ_API_KEY=xxx...
+    ```
 
 3. **Watch server logs on startup**:
    ```bash

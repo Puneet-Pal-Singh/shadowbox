@@ -31,19 +31,14 @@ export function ModelDropdown({
   // Load models for selected provider
   useEffect(() => {
     const config = providerService.getSessionModelConfig(sessionId);
-    if (config.providerId) {
-      setSelectedProvider(config.providerId as ProviderId);
-    }
-    if (config.modelId) {
-      setSelectedModel(config.modelId);
-    }
+    const providerId = (config.providerId ?? "openrouter") as ProviderId;
+    setSelectedProvider(providerId);
+    setSelectedModel(config.modelId ?? "");
 
     const loadModels = async () => {
       setIsLoading(true);
       try {
-        const result = await providerService.getModels(
-          config.providerId as ProviderId,
-        );
+        const result = await providerService.getModels(providerId);
         setModels(result.models);
       } catch (e) {
         console.error("[ModelDropdown] Failed to load models:", e);
@@ -79,20 +74,20 @@ export function ModelDropdown({
     setSelectedModel("");
     setIsLoading(true);
     providerService
-     .getModels(newProvider)
-     .then((result) => {
-       setModels(result.models);
-       const firstModel = result.models[0];
-       if (firstModel && !selectedModel) {
-         setSelectedModel(firstModel.id);
-         onModelSelect?.(newProvider, firstModel.id);
-         providerService.setSessionModelConfig(
-           sessionId,
-           newProvider,
-           firstModel.id,
-         );
-       }
-     })
+      .getModels(newProvider)
+      .then((result) => {
+        setModels(result.models);
+        const firstModel = result.models[0];
+        if (firstModel) {
+          setSelectedModel(firstModel.id);
+          onModelSelect?.(newProvider, firstModel.id);
+          providerService.setSessionModelConfig(
+            sessionId,
+            newProvider,
+            firstModel.id,
+          );
+        }
+      })
       .catch((e) => {
         console.error("[ModelDropdown] Failed to load models:", e);
         setModels([]);

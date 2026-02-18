@@ -132,7 +132,7 @@ gate_provider_config() {
   fi
 
   log_test "Check API key is provided"
-  if grep -qE "(GROQ_API_KEY|OPENAI_API_KEY|ANTHROPIC_API_KEY)=" "$PROJECT_ROOT/apps/brain/.dev.vars" | grep -v "^#"; then
+  if grep -E "(GROQ_API_KEY|OPENAI_API_KEY|ANTHROPIC_API_KEY)=" "$PROJECT_ROOT/apps/brain/.dev.vars" | grep -vq "^#"; then
     log_pass "At least one API key is configured"
   else
     log_skip "No API key configured (may be using env vars)"

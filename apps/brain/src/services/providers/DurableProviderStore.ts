@@ -23,7 +23,10 @@ export interface ProviderCredential {
 const PROVIDER_STORE_PREFIX = "provider:";
 
 export class DurableProviderStore {
-  constructor(private state: DurableObjectState) {}
+  constructor(
+    private state: DurableObjectState,
+    private runId: string,
+  ) {}
 
   /**
    * Store a provider credential
@@ -33,7 +36,7 @@ export class DurableProviderStore {
     providerId: ProviderId,
     apiKey: string,
   ): Promise<void> {
-    const key = `${PROVIDER_STORE_PREFIX}${providerId}`;
+    const key = `${PROVIDER_STORE_PREFIX}${this.runId}:${providerId}`;
     const credential: ProviderCredential = {
       providerId,
       apiKey,
@@ -49,7 +52,7 @@ export class DurableProviderStore {
    * Returns null if not found
    */
   async getProvider(providerId: ProviderId): Promise<ProviderCredential | null> {
-    const key = `${PROVIDER_STORE_PREFIX}${providerId}`;
+    const key = `${PROVIDER_STORE_PREFIX}${this.runId}:${providerId}`;
     const data = await this.state.storage?.get(key);
 
     if (!data) {
@@ -88,7 +91,7 @@ export class DurableProviderStore {
    * Delete a provider credential
    */
   async deleteProvider(providerId: ProviderId): Promise<void> {
-    const key = `${PROVIDER_STORE_PREFIX}${providerId}`;
+    const key = `${PROVIDER_STORE_PREFIX}${this.runId}:${providerId}`;
     await this.state.storage?.delete(key);
     console.log(`[provider/durable] Deleted credential for ${providerId}`);
   }
@@ -97,14 +100,15 @@ export class DurableProviderStore {
    * Get all connected providers
    */
   async getAllProviders(): Promise<ProviderId[]> {
-    const entries = await this.state.storage?.list({ prefix: PROVIDER_STORE_PREFIX });
+    const prefix = `${PROVIDER_STORE_PREFIX}${this.runId}:`;
+    const entries = await this.state.storage?.list({ prefix });
     if (!entries) {
       return [];
     }
 
     const providerIds: ProviderId[] = [];
     for (const [key] of entries) {
-      const providerId = key.substring(PROVIDER_STORE_PREFIX.length);
+      const providerId = key.substring(prefix.length);
       providerIds.push(providerId as ProviderId);
     }
 
@@ -116,15 +120,14 @@ export class DurableProviderStore {
    * ⚠️ DANGEROUS: Only use in testing
    */
   async clearAll(): Promise<void> {
-    if (process.env.NODE_ENV !== "test") {
+    if (typeof process === "undefined" || process.env.NODE_ENV !== "test") {
       throw new Error(
         "clearAll() is only available in test environments",
       );
     }
 
-    const entries = await this.state.storage?.list({
-      prefix: PROVIDER_STORE_PREFIX,
-    });
+    const prefix = `${PROVIDER_STORE_PREFIX}${this.runId}:`;
+    const entries = await this.state.storage?.list({ prefix });
     if (!entries) return;
 
     for (const [key] of entries) {

@@ -64,6 +64,11 @@ export function AgentSetup({ sessionId, onStart, onRepoClick }: AgentSetupProps)
 
   const hasTask = task.trim().length > 0;
 
+  // Reset model selection when session changes
+  useEffect(() => {
+    setSelectedModel("");
+  }, [sessionId]);
+
   // Auto-resize textarea
   useEffect(() => {
     if (textareaRef.current) {

@@ -42,7 +42,7 @@ This enables the web app (typically `http://localhost:5173`) to call the API (ty
 ### Configuration Options
 
 #### Option 1: Dev Flag (Simplest)
-```
+```ini
 CORS_ALLOW_DEV_ORIGINS=true
 ```
 - Allows all `localhost`, `127.0.0.1`, and `::1` origins
@@ -50,7 +50,7 @@ CORS_ALLOW_DEV_ORIGINS=true
 - Not suitable for production (security risk)
 
 #### Option 2: Explicit Origins (Production-Safe)
-```
+```ini
 CORS_ALLOWED_ORIGINS=https://app.example.com,https://api.example.com
 ```
 - Whitelist specific origins
@@ -85,7 +85,7 @@ Handles OPTIONS preflight requests required by browsers for cross-origin request
 ## Headers Included
 
 All CORS responses include:
-```
+```text
 Access-Control-Allow-Methods: GET, POST, OPTIONS, DELETE
 Access-Control-Allow-Headers: Content-Type, Authorization
 Access-Control-Allow-Credentials: true (when origin matched)

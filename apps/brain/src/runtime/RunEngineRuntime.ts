@@ -160,12 +160,12 @@ export class RunEngineRuntime extends DurableObject {
   }
 
   private buildRuntimeDependencies(payload: ExecuteRunPayload): {
-    agent: IAgent | undefined;
-    runEngineDeps: RunEngineDependencies;
+   agent: IAgent | undefined;
+   runEngineDeps: RunEngineDependencies;
   } {
-    const env = this.env as Env;
+   const env = this.env as Env;
 
-    const { llmRuntimeService, llmGateway } = this.buildLLMGateway(env);
+   const { llmRuntimeService, llmGateway } = this.buildLLMGateway(env, payload.runId);
     const {
       pricingRegistry,
       costLedger,
@@ -218,7 +218,7 @@ export class RunEngineRuntime extends DurableObject {
     };
   }
 
-  private buildLLMGateway(env: Env): {
+  private buildLLMGateway(env: Env, runId: string): {
     llmRuntimeService: LLMRuntimeAIService;
     llmGateway: LLMGateway;
   } {
@@ -244,9 +244,10 @@ export class RunEngineRuntime extends DurableObject {
       );
     }
 
-    // Create durable provider store for cross-isolate state persistence
+    // Create durable provider store scoped to runId for cross-isolate state persistence
     const durableProviderStore = new DurableProviderStore(
       this.ctx as unknown as LegacyDurableObjectState,
+      runId,
     );
 
     const providerConfigService = new ProviderConfigService(
