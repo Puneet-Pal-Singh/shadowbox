@@ -1,4 +1,4 @@
-import { Env, AgentResult, Tool } from "../types/ai";
+import { Env, AgentResult, Tool } from "../../types/ai";
 
 export class CloudflareProvider {
   constructor(private env: Env) {}
