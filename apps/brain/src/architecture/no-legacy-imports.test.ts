@@ -31,15 +31,14 @@ function getAllTSFiles(dir: string, excludeDirs: string[] = []): string[] {
 
   for (const entry of entries) {
     if (entry.isDirectory()) {
-      if (
-        !excludeDirs.includes(entry.name) &&
-        !entry.name.startsWith(".")
-      ) {
-        files.push(
-          ...getAllTSFiles(path.join(dir, entry.name), excludeDirs)
-        );
+      if (!excludeDirs.includes(entry.name) && !entry.name.startsWith(".")) {
+        files.push(...getAllTSFiles(path.join(dir, entry.name), excludeDirs));
       }
-    } else if (entry.isFile() && entry.name.endsWith(".ts") && !entry.name.endsWith(".test.ts")) {
+    } else if (
+      entry.isFile() &&
+      entry.name.endsWith(".ts") &&
+      !entry.name.endsWith(".test.ts")
+    ) {
       files.push(path.join(dir, entry.name));
     }
   }
@@ -50,7 +49,9 @@ function getAllTSFiles(dir: string, excludeDirs: string[] = []): string[] {
 /**
  * Extract all import statements from a file
  */
-function extractImports(filePath: string): Array<{ line: number; module: string }> {
+function extractImports(
+  filePath: string,
+): Array<{ line: number; module: string }> {
   const content = fs.readFileSync(filePath, "utf-8");
   const lines = content.split("\n");
   const imports: Array<{ line: number; module: string }> = [];
@@ -86,7 +87,7 @@ describe("Architecture Boundary: No Legacy Imports", () => {
     const exists = fs.existsSync(legacyPath);
     expect(
       exists,
-      "src/legacy directory should not exist after PR-4 deletion sweep"
+      "src/legacy directory should not exist after PR-4 deletion sweep",
     ).toBe(false);
   });
 
@@ -100,10 +101,7 @@ describe("Architecture Boundary: No Legacy Imports", () => {
     for (const typeFile of deprecatedTypeFiles) {
       const filePath = path.join(BRAIN_SRC, typeFile);
       const exists = fs.existsSync(filePath);
-      expect(
-        exists,
-        `${typeFile} should be deleted after PR-4`
-      ).toBe(false);
+      expect(exists, `${typeFile} should be deleted after PR-4`).toBe(false);
     }
   });
 
@@ -121,7 +119,7 @@ describe("Architecture Boundary: No Legacy Imports", () => {
       const imports = extractImports(file);
       for (const { line, module } of imports) {
         const isDeprecated = legacyPatterns.some((pattern) =>
-          pattern.test(module)
+          pattern.test(module),
         );
         if (isDeprecated) {
           violations.push({
@@ -136,7 +134,7 @@ describe("Architecture Boundary: No Legacy Imports", () => {
 
     expect(
       violations,
-      `No code should import from legacy modules. Violations:\n${violations.map((v) => `${v.file}:${v.line} imports ${v.importedModule}`).join("\n")}`
+      `No code should import from legacy modules. Violations:\n${violations.map((v) => `${v.file}:${v.line} imports ${v.importedModule}`).join("\n")}`,
     ).toEqual([]);
   });
 
@@ -175,7 +173,7 @@ describe("Architecture Boundary: No Legacy Imports", () => {
           expect(
             files.length,
             `core/${dir} should have fewer than 15 files (found ${files.length}). ` +
-            `Threshold will be reduced incrementally in future PRs to complete cleanup.`
+              `Threshold will be reduced incrementally in future PRs to complete cleanup.`,
           ).toBeLessThanOrEqual(15);
         }
       }
@@ -189,12 +187,10 @@ describe("Architecture Boundary: No Legacy Imports", () => {
     if (exists) {
       const files = fs
         .readdirSync(orchestratorPath)
-        .filter(
-          (f) => f.endsWith(".ts") && !f.endsWith(".test.ts")
-        );
+        .filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"));
       expect(
         files.length,
-        "orchestrator directory should be empty or deleted"
+        "orchestrator directory should be empty or deleted",
       ).toBe(0);
     }
   });
@@ -208,14 +204,14 @@ describe("Architecture Boundary: No Legacy Imports", () => {
     // so patterns match against the module specifier, not the full import line
     const deprecatedExportPatterns = [
       /@shadowbox\/brain\/legacy/,
-      /\/deprecated\b/,  // Matches paths like "../deprecated/foo" or "./deprecated/..."
+      /\/deprecated\b/, // Matches paths like "../deprecated/foo" or "./deprecated/..."
     ];
 
     for (const file of allFiles) {
       const imports = extractImports(file);
       for (const { line, module } of imports) {
-        const isDeprecatedExport = deprecatedExportPatterns.some(
-          (pattern) => pattern.test(module)
+        const isDeprecatedExport = deprecatedExportPatterns.some((pattern) =>
+          pattern.test(module),
         );
         if (isDeprecatedExport) {
           violations.push({
@@ -230,7 +226,82 @@ describe("Architecture Boundary: No Legacy Imports", () => {
 
     expect(
       violations,
-      `No deprecated exports should be imported. Violations:\n${violations.map((v) => `${v.file}:${v.line} imports ${v.importedModule}`).join("\n")}`
+      `No deprecated exports should be imported. Violations:\n${violations.map((v) => `${v.file}:${v.line} imports ${v.importedModule}`).join("\n")}`,
     ).toEqual([]);
+  });
+
+  it("should enforce wrapper re-export threshold in core directory", () => {
+    const coreDir = path.join(BRAIN_SRC, "core");
+    if (!fs.existsSync(coreDir)) {
+      return;
+    }
+
+    // Approved allowlist: files that are Brain-owned and should be retained
+    const approvedAllowlist = new Set(["security/LogSanitizer.ts"]);
+
+    // Directories that should have no re-export wrappers (except allowlist)
+    const wrapperDirCandidates = [
+      "engine",
+      "orchestration",
+      "run",
+      "task",
+      "planner",
+      "cost",
+      "llm",
+      "agents",
+    ];
+
+    const reExportViolations: Array<{ file: string; reason: string }> = [];
+
+    for (const dir of wrapperDirCandidates) {
+      const dirPath = path.join(coreDir, dir);
+      if (!fs.existsSync(dirPath)) {
+        continue;
+      }
+
+      const files = fs
+        .readdirSync(dirPath)
+        .filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"));
+
+      for (const file of files) {
+        const relativePath = `${dir}/${file}`;
+        if (approvedAllowlist.has(relativePath)) {
+          continue;
+        }
+
+        const filePath = path.join(dirPath, file);
+        const content = fs.readFileSync(filePath, "utf-8");
+
+        // Detect re-export patterns
+        const isReExport =
+          /export\s+\*\s+from\s+["']/.test(content) ||
+          /export\s+\{[^}]+\}\s+from\s+["']/.test(content);
+
+        if (isReExport) {
+          // Check if it's just a re-export wrapper (no actual implementation)
+          const hasImplementation =
+            /(?:function|class|const|let|var)\s+\w+\s*[=:]/.test(content) &&
+            !content.includes("export {") === false;
+
+          if (!hasImplementation) {
+            reExportViolations.push({
+              file: relativePath,
+              reason: "Re-export wrapper should be migrated to direct imports",
+            });
+          }
+        }
+      }
+    }
+
+    // Current threshold: allow up to 30 violations (will be reduced in future PRs)
+    // Target: 0 violations
+    // Cleanup trajectory: 30 → 20 → 10 → 0
+    // Note: PR-6b establishes baseline measurement; reduction happens in follow-up PRs
+    expect(
+      reExportViolations.length,
+      `Re-export wrappers in core/* should be minimal. ` +
+        `Found ${reExportViolations.length} wrappers (threshold: 30). ` +
+        `Files:\n${reExportViolations.map((v) => `  ${v.file}: ${v.reason}`).join("\n")}`,
+    ).toBeLessThanOrEqual(30);
   });
 });

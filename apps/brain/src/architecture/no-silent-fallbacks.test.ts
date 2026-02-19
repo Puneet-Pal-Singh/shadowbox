@@ -32,15 +32,14 @@ function getAllTSFiles(dir: string, excludeDirs: string[] = []): string[] {
 
   for (const entry of entries) {
     if (entry.isDirectory()) {
-      if (
-        !excludeDirs.includes(entry.name) &&
-        !entry.name.startsWith(".")
-      ) {
-        files.push(
-          ...getAllTSFiles(path.join(dir, entry.name), excludeDirs)
-        );
+      if (!excludeDirs.includes(entry.name) && !entry.name.startsWith(".")) {
+        files.push(...getAllTSFiles(path.join(dir, entry.name), excludeDirs));
       }
-    } else if (entry.isFile() && entry.name.endsWith(".ts") && !entry.name.endsWith(".test.ts")) {
+    } else if (
+      entry.isFile() &&
+      entry.name.endsWith(".ts") &&
+      !entry.name.endsWith(".test.ts")
+    ) {
       files.push(path.join(dir, entry.name));
     }
   }
@@ -62,7 +61,7 @@ describe("Architecture Boundary: No Silent Fallbacks", () => {
 
       // Calculate cumulative offset for each line to correctly find catch blocks
       let currentOffset = 0;
-      
+
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
         const lineStart = currentOffset;
@@ -76,17 +75,17 @@ describe("Architecture Boundary: No Silent Fallbacks", () => {
           const braceMatch = line.match(/catch\s*\([^)]*\)\s*\{/);
           if (braceMatch) {
             const bracePos = lineStart + braceMatch[0].length - 1; // Position of {
-            
+
             // Find matching closing brace (simple approach: next } after opening {)
             // Note: This is a simplification; nested braces would need proper parsing
             let braceCount = 1;
             let searchPos = bracePos + 1;
             let closingBracePos = -1;
-            
+
             for (let j = i; j < lines.length && braceCount > 0; j++) {
               const searchLine = lines[j];
               const startIdx = j === i ? bracePos + 1 : 0;
-              
+
               for (let k = startIdx; k < searchLine.length; k++) {
                 if (searchLine[k] === "{") braceCount++;
                 if (searchLine[k] === "}") {
@@ -98,21 +97,27 @@ describe("Architecture Boundary: No Silent Fallbacks", () => {
                 }
               }
             }
-            
+
             // If closing brace found on same line or next few lines
             if (closingBracePos >= 0 && i < lines.length - 1) {
-              const blockContent = lines.slice(i).join("\n").substring(
-                line.indexOf("{") + 1,
-                closingBracePos
-              ).trim();
-              
+              const blockContent = lines
+                .slice(i)
+                .join("\n")
+                .substring(line.indexOf("{") + 1, closingBracePos)
+                .trim();
+
               // Check if catch block is empty or only contains whitespace/comments
-              if (!blockContent || /^\s*\/\/.*$/.test(blockContent) || /^\s*\/\*.*\*\/\s*$/.test(blockContent)) {
+              if (
+                !blockContent ||
+                /^\s*\/\/.*$/.test(blockContent) ||
+                /^\s*\/\*.*\*\/\s*$/.test(blockContent)
+              ) {
                 violations.push({
                   file,
                   line: i + 1,
                   code: line.trim(),
-                  reason: "Empty or comment-only catch block silently swallows errors",
+                  reason:
+                    "Empty or comment-only catch block silently swallows errors",
                 });
               }
             }
@@ -128,38 +133,35 @@ describe("Architecture Boundary: No Silent Fallbacks", () => {
             reason: "TODO in catch block defers error handling",
           });
         }
-        
+
         currentOffset += line.length + 1; // +1 for newline
       }
     }
 
     expect(
       violations,
-      `Runtime paths should not have silent error swallowing. Violations:\n${violations.map((v) => `${v.file}:${v.line} - ${v.reason}`).join("\n")}`
+      `Runtime paths should not have silent error swallowing. Violations:\n${violations.map((v) => `${v.file}:${v.line} - ${v.reason}`).join("\n")}`,
     ).toEqual([]);
   });
 
   it("should verify RunEngineRuntime does not have implicit agent type fallback", () => {
-    const runtimeFile = path.join(
-      BRAIN_SRC,
-      "runtime",
-      "RunEngineRuntime.ts"
-    );
+    const runtimeFile = path.join(BRAIN_SRC, "runtime", "RunEngineRuntime.ts");
     // Fail early if the file was moved/renamed — update the path if so
     expect(
       fs.existsSync(runtimeFile),
-      `Expected ${runtimeFile} to exist (may have been moved/renamed)`
+      `Expected ${runtimeFile} to exist (may have been moved/renamed)`,
     ).toBe(true);
 
     const content = fs.readFileSync(runtimeFile, "utf-8");
 
     // Check that invalid agent types do not silently fallback to "coding"
     // Flag if there's a silent fallback pattern (no error thrown)
-    const hasSilentFallback = /agentType.*\?\?|agentType.*\|\||coding.*default/i.test(content);
-    
+    const hasSilentFallback =
+      /agentType.*\?\?|agentType.*\|\||coding.*default/i.test(content);
+
     expect(
       hasSilentFallback,
-      "RunEngineRuntime should not silently fallback agent types"
+      "RunEngineRuntime should not silently fallback agent types",
     ).toBe(false);
   });
 
@@ -168,7 +170,7 @@ describe("Architecture Boundary: No Silent Fallbacks", () => {
     // Fail early if the file was moved/renamed — update the path if so
     expect(
       fs.existsSync(aiServiceFile),
-      `Expected ${aiServiceFile} to exist (may have been moved/renamed)`
+      `Expected ${aiServiceFile} to exist (may have been moved/renamed)`,
     ).toBe(true);
 
     const content = fs.readFileSync(aiServiceFile, "utf-8");
@@ -179,7 +181,7 @@ describe("Architecture Boundary: No Silent Fallbacks", () => {
 
     expect(
       hasSilentProviderFallback,
-      "AIService should not have implicit provider fallback"
+      "AIService should not have implicit provider fallback",
     ).toBe(false);
   });
 
@@ -187,23 +189,24 @@ describe("Architecture Boundary: No Silent Fallbacks", () => {
     const chatControllerFile = path.join(
       BRAIN_SRC,
       "controllers",
-      "ChatController.ts"
+      "ChatController.ts",
     );
     // Fail early if the file was moved/renamed — update the path if so
     expect(
       fs.existsSync(chatControllerFile),
-      `Expected ${chatControllerFile} to exist (may have been moved/renamed)`
+      `Expected ${chatControllerFile} to exist (may have been moved/renamed)`,
     ).toBe(true);
 
     const content = fs.readFileSync(chatControllerFile, "utf-8");
 
     // Verify no silent JSON.parse() with empty object fallback
-    const hasSilentParseError =
-      /JSON\.parse\s*\([^)]*\)\s*\|\|\s*\{\}/.test(content);
+    const hasSilentParseError = /JSON\.parse\s*\([^)]*\)\s*\|\|\s*\{\}/.test(
+      content,
+    );
 
     expect(
       hasSilentParseError,
-      "Controllers should not silently parse JSON with fallback to {}"
+      "Controllers should not silently parse JSON with fallback to {}",
     ).toBe(false);
   });
 
@@ -213,15 +216,17 @@ describe("Architecture Boundary: No Silent Fallbacks", () => {
 
     if (fs.existsSync(httpErrorFile)) {
       const content = fs.readFileSync(httpErrorFile, "utf-8");
-      expect(content, "http/errors.ts should export error mapping utilities")
-        .toContain("export");
+      expect(
+        content,
+        "http/errors.ts should export error mapping utilities",
+      ).toContain("export");
     }
 
     if (fs.existsSync(httpResponseFile)) {
       const content = fs.readFileSync(httpResponseFile, "utf-8");
       expect(
         content,
-        "http/response.ts should have error response helpers"
+        "http/response.ts should have error response helpers",
       ).toContain("error");
     }
   });
@@ -269,13 +274,13 @@ describe("Architecture Boundary: No Silent Fallbacks", () => {
     if (violations.length > 0) {
       console.warn(
         `[architecture] Found ${violations.length} untyped error usage(s) in application/domain layers. ` +
-        `Plan to address in follow-up PRs: ${violations.map((v) => `${v.file}:${v.line}`).join(", ")}`
+          `Plan to address in follow-up PRs: ${violations.map((v) => `${v.file}:${v.line}`).join(", ")}`,
       );
     }
-    
+
     expect(
       violations.length,
-      `Application and domain layer should use typed errors. Currently ${violations.length} violation(s):\n${violations.map((v) => `${v.file}:${v.line} - ${v.reason}`).join("\n")}`
+      `Application and domain layer should use typed errors. Currently ${violations.length} violation(s):\n${violations.map((v) => `${v.file}:${v.line} - ${v.reason}`).join("\n")}`,
     ).toBeLessThan(3); // Allow 0-2 violations for now
   });
 
@@ -291,7 +296,11 @@ describe("Architecture Boundary: No Silent Fallbacks", () => {
         const line = lines[i];
 
         // Match: env.DEV_MODE ?? false or process.env.DEV
-        if (/env\.(DEV|LOCALHOST|DEBUG).*\?\?|process\.env\.(DEV|NODE_ENV)/.test(line)) {
+        if (
+          /env\.(DEV|LOCALHOST|DEBUG).*\?\?|process\.env\.(DEV|NODE_ENV)/.test(
+            line,
+          )
+        ) {
           // This is a flag check, verify it's handled explicitly
           // Look ahead up to 5 lines for error handling (accounts for multi-line blocks)
           let hasExplicitHandling = false;
@@ -301,7 +310,7 @@ describe("Architecture Boundary: No Silent Fallbacks", () => {
               break;
             }
           }
-          
+
           if (!hasExplicitHandling) {
             violations.push({
               file,
@@ -316,7 +325,7 @@ describe("Architecture Boundary: No Silent Fallbacks", () => {
 
     expect(
       violations,
-      `Runtime should not have implicit dev/localhost fallbacks:\n${violations.map((v) => `${v.file}:${v.line} - ${v.reason}`).join("\n")}`
+      `Runtime should not have implicit dev/localhost fallbacks:\n${violations.map((v) => `${v.file}:${v.line} - ${v.reason}`).join("\n")}`,
     ).toEqual([]);
   });
 
@@ -329,10 +338,7 @@ describe("Architecture Boundary: No Silent Fallbacks", () => {
 
       let hasExplicitFallback = false;
       for (const file of files) {
-        const content = fs.readFileSync(
-          path.join(aiServiceDir, file),
-          "utf-8"
-        );
+        const content = fs.readFileSync(path.join(aiServiceDir, file), "utf-8");
         if (
           content.includes("fallback") ||
           content.includes("reasonCode") ||
@@ -345,8 +351,83 @@ describe("Architecture Boundary: No Silent Fallbacks", () => {
 
       expect(
         hasExplicitFallback || files.length === 0,
-        "AI service should have explicit fallback handling"
+        "AI service should have explicit fallback handling",
       ).toBe(true);
     }
+  });
+
+  it("should verify services/ai/* does not have implicit fallbacks without logging", () => {
+    const aiServiceDir = path.join(BRAIN_SRC, "services", "ai");
+    if (!fs.existsSync(aiServiceDir)) {
+      return;
+    }
+
+    const aiFiles = getAllTSFiles(aiServiceDir);
+    const violations: FallbackAnomaly[] = [];
+
+    for (const file of aiFiles) {
+      const content = fs.readFileSync(file, "utf-8");
+      const lines = content.split("\n");
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+
+        // Check for implicit provider fallback without error/log
+        // Allow: explicit error throw, logCompatFallback call, or isStrictMode check
+        if (/provider\s*\?\?|provider\s*\|\|/.test(line)) {
+          // Look for explicit handling within the next few lines
+          let hasExplicitHandling = false;
+          for (let j = i; j < Math.min(i + 10, lines.length); j++) {
+            if (
+              /throw|logCompatFallback|isStrictMode|reasonCode|INVALID_PROVIDER|PROVIDER_NOT_CONNECTED/.test(
+                lines[j],
+              )
+            ) {
+              hasExplicitHandling = true;
+              break;
+            }
+          }
+
+          if (!hasExplicitHandling) {
+            violations.push({
+              file,
+              line: i + 1,
+              code: line.trim(),
+              reason:
+                "Provider fallback should be explicit with logging or error",
+            });
+          }
+        }
+
+        // Check for implicit model fallback without error/log
+        if (/model\s*\?\?\s*["']|model\s*\|\|\s*["']/.test(line)) {
+          let hasExplicitHandling = false;
+          for (let j = i; j < Math.min(i + 10, lines.length); j++) {
+            if (
+              /throw|logCompatFallback|isStrictMode|reasonCode|MODEL_NOT_ALLOWED/.test(
+                lines[j],
+              )
+            ) {
+              hasExplicitHandling = true;
+              break;
+            }
+          }
+
+          if (!hasExplicitHandling) {
+            violations.push({
+              file,
+              line: i + 1,
+              code: line.trim(),
+              reason: "Model fallback should be explicit with logging or error",
+            });
+          }
+        }
+      }
+    }
+
+    expect(
+      violations,
+      `services/ai/* should not have implicit fallbacks without logging:\n${violations.map((v) => `${v.file}:${v.line} - ${v.reason}`).join("\n")}`,
+    ).toEqual([]);
   });
 });
