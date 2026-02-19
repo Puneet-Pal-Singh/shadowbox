@@ -8,10 +8,34 @@
  * Flag: BRAIN_RUNTIME_COMPAT_MODE
  * - "0" or unset: Strict mode (default, recommended for production)
  * - "1": Compat mode (for emergency rollback only)
+ *
+ * Note: In Cloudflare Workers, process.env may not be available.
+ * Uses globalThis marker as fallback for testing environments.
  */
 
+let compatModeOverride: boolean | undefined;
+
+/**
+ * Set compat mode override (for testing)
+ */
+export function setCompatModeOverride(enabled: boolean): void {
+  compatModeOverride = enabled;
+}
+
+/**
+ * Check if compat mode is enabled
+ * First checks override flag, then process.env, then defaults to strict mode
+ */
 export function isCompatModeEnabled(): boolean {
-  return process.env.BRAIN_RUNTIME_COMPAT_MODE === "1";
+  if (compatModeOverride !== undefined) {
+    return compatModeOverride;
+  }
+  // Check process.env if available (Node.js, local dev)
+  if (typeof process !== "undefined" && process.env?.BRAIN_RUNTIME_COMPAT_MODE === "1") {
+    return true;
+  }
+  // Default to strict mode
+  return false;
 }
 
 export function isStrictMode(): boolean {

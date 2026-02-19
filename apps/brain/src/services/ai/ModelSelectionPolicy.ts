@@ -9,6 +9,7 @@
 import { ProviderIdSchema, type ProviderId } from "../../schemas/provider";
 import {
   InvalidProviderSelectionError,
+  ValidationError,
 } from "../../domain/errors";
 import { isStrictMode, logCompatFallback, CompatFallbackReasonCodes } from "../../config/runtime-compat";
 
@@ -80,8 +81,9 @@ export function resolveModelSelection(
   // Partial override: one of providerId/modelId missing
   if (!providerId || !modelId) {
     if (isStrictMode()) {
-      throw new InvalidProviderSelectionError(
+      throw new ValidationError(
         `Partial provider/model override: providerId=${providerId}, modelId=${modelId}. Both must be provided together.`,
+        "PARTIAL_OVERRIDE",
         correlationId,
       );
     }

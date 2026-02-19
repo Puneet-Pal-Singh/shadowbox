@@ -17,7 +17,6 @@ import {
   OpenAIAdapter,
   AnthropicAdapter,
   type ProviderAdapter,
-  ProviderError,
 } from "../providers";
 import {
   resolveOpenAIKey,
@@ -26,7 +25,12 @@ import {
   resolveGroqKey,
   resolveLiteLLMKey,
 } from "./ProviderKeyValidator";
-import { isStrictMode, logCompatFallback, CompatFallbackReasonCodes } from "../../config/runtime-compat";
+import {
+  isStrictMode,
+  logCompatFallback,
+  CompatFallbackReasonCodes,
+} from "../../config/runtime-compat";
+import { ValidationError, ProviderError } from "../../domain/errors";
 
 /**
  * Build the default provider adapter based on env configuration.
@@ -56,9 +60,9 @@ export function createDefaultAdapter(env: Env): ProviderAdapter {
 
     default:
       if (isStrictMode()) {
-        throw new ProviderError(
-          provider,
+        throw new ValidationError(
           `Unknown LLM provider: "${provider}". Supported providers: litellm, openai, anthropic`,
+          "UNKNOWN_PROVIDER",
         );
       }
       // Compat mode: log and fallback
@@ -88,8 +92,8 @@ export function createLiteLLMAdapter(
   const defaultModel = env.DEFAULT_MODEL;
   if (!defaultModel) {
     throw new ProviderError(
-      "litellm",
       "DEFAULT_MODEL is required for LiteLLM provider",
+      "MISSING_DEFAULT_MODEL",
     );
   }
 
@@ -142,7 +146,9 @@ export function createAnthropicAdapter(
  * @param overrideApiKey - The API key from ProviderConfigService
  * @throws ProviderError if key is missing or invalid format
  */
-export function createOpenRouterAdapter(overrideApiKey?: string): OpenAIAdapter {
+export function createOpenRouterAdapter(
+  overrideApiKey?: string,
+): OpenAIAdapter {
   const { apiKey, baseURL } = resolveOpenRouterKey(overrideApiKey);
 
   return new OpenAIAdapter({
