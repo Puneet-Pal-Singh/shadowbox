@@ -3,22 +3,18 @@
  * Single Responsibility: Disconnect a provider
  */
 
-import type { Env } from "../../types/ai";
 import type {
   DisconnectProviderRequest,
   ProviderId,
 } from "../../schemas/provider";
-import { ProviderConfigService } from "../../services/providers";
+import type { IProviderConfigService } from "../../services/providers";
 
 /**
  * DisconnectProvider use-case
+ * Depends on IProviderConfigService interface (injected by controller/composition root)
  */
 export class DisconnectProvider {
-  private configService: ProviderConfigService;
-
-  constructor(env: Env) {
-    this.configService = new ProviderConfigService(env);
-  }
+  constructor(private configService: IProviderConfigService) {}
 
   /**
    * Execute provider disconnection

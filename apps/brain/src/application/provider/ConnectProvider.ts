@@ -3,22 +3,18 @@
  * Single Responsibility: Connect a provider with API key
  */
 
-import type { Env } from "../../types/ai";
 import type {
   ConnectProviderRequest,
   ConnectProviderResponse,
 } from "../../schemas/provider";
-import { ProviderConfigService } from "../../services/providers";
+import type { IProviderConfigService } from "../../services/providers";
 
 /**
  * ConnectProvider use-case
+ * Depends on IProviderConfigService interface (injected by controller/composition root)
  */
 export class ConnectProvider {
-  private configService: ProviderConfigService;
-
-  constructor(env: Env) {
-    this.configService = new ProviderConfigService(env);
-  }
+  constructor(private configService: IProviderConfigService) {}
 
   /**
    * Execute provider connection

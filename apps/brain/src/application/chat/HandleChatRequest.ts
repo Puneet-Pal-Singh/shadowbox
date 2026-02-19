@@ -11,6 +11,8 @@
  * Does NOT handle:
  * - HTTP-specific concerns (headers, status codes, response formatting)
  * - RunEngine durable object interaction (passed to caller)
+ *
+ * TODO: Add unit tests (HandleChatRequest.test.ts) in future cycle
  */
 
 import type { CoreMessage } from "ai";

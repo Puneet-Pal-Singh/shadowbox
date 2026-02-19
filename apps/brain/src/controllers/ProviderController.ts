@@ -52,7 +52,9 @@ export class ProviderController {
         apiKey: string;
       }>(body, ConnectProviderRequestSchema, correlationId);
 
-      const useCase = new ConnectProvider(env);
+      // Composition root: instantiate configService and inject into use-case
+      const configService = new ProviderConfigService(env);
+      const useCase = new ConnectProvider(configService);
       const response = await useCase.execute(validatedRequest);
 
       return jsonResponse(req, env, response);
@@ -75,7 +77,9 @@ export class ProviderController {
         providerId: ProviderId;
       }>(body, DisconnectProviderRequestSchema, correlationId);
 
-      const useCase = new DisconnectProvider(env);
+      // Composition root: instantiate configService and inject into use-case
+      const configService = new ProviderConfigService(env);
+      const useCase = new DisconnectProvider(configService);
       const response = await useCase.execute(validatedRequest);
 
       return jsonResponse(req, env, response);
@@ -93,7 +97,9 @@ export class ProviderController {
     console.log(`[provider/status] ${correlationId} request received`);
 
     try {
-      const useCase = new GetProviderStatus(env);
+      // Composition root: instantiate configService and inject into use-case
+      const configService = new ProviderConfigService(env);
+      const useCase = new GetProviderStatus(configService);
       const providers = await useCase.execute();
 
       return jsonResponse(req, env, { providers });

@@ -9,7 +9,7 @@ import type { Env } from "../types/ai";
 import { ProviderConfigService } from "../services/providers";
 
 const mockEnv: Env = {
-  RUN_ENGINE_RUNTIME: {} as any,
+  RUN_ENGINE_RUNTIME: {} as unknown,
   LLM_PROVIDER: "litellm",
   DEFAULT_MODEL: "llama-3.3-70b-versatile",
   GROQ_API_KEY: "test-key",
