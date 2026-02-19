@@ -1,9 +1,23 @@
 import type { CoreMessage, Message } from "ai";
 import type { AgentType } from "@shadowbox/execution-engine/runtime";
-import { getCorsHeaders } from "../lib/cors";
 import type { Env } from "../types/ai";
 import { PersistenceService } from "../services/PersistenceService";
 import { ChatProviderSelectionSchema } from "../schemas/provider";
+import {
+  errorResponse,
+  jsonResponse,
+  withEngineHeaders,
+} from "../http/response";
+import {
+  parseRequestBody,
+  validateWithSchema,
+} from "../http/validation";
+import {
+  ValidationError,
+  ParseError,
+  isDomainError,
+  mapDomainErrorToHttp,
+} from "../domain/errors";
 
 interface ChatRequestBody {
   messages?: Message[];
@@ -32,35 +46,35 @@ const UUID_V4_REGEX =
 export class ChatController {
   static async handle(req: Request, env: Env): Promise<Response> {
     const correlationId = Math.random().toString(36).substring(7);
-    console.log(`[Brain:${correlationId}] Request received`);
+    console.log(`[chat/request] ${correlationId} received`);
 
     try {
-      const body = await parseRequestBody(req);
-      const identifiers = extractIdentifiers(body);
+      const body = (await parseRequestBody(req, correlationId)) as ChatRequestBody;
+      const identifiers = extractIdentifiers(body, correlationId);
 
       console.log(
-        `[Brain:${correlationId}] Incoming request for session: ${identifiers.sessionId}, run: ${identifiers.runId}`,
+        `[chat/request] ${correlationId} session: ${identifiers.sessionId}, run: ${identifiers.runId}`,
       );
       console.log(
-        `[Brain:${correlationId}] Messages count in request: ${body.messages?.length || 0}`,
+        `[chat/request] ${correlationId} messages: ${body.messages?.length || 0}`,
       );
 
       // Validate provider/model selection if provided
-      const providerSelection = ChatProviderSelectionSchema.safeParse({
-        providerId: body.providerId,
-        modelId: body.modelId,
-      });
-
-      if (!providerSelection.success) {
-        console.warn(
-          `[Brain:${correlationId}] Invalid provider/model selection:`,
-          providerSelection.error.errors,
-        );
-        return errorResponse(req, env, "Invalid provider/model selection", 400);
-      }
+      validateWithSchema(
+        {
+          providerId: body.providerId,
+          modelId: body.modelId,
+        },
+        ChatProviderSelectionSchema,
+        correlationId,
+      );
 
       if (!body.messages || !Array.isArray(body.messages)) {
-        return errorResponse(req, env, "Invalid messages", 400);
+        throw new ValidationError(
+          "Invalid messages: expected non-empty array",
+          "INVALID_MESSAGES",
+          correlationId,
+        );
       }
 
       const chatRequest: ChatRequest = {
@@ -70,22 +84,25 @@ export class ChatController {
         runId: identifiers.runId,
       };
 
-      console.log(`[Brain:${correlationId}] Routing to RunEngine`);
+      console.log(`[chat/request] ${correlationId} routing to RunEngine`);
       return await ChatController.handleWithRunEngine(req, chatRequest, env);
     } catch (error: unknown) {
-      if (error instanceof RequestValidationError) {
-        console.warn(`[Brain:${correlationId}] ${error.logMessage}`);
-        return errorResponse(req, env, error.message, 400);
+      if (isDomainError(error)) {
+        console.warn(
+          `[chat/validation] ${error.correlationId}: ${error.code} - ${error.message}`,
+        );
+        const { status, code, message } = mapDomainErrorToHttp(error);
+        return errorResponse(req, env, message, status, code);
       }
-      console.error(`[Brain:${correlationId}] Error:`, error);
+      console.error(`[chat/error] ${correlationId}:`, error);
       const errorMessage =
         error instanceof Error ? error.message : "Internal Server Error";
       return errorResponse(req, env, errorMessage, 500);
     }
   }
 
-  static async handleAgentInfo(req: Request, _env: Env): Promise<Response> {
-    console.log("[chat/agent-info] Returning available agent types");
+  static async handleAgentInfo(req: Request, env: Env): Promise<Response> {
+    console.log("[chat/agent-info] returning available agent types");
 
     const availableAgents = [
       {
@@ -114,12 +131,7 @@ export class ChatController {
       },
     ];
 
-    return new Response(JSON.stringify({ agents: availableAgents }), {
-      headers: {
-        ...getCorsHeaders(req, _env),
-        "Content-Type": "application/json",
-      },
-    });
+    return jsonResponse(req, env, { agents: availableAgents });
   }
 
   private static async handleWithRunEngine(
@@ -134,7 +146,11 @@ export class ChatController {
     const lastUserMessage = coreMessages.filter((m) => m.role === "user").pop();
 
     if (!lastUserMessage) {
-      return errorResponse(req, env, "No user message found", 400);
+      throw new ValidationError(
+        "No user message found",
+        "NO_USER_MESSAGE",
+        correlationId,
+      );
     }
 
     const prompt =
@@ -174,7 +190,7 @@ export class ChatController {
 
       return withEngineHeaders(req, env, doResponse, runId);
     } catch (error) {
-      console.error(`[chat/controller] RunEngine execution failed:`, error);
+      console.error(`[chat/runtime] ${correlationId}: RunEngine execution failed:`, error);
       throw error;
     }
   }
@@ -212,17 +228,9 @@ export class ChatController {
   }
 }
 
-async function parseRequestBody(req: Request): Promise<ChatRequestBody> {
-  try {
-    return (await req.json()) as ChatRequestBody;
-  } catch {
-    return {};
-  }
-}
-
-function extractIdentifiers(body: ChatRequestBody) {
-  const sessionId = parseRequiredIdentifier(body.sessionId, "sessionId");
-  const runId = parseRunId(body.runId);
+function extractIdentifiers(body: ChatRequestBody, correlationId?: string) {
+  const sessionId = parseRequiredIdentifier(body.sessionId, "sessionId", correlationId);
+  const runId = parseRunId(body.runId, correlationId);
 
   return {
     sessionId,
@@ -231,14 +239,16 @@ function extractIdentifiers(body: ChatRequestBody) {
   };
 }
 
-function parseRunId(runId?: string): string {
+function parseRunId(runId?: string, correlationId?: string): string {
   if (!runId || runId.trim().length === 0) {
     return crypto.randomUUID();
   }
   const normalized = runId.trim();
   if (!UUID_V4_REGEX.test(normalized)) {
-    throw new RequestValidationError(
-      "Invalid runId. Expected a UUID v4 string.",
+    throw new ValidationError(
+      "Invalid runId: expected UUID v4 format",
+      "INVALID_RUN_ID",
+      correlationId,
     );
   }
   return normalized;
@@ -247,18 +257,29 @@ function parseRunId(runId?: string): string {
 function parseRequiredIdentifier(
   identifier: string | undefined,
   fieldName: string,
+  correlationId?: string,
 ): string {
   if (!identifier || identifier.trim().length === 0) {
-    throw new RequestValidationError(`Missing required field: ${fieldName}`);
+    throw new ValidationError(
+      `Missing required field: ${fieldName}`,
+      "MISSING_FIELD",
+      correlationId,
+    );
   }
 
   const normalized = identifier.trim();
   if (normalized.length > 128) {
-    throw new RequestValidationError(`Invalid ${fieldName}: too long`);
+    throw new ValidationError(
+      `Invalid ${fieldName}: too long (max 128 characters)`,
+      "IDENTIFIER_TOO_LONG",
+      correlationId,
+    );
   }
   if (!SAFE_IDENTIFIER_REGEX.test(normalized)) {
-    throw new RequestValidationError(
-      `Invalid ${fieldName}: only letters, numbers, and hyphens are allowed`,
+    throw new ValidationError(
+      `Invalid ${fieldName}: only letters, numbers, and hyphens allowed`,
+      "INVALID_IDENTIFIER_FORMAT",
+      correlationId,
     );
   }
   return normalized;
@@ -276,54 +297,4 @@ function mapAgentIdToType(agentId?: string): AgentType {
   return agentTypeMap[agentId] ?? "coding";
 }
 
-function errorResponse(
-  req: Request,
-  env: Env,
-  message: string,
-  status: number,
-): Response {
-  return new Response(JSON.stringify({ error: message }), {
-    status,
-    headers: {
-      ...getCorsHeaders(req, env),
-      "Content-Type": "application/json",
-    },
-  });
-}
 
-function withEngineHeaders(
-  req: Request,
-  env: Env,
-  response: Response,
-  runId: string,
-): Response {
-  const headers = new Headers(response.headers);
-  headers.set("X-Engine-Version", "3.0");
-  headers.set("X-Run-Id", runId);
-  headers.set("X-Run-Engine-Runtime", "do");
-
-  const corsHeaders = getCorsHeaders(req, env);
-  Object.entries(corsHeaders).forEach(([key, value]) => {
-    headers.set(key, value);
-  });
-
-  return new Response(response.body, {
-    status: response.status,
-    statusText: response.statusText,
-    headers,
-  });
-}
-
-class RequestValidationError extends Error {
-  public readonly logMessage: string;
-
-  constructor(message: string) {
-    super(message);
-    this.name = "RequestValidationError";
-    this.logMessage = `[chat/validation] ${message}`;
-  }
-
-  toString(): string {
-    return this.logMessage;
-  }
-}

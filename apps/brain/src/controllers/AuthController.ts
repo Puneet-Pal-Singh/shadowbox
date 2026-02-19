@@ -6,7 +6,6 @@
  * Follows Single Responsibility: Only handles OAuth flow
  */
 
-import { getCorsHeaders } from "../lib/cors";
 import { Env } from "../types/ai";
 import {
   generateAuthUrl,
@@ -21,6 +20,14 @@ import {
   extractSessionToken,
   verifySessionToken,
 } from "../services/AuthService";
+import {
+  errorResponse,
+  jsonResponse,
+} from "../http/response";
+import {
+  isDomainError,
+  mapDomainErrorToHttp,
+} from "../domain/errors";
 
 interface AuthSession {
   state: string;
@@ -36,24 +43,23 @@ export class AuthController {
    */
   static async handleLogin(request: Request, env: Env): Promise<Response> {
     try {
-      console.log("[Auth] Initiating OAuth login...");
+      console.log("[auth/login] initiating OAuth login");
 
       // Validate required environment variables
       if (!env.GITHUB_CLIENT_ID || !env.GITHUB_CLIENT_SECRET) {
         console.error(
-          "[Auth] Missing required GitHub OAuth environment variables",
+          "[auth/login] missing GITHUB_CLIENT_ID or GITHUB_CLIENT_SECRET",
         );
         return errorResponse(
           request,
           env,
-          "Server configuration error: Missing GitHub OAuth credentials. " +
-            "Please check your .dev.vars file and ensure GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET are set.",
+          "Server configuration error: Missing GitHub OAuth credentials",
           500,
         );
       }
 
       if (!env.GITHUB_REDIRECT_URI) {
-        console.error("[Auth] Missing GITHUB_REDIRECT_URI");
+        console.error("[auth/login] missing GITHUB_REDIRECT_URI");
         return errorResponse(
           request,
           env,
@@ -63,7 +69,7 @@ export class AuthController {
       }
 
       const state = generateState();
-      console.log("[Auth] Generated OAuth state");
+      console.log("[auth/login] generated OAuth state");
 
       // Store state in KV with expiration
       const session: AuthSession = {
@@ -76,7 +82,7 @@ export class AuthController {
         JSON.stringify(session),
         { expirationTtl: 600 }, // 10 minutes
       );
-      console.log("[Auth] OAuth state stored in KV");
+      console.log("[auth/login] OAuth state stored in KV");
 
       const config: OAuthConfig = {
         clientId: env.GITHUB_CLIENT_ID,
@@ -86,20 +92,16 @@ export class AuthController {
       };
 
       const authUrl = generateAuthUrl(config, state);
-      console.log(
-        "[Auth] Redirecting to GitHub:",
-        authUrl.substring(0, 60) + "...",
-      );
+      console.log("[auth/login] redirecting to GitHub");
 
       return new Response(null, {
         status: 302,
         headers: {
           Location: authUrl,
-          ...getCorsHeaders(request, env),
         },
       });
     } catch (error) {
-      console.error("[Auth] Login error:", error);
+      console.error("[auth/login] error:", error);
       return errorResponse(request, env, "Failed to initiate authentication", 500);
     }
   }
@@ -110,23 +112,17 @@ export class AuthController {
    */
   static async handleCallback(request: Request, env: Env): Promise<Response> {
     try {
-      console.log("[Auth] OAuth callback received");
+      console.log("[auth/callback] OAuth callback received");
 
       const url = new URL(request.url);
       const code = url.searchParams.get("code");
       const state = url.searchParams.get("state");
-      const error = url.searchParams.get("error");
-
-      console.log("[Auth] Callback params:", {
-        code: !!code,
-        state: !!state,
-        error,
-      });
+      const oauthError = url.searchParams.get("error");
 
       // Handle OAuth errors from GitHub
-      if (error) {
-        console.error("[Auth] GitHub OAuth error:", error);
-        return errorResponse(request, env, `GitHub authentication failed: ${error}`, 400);
+      if (oauthError) {
+        console.error("[auth/callback] GitHub OAuth error:", oauthError);
+        return errorResponse(request, env, `GitHub authentication failed: ${oauthError}`, 400);
       }
 
       if (!code || !state) {
@@ -136,7 +132,7 @@ export class AuthController {
       // Verify state to prevent CSRF
       const sessionData = await env.SESSIONS.get(`oauth_state:${state}`);
       if (!sessionData) {
-        console.error("[Auth] State not found in KV store");
+        console.error("[auth/callback] state not found in KV store");
         return errorResponse(request, env, "Invalid or expired session", 400);
       }
 
@@ -158,7 +154,7 @@ export class AuthController {
 
       // Check required environment variables
       if (!env.GITHUB_CLIENT_ID || !env.GITHUB_CLIENT_SECRET) {
-        console.error("[Auth] Missing GitHub OAuth credentials");
+        console.error("[auth/callback] missing GitHub OAuth credentials");
         return errorResponse(
           request,
           env,
@@ -174,14 +170,14 @@ export class AuthController {
         redirectUri: env.GITHUB_REDIRECT_URI,
       };
 
-      console.log("[Auth] Exchanging code for token...");
+      console.log("[auth/callback] exchanging code for token");
       const tokenResponse = await exchangeCodeForToken(code, config);
-      console.log("[Auth] Token received successfully");
+      console.log("[auth/callback] token received");
 
       // Fetch user details
-      console.log("[Auth] Fetching user details...");
+      console.log("[auth/callback] fetching user details");
       const user = await fetchGitHubUser(tokenResponse.access_token);
-      console.log("[Auth] User fetched:", user.login);
+      console.log("[auth/callback] user fetched:", user.login);
 
       // Encrypt token before storing
       const encryptedToken = await encryptToken(
@@ -211,7 +207,7 @@ export class AuthController {
 
       // Redirect to frontend with session token
       const frontendUrl = env.FRONTEND_URL || "http://localhost:5173";
-      console.log("[Auth] Redirecting to frontend:", frontendUrl);
+      console.log("[auth/callback] redirecting to frontend");
 
       const redirectUrl = new URL(frontendUrl);
       redirectUrl.searchParams.set("session", sessionToken);
@@ -221,12 +217,11 @@ export class AuthController {
         status: 302,
         headers: {
           Location: redirectUrl.toString(),
-          ...getCorsHeaders(request, env),
           "Set-Cookie": createSessionCookie(sessionToken),
         },
       });
     } catch (error) {
-      console.error("[Auth] Callback error:", error);
+      console.error("[auth/callback] error:", error);
       const message =
         error instanceof Error ? error.message : "Authentication failed";
       return errorResponse(request, env, message, 500);
@@ -266,7 +261,7 @@ export class AuthController {
         },
       });
     } catch (error) {
-      console.error("[Auth] Session error:", error);
+      console.error("[auth/session] error:", error);
       return errorResponse(request, env, "Failed to get session", 500);
     }
   }
@@ -289,13 +284,14 @@ export class AuthController {
         request,
         env,
         { success: true },
+        200,
         {
           "Set-Cookie":
             "shadowbox_session=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure; SameSite=Lax",
         },
       );
     } catch (error) {
-      console.error("[Auth] Logout error:", error);
+      console.error("[auth/logout] error:", error);
       return errorResponse(request, env, "Logout failed", 500);
     }
   }
@@ -330,39 +326,4 @@ function createSessionCookie(token: string): string {
   return `shadowbox_session=${token}; Path=/; Max-Age=604800; HttpOnly; Secure; SameSite=Lax`;
 }
 
-/**
- * JSON response helper
- */
-function jsonResponse(
-  request: Request,
-  env: Env,
-  data: unknown,
-  headers: Record<string, string> = {},
-): Response {
-  return new Response(JSON.stringify(data), {
-    status: 200,
-    headers: {
-      "Content-Type": "application/json",
-      ...getCorsHeaders(request, env),
-      ...headers,
-    },
-  });
-}
 
-/**
- * Error response helper
- */
-function errorResponse(
-  request: Request,
-  env: Env,
-  message: string,
-  status: number,
-): Response {
-  return new Response(JSON.stringify({ error: message }), {
-    status,
-    headers: {
-      "Content-Type": "application/json",
-      ...getCorsHeaders(request, env),
-    },
-  });
-}

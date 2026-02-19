@@ -4,7 +4,6 @@
  * Validates requests and delegates to ProviderConfigService
  */
 
-import { getCorsHeaders } from "../lib/cors";
 import type { Env } from "../types/ai";
 import { ProviderConfigService } from "../services/ProviderConfigService";
 import {
@@ -13,6 +12,19 @@ import {
   ProviderIdSchema,
   type ProviderId,
 } from "../schemas/provider";
+import {
+  errorResponse,
+  jsonResponse,
+} from "../http/response";
+import {
+  parseRequestBody,
+  validateWithSchema,
+} from "../http/validation";
+import {
+  ValidationError,
+  isDomainError,
+  mapDomainErrorToHttp,
+} from "../domain/errors";
 
 /**
  * Singleton instance of ProviderConfigService
@@ -38,18 +50,21 @@ export class ProviderController {
    */
   static async connect(req: Request, env: Env): Promise<Response> {
     const correlationId = Math.random().toString(36).substring(7);
-    console.log(`[Provider:${correlationId}] Connect request received`);
+    console.log(`[provider/connect] ${correlationId} request received`);
 
     try {
-      const body = await parseRequestBody(req);
+      const body = await parseRequestBody(req, correlationId);
+      const validatedRequest = validateWithSchema<{
+        providerId: ProviderId;
+        apiKey: string;
+      }>(body, ConnectProviderRequestSchema, correlationId);
 
-      const validatedRequest = ConnectProviderRequestSchema.parse(body);
       const service = getProviderConfigService(env);
       const response = await service.connect(validatedRequest);
 
-      return successResponse(req, env, response);
+      return jsonResponse(req, env, response);
     } catch (error) {
-      return handleError(req, env, error, "connect", correlationId);
+      return handleProviderError(req, env, error, "connect", correlationId);
     }
   }
 
@@ -59,19 +74,20 @@ export class ProviderController {
    */
   static async disconnect(req: Request, env: Env): Promise<Response> {
     const correlationId = Math.random().toString(36).substring(7);
-    console.log(`[Provider:${correlationId}] Disconnect request received`);
+    console.log(`[provider/disconnect] ${correlationId} request received`);
 
     try {
-      const body = await parseRequestBody(req);
+      const body = await parseRequestBody(req, correlationId);
+      const validatedRequest = validateWithSchema<{
+        providerId: ProviderId;
+      }>(body, DisconnectProviderRequestSchema, correlationId);
 
-      const validatedRequest =
-        DisconnectProviderRequestSchema.parse(body);
       const service = getProviderConfigService(env);
       const response = await service.disconnect(validatedRequest);
 
-      return successResponse(req, env, response);
+      return jsonResponse(req, env, response);
     } catch (error) {
-      return handleError(req, env, error, "disconnect", correlationId);
+      return handleProviderError(req, env, error, "disconnect", correlationId);
     }
   }
 
@@ -81,19 +97,15 @@ export class ProviderController {
    */
   static async status(req: Request, env: Env): Promise<Response> {
     const correlationId = Math.random().toString(36).substring(7);
-    console.log(`[Provider:${correlationId}] Status request received`);
+    console.log(`[provider/status] ${correlationId} request received`);
 
     try {
       const service = getProviderConfigService(env);
       const providers = await service.getStatus();
 
-      const response = {
-        providers,
-      };
-
-      return successResponse(req, env, response);
+      return jsonResponse(req, env, { providers });
     } catch (error) {
-      return handleError(req, env, error, "status", correlationId);
+      return handleProviderError(req, env, error, "status", correlationId);
     }
   }
 
@@ -103,101 +115,54 @@ export class ProviderController {
    */
   static async models(req: Request, env: Env): Promise<Response> {
     const correlationId = Math.random().toString(36).substring(7);
-    console.log(`[Provider:${correlationId}] Models request received`);
+    console.log(`[provider/models] ${correlationId} request received`);
 
     try {
       const url = new URL(req.url);
       const providerIdParam = url.searchParams.get("providerId");
 
       if (!providerIdParam) {
-        return errorResponse(
-          req,
-          env,
+        throw new ValidationError(
           "Missing required query parameter: providerId",
-          400,
+          "MISSING_PROVIDER_ID",
+          correlationId,
         );
       }
 
-      const providerId = ProviderIdSchema.parse(providerIdParam);
+      const providerId = validateWithSchema<ProviderId>(
+        providerIdParam,
+        ProviderIdSchema,
+        correlationId,
+      );
+
       const service = getProviderConfigService(env);
       const response = await service.getModels(providerId);
 
-      return successResponse(req, env, response);
+      return jsonResponse(req, env, response);
     } catch (error) {
-      return handleError(req, env, error, "models", correlationId);
+      return handleProviderError(req, env, error, "models", correlationId);
     }
   }
 }
 
-async function parseRequestBody(req: Request): Promise<unknown> {
-  try {
-    return await req.json();
-  } catch (error) {
-    // Propagate parse errors so handleError can detect and handle them
-    throw error;
-  }
-}
-
-function successResponse(
-  req: Request,
-  env: Env,
-  data: unknown,
-): Response {
-  return new Response(JSON.stringify(data), {
-    status: 200,
-    headers: {
-      ...getCorsHeaders(req, env),
-      "Content-Type": "application/json",
-    },
-  });
-}
-
-function errorResponse(
-  req: Request,
-  env: Env,
-  message: string,
-  status: number,
-): Response {
-  return new Response(JSON.stringify({ error: message }), {
-    status,
-    headers: {
-      ...getCorsHeaders(req, env),
-      "Content-Type": "application/json",
-    },
-  });
-}
-
-function handleError(
+function handleProviderError(
   req: Request,
   env: Env,
   error: unknown,
   operation: string,
   correlationId: string,
 ): Response {
-  if (error instanceof SyntaxError) {
+  if (isDomainError(error)) {
     console.warn(
-      `[Provider:${correlationId}] Invalid JSON in ${operation} request`,
+      `[provider/${operation}] ${correlationId}: ${error.code} - ${error.message}`,
     );
-    return errorResponse(
-      req,
-      env,
-      "Invalid request body (malformed JSON)",
-      400,
-    );
+    const { status, code, message } = mapDomainErrorToHttp(error);
+    return errorResponse(req, env, message, status, code);
   }
 
   if (error instanceof Error) {
-    if (error.name === "ZodError") {
-      console.warn(
-        `[Provider:${correlationId}] Validation error in ${operation}:`,
-        error.message,
-      );
-      return errorResponse(req, env, `Validation error: ${error.message}`, 400);
-    }
-
-    // Log full error details server-side, but return generic message to client
     console.error(
-      `[Provider:${correlationId}] Error in ${operation}:`,
+      `[provider/${operation}] ${correlationId}: ${error.message}`,
       error,
     );
     return errorResponse(
@@ -208,6 +173,6 @@ function handleError(
     );
   }
 
-  console.error(`[Provider:${correlationId}] Unknown error in ${operation}:`, error);
+  console.error(`[provider/${operation}] ${correlationId}: unknown error`, error);
   return errorResponse(req, env, "Internal server error", 500);
 }
