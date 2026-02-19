@@ -24,10 +24,6 @@ import {
   errorResponse,
   jsonResponse,
 } from "../http/response";
-import {
-  isDomainError,
-  mapDomainErrorToHttp,
-} from "../domain/errors";
 
 interface AuthSession {
   state: string;

@@ -30,8 +30,9 @@ export function jsonResponse(
     status,
     headers: {
       "Content-Type": "application/json",
-      ...getCorsHeaders(request, env),
       ...customHeaders,
+      // CORS headers take precedence to prevent caller override of security headers
+      ...getCorsHeaders(request, env),
     },
   });
 }

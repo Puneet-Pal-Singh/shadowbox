@@ -48,7 +48,11 @@ export function validateWithSchema<T = unknown>(
 
   if (!result.success) {
     const messages = result.error.errors
-      .map((e) => `${e.path.join(".")}: ${e.message}`)
+      .map((e) =>
+        e.path.length > 0
+          ? `${e.path.join(".")}: ${e.message}`
+          : e.message,
+      )
       .join("; ");
     throw new ValidationError(
       `Validation error: ${messages}`,
@@ -70,11 +74,11 @@ export function validateWithSchema<T = unknown>(
  * @throws ParseError if JSON is malformed
  * @throws ValidationError if validation fails
  */
-export async function parseAndValidate<T>(
+export async function parseAndValidate<T = unknown>(
   request: Request,
   schema: ZodSchema,
   correlationId?: string,
 ): Promise<T> {
   const body = await parseRequestBody(request, correlationId);
-  return validateWithSchema(body, schema, correlationId);
+  return validateWithSchema<T>(body, schema, correlationId);
 }
