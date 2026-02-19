@@ -32,6 +32,7 @@ import {
   createChatStream,
   getSDKModelConfig,
   type SDKModelConfig,
+  type GenerateStructuredResult,
 } from "./ai";
 
 /**
@@ -239,7 +240,10 @@ export class AIService {
     const { provider, apiKey, baseURL, model } = config;
 
     if (provider === "anthropic") {
-      const client = createAnthropic({ apiKey });
+      const client = createAnthropic({
+        apiKey,
+        baseURL, // Support custom base URL for proxies/gateways
+      });
       return client(model);
     }
 
@@ -251,14 +255,6 @@ export class AIService {
 
     return client(model);
   }
-}
-
-/**
- * Result from structured generation with usage
- */
-export interface GenerateStructuredResult<T> {
-  object: T;
-  usage: LLMUsage;
 }
 
 export class AIServiceError extends Error {

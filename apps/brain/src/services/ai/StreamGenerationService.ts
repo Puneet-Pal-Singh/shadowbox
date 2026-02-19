@@ -8,15 +8,7 @@
 import type { CoreMessage, CoreTool } from "ai";
 import type { LLMUsage } from "../../core/cost/types";
 import type { ProviderAdapter, GenerationParams } from "../providers";
-
-/**
- * Result from text generation with usage
- */
-export interface GenerateTextResult {
-  text: string;
-  usage: LLMUsage;
-  finishReason?: string;
-}
+import type { GenerateTextResult } from "./TextGenerationService";
 
 /**
  * Create a streaming chat response from a provider adapter.

@@ -9,6 +9,7 @@ import type { Env } from "../../types/ai";
 import { ProviderError } from "../providers";
 import { validateProviderApiKeyFormat } from "./ProviderEndpointPolicy";
 import type { ProviderId } from "../../schemas/provider";
+import type { RuntimeProvider } from "./ModelSelectionPolicy";
 
 /**
  * Validate and retrieve OpenAI API key.
@@ -123,24 +124,28 @@ export function resolveLiteLLMKey(
 
 /**
  * Resolve API key for a specific provider when using SDK model generation.
- * @param provider - The provider name
+ * @param provider - The runtime provider type
  * @param env - Cloudflare environment
  * @param overrideApiKey - Optional override key
  * @returns { apiKey, baseURL }
  * @throws ProviderError if key is missing or invalid
  */
 export function resolveProviderKey(
-  provider: string,
+  provider: RuntimeProvider,
   env: Env,
   overrideApiKey?: string,
 ): { apiKey: string; baseURL: string } {
-  if (provider === "openai") {
-    return resolveOpenAIKey(env, overrideApiKey);
-  } else if (provider === "openrouter") {
-    return resolveOpenRouterKey(overrideApiKey);
-  } else if (provider === "groq") {
-    return resolveGroqKey(overrideApiKey);
-  } else {
-    return resolveLiteLLMKey(env, overrideApiKey);
+  switch (provider) {
+    case "openai":
+      return resolveOpenAIKey(env, overrideApiKey);
+    case "openrouter":
+      return resolveOpenRouterKey(overrideApiKey);
+    case "groq":
+      return resolveGroqKey(overrideApiKey);
+    case "anthropic":
+      return { apiKey: resolveAnthropicKey(env, overrideApiKey), baseURL: "https://api.anthropic.com" };
+    case "litellm":
+    default:
+      return resolveLiteLLMKey(env, overrideApiKey);
   }
 }

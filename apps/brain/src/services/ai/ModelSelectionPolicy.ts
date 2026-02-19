@@ -58,12 +58,25 @@ export function resolveModelSelection(
   const defaultRuntimeProvider = getRuntimeProviderFromAdapter(defaultProvider);
 
   // If no override specified, use default
-  if (!providerId || !modelId) {
+  if (!providerId && !modelId) {
     return {
       model: defaultModel,
       provider: defaultProvider,
       runtimeProvider: defaultRuntimeProvider,
       fallback: false,
+    };
+  }
+
+  // Partial override: one of providerId/modelId missing
+  if (!providerId || !modelId) {
+    console.warn(
+      `[ai/model-selection] Partial override (providerId=${providerId}, modelId=${modelId}). Falling back to default model=${defaultModel}`,
+    );
+    return {
+      model: defaultModel,
+      provider: defaultProvider,
+      runtimeProvider: defaultRuntimeProvider,
+      fallback: true,
     };
   }
 
