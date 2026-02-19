@@ -23,7 +23,9 @@ export function buildSessionMemoryClient(
   sessionId: string,
 ): SessionMemoryClient | undefined {
   if (!env.SESSION_MEMORY_RUNTIME) {
-    if (env.NODE_ENV === "production") {
+    // NODE_ENV may be undefined in Cloudflare Workers; treat as production for safety
+    const isProduction = env.NODE_ENV !== "development" && env.NODE_ENV !== "test";
+    if (isProduction) {
       console.warn(
         "[runtime/session-memory-factory] SESSION_MEMORY_RUNTIME binding is not configured. " +
           "Session memory will be disabled. This may cause unexpected behavior.",

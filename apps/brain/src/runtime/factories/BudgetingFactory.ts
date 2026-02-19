@@ -94,7 +94,9 @@ function getBudgetConfig(env: Env): {
 } {
   const parseBudget = (value: string | undefined): number | undefined => {
     if (!value) return undefined;
-    const parsed = parseFloat(value);
+    // Use Number() constructor instead of parseFloat() to properly reject invalid strings
+    // parseFloat("18aud") returns 18, but Number("18aud") returns NaN
+    const parsed = Number(value);
     if (Number.isNaN(parsed)) {
       console.warn(`[runtime/budgeting-factory] Invalid budget value: ${value}`);
       return undefined;
