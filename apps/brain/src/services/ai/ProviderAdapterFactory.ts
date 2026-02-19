@@ -3,6 +3,12 @@
  *
  * Single Responsibility: Create and configure provider adapters.
  * Encapsulates adapter instantiation logic, removing it from AIService.
+ *
+ * Strict Mode (default):
+ *   - Unknown default provider throws error
+ *
+ * Compat Mode (BRAIN_RUNTIME_COMPAT_MODE=1):
+ *   - Unknown provider falls back to LiteLLM with warning
  */
 
 import type { Env } from "../../types/ai";
@@ -20,13 +26,20 @@ import {
   resolveGroqKey,
   resolveLiteLLMKey,
 } from "./ProviderKeyValidator";
+import { isStrictMode, logCompatFallback, CompatFallbackReasonCodes } from "../../config/runtime-compat";
 
 /**
  * Build the default provider adapter based on env configuration.
  *
+ * Strict Mode (default):
+ *   - Unknown LLM_PROVIDER throws ProviderError
+ *
+ * Compat Mode (BRAIN_RUNTIME_COMPAT_MODE=1):
+ *   - Unknown provider falls back to LiteLLM with warning
+ *
  * @param env - Cloudflare environment
  * @returns Configured ProviderAdapter
- * @throws ProviderError if provider is unknown or required env vars are missing
+ * @throws ProviderError in strict mode if provider is unknown or env vars are missing
  */
 export function createDefaultAdapter(env: Env): ProviderAdapter {
   const provider = env.LLM_PROVIDER ?? "litellm";
@@ -42,9 +55,20 @@ export function createDefaultAdapter(env: Env): ProviderAdapter {
       return createAnthropicAdapter(env);
 
     default:
-      console.warn(
-        `[ai/adapter-factory] Unknown provider "${provider}", falling back to LiteLLM`,
-      );
+      if (isStrictMode()) {
+        throw new ProviderError(
+          provider,
+          `Unknown LLM provider: "${provider}". Supported providers: litellm, openai, anthropic`,
+        );
+      }
+      // Compat mode: log and fallback
+      logCompatFallback({
+        reasonCode: CompatFallbackReasonCodes.PROVIDER_ADAPTER_DEFAULTED,
+        requestedProvider: provider,
+        resolvedProvider: "litellm",
+        requestedModel: env.DEFAULT_MODEL,
+        resolvedModel: env.DEFAULT_MODEL ?? "unknown",
+      });
       return createLiteLLMAdapter(env);
   }
 }

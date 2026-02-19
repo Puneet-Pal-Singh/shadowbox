@@ -2,10 +2,15 @@
  * ModelSelectionPolicy - Provider and model selection logic
  *
  * Single Responsibility: Determine which provider/model to use based on overrides,
- * validation, and fallback rules. Does NOT check connection state (that's async).
+ * validation, and fallback rules. Respects strict/compat mode for fallback behavior.
+ * Does NOT check connection state (that's async).
  */
 
 import { ProviderIdSchema, type ProviderId } from "../../schemas/provider";
+import {
+  InvalidProviderSelectionError,
+} from "../../domain/errors";
+import { isStrictMode, logCompatFallback, CompatFallbackReasonCodes } from "../../config/runtime-compat";
 
 /**
  * Runtime provider type (subset of ProviderId with runtime semantics)
@@ -30,14 +35,16 @@ export interface ModelSelection {
 
 /**
  * Resolve provider/model override selection.
- * Returns the model to use, falling back to default if selection is invalid.
  *
- * Logic:
- * 1. If providerId + modelId provided AND valid -> use selection (no connection check yet)
- * 2. Otherwise log warning and fallback to default model
+ * Strict Mode (default):
+ *   - Invalid providerId throws InvalidProviderSelectionError
+ *   - Partial override throws InvalidProviderSelectionError
+ *
+ * Compat Mode (BRAIN_RUNTIME_COMPAT_MODE=1):
+ *   - Invalid or partial overrides fall back to default with structured logging
  *
  * NOTE: Does NOT check durable provider connection state (that's async).
- * Only validates schema structure.
+ * Only validates schema structure. Connection check happens in AdapterSelectionService.
  *
  * @param providerId - Optional provider override ID
  * @param modelId - Optional model override ID
@@ -45,7 +52,9 @@ export interface ModelSelection {
  * @param defaultModel - The default model name
  * @param mapToRuntimeProvider - Function to map ProviderId to RuntimeProvider
  * @param getRuntimeProviderFromAdapter - Function to map adapter provider to RuntimeProvider
+ * @param correlationId - Optional correlation ID for error tracking
  * @returns ModelSelection with resolved provider/model
+ * @throws InvalidProviderSelectionError in strict mode on validation failure
  */
 export function resolveModelSelection(
   providerId: string | undefined,
@@ -54,6 +63,7 @@ export function resolveModelSelection(
   defaultModel: string,
   mapToRuntimeProvider: (id: ProviderId) => RuntimeProvider,
   getRuntimeProviderFromAdapter: (adapter: string) => RuntimeProvider,
+  correlationId?: string,
 ): ModelSelection {
   const defaultRuntimeProvider = getRuntimeProviderFromAdapter(defaultProvider);
 
@@ -69,9 +79,21 @@ export function resolveModelSelection(
 
   // Partial override: one of providerId/modelId missing
   if (!providerId || !modelId) {
-    console.warn(
-      `[ai/model-selection] Partial override (providerId=${providerId}, modelId=${modelId}). Falling back to default model=${defaultModel}`,
-    );
+    if (isStrictMode()) {
+      throw new InvalidProviderSelectionError(
+        `Partial provider/model override: providerId=${providerId}, modelId=${modelId}. Both must be provided together.`,
+        correlationId,
+      );
+    }
+    // Compat mode: log and fallback
+    logCompatFallback({
+      reasonCode: CompatFallbackReasonCodes.PROVIDER_SELECTION_DEFAULTED,
+      requestedProvider: providerId,
+      requestedModel: modelId,
+      resolvedProvider: defaultProvider,
+      resolvedModel: defaultModel,
+      runId: correlationId,
+    });
     return {
       model: defaultModel,
       provider: defaultProvider,
@@ -83,9 +105,21 @@ export function resolveModelSelection(
   // Validate providerId is a known provider
   const parseResult = ProviderIdSchema.safeParse(providerId);
   if (!parseResult.success) {
-    console.warn(
-      `[ai/model-selection] Invalid providerId: ${providerId}. Falling back to default model=${defaultModel}`,
-    );
+    if (isStrictMode()) {
+      throw new InvalidProviderSelectionError(
+        providerId,
+        correlationId,
+      );
+    }
+    // Compat mode: log and fallback
+    logCompatFallback({
+      reasonCode: CompatFallbackReasonCodes.PROVIDER_SELECTION_DEFAULTED,
+      requestedProvider: providerId,
+      requestedModel: modelId,
+      resolvedProvider: defaultProvider,
+      resolvedModel: defaultModel,
+      runId: correlationId,
+    });
     return {
       model: defaultModel,
       provider: defaultProvider,
