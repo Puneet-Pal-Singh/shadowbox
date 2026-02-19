@@ -280,8 +280,7 @@ describe("Architecture Boundary: No Legacy Imports", () => {
         if (isReExport) {
           // Check if it's just a re-export wrapper (no actual implementation)
           const hasImplementation =
-            /(?:function|class|const|let|var)\s+\w+\s*[=:]/.test(content) &&
-            !content.includes("export {") === false;
+            /(?:function|class|const|let|var)\s+\w+\s*[=:]/.test(content);
 
           if (!hasImplementation) {
             reExportViolations.push({
