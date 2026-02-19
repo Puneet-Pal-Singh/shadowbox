@@ -10,7 +10,7 @@
  * - "1": Compat mode (for emergency rollback only)
  *
  * Note: In Cloudflare Workers, process.env may not be available.
- * Uses globalThis marker as fallback for testing environments.
+ * Uses a module-level override variable as fallback for testing environments.
  */
 
 let compatModeOverride: boolean | undefined;
@@ -31,7 +31,10 @@ export function isCompatModeEnabled(): boolean {
     return compatModeOverride;
   }
   // Check process.env if available (Node.js, local dev)
-  if (typeof process !== "undefined" && process.env?.BRAIN_RUNTIME_COMPAT_MODE === "1") {
+  if (
+    typeof process !== "undefined" &&
+    process.env?.BRAIN_RUNTIME_COMPAT_MODE === "1"
+  ) {
     return true;
   }
   // Default to strict mode
@@ -71,14 +74,11 @@ export interface CompatFallbackEvent {
  * Log a compat mode fallback with structured fields
  */
 export function logCompatFallback(event: CompatFallbackEvent): void {
-  console.warn(
-    `[brain/compat-fallback] ${event.reasonCode}`,
-    {
-      requestedProvider: event.requestedProvider,
-      resolvedProvider: event.resolvedProvider,
-      requestedModel: event.requestedModel,
-      resolvedModel: event.resolvedModel,
-      runId: event.runId,
-    },
-  );
+  console.warn(`[brain/compat-fallback] ${event.reasonCode}`, {
+    requestedProvider: event.requestedProvider,
+    resolvedProvider: event.resolvedProvider,
+    requestedModel: event.requestedModel,
+    resolvedModel: event.resolvedModel,
+    runId: event.runId,
+  });
 }
