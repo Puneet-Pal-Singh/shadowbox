@@ -93,6 +93,64 @@ export class ProviderError extends DomainError {
 }
 
 /**
+ * Provider not connected error: provider credentials not configured or missing.
+ * Occurs when a provider is requested but not connected via BYOK.
+ */
+export class ProviderNotConnectedError extends ProviderError {
+  constructor(
+    providerId: string,
+    correlationId?: string,
+  ) {
+    super(
+      `Provider "${providerId}" is not connected. Please connect the provider first.`,
+      "PROVIDER_NOT_CONNECTED",
+      400,
+      false,
+      correlationId,
+    );
+  }
+}
+
+/**
+ * Model not allowed error: requested model not available or not configured.
+ * Occurs when a model is requested but not available for the selected provider.
+ */
+export class ModelNotAllowedError extends ProviderError {
+  constructor(
+    model: string,
+    providerId: string,
+    correlationId?: string,
+  ) {
+    super(
+      `Model "${model}" is not allowed or not configured for provider "${providerId}".`,
+      "MODEL_NOT_ALLOWED",
+      400,
+      false,
+      correlationId,
+    );
+  }
+}
+
+/**
+ * Invalid provider selection error: provider ID is not recognized.
+ * Occurs when an unknown provider is specified.
+ */
+export class InvalidProviderSelectionError extends ProviderError {
+  constructor(
+    providerId: string,
+    correlationId?: string,
+  ) {
+    super(
+      `Invalid provider selection: "${providerId}" is not a recognized provider.`,
+      "INVALID_PROVIDER_SELECTION",
+      400,
+      false,
+      correlationId,
+    );
+  }
+}
+
+/**
  * Not found error: resource does not exist.
  */
 export class NotFoundError extends DomainError {

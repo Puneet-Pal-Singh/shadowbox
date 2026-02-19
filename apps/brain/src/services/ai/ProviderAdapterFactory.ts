@@ -3,6 +3,12 @@
  *
  * Single Responsibility: Create and configure provider adapters.
  * Encapsulates adapter instantiation logic, removing it from AIService.
+ *
+ * Strict Mode (default):
+ *   - Unknown default provider throws error
+ *
+ * Compat Mode (BRAIN_RUNTIME_COMPAT_MODE=1):
+ *   - Unknown provider falls back to LiteLLM with warning
  */
 
 import type { Env } from "../../types/ai";
@@ -11,7 +17,6 @@ import {
   OpenAIAdapter,
   AnthropicAdapter,
   type ProviderAdapter,
-  ProviderError,
 } from "../providers";
 import {
   resolveOpenAIKey,
@@ -20,13 +25,25 @@ import {
   resolveGroqKey,
   resolveLiteLLMKey,
 } from "./ProviderKeyValidator";
+import {
+  isStrictMode,
+  logCompatFallback,
+  CompatFallbackReasonCodes,
+} from "../../config/runtime-compat";
+import { ValidationError, ProviderError } from "../../domain/errors";
 
 /**
  * Build the default provider adapter based on env configuration.
  *
+ * Strict Mode (default):
+ *   - Unknown LLM_PROVIDER throws ProviderError
+ *
+ * Compat Mode (BRAIN_RUNTIME_COMPAT_MODE=1):
+ *   - Unknown provider falls back to LiteLLM with warning
+ *
  * @param env - Cloudflare environment
  * @returns Configured ProviderAdapter
- * @throws ProviderError if provider is unknown or required env vars are missing
+ * @throws ProviderError in strict mode if provider is unknown or env vars are missing
  */
 export function createDefaultAdapter(env: Env): ProviderAdapter {
   const provider = env.LLM_PROVIDER ?? "litellm";
@@ -42,9 +59,20 @@ export function createDefaultAdapter(env: Env): ProviderAdapter {
       return createAnthropicAdapter(env);
 
     default:
-      console.warn(
-        `[ai/adapter-factory] Unknown provider "${provider}", falling back to LiteLLM`,
-      );
+      if (isStrictMode()) {
+        throw new ValidationError(
+          `Unknown LLM provider: "${provider}". Supported providers: litellm, openai, anthropic`,
+          "UNKNOWN_PROVIDER",
+        );
+      }
+      // Compat mode: log and fallback
+      logCompatFallback({
+        reasonCode: CompatFallbackReasonCodes.PROVIDER_ADAPTER_DEFAULTED,
+        requestedProvider: provider,
+        resolvedProvider: "litellm",
+        requestedModel: env.DEFAULT_MODEL,
+        resolvedModel: env.DEFAULT_MODEL ?? "unknown",
+      });
       return createLiteLLMAdapter(env);
   }
 }
@@ -64,8 +92,8 @@ export function createLiteLLMAdapter(
   const defaultModel = env.DEFAULT_MODEL;
   if (!defaultModel) {
     throw new ProviderError(
-      "litellm",
       "DEFAULT_MODEL is required for LiteLLM provider",
+      "MISSING_DEFAULT_MODEL",
     );
   }
 
@@ -118,7 +146,9 @@ export function createAnthropicAdapter(
  * @param overrideApiKey - The API key from ProviderConfigService
  * @throws ProviderError if key is missing or invalid format
  */
-export function createOpenRouterAdapter(overrideApiKey?: string): OpenAIAdapter {
+export function createOpenRouterAdapter(
+  overrideApiKey?: string,
+): OpenAIAdapter {
   const { apiKey, baseURL } = resolveOpenRouterKey(overrideApiKey);
 
   return new OpenAIAdapter({

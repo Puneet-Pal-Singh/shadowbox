@@ -2,7 +2,13 @@
  * AdapterSelectionService - Select and instantiate adapters
  *
  * Single Responsibility: Choose the right adapter based on selection info
- * and provider config state. Handles fallback logic.
+ * and provider config state. Enforces strict mode for provider connectivity.
+ *
+ * Strict Mode (default):
+ *   - If provider is not connected, throws ProviderNotConnectedError
+ *
+ * Compat Mode (BRAIN_RUNTIME_COMPAT_MODE=1):
+ *   - Falls back to default adapter with structured logging
  */
 
 import type { ProviderAdapter } from "../providers";
@@ -22,28 +28,36 @@ import {
   createLiteLLMAdapter,
 } from "./ProviderAdapterFactory";
 import type { Env } from "../../types/ai";
+import {
+  ProviderNotConnectedError,
+} from "../../domain/errors";
+import { isStrictMode, logCompatFallback, CompatFallbackReasonCodes } from "../../config/runtime-compat";
 
 /**
  * Get the appropriate adapter for a model selection.
  *
- * Logic:
- * 1. If fallback mode, return default adapter
- * 2. If selection matches default adapter, return default
- * 3. Try to get provider key from config service
- * 4. If no key, log warning and return default
- * 5. Otherwise create adapter with override key
+ * Strict Mode (default):
+ *   - If selection specifies a provider, must be connected
+ *   - Throws ProviderNotConnectedError if not connected
+ *
+ * Compat Mode (BRAIN_RUNTIME_COMPAT_MODE=1):
+ *   - Falls back to default adapter if provider not connected
+ *   - Logs fallback with structured reason code
  *
  * @param selection - The model selection result
  * @param defaultAdapter - The default adapter instance
  * @param env - Cloudflare environment
  * @param providerConfigService - Optional service for BYOK keys
+ * @param correlationId - Optional correlation ID for error tracking
  * @returns The selected adapter
+ * @throws ProviderNotConnectedError in strict mode if provider not connected
  */
 export async function selectAdapter(
   selection: ModelSelection,
   defaultAdapter: ProviderAdapter,
   env: Env,
   providerConfigService?: ProviderConfigService,
+  correlationId?: string,
 ): Promise<ProviderAdapter> {
   // If fallback mode or same as default, use default
   if (
@@ -60,12 +74,24 @@ export async function selectAdapter(
       undefined)
     : undefined;
 
-  // For all providers, fall back to default if no explicit override key provided
-  // This ensures BYOK providers are explicitly connected before use
+  // Provider was selected but not connected
   if (!overrideApiKey) {
-    console.warn(
-      `[ai/adapter-selection] Provider ${selection.runtimeProvider} not connected, falling back to default adapter`,
-    );
+    if (isStrictMode()) {
+      throw new ProviderNotConnectedError(
+        selection.providerId ?? selection.runtimeProvider,
+        correlationId,
+      );
+    }
+
+    // Compat mode: log and fallback to default
+    logCompatFallback({
+      reasonCode: CompatFallbackReasonCodes.PROVIDER_ADAPTER_DEFAULTED,
+      requestedProvider: selection.providerId ?? selection.runtimeProvider,
+      resolvedProvider: defaultAdapter.provider,
+      requestedModel: selection.model,
+      resolvedModel: selection.model, // Use requested model as resolved since we're falling back
+      runId: correlationId,
+    });
     return defaultAdapter;
   }
 
