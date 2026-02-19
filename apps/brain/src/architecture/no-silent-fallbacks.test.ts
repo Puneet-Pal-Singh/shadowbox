@@ -358,9 +358,10 @@ describe("Architecture Boundary: No Silent Fallbacks", () => {
 
   it("should verify services/ai/* does not have implicit fallbacks without logging", () => {
     const aiServiceDir = path.join(BRAIN_SRC, "services", "ai");
-    if (!fs.existsSync(aiServiceDir)) {
-      return;
-    }
+    expect(
+      fs.existsSync(aiServiceDir),
+      `Expected ${aiServiceDir} to exist (may have been moved/renamed)`,
+    ).toBe(true);
 
     const aiFiles = getAllTSFiles(aiServiceDir);
     const violations: FallbackAnomaly[] = [];
@@ -403,7 +404,7 @@ describe("Architecture Boundary: No Silent Fallbacks", () => {
         }
 
         // Check for implicit model fallback without error/log
-        if (/model\s*\?\?\s*["']|model\s*\|\|\s*["']/.test(line)) {
+        if (/\bmodel\s*\?\?\s*["']|\bmodel\s*\|\|\s*["']/.test(line)) {
           let hasExplicitHandling = false;
           for (let j = i; j < Math.min(i + 10, lines.length); j++) {
             if (
