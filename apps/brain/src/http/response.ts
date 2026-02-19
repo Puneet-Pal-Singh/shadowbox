@@ -14,34 +14,24 @@ import type { Env } from "../types/ai";
  * @param request - The incoming HTTP request (for CORS origin)
  * @param env - Cloudflare environment (for CORS configuration)
  * @param data - The response payload
- * @param statusOrCustomHeaders - HTTP status code or custom headers object (if number, status; if object, headers)
- * @param customHeaders - Additional headers to merge (e.g., Set-Cookie) - only used if statusOrCustomHeaders is number
+ * @param options - Optional { status?: number, customHeaders?: Record<string, string> }
  * @returns Response with JSON body and CORS headers
  */
 export function jsonResponse(
   request: Request,
   env: Env,
   data: unknown,
-  statusOrCustomHeaders: number | Record<string, string> = 200,
-  customHeaders?: Record<string, string>,
+  options?: { status?: number; customHeaders?: Record<string, string> },
 ): Response {
-  // Handle overloaded parameters
-  let status = 200;
-  let headers: Record<string, string> = {};
-
-  if (typeof statusOrCustomHeaders === "number") {
-    status = statusOrCustomHeaders;
-    headers = customHeaders || {};
-  } else {
-    headers = statusOrCustomHeaders;
-  }
+  const status = options?.status ?? 200;
+  const customHeaders = options?.customHeaders ?? {};
 
   return new Response(JSON.stringify(data), {
     status,
     headers: {
       "Content-Type": "application/json",
       ...getCorsHeaders(request, env),
-      ...headers,
+      ...customHeaders,
     },
   });
 }

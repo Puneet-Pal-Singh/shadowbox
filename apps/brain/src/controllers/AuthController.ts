@@ -284,10 +284,12 @@ export class AuthController {
         request,
         env,
         { success: true },
-        200,
         {
-          "Set-Cookie":
-            "shadowbox_session=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure; SameSite=Lax",
+          status: 200,
+          customHeaders: {
+            "Set-Cookie":
+              "shadowbox_session=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure; SameSite=Lax",
+          },
         },
       );
     } catch (error) {

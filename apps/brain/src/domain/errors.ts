@@ -15,14 +15,23 @@
  * Base domain error with standardized properties.
  */
 export class DomainError extends Error {
+  public readonly code: string;
+  public readonly status: number;
+  public readonly retryable: boolean;
+  public readonly correlationId?: string;
+
   constructor(
-    public readonly code: string,
-    public readonly message: string,
-    public readonly status: number = 500,
-    public readonly retryable: boolean = false,
-    public readonly correlationId?: string,
+    code: string,
+    message: string,
+    status: number = 500,
+    retryable: boolean = false,
+    correlationId?: string,
   ) {
     super(message);
+    this.code = code;
+    this.status = status;
+    this.retryable = retryable;
+    this.correlationId = correlationId;
     this.name = this.constructor.name;
   }
 }
