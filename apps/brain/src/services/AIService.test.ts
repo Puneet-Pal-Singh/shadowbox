@@ -77,7 +77,7 @@ describe("AIService provider override routing", () => {
     expect(seenApiKeys).toEqual(["sk-test-1234567890"]);
   });
 
-  it("falls back to default adapter when override provider is disconnected", async () => {
+  it("throws ProviderNotConnectedError when override provider is disconnected (strict mode)", async () => {
     const providerConfig = new ProviderConfigService(createEnv());
     const service = new AIService(createEnv(), providerConfig);
     const mutableService = service as unknown as MutableAIService;
@@ -87,14 +87,16 @@ describe("AIService provider override routing", () => {
     mutableService.adapter = litellmAdapter;
     mutableService.createOpenAIAdapter = () => openaiAdapter;
 
-    const result = await service.generateText({
-      messages: BASE_MESSAGES,
-      providerId: "openai",
-      model: "gpt-4o",
-    });
+    // Strict mode (default) should reject unconnected provider
+    await expect(
+      service.generateText({
+        messages: BASE_MESSAGES,
+        providerId: "openai",
+        model: "gpt-4o",
+      }),
+    ).rejects.toMatchObject({ code: "PROVIDER_NOT_CONNECTED" });
 
-    expect(result.usage.provider).toBe("litellm");
-    expect(litellmAdapter.generate).toHaveBeenCalledTimes(1);
+    expect(litellmAdapter.generate).not.toHaveBeenCalled();
     expect(openaiAdapter.generate).not.toHaveBeenCalled();
   });
 
@@ -182,38 +184,32 @@ describe("AIService provider override routing", () => {
       expect(result.usage.model).toBe("llama-3.3-70b-versatile");
     });
 
-    it("falls back to default adapter when OpenRouter is not connected", async () => {
+    it("throws ProviderNotConnectedError when OpenRouter is not connected (strict mode)", async () => {
       const providerConfig = new ProviderConfigService(createEnv());
       const service = new AIService(createEnv(), providerConfig);
-      const mutableService = service as unknown as MutableAIService;
-      const litellmAdapter = createFakeAdapter("litellm");
 
-      mutableService.adapter = litellmAdapter;
-
-      const result = await service.generateText({
-        messages: BASE_MESSAGES,
-        providerId: "openrouter",
-        model: "openai/gpt-4-turbo",
-      });
-
-      expect(result.usage.provider).toBe("litellm");
+      // Strict mode should reject unconnected provider
+      await expect(
+        service.generateText({
+          messages: BASE_MESSAGES,
+          providerId: "openrouter",
+          model: "openai/gpt-4-turbo",
+        }),
+      ).rejects.toMatchObject({ code: "PROVIDER_NOT_CONNECTED" });
     });
 
-    it("falls back to default adapter when Groq is not connected", async () => {
+    it("throws ProviderNotConnectedError when Groq is not connected (strict mode)", async () => {
       const providerConfig = new ProviderConfigService(createEnv());
       const service = new AIService(createEnv(), providerConfig);
-      const mutableService = service as unknown as MutableAIService;
-      const litellmAdapter = createFakeAdapter("litellm");
 
-      mutableService.adapter = litellmAdapter;
-
-      const result = await service.generateText({
-        messages: BASE_MESSAGES,
-        providerId: "groq",
-        model: "llama-3.3-70b-versatile",
-      });
-
-      expect(result.usage.provider).toBe("litellm");
+      // Strict mode should reject unconnected provider
+      await expect(
+        service.generateText({
+          messages: BASE_MESSAGES,
+          providerId: "groq",
+          model: "llama-3.3-70b-versatile",
+        }),
+      ).rejects.toMatchObject({ code: "PROVIDER_NOT_CONNECTED" });
     });
 
     it("maintains session isolation for provider/model selection", async () => {
