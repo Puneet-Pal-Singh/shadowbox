@@ -1,5 +1,6 @@
 import type { CoreMessage, Message } from "ai";
 import type { AgentType } from "@shadowbox/execution-engine/runtime";
+import { z } from "zod";
 import type { Env } from "../types/ai";
 import { PersistenceService } from "../services/PersistenceService";
 import { ChatProviderSelectionSchema } from "../schemas/provider";
@@ -14,19 +15,21 @@ import {
 } from "../http/validation";
 import {
   ValidationError,
-  ParseError,
   isDomainError,
   mapDomainErrorToHttp,
 } from "../domain/errors";
 
-interface ChatRequestBody {
-  messages?: Message[];
-  sessionId?: string;
-  agentId?: string;
-  runId?: string;
-  providerId?: string;
-  modelId?: string;
-}
+// Zod schema for request body validation
+const ChatRequestBodySchema = z.object({
+  messages: z.array(z.unknown()).optional(),
+  sessionId: z.string().optional(),
+  agentId: z.string().optional(),
+  runId: z.string().optional(),
+  providerId: z.string().optional(),
+  modelId: z.string().optional(),
+});
+
+type ChatRequestBody = z.infer<typeof ChatRequestBodySchema>;
 
 interface ChatRequest {
   body: ChatRequestBody;
@@ -49,7 +52,13 @@ export class ChatController {
     console.log(`[chat/request] ${correlationId} received`);
 
     try {
-      const body = (await parseRequestBody(req, correlationId)) as ChatRequestBody;
+      // Parse body and validate against schema
+      const rawBody = await parseRequestBody(req, correlationId);
+      const body = validateWithSchema<ChatRequestBody>(
+        rawBody,
+        ChatRequestBodySchema,
+        correlationId,
+      );
       const identifiers = extractIdentifiers(body, correlationId);
 
       console.log(
@@ -88,8 +97,9 @@ export class ChatController {
       return await ChatController.handleWithRunEngine(req, chatRequest, env);
     } catch (error: unknown) {
       if (isDomainError(error)) {
+        const errorCorrelationId = error.correlationId ?? correlationId;
         console.warn(
-          `[chat/validation] ${error.correlationId}: ${error.code} - ${error.message}`,
+          `[chat/validation] ${errorCorrelationId}: ${error.code} - ${error.message}`,
         );
         const { status, code, message } = mapDomainErrorToHttp(error);
         return errorResponse(req, env, message, status, code);

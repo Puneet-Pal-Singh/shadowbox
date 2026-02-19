@@ -1,77 +1,16 @@
 import type { DurableObjectState as LegacyDurableObjectState } from "@cloudflare/workers-types";
 import type { CoreMessage } from "ai";
 import { DurableObject } from "cloudflare:workers";
-import { z } from "zod";
 import { RunEngine } from "../core/engine/RunEngine";
 import { tagRuntimeStateSemantics } from "@shadowbox/execution-engine/runtime";
 import type { Env } from "../types/ai";
-import { AIService } from "../services/AIService";
-import { ProviderConfigService } from "../services/ProviderConfigService";
-import { ProviderValidationService } from "../services/ProviderValidationService";
-import { DurableProviderStore } from "../services/providers/DurableProviderStore";
-import { ExecutionService } from "../services/ExecutionService";
-import { AgentRegistry, CodingAgent, ReviewAgent } from "../core/agents";
-import { SessionMemoryClient } from "../services/memory/SessionMemoryClient";
-import {
-  LLMGateway,
-  PricingResolver,
-  PricingRegistry,
-  BudgetManager,
-  CostLedger,
-  CostTracker,
-} from "@shadowbox/execution-engine/runtime";
-import type {
-  AgentType,
-  IAgent,
-  LLMRuntimeAIService,
-  RunEngineDependencies,
-} from "@shadowbox/execution-engine/runtime";
-
-// Basic message validation schema
-const CoreMessageSchema = z.union([
-  z.object({ role: z.literal("system"), content: z.string() }),
-  z.object({ role: z.literal("user"), content: z.unknown() }),
-  z.object({
-    role: z.literal("assistant"),
-    content: z.unknown(),
-    tool_calls: z.array(z.unknown()).optional(),
-  }),
-  z.object({
-    role: z.literal("tool"),
-    content: z.unknown(),
-    tool_call_id: z.string(),
-  }),
-]);
-
-const ExecuteRunPayloadSchema = z.object({
-  runId: z.string().min(1),
-  sessionId: z.string().min(1),
-  correlationId: z.string().min(1),
-  requestOrigin: z.string().optional(),
-  input: z.object({
-    agentType: z.enum(["coding", "review", "ci"]),
-    prompt: z.string().min(1),
-    sessionId: z.string().min(1),
-    providerId: z.string().min(1).optional(),
-    modelId: z.string().min(1).optional(),
-  }),
-  messages: z.array(CoreMessageSchema),
-});
-
-// Validate provider/model override pair: both must be set or both must be omitted
-const validateProviderModelPair = (payload: ExecuteRunPayload) => {
-  const { providerId, modelId } = payload.input;
-  const hasProviderId = providerId !== undefined && providerId !== null;
-  const hasModelId = modelId !== undefined && modelId !== null;
-  
-  if (hasProviderId !== hasModelId) {
-    throw new Error(
-      "Provider and model overrides must both be set or both be omitted"
-    );
-  }
-};
-
-type ExecuteRunPayload = z.infer<typeof ExecuteRunPayloadSchema>;
+import type { IAgent } from "@shadowbox/execution-engine/runtime";
+import { parseExecuteRunRequest } from "./parsing/RunEngineRequestParser";
+import { validateProviderModelOverride } from "./policies/ProviderModelOverridePolicy";
+import { buildRuntimeDependencies } from "./factories/ExecutionGatewayFactory";
+import type { ExecuteRunPayload } from "./parsing/ExecuteRunPayloadSchema";
+import { errorResponse } from "../http/response";
+import { isDomainError, mapDomainErrorToHttp } from "../domain/errors";
 
 export class RunEngineRuntime extends DurableObject {
   private executionQueue: Promise<void> = Promise.resolve();
@@ -91,9 +30,21 @@ export class RunEngineRuntime extends DurableObject {
 
     let payload: ExecuteRunPayload;
     try {
-      payload = ExecuteRunPayloadSchema.parse(await request.json());
-      validateProviderModelPair(payload);
+      // Parse and validate request payload
+      payload = await parseExecuteRunRequest(request);
+
+      // Validate provider/model override pairing
+      validateProviderModelOverride(payload);
     } catch (error: unknown) {
+      if (isDomainError(error)) {
+        const { status, message } = mapDomainErrorToHttp(error);
+        return errorResponse(
+          request,
+          this.env as Env,
+          message,
+          status,
+        );
+      }
       const message =
         error instanceof Error ? error.message : "Invalid payload";
       return new Response(JSON.stringify({ error: message }), {
@@ -109,7 +60,13 @@ export class RunEngineRuntime extends DurableObject {
           "do",
         );
 
-        const dependencies = this.buildRuntimeDependencies(payload);
+        // Build all runtime dependencies from factories
+        const { agent, runEngineDeps } = buildRuntimeDependencies(
+          this.ctx,
+          this.env as Env,
+          payload,
+          { strict: true }, // Strict mode: fail on unsupported agent types
+        );
 
         const runEngine = new RunEngine(
           runtimeState,
@@ -120,12 +77,12 @@ export class RunEngineRuntime extends DurableObject {
             correlationId: payload.correlationId,
             requestOrigin: payload.requestOrigin,
           },
-          dependencies.agent,
+          agent,
           undefined,
-          dependencies.runEngineDeps,
+          runEngineDeps,
         );
 
-        // Messages validated by zod schema above, cast to CoreMessage[] for type safety
+        // Messages validated by zod schema in parser, cast to CoreMessage[] for type safety
         return runEngine.execute(
           payload.input,
           payload.messages as CoreMessage[],
@@ -157,271 +114,5 @@ export class RunEngineRuntime extends DurableObject {
     } finally {
       release();
     }
-  }
-
-  private buildRuntimeDependencies(payload: ExecuteRunPayload): {
-   agent: IAgent | undefined;
-   runEngineDeps: RunEngineDependencies;
-  } {
-   const env = this.env as Env;
-
-   const { llmRuntimeService, llmGateway } = this.buildLLMGateway(env, payload.runId);
-    const {
-      pricingRegistry,
-      costLedger,
-      costTracker,
-      budgetManager,
-      pricingResolver,
-    } = this.buildPricingAndBudgeting(env);
-
-    const executionService = new ExecutionService(
-      env,
-      payload.sessionId,
-      payload.runId,
-    );
-
-    const runtimeExecutionService = {
-      execute: (
-        plugin: string,
-        action: string,
-        payloadData: Record<string, unknown>,
-      ) => executionService.execute(plugin, action, payloadData),
-    };
-
-    const registry = this.buildAgentRegistry(
-      llmGateway,
-      runtimeExecutionService,
-    );
-    const resolvedAgentType = this.resolveAgentType(
-      payload.input.agentType,
-      registry,
-    );
-    const agent = registry.get(resolvedAgentType);
-
-    const sessionMemoryClient = this.buildSessionMemoryClient(
-      env,
-      payload.sessionId,
-    );
-
-    return {
-      agent,
-      runEngineDeps: {
-        aiService: llmRuntimeService,
-        llmGateway,
-        costLedger,
-        costTracker,
-        pricingRegistry,
-        pricingResolver,
-        budgetManager,
-        sessionMemoryClient,
-      },
-    };
-  }
-
-  private buildLLMGateway(env: Env, runId: string): {
-    llmRuntimeService: LLMRuntimeAIService;
-    llmGateway: LLMGateway;
-  } {
-    // Preflight validation: fail fast with actionable errors
-    const validationResult = ProviderValidationService.validate(env);
-    if (!validationResult.valid) {
-      const errorMessage = ProviderValidationService.formatErrors(
-        validationResult,
-      );
-      console.error("[ai/runtime] Provider validation failed:\n" + errorMessage);
-      throw new Error(
-        "Provider configuration validation failed. Check logs for details.",
-      );
-    }
-
-    // Log warnings (optional, non-blocking)
-    if (validationResult.warnings.length > 0) {
-      console.warn(
-        "[ai/runtime] Provider warnings:\n" +
-          validationResult.warnings
-            .map((w) => `⚠ [${w.code}] ${w.message}`)
-            .join("\n"),
-      );
-    }
-
-    // Create durable provider store scoped to runId for cross-isolate state persistence
-    const durableProviderStore = new DurableProviderStore(
-      this.ctx as unknown as LegacyDurableObjectState,
-      runId,
-    );
-
-    const providerConfigService = new ProviderConfigService(
-      env,
-      durableProviderStore,
-    );
-    const aiService = new AIService(env, providerConfigService);
-
-    const llmRuntimeService: LLMRuntimeAIService = {
-      getProvider: () => aiService.getProvider(),
-      getDefaultModel: () => aiService.getDefaultModel(),
-      generateText: (input) => aiService.generateText(input),
-      generateStructured: (input) => aiService.generateStructured(input),
-      createChatStream: (input) => aiService.createChatStream(input),
-    };
-
-    const pricingRegistry = new PricingRegistry(undefined, {
-      failOnUnseededPricing: env.COST_FAIL_ON_UNSEEDED_PRICING === "true",
-    });
-
-    const pricingResolver = new PricingResolver(pricingRegistry, {
-      unknownPricingMode: this.getUnknownPricingMode(env),
-    });
-
-    const costLedger = new CostLedger(
-      this.ctx as unknown as LegacyDurableObjectState,
-    );
-
-    const costTracker = new CostTracker(
-      this.ctx as unknown as LegacyDurableObjectState,
-      pricingRegistry,
-      this.getUnknownPricingMode(env),
-    );
-
-    const budgetManager = new BudgetManager(
-      costTracker,
-      pricingRegistry,
-      this.getBudgetConfig(env),
-      this.ctx as unknown as LegacyDurableObjectState,
-    );
-
-    const llmGateway = new LLMGateway({
-      aiService: llmRuntimeService,
-      budgetPolicy: budgetManager,
-      costLedger,
-      pricingResolver,
-    });
-
-    return { llmRuntimeService, llmGateway };
-  }
-
-  private buildPricingAndBudgeting(env: Env): {
-    pricingRegistry: PricingRegistry;
-    costLedger: CostLedger;
-    costTracker: CostTracker;
-    budgetManager: BudgetManager;
-    pricingResolver: PricingResolver;
-  } {
-    const pricingRegistry = new PricingRegistry(undefined, {
-      failOnUnseededPricing: env.COST_FAIL_ON_UNSEEDED_PRICING === "true",
-    });
-
-    const costLedger = new CostLedger(
-      this.ctx as unknown as LegacyDurableObjectState,
-    );
-
-    const costTracker = new CostTracker(
-      this.ctx as unknown as LegacyDurableObjectState,
-      pricingRegistry,
-      this.getUnknownPricingMode(env),
-    );
-
-    const budgetManager = new BudgetManager(
-      costTracker,
-      pricingRegistry,
-      this.getBudgetConfig(env),
-      this.ctx as unknown as LegacyDurableObjectState,
-    );
-
-    const pricingResolver = new PricingResolver(pricingRegistry, {
-      unknownPricingMode: this.getUnknownPricingMode(env),
-    });
-
-    return {
-      pricingRegistry,
-      costLedger,
-      costTracker,
-      budgetManager,
-      pricingResolver,
-    };
-  }
-
-  private buildAgentRegistry(
-    llmGateway: LLMGateway,
-    runtimeExecutionService: {
-      execute: (
-        plugin: string,
-        action: string,
-        payloadData: Record<string, unknown>,
-      ) => Promise<unknown>;
-    },
-  ): AgentRegistry {
-    const registry = new AgentRegistry();
-    registry.register(new CodingAgent(llmGateway, runtimeExecutionService));
-    registry.register(new ReviewAgent(llmGateway, runtimeExecutionService));
-    return registry;
-  }
-
-  private buildSessionMemoryClient(
-    env: Env,
-    sessionId: string,
-  ): SessionMemoryClient | undefined {
-    if (!env.SESSION_MEMORY_RUNTIME) {
-      if (env.NODE_ENV === "production") {
-        console.warn(
-          "[runtime/RunEngineRuntime] SESSION_MEMORY_RUNTIME binding is not configured. " +
-            "Session memory will be disabled. This may cause unexpected behavior.",
-        );
-      }
-      return undefined;
-    }
-
-    const sessionMemoryId = env.SESSION_MEMORY_RUNTIME.idFromName(sessionId);
-    const sessionMemoryStub = env.SESSION_MEMORY_RUNTIME.get(sessionMemoryId);
-    return new SessionMemoryClient({
-      durableObjectId: sessionId,
-      durableObjectStub: sessionMemoryStub as unknown as {
-        fetch: (request: Request) => Promise<Response>;
-      },
-    });
-  }
-
-  private getUnknownPricingMode(env: Env): "warn" | "block" {
-    const mode = env.COST_UNKNOWN_PRICING_MODE;
-    if (mode === "block" || mode === "warn") {
-      return mode;
-    }
-    return "warn";
-  }
-
-  private getBudgetConfig(env: Env): {
-    maxCostPerRun?: number;
-    maxCostPerSession?: number;
-  } {
-    const parseBudget = (value: string | undefined): number | undefined => {
-      if (!value) return undefined;
-      const parsed = parseFloat(value);
-      if (Number.isNaN(parsed)) {
-        console.warn(
-          `[runtime/RunEngineRuntime] Invalid budget value: ${value}`,
-        );
-        return undefined;
-      }
-      return parsed;
-    };
-
-    return {
-      maxCostPerRun: parseBudget(env.MAX_RUN_BUDGET),
-      maxCostPerSession: parseBudget(env.MAX_SESSION_BUDGET),
-    };
-  }
-
-  private resolveAgentType(
-    requestedType: AgentType,
-    registry: AgentRegistry,
-  ): AgentType {
-    if (registry.has(requestedType)) {
-      return requestedType;
-    }
-
-    const fallbackType: AgentType = "coding";
-    console.warn(
-      `[run-engine/runtime] Unsupported agent type "${requestedType}". Falling back to "${fallbackType}".`,
-    );
-    return fallbackType;
   }
 }
