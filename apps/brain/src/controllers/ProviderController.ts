@@ -5,7 +5,11 @@
  */
 
 import type { Env } from "../types/ai";
-import { ProviderConfigService } from "../services/providers";
+import {
+  ConnectProvider,
+  DisconnectProvider,
+  GetProviderStatus,
+} from "../application/provider";
 import {
   ConnectProviderRequestSchema,
   DisconnectProviderRequestSchema,
@@ -25,6 +29,7 @@ import {
   isDomainError,
   mapDomainErrorToHttp,
 } from "../domain/errors";
+import { ProviderConfigService } from "../services/providers";
 
 /**
  * ProviderController - Route handlers for provider API
@@ -47,8 +52,8 @@ export class ProviderController {
         apiKey: string;
       }>(body, ConnectProviderRequestSchema, correlationId);
 
-      const service = new ProviderConfigService(env);
-      const response = await service.connect(validatedRequest);
+      const useCase = new ConnectProvider(env);
+      const response = await useCase.execute(validatedRequest);
 
       return jsonResponse(req, env, response);
     } catch (error) {
@@ -70,8 +75,8 @@ export class ProviderController {
         providerId: ProviderId;
       }>(body, DisconnectProviderRequestSchema, correlationId);
 
-      const service = new ProviderConfigService(env);
-      const response = await service.disconnect(validatedRequest);
+      const useCase = new DisconnectProvider(env);
+      const response = await useCase.execute(validatedRequest);
 
       return jsonResponse(req, env, response);
     } catch (error) {
@@ -88,8 +93,8 @@ export class ProviderController {
     console.log(`[provider/status] ${correlationId} request received`);
 
     try {
-      const service = new ProviderConfigService(env);
-      const providers = await service.getStatus();
+      const useCase = new GetProviderStatus(env);
+      const providers = await useCase.execute();
 
       return jsonResponse(req, env, { providers });
     } catch (error) {
@@ -123,8 +128,8 @@ export class ProviderController {
         correlationId,
       );
 
-      const service = new ProviderConfigService(env);
-      const response = await service.getModels(providerId);
+      const configService = new ProviderConfigService(env);
+      const response = await configService.getModels(providerId);
 
       return jsonResponse(req, env, response);
     } catch (error) {

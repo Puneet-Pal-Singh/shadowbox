@@ -1,8 +1,8 @@
-import type { CoreMessage, Message } from "ai";
+import type { CoreMessage } from "ai";
 import type { AgentType } from "@shadowbox/execution-engine/runtime";
 import { z } from "zod";
 import type { Env } from "../types/ai";
-import { PersistenceService } from "../services/PersistenceService";
+import { HandleChatRequest } from "../application/chat";
 import { ChatProviderSelectionSchema } from "../schemas/provider";
 import {
   errorResponse,
@@ -153,7 +153,44 @@ export class ChatController {
 
     const coreMessages: CoreMessage[] =
       body.messages! as unknown as CoreMessage[];
-    const lastUserMessage = coreMessages.filter((m) => m.role === "user").pop();
+
+    const prompt = this.extractPrompt(coreMessages, correlationId);
+
+    try {
+      const useCase = new HandleChatRequest(env);
+
+      const useCaseResult = await useCase.execute(
+        {
+          sessionId,
+          runId,
+          correlationId,
+          agentType: mapAgentIdToType(body.agentId),
+          prompt,
+          messages: coreMessages,
+          providerId: body.providerId,
+          modelId: body.modelId,
+        },
+        req.headers.get("Origin") || undefined,
+      );
+
+      const doResponse = await ChatController.executeViaRunEngineDurableObject(
+        env,
+        runId,
+        useCaseResult.executionPayload,
+      );
+
+      return withEngineHeaders(req, env, doResponse, runId);
+    } catch (error) {
+      console.error(`[chat/runtime] ${correlationId}: RunEngine execution failed:`, error);
+      throw error;
+    }
+  }
+
+  private static extractPrompt(
+    messages: CoreMessage[],
+    correlationId: string,
+  ): string {
+    const lastUserMessage = messages.filter((m) => m.role === "user").pop();
 
     if (!lastUserMessage) {
       throw new ValidationError(
@@ -163,46 +200,9 @@ export class ChatController {
       );
     }
 
-    const prompt =
-      typeof lastUserMessage.content === "string"
-        ? lastUserMessage.content
-        : JSON.stringify(lastUserMessage.content);
-
-    const persistenceService = new PersistenceService(env);
-
-    try {
-      await persistenceService.persistUserMessage(
-        sessionId,
-        runId,
-        lastUserMessage,
-      );
-
-      const executeInput = {
-        agentType: mapAgentIdToType(body.agentId),
-        prompt,
-        sessionId,
-        providerId: body.providerId,
-        modelId: body.modelId,
-      };
-
-      const doResponse = await ChatController.executeViaRunEngineDurableObject(
-        env,
-        runId,
-        {
-          runId,
-          sessionId,
-          correlationId,
-          requestOrigin: req.headers.get("Origin") || undefined,
-          input: executeInput,
-          messages: coreMessages,
-        },
-      );
-
-      return withEngineHeaders(req, env, doResponse, runId);
-    } catch (error) {
-      console.error(`[chat/runtime] ${correlationId}: RunEngine execution failed:`, error);
-      throw error;
-    }
+    return typeof lastUserMessage.content === "string"
+      ? lastUserMessage.content
+      : JSON.stringify(lastUserMessage.content);
   }
 
   private static async executeViaRunEngineDurableObject(
