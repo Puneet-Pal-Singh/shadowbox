@@ -6,7 +6,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { ProviderController } from "./ProviderController";
 import type { Env } from "../types/ai";
-import { ProviderConfigService } from "../services/ProviderConfigService";
+import { ProviderConfigService } from "../services/providers";
 
 const mockEnv: Env = {
   RUN_ENGINE_RUNTIME: {} as any,

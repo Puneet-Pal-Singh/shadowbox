@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { CoreMessage } from "ai";
 import type { Env } from "../types/ai";
 import { AIService } from "./AIService";
-import { ProviderConfigService } from "./ProviderConfigService";
+import { ProviderConfigService } from "./providers";
 
 interface FakeProviderAdapter {
   provider: string;

@@ -5,7 +5,7 @@
  */
 
 import type { Env } from "../types/ai";
-import { ProviderConfigService } from "../services/ProviderConfigService";
+import { ProviderConfigService } from "../services/providers";
 import {
   ConnectProviderRequestSchema,
   DisconnectProviderRequestSchema,
@@ -27,21 +27,9 @@ import {
 } from "../domain/errors";
 
 /**
- * Singleton instance of ProviderConfigService
- * Persists in-memory state across requests within an isolate lifecycle
- */
-let providerConfigServiceInstance: ProviderConfigService | null = null;
-
-function getProviderConfigService(env: Env): ProviderConfigService {
-  if (!providerConfigServiceInstance) {
-    providerConfigServiceInstance = new ProviderConfigService(env);
-  }
-  return providerConfigServiceInstance;
-}
-
-/**
  * ProviderController - Route handlers for provider API
  * Each method handles one specific endpoint responsibility
+ * Services are resolved per request (no singleton state)
  */
 export class ProviderController {
   /**
@@ -59,7 +47,7 @@ export class ProviderController {
         apiKey: string;
       }>(body, ConnectProviderRequestSchema, correlationId);
 
-      const service = getProviderConfigService(env);
+      const service = new ProviderConfigService(env);
       const response = await service.connect(validatedRequest);
 
       return jsonResponse(req, env, response);
@@ -82,7 +70,7 @@ export class ProviderController {
         providerId: ProviderId;
       }>(body, DisconnectProviderRequestSchema, correlationId);
 
-      const service = getProviderConfigService(env);
+      const service = new ProviderConfigService(env);
       const response = await service.disconnect(validatedRequest);
 
       return jsonResponse(req, env, response);
@@ -100,7 +88,7 @@ export class ProviderController {
     console.log(`[provider/status] ${correlationId} request received`);
 
     try {
-      const service = getProviderConfigService(env);
+      const service = new ProviderConfigService(env);
       const providers = await service.getStatus();
 
       return jsonResponse(req, env, { providers });
@@ -135,7 +123,7 @@ export class ProviderController {
         correlationId,
       );
 
-      const service = getProviderConfigService(env);
+      const service = new ProviderConfigService(env);
       const response = await service.getModels(providerId);
 
       return jsonResponse(req, env, response);
