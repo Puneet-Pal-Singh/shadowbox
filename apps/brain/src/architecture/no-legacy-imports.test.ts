@@ -160,6 +160,10 @@ describe("Architecture Boundary: No Legacy Imports", () => {
         "agents",
       ];
 
+      // Cleanup strategy: Incrementally reduce thresholds in future PRs
+      // Current: 15 (allows transitional re-exports)
+      // Future iterations: 15 → 10 → 5 → 0
+      // This gradual approach prevents breaking changes while enforcing cleanup
       for (const dir of expectedDeletionCandidates) {
         const dirPath = path.join(coreDir, dir);
         if (fs.existsSync(dirPath)) {
@@ -167,10 +171,11 @@ describe("Architecture Boundary: No Legacy Imports", () => {
             .readdirSync(dirPath)
             .filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"));
           // These are transitional re-exports from @shadowbox/execution-engine
-          // will be further cleaned up in future iterations
+          // Threshold will be reduced in future PRs to drive cleanup (15 → 10 → 5 → 0)
           expect(
             files.length,
-            `core/${dir} should have fewer than 15 files (found ${files.length})`
+            `core/${dir} should have fewer than 15 files (found ${files.length}). ` +
+            `Threshold will be reduced incrementally in future PRs to complete cleanup.`
           ).toBeLessThanOrEqual(15);
         }
       }

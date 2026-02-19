@@ -28,6 +28,10 @@ interface ImportViolation {
 
 /**
  * Collect all TypeScript source files recursively
+ *
+ * Note: Test files (*.test.ts) are excluded from architectural analysis.
+ * Test files are not subject to layering constraints as they need full
+ * access to all modules for testing purposes.
  */
 function getAllTSFiles(dir: string, excludeDirs: string[] = []): string[] {
   const files: string[] = [];
@@ -186,13 +190,21 @@ describe("Architecture Boundary: Layering Constraints", () => {
       { name: "controllers", path: "controllers" },
       { name: "application", path: "application" },
       { name: "domain", path: "domain" },
+      { name: "http", path: "http" },
     ];
 
     const layerImports: Record<string, Set<string>> = {};
 
     for (const layer of layers) {
       layerImports[layer.name] = new Set<string>();
-      const files = getAllTSFiles(path.join(BRAIN_SRC, layer.path));
+      const layerPath = path.join(BRAIN_SRC, layer.path);
+      
+      // Skip http layer if it doesn't exist as a directory (it's typically files in src/)
+      if (!fs.existsSync(layerPath)) {
+        continue;
+      }
+
+      const files = getAllTSFiles(layerPath);
 
       for (const file of files) {
         const imports = extractImports(file);
@@ -215,15 +227,26 @@ describe("Architecture Boundary: Layering Constraints", () => {
     // Controllers can import from: application, domain, http
     // Application can import from: domain, http
     // Domain can import from: nothing else
+    // HTTP can import from: domain (for types)
 
     const controllerImports = Array.from(layerImports["controllers"] || []);
     const forbiddenControllerImports = controllerImports.filter(
       (imp) => !imp.includes("->application") && !imp.includes("->domain") && !imp.includes("->http")
     );
 
+    const applicationImports = Array.from(layerImports["application"] || []);
+    const forbiddenAppImports = applicationImports.filter(
+      (imp) => !imp.includes("->domain") && !imp.includes("->http")
+    );
+
     expect(
       forbiddenControllerImports,
       "Controllers should only import from application, domain, http"
+    ).toEqual([]);
+
+    expect(
+      forbiddenAppImports,
+      "Application should only import from domain, http"
     ).toEqual([]);
   });
 });

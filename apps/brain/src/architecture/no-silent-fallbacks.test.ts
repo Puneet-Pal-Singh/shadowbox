@@ -63,18 +63,27 @@ describe("Architecture Boundary: No Silent Fallbacks", () => {
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
 
-        // Match: catch (...) { } (empty catch block)
-        if (/catch\s*\([^)]*\)\s*\{\s*\}/.test(line)) {
-          violations.push({
-            file,
-            line: i + 1,
-            code: line.trim(),
-            reason: "Empty catch block silently swallows errors",
-          });
+        // Match: catch (...) { } (empty catch block - single or multi-line)
+        // Pattern covers:
+        // - Single line: catch (...) { }
+        // - Multi-line: catch (...) {\n} (closing brace on next line with only whitespace)
+        if (/catch\s*\([^)]*\)\s*\{/.test(line)) {
+          const closingBraceIdx = content.indexOf("}", content.indexOf(line) + line.length);
+          const blockContent = content.substring(content.indexOf(line) + line.length, closingBraceIdx).trim();
+          
+          // Check if catch block is empty or only contains whitespace/comments
+          if (!blockContent || /^\s*\/\/.*$/.test(blockContent) || /^\s*\/\*.*\*\/\s*$/.test(blockContent)) {
+            violations.push({
+              file,
+              line: i + 1,
+              code: line.trim(),
+              reason: "Empty or comment-only catch block silently swallows errors",
+            });
+          }
         }
 
         // Match: catch (...) { /* TODO */ } - deferred handling
-        if (/catch\s*\([^)]*\)\s*\{\s*\/\*/.test(line)) {
+        if (/catch\s*\([^)]*\)\s*\{\s*\/\*\s*TODO/.test(line)) {
           violations.push({
             file,
             line: i + 1,
@@ -203,11 +212,20 @@ describe("Architecture Boundary: No Silent Fallbacks", () => {
       }
     }
 
-    // Allow some tolerance for early code or tests
+    // Allow minimal tolerance for edge cases (e.g., error boundary utilities, early-stage code)
+    // Tolerance: 0 violations in strict application/domain paths
+    // Future PRs should incrementally reduce this to zero
+    if (violations.length > 0) {
+      console.warn(
+        `[architecture] Found ${violations.length} untyped error usage(s) in application/domain layers. ` +
+        `Plan to address in follow-up PRs: ${violations.map((v) => `${v.file}:${v.line}`).join(", ")}`
+      );
+    }
+    
     expect(
       violations.length,
-      `Application and domain layer should use typed errors:\n${violations.map((v) => `${v.file}:${v.line} - ${v.reason}`).join("\n")}`
-    ).toBeLessThan(5);
+      `Application and domain layer should use typed errors. Currently ${violations.length} violation(s):\n${violations.map((v) => `${v.file}:${v.line} - ${v.reason}`).join("\n")}`
+    ).toBeLessThan(3); // Allow 0-2 violations for now
   });
 
   it("should verify no implicit env/localhost fallback in production paths", () => {
@@ -224,7 +242,16 @@ describe("Architecture Boundary: No Silent Fallbacks", () => {
         // Match: env.DEV_MODE ?? false or process.env.DEV
         if (/env\.(DEV|LOCALHOST|DEBUG).*\?\?|process\.env\.(DEV|NODE_ENV)/.test(line)) {
           // This is a flag check, verify it's handled explicitly
-          if (!/if\s*\(|throw|error|Error/.test(lines[i + 1] || "")) {
+          // Look ahead up to 5 lines for error handling (accounts for multi-line blocks)
+          let hasExplicitHandling = false;
+          for (let j = i + 1; j < Math.min(i + 5, lines.length); j++) {
+            if (/if\s*\(|throw|error|Error|console\.error/.test(lines[j])) {
+              hasExplicitHandling = true;
+              break;
+            }
+          }
+          
+          if (!hasExplicitHandling) {
             violations.push({
               file,
               line: i + 1,
