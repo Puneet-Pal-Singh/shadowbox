@@ -204,10 +204,11 @@ describe("Architecture Boundary: No Legacy Imports", () => {
     const violations: DeprecatedImport[] = [];
 
     // These patterns indicate imports from deprecated/removed code
+    // Note: extractImports returns just the module path (e.g., "../deprecated/foo", "@shadowbox/brain/legacy")
+    // so patterns match against the module specifier, not the full import line
     const deprecatedExportPatterns = [
       /@shadowbox\/brain\/legacy/,
-      /from.*legacy/,
-      /from.*deprecated/,
+      /\/deprecated\b/,  // Matches paths like "../deprecated/foo" or "./deprecated/..."
     ];
 
     for (const file of allFiles) {

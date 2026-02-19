@@ -60,25 +60,62 @@ describe("Architecture Boundary: No Silent Fallbacks", () => {
       const content = fs.readFileSync(file, "utf-8");
       const lines = content.split("\n");
 
+      // Calculate cumulative offset for each line to correctly find catch blocks
+      let currentOffset = 0;
+      
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
+        const lineStart = currentOffset;
 
         // Match: catch (...) { } (empty catch block - single or multi-line)
         // Pattern covers:
         // - Single line: catch (...) { }
         // - Multi-line: catch (...) {\n} (closing brace on next line with only whitespace)
         if (/catch\s*\([^)]*\)\s*\{/.test(line)) {
-          const closingBraceIdx = content.indexOf("}", content.indexOf(line) + line.length);
-          const blockContent = content.substring(content.indexOf(line) + line.length, closingBraceIdx).trim();
-          
-          // Check if catch block is empty or only contains whitespace/comments
-          if (!blockContent || /^\s*\/\/.*$/.test(blockContent) || /^\s*\/\*.*\*\/\s*$/.test(blockContent)) {
-            violations.push({
-              file,
-              line: i + 1,
-              code: line.trim(),
-              reason: "Empty or comment-only catch block silently swallows errors",
-            });
+          // Find the opening brace position on this specific line
+          const braceMatch = line.match(/catch\s*\([^)]*\)\s*\{/);
+          if (braceMatch) {
+            const bracePos = lineStart + braceMatch[0].length - 1; // Position of {
+            
+            // Find matching closing brace (simple approach: next } after opening {)
+            // Note: This is a simplification; nested braces would need proper parsing
+            let braceCount = 1;
+            let searchPos = bracePos + 1;
+            let closingBracePos = -1;
+            
+            for (let j = i; j < lines.length && braceCount > 0; j++) {
+              const searchLine = lines[j];
+              const startIdx = j === i ? bracePos + 1 : 0;
+              
+              for (let k = startIdx; k < searchLine.length; k++) {
+                if (searchLine[k] === "{") braceCount++;
+                if (searchLine[k] === "}") {
+                  braceCount--;
+                  if (braceCount === 0) {
+                    closingBracePos = k;
+                    break;
+                  }
+                }
+              }
+            }
+            
+            // If closing brace found on same line or next few lines
+            if (closingBracePos >= 0 && i < lines.length - 1) {
+              const blockContent = lines.slice(i).join("\n").substring(
+                line.indexOf("{") + 1,
+                closingBracePos
+              ).trim();
+              
+              // Check if catch block is empty or only contains whitespace/comments
+              if (!blockContent || /^\s*\/\/.*$/.test(blockContent) || /^\s*\/\*.*\*\/\s*$/.test(blockContent)) {
+                violations.push({
+                  file,
+                  line: i + 1,
+                  code: line.trim(),
+                  reason: "Empty or comment-only catch block silently swallows errors",
+                });
+              }
+            }
           }
         }
 
@@ -91,6 +128,8 @@ describe("Architecture Boundary: No Silent Fallbacks", () => {
             reason: "TODO in catch block defers error handling",
           });
         }
+        
+        currentOffset += line.length + 1; // +1 for newline
       }
     }
 
@@ -106,34 +145,42 @@ describe("Architecture Boundary: No Silent Fallbacks", () => {
       "runtime",
       "RunEngineRuntime.ts"
     );
-    if (fs.existsSync(runtimeFile)) {
-      const content = fs.readFileSync(runtimeFile, "utf-8");
+    // Fail early if the file was moved/renamed — update the path if so
+    expect(
+      fs.existsSync(runtimeFile),
+      `Expected ${runtimeFile} to exist (may have been moved/renamed)`
+    ).toBe(true);
 
-      // Check that invalid agent types do not silently fallback to "coding"
-      // Flag if there's a silent fallback pattern (no error thrown)
-      const hasSilentFallback = /agentType.*\?\?|agentType.*\|\||coding.*default/i.test(content);
-      
-      expect(
-        hasSilentFallback,
-        "RunEngineRuntime should not silently fallback agent types"
-      ).toBe(false);
-    }
+    const content = fs.readFileSync(runtimeFile, "utf-8");
+
+    // Check that invalid agent types do not silently fallback to "coding"
+    // Flag if there's a silent fallback pattern (no error thrown)
+    const hasSilentFallback = /agentType.*\?\?|agentType.*\|\||coding.*default/i.test(content);
+    
+    expect(
+      hasSilentFallback,
+      "RunEngineRuntime should not silently fallback agent types"
+    ).toBe(false);
   });
 
   it("should verify AIService does not have implicit provider fallback", () => {
     const aiServiceFile = path.join(BRAIN_SRC, "services", "AIService.ts");
-    if (fs.existsSync(aiServiceFile)) {
-      const content = fs.readFileSync(aiServiceFile, "utf-8");
+    // Fail early if the file was moved/renamed — update the path if so
+    expect(
+      fs.existsSync(aiServiceFile),
+      `Expected ${aiServiceFile} to exist (may have been moved/renamed)`
+    ).toBe(true);
 
-      // Verify it doesn't have silent provider fallback patterns
-      const hasSilentProviderFallback =
-        /provider.*\?\?|default.*provider|implicit.*fallback/i.test(content);
+    const content = fs.readFileSync(aiServiceFile, "utf-8");
 
-      expect(
-        hasSilentProviderFallback,
-        "AIService should not have implicit provider fallback"
-      ).toBe(false);
-    }
+    // Verify it doesn't have silent provider fallback patterns
+    const hasSilentProviderFallback =
+      /provider.*\?\?|default.*provider|implicit.*fallback/i.test(content);
+
+    expect(
+      hasSilentProviderFallback,
+      "AIService should not have implicit provider fallback"
+    ).toBe(false);
   });
 
   it("should verify controllers do not parse request body with empty fallback", () => {
@@ -142,18 +189,22 @@ describe("Architecture Boundary: No Silent Fallbacks", () => {
       "controllers",
       "ChatController.ts"
     );
-    if (fs.existsSync(chatControllerFile)) {
-      const content = fs.readFileSync(chatControllerFile, "utf-8");
+    // Fail early if the file was moved/renamed — update the path if so
+    expect(
+      fs.existsSync(chatControllerFile),
+      `Expected ${chatControllerFile} to exist (may have been moved/renamed)`
+    ).toBe(true);
 
-      // Verify no silent JSON.parse() with empty object fallback
-      const hasSilentParseError =
-        /JSON\.parse\s*\([^)]*\)\s*\|\|\s*\{\}/.test(content);
+    const content = fs.readFileSync(chatControllerFile, "utf-8");
 
-      expect(
-        hasSilentParseError,
-        "Controllers should not silently parse JSON with fallback to {}"
-      ).toBe(false);
-    }
+    // Verify no silent JSON.parse() with empty object fallback
+    const hasSilentParseError =
+      /JSON\.parse\s*\([^)]*\)\s*\|\|\s*\{\}/.test(content);
+
+    expect(
+      hasSilentParseError,
+      "Controllers should not silently parse JSON with fallback to {}"
+    ).toBe(false);
   });
 
   it("should verify error responses are always explicit", () => {

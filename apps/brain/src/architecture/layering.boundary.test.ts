@@ -248,5 +248,22 @@ describe("Architecture Boundary: Layering Constraints", () => {
       forbiddenAppImports,
       "Application should only import from domain, http"
     ).toEqual([]);
+
+    // Enforce domain layer constraints
+    const domainImports = Array.from(layerImports["domain"] || []);
+    expect(
+      domainImports,
+      "Domain should not import from any other layer"
+    ).toEqual([]);
+
+    // Enforce HTTP layer constraints
+    const httpImports = Array.from(layerImports["http"] || []);
+    const forbiddenHttpImports = httpImports.filter(
+      (imp) => !imp.includes("->domain")
+    );
+    expect(
+      forbiddenHttpImports,
+      "HTTP should only import from domain"
+    ).toEqual([]);
   });
 });
