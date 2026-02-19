@@ -236,8 +236,9 @@ describe("Architecture Boundary: No Legacy Imports", () => {
       return;
     }
 
-    // Approved allowlist: files that are Brain-owned and should be retained
-    const approvedAllowlist = new Set(["security/LogSanitizer.ts"]);
+    // Approved allowlist: relative paths within wrapperDirCandidates that are Brain-owned
+    // Format: "<wrapperDir>/<filename>" e.g. "engine/MyHelper.ts"
+    const approvedAllowlist = new Set<string>([]);
 
     // Directories that should have no re-export wrappers (except allowlist)
     const wrapperDirCandidates = [
@@ -259,17 +260,15 @@ describe("Architecture Boundary: No Legacy Imports", () => {
         continue;
       }
 
-      const files = fs
-        .readdirSync(dirPath)
-        .filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"));
+      const files = getAllTSFiles(dirPath);
 
-      for (const file of files) {
-        const relativePath = `${dir}/${file}`;
+      for (const filePath of files) {
+        const relativeToCore = path.relative(coreDir, filePath);
+        const relativePath = relativeToCore.replace(/\\/g, "/");
         if (approvedAllowlist.has(relativePath)) {
           continue;
         }
 
-        const filePath = path.join(dirPath, file);
         const content = fs.readFileSync(filePath, "utf-8");
 
         // Detect re-export patterns

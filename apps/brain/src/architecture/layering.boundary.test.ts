@@ -281,9 +281,11 @@ describe("Architecture Boundary: Layering Constraints", () => {
 
     for (const [relativePath, limits] of Object.entries(fileLimits)) {
       const filePath = path.join(BRAIN_SRC, relativePath);
-      if (!fs.existsSync(filePath)) {
-        continue;
-      }
+      expect(
+        fs.existsSync(filePath),
+        `Critical runtime file ${relativePath} is missing – update the path in fileLimits if renamed`,
+      ).toBe(true);
+      if (!fs.existsSync(filePath)) continue;
 
       const content = fs.readFileSync(filePath, "utf-8");
       const lineCount = content.split("\n").length;

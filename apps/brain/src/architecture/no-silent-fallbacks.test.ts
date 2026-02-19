@@ -372,9 +372,12 @@ describe("Architecture Boundary: No Silent Fallbacks", () => {
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
 
+        // Skip comment lines to avoid false positives
+        if (/^\s*\/\//.test(line)) continue;
+
         // Check for implicit provider fallback without error/log
         // Allow: explicit error throw, logCompatFallback call, or isStrictMode check
-        if (/provider\s*\?\?|provider\s*\|\|/.test(line)) {
+        if (/\bprovider\s*\?\?|\bprovider\s*\|\|/.test(line)) {
           // Look for explicit handling within the next few lines
           let hasExplicitHandling = false;
           for (let j = i; j < Math.min(i + 10, lines.length); j++) {
