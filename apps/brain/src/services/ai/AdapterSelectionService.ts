@@ -6,7 +6,7 @@
  */
 
 import type { ProviderAdapter } from "../providers";
-import type { ProviderConfigService } from "../ProviderConfigService";
+import type { ProviderConfigService } from "../providers";
 import type {
   ModelSelection,
   RuntimeProvider,

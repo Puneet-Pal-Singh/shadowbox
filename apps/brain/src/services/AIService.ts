@@ -20,7 +20,7 @@ import type { ZodSchema } from "zod";
 import type { Env } from "../types/ai";
 import type { ProviderAdapter } from "./providers";
 import type { LLMUsage } from "../core/cost/types";
-import { ProviderConfigService } from "./ProviderConfigService";
+import { ProviderConfigService } from "./providers";
 import {
   createDefaultAdapter,
   resolveModelSelection,

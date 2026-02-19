@@ -5,7 +5,11 @@
  */
 
 import type { Env } from "../types/ai";
-import { ProviderConfigService } from "../services/ProviderConfigService";
+import {
+  ConnectProvider,
+  DisconnectProvider,
+  GetProviderStatus,
+} from "../application/provider";
 import {
   ConnectProviderRequestSchema,
   DisconnectProviderRequestSchema,
@@ -25,23 +29,12 @@ import {
   isDomainError,
   mapDomainErrorToHttp,
 } from "../domain/errors";
-
-/**
- * Singleton instance of ProviderConfigService
- * Persists in-memory state across requests within an isolate lifecycle
- */
-let providerConfigServiceInstance: ProviderConfigService | null = null;
-
-function getProviderConfigService(env: Env): ProviderConfigService {
-  if (!providerConfigServiceInstance) {
-    providerConfigServiceInstance = new ProviderConfigService(env);
-  }
-  return providerConfigServiceInstance;
-}
+import { ProviderConfigService } from "../services/providers";
 
 /**
  * ProviderController - Route handlers for provider API
  * Each method handles one specific endpoint responsibility
+ * Services are resolved per request (no singleton state)
  */
 export class ProviderController {
   /**
@@ -59,8 +52,10 @@ export class ProviderController {
         apiKey: string;
       }>(body, ConnectProviderRequestSchema, correlationId);
 
-      const service = getProviderConfigService(env);
-      const response = await service.connect(validatedRequest);
+      // Composition root: instantiate configService and inject into use-case
+      const configService = new ProviderConfigService(env);
+      const useCase = new ConnectProvider(configService);
+      const response = await useCase.execute(validatedRequest);
 
       return jsonResponse(req, env, response);
     } catch (error) {
@@ -82,8 +77,10 @@ export class ProviderController {
         providerId: ProviderId;
       }>(body, DisconnectProviderRequestSchema, correlationId);
 
-      const service = getProviderConfigService(env);
-      const response = await service.disconnect(validatedRequest);
+      // Composition root: instantiate configService and inject into use-case
+      const configService = new ProviderConfigService(env);
+      const useCase = new DisconnectProvider(configService);
+      const response = await useCase.execute(validatedRequest);
 
       return jsonResponse(req, env, response);
     } catch (error) {
@@ -100,8 +97,10 @@ export class ProviderController {
     console.log(`[provider/status] ${correlationId} request received`);
 
     try {
-      const service = getProviderConfigService(env);
-      const providers = await service.getStatus();
+      // Composition root: instantiate configService and inject into use-case
+      const configService = new ProviderConfigService(env);
+      const useCase = new GetProviderStatus(configService);
+      const providers = await useCase.execute();
 
       return jsonResponse(req, env, { providers });
     } catch (error) {
@@ -135,8 +134,8 @@ export class ProviderController {
         correlationId,
       );
 
-      const service = getProviderConfigService(env);
-      const response = await service.getModels(providerId);
+      const configService = new ProviderConfigService(env);
+      const response = await configService.getModels(providerId);
 
       return jsonResponse(req, env, response);
     } catch (error) {

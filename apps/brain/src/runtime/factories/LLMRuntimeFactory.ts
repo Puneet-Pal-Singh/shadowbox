@@ -8,7 +8,7 @@
 import type { DurableObjectState as LegacyDurableObjectState } from "@cloudflare/workers-types";
 import type { Env } from "../../types/ai";
 import { AIService } from "../../services/AIService";
-import { ProviderConfigService } from "../../services/ProviderConfigService";
+import { ProviderConfigService } from "../../services/providers";
 import { ProviderValidationService } from "../../services/ProviderValidationService";
 import { DurableProviderStore } from "../../services/providers/DurableProviderStore";
 import type {
