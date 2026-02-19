@@ -1,5 +1,4 @@
-import { describe, it } from "node:test";
-import assert from "node:assert";
+import { describe, it, expect } from "vitest";
 import { ProviderValidationService } from "./ProviderValidationService";
 import type { Env } from "../types/ai";
 
@@ -17,20 +16,20 @@ describe("ProviderValidationService", () => {
       };
 
       const result = ProviderValidationService.validate(env);
-      assert.strictEqual(result.valid, true);
-      assert.strictEqual(result.errors.length, 0);
+      expect(result.valid).toBe(true);
+      expect(result.errors).toHaveLength(0);
     });
 
     it("should pass with OPENAI_API_KEY and DEFAULT_MODEL", () => {
       const env: Env = {
-        OPENAI_API_KEY: "sk-test",
+        OPENAI_API_KEY: "[REDACTED:api-key]",
         DEFAULT_MODEL: "gpt-4",
         LLM_PROVIDER: "litellm",
       };
 
       const result = ProviderValidationService.validate(env);
-      assert.strictEqual(result.valid, true);
-      assert.strictEqual(result.errors.length, 0);
+      expect(result.valid).toBe(true);
+      expect(result.errors).toHaveLength(0);
     });
 
     it("should fail without API key", () => {
@@ -40,9 +39,9 @@ describe("ProviderValidationService", () => {
       };
 
       const result = ProviderValidationService.validate(env);
-      assert.strictEqual(result.valid, false);
-      assert.strictEqual(result.errors.length, 1);
-      assert.strictEqual(result.errors[0].code, "MISSING_API_KEY");
+      expect(result.valid).toBe(false);
+      expect(result.errors).toHaveLength(1);
+      expect(result.errors[0].code).toBe("MISSING_API_KEY");
     });
 
     it("should fail without DEFAULT_MODEL", () => {
@@ -52,9 +51,9 @@ describe("ProviderValidationService", () => {
       };
 
       const result = ProviderValidationService.validate(env);
-      assert.strictEqual(result.valid, false);
-      assert.strictEqual(result.errors.length, 1);
-      assert.strictEqual(result.errors[0].code, "MISSING_DEFAULT_MODEL");
+      expect(result.valid).toBe(false);
+      expect(result.errors).toHaveLength(1);
+      expect(result.errors[0].code).toBe("MISSING_DEFAULT_MODEL");
     });
 
     it("should fail with both errors when API key and DEFAULT_MODEL missing", () => {
@@ -63,10 +62,10 @@ describe("ProviderValidationService", () => {
       };
 
       const result = ProviderValidationService.validate(env);
-      assert.strictEqual(result.valid, false);
-      assert.strictEqual(result.errors.length, 2);
+      expect(result.valid).toBe(false);
+      expect(result.errors).toHaveLength(2);
       const errorCodes = result.errors.map((e) => e.code).sort();
-      assert.deepStrictEqual(errorCodes, [
+      expect(errorCodes).toEqual([
         "MISSING_API_KEY",
         "MISSING_DEFAULT_MODEL",
       ]);
@@ -80,21 +79,21 @@ describe("ProviderValidationService", () => {
 
       const result = ProviderValidationService.validate(env);
       // Will have error for missing DEFAULT_MODEL
-      assert.strictEqual(result.valid, false);
-      assert.ok(result.warnings.length >= 0); // May have warning
+      expect(result.valid).toBe(false);
+      expect(result.warnings.length).toBeGreaterThanOrEqual(0);
     });
   });
 
   describe("OpenAI validation", () => {
     it("should pass with OPENAI_API_KEY", () => {
       const env: Env = {
-        OPENAI_API_KEY: "sk-test",
+        OPENAI_API_KEY: "[REDACTED:api-key]",
         DEFAULT_MODEL: "gpt-4",
         LLM_PROVIDER: "openai",
       };
 
       const result = ProviderValidationService.validate(env);
-      assert.strictEqual(result.valid, true);
+      expect(result.valid).toBe(true);
     });
 
     it("should fail without OPENAI_API_KEY", () => {
@@ -104,33 +103,33 @@ describe("ProviderValidationService", () => {
       };
 
       const result = ProviderValidationService.validate(env);
-      assert.strictEqual(result.valid, false);
-      assert.strictEqual(result.errors[0].code, "MISSING_OPENAI_API_KEY");
+      expect(result.valid).toBe(false);
+      expect(result.errors[0].code).toBe("MISSING_OPENAI_API_KEY");
     });
 
     it("should warn without DEFAULT_MODEL for OpenAI", () => {
       const env: Env = {
-        OPENAI_API_KEY: "sk-test",
+        OPENAI_API_KEY: "[REDACTED:api-key]",
         LLM_PROVIDER: "openai",
       };
 
       const result = ProviderValidationService.validate(env);
-      assert.ok(result.valid);
-      assert.strictEqual(result.warnings.length, 1);
-      assert.strictEqual(result.warnings[0].code, "NO_DEFAULT_MODEL");
+      expect(result.valid).toBe(true);
+      expect(result.warnings).toHaveLength(1);
+      expect(result.warnings[0].code).toBe("NO_DEFAULT_MODEL");
     });
   });
 
   describe("Anthropic validation", () => {
     it("should pass with ANTHROPIC_API_KEY", () => {
       const env: Env = {
-        ANTHROPIC_API_KEY: "sk-test",
+        ANTHROPIC_API_KEY: "[REDACTED:api-key]",
         DEFAULT_MODEL: "claude-3-sonnet-20240229",
         LLM_PROVIDER: "anthropic",
       };
 
       const result = ProviderValidationService.validate(env);
-      assert.strictEqual(result.valid, true);
+      expect(result.valid).toBe(true);
     });
 
     it("should fail without ANTHROPIC_API_KEY", () => {
@@ -140,8 +139,8 @@ describe("ProviderValidationService", () => {
       };
 
       const result = ProviderValidationService.validate(env);
-      assert.strictEqual(result.valid, false);
-      assert.strictEqual(result.errors[0].code, "MISSING_ANTHROPIC_API_KEY");
+      expect(result.valid).toBe(false);
+      expect(result.errors[0].code).toBe("MISSING_ANTHROPIC_API_KEY");
     });
   });
 
@@ -154,16 +153,16 @@ describe("ProviderValidationService", () => {
       const result = ProviderValidationService.validate(env);
       const formatted = ProviderValidationService.formatErrors(result);
 
-      assert.ok(formatted.includes("validation failed"));
-      assert.ok(formatted.includes("MISSING_API_KEY"));
-      assert.ok(formatted.includes("MISSING_DEFAULT_MODEL"));
-      assert.ok(formatted.includes("Hint:"));
+      expect(formatted).toContain("validation failed");
+      expect(formatted).toContain("MISSING_API_KEY");
+      expect(formatted).toContain("MISSING_DEFAULT_MODEL");
+      expect(formatted).toContain("Hint:");
     });
 
     it("should return empty string for valid config", () => {
       const result = ProviderValidationService.validate(baseEnv);
       const formatted = ProviderValidationService.formatErrors(result);
-      assert.strictEqual(formatted, "");
+      expect(formatted).toBe("");
     });
   });
 
@@ -176,7 +175,7 @@ describe("ProviderValidationService", () => {
       };
 
       const result = ProviderValidationService.validate(env);
-      assert.strictEqual(result.valid, true);
+      expect(result.valid).toBe(true);
     });
   });
 });
