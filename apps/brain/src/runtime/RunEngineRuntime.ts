@@ -115,5 +115,4 @@ export class RunEngineRuntime extends DurableObject {
       release();
     }
   }
-
-  }
+}

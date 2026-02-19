@@ -14,7 +14,6 @@ import {
 } from "../http/validation";
 import {
   ValidationError,
-  ParseError,
   isDomainError,
   mapDomainErrorToHttp,
 } from "../domain/errors";
@@ -88,8 +87,9 @@ export class ChatController {
       return await ChatController.handleWithRunEngine(req, chatRequest, env);
     } catch (error: unknown) {
       if (isDomainError(error)) {
+        const errorCorrelationId = error.correlationId ?? correlationId;
         console.warn(
-          `[chat/validation] ${error.correlationId}: ${error.code} - ${error.message}`,
+          `[chat/validation] ${errorCorrelationId}: ${error.code} - ${error.message}`,
         );
         const { status, code, message } = mapDomainErrorToHttp(error);
         return errorResponse(req, env, message, status, code);

@@ -14,15 +14,13 @@ import { DurableProviderStore } from "../../services/providers/DurableProviderSt
 import type {
   LLMRuntimeAIService,
   LLMGateway,
-} from "@shadowbox/execution-engine/runtime";
-import {
-  LLMGateway as LLMGatewayImpl,
   PricingRegistry,
   PricingResolver,
   CostLedger,
   CostTracker,
   BudgetManager,
 } from "@shadowbox/execution-engine/runtime";
+import { LLMGateway as LLMGatewayImpl } from "@shadowbox/execution-engine/runtime";
 
 /**
  * Build LLM gateway and AI service for runtime execution.
@@ -30,6 +28,7 @@ import {
  * @param ctx - Durable Object state context
  * @param env - Cloudflare environment
  * @param runId - Run ID for provider store scoping
+ * @param budgetingComponents - Pre-built pricing/budgeting components from BudgetingFactory
  * @returns { llmRuntimeService, llmGateway }
  * @throws Error if provider validation fails
  */
@@ -37,6 +36,13 @@ export function buildLLMGateway(
   ctx: unknown,
   env: Env,
   runId: string,
+  budgetingComponents: {
+    pricingRegistry: PricingRegistry;
+    costLedger: CostLedger;
+    costTracker: CostTracker;
+    budgetManager: BudgetManager;
+    pricingResolver: PricingResolver;
+  },
 ): {
   llmRuntimeService: LLMRuntimeAIService;
   llmGateway: LLMGateway;
@@ -83,72 +89,13 @@ export function buildLLMGateway(
     createChatStream: (input) => aiService.createChatStream(input),
   };
 
-  const pricingRegistry = new PricingRegistry(undefined, {
-    failOnUnseededPricing: env.COST_FAIL_ON_UNSEEDED_PRICING === "true",
-  });
-
-  const pricingResolver = new PricingResolver(pricingRegistry, {
-    unknownPricingMode: getUnknownPricingMode(env),
-  });
-
-  const costLedger = new CostLedger(
-    ctx as unknown as LegacyDurableObjectState,
-  );
-
-  const costTracker = new CostTracker(
-    ctx as unknown as LegacyDurableObjectState,
-    pricingRegistry,
-    getUnknownPricingMode(env),
-  );
-
-  const budgetManager = new BudgetManager(
-    costTracker,
-    pricingRegistry,
-    getBudgetConfig(env),
-    ctx as unknown as LegacyDurableObjectState,
-  );
-
+  // Use pre-built budgeting components to ensure unified cost tracking
   const llmGateway = new LLMGatewayImpl({
     aiService: llmRuntimeService,
-    budgetPolicy: budgetManager,
-    costLedger,
-    pricingResolver,
+    budgetPolicy: budgetingComponents.budgetManager,
+    costLedger: budgetingComponents.costLedger,
+    pricingResolver: budgetingComponents.pricingResolver,
   });
 
   return { llmRuntimeService, llmGateway };
-}
-
-/**
- * Get unknown pricing mode from environment.
- * Defaults to "warn" if not configured or invalid.
- */
-function getUnknownPricingMode(env: Env): "warn" | "block" {
-  const mode = env.COST_UNKNOWN_PRICING_MODE;
-  if (mode === "block" || mode === "warn") {
-    return mode;
-  }
-  return "warn";
-}
-
-/**
- * Parse budget configuration from environment.
- */
-function getBudgetConfig(env: Env): {
-  maxCostPerRun?: number;
-  maxCostPerSession?: number;
-} {
-  const parseBudget = (value: string | undefined): number | undefined => {
-    if (!value) return undefined;
-    const parsed = parseFloat(value);
-    if (Number.isNaN(parsed)) {
-      console.warn(`[runtime/llm-factory] Invalid budget value: ${value}`);
-      return undefined;
-    }
-    return parsed;
-  };
-
-  return {
-    maxCostPerRun: parseBudget(env.MAX_RUN_BUDGET),
-    maxCostPerSession: parseBudget(env.MAX_SESSION_BUDGET),
-  };
 }

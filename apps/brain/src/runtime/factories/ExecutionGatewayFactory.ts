@@ -37,21 +37,25 @@ export function buildRuntimeDependencies(
   agent: IAgent | undefined;
   runEngineDeps: RunEngineDependencies;
 } {
-  // Build LLM runtime
+  // Build pricing/budgeting first
+  const budgetingComponents = buildPricingAndBudgeting(ctx, env);
+
+  // Build LLM runtime with shared budgeting components
   const { llmRuntimeService, llmGateway } = buildLLMGateway(
     ctx,
     env,
     payload.runId,
+    budgetingComponents,
   );
 
-  // Build pricing/budgeting
+  // Destructure pricing/budgeting components for return object
   const {
     pricingRegistry,
     costLedger,
     costTracker,
     budgetManager,
     pricingResolver,
-  } = buildPricingAndBudgeting(ctx, env);
+  } = budgetingComponents;
 
   // Resolve agent with strict policy
   const agent = resolveAgent(

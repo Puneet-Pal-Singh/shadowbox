@@ -24,6 +24,7 @@ import {
   errorResponse,
   jsonResponse,
 } from "../http/response";
+import { getCorsHeaders } from "../lib/cors";
 
 interface AuthSession {
   state: string;
@@ -94,6 +95,7 @@ export class AuthController {
         status: 302,
         headers: {
           Location: authUrl,
+          ...getCorsHeaders(request, env),
         },
       });
     } catch (error) {
@@ -214,6 +216,7 @@ export class AuthController {
         headers: {
           Location: redirectUrl.toString(),
           "Set-Cookie": createSessionCookie(sessionToken),
+          ...getCorsHeaders(request, env),
         },
       });
     } catch (error) {

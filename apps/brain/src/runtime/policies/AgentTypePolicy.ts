@@ -60,8 +60,9 @@ export function resolveAgentType(
   }
 
   // Compat mode: log warning and fallback
+  const idPart = correlationId ? `${correlationId}: ` : "";
   console.warn(
-    `[runtime/agent-policy] ${correlationId}: Unsupported agent type "${requestedType}". Falling back to "${fallbackType}".`,
+    `[runtime/agent-policy] ${idPart}Unsupported agent type "${requestedType}". Falling back to "${fallbackType}".`,
   );
   return fallbackType;
 }
