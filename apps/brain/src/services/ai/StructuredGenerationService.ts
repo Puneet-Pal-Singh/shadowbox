@@ -1,16 +1,16 @@
 /**
- * StructuredGenerationService - Structured output generation
+ * StructuredGenerationService - Configuration for structured generation
  *
- * Single Responsibility: Generate typed JSON objects using schema validation.
- * Uses Vercel AI SDK for structured generation.
+ * Single Responsibility: Provide configuration and parameters for structured
+ * generation. Does NOT import or call AI SDK directly (to comply with
+ * eslint no-restricted-imports rule). Actual SDK calls happen in AIService.
  */
 
-import { generateObject, type CoreMessage } from "ai";
+import type { CoreMessage } from "ai";
 import type { ZodSchema } from "zod";
-import type { Env } from "../../types/ai";
 import type { LLMUsage } from "../../core/cost/types";
-import { createSDKModel } from "./SDKModelFactory";
 import type { RuntimeProvider } from "./ModelSelectionPolicy";
+import type { SDKModelConfig } from "./SDKModelFactory";
 
 /**
  * Result from structured generation with usage
@@ -21,54 +21,46 @@ export interface GenerateStructuredResult<T> {
 }
 
 /**
- * Generate structured output using schema validation.
+ * Structured generation request configuration.
+ * Prepared by this service, executed by AIService.
+ */
+export interface StructuredGenerationRequest<T> {
+  sdkModelConfig: SDKModelConfig;
+  messages: CoreMessage[];
+  schema: ZodSchema<T>;
+  temperature: number;
+}
+
+/**
+ * Prepare structured generation request configuration.
+ * Does NOT execute the request - AIService handles that.
  *
  * @param model - The model name to use
  * @param provider - The runtime provider type
- * @param env - Cloudflare environment
- * @param params - Generation parameters
- * @param overrideApiKey - Optional override API key for BYOK
- * @returns Result with typed object and usage
+ * @param messages - The messages to send
+ * @param schema - The Zod schema for output validation
+ * @param temperature - Temperature setting (default 0.2)
+ * @returns Configuration ready for SDK execution
  */
-export async function generateStructured<T>({
+export function prepareStructuredGenerationRequest<T>({
   model,
   provider,
-  env,
-  params,
-  overrideApiKey,
+  messages,
+  schema,
+  sdkModelConfig,
+  temperature = 0.2,
 }: {
   model: string;
   provider: RuntimeProvider;
-  env: Env;
-  params: {
-    messages: CoreMessage[];
-    schema: ZodSchema<T>;
-    temperature?: number;
-  };
-  overrideApiKey?: string;
-}): Promise<GenerateStructuredResult<T>> {
-  const sdkModel = createSDKModel(model, provider, env, overrideApiKey);
-
-  const result = await generateObject({
-    model: sdkModel,
-    messages: params.messages,
-    schema: params.schema,
-    temperature: params.temperature ?? 0.2,
-  });
-
-  // Standardize usage
-  const usage: LLMUsage = {
-    provider,
-    model,
-    promptTokens: result.usage?.promptTokens ?? 0,
-    completionTokens: result.usage?.completionTokens ?? 0,
-    totalTokens:
-      (result.usage?.promptTokens ?? 0) +
-      (result.usage?.completionTokens ?? 0),
-  };
-
+  messages: CoreMessage[];
+  schema: ZodSchema<T>;
+  sdkModelConfig: SDKModelConfig;
+  temperature?: number;
+}): StructuredGenerationRequest<T> {
   return {
-    object: result.object,
-    usage,
+    sdkModelConfig,
+    messages,
+    schema,
+    temperature,
   };
 }

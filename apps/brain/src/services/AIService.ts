@@ -10,12 +10,16 @@
  * Design: Thin facade coordinating extraction layer modules.
  * Each generation path is in a dedicated service module.
  * Provider adapter creation is factory-based.
+ * SDK calls (generateObject, AI SDK imports) happen here per eslint restrictions.
  */
 
-import type { CoreMessage, CoreTool } from "ai";
+import { generateObject, type CoreMessage, type CoreTool } from "ai";
+import { createOpenAI } from "@ai-sdk/openai";
+import { createAnthropic } from "@ai-sdk/anthropic";
 import type { ZodSchema } from "zod";
 import type { Env } from "../types/ai";
 import type { ProviderAdapter } from "./providers";
+import type { LLMUsage } from "../core/cost/types";
 import { ProviderConfigService } from "./ProviderConfigService";
 import {
   createDefaultAdapter,
@@ -25,9 +29,9 @@ import {
   selectAdapter,
   generateText,
   type GenerateTextResult,
-  generateStructured,
-  type GenerateStructuredResult,
   createChatStream,
+  getSDKModelConfig,
+  type SDKModelConfig,
 } from "./ai";
 
 /**
@@ -134,21 +138,43 @@ export class AIService {
   }): Promise<GenerateStructuredResult<T>> {
     const selection = this.resolveModelSelection(providerId, model);
 
-    return generateStructured({
-      model: selection.model,
-      provider: selection.runtimeProvider,
-      env: this.env,
-      params: {
-        messages,
-        schema,
-        temperature,
-      },
-      overrideApiKey: selection.providerId
-        ? ((await this.providerConfigService?.getApiKey(
-            selection.providerId,
-          )) ?? undefined)
-        : undefined,
+    const overrideApiKey = selection.providerId
+      ? ((await this.providerConfigService?.getApiKey(
+          selection.providerId,
+        )) ?? undefined)
+      : undefined;
+
+    const sdkModelConfig = getSDKModelConfig(
+      selection.model,
+      selection.runtimeProvider,
+      this.env,
+      overrideApiKey,
+    );
+
+    const sdkModel = this.createSDKModel(sdkModelConfig);
+
+    const result = await generateObject({
+      model: sdkModel,
+      messages,
+      schema,
+      temperature,
     });
+
+    // Standardize usage
+    const usage: LLMUsage = {
+      provider: selection.runtimeProvider,
+      model: selection.model,
+      promptTokens: result.usage?.promptTokens ?? 0,
+      completionTokens: result.usage?.completionTokens ?? 0,
+      totalTokens:
+        (result.usage?.promptTokens ?? 0) +
+        (result.usage?.completionTokens ?? 0),
+    };
+
+    return {
+      object: result.object,
+      usage,
+    };
   }
 
   /**
@@ -204,6 +230,35 @@ export class AIService {
   getProviderAdapter(): ProviderAdapter {
     return this.adapter;
   }
+
+  /**
+   * Create an AI SDK model instance from config.
+   * Private method - handles SDK instantiation per eslint restrictions.
+   */
+  private createSDKModel(config: SDKModelConfig) {
+    const { provider, apiKey, baseURL, model } = config;
+
+    if (provider === "anthropic") {
+      const client = createAnthropic({ apiKey });
+      return client(model);
+    }
+
+    // OpenAI-compatible providers (openai, openrouter, groq, litellm)
+    const client = createOpenAI({
+      baseURL,
+      apiKey,
+    });
+
+    return client(model);
+  }
+}
+
+/**
+ * Result from structured generation with usage
+ */
+export interface GenerateStructuredResult<T> {
+  object: T;
+  usage: LLMUsage;
 }
 
 export class AIServiceError extends Error {
@@ -214,4 +269,4 @@ export class AIServiceError extends Error {
 }
 
 // Re-export type definitions
-export type { GenerateTextResult, GenerateStructuredResult };
+export type { GenerateTextResult };

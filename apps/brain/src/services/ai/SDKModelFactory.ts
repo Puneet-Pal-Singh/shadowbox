@@ -1,131 +1,80 @@
 /**
- * SDKModelFactory - Create Vercel AI SDK model instances
+ * SDKModelFactory - Configuration for creating AI SDK model instances
  *
- * Single Responsibility: Build language model instances from Vercel AI SDK
- * for structured generation (generateObject). Centralizes SDK initialization.
+ * Single Responsibility: Provide configuration and provider selection logic
+ * for SDK model creation. Does NOT directly import AI SDK (to comply with
+ * eslint no-restricted-imports rule). Actual SDK instantiation happens in AIService.
  */
 
-import { createOpenAI } from "@ai-sdk/openai";
-import { createAnthropic } from "@ai-sdk/anthropic";
 import type { Env } from "../../types/ai";
 import { ProviderError } from "../providers";
 import { resolveProviderKey } from "./ProviderKeyValidator";
 import type { RuntimeProvider } from "./ModelSelectionPolicy";
 
 /**
- * Get the appropriate AI SDK model instance for structured generation.
- * Uses the configured provider from env or override API key.
+ * SDK model configuration for a given provider/model combination.
+ * Used by AIService to create actual SDK model instances.
+ */
+export interface SDKModelConfig {
+  provider: RuntimeProvider;
+  apiKey: string;
+  baseURL: string;
+  model: string;
+}
+
+/**
+ * Get SDK model configuration for structured generation.
+ * Resolves provider, API key, and endpoint. Does NOT instantiate SDK models.
  *
- * @param model - The model name to instantiate
+ * @param model - The model name to use
  * @param provider - The runtime provider type
  * @param env - Cloudflare environment
  * @param overrideApiKey - Optional override API key for BYOK
- * @returns Vercel AI SDK model instance
+ * @returns Configuration for SDK model instantiation
  * @throws ProviderError if provider is not supported or keys are missing
  */
-export function createSDKModel(
+export function getSDKModelConfig(
   model: string,
   provider: RuntimeProvider,
   env: Env,
   overrideApiKey?: string,
-) {
-  switch (provider) {
-    case "anthropic":
-      return createAnthropicSDKModel(model, env, overrideApiKey);
-
-    case "openai":
-      return createOpenAICompatibleSDKModel(
-        model,
-        "openai",
-        env,
-        overrideApiKey,
-      );
-
-    case "openrouter":
-      return createOpenAICompatibleSDKModel(
-        model,
-        "openrouter",
-        env,
-        overrideApiKey,
-      );
-
-    case "groq":
-      return createOpenAICompatibleSDKModel(
-        model,
-        "groq",
-        env,
-        overrideApiKey,
-      );
-
-    case "litellm":
-    default:
-      return createOpenAICompatibleSDKModel(
-        model,
-        "litellm",
-        env,
-        overrideApiKey,
-      );
-  }
-}
-
-/**
- * Create Anthropic model instance.
- * @param model - The model name (e.g., "claude-3-opus")
- * @param env - Cloudflare environment
- * @param overrideApiKey - Optional override API key
- * @throws ProviderError if API key is missing
- */
-function createAnthropicSDKModel(
-  model: string,
-  env: Env,
-  overrideApiKey?: string,
-) {
-  const apiKey = resolveAnthropicSDKKey(env, overrideApiKey);
-  const client = createAnthropic({ apiKey });
-  return client(model);
-}
-
-/**
- * Create OpenAI-compatible model instance (OpenAI, OpenRouter, Groq, LiteLLM).
- * @param model - The model name
- * @param provider - The provider name (openai, openrouter, groq, litellm)
- * @param env - Cloudflare environment
- * @param overrideApiKey - Optional override API key
- * @throws ProviderError if API key is missing
- */
-function createOpenAICompatibleSDKModel(
-  model: string,
-  provider: string,
-  env: Env,
-  overrideApiKey?: string,
-) {
-  const { apiKey, baseURL } = resolveProviderKey(
+): SDKModelConfig {
+  const { apiKey, baseURL } = resolveProviderKeyForSDK(
     provider,
     env,
     overrideApiKey,
   );
 
-  const client = createOpenAI({
-    baseURL,
+  return {
+    provider,
     apiKey,
-  });
-
-  return client(model);
+    baseURL,
+    model,
+  };
 }
 
 /**
- * Resolve Anthropic API key for SDK use.
+ * Resolve API key and base URL for SDK use.
+ * @param provider - The provider type
  * @param env - Cloudflare environment
  * @param overrideApiKey - Optional override key
+ * @returns { apiKey, baseURL }
  * @throws ProviderError if key is missing
  */
-function resolveAnthropicSDKKey(
+function resolveProviderKeyForSDK(
+  provider: RuntimeProvider,
   env: Env,
   overrideApiKey?: string,
-): string {
-  const apiKey = overrideApiKey ?? env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    throw new ProviderError("anthropic", "Missing ANTHROPIC_API_KEY");
+): { apiKey: string; baseURL: string } {
+  if (provider === "anthropic") {
+    const apiKey = overrideApiKey ?? env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      throw new ProviderError("anthropic", "Missing ANTHROPIC_API_KEY");
+    }
+    // Anthropic doesn't use baseURL in the same way, but we include for consistency
+    return { apiKey, baseURL: "https://api.anthropic.com" };
   }
-  return apiKey;
+
+  // For all other providers, use the standard resolver
+  return resolveProviderKey(provider, env, overrideApiKey);
 }
