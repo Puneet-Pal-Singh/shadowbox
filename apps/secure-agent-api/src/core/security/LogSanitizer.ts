@@ -5,12 +5,15 @@ const BEARER_TOKEN_PATTERN = /\b(Bearer)\s+[A-Za-z0-9\-._~+/]+=*/gi;
 const BASIC_AUTH_PATTERN = /\b(Basic)\s+[A-Za-z0-9+/=]{8,}/gi;
 const GITHUB_TOKEN_PATTERN =
   /\b(gh[pousr]_[A-Za-z0-9_]{10,}|github_pat_[A-Za-z0-9_]+)\b/g;
+const PROVIDER_KEY_PATTERN =
+  /\b(sk-[A-Za-z0-9_-]{16,}|gsk_[A-Za-z0-9_-]{16,}|AIza[0-9A-Za-z_-]{20,}|xai-[A-Za-z0-9_-]{16,})\b/g;
 
 export function sanitizeLogText(value: string): string {
   return value
     .replace(BEARER_TOKEN_PATTERN, `$1 ${REDACTED}`)
     .replace(BASIC_AUTH_PATTERN, `$1 ${REDACTED}`)
-    .replace(GITHUB_TOKEN_PATTERN, REDACTED);
+    .replace(GITHUB_TOKEN_PATTERN, REDACTED)
+    .replace(PROVIDER_KEY_PATTERN, REDACTED);
 }
 
 export function sanitizeUnknownError(error: unknown): string {
