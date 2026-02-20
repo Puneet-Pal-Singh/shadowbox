@@ -1,6 +1,12 @@
 import type { DurableObjectState } from "@cloudflare/workers-types";
 import type { CoreMessage } from "ai";
 import { afterEach, describe, it, expect, vi } from "vitest";
+
+// NOTE: This contract test intentionally lives in src/integration because the
+// PR3 readiness gate executes the exact path:
+// `pnpm --filter @shadowbox/brain test -- src/integration/provider-state.contract.test.ts`
+// Keep this location aligned with the documented gate in:
+// plans/codex-like-app/Top-version/16-AUDIT-CLOSURE-AND-BYOK-READINESS-LLD.md
 import type { ProviderId } from "../schemas/provider";
 import type { Env } from "../types/ai";
 import { ProviderController } from "../controllers/ProviderController";
