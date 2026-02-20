@@ -5,7 +5,7 @@ import type {
   DiffContent,
   CommitPayload,
   StageFilesRequest,
-} from "../../../../packages/shared-types/src/git";
+} from "@repo/shared-types";
 
 /**
  * GitController

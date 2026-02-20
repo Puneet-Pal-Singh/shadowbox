@@ -36,9 +36,11 @@ export interface IPlugin {
   setup?(sandbox: Sandbox): Promise<void>;
 
   // The actual action
-  // execute(sandbox: Sandbox, payload: any): Promise<PluginResult>;
-  // UPDATED: Accept the optional callback
-  execute(sandbox: Sandbox, payload: any, onLog?: LogCallback): Promise<PluginResult>;
+  execute(
+    sandbox: Sandbox,
+    payload: unknown,
+    onLog?: LogCallback,
+  ): Promise<PluginResult>;
 }
 
 export interface Message {

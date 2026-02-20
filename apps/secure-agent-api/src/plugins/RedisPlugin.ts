@@ -79,7 +79,13 @@ export class RedisPlugin implements IPlugin {
     throw new Error(`Redis Sidecar failed to start. Logs: ${logs.stdout.slice(0, 100)}`);
   }
 
-  async execute(sandbox: Sandbox, payload: any, onLog?: LogCallback): Promise<PluginResult> {
+  async execute(
+    sandbox: Sandbox,
+    payload: unknown,
+    onLog?: LogCallback,
+  ): Promise<PluginResult> {
+    void payload;
+    void onLog;
     const port = this.activePort || 6378;
     const check = await sandbox.exec(`nc -z localhost ${port}`);
     

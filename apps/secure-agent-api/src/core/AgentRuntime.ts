@@ -45,7 +45,7 @@ export class AgentRuntime extends DurableObject {
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
-    this.storageService = new StorageService(env.ARTIFACTS as any);
+    this.storageService = new StorageService(env.ARTIFACTS);
     this.setupRegistry();
   }
 
@@ -115,7 +115,7 @@ export class AgentRuntime extends DurableObject {
   }
 
   // 4. SRP: Pure Execution Engine
-  async run(pluginName: string, payload: any): Promise<PluginResult> {
+  async run(pluginName: string, payload: unknown): Promise<PluginResult> {
     const sb = await this.ensureSandbox();
     const plugin = this.plugins.get(pluginName);
 

@@ -71,5 +71,7 @@ export { MockPricingProvider } from './pricing/index.js'
 export { CostTracker, CostCalculator } from './cost/index.js'
 export type { Cost, CostSummary } from './cost/index.js'
 
-// Runtime extraction surface (Phase 3.2+)
+/**
+ * @deprecated Import runtime symbols from `@shadowbox/execution-engine/runtime` instead.
+ */
 export * as Runtime from './runtime/index.js'

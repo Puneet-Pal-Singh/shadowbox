@@ -1,4 +1,3 @@
-import { R2Bucket } from "@cloudflare/workers-types";
 import { Message } from "../interfaces/types";
 
 export interface R2Ref {
@@ -16,8 +15,17 @@ interface CoreToolCallPart {
   };
 }
 
+interface ArtifactBucket {
+  put(key: string, value: string): Promise<unknown>;
+  get(key: string): Promise<unknown>;
+}
+
+interface ArtifactBody {
+  text(): Promise<string>;
+}
+
 export class StorageService {
-  constructor(private artifacts: R2Bucket) {}
+  constructor(private artifacts: ArtifactBucket) {}
 
   /**
    * Scans a message for large tool calls (like create_code_artifact) and moves content to R2.
@@ -88,7 +96,15 @@ export class StorageService {
 
   async getArtifact(key: string): Promise<string | null> {
     const obj = await this.artifacts.get(key);
-    if (!obj) return null;
+    if (!obj || !isArtifactBody(obj)) return null;
     return await obj.text();
   }
+}
+
+function isArtifactBody(value: unknown): value is ArtifactBody {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const maybeBody = value as { text?: unknown };
+  return typeof maybeBody.text === "function";
 }
