@@ -185,9 +185,11 @@ export class RunEngineRuntime extends DurableObject {
         return errorResponse(request, env, message, status, code);
       }
 
-      const message =
-        error instanceof Error ? error.message : "Provider route failed";
-      return errorResponse(request, env, message, 500);
+      console.error(
+        `[runtime/provider] ${correlationId}: Unexpected provider route error`,
+        error,
+      );
+      return errorResponse(request, env, "Internal server error", 500);
     }
   }
 

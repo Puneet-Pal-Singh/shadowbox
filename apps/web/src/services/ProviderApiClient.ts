@@ -25,8 +25,17 @@ const SESSION_RUN_ID_KEY = "currentRunId";
  * Never stores API keys locally - all credential handling is server-side.
  */
 export class ProviderApiClient {
+  private static readSessionRunId(): string | null {
+    try {
+      return sessionStorage.getItem(SESSION_RUN_ID_KEY);
+    } catch (error) {
+      console.error("[provider/api] Failed to read run ID from sessionStorage", error);
+      return null;
+    }
+  }
+
   private static resolveRunId(): string | null {
-    const sessionRunId = sessionStorage.getItem(SESSION_RUN_ID_KEY);
+    const sessionRunId = ProviderApiClient.readSessionRunId();
     if (sessionRunId) {
       return sessionRunId;
     }
@@ -42,6 +51,8 @@ export class ProviderApiClient {
     const runId = ProviderApiClient.resolveRunId();
     if (runId) {
       headers["X-Run-Id"] = runId;
+    } else {
+      console.warn("[provider/api] No active runId found; X-Run-Id header omitted");
     }
 
     return headers;
