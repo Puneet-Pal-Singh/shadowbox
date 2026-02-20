@@ -1,15 +1,12 @@
 /**
  * ProviderController
  * Single Responsibility: Route handlers for provider API endpoints
- * Validates requests and delegates to ProviderConfigService
+ * Validates requests and delegates to RunEngineRuntime provider routes
+ * to guarantee a single provider-state owner path.
  */
 
+import { z } from "zod";
 import type { Env } from "../types/ai";
-import {
-  ConnectProvider,
-  DisconnectProvider,
-  GetProviderStatus,
-} from "../application/provider";
 import {
   ConnectProviderRequestSchema,
   DisconnectProviderRequestSchema,
@@ -18,7 +15,7 @@ import {
 } from "../schemas/provider";
 import {
   errorResponse,
-  jsonResponse,
+  withEngineHeaders,
 } from "../http/response";
 import {
   parseRequestBody,
@@ -29,12 +26,15 @@ import {
   isDomainError,
   mapDomainErrorToHttp,
 } from "../domain/errors";
-import { ProviderConfigService } from "../services/providers";
+
+const RunIdSchema = z.string().uuid();
+const RUN_ID_MISSING_MESSAGE =
+  "Missing required runId. Provide X-Run-Id header or runId query parameter.";
 
 /**
  * ProviderController - Route handlers for provider API
  * Each method handles one specific endpoint responsibility
- * Services are resolved per request (no singleton state)
+ * Provider state is delegated to RunEngineRuntime per runId
  */
 export class ProviderController {
   /**
@@ -51,13 +51,14 @@ export class ProviderController {
         providerId: ProviderId;
         apiKey: string;
       }>(body, ConnectProviderRequestSchema, correlationId);
+      const runId = resolveRunId(req, correlationId);
 
-      // Composition root: instantiate configService and inject into use-case
-      const configService = new ProviderConfigService(env);
-      const useCase = new ConnectProvider(configService);
-      const response = await useCase.execute(validatedRequest);
-
-      return jsonResponse(req, env, response);
+      return proxyProviderOperation(req, env, {
+        runId,
+        method: "POST",
+        path: "/providers/connect",
+        body: validatedRequest,
+      });
     } catch (error) {
       return handleProviderError(req, env, error, "connect", correlationId);
     }
@@ -76,13 +77,14 @@ export class ProviderController {
       const validatedRequest = validateWithSchema<{
         providerId: ProviderId;
       }>(body, DisconnectProviderRequestSchema, correlationId);
+      const runId = resolveRunId(req, correlationId);
 
-      // Composition root: instantiate configService and inject into use-case
-      const configService = new ProviderConfigService(env);
-      const useCase = new DisconnectProvider(configService);
-      const response = await useCase.execute(validatedRequest);
-
-      return jsonResponse(req, env, response);
+      return proxyProviderOperation(req, env, {
+        runId,
+        method: "POST",
+        path: "/providers/disconnect",
+        body: validatedRequest,
+      });
     } catch (error) {
       return handleProviderError(req, env, error, "disconnect", correlationId);
     }
@@ -97,12 +99,12 @@ export class ProviderController {
     console.log(`[provider/status] ${correlationId} request received`);
 
     try {
-      // Composition root: instantiate configService and inject into use-case
-      const configService = new ProviderConfigService(env);
-      const useCase = new GetProviderStatus(configService);
-      const providers = await useCase.execute();
-
-      return jsonResponse(req, env, { providers });
+      const runId = resolveRunId(req, correlationId);
+      return proxyProviderOperation(req, env, {
+        runId,
+        method: "GET",
+        path: "/providers/status",
+      });
     } catch (error) {
       return handleProviderError(req, env, error, "status", correlationId);
     }
@@ -133,15 +135,66 @@ export class ProviderController {
         ProviderIdSchema,
         correlationId,
       );
-
-      const configService = new ProviderConfigService(env);
-      const response = await configService.getModels(providerId);
-
-      return jsonResponse(req, env, response);
+      const runId = resolveRunId(req, correlationId);
+      return proxyProviderOperation(req, env, {
+        runId,
+        method: "GET",
+        path: `/providers/models?providerId=${encodeURIComponent(providerId)}`,
+      });
     } catch (error) {
       return handleProviderError(req, env, error, "models", correlationId);
     }
   }
+}
+
+function resolveRunId(req: Request, correlationId: string): string {
+  const url = new URL(req.url);
+  const candidate =
+    req.headers.get("X-Run-Id") ?? url.searchParams.get("runId");
+
+  if (!candidate) {
+    throw new ValidationError(
+      RUN_ID_MISSING_MESSAGE,
+      "MISSING_RUN_ID",
+      correlationId,
+    );
+  }
+
+  return validateWithSchema<string>(candidate, RunIdSchema, correlationId);
+}
+
+async function proxyProviderOperation(
+  req: Request,
+  env: Env,
+  operation: {
+    runId: string;
+    method: "GET" | "POST";
+    path: string;
+    body?: unknown;
+  },
+): Promise<Response> {
+  const id = env.RUN_ENGINE_RUNTIME.idFromName(operation.runId);
+  const stub = env.RUN_ENGINE_RUNTIME.get(id);
+  const headers = new Headers({ "X-Run-Id": operation.runId });
+
+  let body: string | undefined;
+  if (operation.body !== undefined) {
+    headers.set("Content-Type", "application/json");
+    body = JSON.stringify(operation.body);
+  }
+
+  const response = await stub.fetch(`https://run-engine${operation.path}`, {
+    method: operation.method,
+    headers,
+    body,
+  });
+
+  return withEngineHeaders(
+    req,
+    env,
+    response as unknown as Response,
+    operation.runId,
+  );
 }
 
 function handleProviderError(

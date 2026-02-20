@@ -22,6 +22,43 @@ import type {
  * Never stores API keys locally - all credential handling is server-side.
  */
 export class ProviderApiClient {
+  private static resolveRunId(): string | null {
+    const sessionRunId = sessionStorage.getItem("currentRunId");
+    if (sessionRunId) {
+      return sessionRunId;
+    }
+
+    const activeSessionId = localStorage.getItem(
+      "shadowbox:active-session-id:v2",
+    );
+    const sessionsRaw = localStorage.getItem("shadowbox:sessions:v2");
+    if (!activeSessionId || !sessionsRaw) {
+      return null;
+    }
+
+    try {
+      const parsed = JSON.parse(sessionsRaw) as {
+        sessions?: Record<string, { activeRunId?: string }>;
+      };
+      return parsed.sessions?.[activeSessionId]?.activeRunId ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  private static createHeaders(): HeadersInit {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+
+    const runId = ProviderApiClient.resolveRunId();
+    if (runId) {
+      headers["X-Run-Id"] = runId;
+    }
+
+    return headers;
+  }
+
   /**
    * Safely parse response body with JSON/text fallback for error messages
    * IMPORTANT: Response body can only be consumed once. Read as text first, then parse.
@@ -59,7 +96,7 @@ export class ProviderApiClient {
       const endpoint = getEndpoint("PROVIDER_CONNECT");
       const response = await fetch(endpoint, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: ProviderApiClient.createHeaders(),
         body: JSON.stringify(request),
       });
 
@@ -96,7 +133,7 @@ export class ProviderApiClient {
       const endpoint = getEndpoint("PROVIDER_DISCONNECT");
       const response = await fetch(endpoint, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: ProviderApiClient.createHeaders(),
         body: JSON.stringify(request),
       });
 
@@ -129,7 +166,7 @@ export class ProviderApiClient {
       const endpoint = getEndpoint("PROVIDER_STATUS");
       const response = await fetch(endpoint, {
         method: "GET",
-        headers: { "Content-Type": "application/json" },
+        headers: ProviderApiClient.createHeaders(),
       });
 
       if (!response.ok) {
@@ -167,7 +204,7 @@ export class ProviderApiClient {
 
       const response = await fetch(endpoint.toString(), {
         method: "GET",
-        headers: { "Content-Type": "application/json" },
+        headers: ProviderApiClient.createHeaders(),
       });
 
       if (!response.ok) {

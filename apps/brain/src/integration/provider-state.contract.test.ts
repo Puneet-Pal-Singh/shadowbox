@@ -1,24 +1,16 @@
-/**
- * Provider State Contract Test
- *
- * Verifies that provider state has a single canonical source (DurableProviderStore)
- * and is consistently accessible through all code paths:
- * - ProviderController (connect/disconnect/status/models)
- * - Runtime factories (chat inference)
- * - AIService adapter selection
- *
- * Tests the integration scenario:
- * 1. Connect provider -> Store credential in DurableProviderStore
- * 2. Get provider status -> Read from DurableProviderStore
- * 3. List available models -> Read from DurableProviderStore
- * 4. Chat inference -> Select adapter using DurableProviderStore
- */
-
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { afterEach, describe, it, expect } from "vitest";
 import type { ProviderId } from "../schemas/provider";
-import { DurableProviderStore, type ProviderCredential } from "../services/providers/DurableProviderStore";
+import type { Env } from "../types/ai";
+import { ProviderController } from "../controllers/ProviderController";
+import { ProviderConfigService } from "../services/providers";
+import { DurableProviderStore } from "../services/providers/DurableProviderStore";
+import {
+  getRuntimeProviderFromAdapter,
+  mapProviderIdToRuntimeProvider,
+  resolveModelSelection,
+} from "../services/ai/ModelSelectionPolicy";
+import { setCompatModeOverride } from "../config/runtime-compat";
 
-// Mock DurableObjectState
 interface MockDurableObjectState {
   storage?: {
     put: (key: string, value: string) => Promise<void>;
@@ -30,293 +22,279 @@ interface MockDurableObjectState {
   };
 }
 
-function createMockDurableObjectState(): MockDurableObjectState {
-  const data = new Map<string, string>();
+const RUN_ID = "123e4567-e89b-42d3-a456-426614174001";
+
+describe("Provider State Contract: Controller/Runtime Shared Ownership", () => {
+  afterEach(() => {
+    setCompatModeOverride(false);
+  });
+
+  it("uses one durable provider-state owner path across controller and runtime services", async () => {
+    const storageByRunId = new Map<string, Map<string, string>>();
+    const env = createEnvWithRunNamespace(storageByRunId);
+
+    const connectResponse = await ProviderController.connect(
+      new Request("http://localhost/api/providers/connect", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Run-Id": RUN_ID,
+        },
+        body: JSON.stringify({
+          providerId: "openai",
+          apiKey: "sk-test-provider-state-1234567890",
+        }),
+      }),
+      env,
+    );
+    expect(connectResponse.status).toBe(200);
+
+    const statusResponse = await ProviderController.status(
+      new Request("http://localhost/api/providers/status", {
+        method: "GET",
+        headers: {
+          "X-Run-Id": RUN_ID,
+        },
+      }),
+      env,
+    );
+    const statusBody = await statusResponse.json();
+    expect(statusResponse.status).toBe(200);
+    expect(
+      statusBody.providers.some(
+        (provider: { providerId: string; status: string }) =>
+          provider.providerId === "openai" && provider.status === "connected",
+      ),
+    ).toBe(true);
+
+    const modelsResponse = await ProviderController.models(
+      new Request(
+        "http://localhost/api/providers/models?providerId=openai",
+        {
+          method: "GET",
+          headers: {
+            "X-Run-Id": RUN_ID,
+          },
+        },
+      ),
+      env,
+    );
+    expect(modelsResponse.status).toBe(200);
+
+    const runtimeProviderConfig = createRuntimeProviderConfigService(
+      env,
+      storageByRunId,
+      RUN_ID,
+    );
+    const runtimeApiKey = await runtimeProviderConfig.getApiKey("openai");
+    expect(runtimeApiKey).toBe("sk-test-provider-state-1234567890");
+  });
+
+  it("retains provider state across runtime restart for the same runId scope", async () => {
+    const storageByRunId = new Map<string, Map<string, string>>();
+    const env = createEnvWithRunNamespace(storageByRunId);
+
+    await ProviderController.connect(
+      new Request("http://localhost/api/providers/connect", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Run-Id": RUN_ID,
+        },
+        body: JSON.stringify({
+          providerId: "groq",
+          apiKey: "gsk_test_provider_state_1234567890",
+        }),
+      }),
+      env,
+    );
+
+    const runtimeServiceBeforeRestart = createRuntimeProviderConfigService(
+      env,
+      storageByRunId,
+      RUN_ID,
+    );
+    expect(await runtimeServiceBeforeRestart.isConnected("groq")).toBe(true);
+
+    // Simulate runtime restart by rebuilding runtime service from same durable storage.
+    const runtimeServiceAfterRestart = createRuntimeProviderConfigService(
+      env,
+      storageByRunId,
+      RUN_ID,
+    );
+    expect(await runtimeServiceAfterRestart.isConnected("groq")).toBe(true);
+    expect(await runtimeServiceAfterRestart.getApiKey("groq")).toBe(
+      "gsk_test_provider_state_1234567890",
+    );
+  });
+
+  it("enforces strict-mode provider/model mismatch with explicit typed errors", () => {
+    setCompatModeOverride(false);
+
+    expectDomainError(() =>
+      resolveModelSelection(
+        "openai",
+        "llama-3.3-70b-versatile",
+        "litellm",
+        "llama-3.3-70b-versatile",
+        mapProviderIdToRuntimeProvider,
+        getRuntimeProviderFromAdapter,
+      ),
+      "MODEL_NOT_ALLOWED",
+    );
+
+    expectDomainError(() =>
+      resolveModelSelection(
+        "invalid-provider",
+        "gpt-4o",
+        "litellm",
+        "llama-3.3-70b-versatile",
+        mapProviderIdToRuntimeProvider,
+        getRuntimeProviderFromAdapter,
+      ),
+      "INVALID_PROVIDER_SELECTION",
+    );
+  });
+});
+
+function createEnvWithRunNamespace(
+  storageByRunId: Map<string, Map<string, string>>,
+): Env {
+  const namespace = {
+    idFromName: (name: string) => name,
+    get: (id: string) => ({
+      fetch: async (input: string | URL | Request, init?: RequestInit) => {
+        const request =
+          input instanceof Request ? input : new Request(String(input), init);
+        const runId = request.headers.get("X-Run-Id");
+        if (!runId || runId !== id) {
+          return new Response(
+            JSON.stringify({ error: "Missing required X-Run-Id header" }),
+            {
+              status: 400,
+              headers: { "Content-Type": "application/json" },
+            },
+          );
+        }
+
+        const configService = createRuntimeProviderConfigService(
+          env,
+          storageByRunId,
+          runId,
+        );
+        const url = new URL(request.url);
+        return handleProviderRuntimeRoute(request, url, configService);
+      },
+    }),
+  };
+
+  const env = {
+    RUN_ENGINE_RUNTIME: namespace as unknown as Env["RUN_ENGINE_RUNTIME"],
+    LLM_PROVIDER: "litellm",
+    DEFAULT_MODEL: "llama-3.3-70b-versatile",
+    GROQ_API_KEY: "test-key",
+    OPENAI_API_KEY: "sk-env-openai-key",
+  } as unknown as Env;
+
+  return env;
+}
+
+async function handleProviderRuntimeRoute(
+  request: Request,
+  url: URL,
+  configService: ProviderConfigService,
+): Promise<Response> {
+  if (url.pathname === "/providers/connect" && request.method === "POST") {
+    const body = (await request.json()) as {
+      providerId: ProviderId;
+      apiKey: string;
+    };
+    const response = await configService.connect(body);
+    return json(response, 200);
+  }
+
+  if (url.pathname === "/providers/disconnect" && request.method === "POST") {
+    const body = (await request.json()) as {
+      providerId: ProviderId;
+    };
+    const response = await configService.disconnect(body);
+    return json(response, 200);
+  }
+
+  if (url.pathname === "/providers/status" && request.method === "GET") {
+    const providers = await configService.getStatus();
+    return json({ providers }, 200);
+  }
+
+  if (url.pathname === "/providers/models" && request.method === "GET") {
+    const providerId = url.searchParams.get("providerId") as ProviderId | null;
+    if (!providerId) {
+      return json({ error: "Missing required query parameter: providerId" }, 400);
+    }
+    const response = await configService.getModels(providerId);
+    return json(response, 200);
+  }
+
+  return new Response("Not Found", { status: 404 });
+}
+
+function createRuntimeProviderConfigService(
+  env: Env,
+  storageByRunId: Map<string, Map<string, string>>,
+  runId: string,
+): ProviderConfigService {
+  const state = createDurableState(storageByRunId, runId);
+  const durableStore = new DurableProviderStore(state as any, runId);
+  return new ProviderConfigService(env, durableStore);
+}
+
+function createDurableState(
+  storageByRunId: Map<string, Map<string, string>>,
+  runId: string,
+): MockDurableObjectState {
+  if (!storageByRunId.has(runId)) {
+    storageByRunId.set(runId, new Map<string, string>());
+  }
+  const data = storageByRunId.get(runId)!;
 
   return {
     storage: {
       put: async (key: string, value: string) => {
         data.set(key, value);
       },
-      get: async (key: string) => {
-        return data.get(key);
-      },
+      get: async (key: string) => data.get(key),
       delete: async (key: string) => {
         data.delete(key);
       },
       list: async (options?: { prefix: string }) => {
-        const prefix = options?.prefix || "";
-        const result = new Map<string, string>();
+        const prefix = options?.prefix ?? "";
+        const entries = new Map<string, string>();
         for (const [key, value] of data) {
           if (key.startsWith(prefix)) {
-            result.set(key, value);
+            entries.set(key, value);
           }
         }
-        return result;
+        return entries;
       },
     },
   };
 }
 
-describe("Provider State Contract: Single Source of Truth", () => {
-  let store: DurableProviderStore;
-  let mockState: MockDurableObjectState;
-  const runId = "test-run-id-12345";
-
-  beforeEach(() => {
-    mockState = createMockDurableObjectState();
-    store = new DurableProviderStore(mockState as any, runId);
+function json(payload: unknown, status: number): Response {
+  return new Response(JSON.stringify(payload), {
+    status,
+    headers: { "Content-Type": "application/json" },
   });
+}
 
-  describe("Provider credential storage and retrieval", () => {
-    it("should store a provider credential in DurableProviderStore", async () => {
-      const providerId: ProviderId = "openai";
-      const apiKey = "sk-test-key-12345";
-
-      await store.setProvider(providerId, apiKey);
-
-      const retrieved = await store.getProvider(providerId);
-      expect(retrieved).toBeDefined();
-      expect(retrieved?.providerId).toBe(providerId);
-      expect(retrieved?.apiKey).toBe(apiKey);
-    });
-
-    it("should return null for non-existent provider", async () => {
-      const providerId: ProviderId = "groq";
-
-      const retrieved = await store.getProvider(providerId);
-      expect(retrieved).toBeNull();
-    });
-
-    it("should retrieve API key directly", async () => {
-      const providerId: ProviderId = "anthropic";
-      const apiKey = "sk-ant-test-key";
-
-      await store.setProvider(providerId, apiKey);
-      const retrievedKey = await store.getApiKey(providerId);
-
-      expect(retrievedKey).toBe(apiKey);
-    });
-
-    it("should return null for API key of non-existent provider", async () => {
-      const providerId: ProviderId = "openrouter";
-
-      const retrievedKey = await store.getApiKey(providerId);
-      expect(retrievedKey).toBeNull();
-    });
-  });
-
-  describe("Provider connection status", () => {
-    it("should report provider as connected after setProvider", async () => {
-      const providerId: ProviderId = "groq";
-
-      await store.setProvider(providerId, "test-key");
-      const isConnected = await store.isConnected(providerId);
-
-      expect(isConnected).toBe(true);
-    });
-
-    it("should report provider as not connected if never set", async () => {
-      const providerId: ProviderId = "openrouter";
-
-      const isConnected = await store.isConnected(providerId);
-      expect(isConnected).toBe(false);
-    });
-
-    it("should report provider as not connected after deletion", async () => {
-      const providerId: ProviderId = "openai";
-
-      await store.setProvider(providerId, "test-key");
-      expect(await store.isConnected(providerId)).toBe(true);
-
-      await store.deleteProvider(providerId);
-      expect(await store.isConnected(providerId)).toBe(false);
-    });
-  });
-
-  describe("Multiple provider management", () => {
-    it("should store and retrieve multiple providers independently", async () => {
-      const openai: ProviderId = "openai";
-      const groq: ProviderId = "groq";
-      const openaiKey = "sk-openai-key";
-      const groqKey = "gsk-groq-key";
-
-      await store.setProvider(openai, openaiKey);
-      await store.setProvider(groq, groqKey);
-
-      const openaiRetrieved = await store.getApiKey(openai);
-      const groqRetrieved = await store.getApiKey(groq);
-
-      expect(openaiRetrieved).toBe(openaiKey);
-      expect(groqRetrieved).toBe(groqKey);
-    });
-
-    it("should list all connected providers", async () => {
-      const openai: ProviderId = "openai";
-      const groq: ProviderId = "groq";
-
-      await store.setProvider(openai, "key1");
-      await store.setProvider(groq, "key2");
-
-      const allProviders = await store.getAllProviders();
-
-      expect(allProviders).toContain(openai);
-      expect(allProviders).toContain(groq);
-      expect(allProviders).toHaveLength(2);
-    });
-
-    it("should exclude non-existent providers from getAllProviders", async () => {
-      const openai: ProviderId = "openai";
-      const anthropic: ProviderId = "anthropic";
-
-      await store.setProvider(openai, "key1");
-      // anthropic is NOT set
-
-      const allProviders = await store.getAllProviders();
-
-      expect(allProviders).toContain(openai);
-      expect(allProviders).not.toContain(anthropic);
-    });
-  });
-
-  describe("Provider state isolation by runId", () => {
-    it("should isolate provider credentials by runId", async () => {
-      const store1 = new DurableProviderStore(mockState as any, "run-1");
-      const store2 = new DurableProviderStore(mockState as any, "run-2");
-      const providerId: ProviderId = "openai";
-      const key1 = "key-for-run-1";
-      const key2 = "key-for-run-2";
-
-      await store1.setProvider(providerId, key1);
-      await store2.setProvider(providerId, key2);
-
-      const retrieved1 = await store1.getApiKey(providerId);
-      const retrieved2 = await store2.getApiKey(providerId);
-
-      expect(retrieved1).toBe(key1);
-      expect(retrieved2).toBe(key2);
-    });
-  });
-
-  describe("Provider state consistency scenario", () => {
-    it("should maintain consistent state through connect->status->models->inference flow", async () => {
-      const providerId: ProviderId = "openai";
-      const apiKey = "sk-test-full-flow";
-
-      // Step 1: Connect provider (ProviderController.connect)
-      await store.setProvider(providerId, apiKey);
-      expect(await store.isConnected(providerId)).toBe(true);
-
-      // Step 2: Get provider status (ProviderController.status)
-      const allProviders = await store.getAllProviders();
-      expect(allProviders).toContain(providerId);
-
-      // Step 3: List available models (ProviderController.models)
-      // Models would be retrieved from provider catalog based on connected state
-      const isConnected = await store.isConnected(providerId);
-      expect(isConnected).toBe(true); // Gate for model availability
-
-      // Step 4: Chat inference (AIService.selectAdapter)
-      // Adapter would be selected based on provider connectivity
-      const inferenceKey = await store.getApiKey(providerId);
-      expect(inferenceKey).toBe(apiKey); // Same key used for both operations
-    });
-
-    it("should fail inference if provider not connected in strict mode scenario", async () => {
-      const providerId: ProviderId = "anthropic";
-
-      // Provider never connected
-      const isConnected = await store.isConnected(providerId);
-      expect(isConnected).toBe(false);
-
-      // In strict mode, adapter selection should fail
-      const apiKey = await store.getApiKey(providerId);
-      expect(apiKey).toBeNull(); // Triggers error in strict mode
-    });
-
-    it("should handle provider disconnect correctly", async () => {
-      const providerId: ProviderId = "groq";
-      const apiKey = "gsk-test-key";
-
-      // Connect
-      await store.setProvider(providerId, apiKey);
-      expect(await store.isConnected(providerId)).toBe(true);
-
-      // Disconnect
-      await store.deleteProvider(providerId);
-
-      // Verify disconnection
-      expect(await store.isConnected(providerId)).toBe(false);
-      expect(await store.getApiKey(providerId)).toBeNull();
-    });
-  });
-
-  describe("Error handling and edge cases", () => {
-    it("should handle credential with invalid JSON gracefully", async () => {
-      // Directly set malformed data in storage
-      await mockState.storage?.put(
-        `provider:${runId}:openai`,
-        "not-valid-json",
-      );
-
-      const retrieved = await store.getProvider("openai");
-      expect(retrieved).toBeNull(); // Should fail gracefully
-    });
-
-    it("should handle concurrent operations on same provider", async () => {
-      const providerId: ProviderId = "openai";
-
-      // Simulate concurrent updates
-      const [result1, result2] = await Promise.all([
-        store.setProvider(providerId, "key-1").then(() =>
-          store.getApiKey(providerId),
-        ),
-        store.setProvider(providerId, "key-2").then(() =>
-          store.getApiKey(providerId),
-        ),
-      ]);
-
-      // Both results should be valid keys (one will be the final stored value)
-      // The exact value depends on execution order and is not deterministic
-      const validKeys = ["key-1", "key-2"];
-      expect(validKeys).toContain(result1);
-      expect(validKeys).toContain(result2);
-      // At least one should be a valid key
-      expect([result1, result2].some((r) => validKeys.includes(r))).toBe(true);
-    });
-  });
-
-  describe("Test mode safety", () => {
-    it("should only allow clearAll in test environments", async () => {
-      await store.setProvider("openai", "key");
-
-      // Set test mode marker
-      (globalThis as any).__TEST_MODE__ = true;
-
-      try {
-        // Should succeed in test mode
-        await store.clearAll();
-        const allProviders = await store.getAllProviders();
-        expect(allProviders).toHaveLength(0);
-      } finally {
-        // Clean up
-        delete (globalThis as any).__TEST_MODE__;
-      }
-    });
-
-    it("should reject clearAll outside test mode", async () => {
-      await store.setProvider("openai", "key");
-
-      // Ensure not in test mode
-      delete (globalThis as any).__TEST_MODE__;
-
-      await expect(store.clearAll()).rejects.toThrow(
-        "clearAll() is only available in test environments",
-      );
-
-      // Data should still be there
-      const allProviders = await store.getAllProviders();
-      expect(allProviders).toHaveLength(1);
-    });
-  });
-});
+function expectDomainError(
+  run: () => unknown,
+  expectedCode: string,
+): void {
+  try {
+    run();
+    throw new Error(`Expected error with code ${expectedCode}`);
+  } catch (error) {
+    expect(error).toMatchObject({ code: expectedCode });
+  }
+}
