@@ -7,7 +7,7 @@ import type {
   DiffHunk,
   FileStatus,
   GitStatusResponse,
-} from "../../../../packages/shared-types/src/git";
+} from "@repo/shared-types";
 import {
   getWorkspaceRoot,
   normalizeRunId,

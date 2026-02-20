@@ -1,8 +1,13 @@
 {
   "extends": "@repo/typescript-config/base.json",
   "compilerOptions": {
+    "baseUrl": ".",
     "module": "esnext",
     "moduleResolution": "bundler",
+    "paths": {
+      "@repo/shared-types": ["../../packages/shared-types/src/index.ts"],
+      "@repo/shared-types/*": ["../../packages/shared-types/src/*"]
+    },
     "lib": ["esnext"],
     "types": [
       "@cloudflare/workers-types",
