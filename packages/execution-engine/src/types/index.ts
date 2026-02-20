@@ -29,6 +29,8 @@ export type {
   ExecutionStatus,
   StopReason,
   MemoryBlock,
+  ExecutionArtifact,
+  ExecutionStateError,
   ExecutionContext,
   ExecutionState
 } from './execution.js'
@@ -38,6 +40,8 @@ export {
   ExecutionStatusSchema,
   StopReasonSchema,
   MemoryBlockSchema,
+  ExecutionArtifactSchema,
+  ExecutionStateErrorSchema,
   ExecutionContextSchema,
   ExecutionStateSchema,
   createExecutionContext,

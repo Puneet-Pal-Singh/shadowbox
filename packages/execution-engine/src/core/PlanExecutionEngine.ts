@@ -78,7 +78,9 @@ export class PlanExecutionEngine {
       }
     } catch (error) {
       state.status = 'failed'
-      state.errors.push(error instanceof Error ? error : new Error(String(error)))
+      state.errors.push({
+        message: error instanceof Error ? error.message : String(error)
+      })
     }
 
     state.endTime = Math.max(Date.now(), state.startTime + 1)

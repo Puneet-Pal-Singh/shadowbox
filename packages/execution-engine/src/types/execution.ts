@@ -56,6 +56,23 @@ export const ExecutionContextSchema = z.object({
 
 export type ExecutionContext = z.infer<typeof ExecutionContextSchema>
 
+export const ExecutionArtifactSchema = z.object({
+  id: z.string().min(1).optional(),
+  type: z.string().min(1),
+  content: z.unknown(),
+  metadata: z.record(z.unknown()).optional()
+})
+
+export type ExecutionArtifact = z.infer<typeof ExecutionArtifactSchema>
+
+export const ExecutionStateErrorSchema = z.object({
+  message: z.string().min(1),
+  code: z.string().min(1).optional(),
+  details: z.unknown().optional()
+})
+
+export type ExecutionStateError = z.infer<typeof ExecutionStateErrorSchema>
+
 export const ExecutionStateSchema = z.object({
   runId: z.string().min(1),
   planId: z.string().min(1),
@@ -66,9 +83,9 @@ export const ExecutionStateSchema = z.object({
   endTime: z.number().int().positive().optional(),
   iterationCount: z.number().int().min(0),
   tokenUsage: TokenUsageSchema,
-  artifacts: z.array(z.any()),
+  artifacts: z.array(ExecutionArtifactSchema),
   stepResults: z.record(z.unknown()),
-  errors: z.array(z.any())
+  errors: z.array(ExecutionStateErrorSchema)
 })
 
 export type ExecutionState = z.infer<typeof ExecutionStateSchema>
