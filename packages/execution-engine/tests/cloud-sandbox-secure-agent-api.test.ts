@@ -437,7 +437,7 @@ describe('CloudSandboxExecutor Integration with secure-agent-api', () => {
       const parsed = JSON.parse(body as string)
       expect(parsed.sessionId).toBe('sess_test_123')
       expect(parsed.command).toBe('npm test')
-      expect(parsed.cwd).toBe('/workspace')
+      expect(parsed.cwd).toBe('workspace')
     })
 
     it('should handle 201 Created status for session creation', async () => {

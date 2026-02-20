@@ -310,6 +310,14 @@ export class CloudSandboxExecutor extends EnvironmentManager {
     }
   }
 
+  private normalizeCwdForApi(cwd: string): string {
+    if (!cwd.startsWith('/')) {
+      return cwd
+    }
+    const trimmed = cwd.replace(/^\/+/, '')
+    return trimmed.length > 0 ? trimmed : '.'
+  }
+
   /**
    * Create a remote session
    * @throws If session creation fails
@@ -368,7 +376,7 @@ export class CloudSandboxExecutor extends EnvironmentManager {
         body: JSON.stringify({
           sessionId,
           command: task.command,
-          cwd: task.cwd,
+          cwd: this.normalizeCwdForApi(task.cwd),
           timeout: task.timeout,
           env: task.env
         }),
