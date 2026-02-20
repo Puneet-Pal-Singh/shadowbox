@@ -32,7 +32,7 @@ export class ProviderConfigService {
   private catalogService: ProviderCatalogService;
   private connectionService: ProviderConnectionService;
 
-  constructor(_env: Env, durableStore?: DurableProviderStore) {
+  constructor(_env: Env, durableStore: DurableProviderStore) {
     this.credentialService = new ProviderCredentialService(_env, durableStore);
     this.catalogService = new ProviderCatalogService();
     this.connectionService = new ProviderConnectionService(

@@ -6,7 +6,7 @@
  */
 
 import type { LLMGateway, IAgent, AgentType } from "@shadowbox/execution-engine/runtime";
-import { AgentRegistry, CodingAgent, ReviewAgent } from "../../core/agents";
+import { AgentRegistry, CodingAgent, ReviewAgent } from "@shadowbox/execution-engine/runtime/agents";
 import { resolveAgentType } from "../policies/AgentTypePolicy";
 import { ExecutionService } from "../../services/ExecutionService";
 import type { Env } from "../../types/ai";

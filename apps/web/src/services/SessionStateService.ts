@@ -107,6 +107,20 @@ export class SessionStateService {
   }
 
   /**
+   * Resolve active run ID from persisted session state
+   * Returns null if no active session exists or session data is unavailable
+   */
+  static loadActiveSessionRunId(): string | null {
+    const activeSessionId = this.loadActiveSessionId();
+    if (!activeSessionId) {
+      return null;
+    }
+
+    const sessions = this.loadSessions();
+    return sessions[activeSessionId]?.activeRunId ?? null;
+  }
+
+  /**
    * Save the currently active session ID
    * Validates that the session exists before saving
    */

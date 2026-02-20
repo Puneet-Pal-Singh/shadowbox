@@ -4,6 +4,7 @@ import type { Env } from "../types/ai";
 import type { ProviderAdapter } from "./providers";
 import { AIService } from "./AIService";
 import { ProviderConfigService } from "./providers";
+import { DurableProviderStore } from "./providers/DurableProviderStore";
 
 const BASE_MESSAGES: CoreMessage[] = [{ role: "user", content: "hello" }];
 
@@ -98,6 +99,47 @@ function createEnv(): Env {
   };
 }
 
+function createProviderConfigService(): ProviderConfigService {
+  const durableStore = new DurableProviderStore(
+    createMockDurableObjectState() as any,
+    crypto.randomUUID(),
+  );
+  return new ProviderConfigService(createEnv(), durableStore);
+}
+
+function createMockDurableObjectState(): {
+  storage: {
+    put: (key: string, value: string) => Promise<void>;
+    get: (key: string) => Promise<string | undefined>;
+    delete: (key: string) => Promise<void>;
+    list: (options?: { prefix: string }) => Promise<Map<string, string>>;
+  };
+} {
+  const data = new Map<string, string>();
+
+  return {
+    storage: {
+      put: async (key: string, value: string) => {
+        data.set(key, value);
+      },
+      get: async (key: string) => data.get(key),
+      delete: async (key: string) => {
+        data.delete(key);
+      },
+      list: async (options?: { prefix: string }) => {
+        const prefix = options?.prefix ?? "";
+        const entries = new Map<string, string>();
+        for (const [key, value] of data) {
+          if (key.startsWith(prefix)) {
+            entries.set(key, value);
+          }
+        }
+        return entries;
+      },
+    },
+  };
+}
+
 async function readUint8Stream(
   stream: ReadableStream<Uint8Array>,
 ): Promise<string> {
@@ -188,7 +230,7 @@ describe("AIService provider override routing", () => {
   });
 
   it("uses default adapter when no provider override is supplied", async () => {
-    const providerConfig = new ProviderConfigService(createEnv());
+    const providerConfig = createProviderConfigService();
     const service = new AIService(createEnv(), providerConfig);
 
     mockedAi.selectAdapter.mockResolvedValue(litellmAdapter);
@@ -202,7 +244,7 @@ describe("AIService provider override routing", () => {
   });
 
   it("routes to override provider adapter when provider is connected", async () => {
-    const providerConfig = new ProviderConfigService(createEnv());
+    const providerConfig = createProviderConfigService();
     await providerConfig.connect({
       providerId: "openai",
       apiKey: "sk-test-1234567890",
@@ -224,7 +266,7 @@ describe("AIService provider override routing", () => {
   });
 
   it("throws ProviderNotConnectedError when override provider is disconnected (strict mode)", async () => {
-    const providerConfig = new ProviderConfigService(createEnv());
+    const providerConfig = createProviderConfigService();
     const service = new AIService(createEnv(), providerConfig);
 
     mockedAi.selectAdapter.mockRejectedValue(
@@ -246,7 +288,7 @@ describe("AIService provider override routing", () => {
   });
 
   it("uses override adapter for stream responses when provider is connected", async () => {
-    const providerConfig = new ProviderConfigService(createEnv());
+    const providerConfig = createProviderConfigService();
     await providerConfig.connect({
       providerId: "openai",
       apiKey: "sk-test-1234567890",
@@ -268,7 +310,7 @@ describe("AIService provider override routing", () => {
 
   describe("Direct OpenRouter and Groq inference (M1.3e)", () => {
     it("routes to OpenRouter adapter when OpenRouter provider is connected", async () => {
-      const providerConfig = new ProviderConfigService(createEnv());
+      const providerConfig = createProviderConfigService();
       await providerConfig.connect({
         providerId: "openrouter",
         apiKey: "sk-or-test-1234567890",
@@ -288,7 +330,7 @@ describe("AIService provider override routing", () => {
     });
 
     it("routes to Groq adapter when Groq provider is connected", async () => {
-      const providerConfig = new ProviderConfigService(createEnv());
+      const providerConfig = createProviderConfigService();
       await providerConfig.connect({
         providerId: "groq",
         apiKey: "gsk_test1234567890",
@@ -308,7 +350,7 @@ describe("AIService provider override routing", () => {
     });
 
     it("throws ProviderNotConnectedError when OpenRouter is not connected (strict mode)", async () => {
-      const providerConfig = new ProviderConfigService(createEnv());
+      const providerConfig = createProviderConfigService();
       const service = new AIService(createEnv(), providerConfig);
 
       mockedAi.selectAdapter.mockRejectedValue(
@@ -327,7 +369,7 @@ describe("AIService provider override routing", () => {
     });
 
     it("throws ProviderNotConnectedError when Groq is not connected (strict mode)", async () => {
-      const providerConfig = new ProviderConfigService(createEnv());
+      const providerConfig = createProviderConfigService();
       const service = new AIService(createEnv(), providerConfig);
 
       mockedAi.selectAdapter.mockRejectedValue(
@@ -346,7 +388,7 @@ describe("AIService provider override routing", () => {
     });
 
     it("maintains session isolation for provider/model selection", async () => {
-      const providerConfig = new ProviderConfigService(createEnv());
+      const providerConfig = createProviderConfigService();
 
       await providerConfig.connect({
         providerId: "groq",

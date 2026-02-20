@@ -15,6 +15,7 @@ describe("brain cors policy", () => {
       "https://app.shadowbox.dev",
     );
     expect(headers["Access-Control-Allow-Credentials"]).toBe("true");
+    expect(headers["Access-Control-Allow-Headers"]).toContain("X-Run-Id");
   });
 
   it("rejects non-allowlisted origin on preflight", async () => {

@@ -8,7 +8,7 @@
 
 import type { CoreMessage } from "ai";
 import type { ZodSchema } from "zod";
-import type { LLMUsage } from "../../core/cost/types";
+import type { LLMUsage } from "@shadowbox/execution-engine/runtime/cost";
 import type { RuntimeProvider } from "./ModelSelectionPolicy";
 import type { SDKModelConfig } from "./SDKModelFactory";
 

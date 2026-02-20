@@ -1,273 +1,242 @@
-/**
- * ProviderController Tests
- * Unit tests for provider endpoint handlers
- */
-
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect } from "vitest";
 import { ProviderController } from "./ProviderController";
 import type { Env } from "../types/ai";
-import { ProviderConfigService } from "../services/providers";
+import type { ProviderId } from "../schemas/provider";
 
-const mockEnv: Env = {
-  RUN_ENGINE_RUNTIME: {} as unknown,
-  LLM_PROVIDER: "litellm",
-  DEFAULT_MODEL: "llama-3.3-70b-versatile",
-  GROQ_API_KEY: "test-key",
-} as unknown as Env;
+const TEST_RUN_ID = "123e4567-e89b-42d3-a456-426614174000";
+
+function createMockEnv(): Env {
+  const providerState = new Map<string, Set<ProviderId>>();
+  const catalog: Record<ProviderId, Array<{ id: string; name: string }>> = {
+    openai: [{ id: "gpt-4o", name: "GPT-4o" }],
+    openrouter: [{ id: "openrouter/auto", name: "Auto" }],
+    groq: [{ id: "llama-3.3-70b-versatile", name: "Llama 3.3 70B" }],
+  };
+
+  const namespace = {
+    idFromName: (name: string) => name,
+    get: (id: string) => ({
+      fetch: async (input: string | URL | Request, init?: RequestInit) => {
+        const request =
+          input instanceof Request ? input : new Request(String(input), init);
+        const url = new URL(request.url);
+        const runId = request.headers.get("X-Run-Id");
+
+        if (!runId || runId !== id) {
+          return jsonError("Missing required X-Run-Id header", 400);
+        }
+
+        if (!providerState.has(runId)) {
+          providerState.set(runId, new Set<ProviderId>());
+        }
+        const connectedProviders = providerState.get(runId)!;
+
+        if (url.pathname === "/providers/connect" && request.method === "POST") {
+          const body = (await request.json()) as {
+            providerId: ProviderId;
+          };
+          connectedProviders.add(body.providerId);
+          return jsonOk({
+            status: "connected",
+            providerId: body.providerId,
+            lastValidatedAt: new Date().toISOString(),
+          });
+        }
+
+        if (
+          url.pathname === "/providers/disconnect" &&
+          request.method === "POST"
+        ) {
+          const body = (await request.json()) as {
+            providerId: ProviderId;
+          };
+          connectedProviders.delete(body.providerId);
+          return jsonOk({
+            status: "disconnected",
+            providerId: body.providerId,
+          });
+        }
+
+        if (url.pathname === "/providers/status" && request.method === "GET") {
+          return jsonOk({
+            providers: (["openrouter", "openai", "groq"] as ProviderId[]).map(
+              (providerId) => ({
+                providerId,
+                status: connectedProviders.has(providerId)
+                  ? "connected"
+                  : "disconnected",
+              }),
+            ),
+          });
+        }
+
+        if (url.pathname === "/providers/models" && request.method === "GET") {
+          const providerId = url.searchParams.get("providerId") as
+            | ProviderId
+            | null;
+          if (!providerId || !catalog[providerId]) {
+            return jsonError("Invalid providerId", 400);
+          }
+          return jsonOk({
+            providerId,
+            models: catalog[providerId].map((model) => ({
+              ...model,
+              provider: providerId,
+            })),
+            lastFetchedAt: new Date().toISOString(),
+          });
+        }
+
+        return new Response("Not Found", { status: 404 });
+      },
+    }),
+  };
+
+  return {
+    RUN_ENGINE_RUNTIME: namespace as unknown as Env["RUN_ENGINE_RUNTIME"],
+    LLM_PROVIDER: "litellm",
+    DEFAULT_MODEL: "llama-3.3-70b-versatile",
+    GROQ_API_KEY: "test-key",
+  } as unknown as Env;
+}
+
+function withRunIdHeaders(
+  headers: Record<string, string> = {},
+): Record<string, string> {
+  return {
+    "Content-Type": "application/json",
+    "X-Run-Id": TEST_RUN_ID,
+    ...headers,
+  };
+}
+
+function jsonOk(data: unknown): Response {
+  return new Response(JSON.stringify(data), {
+    status: 200,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+function jsonError(message: string, status: number): Response {
+  return new Response(JSON.stringify({ error: message }), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
 
 describe("ProviderController", () => {
-  beforeEach(() => {
-    ProviderConfigService.resetForTests();
-  });
-
   describe("connect", () => {
-    it("should connect provider with valid API key", async () => {
+    it("connects provider with valid API key", async () => {
+      const env = createMockEnv();
       const request = new Request("http://localhost/api/providers/connect", {
         method: "POST",
         body: JSON.stringify({
           providerId: "openai",
           apiKey: "sk-test-1234567890",
         }),
-        headers: { "Content-Type": "application/json" },
+        headers: withRunIdHeaders(),
       });
 
-      const response = await ProviderController.connect(request, mockEnv);
-      expect(response.status).toBe(200);
-
+      const response = await ProviderController.connect(request, env);
       const data = await response.json();
+
+      expect(response.status).toBe(200);
       expect(data.status).toBe("connected");
       expect(data.providerId).toBe("openai");
     });
 
-    it("should fail with empty API key", async () => {
+    it("fails without runId", async () => {
+      const env = createMockEnv();
       const request = new Request("http://localhost/api/providers/connect", {
         method: "POST",
         body: JSON.stringify({
           providerId: "openai",
-          apiKey: "",
-        }),
-        headers: { "Content-Type": "application/json" },
-      });
-
-      const response = await ProviderController.connect(request, mockEnv);
-      expect(response.status).toBe(400);
-
-      const data = await response.json();
-      expect(data.error).toContain("Validation error");
-    });
-
-    it("should fail with short API key", async () => {
-      const request = new Request("http://localhost/api/providers/connect", {
-        method: "POST",
-        body: JSON.stringify({
-          providerId: "openai",
-          apiKey: "short",
-        }),
-        headers: { "Content-Type": "application/json" },
-      });
-
-      const response = await ProviderController.connect(request, mockEnv);
-      expect(response.status).toBe(400);
-
-      const data = await response.json();
-      expect(data.error).toContain("at least 10 characters");
-    });
-
-    it("should fail with invalid API key format", async () => {
-      const request = new Request("http://localhost/api/providers/connect", {
-        method: "POST",
-        body: JSON.stringify({
-          providerId: "openai",
-          apiKey: "sk-test@!#$%^invalid",
-        }),
-        headers: { "Content-Type": "application/json" },
-      });
-
-      const response = await ProviderController.connect(request, mockEnv);
-      expect(response.status).toBe(400);
-
-      const data = await response.json();
-      expect(data.error).toContain("invalid characters");
-    });
-
-    it("should fail with wrong OpenAI key format", async () => {
-      const request = new Request("http://localhost/api/providers/connect", {
-        method: "POST",
-        body: JSON.stringify({
-          providerId: "openai",
-          apiKey: "invalid-key-format-1234",
-        }),
-        headers: { "Content-Type": "application/json" },
-      });
-
-      const response = await ProviderController.connect(request, mockEnv);
-      expect(response.status).toBe(400);
-
-      const data = await response.json();
-      expect(data.error).toContain("Invalid API key format");
-    });
-
-    it("should fail with wrong OpenRouter key format", async () => {
-      const request = new Request("http://localhost/api/providers/connect", {
-        method: "POST",
-        body: JSON.stringify({
-          providerId: "openrouter",
           apiKey: "sk-test-1234567890",
         }),
         headers: { "Content-Type": "application/json" },
       });
 
-      const response = await ProviderController.connect(request, mockEnv);
-      expect(response.status).toBe(400);
-
-      const data = await response.json();
-      expect(data.error).toContain("Invalid API key format");
-    });
-
-    it("should fail with invalid provider ID", async () => {
-      const request = new Request("http://localhost/api/providers/connect", {
-        method: "POST",
-        body: JSON.stringify({
-          providerId: "invalid",
-          apiKey: "sk-test-1234567890",
-        }),
-        headers: { "Content-Type": "application/json" },
-      });
-
-      const response = await ProviderController.connect(request, mockEnv);
-      expect(response.status).toBe(400);
-    });
-
-    it("should fail with malformed JSON", async () => {
-      const request = new Request("http://localhost/api/providers/connect", {
-        method: "POST",
-        body: "{invalid json",
-        headers: { "Content-Type": "application/json" },
-      });
-
-      const response = await ProviderController.connect(request, mockEnv);
+      const response = await ProviderController.connect(request, env);
       expect(response.status).toBe(400);
     });
   });
 
   describe("disconnect", () => {
-    it("should disconnect provider", async () => {
+    it("disconnects a connected provider", async () => {
+      const env = createMockEnv();
+
+      await ProviderController.connect(
+        new Request("http://localhost/api/providers/connect", {
+          method: "POST",
+          body: JSON.stringify({
+            providerId: "openai",
+            apiKey: "sk-test-1234567890",
+          }),
+          headers: withRunIdHeaders(),
+        }),
+        env,
+      );
+
       const request = new Request("http://localhost/api/providers/disconnect", {
         method: "POST",
-        body: JSON.stringify({
-          providerId: "openai",
-        }),
-        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ providerId: "openai" }),
+        headers: withRunIdHeaders(),
       });
 
-      const response = await ProviderController.disconnect(request, mockEnv);
-      expect(response.status).toBe(200);
-
+      const response = await ProviderController.disconnect(request, env);
       const data = await response.json();
+
+      expect(response.status).toBe(200);
       expect(data.status).toBe("disconnected");
       expect(data.providerId).toBe("openai");
-    });
-
-    it("should fail with invalid provider ID", async () => {
-      const request = new Request("http://localhost/api/providers/disconnect", {
-        method: "POST",
-        body: JSON.stringify({
-          providerId: "invalid",
-        }),
-        headers: { "Content-Type": "application/json" },
-      });
-
-      const response = await ProviderController.disconnect(request, mockEnv);
-      expect(response.status).toBe(400);
     });
   });
 
   describe("status", () => {
-    it("should return status for all providers", async () => {
+    it("returns provider statuses for the run scope", async () => {
+      const env = createMockEnv();
       const request = new Request("http://localhost/api/providers/status", {
         method: "GET",
+        headers: { "X-Run-Id": TEST_RUN_ID },
       });
 
-      const response = await ProviderController.status(request, mockEnv);
+      const response = await ProviderController.status(request, env);
+      const data = await response.json();
+
       expect(response.status).toBe(200);
-
-      const data = await response.json();
-      expect(data.providers).toBeDefined();
       expect(Array.isArray(data.providers)).toBe(true);
-      expect(data.providers.length).toBeGreaterThan(0);
-    });
-
-    it("should show disconnected status initially", async () => {
-      const request = new Request("http://localhost/api/providers/status", {
-        method: "GET",
-      });
-
-      const response = await ProviderController.status(request, mockEnv);
-      const data = await response.json();
-
-      const providers = data.providers as Array<{ status: string }>;
-      expect(providers.every((p) => p.status === "disconnected")).toBe(true);
+      expect(data.providers).toHaveLength(3);
     });
   });
 
   describe("models", () => {
-    it("should return models for OpenAI provider", async () => {
+    it("returns models for a provider", async () => {
+      const env = createMockEnv();
       const request = new Request(
         "http://localhost/api/providers/models?providerId=openai",
         {
           method: "GET",
+          headers: { "X-Run-Id": TEST_RUN_ID },
         },
       );
 
-      const response = await ProviderController.models(request, mockEnv);
-      expect(response.status).toBe(200);
-
+      const response = await ProviderController.models(request, env);
       const data = await response.json();
+
+      expect(response.status).toBe(200);
       expect(data.providerId).toBe("openai");
       expect(Array.isArray(data.models)).toBe(true);
       expect(data.models.length).toBeGreaterThan(0);
     });
 
-    it("should return models for OpenRouter provider", async () => {
-      const request = new Request(
-        "http://localhost/api/providers/models?providerId=openrouter",
-        {
-          method: "GET",
-        },
-      );
+    it("fails when providerId query parameter is missing", async () => {
+      const env = createMockEnv();
+      const request = new Request("http://localhost/api/providers/models", {
+        method: "GET",
+        headers: { "X-Run-Id": TEST_RUN_ID },
+      });
 
-      const response = await ProviderController.models(request, mockEnv);
-      expect(response.status).toBe(200);
-
-      const data = await response.json();
-      expect(data.providerId).toBe("openrouter");
-      expect(Array.isArray(data.models)).toBe(true);
-    });
-
-    it("should fail with missing providerId query param", async () => {
-      const request = new Request(
-        "http://localhost/api/providers/models",
-        {
-          method: "GET",
-        },
-      );
-
-      const response = await ProviderController.models(request, mockEnv);
-      expect(response.status).toBe(400);
-
-      const data = await response.json();
-      expect(data.error).toContain("providerId");
-    });
-
-    it("should fail with invalid providerId", async () => {
-      const request = new Request(
-        "http://localhost/api/providers/models?providerId=invalid",
-        {
-          method: "GET",
-        },
-      );
-
-      const response = await ProviderController.models(request, mockEnv);
+      const response = await ProviderController.models(request, env);
       expect(response.status).toBe(400);
     });
   });

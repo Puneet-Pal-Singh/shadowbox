@@ -8,7 +8,7 @@
 
 import { PolicyError } from "../../domain/errors";
 import type { AgentType } from "@shadowbox/execution-engine/runtime";
-import { AgentRegistry } from "../../core/agents";
+import { AgentRegistry } from "@shadowbox/execution-engine/runtime/agents";
 
 interface AgentTypePolicyOptions {
   /**

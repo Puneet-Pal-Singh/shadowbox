@@ -5,6 +5,7 @@
  */
 
 import { getEndpoint } from "../lib/platform-endpoints";
+import { SessionStateService } from "./SessionStateService";
 import type {
   ProviderId,
   ConnectProviderRequest,
@@ -15,6 +16,8 @@ import type {
   ProviderConnectionStatus,
 } from "../types/provider";
 
+const SESSION_RUN_ID_KEY = "currentRunId";
+
 /**
  * ProviderApiClient - Backend API client for provider operations
  *
@@ -22,6 +25,39 @@ import type {
  * Never stores API keys locally - all credential handling is server-side.
  */
 export class ProviderApiClient {
+  private static readSessionRunId(): string | null {
+    try {
+      return sessionStorage.getItem(SESSION_RUN_ID_KEY);
+    } catch (error) {
+      console.error("[provider/api] Failed to read run ID from sessionStorage", error);
+      return null;
+    }
+  }
+
+  private static resolveRunId(): string | null {
+    const sessionRunId = ProviderApiClient.readSessionRunId();
+    if (sessionRunId) {
+      return sessionRunId;
+    }
+
+    return SessionStateService.loadActiveSessionRunId();
+  }
+
+  private static createHeaders(): HeadersInit {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+
+    const runId = ProviderApiClient.resolveRunId();
+    if (runId) {
+      headers["X-Run-Id"] = runId;
+    } else {
+      console.warn("[provider/api] No active runId found; X-Run-Id header omitted");
+    }
+
+    return headers;
+  }
+
   /**
    * Safely parse response body with JSON/text fallback for error messages
    * IMPORTANT: Response body can only be consumed once. Read as text first, then parse.
@@ -59,7 +95,7 @@ export class ProviderApiClient {
       const endpoint = getEndpoint("PROVIDER_CONNECT");
       const response = await fetch(endpoint, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: ProviderApiClient.createHeaders(),
         body: JSON.stringify(request),
       });
 
@@ -96,7 +132,7 @@ export class ProviderApiClient {
       const endpoint = getEndpoint("PROVIDER_DISCONNECT");
       const response = await fetch(endpoint, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: ProviderApiClient.createHeaders(),
         body: JSON.stringify(request),
       });
 
@@ -129,7 +165,7 @@ export class ProviderApiClient {
       const endpoint = getEndpoint("PROVIDER_STATUS");
       const response = await fetch(endpoint, {
         method: "GET",
-        headers: { "Content-Type": "application/json" },
+        headers: ProviderApiClient.createHeaders(),
       });
 
       if (!response.ok) {
@@ -167,7 +203,7 @@ export class ProviderApiClient {
 
       const response = await fetch(endpoint.toString(), {
         method: "GET",
-        headers: { "Content-Type": "application/json" },
+        headers: ProviderApiClient.createHeaders(),
       });
 
       if (!response.ok) {
