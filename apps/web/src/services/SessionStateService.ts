@@ -21,8 +21,8 @@ import type {
   SessionGitHubContext,
 } from "../types/session";
 
-export const SESSIONS_KEY = "shadowbox:sessions:v2";
-export const ACTIVE_SESSION_ID_KEY = "shadowbox:active-session-id:v2";
+const SESSIONS_KEY = "shadowbox:sessions:v2";
+const ACTIVE_SESSION_ID_KEY = "shadowbox:active-session-id:v2";
 
 function getSessionContextKey(sessionId: string): string {
   return `shadowbox:session-context:${sessionId}`;
@@ -104,6 +104,20 @@ export class SessionStateService {
       console.error("[SessionStateService] Failed to load active session ID:", e);
       return null;
     }
+  }
+
+  /**
+   * Resolve active run ID from persisted session state
+   * Returns null if no active session exists or session data is unavailable
+   */
+  static loadActiveSessionRunId(): string | null {
+    const activeSessionId = this.loadActiveSessionId();
+    if (!activeSessionId) {
+      return null;
+    }
+
+    const sessions = this.loadSessions();
+    return sessions[activeSessionId]?.activeRunId ?? null;
   }
 
   /**

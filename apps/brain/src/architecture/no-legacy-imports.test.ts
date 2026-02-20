@@ -163,15 +163,33 @@ describe("Architecture Boundary: No Legacy Imports", () => {
     const allFiles = getAllTSFiles(BRAIN_SRC, ["architecture", "core"]);
     const violations: DeprecatedImport[] = [];
     const wrapperImportPattern = /\/core\/(engine|orchestration|run|task|planner|cost|llm|agents)(\/|$)/;
+    const multilineWrapperImportPattern =
+      /import[\s\S]*?from\s+["']([^"']*\/core\/(engine|orchestration|run|task|planner|cost|llm|agents)(?:\/|$)[^"']*)["']/g;
 
     for (const file of allFiles) {
       const imports = extractImports(file);
+      let hasWrapperImport = false;
       for (const { line, module } of imports) {
         if (wrapperImportPattern.test(module)) {
+          hasWrapperImport = true;
           violations.push({
             file,
             line,
             importedModule: module,
+            reason: "Imports must target @shadowbox/execution-engine directly",
+          });
+        }
+      }
+
+      if (!hasWrapperImport) {
+        const content = fs.readFileSync(file, "utf-8");
+        let match: RegExpExecArray | null;
+        while ((match = multilineWrapperImportPattern.exec(content)) !== null) {
+          const line = estimateLineNumber(content, match.index);
+          violations.push({
+            file,
+            line,
+            importedModule: match[1],
             reason: "Imports must target @shadowbox/execution-engine directly",
           });
         }
@@ -268,3 +286,10 @@ describe("Architecture Boundary: No Legacy Imports", () => {
     ).toEqual([]);
   });
 });
+
+function estimateLineNumber(content: string, index: number): number {
+  if (index <= 0) {
+    return 1;
+  }
+  return content.slice(0, index).split("\n").length;
+}

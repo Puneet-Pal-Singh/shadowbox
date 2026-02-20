@@ -78,6 +78,24 @@ describe("SessionStateService", () => {
     });
   });
 
+  describe("Active Run Resolution", () => {
+    it("should resolve active run ID from active session", () => {
+      const session = SessionStateService.createSession("Test Session", "repo");
+      const sessions = { [session.id]: session };
+
+      SessionStateService.saveSessions(sessions, session.id);
+      SessionStateService.saveActiveSessionId(session.id, sessions);
+
+      const runId = SessionStateService.loadActiveSessionRunId();
+      expect(runId).toBe(session.activeRunId);
+    });
+
+    it("should return null when active session is missing", () => {
+      const runId = SessionStateService.loadActiveSessionRunId();
+      expect(runId).toBeNull();
+    });
+  });
+
   describe("Session-Scoped GitHub Context", () => {
     it("should save and load GitHub context for session", () => {
       const sessionId = "session-1";

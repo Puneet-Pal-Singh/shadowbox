@@ -5,7 +5,7 @@
  */
 
 import { getEndpoint } from "../lib/platform-endpoints";
-import { ACTIVE_SESSION_ID_KEY, SESSIONS_KEY } from "./SessionStateService";
+import { SessionStateService } from "./SessionStateService";
 import type {
   ProviderId,
   ConnectProviderRequest,
@@ -31,20 +31,7 @@ export class ProviderApiClient {
       return sessionRunId;
     }
 
-    const activeSessionId = localStorage.getItem(ACTIVE_SESSION_ID_KEY);
-    const sessionsRaw = localStorage.getItem(SESSIONS_KEY);
-    if (!activeSessionId || !sessionsRaw) {
-      return null;
-    }
-
-    try {
-      const parsed = JSON.parse(sessionsRaw) as {
-        sessions?: Record<string, { activeRunId?: string }>;
-      };
-      return parsed.sessions?.[activeSessionId]?.activeRunId ?? null;
-    } catch {
-      return null;
-    }
+    return SessionStateService.loadActiveSessionRunId();
   }
 
   private static createHeaders(): HeadersInit {
