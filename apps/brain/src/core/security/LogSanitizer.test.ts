@@ -33,6 +33,20 @@ describe("brain log sanitizer", () => {
     expect(sanitized).toContain("[REDACTED]");
   });
 
+  it("redacts provider key formats in text", () => {
+    const value =
+      "openai=sk-proj-abcdefghijklmnopqrstuvwxyz1234 groq=gsk_abcdefghijklmnopqrstuvwxyz1234 google=AIzaSyA1234567890abcdefghijklmnopqrstuvwxyz xai=xai-abcdefghijklmnopqrstuvwxyz1234";
+    const sanitized = sanitizeLogText(value);
+
+    expect(sanitized).not.toContain("sk-proj-abcdefghijklmnopqrstuvwxyz1234");
+    expect(sanitized).not.toContain("gsk_abcdefghijklmnopqrstuvwxyz1234");
+    expect(sanitized).not.toContain(
+      "AIzaSyA1234567890abcdefghijklmnopqrstuvwxyz",
+    );
+    expect(sanitized).not.toContain("xai-abcdefghijklmnopqrstuvwxyz1234");
+    expect(sanitized).toContain("[REDACTED]");
+  });
+
   it("sanitizes unknown errors", () => {
     const error = new Error("failed with Bearer secretToken");
     expect(sanitizeUnknownError(error)).toContain("[REDACTED]");

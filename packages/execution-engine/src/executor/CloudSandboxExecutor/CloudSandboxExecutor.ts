@@ -33,6 +33,12 @@ interface CloudExecutionResponse {
   status: 'success' | 'error' | 'timeout'
 }
 
+interface CloudApiErrorPayload {
+  error?: string
+  code?: string
+  details?: unknown
+}
+
 /**
  * Configuration for CloudSandboxExecutor
  */
@@ -71,6 +77,26 @@ const SESSION_CREATE_TIMEOUT = 30000 // 30 seconds
 const TASK_EXEC_TIMEOUT = 60000 // 60 seconds
 const POLL_TIMEOUT = 120000 // 120 seconds for polling
 const LOG_STREAM_TIMEOUT = 10000 // 10 seconds per log request
+const EXECUTION_NOT_IMPLEMENTED_CODE = 'EXECUTION_NOT_IMPLEMENTED'
+const SCRUBBING_MAX_LENGTH = 200
+const BEARER_TOKEN_PATTERN = /\b(Bearer)\s+[A-Za-z0-9\-._~+/]+=*/gi
+const BASIC_AUTH_PATTERN = /\b(Basic)\s+[A-Za-z0-9+/=]{8,}/gi
+const SENSITIVE_KEY_VALUE_PATTERN =
+  /(\b(?:token|api[_-]?key|authorization)\b\s*[:=]\s*)([^\s,;]+)/gi
+const KNOWN_SECRET_PREFIX_PATTERN =
+  /\b(tok_[A-Za-z0-9_-]{8,}|sk-[A-Za-z0-9_-]{16,}|gsk_[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9_]{10,}|github_pat_[A-Za-z0-9_]+)\b/g
+
+class CloudApiError extends Error {
+  readonly status: number
+  readonly code: string
+
+  constructor(status: number, code: string, message: string) {
+    super(message)
+    this.name = 'CloudApiError'
+    this.status = status
+    this.code = code
+  }
+}
 
 /**
  * Cloud sandbox executor implementation
@@ -125,15 +151,19 @@ export class CloudSandboxExecutor extends EnvironmentManager {
     task: ExecutionTask
   ): Promise<ExecutionResult> {
     const sessionId = env.metadata?.sessionId
+    const sessionToken = env.metadata?.token
     if (typeof sessionId !== 'string') {
       throw new Error('Session ID not found in environment metadata')
+    }
+    if (typeof sessionToken !== 'string') {
+      throw new Error('Session token not found in environment metadata')
     }
 
     try {
       this.validateTask(task)
 
       const result = await this.retryWithBackoff(() =>
-        this.executeTaskInCloud(sessionId, task)
+        this.executeTaskInCloud(sessionId, sessionToken, task)
       )
 
       return {
@@ -145,12 +175,12 @@ export class CloudSandboxExecutor extends EnvironmentManager {
         status: result.status
       }
     } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error)
+      const failure = this.buildExecutionFailure(error)
       return {
-        exitCode: 1,
+        exitCode: failure.exitCode,
         stdout: '',
-        stderr: msg,
-        duration: 0,
+        stderr: failure.stderr,
+        duration: failure.duration,
         timestamp: Date.now(),
         status: 'error'
       }
@@ -159,8 +189,12 @@ export class CloudSandboxExecutor extends EnvironmentManager {
 
   async streamLogs(env: ExecutionEnvironment): Promise<AsyncIterable<ExecutionLog>> {
     const sessionId = env.metadata?.sessionId as string
+    const sessionToken = env.metadata?.token as string
     if (!sessionId) {
       throw new Error('Session ID not found in environment metadata')
+    }
+    if (!sessionToken) {
+      throw new Error('Session token not found in environment metadata')
     }
 
     // Create self reference for use in async generator
@@ -176,7 +210,11 @@ export class CloudSandboxExecutor extends EnvironmentManager {
           while (Date.now() - lastLogTime < POLL_TIMEOUT) {
             try {
               // Pass timestamp to avoid re-yielding duplicate logs
-              const logs = await self.fetchLogsWithTimestamp(sessionId, lastFetchedTimestamp)
+              const logs = await self.fetchLogsWithTimestamp(
+                sessionId,
+                sessionToken,
+                lastFetchedTimestamp
+              )
               if (logs.length > 0) {
                 for (const log of logs) {
                   yield log
@@ -211,13 +249,18 @@ export class CloudSandboxExecutor extends EnvironmentManager {
 
   async destroyEnvironment(env: ExecutionEnvironment): Promise<void> {
     const sessionId = env.metadata?.sessionId as string
+    const sessionToken = env.metadata?.token as string
     if (!sessionId) {
       console.warn('[executor/cloud] Session ID not found in metadata')
       return
     }
+    if (!sessionToken) {
+      console.warn('[executor/cloud] Session token not found in metadata')
+      return
+    }
 
     try {
-      await this.retryWithBackoff(() => this.deleteSession(sessionId))
+      await this.retryWithBackoff(() => this.deleteSession(sessionId, sessionToken))
       console.log(`[executor/cloud] Destroyed session: ${sessionId.substring(0, 8)}...`)
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error)
@@ -274,6 +317,14 @@ export class CloudSandboxExecutor extends EnvironmentManager {
     }
   }
 
+  private normalizeCwdForApi(cwd: string): string {
+    if (!cwd.startsWith('/')) {
+      return cwd
+    }
+    const trimmed = cwd.replace(/^\/+/, '')
+    return trimmed.length > 0 ? trimmed : '.'
+  }
+
   /**
    * Create a remote session
    * @throws If session creation fails
@@ -299,8 +350,7 @@ export class CloudSandboxExecutor extends EnvironmentManager {
       })
 
       if (!response.ok) {
-        const error = await this.parseErrorResponse(response)
-        throw new Error(`Failed to create session: ${error}`)
+        throw await this.parseApiError('Failed to create session', response)
       }
 
       const session = (await response.json()) as unknown
@@ -316,6 +366,7 @@ export class CloudSandboxExecutor extends EnvironmentManager {
    */
   private async executeTaskInCloud(
     sessionId: string,
+    sessionToken: string,
     task: ExecutionTask
   ): Promise<CloudExecutionResponse> {
     const url = `${this.apiUrl}/api/v1/execute`
@@ -326,13 +377,13 @@ export class CloudSandboxExecutor extends EnvironmentManager {
       const response = await fetch(url, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${this.apiToken}`,
+          'Authorization': `Bearer ${sessionToken}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
           sessionId,
           command: task.command,
-          cwd: task.cwd,
+          cwd: this.normalizeCwdForApi(task.cwd),
           timeout: task.timeout,
           env: task.env
         }),
@@ -340,8 +391,7 @@ export class CloudSandboxExecutor extends EnvironmentManager {
       })
 
       if (!response.ok) {
-        const error = await this.parseErrorResponse(response)
-        throw new Error(`Failed to execute task: ${error}`)
+        throw await this.parseApiError('Failed to execute task', response)
       }
 
       const result = (await response.json()) as unknown
@@ -357,6 +407,7 @@ export class CloudSandboxExecutor extends EnvironmentManager {
    */
   private async fetchLogsWithTimestamp(
     sessionId: string,
+    sessionToken: string,
     since: number
   ): Promise<ExecutionLog[]> {
     const url = `${this.apiUrl}/api/v1/logs?sessionId=${encodeURIComponent(sessionId)}${since ? `&since=${since}` : ''}`
@@ -367,14 +418,13 @@ export class CloudSandboxExecutor extends EnvironmentManager {
       const response = await fetch(url, {
         method: 'GET',
         headers: {
-          'Authorization': `Bearer ${this.apiToken}`
+          'Authorization': `Bearer ${sessionToken}`
         },
         signal: controller.signal
       })
 
       if (!response.ok) {
-        const error = await this.parseErrorResponse(response)
-        throw new Error(`Failed to fetch logs: ${error}`)
+        throw await this.parseApiError('Failed to fetch logs', response)
       }
 
       // Handle both JSON and Server-Sent Events responses
@@ -473,15 +523,15 @@ export class CloudSandboxExecutor extends EnvironmentManager {
    * Fetch logs from remote session (convenience method)
    * @deprecated Use fetchLogsWithTimestamp instead
    */
-  private async fetchLogs(sessionId: string): Promise<ExecutionLog[]> {
-    return this.fetchLogsWithTimestamp(sessionId, 0)
+  private async fetchLogs(sessionId: string, sessionToken: string): Promise<ExecutionLog[]> {
+    return this.fetchLogsWithTimestamp(sessionId, sessionToken, 0)
   }
 
   /**
    * Delete remote session
    * @throws If deletion fails
    */
-  private async deleteSession(sessionId: string): Promise<void> {
+  private async deleteSession(sessionId: string, sessionToken: string): Promise<void> {
     const url = `${this.apiUrl}/api/v1/session/${encodeURIComponent(sessionId)}`
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), SESSION_CREATE_TIMEOUT)
@@ -490,14 +540,13 @@ export class CloudSandboxExecutor extends EnvironmentManager {
       const response = await fetch(url, {
         method: 'DELETE',
         headers: {
-          'Authorization': `Bearer ${this.apiToken}`
+          'Authorization': `Bearer ${sessionToken}`
         },
         signal: controller.signal
       })
 
       if (!response.ok) {
-        const error = await this.parseErrorResponse(response)
-        throw new Error(`Failed to delete session: ${error}`)
+        throw await this.parseApiError('Failed to delete session', response)
       }
     } finally {
       clearTimeout(timeoutId)
@@ -530,7 +579,31 @@ export class CloudSandboxExecutor extends EnvironmentManager {
     }
   }
 
+  private buildExecutionFailure(error: unknown): { exitCode: number; stderr: string; duration: number } {
+    if (error instanceof CloudApiError) {
+      if (error.code === EXECUTION_NOT_IMPLEMENTED_CODE) {
+        return {
+          exitCode: 78,
+          stderr: 'Remote runtime execution is not implemented',
+          duration: 0
+        }
+      }
+      return {
+        exitCode: 1,
+        stderr: `${error.code}: ${error.message}`,
+        duration: 0
+      }
+    }
+
+    const msg = error instanceof Error ? error.message : String(error)
+    return { exitCode: 1, stderr: msg, duration: 0 }
+  }
+
   private isRetryableError(error: unknown): boolean {
+    if (error instanceof CloudApiError) {
+      return this.isRetryableStatus(error.status) && error.code !== EXECUTION_NOT_IMPLEMENTED_CODE
+    }
+
     if (!(error instanceof Error)) {
       return false
     }
@@ -540,6 +613,9 @@ export class CloudSandboxExecutor extends EnvironmentManager {
       /401/,
       /403/,
       /404/,
+      /400/,
+      /422/,
+      /501/,
       /Invalid session response format/,
       /Invalid execution response format/,
       /Invalid log entry format/,
@@ -549,6 +625,10 @@ export class CloudSandboxExecutor extends EnvironmentManager {
     return !nonRetryablePatterns.some(pattern => pattern.test(message))
   }
 
+  private isRetryableStatus(status: number): boolean {
+    return status >= 500 && status !== 501
+  }
+
   /**
    * Sleep for specified duration
    */
@@ -556,21 +636,61 @@ export class CloudSandboxExecutor extends EnvironmentManager {
     return new Promise(resolve => setTimeout(resolve, ms))
   }
 
-  /**
-   * Parse error response from API
-   * Scrubs sensitive data from error messages
-   */
-  private async parseErrorResponse(response: Response): Promise<string> {
+  private async parseApiError(context: string, response: Response): Promise<CloudApiError> {
+    const body = await this.parseApiErrorBody(response)
+    const statusText = response.statusText || 'Unknown Error'
+    const code = body.code || `HTTP_${response.status}`
+    const statusLine = `${response.status} ${statusText}`
+    const detail = body.error ? `: ${body.error}` : ''
+    return new CloudApiError(response.status, code, `${context}: ${statusLine}${detail}`)
+  }
+
+  private async parseApiErrorBody(response: Response): Promise<{
+    code?: string
+    error?: string
+  }> {
     try {
       const text = await response.text()
-      // Scrub any potential tokens/sensitive data from error messages
-      const scrubbed = text
-        .replace(/[a-zA-Z0-9_-]{20,}/g, '[REDACTED]')
-        .substring(0, 200)
-      return `${response.status} ${response.statusText}: ${scrubbed}`
+      if (!text) {
+        return {}
+      }
+      const parsed = this.parseJsonErrorPayload(text)
+      if (parsed) {
+        return {
+          code: parsed.code,
+          error: this.scrubSensitiveText(parsed.error ?? '')
+        }
+      }
+      return { error: this.scrubSensitiveText(text) }
     } catch {
-      return `${response.status} ${response.statusText}`
+      return {}
     }
+  }
+
+  private parseJsonErrorPayload(text: string): CloudApiErrorPayload | null {
+    try {
+      const payload = JSON.parse(text) as unknown
+      if (!payload || typeof payload !== 'object') {
+        return null
+      }
+      const asRecord = payload as Record<string, unknown>
+      return {
+        error: typeof asRecord.error === 'string' ? asRecord.error : undefined,
+        code: typeof asRecord.code === 'string' ? asRecord.code : undefined,
+        details: asRecord.details
+      }
+    } catch {
+      return null
+    }
+  }
+
+  private scrubSensitiveText(text: string): string {
+    return text
+      .replace(BEARER_TOKEN_PATTERN, '$1 [REDACTED]')
+      .replace(BASIC_AUTH_PATTERN, '$1 [REDACTED]')
+      .replace(SENSITIVE_KEY_VALUE_PATTERN, '$1[REDACTED]')
+      .replace(KNOWN_SECRET_PREFIX_PATTERN, '[REDACTED]')
+      .substring(0, SCRUBBING_MAX_LENGTH)
   }
 
   /**

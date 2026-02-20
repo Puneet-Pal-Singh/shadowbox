@@ -212,12 +212,16 @@ export default {
       ) {
         response = await handleExecuteTask(request, stub);
       } else if (url.pathname === "/api/v1/logs" && request.method === "GET") {
-        response = handleStreamLogs(request);
+        response = await handleStreamLogs(
+          request,
+          stub,
+          getCorsHeaders(request, env),
+        );
       } else if (
         url.pathname.startsWith("/api/v1/session/") &&
         request.method === "DELETE"
       ) {
-        response = handleDeleteSession(request);
+        response = await handleDeleteSession(request, stub);
       } else if (url.pathname === "/connect") {
         // Upgrade to WebSocket
         return stub.fetch(request);

@@ -128,6 +128,19 @@ class MockSecureAgentAPI {
       })
     } as Response)
   }
+
+  mockExecutionNotImplemented() {
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: false,
+      status: 501,
+      statusText: 'Not Implemented',
+      text: async () =>
+        JSON.stringify({
+          error: 'Runtime execution is not implemented on this deployment',
+          code: 'EXECUTION_NOT_IMPLEMENTED'
+        })
+    } as Response)
+  }
 }
 
 describe('CloudSandboxExecutor Integration with secure-agent-api', () => {
@@ -211,7 +224,7 @@ describe('CloudSandboxExecutor Integration with secure-agent-api', () => {
         expect.objectContaining({
           method: 'POST',
           headers: expect.objectContaining({
-            'Authorization': 'Bearer test-token-123'
+            'Authorization': 'Bearer tok_test_456'
           })
         })
       )
@@ -282,7 +295,7 @@ describe('CloudSandboxExecutor Integration with secure-agent-api', () => {
         expect.objectContaining({
           method: 'DELETE',
           headers: expect.objectContaining({
-            'Authorization': 'Bearer test-token-123'
+            'Authorization': 'Bearer tok_test_456'
           })
         })
       )
@@ -349,6 +362,28 @@ describe('CloudSandboxExecutor Integration with secure-agent-api', () => {
       expect(result.exitCode).toBe(1)
       expect(result.status).toBe('error')
     })
+
+    it('should return deterministic result for non-implemented execute endpoint', async () => {
+      const env = {
+        id: 'sess_test_123',
+        type: 'cloud' as const,
+        createdAt: Date.now(),
+        metadata: {
+          sessionId: 'sess_test_123',
+          token: 'tok_test_456',
+          expiresAt: Date.now() + 3600000
+        }
+      }
+
+      mockApi.mockExecutionNotImplemented()
+
+      const result = await executor.executeTask(env, task)
+
+      expect(result.status).toBe('error')
+      expect(result.exitCode).toBe(78)
+      expect(result.stderr).toContain('not implemented')
+      expect(fetch).toHaveBeenCalledTimes(1)
+    })
   })
 
   describe('HTTP Contract Validation', () => {
@@ -402,7 +437,7 @@ describe('CloudSandboxExecutor Integration with secure-agent-api', () => {
       const parsed = JSON.parse(body as string)
       expect(parsed.sessionId).toBe('sess_test_123')
       expect(parsed.command).toBe('npm test')
-      expect(parsed.cwd).toBe('/workspace')
+      expect(parsed.cwd).toBe('workspace')
     })
 
     it('should handle 201 Created status for session creation', async () => {
@@ -474,7 +509,7 @@ describe('CloudSandboxExecutor Integration with secure-agent-api', () => {
   })
 
   describe('Authentication', () => {
-    it('should include authorization token in all requests', async () => {
+    it('should use API token for session creation requests', async () => {
       mockApi.mockSessionCreation()
 
       await executor.createEnvironment(envConfig)
@@ -483,6 +518,27 @@ describe('CloudSandboxExecutor Integration with secure-agent-api', () => {
       const request = calls[0]
 
       expect(request[1]?.headers).toHaveProperty('Authorization', 'Bearer test-token-123')
+    })
+
+    it('should use session token for execute requests', async () => {
+      const env = {
+        id: 'sess_test_123',
+        type: 'cloud' as const,
+        createdAt: Date.now(),
+        metadata: {
+          sessionId: 'sess_test_123',
+          token: 'tok_test_456',
+          expiresAt: Date.now() + 3600000
+        }
+      }
+
+      mockApi.mockTaskExecution('sess_test_123')
+
+      await executor.executeTask(env, task)
+
+      const calls = vi.mocked(fetch).mock.calls
+      const request = calls[0]
+      expect(request[1]?.headers).toHaveProperty('Authorization', 'Bearer tok_test_456')
     })
 
     it('should not leak token in error messages', async () => {

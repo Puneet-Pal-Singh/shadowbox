@@ -29,6 +29,20 @@ describe("secure-agent-api log sanitizer", () => {
     expect(sanitized).not.toContain("ghp_superSecret12345");
   });
 
+  it("redacts provider API key patterns", () => {
+    const value =
+      "sk-live-abcdefghijklmnopqrstuvwxyz1234 gsk_abcdefghijklmnopqrstuvwxyz1234 AIzaSyA1234567890abcdefghijklmnopqrstuvwxyz xai-abcdefghijklmnopqrstuvwxyz1234";
+    const sanitized = sanitizeLogText(value);
+
+    expect(sanitized).toContain("[REDACTED]");
+    expect(sanitized).not.toContain("sk-live-abcdefghijklmnopqrstuvwxyz1234");
+    expect(sanitized).not.toContain("gsk_abcdefghijklmnopqrstuvwxyz1234");
+    expect(sanitized).not.toContain(
+      "AIzaSyA1234567890abcdefghijklmnopqrstuvwxyz",
+    );
+    expect(sanitized).not.toContain("xai-abcdefghijklmnopqrstuvwxyz1234");
+  });
+
   it("sanitizes unknown errors", () => {
     const error = new Error("bad credentials: Basic dXNlcjpwYXNz");
     expect(sanitizeUnknownError(error)).toContain("[REDACTED]");

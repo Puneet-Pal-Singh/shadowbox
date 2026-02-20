@@ -57,7 +57,8 @@ export const ExecuteTaskRequestSchema = z.object({
     .refine(
       (path) => !path.includes(".."),
       "cwd must not contain path traversal",
-    ),
+    )
+    .refine((path) => !path.includes("\\"), "cwd must use unix-style paths"),
   timeout: z.number().int().positive().optional(),
   env: z.record(z.string()).optional(),
 });
