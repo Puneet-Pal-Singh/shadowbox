@@ -4,8 +4,12 @@
  */
 
 import { z } from "zod";
+import {
+  PROVIDER_IDS,
+  isProviderApiKeyFormatValid,
+} from "../services/providers/provider-registry";
 
-export const ProviderIdSchema = z.enum(["openrouter", "openai", "groq"]);
+export const ProviderIdSchema = z.enum(PROVIDER_IDS);
 export type ProviderId = z.infer<typeof ProviderIdSchema>;
 
 export const ConnectProviderRequestSchema = z
@@ -22,17 +26,7 @@ export const ConnectProviderRequestSchema = z
   })
   .refine(
     (data) => {
-      // Provider-specific API key format validation
-      if (data.providerId === "openai") {
-        return data.apiKey.startsWith("sk-");
-      }
-      if (data.providerId === "openrouter") {
-        return data.apiKey.startsWith("sk-or-");
-      }
-      if (data.providerId === "groq") {
-        return data.apiKey.startsWith("gsk_");
-      }
-      return true;
+      return isProviderApiKeyFormatValid(data.providerId, data.apiKey);
     },
     {
       message: "Invalid API key format for this provider",

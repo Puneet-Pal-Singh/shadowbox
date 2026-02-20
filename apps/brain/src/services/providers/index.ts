@@ -8,6 +8,16 @@ export { ProviderCatalogService } from "./ProviderCatalogService";
 export { ProviderConnectionService } from "./ProviderConnectionService";
 export { ProviderConfigService } from "./ProviderConfigService";
 export { DurableProviderStore } from "./DurableProviderStore";
+export {
+  PROVIDER_IDS,
+  PROVIDER_REGISTRY,
+  isProviderApiKeyFormatValid,
+  type RegisteredProviderId,
+} from "./provider-registry";
+export {
+  PROVIDER_CAPABILITY_MATRIX,
+  isModelAllowedByCapabilityMatrix,
+} from "./provider-capability-matrix";
 export type { IProviderConfigService } from "./IProviderConfigService";
 
 // Base types and errors

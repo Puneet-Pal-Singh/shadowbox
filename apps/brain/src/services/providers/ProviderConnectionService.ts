@@ -5,6 +5,7 @@
 
 import type { ProviderId, ProviderConnectionStatus } from "../../schemas/provider";
 import type { ProviderCredentialService } from "./ProviderCredentialService";
+import { PROVIDER_IDS } from "./provider-registry";
 
 /**
  * ProviderConnectionService - Queries connection status for all providers
@@ -20,11 +21,9 @@ export class ProviderConnectionService {
    * Get connection status for all providers
    */
   async getStatus(): Promise<ProviderConnectionStatus[]> {
-    const supportedProviders: ProviderId[] = ["openrouter", "openai", "groq"];
-
     const statuses: ProviderConnectionStatus[] = [];
 
-    for (const providerId of supportedProviders) {
+    for (const providerId of PROVIDER_IDS as readonly ProviderId[]) {
       const isConnected = await this.credentialService.isConnected(providerId);
 
       statuses.push({
