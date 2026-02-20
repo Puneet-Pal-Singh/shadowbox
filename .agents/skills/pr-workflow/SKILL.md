@@ -39,6 +39,31 @@ When this skill is used in the Shadowbox repo, these rules are mandatory:
 - Prefer non-interactive git flows in automated sessions.
 - Use the required PR description structure from `AGENTS.md` Section 18.
 
+## Naming Standards (Shadowbox)
+
+Use semantic, intent-first naming for both branches and PR titles.
+
+- Branch names must describe the technical change, not internal sequencing.
+- PR titles must follow conventional commits and describe behavior or architecture impact.
+- Do not use numbering/phase labels in branch names or PR titles:
+  - `pr-1`, `pr-2`, `phase-1`, `phase-2`, `task-3`, etc.
+- Internal tracking IDs are allowed only in PR body metadata (for example: `Internal Plan Ref: PR2`).
+
+Recommended branch format:
+
+```bash
+<type>/<scope>-<intent>
+```
+
+Examples:
+
+```bash
+feat/session-auth-hardening
+fix/cloud-executor-error-redaction
+refactor/import-boundary-guardrails
+test/provider-strict-mode-contract
+```
+
 ## PR Quality Bar
 
 Before any PR operation, ensure:
@@ -328,9 +353,9 @@ feat: add model provider abstraction (OpenAI and LocalMock adapters)
 
 ## Summary
 
-✅ PR 2 Complete: Model Adapters & Tool Integration
+✅ Model adapters and tool integration complete
 
-**Branch**: feat/execution-engine-pr2
+**Branch**: feat/execution-engine-model-provider-abstraction
 
 ### What Was Built
 
@@ -368,7 +393,7 @@ feat: add model provider abstraction (OpenAI and LocalMock adapters)
 ✅ Output Safety: Zod validation + markdown parsing
 ✅ Tool Safety: File path validation, command sanitization, timeout enforcement
 ✅ Determinism: LocalMock adapter for reproducible testing
-✅ No Dependencies: Only Zod (same as PR 1)
+✅ No extra runtime dependencies: only Zod
 
 ### Verification
 
