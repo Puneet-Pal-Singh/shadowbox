@@ -164,7 +164,7 @@ export class ChatController {
           sessionId,
           runId,
           correlationId,
-          agentType: mapAgentIdToType(body.agentId),
+          agentType: mapAgentIdToType(body.agentId, correlationId),
           prompt,
           messages: coreMessages,
           providerId: body.providerId,
@@ -245,13 +245,16 @@ function extractIdentifiers(body: ChatRequestBody, correlationId?: string) {
   return {
     sessionId,
     runId,
-    agentType: mapAgentIdToType(body.agentId),
   };
 }
 
 function parseRunId(runId?: string, correlationId?: string): string {
   if (!runId || runId.trim().length === 0) {
-    return crypto.randomUUID();
+    throw new ValidationError(
+      "Missing required field: runId",
+      "MISSING_FIELD",
+      correlationId,
+    );
   }
   const normalized = runId.trim();
   if (!UUID_V4_REGEX.test(normalized)) {
@@ -295,7 +298,7 @@ function parseRequiredIdentifier(
   return normalized;
 }
 
-function mapAgentIdToType(agentId?: string): AgentType {
+function mapAgentIdToType(agentId?: string, correlationId?: string): AgentType {
   if (!agentId) return "coding";
 
   const agentTypeMap: Record<string, AgentType> = {
@@ -303,8 +306,14 @@ function mapAgentIdToType(agentId?: string): AgentType {
     ci: "ci",
     coding: "coding",
   };
+  const mapped = agentTypeMap[agentId];
+  if (!mapped) {
+    throw new ValidationError(
+      `Unsupported agentId: ${agentId}`,
+      "INVALID_AGENT_TYPE",
+      correlationId,
+    );
+  }
 
-  return agentTypeMap[agentId] ?? "coding";
+  return mapped;
 }
-
-

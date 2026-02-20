@@ -3,6 +3,8 @@
  * Deterministic execution engine for orchestrating agent tasks
  */
 
+import * as RuntimeNamespace from './runtime/index.js'
+
 // Types
 export * from './types/index.js'
 
@@ -71,5 +73,7 @@ export { MockPricingProvider } from './pricing/index.js'
 export { CostTracker, CostCalculator } from './cost/index.js'
 export type { Cost, CostSummary } from './cost/index.js'
 
-// Runtime extraction surface (Phase 3.2+)
-export * as Runtime from './runtime/index.js'
+/**
+ * @deprecated Import runtime symbols from `@shadowbox/execution-engine/runtime` instead.
+ */
+export const Runtime = RuntimeNamespace

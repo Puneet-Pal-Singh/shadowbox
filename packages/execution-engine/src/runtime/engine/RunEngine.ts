@@ -39,16 +39,6 @@ import {
   type MemoryContext,
 } from "../memory/index.js";
 
-const RUNTIME_CORS_HEADERS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers":
-    "Content-Type, Authorization, x-vercel-ai-data-stream, x-ai-sdk-data-stream",
-  "Access-Control-Expose-Headers":
-    "x-vercel-ai-data-stream, x-ai-sdk-data-stream",
-  "X-Content-Type-Options": "nosniff",
-};
-
 export interface IRunEngine {
   execute(
     input: RunInput,
@@ -225,7 +215,6 @@ export class RunEngine implements IRunEngine {
             prompt: input.prompt,
             phase: "planning",
           }),
-        undefined,
       );
 
       await this.safeMemoryOperation(() =>
@@ -605,7 +594,6 @@ Provide a concise summary of what was accomplished.`;
 
     return new Response(stream, {
       headers: {
-        ...RUNTIME_CORS_HEADERS,
         "Content-Type": "text/plain; charset=utf-8",
         "Transfer-Encoding": "chunked",
       },
@@ -646,13 +634,12 @@ Provide a concise summary of what was accomplished.`;
 
   private async safeMemoryOperation<T>(
     operation: () => Promise<T>,
-    fallback?: T,
-  ): Promise<T> {
+  ): Promise<T | undefined> {
     try {
       return await operation();
     } catch (error) {
       console.warn("[run/engine] Memory subsystem operation failed:", error);
-      return fallback as T;
+      return undefined;
     }
   }
 
