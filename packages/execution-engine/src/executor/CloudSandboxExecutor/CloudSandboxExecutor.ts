@@ -78,6 +78,13 @@ const TASK_EXEC_TIMEOUT = 60000 // 60 seconds
 const POLL_TIMEOUT = 120000 // 120 seconds for polling
 const LOG_STREAM_TIMEOUT = 10000 // 10 seconds per log request
 const EXECUTION_NOT_IMPLEMENTED_CODE = 'EXECUTION_NOT_IMPLEMENTED'
+const SCRUBBING_MAX_LENGTH = 200
+const BEARER_TOKEN_PATTERN = /\b(Bearer)\s+[A-Za-z0-9\-._~+/]+=*/gi
+const BASIC_AUTH_PATTERN = /\b(Basic)\s+[A-Za-z0-9+/=]{8,}/gi
+const SENSITIVE_KEY_VALUE_PATTERN =
+  /(\b(?:token|api[_-]?key|authorization)\b\s*[:=]\s*)([^\s,;]+)/gi
+const KNOWN_SECRET_PREFIX_PATTERN =
+  /\b(tok_[A-Za-z0-9_-]{8,}|sk-[A-Za-z0-9_-]{16,}|gsk_[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9_]{10,}|github_pat_[A-Za-z0-9_]+)\b/g
 
 class CloudApiError extends Error {
   readonly status: number
@@ -678,7 +685,12 @@ export class CloudSandboxExecutor extends EnvironmentManager {
   }
 
   private scrubSensitiveText(text: string): string {
-    return text.replace(/[a-zA-Z0-9_-]{20,}/g, '[REDACTED]').substring(0, 200)
+    return text
+      .replace(BEARER_TOKEN_PATTERN, '$1 [REDACTED]')
+      .replace(BASIC_AUTH_PATTERN, '$1 [REDACTED]')
+      .replace(SENSITIVE_KEY_VALUE_PATTERN, '$1[REDACTED]')
+      .replace(KNOWN_SECRET_PREFIX_PATTERN, '[REDACTED]')
+      .substring(0, SCRUBBING_MAX_LENGTH)
   }
 
   /**
