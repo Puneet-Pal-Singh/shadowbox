@@ -13,7 +13,7 @@ import {
   ValidationError,
 } from "../../domain/errors";
 import { isStrictMode, logCompatFallback, CompatFallbackReasonCodes } from "../../config/runtime-compat";
-import { PROVIDER_CATALOG } from "../providers/catalog";
+import { isModelAllowedByCapabilityMatrix } from "../providers/provider-capability-matrix";
 
 /**
  * Runtime provider type (subset of ProviderId with runtime semantics)
@@ -177,18 +177,7 @@ export function resolveModelSelection(
 export function mapProviderIdToRuntimeProvider(
   providerId: ProviderId,
 ): RuntimeProvider {
-  switch (providerId) {
-    case "openrouter":
-      return "openrouter";
-    case "groq":
-      return "groq";
-    case "openai":
-      return "openai";
-    default: {
-      const _exhaustive: never = providerId;
-      return _exhaustive;
-    }
-  }
+  return providerId;
 }
 
 /**
@@ -203,5 +192,5 @@ export function getRuntimeProviderFromAdapter(provider: string): RuntimeProvider
 }
 
 function isModelAllowedForProvider(providerId: ProviderId, modelId: string): boolean {
-  return PROVIDER_CATALOG[providerId].some((model) => model.id === modelId);
+  return isModelAllowedByCapabilityMatrix(providerId, modelId);
 }
