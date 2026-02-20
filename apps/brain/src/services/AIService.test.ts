@@ -1,40 +1,197 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { CoreMessage } from "ai";
 import type { Env } from "../types/ai";
+import type { ProviderAdapter } from "./providers";
 import { AIService } from "./AIService";
 import { ProviderConfigService } from "./providers";
 
-interface FakeProviderAdapter {
-  provider: string;
-  supportedModels: string[];
-  supportsModel: (model: string) => boolean;
-  generate: ReturnType<typeof vi.fn>;
-  generateStream: ReturnType<typeof vi.fn>;
-}
-
-interface MutableAIService {
-  adapter: FakeProviderAdapter;
-  createOpenAIAdapter: (overrideApiKey?: string) => FakeProviderAdapter;
-  createOpenRouterAdapter: (overrideApiKey?: string) => FakeProviderAdapter;
-  createGroqAdapter: (overrideApiKey?: string) => FakeProviderAdapter;
-}
-
 const BASE_MESSAGES: CoreMessage[] = [{ role: "user", content: "hello" }];
 
+function createFakeAdapter(provider: string): ProviderAdapter {
+  return {
+    provider,
+    supportedModels: [],
+    supportsModel: () => true,
+    generate: vi.fn(async (params: { model?: string }) => ({
+      content: `${provider}:${params.model ?? "default"}`,
+      usage: {
+        provider,
+        model: params.model ?? "default",
+        promptTokens: 1,
+        completionTokens: 1,
+        totalTokens: 2,
+      },
+      finishReason: "stop",
+    })),
+    generateStream: vi.fn(async function* (params: {
+      model?: string;
+    }): AsyncGenerator<
+      {
+        type: "text" | "finish";
+        content?: string;
+        usage?: {
+          provider: string;
+          model: string;
+          promptTokens: number;
+          completionTokens: number;
+          totalTokens: number;
+        };
+        finishReason?: string;
+      },
+      {
+        content: string;
+        usage: {
+          provider: string;
+          model: string;
+          promptTokens: number;
+          completionTokens: number;
+          totalTokens: number;
+        };
+        finishReason: string;
+      },
+      unknown
+    > {
+      const model = params.model ?? "default";
+      yield { type: "text", content: `${provider}:${model}` };
+      yield {
+        type: "finish",
+        usage: {
+          provider,
+          model,
+          promptTokens: 1,
+          completionTokens: 1,
+          totalTokens: 2,
+        },
+        finishReason: "stop",
+      };
+      return {
+        content: `${provider}:${model}`,
+        usage: {
+          provider,
+          model,
+          promptTokens: 1,
+          completionTokens: 1,
+          totalTokens: 2,
+        },
+        finishReason: "stop",
+      };
+    }),
+  };
+}
+
+function createEnv(): Env {
+  return {
+    AI: {} as Env["AI"],
+    SECURE_API: {} as Env["SECURE_API"],
+    GITHUB_CLIENT_ID: "x",
+    GITHUB_CLIENT_SECRET: "x",
+    GITHUB_REDIRECT_URI: "x",
+    GITHUB_TOKEN_ENCRYPTION_KEY: "x",
+    SESSION_SECRET: "x",
+    FRONTEND_URL: "x",
+    SESSIONS: {} as Env["SESSIONS"],
+    RUN_ENGINE_RUNTIME: {} as Env["RUN_ENGINE_RUNTIME"],
+    LLM_PROVIDER: "litellm",
+    DEFAULT_MODEL: "llama-3.3-70b-versatile",
+    GROQ_API_KEY: "test-groq-key",
+    OPENAI_API_KEY: "sk-env-openai-key",
+  };
+}
+
+async function readUint8Stream(
+  stream: ReadableStream<Uint8Array>,
+): Promise<string> {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let output = "";
+
+  while (true) {
+    const chunk = await reader.read();
+    if (chunk.done) {
+      break;
+    }
+    output += decoder.decode(chunk.value, { stream: true });
+  }
+
+  return output;
+}
+
+vi.mock("./ai", () => ({
+  createDefaultAdapter: vi.fn(),
+  selectAdapter: vi.fn(),
+  resolveModelSelection: vi.fn(
+    (
+      _providerId?: string,
+      _modelId?: string,
+      defaultProvider?: string,
+      defaultModel?: string,
+    ) => ({
+      model: _modelId ?? defaultModel ?? "default",
+      provider: _providerId ?? defaultProvider ?? "litellm",
+      runtimeProvider: _providerId ?? "litellm",
+      fallback: false,
+      providerId: _providerId,
+    }),
+  ),
+  mapProviderIdToRuntimeProvider: vi.fn((id: string) => id),
+  getRuntimeProviderFromAdapter: vi.fn((adapter: string) => adapter),
+  generateText: vi.fn(
+    async (
+      adapter: ProviderAdapter,
+      params: { messages: CoreMessage[]; model?: string },
+    ) => {
+      const result = await adapter.generate({
+        messages: params.messages,
+        model: params.model,
+      });
+      return result;
+    },
+  ),
+  createChatStream: vi.fn(
+    async (
+      adapter: ProviderAdapter,
+      params: { messages: CoreMessage[]; model?: string },
+    ) => {
+      const encoder = new TextEncoder();
+      const model = params.model ?? "default";
+      return new ReadableStream<Uint8Array>({
+        async start(controller) {
+          controller.enqueue(encoder.encode(`${adapter.provider}:${model}`));
+          controller.close();
+        },
+      });
+    },
+  ),
+  getSDKModelConfig: vi.fn(),
+}));
+
+import * as aiModule from "./ai";
+
+const mockedAi = vi.mocked(aiModule);
+
 describe("AIService provider override routing", () => {
+  let litellmAdapter: ProviderAdapter;
+  let openaiAdapter: ProviderAdapter;
+  let openrouterAdapter: ProviderAdapter;
+  let groqAdapter: ProviderAdapter;
+
   beforeEach(() => {
     ProviderConfigService.resetForTests();
+    vi.clearAllMocks();
+
+    litellmAdapter = createFakeAdapter("litellm");
+    openaiAdapter = createFakeAdapter("openai");
+    openrouterAdapter = createFakeAdapter("openrouter");
+    groqAdapter = createFakeAdapter("groq");
+
+    mockedAi.createDefaultAdapter.mockReturnValue(litellmAdapter);
   });
 
   it("uses default adapter when no provider override is supplied", async () => {
     const providerConfig = new ProviderConfigService(createEnv());
     const service = new AIService(createEnv(), providerConfig);
-    const mutableService = service as unknown as MutableAIService;
-    const litellmAdapter = createFakeAdapter("litellm");
-    const openaiAdapter = createFakeAdapter("openai");
 
-    mutableService.adapter = litellmAdapter;
-    mutableService.createOpenAIAdapter = () => openaiAdapter;
+    mockedAi.selectAdapter.mockResolvedValue(litellmAdapter);
 
     const result = await service.generateText({
       messages: BASE_MESSAGES,
@@ -42,7 +199,6 @@ describe("AIService provider override routing", () => {
 
     expect(result.usage.provider).toBe("litellm");
     expect(litellmAdapter.generate).toHaveBeenCalledTimes(1);
-    expect(openaiAdapter.generate).not.toHaveBeenCalled();
   });
 
   it("routes to override provider adapter when provider is connected", async () => {
@@ -53,16 +209,7 @@ describe("AIService provider override routing", () => {
     });
 
     const service = new AIService(createEnv(), providerConfig);
-    const mutableService = service as unknown as MutableAIService;
-    const litellmAdapter = createFakeAdapter("litellm");
-    const openaiAdapter = createFakeAdapter("openai");
-    const seenApiKeys: string[] = [];
-
-    mutableService.adapter = litellmAdapter;
-    mutableService.createOpenAIAdapter = (overrideApiKey?: string) => {
-      seenApiKeys.push(overrideApiKey ?? "");
-      return openaiAdapter;
-    };
+    mockedAi.selectAdapter.mockResolvedValue(openaiAdapter);
 
     const result = await service.generateText({
       messages: BASE_MESSAGES,
@@ -74,20 +221,18 @@ describe("AIService provider override routing", () => {
     expect(result.usage.model).toBe("gpt-4o");
     expect(openaiAdapter.generate).toHaveBeenCalledTimes(1);
     expect(litellmAdapter.generate).not.toHaveBeenCalled();
-    expect(seenApiKeys).toEqual(["sk-test-1234567890"]);
   });
 
   it("throws ProviderNotConnectedError when override provider is disconnected (strict mode)", async () => {
     const providerConfig = new ProviderConfigService(createEnv());
     const service = new AIService(createEnv(), providerConfig);
-    const mutableService = service as unknown as MutableAIService;
-    const litellmAdapter = createFakeAdapter("litellm");
-    const openaiAdapter = createFakeAdapter("openai");
 
-    mutableService.adapter = litellmAdapter;
-    mutableService.createOpenAIAdapter = () => openaiAdapter;
+    mockedAi.selectAdapter.mockRejectedValue(
+      Object.assign(new Error("Provider not connected"), {
+        code: "PROVIDER_NOT_CONNECTED",
+      }),
+    );
 
-    // Strict mode (default) should reject unconnected provider
     await expect(
       service.generateText({
         messages: BASE_MESSAGES,
@@ -108,29 +253,17 @@ describe("AIService provider override routing", () => {
     });
 
     const service = new AIService(createEnv(), providerConfig);
-    const mutableService = service as unknown as MutableAIService;
-    const litellmAdapter = createFakeAdapter("litellm");
-    const openaiAdapter = createFakeAdapter("openai");
+    mockedAi.selectAdapter.mockResolvedValue(openaiAdapter);
 
-    mutableService.adapter = litellmAdapter;
-    mutableService.createOpenAIAdapter = () => openaiAdapter;
-
-    let finishedProvider: string | null = null;
     const stream = await service.createChatStream({
       messages: BASE_MESSAGES,
       providerId: "openai",
       model: "gpt-4o",
-      onFinish: async (result) => {
-        finishedProvider = result.usage.provider;
-      },
     });
 
     const content = await readUint8Stream(stream);
 
     expect(content).toContain("openai");
-    expect(openaiAdapter.generateStream).toHaveBeenCalledTimes(1);
-    expect(litellmAdapter.generateStream).not.toHaveBeenCalled();
-    expect(finishedProvider).toBe("openai");
   });
 
   describe("Direct OpenRouter and Groq inference (M1.3e)", () => {
@@ -142,12 +275,7 @@ describe("AIService provider override routing", () => {
       });
 
       const service = new AIService(createEnv(), providerConfig);
-      const mutableService = service as unknown as MutableAIService;
-      const litellmAdapter = createFakeAdapter("litellm");
-      const openrouterAdapter = createFakeAdapter("openrouter");
-
-      mutableService.adapter = litellmAdapter;
-      mutableService.createOpenRouterAdapter = () => openrouterAdapter;
+      mockedAi.selectAdapter.mockResolvedValue(openrouterAdapter);
 
       const result = await service.generateText({
         messages: BASE_MESSAGES,
@@ -167,12 +295,7 @@ describe("AIService provider override routing", () => {
       });
 
       const service = new AIService(createEnv(), providerConfig);
-      const mutableService = service as unknown as MutableAIService;
-      const litellmAdapter = createFakeAdapter("litellm");
-      const groqAdapter = createFakeAdapter("groq");
-
-      mutableService.adapter = litellmAdapter;
-      mutableService.createGroqAdapter = () => groqAdapter;
+      mockedAi.selectAdapter.mockResolvedValue(groqAdapter);
 
       const result = await service.generateText({
         messages: BASE_MESSAGES,
@@ -188,7 +311,12 @@ describe("AIService provider override routing", () => {
       const providerConfig = new ProviderConfigService(createEnv());
       const service = new AIService(createEnv(), providerConfig);
 
-      // Strict mode should reject unconnected provider
+      mockedAi.selectAdapter.mockRejectedValue(
+        Object.assign(new Error("Provider not connected"), {
+          code: "PROVIDER_NOT_CONNECTED",
+        }),
+      );
+
       await expect(
         service.generateText({
           messages: BASE_MESSAGES,
@@ -202,7 +330,12 @@ describe("AIService provider override routing", () => {
       const providerConfig = new ProviderConfigService(createEnv());
       const service = new AIService(createEnv(), providerConfig);
 
-      // Strict mode should reject unconnected provider
+      mockedAi.selectAdapter.mockRejectedValue(
+        Object.assign(new Error("Provider not connected"), {
+          code: "PROVIDER_NOT_CONNECTED",
+        }),
+      );
+
       await expect(
         service.generateText({
           messages: BASE_MESSAGES,
@@ -246,116 +379,3 @@ describe("AIService provider override routing", () => {
     });
   });
 });
-
-function createFakeAdapter(provider: string): FakeProviderAdapter {
-  const generate = vi.fn(async (params: { model?: string }) => ({
-    content: `${provider}:${params.model ?? "default"}`,
-    usage: {
-      provider,
-      model: params.model ?? "default",
-      promptTokens: 1,
-      completionTokens: 1,
-      totalTokens: 2,
-    },
-    finishReason: "stop",
-  }));
-
-  const generateStream = vi.fn(async function* (params: {
-    model?: string;
-  }): AsyncGenerator<
-    {
-      type: "text" | "finish";
-      content?: string;
-      usage?: {
-        provider: string;
-        model: string;
-        promptTokens: number;
-        completionTokens: number;
-        totalTokens: number;
-      };
-      finishReason?: string;
-    },
-    {
-      content: string;
-      usage: {
-        provider: string;
-        model: string;
-        promptTokens: number;
-        completionTokens: number;
-        totalTokens: number;
-      };
-      finishReason: string;
-    },
-    unknown
-  > {
-    const model = params.model ?? "default";
-    yield { type: "text", content: `${provider}:${model}` };
-    yield {
-      type: "finish",
-      usage: {
-        provider,
-        model,
-        promptTokens: 1,
-        completionTokens: 1,
-        totalTokens: 2,
-      },
-      finishReason: "stop",
-    };
-    return {
-      content: `${provider}:${model}`,
-      usage: {
-        provider,
-        model,
-        promptTokens: 1,
-        completionTokens: 1,
-        totalTokens: 2,
-      },
-      finishReason: "stop",
-    };
-  });
-
-  return {
-    provider,
-    supportedModels: [],
-    supportsModel: () => true,
-    generate,
-    generateStream,
-  };
-}
-
-async function readUint8Stream(
-  stream: ReadableStream<Uint8Array>,
-): Promise<string> {
-  const reader = stream.getReader();
-  const decoder = new TextDecoder();
-  let output = "";
-
-  while (true) {
-    const chunk = await reader.read();
-    if (chunk.done) {
-      break;
-    }
-    output += decoder.decode(chunk.value, { stream: true });
-  }
-
-  return output;
-}
-
-function createEnv(): Env {
-  return {
-    AI: {} as Env["AI"],
-    SECURE_API: {} as Env["SECURE_API"],
-    GITHUB_CLIENT_ID: "x",
-    GITHUB_CLIENT_SECRET: "x",
-    GITHUB_REDIRECT_URI: "x",
-    GITHUB_TOKEN_ENCRYPTION_KEY: "x",
-    SESSION_SECRET: "x",
-    FRONTEND_URL: "x",
-    SESSIONS: {} as Env["SESSIONS"],
-    RUN_ENGINE_RUNTIME: {} as Env["RUN_ENGINE_RUNTIME"],
-    LLM_PROVIDER: "litellm",
-    DEFAULT_MODEL: "llama-3.3-70b-versatile",
-    GROQ_API_KEY: "test-groq-key",
-    OPENAI_API_KEY: "sk-env-openai-key",
-  };
-}

@@ -14,10 +14,7 @@ import { describe, it, expect } from "vitest";
 import fs from "fs";
 import path from "path";
 
-const BRAIN_SRC = path.join(
-  __dirname,
-  ".."
-);
+const BRAIN_SRC = path.join(__dirname, "..");
 
 interface ImportViolation {
   file: string;
@@ -39,15 +36,14 @@ function getAllTSFiles(dir: string, excludeDirs: string[] = []): string[] {
 
   for (const entry of entries) {
     if (entry.isDirectory()) {
-      if (
-        !excludeDirs.includes(entry.name) &&
-        !entry.name.startsWith(".")
-      ) {
-        files.push(
-          ...getAllTSFiles(path.join(dir, entry.name), excludeDirs)
-        );
+      if (!excludeDirs.includes(entry.name) && !entry.name.startsWith(".")) {
+        files.push(...getAllTSFiles(path.join(dir, entry.name), excludeDirs));
       }
-    } else if (entry.isFile() && entry.name.endsWith(".ts") && !entry.name.endsWith(".test.ts")) {
+    } else if (
+      entry.isFile() &&
+      entry.name.endsWith(".ts") &&
+      !entry.name.endsWith(".test.ts")
+    ) {
       files.push(path.join(dir, entry.name));
     }
   }
@@ -58,7 +54,9 @@ function getAllTSFiles(dir: string, excludeDirs: string[] = []): string[] {
 /**
  * Extract all import statements from a file
  */
-function extractImports(filePath: string): Array<{ line: number; module: string }> {
+function extractImports(
+  filePath: string,
+): Array<{ line: number; module: string }> {
   const content = fs.readFileSync(filePath, "utf-8");
   const lines = content.split("\n");
   const imports: Array<{ line: number; module: string }> = [];
@@ -103,7 +101,7 @@ describe("Architecture Boundary: Layering Constraints", () => {
       const imports = extractImports(file);
       for (const { line, module } of imports) {
         const isForbidden = forbiddenInfraPatterns.some((pattern) =>
-          pattern.test(module)
+          pattern.test(module),
         );
         if (isForbidden) {
           violations.push({
@@ -118,7 +116,7 @@ describe("Architecture Boundary: Layering Constraints", () => {
 
     expect(
       violations,
-      `Controllers should not import infra adapters. Violations: ${JSON.stringify(violations, null, 2)}`
+      `Controllers should not import infra adapters. Violations: ${JSON.stringify(violations, null, 2)}`,
     ).toEqual([]);
   });
 
@@ -142,7 +140,7 @@ describe("Architecture Boundary: Layering Constraints", () => {
 
     expect(
       violations,
-      `Application layer should not import from controllers. Violations: ${JSON.stringify(violations, null, 2)}`
+      `Application layer should not import from controllers. Violations: ${JSON.stringify(violations, null, 2)}`,
     ).toEqual([]);
   });
 
@@ -166,11 +164,10 @@ describe("Architecture Boundary: Layering Constraints", () => {
         content.includes(`export class ${exportName}`) ||
         content.includes(`export function ${exportName}`) ||
         content.includes(`export const ${exportName}`);
-      
-      expect(
-        hasExport,
-        `domain/errors.ts should export ${exportName}`
-      ).toBe(true);
+
+      expect(hasExport, `domain/errors.ts should export ${exportName}`).toBe(
+        true,
+      );
     }
   });
 
@@ -198,7 +195,7 @@ describe("Architecture Boundary: Layering Constraints", () => {
     for (const layer of layers) {
       layerImports[layer.name] = new Set<string>();
       const layerPath = path.join(BRAIN_SRC, layer.path);
-      
+
       // Skip http layer if it doesn't exist as a directory (it's typically files in src/)
       if (!fs.existsSync(layerPath)) {
         continue;
@@ -214,9 +211,7 @@ describe("Architecture Boundary: Layering Constraints", () => {
               otherLayer.name !== layer.name &&
               module.includes(`/${otherLayer.path}/`)
             ) {
-              layerImports[layer.name].add(
-                `${layer.name}->${otherLayer.name}`
-              );
+              layerImports[layer.name].add(`${layer.name}->${otherLayer.name}`);
             }
           }
         }
@@ -231,39 +226,87 @@ describe("Architecture Boundary: Layering Constraints", () => {
 
     const controllerImports = Array.from(layerImports["controllers"] || []);
     const forbiddenControllerImports = controllerImports.filter(
-      (imp) => !imp.includes("->application") && !imp.includes("->domain") && !imp.includes("->http")
+      (imp) =>
+        !imp.includes("->application") &&
+        !imp.includes("->domain") &&
+        !imp.includes("->http"),
     );
 
     const applicationImports = Array.from(layerImports["application"] || []);
     const forbiddenAppImports = applicationImports.filter(
-      (imp) => !imp.includes("->domain") && !imp.includes("->http")
+      (imp) => !imp.includes("->domain") && !imp.includes("->http"),
     );
 
     expect(
       forbiddenControllerImports,
-      "Controllers should only import from application, domain, http"
+      "Controllers should only import from application, domain, http",
     ).toEqual([]);
 
     expect(
       forbiddenAppImports,
-      "Application should only import from domain, http"
+      "Application should only import from domain, http",
     ).toEqual([]);
 
     // Enforce domain layer constraints
     const domainImports = Array.from(layerImports["domain"] || []);
     expect(
       domainImports,
-      "Domain should not import from any other layer"
+      "Domain should not import from any other layer",
     ).toEqual([]);
 
     // Enforce HTTP layer constraints
     const httpImports = Array.from(layerImports["http"] || []);
     const forbiddenHttpImports = httpImports.filter(
-      (imp) => !imp.includes("->domain")
+      (imp) => !imp.includes("->domain"),
     );
+    expect(forbiddenHttpImports, "HTTP should only import from domain").toEqual(
+      [],
+    );
+  });
+
+  it("should enforce file size limits for critical runtime files", () => {
+    const fileLimits: Record<
+      string,
+      { current: number; target: number; threshold: number }
+    > = {
+      "services/AIService.ts": { current: 268, target: 220, threshold: 280 },
+      "controllers/ChatController.ts": {
+        current: 310,
+        target: 180,
+        threshold: 320,
+      },
+    };
+
+    const violations: string[] = [];
+
+    for (const [relativePath, limits] of Object.entries(fileLimits)) {
+      const filePath = path.join(BRAIN_SRC, relativePath);
+      expect(
+        fs.existsSync(filePath),
+        `Critical runtime file ${relativePath} is missing – update the path in fileLimits if renamed`,
+      ).toBe(true);
+      if (!fs.existsSync(filePath)) continue;
+
+      const content = fs.readFileSync(filePath, "utf-8");
+      const lineCount = content.split("\n").length;
+
+      if (lineCount > limits.threshold) {
+        violations.push(
+          `${relativePath}: ${lineCount} lines (threshold: ${limits.threshold}, target: ${limits.target})`,
+        );
+      }
+
+      // Update the recorded current size for tracking
+      fileLimits[relativePath].current = lineCount;
+    }
+
     expect(
-      forbiddenHttpImports,
-      "HTTP should only import from domain"
+      violations,
+      `Critical files should be within size thresholds. ` +
+        `Violations:\n${violations.join("\n")}\n\n` +
+        `Size tracking (current/target/threshold):\n${Object.entries(fileLimits)
+          .map(([f, l]) => `  ${f}: ${l.current}/${l.target}/${l.threshold}`)
+          .join("\n")}`,
     ).toEqual([]);
   });
 });
