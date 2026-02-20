@@ -9,7 +9,7 @@ import type {
   GenerationResult,
   StreamChunk,
 } from "../base/ProviderAdapter";
-import type { LLMUsage } from "../../../core/cost/types";
+import type { LLMUsage } from "@shadowbox/execution-engine/runtime/cost";
 
 export interface OpenAICompatibleConfig {
   apiKey: string;

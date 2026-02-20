@@ -138,46 +138,50 @@ describe("Architecture Boundary: No Legacy Imports", () => {
     ).toEqual([]);
   });
 
-  it("should verify core wrappers have been migrated or are retained for valid reasons", () => {
-    // These wrapper files should either be deleted or have valid Brain-owned code
-    // e.g., core/security/LogSanitizer.ts is Brain-owned and retained
+  it("should delete transitional core wrapper directories", () => {
+    const deletedWrapperDirs = [
+      "core/engine",
+      "core/orchestration",
+      "core/run",
+      "core/task",
+      "core/planner",
+      "core/cost",
+      "core/llm",
+      "core/agents",
+    ];
 
-    const coreDir = path.join(BRAIN_SRC, "core");
-    if (fs.existsSync(coreDir)) {
-      const coreFiles = fs.readdirSync(coreDir);
+    for (const dir of deletedWrapperDirs) {
+      const dirPath = path.join(BRAIN_SRC, dir);
+      expect(
+        fs.existsSync(dirPath),
+        `${dir} should be removed after wrapper migration`,
+      ).toBe(false);
+    }
+  });
 
-      // These subdirectories should have minimal or no files (mostly deleted)
-      const expectedDeletionCandidates = [
-        "engine",
-        "orchestration",
-        "run",
-        "task",
-        "planner",
-        "cost",
-        "llm",
-        "agents",
-      ];
+  it("should not import transitional core wrapper paths", () => {
+    const allFiles = getAllTSFiles(BRAIN_SRC, ["architecture", "core"]);
+    const violations: DeprecatedImport[] = [];
+    const wrapperImportPattern = /\/core\/(engine|orchestration|run|task|planner|cost|llm|agents)(\/|$)/;
 
-      // Cleanup strategy: Incrementally reduce thresholds in future PRs
-      // Current: 15 (allows transitional re-exports)
-      // Future iterations: 15 → 10 → 5 → 0
-      // This gradual approach prevents breaking changes while enforcing cleanup
-      for (const dir of expectedDeletionCandidates) {
-        const dirPath = path.join(coreDir, dir);
-        if (fs.existsSync(dirPath)) {
-          const files = fs
-            .readdirSync(dirPath)
-            .filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"));
-          // These are transitional re-exports from @shadowbox/execution-engine
-          // Threshold will be reduced in future PRs to drive cleanup (15 → 10 → 5 → 0)
-          expect(
-            files.length,
-            `core/${dir} should have fewer than 15 files (found ${files.length}). ` +
-              `Threshold will be reduced incrementally in future PRs to complete cleanup.`,
-          ).toBeLessThanOrEqual(15);
+    for (const file of allFiles) {
+      const imports = extractImports(file);
+      for (const { line, module } of imports) {
+        if (wrapperImportPattern.test(module)) {
+          violations.push({
+            file,
+            line,
+            importedModule: module,
+            reason: "Imports must target @shadowbox/execution-engine directly",
+          });
         }
       }
     }
+
+    expect(
+      violations,
+      `No transitional core wrapper imports are allowed. Violations:\n${violations.map((v) => `${v.file}:${v.line} imports ${v.importedModule}`).join("\n")}`,
+    ).toEqual([]);
   });
 
   it("should not have orphaned orchestrator files", () => {
@@ -230,80 +234,37 @@ describe("Architecture Boundary: No Legacy Imports", () => {
     ).toEqual([]);
   });
 
-  it("should enforce wrapper re-export threshold in core directory", () => {
+  it("should enforce zero re-export wrappers in core directory", () => {
     const coreDir = path.join(BRAIN_SRC, "core");
     if (!fs.existsSync(coreDir)) {
       return;
     }
 
-    // Approved allowlist: relative paths within wrapperDirCandidates that are Brain-owned
-    // Format: "<wrapperDir>/<filename>" e.g. "engine/MyHelper.ts"
-    const approvedAllowlist = new Set<string>([]);
+    const approvedAllowlist = new Set<string>([
+      "security/LogSanitizer.ts",
+    ]);
+    const files = getAllTSFiles(coreDir);
+    const reExportViolations: string[] = [];
 
-    // Directories that should have no re-export wrappers (except allowlist)
-    const wrapperDirCandidates = [
-      "engine",
-      "orchestration",
-      "run",
-      "task",
-      "planner",
-      "cost",
-      "llm",
-      "agents",
-    ];
-
-    const reExportViolations: Array<{ file: string; reason: string }> = [];
-
-    for (const dir of wrapperDirCandidates) {
-      const dirPath = path.join(coreDir, dir);
-      if (!fs.existsSync(dirPath)) {
+    for (const filePath of files) {
+      const relativePath = path.relative(coreDir, filePath).replace(/\\/g, "/");
+      if (approvedAllowlist.has(relativePath)) {
         continue;
       }
 
-      const files = getAllTSFiles(dirPath);
+      const content = fs.readFileSync(filePath, "utf-8");
+      const hasReExport =
+        /export\s+\*\s+from\s+["']/.test(content) ||
+        /export\s+\{[^}]+\}\s+from\s+["']/.test(content);
 
-      for (const filePath of files) {
-        const relativeToCore = path.relative(coreDir, filePath);
-        const relativePath = relativeToCore.replace(/\\/g, "/");
-        if (approvedAllowlist.has(relativePath)) {
-          continue;
-        }
-
-        const content = fs.readFileSync(filePath, "utf-8");
-
-        // Detect re-export patterns
-        const isReExport =
-          /export\s+\*\s+from\s+["']/.test(content) ||
-          /export\s+\{[^}]+\}\s+from\s+["']/.test(content);
-
-        if (isReExport) {
-          // Check if it's just a re-export wrapper (no actual implementation)
-          const hasImplementation =
-            /(?:export\s+)?(?:default\s+)?(?:function|class)\s+\w+\s*[({<]/.test(
-              content,
-            ) ||
-            /(?:const|let|var)\s+\w+\s*[=:]/.test(content) ||
-            /(?:type|interface)\s+\w+\s*[={<]/.test(content);
-
-          if (!hasImplementation) {
-            reExportViolations.push({
-              file: relativePath,
-              reason: "Re-export wrapper should be migrated to direct imports",
-            });
-          }
-        }
+      if (hasReExport) {
+        reExportViolations.push(relativePath);
       }
     }
 
-    // Current threshold: allow up to 30 violations (will be reduced in future PRs)
-    // Target: 0 violations
-    // Cleanup trajectory: 30 → 20 → 10 → 0
-    // Note: PR-6b establishes baseline measurement; reduction happens in follow-up PRs
     expect(
-      reExportViolations.length,
-      `Re-export wrappers in core/* should be minimal. ` +
-        `Found ${reExportViolations.length} wrappers (threshold: 30). ` +
-        `Files:\n${reExportViolations.map((v) => `  ${v.file}: ${v.reason}`).join("\n")}`,
-    ).toBeLessThanOrEqual(30);
+      reExportViolations,
+      `Re-export wrappers are forbidden in core/*. Found:\n${reExportViolations.map((file) => `  ${file}`).join("\n")}`,
+    ).toEqual([]);
   });
 });

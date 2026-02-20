@@ -6,7 +6,7 @@
  */
 
 import type { CoreMessage } from "ai";
-import type { LLMUsage } from "../../core/cost/types";
+import type { LLMUsage } from "@shadowbox/execution-engine/runtime/cost";
 import type { ProviderAdapter, GenerationParams } from "../providers";
 
 /**

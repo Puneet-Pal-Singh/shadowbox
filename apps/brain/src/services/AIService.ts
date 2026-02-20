@@ -19,7 +19,7 @@ import { createAnthropic } from "@ai-sdk/anthropic";
 import type { ZodSchema } from "zod";
 import type { Env } from "../types/ai";
 import type { ProviderAdapter } from "./providers";
-import type { LLMUsage } from "../core/cost/types";
+import type { LLMUsage } from "@shadowbox/execution-engine/runtime/cost";
 import { ProviderConfigService } from "./providers";
 import {
   createDefaultAdapter,

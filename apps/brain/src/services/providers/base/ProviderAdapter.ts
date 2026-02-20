@@ -2,7 +2,7 @@
 // Phase 3.1: Base interface for all LLM provider adapters
 
 import type { CoreMessage, CoreTool, TextStreamPart } from "ai";
-import type { LLMUsage } from "../../../core/cost/types";
+import type { LLMUsage } from "@shadowbox/execution-engine/runtime/cost";
 
 /**
  * Parameters for generation
