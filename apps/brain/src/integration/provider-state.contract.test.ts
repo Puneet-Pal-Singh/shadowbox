@@ -1,19 +1,19 @@
 import type { DurableObjectState } from "@cloudflare/workers-types";
 import type { CoreMessage } from "ai";
 import { afterEach, describe, it, expect, vi } from "vitest";
-import type { ProviderId } from "../../src/schemas/provider";
-import type { Env } from "../../src/types/ai";
-import { ProviderController } from "../../src/controllers/ProviderController";
-import { AIService } from "../../src/services/AIService";
-import { ProviderConfigService } from "../../src/services/providers";
-import { DurableProviderStore } from "../../src/services/providers/DurableProviderStore";
-import { OpenAICompatibleAdapter } from "../../src/services/providers/adapters/OpenAICompatibleAdapter";
+import type { ProviderId } from "../schemas/provider";
+import type { Env } from "../types/ai";
+import { ProviderController } from "../controllers/ProviderController";
+import { AIService } from "../services/AIService";
+import { ProviderConfigService } from "../services/providers";
+import { DurableProviderStore } from "../services/providers/DurableProviderStore";
+import { OpenAICompatibleAdapter } from "../services/providers/adapters/OpenAICompatibleAdapter";
 import {
   getRuntimeProviderFromAdapter,
   mapProviderIdToRuntimeProvider,
   resolveModelSelection,
-} from "../../src/services/ai/ModelSelectionPolicy";
-import { setCompatModeOverride } from "../../src/config/runtime-compat";
+} from "../services/ai/ModelSelectionPolicy";
+import { setCompatModeOverride } from "../config/runtime-compat";
 
 interface MockDurableObjectState {
   storage?: {
