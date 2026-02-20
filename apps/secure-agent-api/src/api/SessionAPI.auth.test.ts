@@ -6,6 +6,70 @@ import {
   handleStreamLogs,
 } from "./SessionAPI";
 
+interface SessionRecord {
+  runId: string;
+  taskId: string;
+  repoPath: string;
+  expiresAt: number;
+  token: string;
+  createdAt: number;
+}
+
+interface SessionLogEntry {
+  timestamp: number;
+  level: "info" | "warn" | "error" | "debug";
+  message: string;
+  source?: "stdout" | "stderr";
+}
+
+interface RuntimeStoreMock extends Record<string, unknown> {
+  storeExecutionSession: (
+    sessionId: string,
+    session: SessionRecord,
+  ) => Promise<void>;
+  getExecutionSession: (sessionId: string) => Promise<SessionRecord | null>;
+  appendExecutionLog: (
+    sessionId: string,
+    entry: SessionLogEntry,
+  ) => Promise<void>;
+  getExecutionLogs: (
+    sessionId: string,
+    since?: number,
+  ) => Promise<SessionLogEntry[]>;
+  deleteExecutionSession: (sessionId: string) => Promise<void>;
+}
+
+function createRuntimeStoreMock(): RuntimeStoreMock {
+  const sessions = new Map<string, SessionRecord>();
+  const logs = new Map<string, SessionLogEntry[]>();
+
+  return {
+    async storeExecutionSession(sessionId, session) {
+      sessions.set(sessionId, session);
+      logs.set(sessionId, []);
+    },
+    async getExecutionSession(sessionId) {
+      return sessions.get(sessionId) ?? null;
+    },
+    async appendExecutionLog(sessionId, entry) {
+      const entries = logs.get(sessionId) ?? [];
+      entries.push(entry);
+      logs.set(sessionId, entries);
+    },
+    async getExecutionLogs(sessionId, since) {
+      const entries = logs.get(sessionId) ?? [];
+      if (since === undefined) {
+        return entries;
+      }
+      return entries.filter((entry) => entry.timestamp > since);
+    },
+    async deleteExecutionSession(sessionId) {
+      sessions.delete(sessionId);
+      logs.delete(sessionId);
+    },
+  };
+}
+
 function createSessionRequest(): Request {
   return new Request("http://localhost/api/v1/session", {
     method: "POST",
@@ -18,8 +82,10 @@ function createSessionRequest(): Request {
   });
 }
 
-async function createSession(): Promise<{ sessionId: string; token: string }> {
-  const response = await handleCreateSession(createSessionRequest(), {});
+async function createSession(
+  runtime: RuntimeStoreMock,
+): Promise<{ sessionId: string; token: string }> {
+  const response = await handleCreateSession(createSessionRequest(), runtime);
   expect(response.status).toBe(201);
   return (await response.json()) as { sessionId: string; token: string };
 }
@@ -77,8 +143,12 @@ function createLogsRequest(sessionId: string, authHeader?: string): Request {
 
 describe("session auth hardening", () => {
   it("rejects execute without authorization header", async () => {
-    const { sessionId } = await createSession();
-    const response = await handleExecuteTask(createExecuteRequest(sessionId), {});
+    const runtime = createRuntimeStoreMock();
+    const { sessionId } = await createSession(runtime);
+    const response = await handleExecuteTask(
+      createExecuteRequest(sessionId),
+      runtime,
+    );
 
     expect(response.status).toBe(401);
     const body = (await response.json()) as ErrorBody;
@@ -86,10 +156,11 @@ describe("session auth hardening", () => {
   });
 
   it("rejects execute with wrong bearer token", async () => {
-    const { sessionId } = await createSession();
+    const runtime = createRuntimeStoreMock();
+    const { sessionId } = await createSession(runtime);
     const response = await handleExecuteTask(
       createExecuteRequest(sessionId, "Bearer tok_wrong"),
-      {},
+      runtime,
     );
 
     expect(response.status).toBe(401);
@@ -98,10 +169,11 @@ describe("session auth hardening", () => {
   });
 
   it("returns explicit non-implemented error for authorized execute requests", async () => {
-    const { sessionId, token } = await createSession();
+    const runtime = createRuntimeStoreMock();
+    const { sessionId, token } = await createSession(runtime);
     const response = await handleExecuteTask(
       createExecuteRequest(sessionId, `Bearer ${token}`),
-      {},
+      runtime,
     );
 
     expect(response.status).toBe(501);
@@ -110,8 +182,9 @@ describe("session auth hardening", () => {
   });
 
   it("rejects logs without authorization header", async () => {
-    const { sessionId } = await createSession();
-    const response = handleStreamLogs(createLogsRequest(sessionId));
+    const runtime = createRuntimeStoreMock();
+    const { sessionId } = await createSession(runtime);
+    const response = await handleStreamLogs(createLogsRequest(sessionId), runtime);
 
     expect(response.status).toBe(401);
     const body = (await response.json()) as ErrorBody;
@@ -119,9 +192,11 @@ describe("session auth hardening", () => {
   });
 
   it("allows logs with matching bearer token", async () => {
-    const { sessionId, token } = await createSession();
-    const response = handleStreamLogs(
+    const runtime = createRuntimeStoreMock();
+    const { sessionId, token } = await createSession(runtime);
+    const response = await handleStreamLogs(
       createLogsRequest(sessionId, `Bearer ${token}`),
+      runtime,
     );
 
     expect(response.status).toBe(200);
@@ -129,8 +204,12 @@ describe("session auth hardening", () => {
   });
 
   it("rejects delete without authorization header", async () => {
-    const { sessionId } = await createSession();
-    const response = handleDeleteSession(createDeleteRequest(sessionId));
+    const runtime = createRuntimeStoreMock();
+    const { sessionId } = await createSession(runtime);
+    const response = await handleDeleteSession(
+      createDeleteRequest(sessionId),
+      runtime,
+    );
 
     expect(response.status).toBe(401);
     const body = (await response.json()) as ErrorBody;
@@ -138,23 +217,28 @@ describe("session auth hardening", () => {
   });
 
   it("rejects malformed bearer format and wrong token", async () => {
-    const { sessionId } = await createSession();
+    const runtime = createRuntimeStoreMock();
+    const { sessionId } = await createSession(runtime);
 
-    const malformed = handleDeleteSession(
+    const malformed = await handleDeleteSession(
       createDeleteRequest(sessionId, "Token abc123"),
+      runtime,
     );
     expect(malformed.status).toBe(401);
 
-    const wrong = handleDeleteSession(
+    const wrong = await handleDeleteSession(
       createDeleteRequest(sessionId, "Bearer tok_wrong"),
+      runtime,
     );
     expect(wrong.status).toBe(401);
   });
 
   it("allows delete only with matching bearer token", async () => {
-    const { sessionId, token } = await createSession();
-    const response = handleDeleteSession(
+    const runtime = createRuntimeStoreMock();
+    const { sessionId, token } = await createSession(runtime);
+    const response = await handleDeleteSession(
       createDeleteRequest(sessionId, `Bearer ${token}`),
+      runtime,
     );
 
     expect(response.status).toBe(200);

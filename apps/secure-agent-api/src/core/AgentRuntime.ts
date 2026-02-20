@@ -18,6 +18,25 @@ import { RustPlugin } from "../plugins/RustPlugin";
 import { Env } from "../index";
 import { sanitizeLogText, sanitizeUnknownError } from "./security/LogSanitizer";
 
+interface RuntimeSessionRecord {
+  runId: string;
+  taskId: string;
+  repoPath: string;
+  expiresAt: number;
+  token: string;
+  createdAt: number;
+}
+
+interface RuntimeSessionLogEntry {
+  timestamp: number;
+  level: "info" | "warn" | "error" | "debug";
+  message: string;
+  source?: "stdout" | "stderr";
+}
+
+const EXECUTION_SESSION_KEY_PREFIX = "execution:session:";
+const EXECUTION_LOG_KEY_PREFIX = "execution:logs:";
+
 export class AgentRuntime extends DurableObject {
   private sandbox: Sandbox | null = null;
   private plugins: Map<string, IPlugin> = new Map();
@@ -122,6 +141,77 @@ export class AgentRuntime extends DurableObject {
 
   getManifest() {
     return Array.from(this.plugins.values()).flatMap((p) => p.tools);
+  }
+
+  async storeExecutionSession(
+    sessionId: string,
+    session: RuntimeSessionRecord,
+  ): Promise<void> {
+    await this.ctx.blockConcurrencyWhile(async () => {
+      await this.ctx.storage.put(this.getExecutionSessionKey(sessionId), session);
+    });
+  }
+
+  async getExecutionSession(sessionId: string): Promise<RuntimeSessionRecord | null> {
+    const session = await this.ctx.storage.get<RuntimeSessionRecord>(
+      this.getExecutionSessionKey(sessionId),
+    );
+    return session ?? null;
+  }
+
+  async appendExecutionLog(
+    sessionId: string,
+    entry: RuntimeSessionLogEntry,
+  ): Promise<void> {
+    await this.ctx.blockConcurrencyWhile(async () => {
+      const key = this.getExecutionLogKey(sessionId, entry.timestamp);
+      await this.ctx.storage.put(key, entry);
+    });
+  }
+
+  async getExecutionLogs(
+    sessionId: string,
+    since?: number,
+  ): Promise<RuntimeSessionLogEntry[]> {
+    const list = await this.ctx.storage.list<RuntimeSessionLogEntry>({
+      prefix: this.getExecutionLogPrefix(sessionId),
+    });
+    const entries = Array.from(list.values());
+    if (since === undefined) {
+      return entries;
+    }
+    return entries.filter((entry) => entry.timestamp > since);
+  }
+
+  async deleteExecutionSession(sessionId: string): Promise<void> {
+    await this.ctx.blockConcurrencyWhile(async () => {
+      const logs = await this.ctx.storage.list({
+        prefix: this.getExecutionLogPrefix(sessionId),
+      });
+      const logKeys = Array.from(logs.keys());
+      const keysToDelete = [
+        this.getExecutionSessionKey(sessionId),
+        ...logKeys,
+      ];
+      for (let i = 0; i < keysToDelete.length; i += 128) {
+        const chunk = keysToDelete.slice(i, i + 128);
+        await this.ctx.storage.delete(chunk);
+      }
+    });
+  }
+
+  private getExecutionSessionKey(sessionId: string): string {
+    return `${EXECUTION_SESSION_KEY_PREFIX}${sessionId}`;
+  }
+
+  private getExecutionLogPrefix(sessionId: string): string {
+    return `${EXECUTION_LOG_KEY_PREFIX}${sessionId}:`;
+  }
+
+  private getExecutionLogKey(sessionId: string, timestamp: number): string {
+    const paddedTimestamp = timestamp.toString().padStart(15, "0");
+    const suffix = Math.random().toString(36).slice(2, 8);
+    return `${this.getExecutionLogPrefix(sessionId)}${paddedTimestamp}-${suffix}`;
   }
 
   // 5. SRP: History Management

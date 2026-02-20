@@ -3,7 +3,6 @@
  * HTTP endpoints for CloudSandboxExecutor integration
  */
 
-import type { AgentRuntime } from "../core/AgentRuntime";
 import {
   SessionCreateRequestSchema,
   ExecuteTaskRequestSchema,
@@ -17,7 +16,7 @@ import {
   type ExecuteTaskResponse,
 } from "../schemas/http-api";
 
-type RuntimeStub = AgentRuntime | Record<string, unknown>;
+type RuntimeStub = Record<string, unknown>;
 
 const SESSION_TTL_MS = 3600000;
 const EXECUTION_NOT_IMPLEMENTED_CODE = "EXECUTION_NOT_IMPLEMENTED";
@@ -28,6 +27,14 @@ interface SessionRecord {
   repoPath: string;
   expiresAt: number;
   token: string;
+  createdAt: number;
+}
+
+interface PublicSessionRecord {
+  runId: string;
+  taskId: string;
+  repoPath: string;
+  expiresAt: number;
   createdAt: number;
 }
 
@@ -42,8 +49,22 @@ interface RuntimeExecuteTaskHandler {
   (request: ExecuteTaskRequest): Promise<unknown>;
 }
 
-const sessionStore = new Map<string, SessionRecord>();
-const logsStore = new Map<string, SessionLogEntry[]>();
+interface RuntimeSessionStore {
+  storeExecutionSession: (
+    sessionId: string,
+    session: SessionRecord,
+  ) => Promise<void>;
+  getExecutionSession: (sessionId: string) => Promise<SessionRecord | null>;
+  appendExecutionLog: (
+    sessionId: string,
+    entry: SessionLogEntry,
+  ) => Promise<void>;
+  getExecutionLogs: (
+    sessionId: string,
+    since?: number,
+  ) => Promise<SessionLogEntry[]>;
+  deleteExecutionSession: (sessionId: string) => Promise<void>;
+}
 
 function generateSessionId(): string {
   const randomBytes = new Uint8Array(8);
@@ -63,39 +84,6 @@ function generateToken(): string {
   return `tok_${randomHex}`;
 }
 
-function storeSession(
-  sessionId: string,
-  runId: string,
-  taskId: string,
-  repoPath: string,
-  token: string,
-): number {
-  const expiresAt = Date.now() + SESSION_TTL_MS;
-  sessionStore.set(sessionId, {
-    runId,
-    taskId,
-    repoPath,
-    expiresAt,
-    token,
-    createdAt: Date.now(),
-  });
-  logsStore.set(sessionId, []);
-  return expiresAt;
-}
-
-function getActiveSession(sessionId: string): SessionRecord | null {
-  const session = sessionStore.get(sessionId);
-  if (!session) {
-    return null;
-  }
-  if (Date.now() > session.expiresAt) {
-    sessionStore.delete(sessionId);
-    logsStore.delete(sessionId);
-    return null;
-  }
-  return session;
-}
-
 function parseBearerToken(request: Request): string | null {
   const authHeader = request.headers.get("Authorization");
   if (!authHeader) {
@@ -105,11 +93,126 @@ function parseBearerToken(request: Request): string | null {
   return match?.[1] ?? null;
 }
 
-function authorizeSessionRequest(
-  request: Request,
+function constantTimeEqual(a: string, b: string): boolean {
+  const encoder = new TextEncoder();
+  const aBytes = encoder.encode(a);
+  const bBytes = encoder.encode(b);
+  if (aBytes.length !== bBytes.length) {
+    return false;
+  }
+
+  let diff = 0;
+  for (let i = 0; i < aBytes.length; i++) {
+    diff |= aBytes[i]! ^ bBytes[i]!;
+  }
+  return diff === 0;
+}
+
+function getRuntimeSessionStore(runtime: RuntimeStub): RuntimeSessionStore | null {
+  const candidate = runtime as Record<string, unknown>;
+  const storeExecutionSession = candidate.storeExecutionSession;
+  const getExecutionSession = candidate.getExecutionSession;
+  const appendExecutionLog = candidate.appendExecutionLog;
+  const getExecutionLogs = candidate.getExecutionLogs;
+  const deleteExecutionSession = candidate.deleteExecutionSession;
+
+  if (
+    typeof storeExecutionSession !== "function" ||
+    typeof getExecutionSession !== "function" ||
+    typeof appendExecutionLog !== "function" ||
+    typeof getExecutionLogs !== "function" ||
+    typeof deleteExecutionSession !== "function"
+  ) {
+    return null;
+  }
+
+  return {
+    storeExecutionSession:
+      storeExecutionSession as RuntimeSessionStore["storeExecutionSession"],
+    getExecutionSession:
+      getExecutionSession as RuntimeSessionStore["getExecutionSession"],
+    appendExecutionLog:
+      appendExecutionLog as RuntimeSessionStore["appendExecutionLog"],
+    getExecutionLogs: getExecutionLogs as RuntimeSessionStore["getExecutionLogs"],
+    deleteExecutionSession:
+      deleteExecutionSession as RuntimeSessionStore["deleteExecutionSession"],
+  };
+}
+
+async function storeSession(
+  runtime: RuntimeStub,
   sessionId: string,
-): { ok: true; session: SessionRecord } | { ok: false; response: Response } {
-  const session = getActiveSession(sessionId);
+  runId: string,
+  taskId: string,
+  repoPath: string,
+  token: string,
+): Promise<number> {
+  const sessionStore = getRuntimeSessionStore(runtime);
+  if (!sessionStore) {
+    throw new Error("Session storage is unavailable");
+  }
+
+  const now = Date.now();
+  const expiresAt = now + SESSION_TTL_MS;
+  await sessionStore.storeExecutionSession(sessionId, {
+    runId,
+    taskId,
+    repoPath,
+    expiresAt,
+    token,
+    createdAt: now,
+  });
+  return expiresAt;
+}
+
+async function getActiveSession(
+  runtime: RuntimeStub,
+  sessionId: string,
+): Promise<SessionRecord | null> {
+  const sessionStore = getRuntimeSessionStore(runtime);
+  if (!sessionStore) {
+    return null;
+  }
+
+  const session = await sessionStore.getExecutionSession(sessionId);
+  if (!session) {
+    return null;
+  }
+
+  if (Date.now() > session.expiresAt) {
+    await sessionStore.deleteExecutionSession(sessionId);
+    return null;
+  }
+
+  return session;
+}
+
+async function recordLog(
+  runtime: RuntimeStub,
+  sessionId: string,
+  level: SessionLogEntry["level"],
+  message: string,
+  source?: SessionLogEntry["source"],
+): Promise<void> {
+  const sessionStore = getRuntimeSessionStore(runtime);
+  if (!sessionStore) {
+    return;
+  }
+
+  await sessionStore.appendExecutionLog(sessionId, {
+    timestamp: Date.now(),
+    level,
+    message,
+    source,
+  });
+}
+
+async function authorizeSessionRequest(
+  request: Request,
+  runtime: RuntimeStub,
+  sessionId: string,
+): Promise<{ ok: true; session: SessionRecord } | { ok: false; response: Response }> {
+  const session = await getActiveSession(runtime, sessionId);
   if (!session) {
     return {
       ok: false,
@@ -118,7 +221,7 @@ function authorizeSessionRequest(
   }
 
   const providedToken = parseBearerToken(request);
-  if (!providedToken || providedToken !== session.token) {
+  if (!providedToken || !constantTimeEqual(providedToken, session.token)) {
     return {
       ok: false,
       response: errorResponse("Unauthorized", "UNAUTHORIZED", 401),
@@ -126,22 +229,6 @@ function authorizeSessionRequest(
   }
 
   return { ok: true, session };
-}
-
-function recordLog(
-  sessionId: string,
-  level: SessionLogEntry["level"],
-  message: string,
-  source?: SessionLogEntry["source"],
-): void {
-  const logs = logsStore.get(sessionId) || [];
-  logs.push({
-    timestamp: Date.now(),
-    level,
-    message,
-    source,
-  });
-  logsStore.set(sessionId, logs);
 }
 
 async function fetchManifest(runtime: RuntimeStub): Promise<unknown> {
@@ -184,6 +271,14 @@ export async function handleCreateSession(
   console.log("[api/session] Handling session creation request");
 
   try {
+    if (!getRuntimeSessionStore(runtime)) {
+      return errorResponse(
+        "Session storage unavailable",
+        "SESSION_STORAGE_UNAVAILABLE",
+        503,
+      );
+    }
+
     const validation = await validateRequestBody(request, SessionCreateRequestSchema);
     if (!validation.valid) {
       console.warn(`[api/session] Validation failed: ${validation.error}`);
@@ -193,7 +288,14 @@ export async function handleCreateSession(
     const { runId, taskId, repoPath } = validation.data;
     const sessionId = generateSessionId();
     const token = generateToken();
-    const expiresAt = storeSession(sessionId, runId, taskId, repoPath, token);
+    const expiresAt = await storeSession(
+      runtime,
+      sessionId,
+      runId,
+      taskId,
+      repoPath,
+      token,
+    );
     const manifest = await fetchManifest(runtime);
 
     const response: Record<string, unknown> = {
@@ -228,14 +330,15 @@ export async function handleExecuteTask(
     }
 
     const { sessionId } = validation.data;
-    const auth = authorizeSessionRequest(request, sessionId);
+    const auth = await authorizeSessionRequest(request, runtime, sessionId);
     if (!auth.ok) {
       return auth.response;
     }
 
     const executeTask = getRuntimeExecuteTaskHandler(runtime);
     if (!executeTask) {
-      recordLog(
+      await recordLog(
+        runtime,
         sessionId,
         "warn",
         "Execution endpoint called but runtime task execution is not implemented",
@@ -258,7 +361,8 @@ export async function handleExecuteTask(
       );
     }
 
-    recordLog(
+    await recordLog(
+      runtime,
       sessionId,
       executionResult.exitCode === 0 ? "info" : "error",
       executionResult.exitCode === 0
@@ -275,7 +379,11 @@ export async function handleExecuteTask(
   }
 }
 
-export function handleStreamLogs(request: Request): Response {
+export async function handleStreamLogs(
+  request: Request,
+  runtime: RuntimeStub,
+  corsHeaders: Record<string, string> = {},
+): Promise<Response> {
   console.log("[api/logs] Handling log stream request");
 
   try {
@@ -286,24 +394,27 @@ export function handleStreamLogs(request: Request): Response {
       return errorResponse(validation.error, "INVALID_REQUEST", 400);
     }
 
+    const sessionStore = getRuntimeSessionStore(runtime);
+    if (!sessionStore) {
+      return errorResponse(
+        "Session storage unavailable",
+        "SESSION_STORAGE_UNAVAILABLE",
+        503,
+      );
+    }
+
     const { sessionId, since } = validation.data;
-    const auth = authorizeSessionRequest(request, sessionId);
+    const auth = await authorizeSessionRequest(request, runtime, sessionId);
     if (!auth.ok) {
       return auth.response;
     }
 
-    const allLogs = logsStore.get(sessionId) || [];
-    const filteredLogs = since
-      ? allLogs.filter((log) => log.timestamp > since)
-      : allLogs;
-
+    const logs = await sessionStore.getExecutionLogs(sessionId, since);
     console.log(
-      `[api/logs] Streaming ${filteredLogs.length} logs for session: ${sessionId.substring(0, 8)}...`,
+      `[api/logs] Streaming ${logs.length} logs for session: ${sessionId.substring(0, 8)}...`,
     );
 
-    const sseContent = filteredLogs
-      .map((log) => `data: ${JSON.stringify(log)}\n\n`)
-      .join("");
+    const sseContent = logs.map((log) => `data: ${JSON.stringify(log)}\n\n`).join("");
 
     return new Response(sseContent, {
       status: 200,
@@ -311,6 +422,7 @@ export function handleStreamLogs(request: Request): Response {
         "Content-Type": "text/event-stream",
         "Cache-Control": "no-cache",
         Connection: "keep-alive",
+        ...corsHeaders,
       },
     });
   } catch (error) {
@@ -320,7 +432,10 @@ export function handleStreamLogs(request: Request): Response {
   }
 }
 
-export function handleDeleteSession(request: Request): Response {
+export async function handleDeleteSession(
+  request: Request,
+  runtime: RuntimeStub,
+): Promise<Response> {
   console.log("[api/delete-session] Handling session deletion request");
 
   try {
@@ -331,13 +446,21 @@ export function handleDeleteSession(request: Request): Response {
       return errorResponse("Invalid session ID", "INVALID_REQUEST", 400);
     }
 
-    const auth = authorizeSessionRequest(request, sessionId);
+    const auth = await authorizeSessionRequest(request, runtime, sessionId);
     if (!auth.ok) {
       return auth.response;
     }
 
-    sessionStore.delete(sessionId);
-    logsStore.delete(sessionId);
+    const sessionStore = getRuntimeSessionStore(runtime);
+    if (!sessionStore) {
+      return errorResponse(
+        "Session storage unavailable",
+        "SESSION_STORAGE_UNAVAILABLE",
+        503,
+      );
+    }
+
+    await sessionStore.deleteExecutionSession(sessionId);
     console.log(`[api/delete-session] Session deleted: ${sessionId.substring(0, 8)}...`);
 
     return jsonResponse(
@@ -354,19 +477,32 @@ export function handleDeleteSession(request: Request): Response {
   }
 }
 
-export function addLog(
+export async function addLog(
+  runtime: RuntimeStub,
   sessionId: string,
   level: SessionLogEntry["level"],
   message: string,
   source?: SessionLogEntry["source"],
-): void {
-  recordLog(sessionId, level, message, source);
+): Promise<void> {
+  await recordLog(runtime, sessionId, level, message, source);
 }
 
-export function getSession(sessionId: string): SessionRecord | null {
-  return getActiveSession(sessionId);
+export async function getSession(
+  runtime: RuntimeStub,
+  sessionId: string,
+): Promise<PublicSessionRecord | null> {
+  const session = await getActiveSession(runtime, sessionId);
+  if (!session) {
+    return null;
+  }
+  const { token: _token, ...publicSession } = session;
+  return publicSession;
 }
 
-export function isSessionValid(sessionId: string): boolean {
-  return getActiveSession(sessionId) !== null;
+export async function isSessionValid(
+  runtime: RuntimeStub,
+  sessionId: string,
+): Promise<boolean> {
+  const session = await getActiveSession(runtime, sessionId);
+  return session !== null;
 }
