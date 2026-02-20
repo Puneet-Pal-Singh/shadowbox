@@ -9,9 +9,11 @@
 import { ProviderIdSchema, type ProviderId } from "../../schemas/provider";
 import {
   InvalidProviderSelectionError,
+  ModelNotAllowedError,
   ValidationError,
 } from "../../domain/errors";
 import { isStrictMode, logCompatFallback, CompatFallbackReasonCodes } from "../../config/runtime-compat";
+import { PROVIDER_CATALOG } from "../providers/catalog";
 
 /**
  * Runtime provider type (subset of ProviderId with runtime semantics)
@@ -132,6 +134,28 @@ export function resolveModelSelection(
 
   const validProviderId: ProviderId = parseResult.data;
   const runtimeProvider = mapToRuntimeProvider(validProviderId);
+  const isAllowedModel = isModelAllowedForProvider(validProviderId, modelId);
+
+  if (!isAllowedModel) {
+    if (isStrictMode()) {
+      throw new ModelNotAllowedError(modelId, validProviderId, correlationId);
+    }
+
+    logCompatFallback({
+      reasonCode: CompatFallbackReasonCodes.MODEL_SELECTION_DEFAULTED,
+      requestedProvider: validProviderId,
+      requestedModel: modelId,
+      resolvedProvider: defaultProvider,
+      resolvedModel: defaultModel,
+      runId: correlationId,
+    });
+    return {
+      model: defaultModel,
+      provider: defaultProvider,
+      runtimeProvider: defaultRuntimeProvider,
+      fallback: true,
+    };
+  }
 
   // Attempt to use provider override (actual connection check happens later)
   console.log(
@@ -176,4 +200,8 @@ export function getRuntimeProviderFromAdapter(provider: string): RuntimeProvider
     return provider as RuntimeProvider;
   }
   return "litellm";
+}
+
+function isModelAllowedForProvider(providerId: ProviderId, modelId: string): boolean {
+  return PROVIDER_CATALOG[providerId].some((model) => model.id === modelId);
 }
