@@ -3,9 +3,9 @@
 set -euo pipefail
 
 SCRIPT_NAME="fetch-review-comments"
-DEFAULT_OUTPUT_DIR="scripts/review-script"
+DEFAULT_OUTPUT_DIR="scripts/review-script/review-findings"
 DEFAULT_OUTPUT_PREFIX="ai-review-pr"
-DEFAULT_BOTS="coderabbitai,greptile-apps"
+DEFAULT_BOTS="coderabbitai,greptile-apps,codex"
 DEFAULT_MAX_BODY_CHARS=1200
 
 REPO=""
@@ -28,7 +28,7 @@ Options:
   --repo <owner/repo>        GitHub repository (auto-detect if omitted)
   --pr <number>              Pull request number (auto-detect if omitted)
   --output <path>            Output Markdown file (default: ${DEFAULT_OUTPUT_DIR}/${DEFAULT_OUTPUT_PREFIX}-<pr>.md)
-  --bots <csv>               Bot logins to include (default: ${DEFAULT_BOTS}; use 'all' to include all authors)
+  --bots <csv>               Bot logins to include (default: ${DEFAULT_BOTS}; partial match, use 'all' to include all authors)
   --wait-minutes <number>    Wait/poll for new comments before exiting (default: 0)
   --poll-seconds <number>    Poll interval when waiting (default: 20)
   --min-comments <number>    Stop waiting when this many matching comments are found (default: 1)
@@ -118,11 +118,13 @@ filter_allowed_bots() {
   local bots_csv="$1"
   jq --arg bots_csv "$bots_csv" '
     def normalize_login: ascii_downcase | gsub("\\[bot\\]$"; "") | gsub("^\\s+|\\s+$"; "");
+    def is_allowed($bot; $allowed):
+      any($allowed[]; . == "all" or . == "*" or $bot == . or ($bot | contains(.)));
     ($bots_csv | split(",") | map(normalize_login) | map(select(length > 0))) as $allowed
     | if any($allowed[]; . == "all" or . == "*") then
         sort_by(.created_at)
       else
-        map(select((.bot | normalize_login) as $bot | any($allowed[]; . == $bot)))
+        map(select((.bot | normalize_login) as $bot | is_allowed($bot; $allowed)))
         | sort_by(.created_at)
       end
   '
@@ -365,8 +367,21 @@ while :; do
   combined_json="$(jq -n --argjson review "$review_normalized" --argjson issue "$issue_normalized" '$review + $issue')"
   findings_json="$(filter_allowed_bots "$BOTS" <<<"$combined_json")"
 
+  total_count="$(jq 'length' <<<"$combined_json")"
+  total_review_count="$(jq '[.[] | select(.source == "pull_review_comment")] | length' <<<"$combined_json")"
+  total_issue_count="$(jq '[.[] | select(.source == "pull_issue_comment")] | length' <<<"$combined_json")"
   findings_count="$(jq 'length' <<<"$findings_json")"
+  matched_review_count="$(jq '[.[] | select(.source == "pull_review_comment")] | length' <<<"$findings_json")"
+  matched_issue_count="$(jq '[.[] | select(.source == "pull_issue_comment")] | length' <<<"$findings_json")"
+
+  log "Fetched: ${total_review_count} line + ${total_issue_count} issue comments"
+  log "Matched: ${matched_review_count} line + ${matched_issue_count} issue comments"
   log "Matching comments: ${findings_count}"
+  filtered_count=$((total_count - findings_count))
+  if [[ "$filtered_count" -gt 0 ]]; then
+    log "Filtered out by bot/source rules: ${filtered_count}"
+  fi
+
   if [[ "$findings_count" -eq 0 ]]; then
     all_author_count="$(jq 'length' <<<"$combined_json")"
     if [[ "$all_author_count" -gt 0 ]]; then
