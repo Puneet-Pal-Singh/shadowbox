@@ -71,15 +71,51 @@ describe("ChatController DO runtime migration", () => {
     expect(payload.input.providerId).toBe("openai");
     expect(payload.input.modelId).toBe("gpt-4");
   });
+
+  it("returns validation error for unsupported agentId", async () => {
+    const runtime = createMockRuntimeNamespace();
+    const env = createEnv(runtime.namespace);
+    const response = await ChatController.handle(
+      createChatRequest({ agentId: "unknown-agent" }),
+      env,
+    );
+
+    expect(response.status).toBe(400);
+    const body = (await response.json()) as { error: string; code: string };
+    expect(body.code).toBe("INVALID_AGENT_TYPE");
+    expect(body.error).toContain("Unsupported agentId");
+    expect(runtime.fetch).not.toHaveBeenCalled();
+  });
+
+  it("returns validation error when runId is missing", async () => {
+    const runtime = createMockRuntimeNamespace();
+    const env = createEnv(runtime.namespace);
+    const response = await ChatController.handle(
+      createChatRequest({ runId: undefined }),
+      env,
+    );
+
+    expect(response.status).toBe(400);
+    const body = (await response.json()) as { error: string; code: string };
+    expect(body.code).toBe("MISSING_FIELD");
+    expect(body.error).toContain("runId");
+    expect(runtime.fetch).not.toHaveBeenCalled();
+  });
 });
 
-function createChatRequest(): Request {
+function createChatRequest(overrides: {
+  runId?: string;
+  agentId?: string;
+} = {}): Request {
+  const runIdValue =
+    "runId" in overrides ? overrides.runId : VALID_RUN_ID;
   return new Request("https://brain.local/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       sessionId: "session-1",
-      runId: VALID_RUN_ID,
+      runId: runIdValue,
+      agentId: overrides.agentId,
       messages: [
         {
           role: "user",
@@ -111,7 +147,9 @@ function createMockRuntimeNamespace() {
 function createEnv(runEngineRuntime: Env["RUN_ENGINE_RUNTIME"]): Env {
   return {
     AI: {} as Env["AI"],
-    SECURE_API: {} as Env["SECURE_API"],
+    SECURE_API: {
+      fetch: vi.fn(async () => new Response(JSON.stringify({ success: true }))),
+    } as unknown as Env["SECURE_API"],
     GITHUB_CLIENT_ID: "x",
     GITHUB_CLIENT_SECRET: "x",
     GITHUB_REDIRECT_URI: "x",
