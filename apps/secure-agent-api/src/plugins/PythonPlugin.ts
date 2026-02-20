@@ -1,67 +1,167 @@
 import { Sandbox } from "@cloudflare/sandbox";
 import { IPlugin, PluginResult, LogCallback } from "../interfaces/types";
-import { PythonTool } from "../schemas/python"; 
+import { z } from "zod";
+import { PythonTool } from "../schemas/python";
+import { getWorkspaceRoot, normalizeRunId } from "./security/PathGuard";
+import { runSafeCommand } from "./security/SafeCommand";
+
+const PYTHON_ALLOWED_COMMANDS = ["python3"] as const;
+const REQUIREMENT_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._\-[\],<>=!~]*$/;
+const MANAGED_ENVIRONMENT_PATTERN = /externally-managed-environment/i;
+
+const PythonPayloadSchema = z.object({
+  code: z.string().min(1),
+  requirements: z.array(z.string().min(1)).max(64).optional(),
+  runId: z.string().optional(),
+});
 
 export class PythonPlugin implements IPlugin {
   name = "python";
   tools = [PythonTool];
 
-  async execute(sandbox: Sandbox, payload: { code: string; requirements?: string[] }, onLog?: LogCallback): Promise<PluginResult> {
-    
-    // 1. Notify Start
-    if (onLog) onLog(`[System] Initializing Python environment...`);
+  async execute(
+    sandbox: Sandbox,
+    payload: unknown,
+    onLog?: LogCallback,
+  ): Promise<PluginResult> {
+    try {
+      const parsed = PythonPayloadSchema.parse(payload);
+      const runId = normalizeRunId(parsed.runId);
+      const workspaceRoot = getWorkspaceRoot(runId);
+      const requirements = normalizeRequirements(parsed.requirements ?? []);
 
-    // 2. Install Requirements (Smart Mode)
-    if (payload.requirements?.length) {
-      const packages = payload.requirements.join(" ");
-      
-      // Stream status update
-      if (onLog) onLog(`[System] Installing dependencies: ${packages}...`);
+      if (onLog) onLog("[System] Initializing Python environment...");
 
-      // Attempt 1: Standard Install
-      let install = await sandbox.exec(`python3 -m pip install ${packages}`);
+      await runSafeCommand(
+        sandbox,
+        { command: "mkdir", args: ["-p", workspaceRoot] },
+        ["mkdir"],
+      );
 
-      // Attempt 2: Managed Environment Retry
-      if (install.exitCode !== 0 && install.stderr.includes("externally-managed-environment")) {
-        if (onLog) onLog(`[System] Managed environment detected. Retrying with --break-system-packages...`);
-        install = await sandbox.exec(`python3 -m pip install ${packages} --break-system-packages`);
+      if (requirements.length > 0) {
+        const installResult = await this.installRequirements(
+          sandbox,
+          workspaceRoot,
+          requirements,
+          onLog,
+        );
+        if (installResult) {
+          return installResult;
+        }
       }
 
-      // Stream installation output (So user sees download progress/errors)
+      await sandbox.writeFile(`${workspaceRoot}/main.py`, parsed.code);
+
+      if (onLog) onLog("[System] Executing script...");
+      const result = await runSafeCommand(
+        sandbox,
+        { command: "python3", args: ["main.py"], cwd: workspaceRoot },
+        PYTHON_ALLOWED_COMMANDS,
+      );
+
       if (onLog) {
-        if (install.stdout) onLog(install.stdout);
-        if (install.stderr) onLog(install.stderr);
+        if (result.stdout) onLog(result.stdout);
+        if (result.stderr) onLog(`[stderr] ${result.stderr}`);
       }
 
-      // Fail fast
-      if (install.exitCode !== 0) {
-        return {
-          success: false,
-          output: install.stdout,
-          logs: install.stderr.split("\n"),
-          error: `Dependency installation failed.`
-        };
-      }
+      return {
+        success: result.exitCode === 0,
+        output: result.stdout,
+        logs: splitLogLines(result.stderr),
+        error: result.exitCode !== 0 ? "Execution failed" : undefined,
+      };
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error ? error.message : "Python plugin execution failed";
+      return { success: false, error: message };
+    }
+  }
+
+  private async installRequirements(
+    sandbox: Sandbox,
+    workspaceRoot: string,
+    requirements: string[],
+    onLog?: LogCallback,
+  ): Promise<PluginResult | null> {
+    if (onLog) {
+      onLog(`[System] Installing dependencies: ${requirements.join(", ")}...`);
     }
 
-    // 3. Write Code
-    await sandbox.writeFile("main.py", payload.code);
+    let install = await runSafeCommand(
+      sandbox,
+      {
+        command: "python3",
+        args: ["-m", "pip", "install", ...requirements],
+        cwd: workspaceRoot,
+      },
+      PYTHON_ALLOWED_COMMANDS,
+    );
 
-    // 4. Execute
-    if (onLog) onLog(`[System] Executing script...`);
-    const result = await sandbox.exec("python3 main.py");
+    if (
+      install.exitCode !== 0 &&
+      MANAGED_ENVIRONMENT_PATTERN.test(`${install.stderr}\n${install.stdout}`)
+    ) {
+      if (onLog) {
+        onLog(
+          "[System] Managed environment detected. Retrying with --break-system-packages...",
+        );
+      }
+      install = await runSafeCommand(
+        sandbox,
+        {
+          command: "python3",
+          args: [
+            "-m",
+            "pip",
+            "install",
+            ...requirements,
+            "--break-system-packages",
+          ],
+          cwd: workspaceRoot,
+        },
+        PYTHON_ALLOWED_COMMANDS,
+      );
+    }
 
-    // Stream the final execution output
     if (onLog) {
-        if (result.stdout) onLog(result.stdout);
-        if (result.stderr) onLog(`[stderr] ${result.stderr}`); // Distinguish errors visually
+      if (install.stdout) onLog(install.stdout);
+      if (install.stderr) onLog(install.stderr);
+    }
+
+    if (install.exitCode === 0) {
+      return null;
     }
 
     return {
-      success: result.exitCode === 0,
-      output: result.stdout,
-      logs: result.stderr ? result.stderr.split("\n") : [],
-      error: result.exitCode !== 0 ? "Execution failed" : undefined
+      success: false,
+      output: install.stdout,
+      logs: splitLogLines(install.stderr),
+      error: "Dependency installation failed.",
     };
   }
+}
+
+function normalizeRequirements(requirements: string[]): string[] {
+  return requirements.map(validateRequirementSpecifier);
+}
+
+function validateRequirementSpecifier(requirement: string): string {
+  const trimmed = requirement.trim();
+  if (!trimmed) {
+    throw new Error("Python requirement cannot be empty");
+  }
+  if (!REQUIREMENT_PATTERN.test(trimmed)) {
+    throw new Error(`Invalid Python requirement: ${trimmed}`);
+  }
+  return trimmed;
+}
+
+function splitLogLines(value: string): string[] {
+  if (!value) {
+    return [];
+  }
+  return value
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
 }
