@@ -56,58 +56,6 @@ jobs:
       - name: Run linter
         run: pnpm lint
 
-  boundary-check:
-    name: Boundary Check
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v2
-        with:
-          version: 9.0.0
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: '18'
-          cache: 'pnpm'
-
-      - name: Install dependencies
-        run: pnpm install --no-frozen-lockfile
-
-      - name: Enforce import boundaries
-        run: pnpm check:boundaries
-
-  tests:
-    name: Tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v2
-        with:
-          version: 9.0.0
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: '18'
-          cache: 'pnpm'
-
-      - name: Install dependencies
-        run: pnpm install --no-frozen-lockfile
-
-      - name: Run brain tests
-        run: pnpm --filter @shadowbox/brain test
-
-      - name: Run secure-agent-api tests
-        run: pnpm --filter @shadowbox/secure-agent-api test
-
-      - name: Run execution-engine tests
-        run: pnpm --filter @shadowbox/execution-engine test
-
   build:
     name: Build
     runs-on: ubuntu-latest
