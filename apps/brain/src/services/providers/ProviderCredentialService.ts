@@ -14,7 +14,6 @@ import type {
   ConnectProviderResponse,
   DisconnectProviderRequest,
 } from "../../schemas/provider";
-import { DependencyError } from "../../domain/errors";
 import type { DurableProviderStore } from "./DurableProviderStore";
 
 /**
@@ -23,14 +22,7 @@ import type { DurableProviderStore } from "./DurableProviderStore";
 export class ProviderCredentialService {
   private durableStore: DurableProviderStore;
 
-  constructor(_env: Env, durableStore?: DurableProviderStore) {
-    if (!durableStore) {
-      throw new DependencyError(
-        "Durable provider store is required for provider credential operations.",
-        "MISSING_DURABLE_PROVIDER_STORE",
-        false,
-      );
-    }
+  constructor(_env: Env, durableStore: DurableProviderStore) {
     this.durableStore = durableStore;
   }
 

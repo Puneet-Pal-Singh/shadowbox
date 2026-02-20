@@ -5,6 +5,7 @@
  */
 
 import { getEndpoint } from "../lib/platform-endpoints";
+import { ACTIVE_SESSION_ID_KEY, SESSIONS_KEY } from "./SessionStateService";
 import type {
   ProviderId,
   ConnectProviderRequest,
@@ -15,6 +16,8 @@ import type {
   ProviderConnectionStatus,
 } from "../types/provider";
 
+const SESSION_RUN_ID_KEY = "currentRunId";
+
 /**
  * ProviderApiClient - Backend API client for provider operations
  *
@@ -23,15 +26,13 @@ import type {
  */
 export class ProviderApiClient {
   private static resolveRunId(): string | null {
-    const sessionRunId = sessionStorage.getItem("currentRunId");
+    const sessionRunId = sessionStorage.getItem(SESSION_RUN_ID_KEY);
     if (sessionRunId) {
       return sessionRunId;
     }
 
-    const activeSessionId = localStorage.getItem(
-      "shadowbox:active-session-id:v2",
-    );
-    const sessionsRaw = localStorage.getItem("shadowbox:sessions:v2");
+    const activeSessionId = localStorage.getItem(ACTIVE_SESSION_ID_KEY);
+    const sessionsRaw = localStorage.getItem(SESSIONS_KEY);
     if (!activeSessionId || !sessionsRaw) {
       return null;
     }

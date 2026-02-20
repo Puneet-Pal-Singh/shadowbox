@@ -254,8 +254,8 @@ describe("Architecture Boundary: No Legacy Imports", () => {
 
       const content = fs.readFileSync(filePath, "utf-8");
       const hasReExport =
-        /export\s+\*\s+from\s+["']/.test(content) ||
-        /export\s+\{[^}]+\}\s+from\s+["']/.test(content);
+        /export\s+(?:type\s+)?\*\s+from\s+["']/.test(content) ||
+        /export\s+(?:type\s+)?\{[^}]+\}\s+from\s+["']/.test(content);
 
       if (hasReExport) {
         reExportViolations.push(relativePath);

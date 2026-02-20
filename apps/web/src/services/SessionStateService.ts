@@ -21,8 +21,8 @@ import type {
   SessionGitHubContext,
 } from "../types/session";
 
-const SESSIONS_KEY = "shadowbox:sessions:v2";
-const ACTIVE_SESSION_ID_KEY = "shadowbox:active-session-id:v2";
+export const SESSIONS_KEY = "shadowbox:sessions:v2";
+export const ACTIVE_SESSION_ID_KEY = "shadowbox:active-session-id:v2";
 
 function getSessionContextKey(sessionId: string): string {
   return `shadowbox:session-context:${sessionId}`;

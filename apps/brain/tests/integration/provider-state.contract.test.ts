@@ -1,18 +1,19 @@
+import type { DurableObjectState } from "@cloudflare/workers-types";
 import type { CoreMessage } from "ai";
 import { afterEach, describe, it, expect, vi } from "vitest";
-import type { ProviderId } from "../schemas/provider";
-import type { Env } from "../types/ai";
-import { ProviderController } from "../controllers/ProviderController";
-import { AIService } from "../services/AIService";
-import { ProviderConfigService } from "../services/providers";
-import { DurableProviderStore } from "../services/providers/DurableProviderStore";
-import { OpenAICompatibleAdapter } from "../services/providers/adapters/OpenAICompatibleAdapter";
+import type { ProviderId } from "../../src/schemas/provider";
+import type { Env } from "../../src/types/ai";
+import { ProviderController } from "../../src/controllers/ProviderController";
+import { AIService } from "../../src/services/AIService";
+import { ProviderConfigService } from "../../src/services/providers";
+import { DurableProviderStore } from "../../src/services/providers/DurableProviderStore";
+import { OpenAICompatibleAdapter } from "../../src/services/providers/adapters/OpenAICompatibleAdapter";
 import {
   getRuntimeProviderFromAdapter,
   mapProviderIdToRuntimeProvider,
   resolveModelSelection,
-} from "../services/ai/ModelSelectionPolicy";
-import { setCompatModeOverride } from "../config/runtime-compat";
+} from "../../src/services/ai/ModelSelectionPolicy";
+import { setCompatModeOverride } from "../../src/config/runtime-compat";
 
 interface MockDurableObjectState {
   storage?: {
@@ -197,9 +198,18 @@ function createEnvWithRunNamespace(
         const request =
           input instanceof Request ? input : new Request(String(input), init);
         const runId = request.headers.get("X-Run-Id");
-        if (!runId || runId !== id) {
+        if (!runId) {
           return new Response(
             JSON.stringify({ error: "Missing required X-Run-Id header" }),
+            {
+              status: 400,
+              headers: { "Content-Type": "application/json" },
+            },
+          );
+        }
+        if (runId !== id) {
+          return new Response(
+            JSON.stringify({ error: `X-Run-Id mismatch: expected ${id}` }),
             {
               status: 400,
               headers: { "Content-Type": "application/json" },
@@ -274,7 +284,10 @@ function createRuntimeProviderConfigService(
   runId: string,
 ): ProviderConfigService {
   const state = createDurableState(storageByRunId, runId);
-  const durableStore = new DurableProviderStore(state as any, runId);
+  const durableStore = new DurableProviderStore(
+    state as unknown as DurableObjectState,
+    runId,
+  );
   return new ProviderConfigService(env, durableStore);
 }
 
