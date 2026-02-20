@@ -78,6 +78,10 @@ export class PlanExecutionEngine {
       }
     } catch (error) {
       state.status = 'failed'
+      console.error(
+        '[execution/plan] Step execution failed:',
+        error instanceof Error ? error.message : String(error)
+      )
       state.errors.push({
         message: error instanceof Error ? error.message : String(error)
       })

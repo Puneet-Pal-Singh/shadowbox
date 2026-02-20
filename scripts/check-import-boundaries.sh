@@ -15,8 +15,8 @@ TS_GLOBS=(
 IMPORT_PATTERN='^\s*(import|export)\s+.+from\s+["'"'"'][^"'"'"']*packages\/[^\/]+\/src\/'
 REQUIRE_PATTERN='^\s*const\s+.+=\s*require\(\s*["'"'"'][^"'"'"']*packages\/[^\/]+\/src\/'
 
-import_violations="$(rg -n --pcre2 "${TS_GLOBS[@]}" "$IMPORT_PATTERN" "$APP_ROOT" || true)"
-require_violations="$(rg -n --pcre2 "${TS_GLOBS[@]}" "$REQUIRE_PATTERN" "$APP_ROOT" || true)"
+import_violations="$(rg -n "${TS_GLOBS[@]}" "$IMPORT_PATTERN" "$APP_ROOT" || true)"
+require_violations="$(rg -n "${TS_GLOBS[@]}" "$REQUIRE_PATTERN" "$APP_ROOT" || true)"
 
 if [[ -n "$import_violations" || -n "$require_violations" ]]; then
   echo "ERROR: Boundary check failed: deep imports to packages/*/src/* are not allowed from apps/*."

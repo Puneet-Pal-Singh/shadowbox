@@ -47,12 +47,18 @@ Use semantic, intent-first naming for both branches and PR titles.
 - PR titles must follow conventional commits and describe behavior or architecture impact.
 - Do not use numbering/phase labels in branch names or PR titles:
   - `pr-1`, `pr-2`, `phase-1`, `phase-2`, `task-3`, etc.
-- Internal tracking IDs are allowed only in PR body metadata (for example: `Internal Plan Ref: PR2`).
+- Internal tracking IDs are allowed only in PR body metadata (for example: `Internal Ref: JIRA-123` or `GitHub Issue: #42`).
 
 Recommended branch format:
 
 ```bash
 <type>/<scope>-<intent>
+```
+
+Automated agent branches may use the required Shadowbox agent prefix:
+
+```bash
+codex/<type>-<scope>-<intent>
 ```
 
 Examples:
