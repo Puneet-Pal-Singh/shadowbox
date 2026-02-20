@@ -35,6 +35,7 @@ export class RunEngineRuntime extends DurableObject {
 
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
+    const env = this.env as Env;
 
     if (url.pathname === "/execute" && request.method === "POST") {
       return this.handleExecuteRequest(request);
@@ -44,7 +45,7 @@ export class RunEngineRuntime extends DurableObject {
       return this.handleProviderRequest(request, url);
     }
 
-    return new Response("Not Found", { status: 404 });
+    return errorResponse(request, env, "Not Found", 404);
   }
 
   private async handleExecuteRequest(request: Request): Promise<Response> {
@@ -67,10 +68,7 @@ export class RunEngineRuntime extends DurableObject {
       }
       const message =
         error instanceof Error ? error.message : "Invalid payload";
-      return new Response(JSON.stringify({ error: message }), {
-        status: 400,
-        headers: { "Content-Type": "application/json" },
-      });
+      return errorResponse(request, this.env as Env, message, 400);
     }
 
     try {
@@ -114,10 +112,7 @@ export class RunEngineRuntime extends DurableObject {
         error instanceof Error
           ? error.message
           : "RunEngine DO execution failed";
-      return new Response(JSON.stringify({ error: message }), {
-        status: 500,
-        headers: { "Content-Type": "application/json" },
-      });
+      return errorResponse(request, this.env as Env, message, 500);
     }
   }
 
@@ -132,7 +127,10 @@ export class RunEngineRuntime extends DurableObject {
       const runId = this.resolveProviderRunId(request, correlationId);
       const configService = this.createProviderConfigService(runId);
 
-      if (url.pathname === "/providers/connect" && request.method === "POST") {
+      if (url.pathname === "/providers/connect") {
+        if (request.method !== "POST") {
+          return errorResponse(request, env, "Method Not Allowed", 405);
+        }
         const body = await parseRequestBody(request, correlationId);
         const validatedRequest = validateWithSchema<{
           providerId: ProviderId;
@@ -142,10 +140,10 @@ export class RunEngineRuntime extends DurableObject {
         return jsonResponse(request, env, response);
       }
 
-      if (
-        url.pathname === "/providers/disconnect" &&
-        request.method === "POST"
-      ) {
+      if (url.pathname === "/providers/disconnect") {
+        if (request.method !== "POST") {
+          return errorResponse(request, env, "Method Not Allowed", 405);
+        }
         const body = await parseRequestBody(request, correlationId);
         const validatedRequest = validateWithSchema<{
           providerId: ProviderId;
@@ -154,12 +152,18 @@ export class RunEngineRuntime extends DurableObject {
         return jsonResponse(request, env, response);
       }
 
-      if (url.pathname === "/providers/status" && request.method === "GET") {
+      if (url.pathname === "/providers/status") {
+        if (request.method !== "GET") {
+          return errorResponse(request, env, "Method Not Allowed", 405);
+        }
         const providers = await configService.getStatus();
         return jsonResponse(request, env, { providers });
       }
 
-      if (url.pathname === "/providers/models" && request.method === "GET") {
+      if (url.pathname === "/providers/models") {
+        if (request.method !== "GET") {
+          return errorResponse(request, env, "Method Not Allowed", 405);
+        }
         const providerIdParam = url.searchParams.get("providerId");
         if (!providerIdParam) {
           throw new ValidationError(
@@ -178,7 +182,7 @@ export class RunEngineRuntime extends DurableObject {
         return jsonResponse(request, env, response);
       }
 
-      return new Response("Method Not Allowed", { status: 405 });
+      return errorResponse(request, env, "Not Found", 404);
     } catch (error: unknown) {
       if (isDomainError(error)) {
         const { status, code, message } = mapDomainErrorToHttp(error);
