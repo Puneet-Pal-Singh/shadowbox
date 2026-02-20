@@ -7,7 +7,7 @@ import { z } from "zod";
 import {
   PROVIDER_IDS,
   isProviderApiKeyFormatValid,
-} from "../services/providers/provider-registry";
+} from "./provider-registry";
 
 export const ProviderIdSchema = z.enum(PROVIDER_IDS);
 export type ProviderId = z.infer<typeof ProviderIdSchema>;

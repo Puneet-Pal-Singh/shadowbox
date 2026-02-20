@@ -1,8 +1,8 @@
 /**
- * Canonical provider registry for Brain BYOK/provider flows.
+ * Canonical provider registry for provider schema and runtime lookup.
  *
- * Single Responsibility: Define supported provider IDs and provider metadata
- * used by schemas and services to avoid enum/switch drift.
+ * Single Responsibility: define supported provider IDs and metadata used by
+ * both schema validation and provider services.
  */
 
 export const PROVIDER_IDS = ["openrouter", "openai", "groq"] as const;

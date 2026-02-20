@@ -4,8 +4,8 @@
  */
 
 import type { ProviderId, ProviderConnectionStatus } from "../../schemas/provider";
+import { PROVIDER_IDS } from "../../schemas/provider-registry";
 import type { ProviderCredentialService } from "./ProviderCredentialService";
-import { PROVIDER_IDS } from "./provider-registry";
 
 /**
  * ProviderConnectionService - Queries connection status for all providers
