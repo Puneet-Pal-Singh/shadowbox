@@ -1,9 +1,12 @@
-import { afterEach, describe, it, expect } from "vitest";
+import type { CoreMessage } from "ai";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import type { ProviderId } from "../schemas/provider";
 import type { Env } from "../types/ai";
 import { ProviderController } from "../controllers/ProviderController";
+import { AIService } from "../services/AIService";
 import { ProviderConfigService } from "../services/providers";
 import { DurableProviderStore } from "../services/providers/DurableProviderStore";
+import { OpenAICompatibleAdapter } from "../services/providers/adapters/OpenAICompatibleAdapter";
 import {
   getRuntimeProviderFromAdapter,
   mapProviderIdToRuntimeProvider,
@@ -27,6 +30,7 @@ const RUN_ID = "123e4567-e89b-42d3-a456-426614174001";
 describe("Provider State Contract: Controller/Runtime Shared Ownership", () => {
   afterEach(() => {
     setCompatModeOverride(false);
+    vi.restoreAllMocks();
   });
 
   it("uses one durable provider-state owner path across controller and runtime services", async () => {
@@ -88,6 +92,32 @@ describe("Provider State Contract: Controller/Runtime Shared Ownership", () => {
     );
     const runtimeApiKey = await runtimeProviderConfig.getApiKey("openai");
     expect(runtimeApiKey).toBe("sk-test-provider-state-1234567890");
+
+    const generateSpy = vi
+      .spyOn(OpenAICompatibleAdapter.prototype, "generate")
+      .mockResolvedValue({
+        content: "integration-inference-ok",
+        usage: {
+          provider: "openai",
+          model: "gpt-4o",
+          promptTokens: 3,
+          completionTokens: 2,
+          totalTokens: 5,
+        },
+      });
+
+    const aiService = new AIService(env, runtimeProviderConfig);
+    const messages: CoreMessage[] = [{ role: "user", content: "hello" }];
+    const inferenceResult = await aiService.generateText({
+      messages,
+      providerId: "openai",
+      model: "gpt-4o",
+    });
+
+    expect(inferenceResult.text).toBe("integration-inference-ok");
+    expect(inferenceResult.usage.provider).toBe("openai");
+    expect(inferenceResult.usage.model).toBe("gpt-4o");
+    expect(generateSpy).toHaveBeenCalledTimes(1);
   });
 
   it("retains provider state across runtime restart for the same runId scope", async () => {
