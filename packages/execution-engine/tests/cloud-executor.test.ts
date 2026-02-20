@@ -329,6 +329,32 @@ describe('CloudSandboxExecutor', () => {
       )
     })
 
+    it('should use session token for execute request authorization', async () => {
+      const mockResponse = {
+        exitCode: 0,
+        stdout: 'OK',
+        stderr: '',
+        duration: 1000,
+        status: 'success' as const
+      }
+
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse
+      } as Response)
+
+      await executor.executeTask(env, task)
+
+      expect(fetch).toHaveBeenCalledWith(
+        expect.stringContaining('/execute'),
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            'Authorization': 'Bearer token-xyz'
+          })
+        })
+      )
+    })
+
     it('should handle API error response', async () => {
       vi.mocked(fetch).mockResolvedValueOnce({
         ok: false,
@@ -341,6 +367,26 @@ describe('CloudSandboxExecutor', () => {
 
       expect(result.status).toBe('error')
       expect(result.exitCode).toBe(1)
+    })
+
+    it('should treat non-implemented execute contract as non-retryable', async () => {
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: false,
+        status: 501,
+        statusText: 'Not Implemented',
+        text: async () =>
+          JSON.stringify({
+            error: 'Runtime execution is not implemented on this deployment',
+            code: 'EXECUTION_NOT_IMPLEMENTED'
+          })
+      } as Response)
+
+      const result = await executor.executeTask(env, task)
+
+      expect(result.status).toBe('error')
+      expect(result.exitCode).toBe(78)
+      expect(result.stderr).toContain('not implemented')
+      expect(fetch).toHaveBeenCalledTimes(1)
     })
   })
 
