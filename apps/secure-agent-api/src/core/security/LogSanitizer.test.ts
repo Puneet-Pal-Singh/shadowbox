@@ -31,7 +31,7 @@ describe("secure-agent-api log sanitizer", () => {
 
   it("redacts provider API key patterns", () => {
     const value =
-      "sk-live-abcdefghijklmnopqrstuvwxyz1234 gsk_abcdefghijklmnopqrstuvwxyz1234 AIzaSyA1234567890abcdefghijklmnopqrstuvwxyz";
+      "sk-live-abcdefghijklmnopqrstuvwxyz1234 gsk_abcdefghijklmnopqrstuvwxyz1234 AIzaSyA1234567890abcdefghijklmnopqrstuvwxyz xai-abcdefghijklmnopqrstuvwxyz1234";
     const sanitized = sanitizeLogText(value);
 
     expect(sanitized).toContain("[REDACTED]");
@@ -40,6 +40,7 @@ describe("secure-agent-api log sanitizer", () => {
     expect(sanitized).not.toContain(
       "AIzaSyA1234567890abcdefghijklmnopqrstuvwxyz",
     );
+    expect(sanitized).not.toContain("xai-abcdefghijklmnopqrstuvwxyz1234");
   });
 
   it("sanitizes unknown errors", () => {

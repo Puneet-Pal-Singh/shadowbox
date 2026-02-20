@@ -35,7 +35,7 @@ describe("brain log sanitizer", () => {
 
   it("redacts provider key formats in text", () => {
     const value =
-      "openai=sk-proj-abcdefghijklmnopqrstuvwxyz1234 groq=gsk_abcdefghijklmnopqrstuvwxyz1234 google=AIzaSyA1234567890abcdefghijklmnopqrstuvwxyz";
+      "openai=sk-proj-abcdefghijklmnopqrstuvwxyz1234 groq=gsk_abcdefghijklmnopqrstuvwxyz1234 google=AIzaSyA1234567890abcdefghijklmnopqrstuvwxyz xai=xai-abcdefghijklmnopqrstuvwxyz1234";
     const sanitized = sanitizeLogText(value);
 
     expect(sanitized).not.toContain("sk-proj-abcdefghijklmnopqrstuvwxyz1234");
@@ -43,6 +43,7 @@ describe("brain log sanitizer", () => {
     expect(sanitized).not.toContain(
       "AIzaSyA1234567890abcdefghijklmnopqrstuvwxyz",
     );
+    expect(sanitized).not.toContain("xai-abcdefghijklmnopqrstuvwxyz1234");
     expect(sanitized).toContain("[REDACTED]");
   });
 
