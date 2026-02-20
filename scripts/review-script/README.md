@@ -119,7 +119,7 @@ bash scripts/review-script/fetch-review-comments.sh \
 bash scripts/review-script/fetch-review-comments.sh --bots coderabbitai
 
 # Multiple bots
-bash scripts/review-script/fetch-review-comments.sh --bots "coderabbitai,greptile-apps"
+bash scripts/review-script/fetch-review-comments.sh --bots "coderabbitai,greptile-apps,codex"
 
 # All comments (any author)
 bash scripts/review-script/fetch-review-comments.sh --bots all
@@ -148,7 +148,7 @@ bash scripts/review-script/fetch-review-comments.sh --max-body-chars 2000
 --repo <owner/repo>        GitHub repository (auto-detect if omitted)
 --pr <number>              Pull request number (auto-detect if omitted)
 --output <path>            Output Markdown file (default: scripts/review-script/ai-review-pr-<pr>.md)
---bots <csv>               Bot logins to include (default: coderabbitai,greptile-apps; use 'all' for all authors)
+--bots <csv>               Bot logins to include (default: coderabbitai,greptile-apps,codex; partial match; use 'all' for all authors)
 --wait-minutes <number>    Wait/poll for new comments before exiting (default: 0)
 --poll-seconds <number>    Poll interval when waiting (default: 20)
 --min-comments <number>    Stop waiting when this many matching comments are found (default: 1)
@@ -199,7 +199,7 @@ bash scripts/review-script/fetch-review-comments.sh \
 - Generated: 2026-02-17 14:49:20 UTC
 - Repo: Puneet-Pal-Singh/shadowbox
 - PR: #43
-- Bots: coderabbitai,greptile-apps
+- Bots: coderabbitai,greptile-apps,codex
 - Findings: 22
 - Body mode: compact (1200 chars max per comment)
 - Included: line comments only
