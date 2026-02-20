@@ -51,13 +51,10 @@ export const ExecuteTaskRequestSchema = z.object({
     .string()
     .min(1, "cwd required")
     .refine(
-      (path) => !path.startsWith("/"),
-      "cwd must be relative, not absolute",
-    )
-    .refine(
       (path) => !path.includes(".."),
       "cwd must not contain path traversal",
-    ),
+    )
+    .refine((path) => !path.includes("\\"), "cwd must use unix-style paths"),
   timeout: z.number().int().positive().optional(),
   env: z.record(z.string()).optional(),
 });

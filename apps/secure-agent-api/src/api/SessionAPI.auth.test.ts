@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   handleCreateSession,
   handleDeleteSession,
+  handleExecuteTask,
+  handleStreamLogs,
 } from "./SessionAPI";
 
 function createSessionRequest(): Request {
@@ -30,10 +32,7 @@ interface DeleteBody {
   success: boolean;
 }
 
-function createDeleteRequest(
-  sessionId: string,
-  authHeader?: string,
-): Request {
+function createDeleteRequest(sessionId: string, authHeader?: string): Request {
   const headers: Record<string, string> = {};
   if (authHeader) {
     headers.Authorization = authHeader;
@@ -45,7 +44,90 @@ function createDeleteRequest(
   });
 }
 
-describe("session delete auth hardening", () => {
+function createExecuteRequest(sessionId: string, authHeader?: string): Request {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (authHeader) {
+    headers.Authorization = authHeader;
+  }
+
+  return new Request("http://localhost/api/v1/execute", {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      sessionId,
+      command: "echo hello",
+      cwd: "workspace/repo",
+    }),
+  });
+}
+
+function createLogsRequest(sessionId: string, authHeader?: string): Request {
+  const headers: Record<string, string> = {};
+  if (authHeader) {
+    headers.Authorization = authHeader;
+  }
+
+  return new Request(`http://localhost/api/v1/logs?sessionId=${sessionId}`, {
+    method: "GET",
+    headers,
+  });
+}
+
+describe("session auth hardening", () => {
+  it("rejects execute without authorization header", async () => {
+    const { sessionId } = await createSession();
+    const response = await handleExecuteTask(createExecuteRequest(sessionId), {});
+
+    expect(response.status).toBe(401);
+    const body = (await response.json()) as ErrorBody;
+    expect(body.code).toBe("UNAUTHORIZED");
+  });
+
+  it("rejects execute with wrong bearer token", async () => {
+    const { sessionId } = await createSession();
+    const response = await handleExecuteTask(
+      createExecuteRequest(sessionId, "Bearer tok_wrong"),
+      {},
+    );
+
+    expect(response.status).toBe(401);
+    const body = (await response.json()) as ErrorBody;
+    expect(body.code).toBe("UNAUTHORIZED");
+  });
+
+  it("returns explicit non-implemented error for authorized execute requests", async () => {
+    const { sessionId, token } = await createSession();
+    const response = await handleExecuteTask(
+      createExecuteRequest(sessionId, `Bearer ${token}`),
+      {},
+    );
+
+    expect(response.status).toBe(501);
+    const body = (await response.json()) as ErrorBody;
+    expect(body.code).toBe("EXECUTION_NOT_IMPLEMENTED");
+  });
+
+  it("rejects logs without authorization header", async () => {
+    const { sessionId } = await createSession();
+    const response = handleStreamLogs(createLogsRequest(sessionId));
+
+    expect(response.status).toBe(401);
+    const body = (await response.json()) as ErrorBody;
+    expect(body.code).toBe("UNAUTHORIZED");
+  });
+
+  it("allows logs with matching bearer token", async () => {
+    const { sessionId, token } = await createSession();
+    const response = handleStreamLogs(
+      createLogsRequest(sessionId, `Bearer ${token}`),
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Content-Type")).toContain("text/event-stream");
+  });
+
   it("rejects delete without authorization header", async () => {
     const { sessionId } = await createSession();
     const response = handleDeleteSession(createDeleteRequest(sessionId));
