@@ -1,11 +1,15 @@
 import type { DurableObjectState } from "@cloudflare/workers-types";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ProviderId } from "../../schemas/provider";
 import { DurableProviderStore } from "./DurableProviderStore";
 
 type MockStorage = Map<string, string>;
 
 describe("DurableProviderStore", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("persists encrypted credentials (no plaintext apiKey at rest)", async () => {
     const { state, storage } = createMockDurableState();
     const store = new DurableProviderStore(
@@ -26,7 +30,7 @@ describe("DurableProviderStore", () => {
     expect(restored).toBe("sk-test-sensitive-1234567890");
   });
 
-  it("uses legacy run-scoped fallback and migrates into scoped encrypted key", async () => {
+  it("treats legacy run-scoped credentials as unsupported after cutover", async () => {
     const { state, storage } = createMockDurableState();
     const providerId: ProviderId = "groq";
     const runId = "run-legacy";
@@ -46,14 +50,41 @@ describe("DurableProviderStore", () => {
       "test-encryption-key",
     );
 
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const apiKey = await store.getApiKey(providerId);
-    expect(apiKey).toBe("gsk_legacy_key_1234567890");
+    expect(apiKey).toBeNull();
+    expect(storage.get("provider:v2:user-1:workspace-1:groq")).toBeUndefined();
+    expect(storage.has(`provider:${runId}:${providerId}`)).toBe(true);
+    expect(warnSpy).toHaveBeenCalledWith(
+      `[provider/durable] Legacy run-scoped credential detected for ${providerId}; legacy format is unsupported after BYOK cutover. Reconnect provider.`,
+    );
+  });
 
-    const migrated = storage.get("provider:v2:user-1:workspace-1:groq");
-    expect(migrated).toBeDefined();
-    expect(migrated).not.toContain("\"apiKey\"");
-    expect(storage.has(`provider:${runId}:${providerId}`)).toBe(false);
-    expect(storage.get("provider:migration:legacy_fallback_reads")).toBe("1");
+  it("returns null when legacy credential inspection fails", async () => {
+    const getError = new Error("storage unavailable");
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const state = {
+      storage: {
+        put: async () => {},
+        get: async (_key: string) => {
+          throw getError;
+        },
+        delete: async () => {},
+        list: async () => new Map<string, string>(),
+      },
+    } as unknown as DurableObjectState;
+
+    const store = new DurableProviderStore(
+      state,
+      { runId: "run-error", userId: "user-1", workspaceId: "workspace-1" },
+      "test-encryption-key",
+    );
+
+    await expect(store.getApiKey("openai")).resolves.toBeNull();
+    expect(errorSpy).toHaveBeenCalledWith(
+      "[provider/durable] Failed to inspect legacy credential for openai:",
+      getError,
+    );
   });
 
   it("stores provider preferences without polluting provider connection list", async () => {
@@ -102,7 +133,7 @@ describe("DurableProviderStore", () => {
     expect(await storeB.getApiKey("openai")).toBe("sk-test-sensitive-2222222222");
   });
 
-  it("deduplicates provider IDs across scoped and legacy records", async () => {
+  it("does not include legacy run-scoped records in provider list", async () => {
     const { state, storage } = createMockDurableState();
     storage.set(
       "provider:v2:user-1:workspace-1:openai",
@@ -140,12 +171,12 @@ describe("DurableProviderStore", () => {
     );
 
     const providers = await store.getAllProviders();
-    expect(providers.sort()).toEqual(["groq", "openai"]);
+    expect(providers).toEqual(["openai"]);
   });
 
-  it("handles concurrent legacy migrations without failing", async () => {
+  it("cleans up scoped and legacy keys on delete", async () => {
     const { state, storage } = createMockDurableState();
-    const runId = "run-concurrency";
+    const runId = "run-delete";
     storage.set(
       `provider:${runId}:openai`,
       JSON.stringify({
@@ -161,15 +192,11 @@ describe("DurableProviderStore", () => {
       "test-encryption-key",
     );
 
-    const [first, second] = await Promise.all([
-      store.getApiKey("openai"),
-      store.getApiKey("openai"),
-    ]);
+    await store.setProvider("openai", "sk_scoped_key_1234567890");
+    await store.deleteProvider("openai");
 
-    expect(first).toBe("sk_legacy_concurrency_1234567890");
-    expect(second).toBe("sk_legacy_concurrency_1234567890");
     expect(storage.has(`provider:${runId}:openai`)).toBe(false);
-    expect(storage.get("provider:v2:user-1:workspace-1:openai")).toBeDefined();
+    expect(storage.get("provider:v2:user-1:workspace-1:openai")).toBeUndefined();
   });
 });
 

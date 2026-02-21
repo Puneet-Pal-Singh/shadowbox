@@ -41,12 +41,6 @@ interface ProviderCredentialRecordV2 {
   workspaceId: string;
 }
 
-interface ProviderCredentialRecordV1 {
-  providerId: ProviderId;
-  apiKey: string;
-  connectedAt: string;
-}
-
 interface ProviderPreferencesRecordV1 {
   version: "v1";
   defaultProviderId?: ProviderId;
@@ -56,8 +50,6 @@ interface ProviderPreferencesRecordV1 {
 
 const PROVIDER_STORE_V2_PREFIX = "provider:v2:";
 const PROVIDER_STORE_LEGACY_PREFIX = "provider:";
-const PROVIDER_MIGRATION_METRIC_KEY =
-  "provider:migration:legacy_fallback_reads";
 const PROVIDER_PREFERENCES_SUFFIX = "_preferences";
 
 export class DurableProviderStore {
@@ -101,15 +93,10 @@ export class DurableProviderStore {
   /**
    * Get a provider credential
    * Returns null if not found.
-   * Performs dual-read migration:
-   * 1. scoped v2 key
-   * 2. legacy run-scoped key (with migration to v2)
-   *
-   * Note: first read of a legacy credential performs inline migration write/delete
-   * and may add one-time latency for that provider key.
+   * Legacy run-scoped keys are intentionally unsupported after BYOK cutover.
    */
   async getProvider(providerId: ProviderId): Promise<ProviderCredential | null> {
-    const scopedData = await this.state.storage?.get(this.getScopedKey(providerId));
+    const scopedData = await this.readScopedProviderRaw(providerId);
     const scopedCredential = await this.parseScopedCredential(
       providerId,
       scopedData,
@@ -118,16 +105,20 @@ export class DurableProviderStore {
       return scopedCredential;
     }
 
-    const legacyData = await this.state.storage?.get(this.getLegacyKey(providerId));
-    const legacyCredential = this.parseLegacyCredential(providerId, legacyData);
-    if (!legacyCredential) {
-      return null;
+    await this.warnIfLegacyCredentialPresent(providerId);
+    return null;
+  }
+
+  private async readScopedProviderRaw(providerId: ProviderId): Promise<unknown> {
+    try {
+      return await this.state.storage?.get(this.getScopedKey(providerId));
+    } catch (error) {
+      console.error(
+        `[provider/durable] Failed to read scoped credential for ${providerId}:`,
+        error,
+      );
+      return undefined;
     }
-
-    await this.recordLegacyFallback(providerId);
-    await this.migrateLegacyCredential(providerId, legacyCredential);
-
-    return legacyCredential;
   }
 
   /**
@@ -161,20 +152,11 @@ export class DurableProviderStore {
    */
   async getAllProviders(): Promise<ProviderId[]> {
     const scopedPrefix = this.getScopedPrefix();
-    const legacyPrefix = this.getLegacyPrefix();
     const entries = await this.state.storage?.list({ prefix: scopedPrefix });
-    const legacyEntries = await this.state.storage?.list({ prefix: legacyPrefix });
 
     const providerIds = new Set<ProviderId>();
     for (const key of entries?.keys() ?? []) {
       const providerId = key.substring(scopedPrefix.length);
-      const parseResult = ProviderIdSchema.safeParse(providerId);
-      if (parseResult.success) {
-        providerIds.add(parseResult.data);
-      }
-    }
-    for (const key of legacyEntries?.keys() ?? []) {
-      const providerId = key.substring(legacyPrefix.length);
       const parseResult = ProviderIdSchema.safeParse(providerId);
       if (parseResult.success) {
         providerIds.add(parseResult.data);
@@ -242,7 +224,6 @@ export class DurableProviderStore {
 
     await this.deleteEntriesByPrefix(this.getScopedPrefix());
     await this.deleteEntriesByPrefix(this.getLegacyPrefix());
-    await this.state.storage?.delete(PROVIDER_MIGRATION_METRIC_KEY);
 
     console.log("[provider/durable] Cleared all credentials (test only)");
   }
@@ -275,69 +256,22 @@ export class DurableProviderStore {
     }
   }
 
-  private parseLegacyCredential(
-    providerId: ProviderId,
-    data: unknown,
-  ): ProviderCredential | null {
-    if (!data || typeof data !== "string") {
-      return null;
-    }
+  private async warnIfLegacyCredentialPresent(providerId: ProviderId): Promise<void> {
     try {
-      const record = JSON.parse(data) as ProviderCredentialRecordV1;
-      if (!record.apiKey) {
-        return null;
+      const legacyKey = this.getLegacyKey(providerId);
+      const legacyData = await this.state.storage?.get(legacyKey);
+      if (typeof legacyData !== "string") {
+        return;
       }
-      return {
-        providerId,
-        apiKey: record.apiKey,
-        connectedAt: record.connectedAt,
-      };
-    } catch (e) {
-      console.error(
-        `[provider/durable] Failed to parse legacy credential for ${providerId}:`,
-        e,
+      console.warn(
+        `[provider/durable] Legacy run-scoped credential detected for ${providerId}; legacy format is unsupported after BYOK cutover. Reconnect provider.`,
       );
-      return null;
+    } catch (error) {
+      console.error(
+        `[provider/durable] Failed to inspect legacy credential for ${providerId}:`,
+        error,
+      );
     }
-  }
-
-  private async migrateLegacyCredential(
-    providerId: ProviderId,
-    legacyCredential: ProviderCredential,
-  ): Promise<void> {
-    const encryptedApiKey = await encryptToken(
-      legacyCredential.apiKey,
-      this.encryptionKey,
-    );
-    const migratedRecord: ProviderCredentialRecordV2 = {
-      version: "v2",
-      providerId,
-      encryptedApiKey,
-      keyFingerprint: createKeyFingerprint(legacyCredential.apiKey),
-      connectedAt: legacyCredential.connectedAt,
-      userId: this.scope.userId,
-      workspaceId: this.scope.workspaceId,
-    };
-
-    await this.state.storage?.put(
-      this.getScopedKey(providerId),
-      JSON.stringify(migratedRecord),
-    );
-    await this.state.storage?.delete(this.getLegacyKey(providerId));
-    console.log(
-      `[provider/durable] Migrated and removed legacy run-scoped credential for ${providerId}`,
-    );
-  }
-
-  private async recordLegacyFallback(providerId: ProviderId): Promise<void> {
-    const rawCount = await this.state.storage?.get(PROVIDER_MIGRATION_METRIC_KEY);
-    const count =
-      typeof rawCount === "string" ? parseInt(rawCount, 10) || 0 : 0;
-    const nextCount = count + 1;
-    await this.state.storage?.put(PROVIDER_MIGRATION_METRIC_KEY, String(nextCount));
-    console.warn(
-      `[provider/durable] Legacy credential fallback used for ${providerId} (count=${nextCount})`,
-    );
   }
 
   private getScopedPrefix(): string {

@@ -33,7 +33,7 @@ export interface SessionModelConfig {
 
 export interface ProviderConnectionStatus {
   providerId: ProviderId;
-  status: "disconnected" | "connected" | "failed";
+  status: "disconnected" | "connected" | "failed" | "revoked";
   lastValidatedAt?: string;
   errorMessage?: string;
 }
@@ -46,6 +46,7 @@ export interface ConnectProviderRequest {
 export interface ConnectProviderResponse {
   status: "connected" | "failed";
   providerId: ProviderId;
+  lastValidatedAt?: string;
   errorMessage?: string;
 }
 

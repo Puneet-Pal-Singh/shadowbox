@@ -18,6 +18,18 @@ import type {
 
 const SESSION_RUN_ID_KEY = "currentRunId";
 
+interface ByokConnectionsResponse {
+  connections: ProviderConnectionStatus[];
+}
+
+interface ByokCatalogResponse {
+  providers: Array<{
+    providerId: ProviderId;
+    models: ModelsListResponse["models"];
+  }>;
+  generatedAt: string;
+}
+
 /**
  * ProviderApiClient - Backend API client for provider operations
  *
@@ -70,8 +82,21 @@ export class ProviderApiClient {
       // Try to parse as JSON
       if (text.trim()) {
         try {
-          const data = JSON.parse(text);
-          return data.error || JSON.stringify(data);
+          const data = JSON.parse(text) as Record<string, unknown>;
+          const nestedError =
+            data.error && typeof data.error === "object"
+              ? (data.error as Record<string, unknown>)
+              : undefined;
+          if (typeof data.error === "string") {
+            return data.error;
+          }
+          if (typeof nestedError?.message === "string") {
+            return nestedError.message;
+          }
+          if (typeof data.message === "string") {
+            return data.message;
+          }
+          return JSON.stringify(data);
         } catch {
           // Return raw text if JSON parsing fails
           return text;
@@ -92,7 +117,7 @@ export class ProviderApiClient {
     request: ConnectProviderRequest,
   ): Promise<ConnectProviderResponse> {
     try {
-      const endpoint = getEndpoint("PROVIDER_CONNECT");
+      const endpoint = getEndpoint("BYOK_PROVIDER_CONNECT");
       const response = await fetch(endpoint, {
         method: "POST",
         headers: ProviderApiClient.createHeaders(),
@@ -129,7 +154,7 @@ export class ProviderApiClient {
     request: DisconnectProviderRequest,
   ): Promise<DisconnectProviderResponse> {
     try {
-      const endpoint = getEndpoint("PROVIDER_DISCONNECT");
+      const endpoint = getEndpoint("BYOK_PROVIDER_DISCONNECT");
       const response = await fetch(endpoint, {
         method: "POST",
         headers: ProviderApiClient.createHeaders(),
@@ -162,7 +187,7 @@ export class ProviderApiClient {
    */
   static async getStatus(): Promise<ProviderConnectionStatus[]> {
     try {
-      const endpoint = getEndpoint("PROVIDER_STATUS");
+      const endpoint = getEndpoint("BYOK_PROVIDER_CONNECTIONS");
       const response = await fetch(endpoint, {
         method: "GET",
         headers: ProviderApiClient.createHeaders(),
@@ -179,10 +204,10 @@ export class ProviderApiClient {
         );
       }
 
-      const data = await response.json();
+      const data = (await response.json()) as ByokConnectionsResponse;
       console.log("[provider/api] Fetched provider status");
 
-      return data.providers;
+      return data.connections;
     } catch (error) {
       console.error("[provider/api] Status error:", error);
       throw error;
@@ -196,12 +221,8 @@ export class ProviderApiClient {
     providerId: ProviderId,
   ): Promise<ModelsListResponse> {
     try {
-      const endpoint = new URL(
-        getEndpoint("PROVIDER_MODELS"),
-      );
-      endpoint.searchParams.set("providerId", providerId);
-
-      const response = await fetch(endpoint.toString(), {
+      const endpoint = getEndpoint("BYOK_PROVIDER_CATALOG");
+      const response = await fetch(endpoint, {
         method: "GET",
         headers: ProviderApiClient.createHeaders(),
       });
@@ -217,12 +238,28 @@ export class ProviderApiClient {
         );
       }
 
-      const data = await response.json();
-      console.log(
-        `[provider/api] Fetched ${data.models.length} models for ${providerId}`,
+      const data = (await response.json()) as ByokCatalogResponse;
+      if (!Array.isArray(data.providers)) {
+        throw new Error("Invalid BYOK catalog response: missing providers array");
+      }
+      const providerCatalog = data.providers.find(
+        (entry) => entry.providerId === providerId,
       );
 
-      return data;
+      if (!providerCatalog) {
+        throw new Error(`Provider ${providerId} not found in BYOK catalog`);
+      }
+
+      const modelsResponse: ModelsListResponse = {
+        providerId,
+        models: providerCatalog.models,
+        lastFetchedAt: data.generatedAt,
+      };
+      console.log(
+        `[provider/api] Fetched ${modelsResponse.models.length} models for ${providerId}`,
+      );
+
+      return modelsResponse;
     } catch (error) {
       console.error("[provider/api] Models error:", error);
       throw error;
