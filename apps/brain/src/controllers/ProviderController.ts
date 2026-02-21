@@ -34,19 +34,9 @@ import {
   toNormalizedProviderError,
 } from "../domain/errors";
 import {
-  MAX_SCOPE_IDENTIFIER_LENGTH,
-  SAFE_SCOPE_IDENTIFIER_REGEX,
-  type ProviderStoreScopeInput,
-} from "../types/provider-scope";
-
-const RunIdSchema = z.string().uuid();
-const ScopeIdSchema = z
-  .string()
-  .min(1)
-  .max(MAX_SCOPE_IDENTIFIER_LENGTH)
-  .regex(SAFE_SCOPE_IDENTIFIER_REGEX);
-const RUN_ID_MISSING_MESSAGE =
-  "Missing required runId. Provide X-Run-Id header or runId query parameter.";
+  resolveAuthorizedProviderScope,
+  type AuthorizedProviderScope,
+} from "./provider/ProviderAuthScopeService";
 
 /**
  * ProviderController - Route handlers for provider API
@@ -58,7 +48,7 @@ export class ProviderController {
     const correlationId = Math.random().toString(36).substring(7);
     console.log(`[provider/byok-catalog] ${correlationId} request received`);
     try {
-      const scope = resolveProviderScope(req, correlationId);
+      const scope = await resolveAuthorizedProviderScope(req, env, correlationId);
       return await proxyByokOperation(
         req,
         env,
@@ -79,7 +69,7 @@ export class ProviderController {
     const correlationId = Math.random().toString(36).substring(7);
     console.log(`[provider/byok-connections] ${correlationId} request received`);
     try {
-      const scope = resolveProviderScope(req, correlationId);
+      const scope = await resolveAuthorizedProviderScope(req, env, correlationId);
       return await proxyByokOperation(
         req,
         env,
@@ -100,7 +90,7 @@ export class ProviderController {
     const correlationId = Math.random().toString(36).substring(7);
     console.log(`[provider/byok-connect] ${correlationId} request received`);
     try {
-      const scope = resolveProviderScope(req, correlationId);
+      const scope = await resolveAuthorizedProviderScope(req, env, correlationId);
       const body = await parseRequestBody(req, correlationId);
       const validatedRequest = validateWithSchema(
         body,
@@ -128,7 +118,7 @@ export class ProviderController {
     const correlationId = Math.random().toString(36).substring(7);
     console.log(`[provider/byok-validate] ${correlationId} request received`);
     try {
-      const scope = resolveProviderScope(req, correlationId);
+      const scope = await resolveAuthorizedProviderScope(req, env, correlationId);
       const body = await parseRequestBody(req, correlationId);
       const validatedRequest = validateWithSchema(
         body,
@@ -156,7 +146,7 @@ export class ProviderController {
     const correlationId = Math.random().toString(36).substring(7);
     console.log(`[provider/byok-disconnect] ${correlationId} request received`);
     try {
-      const scope = resolveProviderScope(req, correlationId);
+      const scope = await resolveAuthorizedProviderScope(req, env, correlationId);
       const body = await parseRequestBody(req, correlationId);
       const validatedRequest = validateWithSchema(
         body,
@@ -184,7 +174,7 @@ export class ProviderController {
     const correlationId = Math.random().toString(36).substring(7);
     console.log(`[provider/byok-preferences] ${correlationId} request received`);
     try {
-      const scope = resolveProviderScope(req, correlationId);
+      const scope = await resolveAuthorizedProviderScope(req, env, correlationId);
       const body = await parseRequestBody(req, correlationId);
       const validatedPatch = validateWithSchema(
         body,
@@ -209,42 +199,11 @@ export class ProviderController {
   }
 }
 
-function resolveProviderScope(
-  req: Request,
-  correlationId: string,
-): ProviderStoreScopeInput {
-  const url = new URL(req.url);
-  const candidate =
-    req.headers.get("X-Run-Id") ?? url.searchParams.get("runId");
-
-  if (!candidate) {
-    throw new ValidationError(
-      RUN_ID_MISSING_MESSAGE,
-      "MISSING_RUN_ID",
-      correlationId,
-    );
-  }
-
-  const runId = validateWithSchema<string>(candidate, RunIdSchema, correlationId);
-
-  return {
-    runId,
-    userId: resolveOptionalScopeId(
-      req.headers.get("X-User-Id") ?? url.searchParams.get("userId"),
-      correlationId,
-    ),
-    workspaceId: resolveOptionalScopeId(
-      req.headers.get("X-Workspace-Id") ?? url.searchParams.get("workspaceId"),
-      correlationId,
-    ),
-  };
-}
-
 async function proxyProviderOperation(
   req: Request,
   env: Env,
   operation: {
-    scope: ProviderStoreScopeInput;
+    scope: AuthorizedProviderScope;
     method: "GET" | "POST" | "PATCH";
     path: string;
     body?: unknown;
@@ -252,13 +211,11 @@ async function proxyProviderOperation(
 ): Promise<Response> {
   const id = env.RUN_ENGINE_RUNTIME.idFromName(operation.scope.runId);
   const stub = env.RUN_ENGINE_RUNTIME.get(id);
-  const headers = new Headers({ "X-Run-Id": operation.scope.runId });
-  if (operation.scope.userId) {
-    headers.set("X-User-Id", operation.scope.userId);
-  }
-  if (operation.scope.workspaceId) {
-    headers.set("X-Workspace-Id", operation.scope.workspaceId);
-  }
+  const headers = new Headers({
+    "X-Run-Id": operation.scope.runId,
+    "X-User-Id": operation.scope.userId,
+    "X-Workspace-Id": operation.scope.workspaceId,
+  });
 
   let body: string | undefined;
   if (operation.body !== undefined) {
@@ -284,7 +241,7 @@ async function proxyByokOperation(
   req: Request,
   env: Env,
   operation: {
-    scope: ProviderStoreScopeInput;
+    scope: AuthorizedProviderScope;
     method: "GET" | "POST" | "PATCH";
     path: string;
     body?: unknown;
@@ -329,7 +286,7 @@ async function normalizeByokRuntimeError(
   req: Request,
   env: Env,
   response: Response,
-  scope: ProviderStoreScopeInput,
+  scope: AuthorizedProviderScope,
   correlationId: string,
 ): Promise<Response> {
   const parsed = await parseErrorLikeBody(response);
@@ -388,16 +345,6 @@ async function parseErrorLikeBody(
   } catch {
     return {};
   }
-}
-
-function resolveOptionalScopeId(
-  candidate: string | null,
-  correlationId: string,
-): string | undefined {
-  if (!candidate || candidate.trim().length === 0) {
-    return undefined;
-  }
-  return validateWithSchema(candidate.trim(), ScopeIdSchema, correlationId);
 }
 
 function handleByokError(

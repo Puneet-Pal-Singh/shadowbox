@@ -1,5 +1,6 @@
 import type { DurableObjectState as LegacyDurableObjectState } from "@cloudflare/workers-types";
 import type { CoreMessage } from "ai";
+import { z } from "zod";
 import { DurableObject } from "cloudflare:workers";
 import { RunEngine } from "@shadowbox/execution-engine/runtime/engine";
 import { tagRuntimeStateSemantics } from "@shadowbox/execution-engine/runtime";
@@ -37,6 +38,13 @@ import {
   SAFE_SCOPE_IDENTIFIER_REGEX,
   type ProviderStoreScopeInput,
 } from "../types/provider-scope";
+
+const RunIdSchema = z.string().uuid();
+const ScopeIdSchema = z
+  .string()
+  .min(1)
+  .max(MAX_SCOPE_IDENTIFIER_LENGTH)
+  .regex(SAFE_SCOPE_IDENTIFIER_REGEX);
 
 export class RunEngineRuntime extends DurableObject {
   private executionQueue: Promise<void> = Promise.resolve();
@@ -260,22 +268,18 @@ export class RunEngineRuntime extends DurableObject {
     request: Request,
     correlationId: string,
   ): ProviderStoreScopeInput {
-    const runId = request.headers.get("X-Run-Id");
-    if (!runId) {
-      throw new ValidationError(
-        "Missing required X-Run-Id header",
-        "MISSING_RUN_ID",
-        correlationId,
-      );
-    }
+    const runId = this.parseRequiredRunId(
+      request.headers.get("X-Run-Id"),
+      correlationId,
+    );
     return {
       runId,
-      userId: this.parseOptionalScopeHeader(
+      userId: this.parseRequiredScopeHeader(
         request.headers.get("X-User-Id"),
         "X-User-Id",
         correlationId,
       ),
-      workspaceId: this.parseOptionalScopeHeader(
+      workspaceId: this.parseRequiredScopeHeader(
         request.headers.get("X-Workspace-Id"),
         "X-Workspace-Id",
         correlationId,
@@ -308,29 +312,42 @@ export class RunEngineRuntime extends DurableObject {
     return key;
   }
 
-  private parseOptionalScopeHeader(
+  private parseRequiredRunId(
+    value: string | null,
+    correlationId: string,
+  ): string {
+    if (!value || value.trim().length === 0) {
+      throw new ValidationError(
+        "Missing required X-Run-Id header",
+        "MISSING_RUN_ID",
+        correlationId,
+      );
+    }
+    return validateWithSchema<string>(value.trim(), RunIdSchema, correlationId);
+  }
+
+  private parseRequiredScopeHeader(
     value: string | null,
     fieldName: string,
     correlationId: string,
-  ): string | undefined {
-    if (!value) {
-      return undefined;
+  ): string {
+    if (!value || value.trim().length === 0) {
+      throw new ValidationError(
+        `Missing required ${fieldName} header`,
+        "MISSING_SCOPE_IDENTIFIER",
+        correlationId,
+      );
     }
-    const normalized = value.trim();
-    if (normalized.length === 0) {
-      return undefined;
-    }
-    if (
-      normalized.length > MAX_SCOPE_IDENTIFIER_LENGTH ||
-      !SAFE_SCOPE_IDENTIFIER_REGEX.test(normalized)
-    ) {
+
+    try {
+      return validateWithSchema<string>(value.trim(), ScopeIdSchema, correlationId);
+    } catch {
       throw new ValidationError(
         `Invalid ${fieldName} header`,
         "INVALID_SCOPE_IDENTIFIER",
         correlationId,
       );
     }
-    return normalized;
   }
 
   private async withExecutionLock<T>(operation: () => Promise<T>): Promise<T> {

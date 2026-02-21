@@ -36,6 +36,7 @@ describe("ProviderApiClient runId headers", () => {
     expect(fetchSpy).toHaveBeenCalledWith(
       "http://brain.test/api/byok/providers/connections",
       expect.objectContaining({
+        credentials: "include",
         headers: expect.objectContaining({
           "Content-Type": "application/json",
           "X-Run-Id": "run-from-session",
@@ -77,6 +78,7 @@ describe("ProviderApiClient runId headers", () => {
     expect(fetchSpy).toHaveBeenCalledWith(
       "http://brain.test/api/byok/providers/connections",
       expect.objectContaining({
+        credentials: "include",
         headers: expect.objectContaining({
           "X-Run-Id": "run-from-fallback",
         }),
@@ -104,6 +106,7 @@ describe("ProviderApiClient runId headers", () => {
     expect(fetchSpy).toHaveBeenCalledWith(
       "http://brain.test/api/byok/providers/connections",
       expect.objectContaining({
+        credentials: "include",
         headers: expect.not.objectContaining({
           "X-Run-Id": expect.any(String),
         }),
@@ -139,6 +142,7 @@ describe("ProviderApiClient runId headers", () => {
     expect(fetchSpy).toHaveBeenCalledWith(
       "http://brain.test/api/byok/providers/catalog",
       expect.objectContaining({
+        credentials: "include",
         headers: expect.objectContaining({
           "X-Run-Id": "run-from-session",
         }),

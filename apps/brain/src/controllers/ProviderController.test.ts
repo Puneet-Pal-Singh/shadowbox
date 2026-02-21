@@ -4,6 +4,9 @@ import type { Env } from "../types/ai";
 import type { ProviderId } from "../schemas/provider";
 
 const TEST_RUN_ID = "123e4567-e89b-42d3-a456-426614174000";
+const TEST_USER_ID = "user-123";
+const TEST_WORKSPACE_ID = "workspace-main";
+const TEST_SESSION_SECRET = "test-session-secret";
 
 function createMockEnv(): Env {
   const providerState = new Map<string, Set<ProviderId>>();
@@ -11,6 +14,16 @@ function createMockEnv(): Env {
     string,
     { defaultProviderId?: ProviderId; defaultModelId?: string; updatedAt: string }
   >();
+  const sessions = new Map<string, string>();
+  sessions.set(
+    `user_session:${TEST_USER_ID}`,
+    JSON.stringify({
+      userId: TEST_USER_ID,
+      workspaceIds: [TEST_WORKSPACE_ID],
+      defaultWorkspaceId: TEST_WORKSPACE_ID,
+    }),
+  );
+
   const catalog: Record<ProviderId, Array<{ id: string; name: string }>> = {
     openai: [{ id: "gpt-4o", name: "GPT-4o" }],
     openrouter: [{ id: "openrouter/auto", name: "Auto" }],
@@ -25,20 +38,25 @@ function createMockEnv(): Env {
           input instanceof Request ? input : new Request(String(input), init);
         const url = new URL(request.url);
         const runId = request.headers.get("X-Run-Id");
+        const userId = request.headers.get("X-User-Id");
+        const workspaceId = request.headers.get("X-Workspace-Id");
 
         if (!runId || runId !== id) {
           return jsonError("Missing required X-Run-Id header", 400);
         }
 
-        if (!providerState.has(runId)) {
-          providerState.set(runId, new Set<ProviderId>());
+        if (userId !== TEST_USER_ID || workspaceId !== TEST_WORKSPACE_ID) {
+          return jsonError("Invalid BYOK scope", 403, "AUTH_FAILED");
         }
-        const connectedProviders = providerState.get(runId)!;
+
+        const scopeKey = `${userId}:${workspaceId}`;
+        if (!providerState.has(scopeKey)) {
+          providerState.set(scopeKey, new Set<ProviderId>());
+        }
+        const connectedProviders = providerState.get(scopeKey)!;
 
         if (url.pathname === "/providers/connect" && request.method === "POST") {
-          const body = (await request.json()) as {
-            providerId: ProviderId;
-          };
+          const body = (await request.json()) as { providerId: ProviderId };
           connectedProviders.add(body.providerId);
           return jsonOk({
             status: "connected",
@@ -51,43 +69,11 @@ function createMockEnv(): Env {
           url.pathname === "/providers/disconnect" &&
           request.method === "POST"
         ) {
-          const body = (await request.json()) as {
-            providerId: ProviderId;
-          };
+          const body = (await request.json()) as { providerId: ProviderId };
           connectedProviders.delete(body.providerId);
           return jsonOk({
             status: "disconnected",
             providerId: body.providerId,
-          });
-        }
-
-        if (url.pathname === "/providers/status" && request.method === "GET") {
-          return jsonOk({
-            providers: (["openrouter", "openai", "groq"] as ProviderId[]).map(
-              (providerId) => ({
-                providerId,
-                status: connectedProviders.has(providerId)
-                  ? "connected"
-                  : "disconnected",
-              }),
-            ),
-          });
-        }
-
-        if (url.pathname === "/providers/models" && request.method === "GET") {
-          const providerId = url.searchParams.get("providerId") as
-            | ProviderId
-            | null;
-          if (!providerId || !catalog[providerId]) {
-            return jsonError("Invalid providerId", 400);
-          }
-          return jsonOk({
-            providerId,
-            models: catalog[providerId].map((model) => ({
-              ...model,
-              provider: providerId,
-            })),
-            lastFetchedAt: new Date().toISOString(),
           });
         }
 
@@ -159,7 +145,7 @@ function createMockEnv(): Env {
             defaultProviderId?: ProviderId;
             defaultModelId?: string;
           };
-          const current = preferencesState.get(runId) ?? {
+          const current = preferencesState.get(scopeKey) ?? {
             updatedAt: new Date().toISOString(),
           };
           const next = {
@@ -167,7 +153,7 @@ function createMockEnv(): Env {
             defaultModelId: body.defaultModelId ?? current.defaultModelId,
             updatedAt: new Date().toISOString(),
           };
-          preferencesState.set(runId, next);
+          preferencesState.set(scopeKey, next);
           return jsonOk(next);
         }
 
@@ -178,20 +164,56 @@ function createMockEnv(): Env {
 
   return {
     RUN_ENGINE_RUNTIME: namespace as unknown as Env["RUN_ENGINE_RUNTIME"],
+    SESSION_SECRET: TEST_SESSION_SECRET,
+    SESSIONS: {
+      get: async (key: string) => sessions.get(key) ?? null,
+      put: async (key: string, value: string) => {
+        sessions.set(key, value);
+      },
+      delete: async (key: string) => {
+        sessions.delete(key);
+      },
+    } as unknown as Env["SESSIONS"],
     LLM_PROVIDER: "litellm",
     DEFAULT_MODEL: "llama-3.3-70b-versatile",
     GROQ_API_KEY: "test-key",
   } as unknown as Env;
 }
 
-function withRunIdHeaders(
+async function withByokHeaders(
+  env: Env,
   headers: Record<string, string> = {},
-): Record<string, string> {
+): Promise<Record<string, string>> {
+  const token = await createSessionToken(TEST_USER_ID, env.SESSION_SECRET);
   return {
     "Content-Type": "application/json",
     "X-Run-Id": TEST_RUN_ID,
+    Cookie: `shadowbox_session=${token}`,
     ...headers,
   };
+}
+
+async function createSessionToken(userId: string, secret: string): Promise<string> {
+  const timestamp = Date.now().toString();
+  const data = `${userId}:${timestamp}`;
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+
+  const signatureBuffer = await crypto.subtle.sign(
+    "HMAC",
+    key,
+    encoder.encode(data),
+  );
+  const signature = btoa(
+    String.fromCharCode(...new Uint8Array(signatureBuffer)),
+  );
+  return `${data}:${signature}`;
 }
 
 function jsonOk(data: unknown): Response {
@@ -219,7 +241,7 @@ describe("ProviderController", () => {
           providerId: "openai",
           apiKey: "sk-test-1234567890",
         }),
-        headers: withRunIdHeaders(),
+        headers: await withByokHeaders(env),
       });
 
       const response = await ProviderController.byokConnect(request, env);
@@ -232,16 +254,77 @@ describe("ProviderController", () => {
 
     it("fails connect without runId", async () => {
       const env = createMockEnv();
+      const headers = await withByokHeaders(env);
+      delete headers["X-Run-Id"];
+
       const request = new Request("http://localhost/api/byok/providers/connect", {
         method: "POST",
         body: JSON.stringify({
           providerId: "openai",
           apiKey: "sk-test-1234567890",
         }),
-        headers: { "Content-Type": "application/json" },
+        headers,
       });
 
       const response = await ProviderController.byokConnect(request, env);
+      expect(response.status).toBe(400);
+    });
+
+    it("rejects requests without valid auth claims", async () => {
+      const env = createMockEnv();
+      const request = new Request("http://localhost/api/byok/providers/catalog", {
+        method: "GET",
+        headers: { "X-Run-Id": TEST_RUN_ID },
+      });
+
+      const response = await ProviderController.byokCatalog(request, env);
+      const data = await response.json();
+
+      expect(response.status).toBe(401);
+      expect(data.error.code).toBe("AUTH_FAILED");
+    });
+
+    it("rejects client-supplied user scope mismatch", async () => {
+      const env = createMockEnv();
+      const request = new Request("http://localhost/api/byok/providers/catalog", {
+        method: "GET",
+        headers: await withByokHeaders(env, { "X-User-Id": "different-user" }),
+      });
+
+      const response = await ProviderController.byokCatalog(request, env);
+      const data = await response.json();
+
+      expect(response.status).toBe(403);
+      expect(data.error.code).toBe("AUTH_FAILED");
+    });
+
+    it("rejects unauthorized workspace scope", async () => {
+      const env = createMockEnv();
+      const request = new Request("http://localhost/api/byok/providers/catalog", {
+        method: "GET",
+        headers: await withByokHeaders(env, {
+          "X-Workspace-Id": "workspace-other",
+        }),
+      });
+
+      const response = await ProviderController.byokCatalog(request, env);
+      const data = await response.json();
+
+      expect(response.status).toBe(403);
+      expect(data.error.code).toBe("AUTH_FAILED");
+    });
+
+    it("rejects legacy query scope parameters", async () => {
+      const env = createMockEnv();
+      const request = new Request(
+        `http://localhost/api/byok/providers/catalog?runId=${TEST_RUN_ID}`,
+        {
+          method: "GET",
+          headers: await withByokHeaders(env),
+        },
+      );
+
+      const response = await ProviderController.byokCatalog(request, env);
       expect(response.status).toBe(400);
     });
 
@@ -249,7 +332,7 @@ describe("ProviderController", () => {
       const env = createMockEnv();
       const request = new Request("http://localhost/api/byok/providers/catalog", {
         method: "GET",
-        headers: { "X-Run-Id": TEST_RUN_ID },
+        headers: await withByokHeaders(env),
       });
 
       const response = await ProviderController.byokCatalog(request, env);
@@ -265,7 +348,7 @@ describe("ProviderController", () => {
       await ProviderController.byokConnect(
         new Request("http://localhost/api/byok/providers/connect", {
           method: "POST",
-          headers: withRunIdHeaders(),
+          headers: await withByokHeaders(env),
           body: JSON.stringify({
             providerId: "openai",
             apiKey: "sk-test-1234567890",
@@ -277,7 +360,7 @@ describe("ProviderController", () => {
       const response = await ProviderController.byokConnections(
         new Request("http://localhost/api/byok/providers/connections", {
           method: "GET",
-          headers: { "X-Run-Id": TEST_RUN_ID },
+          headers: await withByokHeaders(env),
         }),
         env,
       );
@@ -295,7 +378,6 @@ describe("ProviderController", () => {
 
     it("disconnects a connected provider", async () => {
       const env = createMockEnv();
-
       await ProviderController.byokConnect(
         new Request("http://localhost/api/byok/providers/connect", {
           method: "POST",
@@ -303,7 +385,7 @@ describe("ProviderController", () => {
             providerId: "openai",
             apiKey: "sk-test-1234567890",
           }),
-          headers: withRunIdHeaders(),
+          headers: await withByokHeaders(env),
         }),
         env,
       );
@@ -311,7 +393,7 @@ describe("ProviderController", () => {
       const request = new Request("http://localhost/api/byok/providers/disconnect", {
         method: "POST",
         body: JSON.stringify({ providerId: "openai" }),
-        headers: withRunIdHeaders(),
+        headers: await withByokHeaders(env),
       });
 
       const response = await ProviderController.byokDisconnect(request, env);
@@ -327,7 +409,7 @@ describe("ProviderController", () => {
       const response = await ProviderController.byokValidate(
         new Request("http://localhost/api/byok/providers/validate", {
           method: "POST",
-          headers: withRunIdHeaders(),
+          headers: await withByokHeaders(env),
           body: JSON.stringify({ providerId: "openai" }),
         }),
         env,
@@ -345,7 +427,7 @@ describe("ProviderController", () => {
       const response = await ProviderController.byokPreferences(
         new Request("http://localhost/api/byok/preferences", {
           method: "PATCH",
-          headers: withRunIdHeaders(),
+          headers: await withByokHeaders(env),
           body: JSON.stringify({
             defaultProviderId: "groq",
             defaultModelId: "llama-3.3-70b-versatile",

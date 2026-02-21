@@ -33,6 +33,9 @@ interface MockDurableObjectState {
 }
 
 const RUN_ID = "123e4567-e89b-42d3-a456-426614174001";
+const TEST_USER_ID = "user-123";
+const TEST_WORKSPACE_ID = "workspace-main";
+const TEST_SESSION_SECRET = "test-session-secret";
 
 describe("Provider State Contract: Controller/Runtime Shared Ownership", () => {
   afterEach(() => {
@@ -47,10 +50,7 @@ describe("Provider State Contract: Controller/Runtime Shared Ownership", () => {
     const connectResponse = await ProviderController.byokConnect(
       new Request("http://localhost/api/byok/providers/connect", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Run-Id": RUN_ID,
-        },
+        headers: await createByokHeaders(env),
         body: JSON.stringify({
           providerId: "openai",
           apiKey: "sk-test-provider-state-1234567890",
@@ -63,9 +63,7 @@ describe("Provider State Contract: Controller/Runtime Shared Ownership", () => {
     const statusResponse = await ProviderController.byokConnections(
       new Request("http://localhost/api/byok/providers/connections", {
         method: "GET",
-        headers: {
-          "X-Run-Id": RUN_ID,
-        },
+        headers: await createByokHeaders(env, { "Content-Type": undefined }),
       }),
       env,
     );
@@ -81,9 +79,7 @@ describe("Provider State Contract: Controller/Runtime Shared Ownership", () => {
     const catalogResponse = await ProviderController.byokCatalog(
       new Request("http://localhost/api/byok/providers/catalog", {
         method: "GET",
-        headers: {
-          "X-Run-Id": RUN_ID,
-        },
+        headers: await createByokHeaders(env, { "Content-Type": undefined }),
       }),
       env,
     );
@@ -139,10 +135,7 @@ describe("Provider State Contract: Controller/Runtime Shared Ownership", () => {
     await ProviderController.byokConnect(
       new Request("http://localhost/api/byok/providers/connect", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Run-Id": RUN_ID,
-        },
+        headers: await createByokHeaders(env),
         body: JSON.stringify({
           providerId: "groq",
           apiKey: "gsk_test_provider_state_1234567890",
@@ -209,6 +202,8 @@ function createEnvWithRunNamespace(
         const request =
           input instanceof Request ? input : new Request(String(input), init);
         const runId = request.headers.get("X-Run-Id");
+        const userId = request.headers.get("X-User-Id");
+        const workspaceId = request.headers.get("X-Workspace-Id");
         if (!runId) {
           return new Response(
             JSON.stringify({ error: "Missing required X-Run-Id header" }),
@@ -227,6 +222,15 @@ function createEnvWithRunNamespace(
             },
           );
         }
+        if (userId !== TEST_USER_ID || workspaceId !== TEST_WORKSPACE_ID) {
+          return new Response(
+            JSON.stringify({ error: "Invalid BYOK scope", code: "AUTH_FAILED" }),
+            {
+              status: 403,
+              headers: { "Content-Type": "application/json" },
+            },
+          );
+        }
 
         const configService = createRuntimeProviderConfigService(
           env,
@@ -241,6 +245,17 @@ function createEnvWithRunNamespace(
 
   const env = {
     RUN_ENGINE_RUNTIME: namespace as unknown as Env["RUN_ENGINE_RUNTIME"],
+    SESSION_SECRET: TEST_SESSION_SECRET,
+    SESSIONS: {
+      get: async (key: string) =>
+        key === `user_session:${TEST_USER_ID}`
+          ? JSON.stringify({
+              userId: TEST_USER_ID,
+              workspaceIds: [TEST_WORKSPACE_ID],
+              defaultWorkspaceId: TEST_WORKSPACE_ID,
+            })
+          : null,
+    } as unknown as Env["SESSIONS"],
     LLM_PROVIDER: "litellm",
     DEFAULT_MODEL: "llama-3.3-70b-versatile",
     GROQ_API_KEY: "test-key",
@@ -295,10 +310,59 @@ function createRuntimeProviderConfigService(
   const state = createDurableState(storageByRunId, runId);
   const durableStore = new DurableProviderStore(
     state as unknown as DurableObjectState,
-    { runId },
+    {
+      runId,
+      userId: TEST_USER_ID,
+      workspaceId: TEST_WORKSPACE_ID,
+    },
     env.BYOK_CREDENTIAL_ENCRYPTION_KEY,
   );
   return new ProviderConfigService(env, durableStore);
+}
+
+async function createByokHeaders(
+  env: Env,
+  overrides: Record<string, string | undefined> = {},
+): Promise<Record<string, string>> {
+  const token = await createSessionToken(TEST_USER_ID, env.SESSION_SECRET);
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "X-Run-Id": RUN_ID,
+    Cookie: `shadowbox_session=${token}`,
+  };
+
+  for (const [key, value] of Object.entries(overrides)) {
+    if (value === undefined) {
+      delete headers[key];
+    } else {
+      headers[key] = value;
+    }
+  }
+
+  return headers;
+}
+
+async function createSessionToken(userId: string, secret: string): Promise<string> {
+  const timestamp = Date.now().toString();
+  const data = `${userId}:${timestamp}`;
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+
+  const signatureBuffer = await crypto.subtle.sign(
+    "HMAC",
+    key,
+    encoder.encode(data),
+  );
+  const signature = btoa(
+    String.fromCharCode(...new Uint8Array(signatureBuffer)),
+  );
+  return `${data}:${signature}`;
 }
 
 function createDurableState(
