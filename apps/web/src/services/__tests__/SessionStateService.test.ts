@@ -7,7 +7,7 @@
  * @module services/__tests__/SessionStateService.test
  */
 
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { SessionStateService } from "../SessionStateService";
 import type { AgentSession } from "../../types/session";
 
@@ -18,6 +18,7 @@ describe("SessionStateService", () => {
 
   afterEach(() => {
     localStorage.clear();
+    vi.useRealTimers();
   });
 
   describe("Session Persistence", () => {
@@ -233,12 +234,12 @@ describe("SessionStateService", () => {
   });
 
   describe("Session Status Updates", () => {
-    it("should update session status", async () => {
+    it("should update session status", () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-02-21T00:00:00.000Z"));
       const session = SessionStateService.createSession("Test", "repo");
-      
-      // Add small delay to ensure timestamp changes
-      await new Promise(resolve => setTimeout(resolve, 1));
-      
+
+      vi.setSystemTime(new Date("2026-02-21T00:00:00.001Z"));
       const updated = SessionStateService.updateSessionStatus(
         session,
         "running",
