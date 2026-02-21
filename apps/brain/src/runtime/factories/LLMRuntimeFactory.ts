@@ -15,6 +15,7 @@ import {
 } from "../../services/providers";
 import { ProviderValidationService } from "../../services/ProviderValidationService";
 import { DurableProviderStore } from "../../services/providers/DurableProviderStore";
+import { readByokEncryptionKey } from "../../services/providers/provider-encryption-key";
 import type { ProviderStoreScopeInput } from "../../types/provider-scope";
 import type {
   LLMRuntimeAIService,
@@ -129,7 +130,7 @@ export function buildLLMGateway(
 }
 
 function resolveProviderEncryptionKey(env: Env): string {
-  const key = env.BYOK_CREDENTIAL_ENCRYPTION_KEY;
+  const key = readByokEncryptionKey(env);
   if (!key) {
     throw new Error(
       "Missing dedicated BYOK credential encryption key (BYOK_CREDENTIAL_ENCRYPTION_KEY)",

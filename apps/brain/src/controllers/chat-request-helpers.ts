@@ -8,6 +8,7 @@ import {
 const SAFE_IDENTIFIER_REGEX = /^[A-Za-z0-9-]+$/;
 const UUID_V4_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const MAX_IDENTIFIER_LENGTH = MAX_SCOPE_IDENTIFIER_LENGTH;
 
 export function extractIdentifiers(
   body: {
@@ -119,9 +120,9 @@ function parseRequiredIdentifier(
   }
 
   const normalized = identifier.trim();
-  if (normalized.length > 128) {
+  if (normalized.length > MAX_IDENTIFIER_LENGTH) {
     throw new ValidationError(
-      `Invalid ${fieldName}: too long (max 128 characters)`,
+      `Invalid ${fieldName}: too long (max ${MAX_IDENTIFIER_LENGTH} characters)`,
       "IDENTIFIER_TOO_LONG",
       correlationId,
     );

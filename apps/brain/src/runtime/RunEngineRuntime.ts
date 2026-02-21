@@ -31,6 +31,7 @@ import {
   DurableProviderStore,
   ProviderConfigService,
 } from "../services/providers";
+import { readByokEncryptionKey } from "../services/providers/provider-encryption-key";
 import {
   MAX_SCOPE_IDENTIFIER_LENGTH,
   SAFE_SCOPE_IDENTIFIER_REGEX,
@@ -296,7 +297,7 @@ export class RunEngineRuntime extends DurableObject {
 
   private resolveProviderEncryptionKey(correlationId: string): string {
     const env = this.env as Env;
-    const key = env.BYOK_CREDENTIAL_ENCRYPTION_KEY;
+    const key = readByokEncryptionKey(env);
     if (!key) {
       throw new ValidationError(
         "Missing dedicated BYOK credential encryption key (BYOK_CREDENTIAL_ENCRYPTION_KEY)",

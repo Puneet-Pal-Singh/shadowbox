@@ -73,7 +73,7 @@ export class DurableProviderStore {
 
   /**
    * Store a provider credential
-   * Uses transactional write to ensure atomicity.
+   * Single storage write is atomic in Durable Object storage.
    * Plaintext API keys are never persisted.
    */
   async setProvider(
