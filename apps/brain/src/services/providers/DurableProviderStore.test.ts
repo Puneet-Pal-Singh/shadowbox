@@ -52,6 +52,7 @@ describe("DurableProviderStore", () => {
     const migrated = storage.get("provider:v2:user-1:workspace-1:groq");
     expect(migrated).toBeDefined();
     expect(migrated).not.toContain("\"apiKey\"");
+    expect(storage.has(`provider:${runId}:${providerId}`)).toBe(false);
     expect(storage.get("provider:migration:legacy_fallback_reads")).toBe("1");
   });
 
@@ -75,6 +76,100 @@ describe("DurableProviderStore", () => {
     const preferences = await store.getPreferences();
     expect(preferences.defaultProviderId).toBe("openai");
     expect(preferences.defaultModelId).toBe("gpt-4o");
+  });
+
+  it("uses collision-safe scope encoding for storage keys", async () => {
+    const { state, storage } = createMockDurableState();
+    const storeA = new DurableProviderStore(
+      state,
+      { runId: "run-encoding", userId: "user@company", workspaceId: "workspace-1" },
+      "test-encryption-key",
+    );
+    const storeB = new DurableProviderStore(
+      state,
+      { runId: "run-encoding", userId: "user_company", workspaceId: "workspace-1" },
+      "test-encryption-key",
+    );
+
+    await storeA.setProvider("openai", "sk-test-sensitive-1111111111");
+    await storeB.setProvider("openai", "sk-test-sensitive-2222222222");
+
+    const providerKeys = Array.from(storage.keys()).filter((key) =>
+      key.endsWith(":openai")
+    );
+    expect(providerKeys.length).toBe(2);
+    expect(await storeA.getApiKey("openai")).toBe("sk-test-sensitive-1111111111");
+    expect(await storeB.getApiKey("openai")).toBe("sk-test-sensitive-2222222222");
+  });
+
+  it("deduplicates provider IDs across scoped and legacy records", async () => {
+    const { state, storage } = createMockDurableState();
+    storage.set(
+      "provider:v2:user-1:workspace-1:openai",
+      JSON.stringify({
+        version: "v2",
+        providerId: "openai",
+        encryptedApiKey: { encrypted: "x", nonce: "n" },
+        keyFingerprint: "sk-****7890",
+        connectedAt: "2026-02-20T00:00:00.000Z",
+        userId: "user-1",
+        workspaceId: "workspace-1",
+      }),
+    );
+    storage.set(
+      "provider:run-dedupe:openai",
+      JSON.stringify({
+        providerId: "openai",
+        apiKey: "sk_legacy_1234567890",
+        connectedAt: "2026-02-20T00:00:00.000Z",
+      }),
+    );
+    storage.set(
+      "provider:run-dedupe:groq",
+      JSON.stringify({
+        providerId: "groq",
+        apiKey: "gsk_legacy_1234567890",
+        connectedAt: "2026-02-20T00:00:00.000Z",
+      }),
+    );
+
+    const store = new DurableProviderStore(
+      state,
+      { runId: "run-dedupe", userId: "user-1", workspaceId: "workspace-1" },
+      "test-encryption-key",
+    );
+
+    const providers = await store.getAllProviders();
+    expect(providers.sort()).toEqual(["groq", "openai"]);
+  });
+
+  it("handles concurrent legacy migrations without failing", async () => {
+    const { state, storage } = createMockDurableState();
+    const runId = "run-concurrency";
+    storage.set(
+      `provider:${runId}:openai`,
+      JSON.stringify({
+        providerId: "openai",
+        apiKey: "sk_legacy_concurrency_1234567890",
+        connectedAt: "2026-02-20T00:00:00.000Z",
+      }),
+    );
+
+    const store = new DurableProviderStore(
+      state,
+      { runId, userId: "user-1", workspaceId: "workspace-1" },
+      "test-encryption-key",
+    );
+
+    const [first, second] = await Promise.all([
+      store.getApiKey("openai"),
+      store.getApiKey("openai"),
+    ]);
+
+    expect(first).toBe("sk_legacy_concurrency_1234567890");
+    expect(second).toBe("sk_legacy_concurrency_1234567890");
+    expect(storage.has(`provider:${runId}:openai`)).toBe(false);
+    expect(storage.get("provider:v2:user-1:workspace-1:openai")).toBeDefined();
   });
 });
 

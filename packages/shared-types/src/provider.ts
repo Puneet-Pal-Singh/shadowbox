@@ -56,12 +56,24 @@ export type ProviderConnectionState = z.infer<
   typeof ProviderConnectionStateSchema
 >;
 
+export const ProviderErrorCodeSchema = z.enum([
+  "AUTH_FAILED",
+  "MODEL_NOT_ALLOWED",
+  "RATE_LIMITED",
+  "PROVIDER_NOT_CONNECTED",
+  "INVALID_PROVIDER_SELECTION",
+  "PROVIDER_UNAVAILABLE",
+  "VALIDATION_ERROR",
+  "INTERNAL_ERROR",
+]);
+export type ProviderErrorCode = z.infer<typeof ProviderErrorCodeSchema>;
+
 export const ProviderConnectionSchema = z.object({
   providerId: ProviderIdSchema,
   status: ProviderConnectionStateSchema,
   lastValidatedAt: z.string().datetime().optional(),
   keyFingerprint: z.string().optional(),
-  errorCode: z.string().optional(),
+  errorCode: ProviderErrorCodeSchema.optional(),
   errorMessage: z.string().optional(),
   capabilities: ProviderCapabilityFlagsSchema.optional(),
 });
@@ -84,6 +96,7 @@ export const BYOKConnectResponseSchema = z.object({
   status: z.enum(["connected", "failed"]),
   providerId: ProviderIdSchema,
   lastValidatedAt: z.string().datetime().optional(),
+  errorMessage: z.string().optional(),
 });
 export type BYOKConnectResponse = z.infer<typeof BYOKConnectResponseSchema>;
 
@@ -129,18 +142,6 @@ export const BYOKPreferencesSchema = z.object({
   updatedAt: z.string().datetime(),
 });
 export type BYOKPreferences = z.infer<typeof BYOKPreferencesSchema>;
-
-export const ProviderErrorCodeSchema = z.enum([
-  "AUTH_FAILED",
-  "MODEL_NOT_ALLOWED",
-  "RATE_LIMITED",
-  "PROVIDER_NOT_CONNECTED",
-  "INVALID_PROVIDER_SELECTION",
-  "PROVIDER_UNAVAILABLE",
-  "VALIDATION_ERROR",
-  "INTERNAL_ERROR",
-]);
-export type ProviderErrorCode = z.infer<typeof ProviderErrorCodeSchema>;
 
 export const NormalizedProviderErrorSchema = z.object({
   code: ProviderErrorCodeSchema,

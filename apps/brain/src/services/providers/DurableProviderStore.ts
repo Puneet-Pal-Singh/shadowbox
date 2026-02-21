@@ -104,6 +104,9 @@ export class DurableProviderStore {
    * Performs dual-read migration:
    * 1. scoped v2 key
    * 2. legacy run-scoped key (with migration to v2)
+   *
+   * Note: first read of a legacy credential performs inline migration write/delete
+   * and may add one-time latency for that provider key.
    */
   async getProvider(providerId: ProviderId): Promise<ProviderCredential | null> {
     const scopedData = await this.state.storage?.get(this.getScopedKey(providerId));
@@ -229,16 +232,9 @@ export class DurableProviderStore {
   /**
    * Clear all provider credentials
    * ⚠️ DANGEROUS: Only use in testing
-   *
-   * Note: Uses a marker property instead of process.env to detect test mode,
-   * since Cloudflare Workers don't have a process global by default.
    */
   async clearAll(): Promise<void> {
-    const globalWithTestMarker = globalThis as typeof globalThis & {
-      __TEST_MODE__?: boolean;
-    };
-    const isTestEnv = typeof globalWithTestMarker.__TEST_MODE__ !== "undefined";
-    if (!isTestEnv) {
+    if (!isTestEnvironment()) {
       throw new Error(
         "clearAll() is only available in test environments",
       );
@@ -327,8 +323,9 @@ export class DurableProviderStore {
       this.getScopedKey(providerId),
       JSON.stringify(migratedRecord),
     );
+    await this.state.storage?.delete(this.getLegacyKey(providerId));
     console.log(
-      `[provider/durable] Migrated legacy run-scoped credential to scoped store for ${providerId}`,
+      `[provider/durable] Migrated and removed legacy run-scoped credential for ${providerId}`,
     );
   }
 
@@ -381,6 +378,27 @@ export class DurableProviderStore {
 }
 
 function createKeyFingerprint(apiKey: string): string {
+  if (apiKey.length <= 8) {
+    return "****";
+  }
+
+  const prefixMatch = apiKey.match(/^([A-Za-z]{2,8}[-_])/);
+  const prefix = prefixMatch?.[1] ?? "";
   const suffix = apiKey.slice(-4);
-  return `****${suffix}`;
+  return prefix.length > 0 ? `${prefix}****${suffix}` : `****${suffix}`;
+}
+
+function isTestEnvironment(): boolean {
+  const processRef = globalThis as typeof globalThis & {
+    process?: { env?: Record<string, string | undefined> };
+    __TEST_MODE__?: boolean;
+  };
+
+  const nodeEnv = processRef.process?.env?.NODE_ENV;
+  const vitest = processRef.process?.env?.VITEST;
+  return (
+    nodeEnv === "test" ||
+    vitest === "true" ||
+    processRef.__TEST_MODE__ === true
+  );
 }

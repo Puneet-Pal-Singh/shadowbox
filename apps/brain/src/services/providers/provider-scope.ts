@@ -5,11 +5,8 @@
  * storage key generation and migration compatibility.
  */
 
-export interface ProviderStoreScopeInput {
-  runId: string;
-  userId?: string;
-  workspaceId?: string;
-}
+import type { ProviderStoreScopeInput } from "../../types/provider-scope";
+export type { ProviderStoreScopeInput } from "../../types/provider-scope";
 
 export interface ProviderStoreScope {
   runId: string;
@@ -43,7 +40,7 @@ export function normalizeProviderScope(
 }
 
 export function sanitizeScopeSegment(value: string): string {
-  return value.replace(/[^A-Za-z0-9._-]/g, "_");
+  return encodeURIComponent(value);
 }
 
 function normalizeIdentifier(value?: string): string {
