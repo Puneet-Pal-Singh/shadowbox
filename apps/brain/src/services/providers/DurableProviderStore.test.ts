@@ -1,11 +1,15 @@
 import type { DurableObjectState } from "@cloudflare/workers-types";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ProviderId } from "../../schemas/provider";
 import { DurableProviderStore } from "./DurableProviderStore";
 
 type MockStorage = Map<string, string>;
 
 describe("DurableProviderStore", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("persists encrypted credentials (no plaintext apiKey at rest)", async () => {
     const { state, storage } = createMockDurableState();
     const store = new DurableProviderStore(
@@ -53,6 +57,33 @@ describe("DurableProviderStore", () => {
     expect(storage.has(`provider:${runId}:${providerId}`)).toBe(true);
     expect(warnSpy).toHaveBeenCalledWith(
       `[provider/durable] Legacy run-scoped credential detected for ${providerId}; legacy format is unsupported after BYOK cutover. Reconnect provider.`,
+    );
+  });
+
+  it("returns null when legacy credential inspection fails", async () => {
+    const getError = new Error("storage unavailable");
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const state = {
+      storage: {
+        put: async () => {},
+        get: async (_key: string) => {
+          throw getError;
+        },
+        delete: async () => {},
+        list: async () => new Map<string, string>(),
+      },
+    } as unknown as DurableObjectState;
+
+    const store = new DurableProviderStore(
+      state,
+      { runId: "run-error", userId: "user-1", workspaceId: "workspace-1" },
+      "test-encryption-key",
+    );
+
+    await expect(store.getApiKey("openai")).resolves.toBeNull();
+    expect(errorSpy).toHaveBeenCalledWith(
+      "[provider/durable] Failed to inspect legacy credential for openai:",
+      getError,
     );
   });
 

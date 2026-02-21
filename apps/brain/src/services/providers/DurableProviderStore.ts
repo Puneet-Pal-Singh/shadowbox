@@ -96,7 +96,7 @@ export class DurableProviderStore {
    * Legacy run-scoped keys are intentionally unsupported after BYOK cutover.
    */
   async getProvider(providerId: ProviderId): Promise<ProviderCredential | null> {
-    const scopedData = await this.state.storage?.get(this.getScopedKey(providerId));
+    const scopedData = await this.readScopedProviderRaw(providerId);
     const scopedCredential = await this.parseScopedCredential(
       providerId,
       scopedData,
@@ -107,6 +107,18 @@ export class DurableProviderStore {
 
     await this.warnIfLegacyCredentialPresent(providerId);
     return null;
+  }
+
+  private async readScopedProviderRaw(providerId: ProviderId): Promise<unknown> {
+    try {
+      return await this.state.storage?.get(this.getScopedKey(providerId));
+    } catch (error) {
+      console.error(
+        `[provider/durable] Failed to read scoped credential for ${providerId}:`,
+        error,
+      );
+      return undefined;
+    }
   }
 
   /**
@@ -245,14 +257,21 @@ export class DurableProviderStore {
   }
 
   private async warnIfLegacyCredentialPresent(providerId: ProviderId): Promise<void> {
-    const legacyKey = this.getLegacyKey(providerId);
-    const legacyData = await this.state.storage?.get(legacyKey);
-    if (typeof legacyData !== "string") {
-      return;
+    try {
+      const legacyKey = this.getLegacyKey(providerId);
+      const legacyData = await this.state.storage?.get(legacyKey);
+      if (typeof legacyData !== "string") {
+        return;
+      }
+      console.warn(
+        `[provider/durable] Legacy run-scoped credential detected for ${providerId}; legacy format is unsupported after BYOK cutover. Reconnect provider.`,
+      );
+    } catch (error) {
+      console.error(
+        `[provider/durable] Failed to inspect legacy credential for ${providerId}:`,
+        error,
+      );
     }
-    console.warn(
-      `[provider/durable] Legacy run-scoped credential detected for ${providerId}; legacy format is unsupported after BYOK cutover. Reconnect provider.`,
-    );
   }
 
   private getScopedPrefix(): string {
