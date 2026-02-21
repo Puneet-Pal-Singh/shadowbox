@@ -139,6 +139,16 @@ function createMockEnv(): Env {
 
         if (
           url.pathname === "/providers/preferences" &&
+          request.method === "GET"
+        ) {
+          const current = preferencesState.get(scopeKey) ?? {
+            updatedAt: new Date().toISOString(),
+          };
+          return jsonOk(current);
+        }
+
+        if (
+          url.pathname === "/providers/preferences" &&
           request.method === "PATCH"
         ) {
           const body = (await request.json()) as {
@@ -424,7 +434,7 @@ describe("ProviderController", () => {
 
     it("stores and returns preferences", async () => {
       const env = createMockEnv();
-      const response = await ProviderController.byokPreferences(
+      const patchResponse = await ProviderController.byokPreferences(
         new Request("http://localhost/api/byok/preferences", {
           method: "PATCH",
           headers: await withByokHeaders(env),
@@ -435,12 +445,28 @@ describe("ProviderController", () => {
         }),
         env,
       );
-      const data = await response.json();
+      const patchData = await patchResponse.json();
 
-      expect(response.status).toBe(200);
-      expect(data.defaultProviderId).toBe("groq");
-      expect(data.defaultModelId).toBe("llama-3.3-70b-versatile");
-      expect(typeof data.updatedAt).toBe("string");
+      expect(patchResponse.status).toBe(200);
+      expect(patchData.defaultProviderId).toBe("groq");
+      expect(patchData.defaultModelId).toBe("llama-3.3-70b-versatile");
+      expect(typeof patchData.updatedAt).toBe("string");
+
+      const getHeaders = await withByokHeaders(env);
+      delete getHeaders["Content-Type"];
+      const getResponse = await ProviderController.byokGetPreferences(
+        new Request("http://localhost/api/byok/preferences", {
+          method: "GET",
+          headers: getHeaders,
+        }),
+        env,
+      );
+      const getData = await getResponse.json();
+
+      expect(getResponse.status).toBe(200);
+      expect(getData.defaultProviderId).toBe("groq");
+      expect(getData.defaultModelId).toBe("llama-3.3-70b-versatile");
+      expect(typeof getData.updatedAt).toBe("string");
     });
   });
 });

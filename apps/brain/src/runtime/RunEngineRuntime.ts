@@ -239,6 +239,11 @@ export class RunEngineRuntime extends DurableObject {
       }
 
       if (url.pathname === "/providers/preferences") {
+        if (request.method === "GET") {
+          const response = await configService.getPreferences();
+          return jsonResponse(request, env, response);
+        }
+
         if (request.method !== "PATCH") {
           return errorResponse(request, env, "Method Not Allowed", 405);
         }

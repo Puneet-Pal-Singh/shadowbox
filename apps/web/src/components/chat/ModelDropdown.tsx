@@ -30,14 +30,17 @@ export function ModelDropdown({
 
   // Load models for selected provider
   useEffect(() => {
-    const config = providerService.getSessionModelConfig(sessionId);
-    const providerId = (config.providerId ?? "openrouter") as ProviderId;
-    setSelectedProvider(providerId);
-    setSelectedModel(config.modelId ?? "");
-    setModels([]);
-
     let cancelled = false;
-    const loadModels = async () => {
+    const loadModelsFromPreferences = async () => {
+      const config = await providerService.syncSessionModelConfig(sessionId);
+      if (cancelled) {
+        return;
+      }
+
+      const providerId = (config.providerId ?? "openrouter") as ProviderId;
+      setSelectedProvider(providerId);
+      setSelectedModel(config.modelId ?? "");
+      setModels([]);
       setIsLoading(true);
       try {
         const result = await providerService.getModels(providerId);
@@ -56,7 +59,7 @@ export function ModelDropdown({
       }
     };
 
-    loadModels();
+    void loadModelsFromPreferences();
 
     return () => {
       cancelled = true;

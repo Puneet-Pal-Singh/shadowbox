@@ -11,6 +11,8 @@ import type {
   BYOKConnectResponse,
   BYOKDisconnectRequest,
   BYOKDisconnectResponse,
+  BYOKPreferences as SharedBYOKPreferences,
+  BYOKPreferencesPatch as SharedBYOKPreferencesPatch,
   ModelDescriptor as SharedModelDescriptor,
   ProviderConnection,
   ProviderId as SharedProviderId,
@@ -23,6 +25,8 @@ export type ConnectProviderRequest = BYOKConnectRequest;
 export type ConnectProviderResponse = BYOKConnectResponse;
 export type DisconnectProviderRequest = BYOKDisconnectRequest;
 export type DisconnectProviderResponse = BYOKDisconnectResponse;
+export type BYOKPreferences = SharedBYOKPreferences;
+export type BYOKPreferencesPatch = SharedBYOKPreferencesPatch;
 
 export interface ProviderConfig {
   providerId: ProviderId;

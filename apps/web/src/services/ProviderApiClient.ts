@@ -7,6 +7,8 @@
 import { getEndpoint } from "../lib/platform-endpoints";
 import { SessionStateService } from "./SessionStateService";
 import type {
+  BYOKPreferences,
+  BYOKPreferencesPatch,
   ProviderCatalogResponse,
   ProviderConnectionsResponse,
 } from "@repo/shared-types";
@@ -258,6 +260,73 @@ export class ProviderApiClient {
       return modelsResponse;
     } catch (error) {
       console.error("[provider/api] Models error:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get persisted BYOK preferences.
+   */
+  static async getPreferences(): Promise<BYOKPreferences> {
+    try {
+      const endpoint = getEndpoint("BYOK_PREFERENCES");
+      const response = await fetch(endpoint, {
+        method: "GET",
+        credentials: "include",
+        headers: ProviderApiClient.createHeaders(),
+      });
+
+      if (!response.ok) {
+        const errorMessage = await ProviderApiClient.parseErrorResponse(response);
+        console.error(
+          `[provider/api] Preferences fetch failed (${response.status}):`,
+          errorMessage,
+        );
+        throw new Error(
+          `Failed to fetch preferences (${response.status}): ${errorMessage}`,
+        );
+      }
+
+      const data = (await response.json()) as BYOKPreferences;
+      console.log("[provider/api] Fetched BYOK preferences");
+      return data;
+    } catch (error) {
+      console.error("[provider/api] Preferences fetch error:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Update persisted BYOK preferences.
+   */
+  static async updatePreferences(
+    patch: BYOKPreferencesPatch,
+  ): Promise<BYOKPreferences> {
+    try {
+      const endpoint = getEndpoint("BYOK_PREFERENCES");
+      const response = await fetch(endpoint, {
+        method: "PATCH",
+        credentials: "include",
+        headers: ProviderApiClient.createHeaders(),
+        body: JSON.stringify(patch),
+      });
+
+      if (!response.ok) {
+        const errorMessage = await ProviderApiClient.parseErrorResponse(response);
+        console.error(
+          `[provider/api] Preferences update failed (${response.status}):`,
+          errorMessage,
+        );
+        throw new Error(
+          `Failed to update preferences (${response.status}): ${errorMessage}`,
+        );
+      }
+
+      const data = (await response.json()) as BYOKPreferences;
+      console.log("[provider/api] Updated BYOK preferences");
+      return data;
+    } catch (error) {
+      console.error("[provider/api] Preferences update error:", error);
       throw error;
     }
   }
