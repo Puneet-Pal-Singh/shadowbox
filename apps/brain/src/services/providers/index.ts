@@ -11,6 +11,7 @@ export { DurableProviderStore } from "./DurableProviderStore";
 export {
   PROVIDER_CAPABILITY_MATRIX,
   isModelAllowedByCapabilityMatrix,
+  getProviderCapabilityFlags,
 } from "./provider-capability-matrix";
 export type { IProviderConfigService } from "./IProviderConfigService";
 

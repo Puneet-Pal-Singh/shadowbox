@@ -3,9 +3,14 @@
  * Single Responsibility: Query provider connection status
  */
 
-import type { ProviderId, ProviderConnectionStatus } from "../../schemas/provider";
+import type {
+  ProviderConnection,
+  ProviderId,
+} from "@repo/shared-types";
+import type { ProviderConnectionStatus } from "../../schemas/provider";
 import { PROVIDER_IDS } from "../../schemas/provider-registry";
 import type { ProviderCredentialService } from "./ProviderCredentialService";
+import { getProviderCapabilityFlags } from "./provider-capability-matrix";
 
 /**
  * ProviderConnectionService - Queries connection status for all providers
@@ -36,5 +41,22 @@ export class ProviderConnectionService {
     }
 
     return statuses;
+  }
+
+  async getConnections(): Promise<ProviderConnection[]> {
+    const connections: ProviderConnection[] = [];
+
+    for (const providerId of PROVIDER_IDS as readonly ProviderId[]) {
+      const isConnected = await this.credentialService.isConnected(providerId);
+
+      connections.push({
+        providerId,
+        status: isConnected ? "connected" : "disconnected",
+        lastValidatedAt: isConnected ? new Date().toISOString() : undefined,
+        capabilities: getProviderCapabilityFlags(providerId),
+      });
+    }
+
+    return connections;
   }
 }

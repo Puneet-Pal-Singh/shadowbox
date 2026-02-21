@@ -17,7 +17,8 @@ import {
   encryptToken,
   type EncryptedToken,
 } from "@shadowbox/github-bridge";
-import type { ProviderId } from "../../schemas/provider";
+import type { BYOKPreferences, BYOKPreferencesPatch } from "@repo/shared-types";
+import { ProviderIdSchema, type ProviderId } from "../../schemas/provider";
 import {
   normalizeProviderScope,
   sanitizeScopeSegment,
@@ -46,10 +47,18 @@ interface ProviderCredentialRecordV1 {
   connectedAt: string;
 }
 
+interface ProviderPreferencesRecordV1 {
+  version: "v1";
+  defaultProviderId?: ProviderId;
+  defaultModelId?: string;
+  updatedAt: string;
+}
+
 const PROVIDER_STORE_V2_PREFIX = "provider:v2:";
 const PROVIDER_STORE_LEGACY_PREFIX = "provider:";
 const PROVIDER_MIGRATION_METRIC_KEY =
   "provider:migration:legacy_fallback_reads";
+const PROVIDER_PREFERENCES_SUFFIX = "_preferences";
 
 export class DurableProviderStore {
   private readonly scope;
@@ -156,14 +165,65 @@ export class DurableProviderStore {
     const providerIds = new Set<ProviderId>();
     for (const key of entries?.keys() ?? []) {
       const providerId = key.substring(scopedPrefix.length);
-      providerIds.add(providerId as ProviderId);
+      const parseResult = ProviderIdSchema.safeParse(providerId);
+      if (parseResult.success) {
+        providerIds.add(parseResult.data);
+      }
     }
     for (const key of legacyEntries?.keys() ?? []) {
       const providerId = key.substring(legacyPrefix.length);
-      providerIds.add(providerId as ProviderId);
+      const parseResult = ProviderIdSchema.safeParse(providerId);
+      if (parseResult.success) {
+        providerIds.add(parseResult.data);
+      }
     }
 
     return Array.from(providerIds);
+  }
+
+  async getPreferences(): Promise<BYOKPreferences> {
+    const fallback = this.createDefaultPreferences();
+    const raw = await this.state.storage?.get(this.getPreferencesKey());
+    if (typeof raw !== "string") {
+      return fallback;
+    }
+
+    try {
+      const parsed = JSON.parse(raw) as ProviderPreferencesRecordV1;
+      return {
+        defaultProviderId: parsed.defaultProviderId,
+        defaultModelId: parsed.defaultModelId,
+        updatedAt: parsed.updatedAt,
+      };
+    } catch (error) {
+      console.error("[provider/durable] Failed to parse provider preferences", error);
+      return fallback;
+    }
+  }
+
+  async updatePreferences(
+    patch: BYOKPreferencesPatch,
+  ): Promise<BYOKPreferences> {
+    const current = await this.getPreferences();
+    const merged: BYOKPreferences = {
+      defaultProviderId: patch.defaultProviderId ?? current.defaultProviderId,
+      defaultModelId: patch.defaultModelId ?? current.defaultModelId,
+      updatedAt: new Date().toISOString(),
+    };
+
+    const record: ProviderPreferencesRecordV1 = {
+      version: "v1",
+      defaultProviderId: merged.defaultProviderId,
+      defaultModelId: merged.defaultModelId,
+      updatedAt: merged.updatedAt,
+    };
+
+    await this.state.storage?.put(
+      this.getPreferencesKey(),
+      JSON.stringify(record),
+    );
+
+    return merged;
   }
 
   /**
@@ -291,6 +351,10 @@ export class DurableProviderStore {
     return `${this.getScopedPrefix()}${providerId}`;
   }
 
+  private getPreferencesKey(): string {
+    return `${this.getScopedPrefix()}${PROVIDER_PREFERENCES_SUFFIX}`;
+  }
+
   private getLegacyPrefix(): string {
     return `${PROVIDER_STORE_LEGACY_PREFIX}${this.scope.runId}:`;
   }
@@ -307,6 +371,12 @@ export class DurableProviderStore {
     for (const key of entries.keys()) {
       await this.state.storage?.delete(key);
     }
+  }
+
+  private createDefaultPreferences(): BYOKPreferences {
+    return {
+      updatedAt: new Date().toISOString(),
+    };
   }
 }
 

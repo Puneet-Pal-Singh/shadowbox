@@ -54,6 +54,28 @@ describe("DurableProviderStore", () => {
     expect(migrated).not.toContain("\"apiKey\"");
     expect(storage.get("provider:migration:legacy_fallback_reads")).toBe("1");
   });
+
+  it("stores provider preferences without polluting provider connection list", async () => {
+    const { state } = createMockDurableState();
+    const store = new DurableProviderStore(
+      state,
+      { runId: "run-2", userId: "user-2", workspaceId: "workspace-2" },
+      "test-encryption-key",
+    );
+
+    await store.setProvider("openai", "sk-test-sensitive-1234567890");
+    await store.updatePreferences({
+      defaultProviderId: "openai",
+      defaultModelId: "gpt-4o",
+    });
+
+    const providers = await store.getAllProviders();
+    expect(providers).toEqual(["openai"]);
+
+    const preferences = await store.getPreferences();
+    expect(preferences.defaultProviderId).toBe("openai");
+    expect(preferences.defaultModelId).toBe("gpt-4o");
+  });
 });
 
 function createMockDurableState(): {

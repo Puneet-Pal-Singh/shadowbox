@@ -6,6 +6,18 @@
  */
 
 import { z } from "zod";
+import {
+  BYOKConnectRequestSchema,
+  BYOKConnectResponseSchema,
+  BYOKDisconnectRequestSchema,
+  BYOKDisconnectResponseSchema,
+  BYOKPreferencesPatchSchema,
+  BYOKPreferencesSchema,
+  BYOKValidateRequestSchema,
+  BYOKValidateResponseSchema,
+  ProviderCatalogResponseSchema,
+  ProviderConnectionsResponseSchema,
+} from "@repo/shared-types";
 import type { Env } from "../types/ai";
 import {
   ConnectProviderRequestSchema,
@@ -15,6 +27,7 @@ import {
 } from "../schemas/provider";
 import {
   errorResponse,
+  jsonResponse,
   withEngineHeaders,
 } from "../http/response";
 import {
@@ -25,6 +38,8 @@ import {
   ValidationError,
   isDomainError,
   mapDomainErrorToHttp,
+  normalizeProviderErrorCode,
+  toNormalizedProviderError,
 } from "../domain/errors";
 
 const RunIdSchema = z.string().uuid();
@@ -48,6 +63,154 @@ interface ProviderScopeContext {
  * Provider state is delegated to RunEngineRuntime per runId
  */
 export class ProviderController {
+  static async byokCatalog(req: Request, env: Env): Promise<Response> {
+    const correlationId = Math.random().toString(36).substring(7);
+    try {
+      const scope = resolveProviderScope(req, correlationId);
+      return await proxyByokOperation(
+        req,
+        env,
+        {
+          scope,
+          method: "GET",
+          path: "/providers/catalog",
+        },
+        ProviderCatalogResponseSchema,
+        correlationId,
+      );
+    } catch (error) {
+      return handleByokError(req, env, error, correlationId);
+    }
+  }
+
+  static async byokConnections(req: Request, env: Env): Promise<Response> {
+    const correlationId = Math.random().toString(36).substring(7);
+    try {
+      const scope = resolveProviderScope(req, correlationId);
+      return await proxyByokOperation(
+        req,
+        env,
+        {
+          scope,
+          method: "GET",
+          path: "/providers/connections",
+        },
+        ProviderConnectionsResponseSchema,
+        correlationId,
+      );
+    } catch (error) {
+      return handleByokError(req, env, error, correlationId);
+    }
+  }
+
+  static async byokConnect(req: Request, env: Env): Promise<Response> {
+    const correlationId = Math.random().toString(36).substring(7);
+    try {
+      const scope = resolveProviderScope(req, correlationId);
+      const body = await parseRequestBody(req, correlationId);
+      const validatedRequest = validateWithSchema(
+        body,
+        BYOKConnectRequestSchema,
+        correlationId,
+      );
+      return await proxyByokOperation(
+        req,
+        env,
+        {
+          scope,
+          method: "POST",
+          path: "/providers/connect",
+          body: validatedRequest,
+        },
+        BYOKConnectResponseSchema,
+        correlationId,
+      );
+    } catch (error) {
+      return handleByokError(req, env, error, correlationId);
+    }
+  }
+
+  static async byokValidate(req: Request, env: Env): Promise<Response> {
+    const correlationId = Math.random().toString(36).substring(7);
+    try {
+      const scope = resolveProviderScope(req, correlationId);
+      const body = await parseRequestBody(req, correlationId);
+      const validatedRequest = validateWithSchema(
+        body,
+        BYOKValidateRequestSchema,
+        correlationId,
+      );
+      return await proxyByokOperation(
+        req,
+        env,
+        {
+          scope,
+          method: "POST",
+          path: "/providers/validate",
+          body: validatedRequest,
+        },
+        BYOKValidateResponseSchema,
+        correlationId,
+      );
+    } catch (error) {
+      return handleByokError(req, env, error, correlationId);
+    }
+  }
+
+  static async byokDisconnect(req: Request, env: Env): Promise<Response> {
+    const correlationId = Math.random().toString(36).substring(7);
+    try {
+      const scope = resolveProviderScope(req, correlationId);
+      const body = await parseRequestBody(req, correlationId);
+      const validatedRequest = validateWithSchema(
+        body,
+        BYOKDisconnectRequestSchema,
+        correlationId,
+      );
+      return await proxyByokOperation(
+        req,
+        env,
+        {
+          scope,
+          method: "POST",
+          path: "/providers/disconnect",
+          body: validatedRequest,
+        },
+        BYOKDisconnectResponseSchema,
+        correlationId,
+      );
+    } catch (error) {
+      return handleByokError(req, env, error, correlationId);
+    }
+  }
+
+  static async byokPreferences(req: Request, env: Env): Promise<Response> {
+    const correlationId = Math.random().toString(36).substring(7);
+    try {
+      const scope = resolveProviderScope(req, correlationId);
+      const body = await parseRequestBody(req, correlationId);
+      const validatedPatch = validateWithSchema(
+        body,
+        BYOKPreferencesPatchSchema,
+        correlationId,
+      );
+      return await proxyByokOperation(
+        req,
+        env,
+        {
+          scope,
+          method: "PATCH",
+          path: "/providers/preferences",
+          body: validatedPatch,
+        },
+        BYOKPreferencesSchema,
+        correlationId,
+      );
+    } catch (error) {
+      return handleByokError(req, env, error, correlationId);
+    }
+  }
+
   /**
    * POST /api/providers/connect
    * Connect a provider with API key
@@ -194,7 +357,7 @@ async function proxyProviderOperation(
   env: Env,
   operation: {
     scope: ProviderScopeContext;
-    method: "GET" | "POST";
+    method: "GET" | "POST" | "PATCH";
     path: string;
     body?: unknown;
   },
@@ -229,6 +392,103 @@ async function proxyProviderOperation(
   );
 }
 
+async function proxyByokOperation(
+  req: Request,
+  env: Env,
+  operation: {
+    scope: ProviderScopeContext;
+    method: "GET" | "POST" | "PATCH";
+    path: string;
+    body?: unknown;
+  },
+  responseSchema: z.ZodSchema,
+  correlationId: string,
+): Promise<Response> {
+  const response = await proxyProviderOperation(req, env, operation);
+  if (!response.ok) {
+    return await normalizeByokRuntimeError(
+      req,
+      env,
+      response,
+      operation.scope,
+      correlationId,
+    );
+  }
+
+  await validateProxyResponse(response, responseSchema, correlationId);
+  return response;
+}
+
+async function validateProxyResponse(
+  response: Response,
+  schema: z.ZodSchema,
+  correlationId: string,
+): Promise<void> {
+  let payload: unknown;
+  try {
+    payload = await response.clone().json();
+  } catch {
+    throw new ValidationError(
+      "Provider runtime returned non-JSON response",
+      "INVALID_PROVIDER_RESPONSE",
+      correlationId,
+    );
+  }
+  validateWithSchema(payload, schema, correlationId);
+}
+
+async function normalizeByokRuntimeError(
+  req: Request,
+  env: Env,
+  response: Response,
+  scope: ProviderScopeContext,
+  correlationId: string,
+): Promise<Response> {
+  const parsed = await parseErrorLikeBody(response);
+  const code = normalizeProviderErrorCode(parsed.code, response.status);
+  const message = parsed.message || "Provider request failed";
+  const retryable = response.status >= 500 || code === "RATE_LIMITED";
+
+  const normalized = new Response(
+    JSON.stringify({
+      error: {
+        code,
+        message,
+        retryable,
+        correlationId,
+      },
+    }),
+    {
+      status: response.status,
+      headers: {
+        "Content-Type": "application/json",
+      },
+    },
+  );
+  return withEngineHeaders(req, env, normalized, scope.runId);
+}
+
+async function parseErrorLikeBody(
+  response: Response,
+): Promise<{ code?: string; message?: string }> {
+  try {
+    const payload = await response.clone().json();
+    if (!payload || typeof payload !== "object") {
+      return {};
+    }
+    const raw = payload as Record<string, unknown>;
+    const code = typeof raw.code === "string" ? raw.code : undefined;
+    const message = typeof raw.error === "string"
+      ? raw.error
+      : typeof raw.message === "string"
+      ? raw.message
+      : undefined;
+    return { code, message };
+  } catch {
+    return {};
+  }
+}
+
 function resolveOptionalScopeId(
   candidate: string | null,
   correlationId: string,
@@ -237,6 +497,52 @@ function resolveOptionalScopeId(
     return undefined;
   }
   return validateWithSchema(candidate.trim(), ScopeIdSchema, correlationId);
+}
+
+function handleByokError(
+  req: Request,
+  env: Env,
+  error: unknown,
+  correlationId: string,
+): Response {
+  if (isDomainError(error)) {
+    return buildByokErrorResponse(req, env, {
+      status: error.status,
+      ...toNormalizedProviderError(error, correlationId),
+    });
+  }
+  return buildByokErrorResponse(req, env, {
+    status: 500,
+    ...toNormalizedProviderError(error, correlationId),
+  });
+}
+
+function buildByokErrorResponse(
+  req: Request,
+  env: Env,
+  input: {
+    status: number;
+    code?: string;
+    message: string;
+    retryable?: boolean;
+    correlationId?: string;
+  },
+): Response {
+  const code = normalizeProviderErrorCode(input.code, input.status);
+  const retryable = input.retryable || input.status >= 500 || code === "RATE_LIMITED";
+  return jsonResponse(
+    req,
+    env,
+    {
+      error: {
+        code,
+        message: input.message,
+        retryable,
+        correlationId: input.correlationId,
+      },
+    },
+    { status: input.status },
+  );
 }
 
 function handleProviderError(

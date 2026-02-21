@@ -12,6 +12,14 @@
 
 import type { Env } from "../../types/ai";
 import type {
+  BYOKPreferences,
+  BYOKPreferencesPatch,
+  BYOKValidateRequest,
+  BYOKValidateResponse,
+  ProviderCatalogResponse,
+  ProviderConnectionsResponse,
+} from "@repo/shared-types";
+import type {
   ProviderId,
   ConnectProviderRequest,
   ConnectProviderResponse,
@@ -28,16 +36,27 @@ import { ProviderConnectionService } from "./ProviderConnectionService";
  * ProviderConfigService - Facade delegating to focused services
  */
 export class ProviderConfigService {
+  private durableStore: DurableProviderStore;
   private credentialService: ProviderCredentialService;
   private catalogService: ProviderCatalogService;
   private connectionService: ProviderConnectionService;
 
   constructor(_env: Env, durableStore: DurableProviderStore) {
+    this.durableStore = durableStore;
     this.credentialService = new ProviderCredentialService(_env, durableStore);
     this.catalogService = new ProviderCatalogService();
     this.connectionService = new ProviderConnectionService(
       this.credentialService,
     );
+  }
+
+  async getCatalog(): Promise<ProviderCatalogResponse> {
+    return this.catalogService.getCatalog();
+  }
+
+  async getConnections(): Promise<ProviderConnectionsResponse> {
+    const connections = await this.connectionService.getConnections();
+    return { connections };
   }
 
   /**
@@ -50,6 +69,12 @@ export class ProviderConfigService {
     return this.credentialService.connect(request);
   }
 
+  async validate(
+    request: BYOKValidateRequest,
+  ): Promise<BYOKValidateResponse> {
+    return this.credentialService.validate(request);
+  }
+
   /**
    * Disconnect a provider
    * Delegates to ProviderCredentialService
@@ -58,6 +83,12 @@ export class ProviderConfigService {
     request: DisconnectProviderRequest,
   ): Promise<{ status: "disconnected"; providerId: ProviderId }> {
     return this.credentialService.disconnect(request);
+  }
+
+  async updatePreferences(
+    patch: BYOKPreferencesPatch,
+  ): Promise<BYOKPreferences> {
+    return this.durableStore.updatePreferences(patch);
   }
 
   /**

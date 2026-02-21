@@ -91,6 +91,38 @@ function createRouter(): Router {
   router.add(/^\/api\/providers\/status$/, ProviderController.status, "GET");
   router.add(/^\/api\/providers\/models$/, ProviderController.models, "GET");
 
+  // BYOK v2 routes
+  router.add(
+    /^\/api\/byok\/providers\/catalog$/,
+    ProviderController.byokCatalog,
+    "GET",
+  );
+  router.add(
+    /^\/api\/byok\/providers\/connections$/,
+    ProviderController.byokConnections,
+    "GET",
+  );
+  router.add(
+    /^\/api\/byok\/providers\/connect$/,
+    ProviderController.byokConnect,
+    "POST",
+  );
+  router.add(
+    /^\/api\/byok\/providers\/validate$/,
+    ProviderController.byokValidate,
+    "POST",
+  );
+  router.add(
+    /^\/api\/byok\/providers\/disconnect$/,
+    ProviderController.byokDisconnect,
+    "POST",
+  );
+  router.add(
+    /^\/api\/byok\/preferences$/,
+    ProviderController.byokPreferences,
+    "PATCH",
+  );
+
   return router;
 }
 

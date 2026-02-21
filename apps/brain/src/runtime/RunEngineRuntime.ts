@@ -22,6 +22,12 @@ import {
   type ProviderId,
 } from "../schemas/provider";
 import {
+  BYOKPreferencesPatchSchema,
+  BYOKValidateRequestSchema,
+  type BYOKPreferencesPatch,
+  type BYOKValidateRequest,
+} from "@repo/shared-types";
+import {
   DurableProviderStore,
   ProviderConfigService,
 } from "../services/providers";
@@ -185,6 +191,50 @@ export class RunEngineRuntime extends DurableObject {
           correlationId,
         );
         const response = await configService.getModels(providerId);
+        return jsonResponse(request, env, response);
+      }
+
+      if (url.pathname === "/providers/catalog") {
+        if (request.method !== "GET") {
+          return errorResponse(request, env, "Method Not Allowed", 405);
+        }
+        const response = await configService.getCatalog();
+        return jsonResponse(request, env, response);
+      }
+
+      if (url.pathname === "/providers/connections") {
+        if (request.method !== "GET") {
+          return errorResponse(request, env, "Method Not Allowed", 405);
+        }
+        const response = await configService.getConnections();
+        return jsonResponse(request, env, response);
+      }
+
+      if (url.pathname === "/providers/validate") {
+        if (request.method !== "POST") {
+          return errorResponse(request, env, "Method Not Allowed", 405);
+        }
+        const body = await parseRequestBody(request, correlationId);
+        const validatedRequest = validateWithSchema<BYOKValidateRequest>(
+          body,
+          BYOKValidateRequestSchema,
+          correlationId,
+        );
+        const response = await configService.validate(validatedRequest);
+        return jsonResponse(request, env, response);
+      }
+
+      if (url.pathname === "/providers/preferences") {
+        if (request.method !== "PATCH") {
+          return errorResponse(request, env, "Method Not Allowed", 405);
+        }
+        const body = await parseRequestBody(request, correlationId);
+        const patch = validateWithSchema<BYOKPreferencesPatch>(
+          body,
+          BYOKPreferencesPatchSchema,
+          correlationId,
+        );
+        const response = await configService.updatePreferences(patch);
         return jsonResponse(request, env, response);
       }
 

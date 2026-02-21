@@ -8,7 +8,11 @@
 import type { DurableObjectState as LegacyDurableObjectState } from "@cloudflare/workers-types";
 import type { Env } from "../../types/ai";
 import { AIService } from "../../services/AIService";
-import { ProviderConfigService } from "../../services/providers";
+import {
+  ProviderConfigService,
+  getProviderCapabilityFlags,
+  isModelAllowedByCapabilityMatrix,
+} from "../../services/providers";
 import { ProviderValidationService } from "../../services/ProviderValidationService";
 import { DurableProviderStore } from "../../services/providers/DurableProviderStore";
 import type { ProviderStoreScopeInput } from "../../services/providers/provider-scope";
@@ -97,6 +101,28 @@ export function buildLLMGateway(
     budgetPolicy: budgetingComponents.budgetManager,
     costLedger: budgetingComponents.costLedger,
     pricingResolver: budgetingComponents.pricingResolver,
+    providerCapabilityResolver: {
+      getCapabilities: (providerId: string) => {
+        if (
+          providerId !== "openrouter" &&
+          providerId !== "openai" &&
+          providerId !== "groq"
+        ) {
+          return undefined;
+        }
+        return getProviderCapabilityFlags(providerId);
+      },
+      isModelAllowed: (providerId: string, modelId: string) => {
+        if (
+          providerId !== "openrouter" &&
+          providerId !== "openai" &&
+          providerId !== "groq"
+        ) {
+          return false;
+        }
+        return isModelAllowedByCapabilityMatrix(providerId, modelId);
+      },
+    },
   });
 
   return { llmRuntimeService, llmGateway };

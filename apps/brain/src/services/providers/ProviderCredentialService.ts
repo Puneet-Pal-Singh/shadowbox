@@ -14,6 +14,15 @@ import type {
   ConnectProviderResponse,
   DisconnectProviderRequest,
 } from "../../schemas/provider";
+import type {
+  BYOKValidateRequest,
+  BYOKValidateResponse,
+} from "@repo/shared-types";
+import {
+  ProviderError,
+  ProviderNotConnectedError,
+} from "../../domain/errors";
+import { isProviderApiKeyFormatValid } from "../../schemas/provider-registry";
 import type { DurableProviderStore } from "./DurableProviderStore";
 
 /**
@@ -65,6 +74,32 @@ export class ProviderCredentialService {
 
       return this.failureResponse(providerId, errorMessage);
     }
+  }
+
+  async validate(
+    request: BYOKValidateRequest,
+  ): Promise<BYOKValidateResponse> {
+    const { providerId } = request;
+    const apiKey = await this.getApiKey(providerId);
+    if (!apiKey) {
+      throw new ProviderNotConnectedError(providerId);
+    }
+
+    const isValidFormat = isProviderApiKeyFormatValid(providerId, apiKey);
+    if (!isValidFormat) {
+      throw new ProviderError(
+        `Provider "${providerId}" credential failed validation.`,
+        "AUTH_FAILED",
+        401,
+        false,
+      );
+    }
+
+    return {
+      providerId,
+      status: "valid",
+      checkedAt: new Date().toISOString(),
+    };
   }
 
   /**
