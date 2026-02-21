@@ -28,8 +28,19 @@ import {
 } from "../domain/errors";
 
 const RunIdSchema = z.string().uuid();
+const ScopeIdSchema = z
+  .string()
+  .min(1)
+  .max(128)
+  .regex(/^[A-Za-z0-9._:-]+$/);
 const RUN_ID_MISSING_MESSAGE =
   "Missing required runId. Provide X-Run-Id header or runId query parameter.";
+
+interface ProviderScopeContext {
+  runId: string;
+  userId?: string;
+  workspaceId?: string;
+}
 
 /**
  * ProviderController - Route handlers for provider API
@@ -51,10 +62,10 @@ export class ProviderController {
         providerId: ProviderId;
         apiKey: string;
       }>(body, ConnectProviderRequestSchema, correlationId);
-      const runId = resolveRunId(req, correlationId);
+      const scope = resolveProviderScope(req, correlationId);
 
       return proxyProviderOperation(req, env, {
-        runId,
+        scope,
         method: "POST",
         path: "/providers/connect",
         body: validatedRequest,
@@ -77,10 +88,10 @@ export class ProviderController {
       const validatedRequest = validateWithSchema<{
         providerId: ProviderId;
       }>(body, DisconnectProviderRequestSchema, correlationId);
-      const runId = resolveRunId(req, correlationId);
+      const scope = resolveProviderScope(req, correlationId);
 
       return proxyProviderOperation(req, env, {
-        runId,
+        scope,
         method: "POST",
         path: "/providers/disconnect",
         body: validatedRequest,
@@ -99,9 +110,9 @@ export class ProviderController {
     console.log(`[provider/status] ${correlationId} request received`);
 
     try {
-      const runId = resolveRunId(req, correlationId);
+      const scope = resolveProviderScope(req, correlationId);
       return proxyProviderOperation(req, env, {
-        runId,
+        scope,
         method: "GET",
         path: "/providers/status",
       });
@@ -135,9 +146,9 @@ export class ProviderController {
         ProviderIdSchema,
         correlationId,
       );
-      const runId = resolveRunId(req, correlationId);
+      const scope = resolveProviderScope(req, correlationId);
       return proxyProviderOperation(req, env, {
-        runId,
+        scope,
         method: "GET",
         path: `/providers/models?providerId=${encodeURIComponent(providerId)}`,
       });
@@ -147,7 +158,10 @@ export class ProviderController {
   }
 }
 
-function resolveRunId(req: Request, correlationId: string): string {
+function resolveProviderScope(
+  req: Request,
+  correlationId: string,
+): ProviderScopeContext {
   const url = new URL(req.url);
   const candidate =
     req.headers.get("X-Run-Id") ?? url.searchParams.get("runId");
@@ -160,22 +174,40 @@ function resolveRunId(req: Request, correlationId: string): string {
     );
   }
 
-  return validateWithSchema<string>(candidate, RunIdSchema, correlationId);
+  const runId = validateWithSchema<string>(candidate, RunIdSchema, correlationId);
+
+  return {
+    runId,
+    userId: resolveOptionalScopeId(
+      req.headers.get("X-User-Id") ?? url.searchParams.get("userId"),
+      correlationId,
+    ),
+    workspaceId: resolveOptionalScopeId(
+      req.headers.get("X-Workspace-Id") ?? url.searchParams.get("workspaceId"),
+      correlationId,
+    ),
+  };
 }
 
 async function proxyProviderOperation(
   req: Request,
   env: Env,
   operation: {
-    runId: string;
+    scope: ProviderScopeContext;
     method: "GET" | "POST";
     path: string;
     body?: unknown;
   },
 ): Promise<Response> {
-  const id = env.RUN_ENGINE_RUNTIME.idFromName(operation.runId);
+  const id = env.RUN_ENGINE_RUNTIME.idFromName(operation.scope.runId);
   const stub = env.RUN_ENGINE_RUNTIME.get(id);
-  const headers = new Headers({ "X-Run-Id": operation.runId });
+  const headers = new Headers({ "X-Run-Id": operation.scope.runId });
+  if (operation.scope.userId) {
+    headers.set("X-User-Id", operation.scope.userId);
+  }
+  if (operation.scope.workspaceId) {
+    headers.set("X-Workspace-Id", operation.scope.workspaceId);
+  }
 
   let body: string | undefined;
   if (operation.body !== undefined) {
@@ -193,8 +225,18 @@ async function proxyProviderOperation(
     req,
     env,
     response as unknown as Response,
-    operation.runId,
+    operation.scope.runId,
   );
+}
+
+function resolveOptionalScopeId(
+  candidate: string | null,
+  correlationId: string,
+): string | undefined {
+  if (!candidate || candidate.trim().length === 0) {
+    return undefined;
+  }
+  return validateWithSchema(candidate.trim(), ScopeIdSchema, correlationId);
 }
 
 function handleProviderError(
