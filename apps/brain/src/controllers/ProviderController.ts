@@ -36,7 +36,7 @@ import {
 import {
   resolveAuthorizedProviderScope,
   type AuthorizedProviderScope,
-} from "../services/providers/ProviderAuthScopeService";
+} from "./provider/ProviderAuthScopeService";
 
 /**
  * ProviderController - Route handlers for provider API

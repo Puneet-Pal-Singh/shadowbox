@@ -7,7 +7,7 @@ import {
   SAFE_SCOPE_IDENTIFIER_REGEX,
   type ProviderStoreScopeInput,
 } from "../../types/provider-scope";
-import { extractSessionToken, verifySessionToken } from "../AuthService";
+import { extractSessionToken, verifySessionToken } from "../../services/AuthService";
 
 const DEFAULT_WORKSPACE_ID = "default";
 const RunIdSchema = z.string().uuid();
