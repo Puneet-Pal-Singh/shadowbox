@@ -4,7 +4,7 @@ import {
   PROVIDER_CAPABILITY_MATRIX,
   isModelAllowedByCapabilityMatrix,
 } from "./provider-capability-matrix";
-import type { ProviderId } from "../../schemas/provider";
+import type { ProviderId } from "@repo/shared-types";
 
 describe("provider-capability-matrix", () => {
   it("creates capability entries for every registered provider", () => {

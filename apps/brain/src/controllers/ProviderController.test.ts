@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { ProviderController } from "./ProviderController";
 import type { Env } from "../types/ai";
-import type { ProviderId } from "../schemas/provider";
+import type { ProviderId } from "@repo/shared-types";
 
 const TEST_RUN_ID = "123e4567-e89b-42d3-a456-426614174000";
 const TEST_USER_ID = "user-123";

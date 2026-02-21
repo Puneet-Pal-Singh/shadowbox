@@ -7,7 +7,7 @@ import { afterEach, describe, it, expect, vi } from "vitest";
 // `pnpm --filter @shadowbox/brain test -- src/integration/provider-state.contract.test.ts`
 // Keep this location aligned with the documented gate in:
 // plans/codex-like-app/Top-version/16-AUDIT-CLOSURE-AND-BYOK-READINESS-LLD.md
-import type { ProviderId } from "../schemas/provider";
+import type { ProviderId } from "@repo/shared-types";
 import type { Env } from "../types/ai";
 import { ProviderController } from "../controllers/ProviderController";
 import { AIService } from "../services/AIService";
