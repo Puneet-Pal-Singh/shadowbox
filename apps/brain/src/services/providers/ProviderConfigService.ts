@@ -31,6 +31,7 @@ import type { DurableProviderStore } from "./DurableProviderStore";
 import { ProviderCredentialService } from "./ProviderCredentialService";
 import { ProviderCatalogService } from "./ProviderCatalogService";
 import { ProviderConnectionService } from "./ProviderConnectionService";
+import { ProviderAuditService } from "./ProviderAuditService";
 
 /**
  * ProviderConfigService - Facade delegating to focused services
@@ -40,6 +41,7 @@ export class ProviderConfigService {
   private credentialService: ProviderCredentialService;
   private catalogService: ProviderCatalogService;
   private connectionService: ProviderConnectionService;
+  private auditService: ProviderAuditService;
 
   constructor(_env: Env, durableStore: DurableProviderStore) {
     this.durableStore = durableStore;
@@ -48,6 +50,7 @@ export class ProviderConfigService {
     this.connectionService = new ProviderConnectionService(
       this.credentialService,
     );
+    this.auditService = new ProviderAuditService(this.durableStore);
   }
 
   async getCatalog(): Promise<ProviderCatalogResponse> {
@@ -66,13 +69,48 @@ export class ProviderConfigService {
   async connect(
     request: BYOKConnectRequest,
   ): Promise<BYOKConnectResponse> {
-    return this.credentialService.connect(request);
+    try {
+      const response = await this.credentialService.connect(request);
+      await this.auditService.record({
+        eventType: "connect",
+        status: response.status === "connected" ? "success" : "failure",
+        providerId: request.providerId,
+        message: response.errorMessage,
+      });
+      return response;
+    } catch (error) {
+      await this.auditService.record({
+        eventType: "connect",
+        status: "failure",
+        providerId: request.providerId,
+        message: toErrorMessage(error),
+      });
+      throw error;
+    }
   }
 
   async validate(
     request: BYOKValidateRequest,
   ): Promise<BYOKValidateResponse> {
-    return this.credentialService.validate(request);
+    try {
+      const response = await this.credentialService.validate(request);
+      await this.auditService.record({
+        eventType: "validate",
+        status: "success",
+        providerId: request.providerId,
+        validationMode: response.validationMode,
+      });
+      return response;
+    } catch (error) {
+      await this.auditService.record({
+        eventType: "validate",
+        status: "failure",
+        providerId: request.providerId,
+        validationMode: request.mode,
+        message: toErrorMessage(error),
+      });
+      throw error;
+    }
   }
 
   /**
@@ -82,7 +120,23 @@ export class ProviderConfigService {
   async disconnect(
     request: BYOKDisconnectRequest,
   ): Promise<{ status: "disconnected"; providerId: ProviderId }> {
-    return this.credentialService.disconnect(request);
+    try {
+      const response = await this.credentialService.disconnect(request);
+      await this.auditService.record({
+        eventType: "disconnect",
+        status: "success",
+        providerId: request.providerId,
+      });
+      return response;
+    } catch (error) {
+      await this.auditService.record({
+        eventType: "disconnect",
+        status: "failure",
+        providerId: request.providerId,
+        message: toErrorMessage(error),
+      });
+      throw error;
+    }
   }
 
   async getPreferences(): Promise<BYOKPreferences> {
@@ -92,7 +146,23 @@ export class ProviderConfigService {
   async updatePreferences(
     patch: BYOKPreferencesPatch,
   ): Promise<BYOKPreferences> {
-    return this.durableStore.updatePreferences(patch);
+    try {
+      const response = await this.durableStore.updatePreferences(patch);
+      await this.auditService.record({
+        eventType: "preferences",
+        status: "success",
+        providerId: patch.defaultProviderId,
+      });
+      return response;
+    } catch (error) {
+      await this.auditService.record({
+        eventType: "preferences",
+        status: "failure",
+        providerId: patch.defaultProviderId,
+        message: toErrorMessage(error),
+      });
+      throw error;
+    }
   }
 
   /**
@@ -134,4 +204,11 @@ export class ProviderConfigService {
   static resetForTests(): void {
     ProviderCredentialService.resetForTests();
   }
+}
+
+function toErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return "Unknown error";
 }

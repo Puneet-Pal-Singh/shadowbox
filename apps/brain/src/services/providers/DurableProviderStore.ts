@@ -19,6 +19,7 @@ import {
 } from "@shadowbox/github-bridge";
 import {
   ProviderIdSchema,
+  type BYOKValidationMode,
   type BYOKPreferences,
   type BYOKPreferencesPatch,
   type ProviderId,
@@ -28,6 +29,7 @@ import {
   sanitizeScopeSegment,
   type ProviderStoreScopeInput,
 } from "./provider-scope";
+import type { ProviderEncryptionConfig } from "./provider-encryption-key";
 
 export interface ProviderCredential {
   providerId: ProviderId;
@@ -39,10 +41,27 @@ interface ProviderCredentialRecordV2 {
   version: "v2";
   providerId: ProviderId;
   encryptedApiKey: EncryptedToken;
+  keyVersion?: string;
   keyFingerprint: string;
   connectedAt: string;
   userId: string;
   workspaceId: string;
+}
+
+interface LegacyProviderCredentialRecord {
+  providerId: ProviderId;
+  apiKey: string;
+  connectedAt?: string;
+}
+
+interface ProviderAuditRecordV1 {
+  version: "v1";
+  eventType: string;
+  status: "success" | "failure";
+  providerId?: ProviderId;
+  validationMode?: BYOKValidationMode;
+  message?: string;
+  createdAt: string;
 }
 
 interface ProviderPreferencesRecordV1 {
@@ -55,16 +74,38 @@ interface ProviderPreferencesRecordV1 {
 const PROVIDER_STORE_V2_PREFIX = "provider:v2:";
 const PROVIDER_STORE_LEGACY_PREFIX = "provider:";
 const PROVIDER_PREFERENCES_SUFFIX = "_preferences";
+const PROVIDER_AUDIT_PREFIX = "provider:audit:v1:";
+
+export interface LegacyCredentialMigrationConfig {
+  legacyReadFallbackEnabled: boolean;
+  legacyBackfillEnabled: boolean;
+  legacyRollbackEnabled: boolean;
+  legacyCutoffAt?: string;
+}
+
+export interface ProviderAuditEvent {
+  eventType: string;
+  status: "success" | "failure";
+  providerId?: ProviderId;
+  validationMode?: BYOKValidationMode;
+  message?: string;
+  createdAt: string;
+}
 
 export class DurableProviderStore {
   private readonly scope;
+  private readonly encryptionConfig: ProviderEncryptionConfig;
+  private readonly migrationConfig: LegacyCredentialMigrationConfig;
 
   constructor(
     private state: DurableObjectState,
     scopeInput: ProviderStoreScopeInput,
-    private encryptionKey: string,
+    encryption: string | ProviderEncryptionConfig,
+    migrationConfig: LegacyCredentialMigrationConfig = defaultMigrationConfig(),
   ) {
     this.scope = normalizeProviderScope(scopeInput);
+    this.encryptionConfig = normalizeEncryptionConfig(encryption);
+    this.migrationConfig = migrationConfig;
   }
 
   /**
@@ -76,19 +117,7 @@ export class DurableProviderStore {
     providerId: ProviderId,
     apiKey: string,
   ): Promise<void> {
-    const encryptedApiKey = await encryptToken(apiKey, this.encryptionKey);
-    const key = this.getScopedKey(providerId);
-    const credential: ProviderCredentialRecordV2 = {
-      version: "v2",
-      providerId,
-      encryptedApiKey,
-      keyFingerprint: createKeyFingerprint(apiKey),
-      connectedAt: new Date().toISOString(),
-      userId: this.scope.userId,
-      workspaceId: this.scope.workspaceId,
-    };
-
-    await this.state.storage?.put(key, JSON.stringify(credential));
+    await this.storeScopedCredential(providerId, apiKey, new Date().toISOString());
     console.log(
       `[provider/durable] Stored encrypted credential for ${providerId} (scope=${this.scope.userId}/${this.scope.workspaceId})`,
     );
@@ -109,8 +138,7 @@ export class DurableProviderStore {
       return scopedCredential;
     }
 
-    await this.warnIfLegacyCredentialPresent(providerId);
-    return null;
+    return await this.getLegacyCredentialWithControls(providerId);
   }
 
   private async readScopedProviderRaw(providerId: ProviderId): Promise<unknown> {
@@ -215,6 +243,15 @@ export class DurableProviderStore {
     return merged;
   }
 
+  async appendAuditEvent(event: ProviderAuditEvent): Promise<void> {
+    const key = this.getAuditEventKey();
+    const record: ProviderAuditRecordV1 = {
+      version: "v1",
+      ...event,
+    };
+    await this.state.storage?.put(key, JSON.stringify(record));
+  }
+
   /**
    * Clear all provider credentials
    * ⚠️ DANGEROUS: Only use in testing
@@ -228,6 +265,7 @@ export class DurableProviderStore {
 
     await this.deleteEntriesByPrefix(this.getScopedPrefix());
     await this.deleteEntriesByPrefix(this.getLegacyPrefix());
+    await this.deleteEntriesByPrefix(this.getAuditPrefix());
 
     console.log("[provider/durable] Cleared all credentials (test only)");
   }
@@ -245,10 +283,13 @@ export class DurableProviderStore {
       if (!record.encryptedApiKey) {
         return null;
       }
-      const apiKey = await decryptToken(record.encryptedApiKey, this.encryptionKey);
+      const decrypted = await this.decryptCredential(providerId, record);
+      if (!decrypted) {
+        return null;
+      }
       return {
         providerId,
-        apiKey,
+        apiKey: decrypted.apiKey,
         connectedAt: record.connectedAt,
       };
     } catch (e) {
@@ -260,26 +301,161 @@ export class DurableProviderStore {
     }
   }
 
-  private async warnIfLegacyCredentialPresent(providerId: ProviderId): Promise<void> {
-    try {
-      const legacyKey = this.getLegacyKey(providerId);
-      const legacyData = await this.state.storage?.get(legacyKey);
-      if (typeof legacyData !== "string") {
-        return;
+  private async decryptCredential(
+    providerId: ProviderId,
+    record: ProviderCredentialRecordV2,
+  ): Promise<{ apiKey: string; keyVersion: string } | null> {
+    const keyCandidates = this.getDecryptionKeyCandidates(record.keyVersion);
+    for (const candidate of keyCandidates) {
+      try {
+        const apiKey = await decryptToken(record.encryptedApiKey, candidate.key);
+        if (candidate.version !== this.encryptionConfig.current.version) {
+          await this.reEncryptCredential(providerId, apiKey, record.connectedAt);
+        }
+        return { apiKey, keyVersion: candidate.version };
+      } catch {
+        // Continue through candidate keys during rotation window.
       }
-      console.warn(
-        `[provider/durable] Legacy run-scoped credential detected for ${providerId}; legacy format is unsupported after BYOK cutover. Reconnect provider.`,
+    }
+    return null;
+  }
+
+  private getDecryptionKeyCandidates(keyVersion?: string): Array<{
+    version: string;
+    key: string;
+  }> {
+    const current = this.encryptionConfig.current;
+    const previous = this.encryptionConfig.previous;
+    if (!keyVersion || keyVersion === current.version) {
+      return [current];
+    }
+    if (previous && keyVersion === previous.version) {
+      return [previous, current];
+    }
+    return previous ? [current, previous] : [current];
+  }
+
+  private async reEncryptCredential(
+    providerId: ProviderId,
+    apiKey: string,
+    connectedAt: string,
+  ): Promise<void> {
+    try {
+      await this.storeScopedCredential(providerId, apiKey, connectedAt);
+      console.log(
+        `[provider/durable] Re-encrypted credential for ${providerId} to keyVersion=${this.encryptionConfig.current.version}`,
       );
     } catch (error) {
       console.error(
-        `[provider/durable] Failed to inspect legacy credential for ${providerId}:`,
+        `[provider/durable] Failed to re-encrypt credential for ${providerId}:`,
         error,
       );
     }
   }
 
+  private async getLegacyCredentialWithControls(
+    providerId: ProviderId,
+  ): Promise<ProviderCredential | null> {
+    const legacy = await this.readLegacyCredential(providerId);
+    if (!legacy) {
+      return null;
+    }
+    if (!this.isLegacyReadAllowed()) {
+      this.logLegacyCredentialCutoff(providerId);
+      return null;
+    }
+
+    console.warn(
+      `[provider/durable] Legacy run-scoped credential fallback used for ${providerId}.`,
+    );
+    if (this.migrationConfig.legacyBackfillEnabled) {
+      await this.reEncryptCredential(
+        providerId,
+        legacy.apiKey,
+        legacy.connectedAt ?? new Date().toISOString(),
+      );
+    }
+    return {
+      providerId,
+      apiKey: legacy.apiKey,
+      connectedAt: legacy.connectedAt ?? new Date().toISOString(),
+    };
+  }
+
+  private async readLegacyCredential(
+    providerId: ProviderId,
+  ): Promise<LegacyProviderCredentialRecord | null> {
+    try {
+      const legacyKey = this.getLegacyKey(providerId);
+      const legacyData = await this.state.storage?.get(legacyKey);
+      if (typeof legacyData !== "string") {
+        return null;
+      }
+      const parsed = JSON.parse(legacyData) as LegacyProviderCredentialRecord;
+      if (typeof parsed.apiKey !== "string" || parsed.apiKey.length === 0) {
+        return null;
+      }
+      return parsed;
+    } catch (error) {
+      console.error(
+        `[provider/durable] Failed to inspect legacy credential for ${providerId}:`,
+        error,
+      );
+      return null;
+    }
+  }
+
+  private isLegacyReadAllowed(): boolean {
+    if (this.migrationConfig.legacyRollbackEnabled) {
+      return true;
+    }
+    if (!this.migrationConfig.legacyReadFallbackEnabled) {
+      return false;
+    }
+    if (!this.migrationConfig.legacyCutoffAt) {
+      return true;
+    }
+
+    const cutoffAt = Date.parse(this.migrationConfig.legacyCutoffAt);
+    if (Number.isNaN(cutoffAt)) {
+      return true;
+    }
+    return Date.now() < cutoffAt;
+  }
+
+  private logLegacyCredentialCutoff(providerId: ProviderId): void {
+    console.warn(
+      `[provider/durable] Legacy run-scoped credential detected for ${providerId}; fallback disabled or cutoff reached.`,
+    );
+  }
+
   private getScopedPrefix(): string {
     return `${PROVIDER_STORE_V2_PREFIX}${sanitizeScopeSegment(this.scope.userId)}:${sanitizeScopeSegment(this.scope.workspaceId)}:`;
+  }
+
+  private async storeScopedCredential(
+    providerId: ProviderId,
+    apiKey: string,
+    connectedAt: string,
+  ): Promise<void> {
+    const encryptedApiKey = await encryptToken(
+      apiKey,
+      this.encryptionConfig.current.key,
+    );
+    const credential: ProviderCredentialRecordV2 = {
+      version: "v2",
+      providerId,
+      encryptedApiKey,
+      keyVersion: this.encryptionConfig.current.version,
+      keyFingerprint: createKeyFingerprint(apiKey),
+      connectedAt,
+      userId: this.scope.userId,
+      workspaceId: this.scope.workspaceId,
+    };
+    await this.state.storage?.put(
+      this.getScopedKey(providerId),
+      JSON.stringify(credential),
+    );
   }
 
   private getScopedKey(providerId: ProviderId): string {
@@ -298,6 +474,16 @@ export class DurableProviderStore {
     return `${this.getLegacyPrefix()}${providerId}`;
   }
 
+  private getAuditPrefix(): string {
+    const user = sanitizeScopeSegment(this.scope.userId);
+    const workspace = sanitizeScopeSegment(this.scope.workspaceId);
+    return `${PROVIDER_AUDIT_PREFIX}${user}:${workspace}:`;
+  }
+
+  private getAuditEventKey(): string {
+    return `${this.getAuditPrefix()}${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
+  }
+
   private async deleteEntriesByPrefix(prefix: string): Promise<void> {
     const entries = await this.state.storage?.list({ prefix });
     if (!entries) {
@@ -313,6 +499,28 @@ export class DurableProviderStore {
       updatedAt: new Date().toISOString(),
     };
   }
+}
+
+function normalizeEncryptionConfig(
+  encryption: string | ProviderEncryptionConfig,
+): ProviderEncryptionConfig {
+  if (typeof encryption === "string") {
+    return {
+      current: {
+        version: "v1",
+        key: encryption,
+      },
+    };
+  }
+  return encryption;
+}
+
+function defaultMigrationConfig(): LegacyCredentialMigrationConfig {
+  return {
+    legacyReadFallbackEnabled: false,
+    legacyBackfillEnabled: true,
+    legacyRollbackEnabled: false,
+  };
 }
 
 function createKeyFingerprint(apiKey: string): string {
