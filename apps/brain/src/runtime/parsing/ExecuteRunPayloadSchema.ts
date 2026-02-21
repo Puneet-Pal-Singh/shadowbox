@@ -43,6 +43,8 @@ const CoreMessageSchema = z.union([
  */
 export const ExecuteRunPayloadSchema = z.object({
   runId: z.string().min(1),
+  userId: z.string().min(1).optional(),
+  workspaceId: z.string().min(1).optional(),
   sessionId: z.string().min(1),
   correlationId: z.string().min(1),
   requestOrigin: z.string().optional(),

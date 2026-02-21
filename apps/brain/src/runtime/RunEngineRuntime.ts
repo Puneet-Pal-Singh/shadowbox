@@ -25,6 +25,9 @@ import {
   DurableProviderStore,
   ProviderConfigService,
 } from "../services/providers";
+import type { ProviderStoreScopeInput } from "../services/providers/provider-scope";
+
+const SAFE_SCOPE_IDENTIFIER_REGEX = /^[A-Za-z0-9._:-]+$/;
 
 export class RunEngineRuntime extends DurableObject {
   private executionQueue: Promise<void> = Promise.resolve();
@@ -124,8 +127,11 @@ export class RunEngineRuntime extends DurableObject {
     const env = this.env as Env;
 
     try {
-      const runId = this.resolveProviderRunId(request, correlationId);
-      const configService = this.createProviderConfigService(runId);
+      const scope = this.resolveProviderScope(request, correlationId);
+      const configService = this.createProviderConfigService(
+        scope,
+        correlationId,
+      );
 
       if (url.pathname === "/providers/connect") {
         if (request.method !== "POST") {
@@ -197,7 +203,10 @@ export class RunEngineRuntime extends DurableObject {
     }
   }
 
-  private resolveProviderRunId(request: Request, correlationId: string): string {
+  private resolveProviderScope(
+    request: Request,
+    correlationId: string,
+  ): ProviderStoreScopeInput {
     const runId = request.headers.get("X-Run-Id");
     if (!runId) {
       throw new ValidationError(
@@ -206,15 +215,67 @@ export class RunEngineRuntime extends DurableObject {
         correlationId,
       );
     }
-    return runId;
+    return {
+      runId,
+      userId: this.parseOptionalScopeHeader(
+        request.headers.get("X-User-Id"),
+        "X-User-Id",
+        correlationId,
+      ),
+      workspaceId: this.parseOptionalScopeHeader(
+        request.headers.get("X-Workspace-Id"),
+        "X-Workspace-Id",
+        correlationId,
+      ),
+    };
   }
 
-  private createProviderConfigService(runId: string): ProviderConfigService {
+  private createProviderConfigService(
+    scope: ProviderStoreScopeInput,
+    correlationId: string,
+  ): ProviderConfigService {
     const durableProviderStore = new DurableProviderStore(
       this.ctx as unknown as LegacyDurableObjectState,
-      runId,
+      scope,
+      this.resolveProviderEncryptionKey(correlationId),
     );
     return new ProviderConfigService(this.env as Env, durableProviderStore);
+  }
+
+  private resolveProviderEncryptionKey(correlationId: string): string {
+    const env = this.env as Env;
+    const key =
+      env.BYOK_CREDENTIAL_ENCRYPTION_KEY ?? env.GITHUB_TOKEN_ENCRYPTION_KEY;
+    if (!key) {
+      throw new ValidationError(
+        "Missing provider credential encryption key",
+        "MISSING_BYOK_ENCRYPTION_KEY",
+        correlationId,
+      );
+    }
+    return key;
+  }
+
+  private parseOptionalScopeHeader(
+    value: string | null,
+    fieldName: string,
+    correlationId: string,
+  ): string | undefined {
+    if (!value) {
+      return undefined;
+    }
+    const normalized = value.trim();
+    if (normalized.length === 0) {
+      return undefined;
+    }
+    if (normalized.length > 128 || !SAFE_SCOPE_IDENTIFIER_REGEX.test(normalized)) {
+      throw new ValidationError(
+        `Invalid ${fieldName} header`,
+        "INVALID_SCOPE_IDENTIFIER",
+        correlationId,
+      );
+    }
+    return normalized;
   }
 
   private async withExecutionLock<T>(operation: () => Promise<T>): Promise<T> {

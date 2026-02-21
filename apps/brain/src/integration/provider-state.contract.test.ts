@@ -240,6 +240,7 @@ function createEnvWithRunNamespace(
     DEFAULT_MODEL: "llama-3.3-70b-versatile",
     GROQ_API_KEY: "test-key",
     OPENAI_API_KEY: "sk-env-openai-key",
+    GITHUB_TOKEN_ENCRYPTION_KEY: "test-byok-encryption-key",
   } as unknown as Env;
 
   return env;
@@ -292,7 +293,8 @@ function createRuntimeProviderConfigService(
   const state = createDurableState(storageByRunId, runId);
   const durableStore = new DurableProviderStore(
     state as unknown as DurableObjectState,
-    runId,
+    { runId },
+    env.BYOK_CREDENTIAL_ENCRYPTION_KEY ?? env.GITHUB_TOKEN_ENCRYPTION_KEY,
   );
   return new ProviderConfigService(env, durableStore);
 }
