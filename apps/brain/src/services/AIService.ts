@@ -34,6 +34,7 @@ import {
   type SDKModelConfig,
   type GenerateStructuredResult,
 } from "./ai";
+import { resolveSelectionWithPreferences } from "./ai/preference-selection";
 
 /**
  * AIService - Orchestrates LLM inference through provider adapters
@@ -104,7 +105,13 @@ export class AIService {
     temperature?: number;
     system?: string;
   }): Promise<GenerateTextResult> {
-    const selection = this.resolveModelSelection(providerId, model);
+    const selection = await resolveSelectionWithPreferences({
+      providerId,
+      modelId: model,
+      providerConfigService: this.providerConfigService,
+      resolveSelection: (selectedProviderId, selectedModelId) =>
+        this.resolveModelSelection(selectedProviderId, selectedModelId),
+    });
     const selectedAdapter = await selectAdapter(
       selection,
       this.adapter,
@@ -137,7 +144,13 @@ export class AIService {
     providerId?: string;
     temperature?: number;
   }): Promise<GenerateStructuredResult<T>> {
-    const selection = this.resolveModelSelection(providerId, model);
+    const selection = await resolveSelectionWithPreferences({
+      providerId,
+      modelId: model,
+      providerConfigService: this.providerConfigService,
+      resolveSelection: (selectedProviderId, selectedModelId) =>
+        this.resolveModelSelection(selectedProviderId, selectedModelId),
+    });
 
     const overrideApiKey = selection.providerId
       ? ((await this.providerConfigService?.getApiKey(
@@ -204,7 +217,13 @@ export class AIService {
       toolCall?: { toolName: string; args: unknown };
     }) => void;
   }): Promise<ReadableStream<Uint8Array>> {
-    const selection = this.resolveModelSelection(providerId, model);
+    const selection = await resolveSelectionWithPreferences({
+      providerId,
+      modelId: model,
+      providerConfigService: this.providerConfigService,
+      resolveSelection: (selectedProviderId, selectedModelId) =>
+        this.resolveModelSelection(selectedProviderId, selectedModelId),
+    });
     const selectedAdapter = await selectAdapter(
       selection,
       this.adapter,
@@ -256,13 +275,4 @@ export class AIService {
     return client(model);
   }
 }
-
-export class AIServiceError extends Error {
-  constructor(message: string) {
-    super(`[ai/service] ${message}`);
-    this.name = "AIServiceError";
-  }
-}
-
-// Re-export type definitions
 export type { GenerateTextResult };

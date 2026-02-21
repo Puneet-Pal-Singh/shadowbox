@@ -128,6 +128,66 @@ describe("Provider State Contract: Controller/Runtime Shared Ownership", () => {
     expect(generateSpy).toHaveBeenCalledTimes(1);
   });
 
+  it("applies persisted BYOK preferences when request override is absent", async () => {
+    const storageByRunId = new Map<string, Map<string, string>>();
+    const env = createEnvWithRunNamespace(storageByRunId);
+
+    await ProviderController.byokConnect(
+      new Request("http://localhost/api/byok/providers/connect", {
+        method: "POST",
+        headers: await createByokHeaders(env),
+        body: JSON.stringify({
+          providerId: "openai",
+          apiKey: "sk-test-provider-state-1234567890",
+        }),
+      }),
+      env,
+    );
+
+    const preferencesResponse = await ProviderController.byokPreferences(
+      new Request("http://localhost/api/byok/preferences", {
+        method: "PATCH",
+        headers: await createByokHeaders(env),
+        body: JSON.stringify({
+          defaultProviderId: "openai",
+          defaultModelId: "gpt-4o",
+        }),
+      }),
+      env,
+    );
+    expect(preferencesResponse.status).toBe(200);
+
+    const runtimeProviderConfig = createRuntimeProviderConfigService(
+      env,
+      storageByRunId,
+      RUN_ID,
+    );
+
+    const generateSpy = vi
+      .spyOn(OpenAICompatibleAdapter.prototype, "generate")
+      .mockResolvedValue({
+        content: "integration-preference-inference-ok",
+        usage: {
+          provider: "openai",
+          model: "gpt-4o",
+          promptTokens: 3,
+          completionTokens: 2,
+          totalTokens: 5,
+        },
+      });
+
+    const aiService = new AIService(env, runtimeProviderConfig);
+    const messages: CoreMessage[] = [{ role: "user", content: "hello" }];
+    const inferenceResult = await aiService.generateText({
+      messages,
+    });
+
+    expect(inferenceResult.text).toBe("integration-preference-inference-ok");
+    expect(inferenceResult.usage.provider).toBe("openai");
+    expect(inferenceResult.usage.model).toBe("gpt-4o");
+    expect(generateSpy).toHaveBeenCalledTimes(1);
+  });
+
   it("retains provider state across runtime restart for the same runId scope", async () => {
     const storageByRunId = new Map<string, Map<string, string>>();
     const env = createEnvWithRunNamespace(storageByRunId);
@@ -296,6 +356,20 @@ async function handleProviderRuntimeRoute(
 
   if (url.pathname === "/providers/connections" && request.method === "GET") {
     const response = await configService.getConnections();
+    return json(response, 200);
+  }
+
+  if (url.pathname === "/providers/preferences" && request.method === "GET") {
+    const response = await configService.getPreferences();
+    return json(response, 200);
+  }
+
+  if (url.pathname === "/providers/preferences" && request.method === "PATCH") {
+    const body = (await request.json()) as {
+      defaultProviderId?: ProviderId;
+      defaultModelId?: string;
+    };
+    const response = await configService.updatePreferences(body);
     return json(response, 200);
   }
 

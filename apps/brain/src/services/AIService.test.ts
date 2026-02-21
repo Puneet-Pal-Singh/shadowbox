@@ -244,6 +244,55 @@ describe("AIService provider override routing", () => {
     expect(litellmAdapter.generate).toHaveBeenCalledTimes(1);
   });
 
+  it("uses persisted BYOK preferences when override is absent", async () => {
+    const providerConfig = createProviderConfigService();
+    await providerConfig.updatePreferences({
+      defaultProviderId: "openai",
+      defaultModelId: "gpt-4o",
+    });
+    const service = new AIService(createEnv(), providerConfig);
+
+    mockedAi.selectAdapter.mockResolvedValue(openaiAdapter);
+
+    const result = await service.generateText({
+      messages: BASE_MESSAGES,
+    });
+
+    expect(result.usage.provider).toBe("openai");
+    expect(result.usage.model).toBe("gpt-4o");
+    expect(mockedAi.resolveModelSelection).toHaveBeenCalledWith(
+      "openai",
+      "gpt-4o",
+      expect.any(String),
+      expect.any(String),
+      expect.any(Function),
+      expect.any(Function),
+    );
+  });
+
+  it("falls back to adapter defaults when persisted preferences are partial", async () => {
+    const providerConfig = createProviderConfigService();
+    await providerConfig.updatePreferences({
+      defaultProviderId: "openai",
+    });
+    const service = new AIService(createEnv(), providerConfig);
+
+    mockedAi.selectAdapter.mockResolvedValue(litellmAdapter);
+
+    await service.generateText({
+      messages: BASE_MESSAGES,
+    });
+
+    expect(mockedAi.resolveModelSelection).toHaveBeenCalledWith(
+      undefined,
+      undefined,
+      expect.any(String),
+      expect.any(String),
+      expect.any(Function),
+      expect.any(Function),
+    );
+  });
+
   it("routes to override provider adapter when provider is connected", async () => {
     const providerConfig = createProviderConfigService();
     await providerConfig.connect({
