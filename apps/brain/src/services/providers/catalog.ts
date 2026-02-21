@@ -3,7 +3,7 @@
  * Static catalog of available models per provider for v1
  */
 
-import type { ProviderId, ModelDescriptor } from "../../schemas/provider";
+import type { ProviderId, ModelDescriptor } from "@repo/shared-types";
 
 export const PROVIDER_CATALOG: Record<ProviderId, ModelDescriptor[]> = {
   openrouter: [

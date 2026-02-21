@@ -1,21 +1,28 @@
 /**
  * Provider Type Definitions
- * Types for provider configuration and management
+ * UI-facing provider types.
+ *
+ * Transport contracts are canonical in @repo/shared-types and re-exported here
+ * for backward-compatible imports across web components/services.
  */
 
-export type ProviderId = "openrouter" | "openai" | "groq";
+import type {
+  BYOKConnectRequest,
+  BYOKConnectResponse,
+  BYOKDisconnectRequest,
+  BYOKDisconnectResponse,
+  ModelDescriptor as SharedModelDescriptor,
+  ProviderConnection,
+  ProviderId as SharedProviderId,
+} from "@repo/shared-types";
 
-export interface ModelDescriptor {
-  id: string;
-  name: string;
-  provider: ProviderId;
-  costPer1kTokens?: {
-    input: number;
-    output: number;
-  };
-  contextWindow?: number;
-  description?: string;
-}
+export type ProviderId = SharedProviderId;
+export type ModelDescriptor = SharedModelDescriptor;
+export type ProviderConnectionStatus = ProviderConnection;
+export type ConnectProviderRequest = BYOKConnectRequest;
+export type ConnectProviderResponse = BYOKConnectResponse;
+export type DisconnectProviderRequest = BYOKDisconnectRequest;
+export type DisconnectProviderResponse = BYOKDisconnectResponse;
 
 export interface ProviderConfig {
   providerId: ProviderId;
@@ -29,34 +36,6 @@ export interface SessionModelConfig {
   sessionId: string;
   providerId: ProviderId;
   modelId: string;
-}
-
-export interface ProviderConnectionStatus {
-  providerId: ProviderId;
-  status: "disconnected" | "connected" | "failed" | "revoked";
-  lastValidatedAt?: string;
-  errorMessage?: string;
-}
-
-export interface ConnectProviderRequest {
-  providerId: ProviderId;
-  apiKey: string;
-}
-
-export interface ConnectProviderResponse {
-  status: "connected" | "failed";
-  providerId: ProviderId;
-  lastValidatedAt?: string;
-  errorMessage?: string;
-}
-
-export interface DisconnectProviderRequest {
-  providerId: ProviderId;
-}
-
-export interface DisconnectProviderResponse {
-  status: "disconnected";
-  providerId: ProviderId;
 }
 
 export interface ModelsListResponse {

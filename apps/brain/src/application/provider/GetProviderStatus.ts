@@ -3,7 +3,7 @@
  * Single Responsibility: Query provider connection status
  */
 
-import type { ProviderConnectionStatus } from "../../schemas/provider";
+import type { ProviderConnection } from "@repo/shared-types";
 import type { IProviderConfigService } from "../../services/providers";
 
 /**
@@ -16,7 +16,7 @@ export class GetProviderStatus {
   /**
    * Execute status query
    */
-  async execute(): Promise<ProviderConnectionStatus[]> {
+  async execute(): Promise<ProviderConnection[]> {
     return this.configService.getStatus();
   }
 }

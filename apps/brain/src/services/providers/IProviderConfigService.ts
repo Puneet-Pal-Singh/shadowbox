@@ -5,19 +5,19 @@
  */
 
 import type {
+  BYOKConnectRequest,
+  BYOKConnectResponse,
+  BYOKDisconnectRequest,
   BYOKPreferences,
   BYOKPreferencesPatch,
   BYOKValidateRequest,
   BYOKValidateResponse,
   ProviderCatalogResponse,
+  ProviderConnection,
   ProviderConnectionsResponse,
+  ProviderId,
 } from "@repo/shared-types";
 import type {
-  ProviderId,
-  ConnectProviderRequest,
-  ConnectProviderResponse,
-  DisconnectProviderRequest,
-  ProviderConnectionStatus,
   ModelsListResponse,
 } from "../../schemas/provider";
 
@@ -28,13 +28,13 @@ import type {
 export interface IProviderConfigService {
   getCatalog(): Promise<ProviderCatalogResponse>;
   getConnections(): Promise<ProviderConnectionsResponse>;
-  connect(request: ConnectProviderRequest): Promise<ConnectProviderResponse>;
+  connect(request: BYOKConnectRequest): Promise<BYOKConnectResponse>;
   validate(request: BYOKValidateRequest): Promise<BYOKValidateResponse>;
   disconnect(
-    request: DisconnectProviderRequest,
+    request: BYOKDisconnectRequest,
   ): Promise<{ status: "disconnected"; providerId: ProviderId }>;
   updatePreferences(patch: BYOKPreferencesPatch): Promise<BYOKPreferences>;
-  getStatus(): Promise<ProviderConnectionStatus[]>;
+  getStatus(): Promise<ProviderConnection[]>;
   getModels(providerId: ProviderId): Promise<ModelsListResponse>;
   getApiKey(providerId: ProviderId): Promise<string | null>;
   isConnected(providerId: ProviderId): Promise<boolean>;

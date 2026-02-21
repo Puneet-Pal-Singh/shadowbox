@@ -1,6 +1,6 @@
 import type { DurableObjectState } from "@cloudflare/workers-types";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ProviderId } from "../../schemas/provider";
+import type { ProviderId } from "@repo/shared-types";
 import { DurableProviderStore } from "./DurableProviderStore";
 
 type MockStorage = Map<string, string>;

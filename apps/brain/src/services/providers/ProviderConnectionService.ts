@@ -7,7 +7,6 @@ import type {
   ProviderConnection,
   ProviderId,
 } from "@repo/shared-types";
-import type { ProviderConnectionStatus } from "../../schemas/provider";
 import { PROVIDER_IDS } from "../../schemas/provider-registry";
 import type { ProviderCredentialService } from "./ProviderCredentialService";
 import { getProviderCapabilityFlags } from "./provider-capability-matrix";
@@ -25,8 +24,8 @@ export class ProviderConnectionService {
   /**
    * Get connection status for all providers
    */
-  async getStatus(): Promise<ProviderConnectionStatus[]> {
-    const statuses: ProviderConnectionStatus[] = [];
+  async getStatus(): Promise<ProviderConnection[]> {
+    const statuses: ProviderConnection[] = [];
 
     for (const providerId of PROVIDER_IDS as readonly ProviderId[]) {
       const isConnected = await this.credentialService.isConnected(providerId);

@@ -6,7 +6,7 @@
  */
 
 import type { ProviderCapabilityFlags } from "@repo/shared-types";
-import type { ProviderId } from "../../schemas/provider";
+import type { ProviderId } from "@repo/shared-types";
 import { PROVIDER_IDS } from "../../schemas/provider-registry";
 import { PROVIDER_CATALOG } from "./catalog";
 

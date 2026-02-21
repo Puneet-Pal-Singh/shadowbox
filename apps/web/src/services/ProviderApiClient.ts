@@ -7,6 +7,10 @@
 import { getEndpoint } from "../lib/platform-endpoints";
 import { SessionStateService } from "./SessionStateService";
 import type {
+  ProviderCatalogResponse,
+  ProviderConnectionsResponse,
+} from "@repo/shared-types";
+import type {
   ProviderId,
   ConnectProviderRequest,
   ConnectProviderResponse,
@@ -17,18 +21,6 @@ import type {
 } from "../types/provider";
 
 const SESSION_RUN_ID_KEY = "currentRunId";
-
-interface ByokConnectionsResponse {
-  connections: ProviderConnectionStatus[];
-}
-
-interface ByokCatalogResponse {
-  providers: Array<{
-    providerId: ProviderId;
-    models: ModelsListResponse["models"];
-  }>;
-  generatedAt: string;
-}
 
 /**
  * ProviderApiClient - Backend API client for provider operations
@@ -207,10 +199,10 @@ export class ProviderApiClient {
         );
       }
 
-      const data = (await response.json()) as ByokConnectionsResponse;
+      const data = (await response.json()) as ProviderConnectionsResponse;
       console.log("[provider/api] Fetched provider status");
 
-      return data.connections;
+      return data.connections as ProviderConnectionStatus[];
     } catch (error) {
       console.error("[provider/api] Status error:", error);
       throw error;
@@ -242,7 +234,7 @@ export class ProviderApiClient {
         );
       }
 
-      const data = (await response.json()) as ByokCatalogResponse;
+      const data = (await response.json()) as ProviderCatalogResponse;
       if (!Array.isArray(data.providers)) {
         throw new Error("Invalid BYOK catalog response: missing providers array");
       }
