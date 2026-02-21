@@ -11,6 +11,51 @@ export type {
   StageFilesRequest,
 } from "./git.js";
 
+// Provider/BYOK contracts
+export {
+  PROVIDER_IDS,
+  ProviderIdSchema,
+  ProviderCapabilityFlagsSchema,
+  ModelDescriptorSchema,
+  ProviderCatalogEntrySchema,
+  ProviderCatalogResponseSchema,
+  ProviderConnectionStateSchema,
+  ProviderConnectionSchema,
+  ProviderConnectionsResponseSchema,
+  BYOKConnectRequestSchema,
+  BYOKConnectResponseSchema,
+  BYOKDisconnectRequestSchema,
+  BYOKDisconnectResponseSchema,
+  BYOKValidateRequestSchema,
+  BYOKValidateResponseSchema,
+  BYOKPreferencesPatchSchema,
+  BYOKPreferencesSchema,
+  ProviderErrorCodeSchema,
+  NormalizedProviderErrorSchema,
+  ProviderErrorEnvelopeSchema,
+} from "./provider.js";
+export type {
+  ProviderId,
+  ProviderCapabilityFlags,
+  ModelDescriptor,
+  ProviderCatalogEntry,
+  ProviderCatalogResponse,
+  ProviderConnectionState,
+  ProviderConnection,
+  ProviderConnectionsResponse,
+  BYOKConnectRequest,
+  BYOKConnectResponse,
+  BYOKDisconnectRequest,
+  BYOKDisconnectResponse,
+  BYOKValidateRequest,
+  BYOKValidateResponse,
+  BYOKPreferencesPatch,
+  BYOKPreferences,
+  ProviderErrorCode,
+  NormalizedProviderError,
+  ProviderErrorEnvelope,
+} from "./provider.js";
+
 // Run status types
 export { RUN_STATUSES } from "./run-status.js";
 export type { RunStatus } from "./run-status.js";
