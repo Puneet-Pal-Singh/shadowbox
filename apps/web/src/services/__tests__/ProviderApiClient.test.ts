@@ -172,4 +172,75 @@ describe("ProviderApiClient runId headers", () => {
       expect.any(Error),
     );
   });
+
+  it("fetches persisted BYOK preferences", async () => {
+    sessionStorage.setItem("currentRunId", "run-from-session");
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          defaultProviderId: "openai",
+          defaultModelId: "gpt-4o",
+          updatedAt: "2026-02-21T12:00:00.000Z",
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
+    );
+
+    const result = await ProviderApiClient.getPreferences();
+
+    expect(result.defaultProviderId).toBe("openai");
+    expect(result.defaultModelId).toBe("gpt-4o");
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "http://brain.test/api/byok/preferences",
+      expect.objectContaining({
+        method: "GET",
+        credentials: "include",
+        headers: expect.objectContaining({
+          "X-Run-Id": "run-from-session",
+        }),
+      }),
+    );
+  });
+
+  it("updates persisted BYOK preferences", async () => {
+    sessionStorage.setItem("currentRunId", "run-from-session");
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          defaultProviderId: "groq",
+          defaultModelId: "llama-3.3-70b-versatile",
+          updatedAt: "2026-02-21T12:05:00.000Z",
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
+    );
+
+    const result = await ProviderApiClient.updatePreferences({
+      defaultProviderId: "groq",
+      defaultModelId: "llama-3.3-70b-versatile",
+    });
+
+    expect(result.defaultProviderId).toBe("groq");
+    expect(result.defaultModelId).toBe("llama-3.3-70b-versatile");
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "http://brain.test/api/byok/preferences",
+      expect.objectContaining({
+        method: "PATCH",
+        credentials: "include",
+        headers: expect.objectContaining({
+          "X-Run-Id": "run-from-session",
+        }),
+        body: JSON.stringify({
+          defaultProviderId: "groq",
+          defaultModelId: "llama-3.3-70b-versatile",
+        }),
+      }),
+    );
+  });
 });
