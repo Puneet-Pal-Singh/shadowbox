@@ -101,6 +101,11 @@ class ProviderService {
     try {
       const preferences = await ProviderApiClient.getPreferences();
       const config = this.mapPreferencesToConfig(preferences);
+
+      if (!this.hasPersistableModelConfig(config)) {
+        return this.getSessionModelConfig(sessionId);
+      }
+
       this.storeSessionModelConfig(sessionId, config);
       this.notifyListeners(sessionId, config);
       return config;
@@ -199,7 +204,7 @@ class ProviderService {
   }
 
   private async persistPreferences(config: SessionModelConfig): Promise<void> {
-    if (!config.providerId || !config.modelId) {
+    if (!this.hasPersistableModelConfig(config)) {
       return;
     }
     try {
@@ -213,6 +218,12 @@ class ProviderService {
         error,
       );
     }
+  }
+
+  private hasPersistableModelConfig(
+    config: SessionModelConfig,
+  ): config is { providerId: ProviderId; modelId: string } {
+    return !!config.providerId && !!config.modelId;
   }
 }
 

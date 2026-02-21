@@ -41,20 +41,28 @@ export function useChatCore(
 
   useEffect(() => {
     let cancelled = false;
-    void providerService.syncSessionModelConfig(sessionId).then((config) => {
-      if (cancelled) {
-        return;
-      }
-      setSessionModelConfig((prev) => {
-        if (
-          prev.providerId === config.providerId &&
-          prev.modelId === config.modelId
-        ) {
-          return prev;
+    providerService
+      .syncSessionModelConfig(sessionId)
+      .then((config) => {
+        if (cancelled) {
+          return;
         }
-        return config;
+        setSessionModelConfig((prev) => {
+          if (
+            prev.providerId === config.providerId &&
+            prev.modelId === config.modelId
+          ) {
+            return prev;
+          }
+          return config;
+        });
+      })
+      .catch((error) => {
+        console.error(
+          `[useChatCore] Failed to sync session model config for session ${sessionId}`,
+          error,
+        );
       });
-    });
 
     return () => {
       cancelled = true;

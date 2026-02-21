@@ -452,10 +452,12 @@ describe("ProviderController", () => {
       expect(patchData.defaultModelId).toBe("llama-3.3-70b-versatile");
       expect(typeof patchData.updatedAt).toBe("string");
 
+      const getHeaders = await withByokHeaders(env);
+      delete getHeaders["Content-Type"];
       const getResponse = await ProviderController.byokGetPreferences(
         new Request("http://localhost/api/byok/preferences", {
           method: "GET",
-          headers: await withByokHeaders(env, { "Content-Type": undefined }),
+          headers: getHeaders,
         }),
         env,
       );

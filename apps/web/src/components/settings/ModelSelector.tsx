@@ -40,8 +40,8 @@ export function ModelSelector({
         const result = await providerService.getModels(providerId);
         setModels(result.models);
 
-        // Use the override (from saved config) if provided, otherwise use component state
-        const modelToCheck = selectedModelOverride ?? selectedModel;
+        // Use the explicit override from the current flow to avoid stale closure reads.
+        const modelToCheck = selectedModelOverride ?? "";
 
         if (result.models.length > 0 && !modelToCheck) {
           const firstModel = result.models[0];
@@ -58,7 +58,7 @@ export function ModelSelector({
         setIsLoading(false);
       }
     },
-    [selectedModel],
+    [],
   );
 
   // Load saved config and available models
