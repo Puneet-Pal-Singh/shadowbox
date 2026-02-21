@@ -44,8 +44,8 @@ describe("Provider State Contract: Controller/Runtime Shared Ownership", () => {
     const storageByRunId = new Map<string, Map<string, string>>();
     const env = createEnvWithRunNamespace(storageByRunId);
 
-    const connectResponse = await ProviderController.connect(
-      new Request("http://localhost/api/providers/connect", {
+    const connectResponse = await ProviderController.byokConnect(
+      new Request("http://localhost/api/byok/providers/connect", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -60,8 +60,8 @@ describe("Provider State Contract: Controller/Runtime Shared Ownership", () => {
     );
     expect(connectResponse.status).toBe(200);
 
-    const statusResponse = await ProviderController.status(
-      new Request("http://localhost/api/providers/status", {
+    const statusResponse = await ProviderController.byokConnections(
+      new Request("http://localhost/api/byok/providers/connections", {
         method: "GET",
         headers: {
           "X-Run-Id": RUN_ID,
@@ -72,25 +72,30 @@ describe("Provider State Contract: Controller/Runtime Shared Ownership", () => {
     const statusBody = await statusResponse.json();
     expect(statusResponse.status).toBe(200);
     expect(
-      statusBody.providers.some(
+      statusBody.connections.some(
         (provider: { providerId: string; status: string }) =>
           provider.providerId === "openai" && provider.status === "connected",
       ),
     ).toBe(true);
 
-    const modelsResponse = await ProviderController.models(
-      new Request(
-        "http://localhost/api/providers/models?providerId=openai",
-        {
-          method: "GET",
-          headers: {
-            "X-Run-Id": RUN_ID,
-          },
+    const catalogResponse = await ProviderController.byokCatalog(
+      new Request("http://localhost/api/byok/providers/catalog", {
+        method: "GET",
+        headers: {
+          "X-Run-Id": RUN_ID,
         },
-      ),
+      }),
       env,
     );
-    expect(modelsResponse.status).toBe(200);
+    const catalogBody = await catalogResponse.json();
+    expect(catalogResponse.status).toBe(200);
+    expect(
+      catalogBody.providers.some(
+        (provider: { providerId: string; models: Array<{ id: string }> }) =>
+          provider.providerId === "openai" &&
+          provider.models.some((model) => model.id === "gpt-4o"),
+      ),
+    ).toBe(true);
 
     const runtimeProviderConfig = createRuntimeProviderConfigService(
       env,
@@ -131,8 +136,8 @@ describe("Provider State Contract: Controller/Runtime Shared Ownership", () => {
     const storageByRunId = new Map<string, Map<string, string>>();
     const env = createEnvWithRunNamespace(storageByRunId);
 
-    await ProviderController.connect(
-      new Request("http://localhost/api/providers/connect", {
+    await ProviderController.byokConnect(
+      new Request("http://localhost/api/byok/providers/connect", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -240,6 +245,7 @@ function createEnvWithRunNamespace(
     DEFAULT_MODEL: "llama-3.3-70b-versatile",
     GROQ_API_KEY: "test-key",
     OPENAI_API_KEY: "sk-env-openai-key",
+    BYOK_CREDENTIAL_ENCRYPTION_KEY: "test-byok-encryption-key",
     GITHUB_TOKEN_ENCRYPTION_KEY: "test-byok-encryption-key",
   } as unknown as Env;
 
@@ -268,17 +274,13 @@ async function handleProviderRuntimeRoute(
     return json(response, 200);
   }
 
-  if (url.pathname === "/providers/status" && request.method === "GET") {
-    const providers = await configService.getStatus();
-    return json({ providers }, 200);
+  if (url.pathname === "/providers/catalog" && request.method === "GET") {
+    const response = await configService.getCatalog();
+    return json(response, 200);
   }
 
-  if (url.pathname === "/providers/models" && request.method === "GET") {
-    const providerId = url.searchParams.get("providerId") as ProviderId | null;
-    if (!providerId) {
-      return json({ error: "Missing required query parameter: providerId" }, 400);
-    }
-    const response = await configService.getModels(providerId);
+  if (url.pathname === "/providers/connections" && request.method === "GET") {
+    const response = await configService.getConnections();
     return json(response, 200);
   }
 
@@ -294,7 +296,7 @@ function createRuntimeProviderConfigService(
   const durableStore = new DurableProviderStore(
     state as unknown as DurableObjectState,
     { runId },
-    env.BYOK_CREDENTIAL_ENCRYPTION_KEY ?? env.GITHUB_TOKEN_ENCRYPTION_KEY,
+    env.BYOK_CREDENTIAL_ENCRYPTION_KEY,
   );
   return new ProviderConfigService(env, durableStore);
 }

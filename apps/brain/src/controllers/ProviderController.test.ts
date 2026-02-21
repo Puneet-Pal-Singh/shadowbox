@@ -210,10 +210,10 @@ function jsonError(message: string, status: number, code?: string): Response {
 }
 
 describe("ProviderController", () => {
-  describe("connect", () => {
+  describe("byok v2", () => {
     it("connects provider with valid API key", async () => {
       const env = createMockEnv();
-      const request = new Request("http://localhost/api/providers/connect", {
+      const request = new Request("http://localhost/api/byok/providers/connect", {
         method: "POST",
         body: JSON.stringify({
           providerId: "openai",
@@ -222,7 +222,7 @@ describe("ProviderController", () => {
         headers: withRunIdHeaders(),
       });
 
-      const response = await ProviderController.connect(request, env);
+      const response = await ProviderController.byokConnect(request, env);
       const data = await response.json();
 
       expect(response.status).toBe(200);
@@ -230,9 +230,9 @@ describe("ProviderController", () => {
       expect(data.providerId).toBe("openai");
     });
 
-    it("fails without runId", async () => {
+    it("fails connect without runId", async () => {
       const env = createMockEnv();
-      const request = new Request("http://localhost/api/providers/connect", {
+      const request = new Request("http://localhost/api/byok/providers/connect", {
         method: "POST",
         body: JSON.stringify({
           providerId: "openai",
@@ -241,92 +241,10 @@ describe("ProviderController", () => {
         headers: { "Content-Type": "application/json" },
       });
 
-      const response = await ProviderController.connect(request, env);
+      const response = await ProviderController.byokConnect(request, env);
       expect(response.status).toBe(400);
     });
-  });
 
-  describe("disconnect", () => {
-    it("disconnects a connected provider", async () => {
-      const env = createMockEnv();
-
-      await ProviderController.connect(
-        new Request("http://localhost/api/providers/connect", {
-          method: "POST",
-          body: JSON.stringify({
-            providerId: "openai",
-            apiKey: "sk-test-1234567890",
-          }),
-          headers: withRunIdHeaders(),
-        }),
-        env,
-      );
-
-      const request = new Request("http://localhost/api/providers/disconnect", {
-        method: "POST",
-        body: JSON.stringify({ providerId: "openai" }),
-        headers: withRunIdHeaders(),
-      });
-
-      const response = await ProviderController.disconnect(request, env);
-      const data = await response.json();
-
-      expect(response.status).toBe(200);
-      expect(data.status).toBe("disconnected");
-      expect(data.providerId).toBe("openai");
-    });
-  });
-
-  describe("status", () => {
-    it("returns provider statuses for the run scope", async () => {
-      const env = createMockEnv();
-      const request = new Request("http://localhost/api/providers/status", {
-        method: "GET",
-        headers: { "X-Run-Id": TEST_RUN_ID },
-      });
-
-      const response = await ProviderController.status(request, env);
-      const data = await response.json();
-
-      expect(response.status).toBe(200);
-      expect(Array.isArray(data.providers)).toBe(true);
-      expect(data.providers).toHaveLength(3);
-    });
-  });
-
-  describe("models", () => {
-    it("returns models for a provider", async () => {
-      const env = createMockEnv();
-      const request = new Request(
-        "http://localhost/api/providers/models?providerId=openai",
-        {
-          method: "GET",
-          headers: { "X-Run-Id": TEST_RUN_ID },
-        },
-      );
-
-      const response = await ProviderController.models(request, env);
-      const data = await response.json();
-
-      expect(response.status).toBe(200);
-      expect(data.providerId).toBe("openai");
-      expect(Array.isArray(data.models)).toBe(true);
-      expect(data.models.length).toBeGreaterThan(0);
-    });
-
-    it("fails when providerId query parameter is missing", async () => {
-      const env = createMockEnv();
-      const request = new Request("http://localhost/api/providers/models", {
-        method: "GET",
-        headers: { "X-Run-Id": TEST_RUN_ID },
-      });
-
-      const response = await ProviderController.models(request, env);
-      expect(response.status).toBe(400);
-    });
-  });
-
-  describe("byok v2", () => {
     it("returns provider catalog", async () => {
       const env = createMockEnv();
       const request = new Request("http://localhost/api/byok/providers/catalog", {
@@ -373,6 +291,35 @@ describe("ProviderController", () => {
             connection.status === "connected",
         ),
       ).toBe(true);
+    });
+
+    it("disconnects a connected provider", async () => {
+      const env = createMockEnv();
+
+      await ProviderController.byokConnect(
+        new Request("http://localhost/api/byok/providers/connect", {
+          method: "POST",
+          body: JSON.stringify({
+            providerId: "openai",
+            apiKey: "sk-test-1234567890",
+          }),
+          headers: withRunIdHeaders(),
+        }),
+        env,
+      );
+
+      const request = new Request("http://localhost/api/byok/providers/disconnect", {
+        method: "POST",
+        body: JSON.stringify({ providerId: "openai" }),
+        headers: withRunIdHeaders(),
+      });
+
+      const response = await ProviderController.byokDisconnect(request, env);
+      const data = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(data.status).toBe("disconnected");
+      expect(data.providerId).toBe("openai");
     });
 
     it("returns normalized error envelope for validate on disconnected provider", async () => {
