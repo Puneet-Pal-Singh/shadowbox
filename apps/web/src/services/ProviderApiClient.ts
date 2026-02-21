@@ -239,6 +239,9 @@ export class ProviderApiClient {
       }
 
       const data = (await response.json()) as ByokCatalogResponse;
+      if (!Array.isArray(data.providers)) {
+        throw new Error("Invalid BYOK catalog response: missing providers array");
+      }
       const providerCatalog = data.providers.find(
         (entry) => entry.providerId === providerId,
       );
