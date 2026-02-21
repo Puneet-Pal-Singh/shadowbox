@@ -18,6 +18,11 @@ import {
   isDomainError,
   mapDomainErrorToHttp,
 } from "../domain/errors";
+import {
+  extractIdentifiers,
+  mapAgentIdToType,
+  parseOptionalScopeIdentifier,
+} from "./chat-request-helpers";
 
 // Zod schema for request body validation
 const ChatRequestBodySchema = z.object({
@@ -36,11 +41,9 @@ interface ChatRequest {
   correlationId: string;
   sessionId: string;
   runId: string;
+  userId?: string;
+  workspaceId?: string;
 }
-
-const SAFE_IDENTIFIER_REGEX = /^[A-Za-z0-9-]+$/;
-const UUID_V4_REGEX =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /**
  * ChatController
@@ -91,6 +94,16 @@ export class ChatController {
         correlationId,
         sessionId: identifiers.sessionId,
         runId: identifiers.runId,
+        userId: parseOptionalScopeIdentifier(
+          req.headers.get("X-User-Id"),
+          "X-User-Id",
+          correlationId,
+        ),
+        workspaceId: parseOptionalScopeIdentifier(
+          req.headers.get("X-Workspace-Id"),
+          "X-Workspace-Id",
+          correlationId,
+        ),
       };
 
       console.log(`[chat/request] ${correlationId} routing to RunEngine`);
@@ -149,7 +162,8 @@ export class ChatController {
     chatRequest: ChatRequest,
     env: Env,
   ): Promise<Response> {
-    const { body, correlationId, sessionId, runId } = chatRequest;
+    const { body, correlationId, sessionId, runId, userId, workspaceId } =
+      chatRequest;
 
     const coreMessages: CoreMessage[] =
       body.messages! as unknown as CoreMessage[];
@@ -163,6 +177,8 @@ export class ChatController {
         {
           sessionId,
           runId,
+          userId,
+          workspaceId,
           correlationId,
           agentType: mapAgentIdToType(body.agentId, correlationId),
           prompt,
@@ -210,6 +226,8 @@ export class ChatController {
     runId: string,
     payload: {
       runId: string;
+      userId?: string;
+      workspaceId?: string;
       sessionId: string;
       correlationId: string;
       requestOrigin?: string;
@@ -236,84 +254,4 @@ export class ChatController {
     });
     return runtimeResponse as unknown as Response;
   }
-}
-
-function extractIdentifiers(body: ChatRequestBody, correlationId?: string) {
-  const sessionId = parseRequiredIdentifier(body.sessionId, "sessionId", correlationId);
-  const runId = parseRunId(body.runId, correlationId);
-
-  return {
-    sessionId,
-    runId,
-  };
-}
-
-function parseRunId(runId?: string, correlationId?: string): string {
-  if (!runId || runId.trim().length === 0) {
-    throw new ValidationError(
-      "Missing required field: runId",
-      "MISSING_FIELD",
-      correlationId,
-    );
-  }
-  const normalized = runId.trim();
-  if (!UUID_V4_REGEX.test(normalized)) {
-    throw new ValidationError(
-      "Invalid runId: expected UUID v4 format",
-      "INVALID_RUN_ID",
-      correlationId,
-    );
-  }
-  return normalized;
-}
-
-function parseRequiredIdentifier(
-  identifier: string | undefined,
-  fieldName: string,
-  correlationId?: string,
-): string {
-  if (!identifier || identifier.trim().length === 0) {
-    throw new ValidationError(
-      `Missing required field: ${fieldName}`,
-      "MISSING_FIELD",
-      correlationId,
-    );
-  }
-
-  const normalized = identifier.trim();
-  if (normalized.length > 128) {
-    throw new ValidationError(
-      `Invalid ${fieldName}: too long (max 128 characters)`,
-      "IDENTIFIER_TOO_LONG",
-      correlationId,
-    );
-  }
-  if (!SAFE_IDENTIFIER_REGEX.test(normalized)) {
-    throw new ValidationError(
-      `Invalid ${fieldName}: only letters, numbers, and hyphens allowed`,
-      "INVALID_IDENTIFIER_FORMAT",
-      correlationId,
-    );
-  }
-  return normalized;
-}
-
-function mapAgentIdToType(agentId?: string, correlationId?: string): AgentType {
-  if (!agentId) return "coding";
-
-  const agentTypeMap: Record<string, AgentType> = {
-    review: "review",
-    ci: "ci",
-    coding: "coding",
-  };
-  const mapped = agentTypeMap[agentId];
-  if (!mapped) {
-    throw new ValidationError(
-      `Unsupported agentId: ${agentId}`,
-      "INVALID_AGENT_TYPE",
-      correlationId,
-    );
-  }
-
-  return mapped;
 }

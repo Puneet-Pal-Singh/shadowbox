@@ -22,6 +22,8 @@ import type { AgentType } from "@shadowbox/execution-engine/runtime";
 export interface HandleChatRequestInput {
   sessionId: string;
   runId: string;
+  userId?: string;
+  workspaceId?: string;
   correlationId: string;
   agentType: AgentType;
   prompt: string;
@@ -37,6 +39,8 @@ export interface HandleChatRequestOutput {
   correlationId: string;
   executionPayload: {
     runId: string;
+    userId?: string;
+    workspaceId?: string;
     sessionId: string;
     correlationId: string;
     requestOrigin?: string;
@@ -73,8 +77,16 @@ export class HandleChatRequest {
     input: HandleChatRequestInput,
     requestOrigin?: string,
   ): Promise<HandleChatRequestOutput> {
-    const { sessionId, runId, correlationId, agentType, prompt, messages } =
-      input;
+    const {
+      sessionId,
+      runId,
+      userId,
+      workspaceId,
+      correlationId,
+      agentType,
+      prompt,
+      messages,
+    } = input;
 
     try {
       // Validate messages
@@ -114,6 +126,8 @@ export class HandleChatRequest {
       // Build execution payload
       const executionPayload = {
         runId,
+        userId,
+        workspaceId,
         sessionId,
         correlationId,
         requestOrigin,

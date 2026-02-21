@@ -44,7 +44,11 @@ export function buildRuntimeDependencies(
   const { llmRuntimeService, llmGateway } = buildLLMGateway(
     ctx,
     env,
-    payload.runId,
+    {
+      runId: payload.runId,
+      userId: payload.userId,
+      workspaceId: payload.workspaceId,
+    },
     budgetingComponents,
   );
 

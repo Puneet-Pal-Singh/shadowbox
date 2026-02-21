@@ -7,6 +7,10 @@ const TEST_RUN_ID = "123e4567-e89b-42d3-a456-426614174000";
 
 function createMockEnv(): Env {
   const providerState = new Map<string, Set<ProviderId>>();
+  const preferencesState = new Map<
+    string,
+    { defaultProviderId?: ProviderId; defaultModelId?: string; updatedAt: string }
+  >();
   const catalog: Record<ProviderId, Array<{ id: string; name: string }>> = {
     openai: [{ id: "gpt-4o", name: "GPT-4o" }],
     openrouter: [{ id: "openrouter/auto", name: "Auto" }],
@@ -87,6 +91,86 @@ function createMockEnv(): Env {
           });
         }
 
+        if (url.pathname === "/providers/catalog" && request.method === "GET") {
+          return jsonOk({
+            providers: (["openrouter", "openai", "groq"] as ProviderId[]).map(
+              (providerId) => ({
+                providerId,
+                displayName: providerId.toUpperCase(),
+                capabilities: {
+                  streaming: true,
+                  tools: true,
+                  structuredOutputs: true,
+                  jsonMode: true,
+                },
+                models: catalog[providerId].map((model) => ({
+                  ...model,
+                  provider: providerId,
+                })),
+              }),
+            ),
+            generatedAt: new Date().toISOString(),
+          });
+        }
+
+        if (
+          url.pathname === "/providers/connections" &&
+          request.method === "GET"
+        ) {
+          return jsonOk({
+            connections: (["openrouter", "openai", "groq"] as ProviderId[]).map(
+              (providerId) => ({
+                providerId,
+                status: connectedProviders.has(providerId)
+                  ? "connected"
+                  : "disconnected",
+                capabilities: {
+                  streaming: true,
+                  tools: true,
+                  structuredOutputs: true,
+                  jsonMode: true,
+                },
+              }),
+            ),
+          });
+        }
+
+        if (url.pathname === "/providers/validate" && request.method === "POST") {
+          const body = (await request.json()) as { providerId: ProviderId };
+          if (!connectedProviders.has(body.providerId)) {
+            return jsonError(
+              `Provider "${body.providerId}" is not connected.`,
+              400,
+              "PROVIDER_NOT_CONNECTED",
+            );
+          }
+          return jsonOk({
+            providerId: body.providerId,
+            status: "valid",
+            checkedAt: new Date().toISOString(),
+          });
+        }
+
+        if (
+          url.pathname === "/providers/preferences" &&
+          request.method === "PATCH"
+        ) {
+          const body = (await request.json()) as {
+            defaultProviderId?: ProviderId;
+            defaultModelId?: string;
+          };
+          const current = preferencesState.get(runId) ?? {
+            updatedAt: new Date().toISOString(),
+          };
+          const next = {
+            defaultProviderId: body.defaultProviderId ?? current.defaultProviderId,
+            defaultModelId: body.defaultModelId ?? current.defaultModelId,
+            updatedAt: new Date().toISOString(),
+          };
+          preferencesState.set(runId, next);
+          return jsonOk(next);
+        }
+
         return new Response("Not Found", { status: 404 });
       },
     }),
@@ -117,8 +201,9 @@ function jsonOk(data: unknown): Response {
   });
 }
 
-function jsonError(message: string, status: number): Response {
-  return new Response(JSON.stringify({ error: message }), {
+function jsonError(message: string, status: number, code?: string): Response {
+  const body = code ? { error: message, code } : { error: message };
+  return new Response(JSON.stringify(body), {
     status,
     headers: { "Content-Type": "application/json" },
   });
@@ -238,6 +323,95 @@ describe("ProviderController", () => {
 
       const response = await ProviderController.models(request, env);
       expect(response.status).toBe(400);
+    });
+  });
+
+  describe("byok v2", () => {
+    it("returns provider catalog", async () => {
+      const env = createMockEnv();
+      const request = new Request("http://localhost/api/byok/providers/catalog", {
+        method: "GET",
+        headers: { "X-Run-Id": TEST_RUN_ID },
+      });
+
+      const response = await ProviderController.byokCatalog(request, env);
+      const data = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(Array.isArray(data.providers)).toBe(true);
+      expect(data.providers[0].capabilities.streaming).toBe(true);
+    });
+
+    it("returns connections after byok connect", async () => {
+      const env = createMockEnv();
+      await ProviderController.byokConnect(
+        new Request("http://localhost/api/byok/providers/connect", {
+          method: "POST",
+          headers: withRunIdHeaders(),
+          body: JSON.stringify({
+            providerId: "openai",
+            apiKey: "sk-test-1234567890",
+          }),
+        }),
+        env,
+      );
+
+      const response = await ProviderController.byokConnections(
+        new Request("http://localhost/api/byok/providers/connections", {
+          method: "GET",
+          headers: { "X-Run-Id": TEST_RUN_ID },
+        }),
+        env,
+      );
+      const data = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(
+        data.connections.some(
+          (connection: { providerId: string; status: string }) =>
+            connection.providerId === "openai" &&
+            connection.status === "connected",
+        ),
+      ).toBe(true);
+    });
+
+    it("returns normalized error envelope for validate on disconnected provider", async () => {
+      const env = createMockEnv();
+      const response = await ProviderController.byokValidate(
+        new Request("http://localhost/api/byok/providers/validate", {
+          method: "POST",
+          headers: withRunIdHeaders(),
+          body: JSON.stringify({ providerId: "openai" }),
+        }),
+        env,
+      );
+      const data = await response.json();
+
+      expect(response.status).toBe(400);
+      expect(data.error.code).toBe("PROVIDER_NOT_CONNECTED");
+      expect(data.error.retryable).toBe(false);
+      expect(typeof data.error.correlationId).toBe("string");
+    });
+
+    it("stores and returns preferences", async () => {
+      const env = createMockEnv();
+      const response = await ProviderController.byokPreferences(
+        new Request("http://localhost/api/byok/preferences", {
+          method: "PATCH",
+          headers: withRunIdHeaders(),
+          body: JSON.stringify({
+            defaultProviderId: "groq",
+            defaultModelId: "llama-3.3-70b-versatile",
+          }),
+        }),
+        env,
+      );
+      const data = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(data.defaultProviderId).toBe("groq");
+      expect(data.defaultModelId).toBe("llama-3.3-70b-versatile");
+      expect(typeof data.updatedAt).toBe("string");
     });
   });
 });

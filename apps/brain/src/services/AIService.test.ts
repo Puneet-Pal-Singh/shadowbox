@@ -102,7 +102,8 @@ function createEnv(): Env {
 function createProviderConfigService(): ProviderConfigService {
   const durableStore = new DurableProviderStore(
     createMockDurableObjectState() as any,
-    crypto.randomUUID(),
+    { runId: crypto.randomUUID() },
+    "test-byok-encryption-key",
   );
   return new ProviderConfigService(createEnv(), durableStore);
 }

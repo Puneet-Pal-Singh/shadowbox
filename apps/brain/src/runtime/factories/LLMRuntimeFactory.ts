@@ -8,9 +8,15 @@
 import type { DurableObjectState as LegacyDurableObjectState } from "@cloudflare/workers-types";
 import type { Env } from "../../types/ai";
 import { AIService } from "../../services/AIService";
-import { ProviderConfigService } from "../../services/providers";
+import {
+  ProviderConfigService,
+  getProviderCapabilityFlags,
+  isModelAllowedByCapabilityMatrix,
+} from "../../services/providers";
 import { ProviderValidationService } from "../../services/ProviderValidationService";
 import { DurableProviderStore } from "../../services/providers/DurableProviderStore";
+import { readByokEncryptionKey } from "../../services/providers/provider-encryption-key";
+import type { ProviderStoreScopeInput } from "../../types/provider-scope";
 import type {
   LLMRuntimeAIService,
   LLMGateway,
@@ -27,7 +33,7 @@ import { LLMGateway as LLMGatewayImpl } from "@shadowbox/execution-engine/runtim
  *
  * @param ctx - Durable Object state context
  * @param env - Cloudflare environment
- * @param runId - Run ID for provider store scoping
+ * @param providerScope - Scope for provider credential store keying
  * @param budgetingComponents - Pre-built pricing/budgeting components from BudgetingFactory
  * @returns { llmRuntimeService, llmGateway }
  * @throws Error if provider validation fails
@@ -35,7 +41,7 @@ import { LLMGateway as LLMGatewayImpl } from "@shadowbox/execution-engine/runtim
 export function buildLLMGateway(
   ctx: unknown,
   env: Env,
-  runId: string,
+  providerScope: ProviderStoreScopeInput,
   budgetingComponents: {
     pricingRegistry: PricingRegistry;
     costLedger: CostLedger;
@@ -72,7 +78,8 @@ export function buildLLMGateway(
   // Create durable provider store scoped to runId for cross-isolate state persistence
   const durableProviderStore = new DurableProviderStore(
     ctx as unknown as LegacyDurableObjectState,
-    runId,
+    providerScope,
+    resolveProviderEncryptionKey(env),
   );
 
   const providerConfigService = new ProviderConfigService(
@@ -95,7 +102,39 @@ export function buildLLMGateway(
     budgetPolicy: budgetingComponents.budgetManager,
     costLedger: budgetingComponents.costLedger,
     pricingResolver: budgetingComponents.pricingResolver,
+    providerCapabilityResolver: {
+      getCapabilities: (providerId: string) => {
+        if (
+          providerId !== "openrouter" &&
+          providerId !== "openai" &&
+          providerId !== "groq"
+        ) {
+          return undefined;
+        }
+        return getProviderCapabilityFlags(providerId);
+      },
+      isModelAllowed: (providerId: string, modelId: string) => {
+        if (
+          providerId !== "openrouter" &&
+          providerId !== "openai" &&
+          providerId !== "groq"
+        ) {
+          return false;
+        }
+        return isModelAllowedByCapabilityMatrix(providerId, modelId);
+      },
+    },
   });
 
   return { llmRuntimeService, llmGateway };
+}
+
+function resolveProviderEncryptionKey(env: Env): string {
+  const key = readByokEncryptionKey(env);
+  if (!key) {
+    throw new Error(
+      "Missing dedicated BYOK credential encryption key (BYOK_CREDENTIAL_ENCRYPTION_KEY)",
+    );
+  }
+  return key;
 }

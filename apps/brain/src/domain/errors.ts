@@ -1,3 +1,5 @@
+import type { ProviderErrorCode } from "@repo/shared-types";
+
 /**
  * Domain error taxonomy for Brain.
  *
@@ -199,5 +201,79 @@ export function mapDomainErrorToHttp(error: DomainError): {
     status: error.status,
     code: error.code,
     message: error.message,
+  };
+}
+
+export interface NormalizedProviderError {
+  code: ProviderErrorCode;
+  message: string;
+  retryable: boolean;
+  correlationId?: string;
+}
+
+export function normalizeProviderErrorCode(
+  code: string | undefined,
+  status: number,
+): ProviderErrorCode {
+  if (
+    code === "AUTH_FAILED" ||
+    code === "MODEL_NOT_ALLOWED" ||
+    code === "RATE_LIMITED" ||
+    code === "PROVIDER_NOT_CONNECTED" ||
+    code === "INVALID_PROVIDER_SELECTION" ||
+    code === "PROVIDER_UNAVAILABLE" ||
+    code === "VALIDATION_ERROR" ||
+    code === "INTERNAL_ERROR"
+  ) {
+    return code;
+  }
+
+  if (status === 401 || status === 403) {
+    return "AUTH_FAILED";
+  }
+  if (status === 429) {
+    return "RATE_LIMITED";
+  }
+  if (status === 503) {
+    return "PROVIDER_UNAVAILABLE";
+  }
+  if (
+    code === "PARSE_ERROR" ||
+    code === "PARTIAL_OVERRIDE" ||
+    (typeof code === "string" && code.startsWith("MISSING_"))
+  ) {
+    return "VALIDATION_ERROR";
+  }
+
+  return "INTERNAL_ERROR";
+}
+
+export function toNormalizedProviderError(
+  error: unknown,
+  fallbackCorrelationId?: string,
+): NormalizedProviderError {
+  if (isDomainError(error)) {
+    return {
+      code: normalizeProviderErrorCode(error.code, error.status),
+      message: error.message,
+      retryable: error.retryable || error.status >= 500,
+      correlationId: error.correlationId ?? fallbackCorrelationId,
+    };
+  }
+
+  if (error instanceof Error) {
+    return {
+      code: "INTERNAL_ERROR",
+      message: error.message || "Internal server error",
+      retryable: true,
+      correlationId: fallbackCorrelationId,
+    };
+  }
+
+  return {
+    code: "INTERNAL_ERROR",
+    message: "Internal server error",
+    retryable: true,
+    correlationId: fallbackCorrelationId,
   };
 }

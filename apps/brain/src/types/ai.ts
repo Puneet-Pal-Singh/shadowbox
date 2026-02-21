@@ -32,6 +32,7 @@ export interface Env {
   GITHUB_CLIENT_SECRET: string;
   GITHUB_REDIRECT_URI: string;
   GITHUB_TOKEN_ENCRYPTION_KEY: string;
+  BYOK_CREDENTIAL_ENCRYPTION_KEY?: string;
   SESSION_SECRET: string;
   FRONTEND_URL: string;
   CORS_ALLOWED_ORIGINS?: string;

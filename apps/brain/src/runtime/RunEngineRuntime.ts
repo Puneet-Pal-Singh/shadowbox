@@ -22,9 +22,21 @@ import {
   type ProviderId,
 } from "../schemas/provider";
 import {
+  BYOKPreferencesPatchSchema,
+  BYOKValidateRequestSchema,
+  type BYOKPreferencesPatch,
+  type BYOKValidateRequest,
+} from "@repo/shared-types";
+import {
   DurableProviderStore,
   ProviderConfigService,
 } from "../services/providers";
+import { readByokEncryptionKey } from "../services/providers/provider-encryption-key";
+import {
+  MAX_SCOPE_IDENTIFIER_LENGTH,
+  SAFE_SCOPE_IDENTIFIER_REGEX,
+  type ProviderStoreScopeInput,
+} from "../types/provider-scope";
 
 export class RunEngineRuntime extends DurableObject {
   private executionQueue: Promise<void> = Promise.resolve();
@@ -124,8 +136,11 @@ export class RunEngineRuntime extends DurableObject {
     const env = this.env as Env;
 
     try {
-      const runId = this.resolveProviderRunId(request, correlationId);
-      const configService = this.createProviderConfigService(runId);
+      const scope = this.resolveProviderScope(request, correlationId);
+      const configService = this.createProviderConfigService(
+        scope,
+        correlationId,
+      );
 
       if (url.pathname === "/providers/connect") {
         if (request.method !== "POST") {
@@ -182,6 +197,50 @@ export class RunEngineRuntime extends DurableObject {
         return jsonResponse(request, env, response);
       }
 
+      if (url.pathname === "/providers/catalog") {
+        if (request.method !== "GET") {
+          return errorResponse(request, env, "Method Not Allowed", 405);
+        }
+        const response = await configService.getCatalog();
+        return jsonResponse(request, env, response);
+      }
+
+      if (url.pathname === "/providers/connections") {
+        if (request.method !== "GET") {
+          return errorResponse(request, env, "Method Not Allowed", 405);
+        }
+        const response = await configService.getConnections();
+        return jsonResponse(request, env, response);
+      }
+
+      if (url.pathname === "/providers/validate") {
+        if (request.method !== "POST") {
+          return errorResponse(request, env, "Method Not Allowed", 405);
+        }
+        const body = await parseRequestBody(request, correlationId);
+        const validatedRequest = validateWithSchema<BYOKValidateRequest>(
+          body,
+          BYOKValidateRequestSchema,
+          correlationId,
+        );
+        const response = await configService.validate(validatedRequest);
+        return jsonResponse(request, env, response);
+      }
+
+      if (url.pathname === "/providers/preferences") {
+        if (request.method !== "PATCH") {
+          return errorResponse(request, env, "Method Not Allowed", 405);
+        }
+        const body = await parseRequestBody(request, correlationId);
+        const patch = validateWithSchema<BYOKPreferencesPatch>(
+          body,
+          BYOKPreferencesPatchSchema,
+          correlationId,
+        );
+        const response = await configService.updatePreferences(patch);
+        return jsonResponse(request, env, response);
+      }
+
       return errorResponse(request, env, "Not Found", 404);
     } catch (error: unknown) {
       if (isDomainError(error)) {
@@ -197,7 +256,10 @@ export class RunEngineRuntime extends DurableObject {
     }
   }
 
-  private resolveProviderRunId(request: Request, correlationId: string): string {
+  private resolveProviderScope(
+    request: Request,
+    correlationId: string,
+  ): ProviderStoreScopeInput {
     const runId = request.headers.get("X-Run-Id");
     if (!runId) {
       throw new ValidationError(
@@ -206,15 +268,69 @@ export class RunEngineRuntime extends DurableObject {
         correlationId,
       );
     }
-    return runId;
+    return {
+      runId,
+      userId: this.parseOptionalScopeHeader(
+        request.headers.get("X-User-Id"),
+        "X-User-Id",
+        correlationId,
+      ),
+      workspaceId: this.parseOptionalScopeHeader(
+        request.headers.get("X-Workspace-Id"),
+        "X-Workspace-Id",
+        correlationId,
+      ),
+    };
   }
 
-  private createProviderConfigService(runId: string): ProviderConfigService {
+  private createProviderConfigService(
+    scope: ProviderStoreScopeInput,
+    correlationId: string,
+  ): ProviderConfigService {
     const durableProviderStore = new DurableProviderStore(
       this.ctx as unknown as LegacyDurableObjectState,
-      runId,
+      scope,
+      this.resolveProviderEncryptionKey(correlationId),
     );
     return new ProviderConfigService(this.env as Env, durableProviderStore);
+  }
+
+  private resolveProviderEncryptionKey(correlationId: string): string {
+    const env = this.env as Env;
+    const key = readByokEncryptionKey(env);
+    if (!key) {
+      throw new ValidationError(
+        "Missing dedicated BYOK credential encryption key (BYOK_CREDENTIAL_ENCRYPTION_KEY)",
+        "MISSING_BYOK_ENCRYPTION_KEY",
+        correlationId,
+      );
+    }
+    return key;
+  }
+
+  private parseOptionalScopeHeader(
+    value: string | null,
+    fieldName: string,
+    correlationId: string,
+  ): string | undefined {
+    if (!value) {
+      return undefined;
+    }
+    const normalized = value.trim();
+    if (normalized.length === 0) {
+      return undefined;
+    }
+    if (
+      normalized.length > MAX_SCOPE_IDENTIFIER_LENGTH ||
+      !SAFE_SCOPE_IDENTIFIER_REGEX.test(normalized)
+    ) {
+      throw new ValidationError(
+        `Invalid ${fieldName} header`,
+        "INVALID_SCOPE_IDENTIFIER",
+        correlationId,
+      );
+    }
+    return normalized;
   }
 
   private async withExecutionLock<T>(operation: () => Promise<T>): Promise<T> {
