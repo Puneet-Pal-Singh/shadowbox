@@ -30,14 +30,16 @@ import {
 } from "@repo/shared-types";
 import {
   DurableProviderStore,
+  ProviderRateLimitService,
   ProviderConfigService,
 } from "../services/providers";
-import { readByokEncryptionKey } from "../services/providers/provider-encryption-key";
+import { readByokEncryptionConfig } from "../services/providers/provider-encryption-key";
 import {
   MAX_SCOPE_IDENTIFIER_LENGTH,
   SAFE_SCOPE_IDENTIFIER_REGEX,
   type ProviderStoreScopeInput,
 } from "../types/provider-scope";
+import type { LegacyCredentialMigrationConfig } from "../services/providers/DurableProviderStore";
 
 const RunIdSchema = z.string().uuid();
 const ScopeIdSchema = z
@@ -149,11 +151,13 @@ export class RunEngineRuntime extends DurableObject {
         scope,
         correlationId,
       );
+      const rateLimitService = this.createProviderRateLimitService(scope);
 
       if (url.pathname === "/providers/connect") {
         if (request.method !== "POST") {
           return errorResponse(request, env, "Method Not Allowed", 405);
         }
+        await rateLimitService.enforce("connect");
         const body = await parseRequestBody(request, correlationId);
         const validatedRequest = validateWithSchema<BYOKConnectRequest>(
           body,
@@ -228,6 +232,7 @@ export class RunEngineRuntime extends DurableObject {
         if (request.method !== "POST") {
           return errorResponse(request, env, "Method Not Allowed", 405);
         }
+        await rateLimitService.enforce("validate");
         const body = await parseRequestBody(request, correlationId);
         const validatedRequest = validateWithSchema<BYOKValidateRequest>(
           body,
@@ -302,22 +307,43 @@ export class RunEngineRuntime extends DurableObject {
     const durableProviderStore = new DurableProviderStore(
       this.ctx as unknown as LegacyDurableObjectState,
       scope,
-      this.resolveProviderEncryptionKey(correlationId),
+      this.resolveProviderEncryptionConfig(correlationId),
+      this.resolveLegacyCredentialMigrationConfig(),
     );
     return new ProviderConfigService(this.env as Env, durableProviderStore);
   }
 
-  private resolveProviderEncryptionKey(correlationId: string): string {
+  private createProviderRateLimitService(
+    scope: ProviderStoreScopeInput,
+  ): ProviderRateLimitService {
+    return ProviderRateLimitService.fromEnv(
+      this.ctx as unknown as LegacyDurableObjectState,
+      scope,
+      this.env as Env,
+    );
+  }
+
+  private resolveProviderEncryptionConfig(correlationId: string) {
     const env = this.env as Env;
-    const key = readByokEncryptionKey(env);
-    if (!key) {
+    const config = readByokEncryptionConfig(env);
+    if (!config) {
       throw new ValidationError(
         "Missing dedicated BYOK credential encryption key (BYOK_CREDENTIAL_ENCRYPTION_KEY)",
         "MISSING_BYOK_ENCRYPTION_KEY",
         correlationId,
       );
     }
-    return key;
+    return config;
+  }
+
+  private resolveLegacyCredentialMigrationConfig(): LegacyCredentialMigrationConfig {
+    const env = this.env as Env;
+    return {
+      legacyReadFallbackEnabled: env.BYOK_LEGACY_READ_FALLBACK_ENABLED === "true",
+      legacyBackfillEnabled: env.BYOK_LEGACY_BACKFILL_ENABLED !== "false",
+      legacyRollbackEnabled: env.BYOK_LEGACY_ROLLBACK_ENABLED === "true",
+      legacyCutoffAt: env.BYOK_LEGACY_CUTOFF_AT,
+    };
   }
 
   private parseRequiredRunId(
