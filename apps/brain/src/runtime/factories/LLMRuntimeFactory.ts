@@ -15,7 +15,7 @@ import {
 } from "../../services/providers";
 import { ProviderValidationService } from "../../services/ProviderValidationService";
 import { DurableProviderStore } from "../../services/providers/DurableProviderStore";
-import type { ProviderStoreScopeInput } from "../../services/providers/provider-scope";
+import type { ProviderStoreScopeInput } from "../../types/provider-scope";
 import type {
   LLMRuntimeAIService,
   LLMGateway,
@@ -129,11 +129,10 @@ export function buildLLMGateway(
 }
 
 function resolveProviderEncryptionKey(env: Env): string {
-  const key =
-    env.BYOK_CREDENTIAL_ENCRYPTION_KEY ?? env.GITHUB_TOKEN_ENCRYPTION_KEY;
+  const key = env.BYOK_CREDENTIAL_ENCRYPTION_KEY;
   if (!key) {
     throw new Error(
-      "Missing provider credential encryption key (BYOK_CREDENTIAL_ENCRYPTION_KEY)",
+      "Missing dedicated BYOK credential encryption key (BYOK_CREDENTIAL_ENCRYPTION_KEY)",
     );
   }
   return key;

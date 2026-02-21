@@ -31,9 +31,11 @@ import {
   DurableProviderStore,
   ProviderConfigService,
 } from "../services/providers";
-import type { ProviderStoreScopeInput } from "../services/providers/provider-scope";
-
-const SAFE_SCOPE_IDENTIFIER_REGEX = /^[A-Za-z0-9._:-]+$/;
+import {
+  MAX_SCOPE_IDENTIFIER_LENGTH,
+  SAFE_SCOPE_IDENTIFIER_REGEX,
+  type ProviderStoreScopeInput,
+} from "../types/provider-scope";
 
 export class RunEngineRuntime extends DurableObject {
   private executionQueue: Promise<void> = Promise.resolve();
@@ -294,11 +296,10 @@ export class RunEngineRuntime extends DurableObject {
 
   private resolveProviderEncryptionKey(correlationId: string): string {
     const env = this.env as Env;
-    const key =
-      env.BYOK_CREDENTIAL_ENCRYPTION_KEY ?? env.GITHUB_TOKEN_ENCRYPTION_KEY;
+    const key = env.BYOK_CREDENTIAL_ENCRYPTION_KEY;
     if (!key) {
       throw new ValidationError(
-        "Missing provider credential encryption key",
+        "Missing dedicated BYOK credential encryption key (BYOK_CREDENTIAL_ENCRYPTION_KEY)",
         "MISSING_BYOK_ENCRYPTION_KEY",
         correlationId,
       );
@@ -318,7 +319,10 @@ export class RunEngineRuntime extends DurableObject {
     if (normalized.length === 0) {
       return undefined;
     }
-    if (normalized.length > 128 || !SAFE_SCOPE_IDENTIFIER_REGEX.test(normalized)) {
+    if (
+      normalized.length > MAX_SCOPE_IDENTIFIER_LENGTH ||
+      !SAFE_SCOPE_IDENTIFIER_REGEX.test(normalized)
+    ) {
       throw new ValidationError(
         `Invalid ${fieldName} header`,
         "INVALID_SCOPE_IDENTIFIER",

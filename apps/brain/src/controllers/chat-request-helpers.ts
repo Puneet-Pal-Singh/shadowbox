@@ -1,8 +1,11 @@
 import type { AgentType } from "@shadowbox/execution-engine/runtime";
 import { ValidationError } from "../domain/errors";
+import {
+  MAX_SCOPE_IDENTIFIER_LENGTH,
+  SAFE_SCOPE_IDENTIFIER_REGEX,
+} from "../types/provider-scope";
 
 const SAFE_IDENTIFIER_REGEX = /^[A-Za-z0-9-]+$/;
-const SAFE_SCOPE_IDENTIFIER_REGEX = /^[A-Za-z0-9._:-]+$/;
 const UUID_V4_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -41,9 +44,9 @@ export function parseOptionalScopeIdentifier(
   if (normalized.length === 0) {
     return undefined;
   }
-  if (normalized.length > 128) {
+  if (normalized.length > MAX_SCOPE_IDENTIFIER_LENGTH) {
     throw new ValidationError(
-      `Invalid ${fieldName}: too long (max 128 characters)`,
+      `Invalid ${fieldName}: too long (max ${MAX_SCOPE_IDENTIFIER_LENGTH} characters)`,
       "IDENTIFIER_TOO_LONG",
       correlationId,
     );

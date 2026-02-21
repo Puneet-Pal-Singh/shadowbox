@@ -41,21 +41,20 @@ import {
   normalizeProviderErrorCode,
   toNormalizedProviderError,
 } from "../domain/errors";
+import {
+  MAX_SCOPE_IDENTIFIER_LENGTH,
+  SAFE_SCOPE_IDENTIFIER_REGEX,
+  type ProviderStoreScopeInput,
+} from "../types/provider-scope";
 
 const RunIdSchema = z.string().uuid();
 const ScopeIdSchema = z
   .string()
   .min(1)
-  .max(128)
-  .regex(/^[A-Za-z0-9._:-]+$/);
+  .max(MAX_SCOPE_IDENTIFIER_LENGTH)
+  .regex(SAFE_SCOPE_IDENTIFIER_REGEX);
 const RUN_ID_MISSING_MESSAGE =
   "Missing required runId. Provide X-Run-Id header or runId query parameter.";
-
-interface ProviderScopeContext {
-  runId: string;
-  userId?: string;
-  workspaceId?: string;
-}
 
 /**
  * ProviderController - Route handlers for provider API
@@ -65,6 +64,7 @@ interface ProviderScopeContext {
 export class ProviderController {
   static async byokCatalog(req: Request, env: Env): Promise<Response> {
     const correlationId = Math.random().toString(36).substring(7);
+    console.log(`[provider/byok-catalog] ${correlationId} request received`);
     try {
       const scope = resolveProviderScope(req, correlationId);
       return await proxyByokOperation(
@@ -85,6 +85,7 @@ export class ProviderController {
 
   static async byokConnections(req: Request, env: Env): Promise<Response> {
     const correlationId = Math.random().toString(36).substring(7);
+    console.log(`[provider/byok-connections] ${correlationId} request received`);
     try {
       const scope = resolveProviderScope(req, correlationId);
       return await proxyByokOperation(
@@ -105,6 +106,7 @@ export class ProviderController {
 
   static async byokConnect(req: Request, env: Env): Promise<Response> {
     const correlationId = Math.random().toString(36).substring(7);
+    console.log(`[provider/byok-connect] ${correlationId} request received`);
     try {
       const scope = resolveProviderScope(req, correlationId);
       const body = await parseRequestBody(req, correlationId);
@@ -132,6 +134,7 @@ export class ProviderController {
 
   static async byokValidate(req: Request, env: Env): Promise<Response> {
     const correlationId = Math.random().toString(36).substring(7);
+    console.log(`[provider/byok-validate] ${correlationId} request received`);
     try {
       const scope = resolveProviderScope(req, correlationId);
       const body = await parseRequestBody(req, correlationId);
@@ -159,6 +162,7 @@ export class ProviderController {
 
   static async byokDisconnect(req: Request, env: Env): Promise<Response> {
     const correlationId = Math.random().toString(36).substring(7);
+    console.log(`[provider/byok-disconnect] ${correlationId} request received`);
     try {
       const scope = resolveProviderScope(req, correlationId);
       const body = await parseRequestBody(req, correlationId);
@@ -186,6 +190,7 @@ export class ProviderController {
 
   static async byokPreferences(req: Request, env: Env): Promise<Response> {
     const correlationId = Math.random().toString(36).substring(7);
+    console.log(`[provider/byok-preferences] ${correlationId} request received`);
     try {
       const scope = resolveProviderScope(req, correlationId);
       const body = await parseRequestBody(req, correlationId);
@@ -324,7 +329,7 @@ export class ProviderController {
 function resolveProviderScope(
   req: Request,
   correlationId: string,
-): ProviderScopeContext {
+): ProviderStoreScopeInput {
   const url = new URL(req.url);
   const candidate =
     req.headers.get("X-Run-Id") ?? url.searchParams.get("runId");
@@ -356,7 +361,7 @@ async function proxyProviderOperation(
   req: Request,
   env: Env,
   operation: {
-    scope: ProviderScopeContext;
+    scope: ProviderStoreScopeInput;
     method: "GET" | "POST" | "PATCH";
     path: string;
     body?: unknown;
@@ -396,7 +401,7 @@ async function proxyByokOperation(
   req: Request,
   env: Env,
   operation: {
-    scope: ProviderScopeContext;
+    scope: ProviderStoreScopeInput;
     method: "GET" | "POST" | "PATCH";
     path: string;
     body?: unknown;
@@ -441,13 +446,16 @@ async function normalizeByokRuntimeError(
   req: Request,
   env: Env,
   response: Response,
-  scope: ProviderScopeContext,
+  scope: ProviderStoreScopeInput,
   correlationId: string,
 ): Promise<Response> {
   const parsed = await parseErrorLikeBody(response);
   const code = normalizeProviderErrorCode(parsed.code, response.status);
   const message = parsed.message || "Provider request failed";
   const retryable = response.status >= 500 || code === "RATE_LIMITED";
+  console.warn(
+    `[provider/byok] ${correlationId}: runtime error ${code} (${response.status}) - ${message}`,
+  );
 
   const normalized = new Response(
     JSON.stringify({
@@ -477,11 +485,21 @@ async function parseErrorLikeBody(
       return {};
     }
     const raw = payload as Record<string, unknown>;
-    const code = typeof raw.code === "string" ? raw.code : undefined;
+    const nestedError =
+      raw.error && typeof raw.error === "object"
+        ? (raw.error as Record<string, unknown>)
+        : undefined;
+    const code = typeof raw.code === "string"
+      ? raw.code
+      : typeof nestedError?.code === "string"
+      ? nestedError.code
+      : undefined;
     const message = typeof raw.error === "string"
       ? raw.error
       : typeof raw.message === "string"
       ? raw.message
+      : typeof nestedError?.message === "string"
+      ? nestedError.message
       : undefined;
     return { code, message };
   } catch {
@@ -506,11 +524,15 @@ function handleByokError(
   correlationId: string,
 ): Response {
   if (isDomainError(error)) {
+    console.warn(
+      `[provider/byok] ${correlationId}: ${error.code} - ${error.message}`,
+    );
     return buildByokErrorResponse(req, env, {
       status: error.status,
       ...toNormalizedProviderError(error, correlationId),
     });
   }
+  console.error(`[provider/byok] ${correlationId}: unexpected error`, error);
   return buildByokErrorResponse(req, env, {
     status: 500,
     ...toNormalizedProviderError(error, correlationId),
