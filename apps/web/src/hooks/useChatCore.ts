@@ -39,6 +39,28 @@ export function useChatCore(
     providerService.getSessionModelConfig(sessionId),
   );
 
+  useEffect(() => {
+    let cancelled = false;
+    void providerService.syncSessionModelConfig(sessionId).then((config) => {
+      if (cancelled) {
+        return;
+      }
+      setSessionModelConfig((prev) => {
+        if (
+          prev.providerId === config.providerId &&
+          prev.modelId === config.modelId
+        ) {
+          return prev;
+        }
+        return config;
+      });
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId]);
+
   // Subscribe to config changes when sessionId changes
   useEffect(() => {
     // Subscribe to config changes for this session

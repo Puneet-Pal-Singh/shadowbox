@@ -63,18 +63,31 @@ export function ModelSelector({
 
   // Load saved config and available models
   useEffect(() => {
-    const config = providerService.getSessionModelConfig(sessionId);
-    const providerId = (config.providerId as ProviderId) || "openrouter";
-    const savedModelId = config.modelId;
+    let cancelled = false;
+    const initializeFromPreferences = async () => {
+      const config = await providerService.syncSessionModelConfig(sessionId);
+      if (cancelled) {
+        return;
+      }
 
-    if (config.providerId) {
-      setSelectedProvider(config.providerId as ProviderId);
-    }
-    if (config.modelId) {
-      setSelectedModel(config.modelId);
-    }
+      const providerId = (config.providerId as ProviderId) || "openrouter";
+      const savedModelId = config.modelId;
 
-    loadModels(providerId, savedModelId);
+      if (config.providerId) {
+        setSelectedProvider(config.providerId as ProviderId);
+      }
+      if (config.modelId) {
+        setSelectedModel(config.modelId);
+      }
+
+      loadModels(providerId, savedModelId);
+    };
+
+    void initializeFromPreferences();
+
+    return () => {
+      cancelled = true;
+    };
   }, [sessionId, loadModels]);
 
   const handleProviderChange = (newProvider: ProviderId) => {
