@@ -5,14 +5,13 @@
  * both schema validation and provider services.
  */
 
-export const PROVIDER_IDS = ["openrouter", "openai", "groq"] as const;
-export type RegisteredProviderId = (typeof PROVIDER_IDS)[number];
+import { PROVIDER_IDS, type ProviderId } from "@repo/shared-types";
 
 interface ProviderRegistryEntry {
   apiKeyPrefixes: readonly string[];
 }
 
-export const PROVIDER_REGISTRY: Record<RegisteredProviderId, ProviderRegistryEntry> =
+export const PROVIDER_REGISTRY: Record<ProviderId, ProviderRegistryEntry> =
   {
     openrouter: { apiKeyPrefixes: ["sk-or-"] },
     openai: { apiKeyPrefixes: ["sk-"] },
@@ -20,9 +19,11 @@ export const PROVIDER_REGISTRY: Record<RegisteredProviderId, ProviderRegistryEnt
   };
 
 export function isProviderApiKeyFormatValid(
-  providerId: RegisteredProviderId,
+  providerId: ProviderId,
   apiKey: string,
 ): boolean {
   const prefixes = PROVIDER_REGISTRY[providerId].apiKeyPrefixes;
   return prefixes.some((prefix) => apiKey.startsWith(prefix));
 }
+
+export { PROVIDER_IDS };

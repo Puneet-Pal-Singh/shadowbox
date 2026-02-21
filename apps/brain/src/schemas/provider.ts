@@ -1,117 +1,64 @@
 /**
- * Provider Schema Definitions
- * Zod validation for provider requests and responses
+ * Provider schemas used by Brain runtime boundaries.
+ *
+ * Transport contracts are canonical in @repo/shared-types.
+ * This module only composes local runtime-only schemas.
  */
 
 import { z } from "zod";
 import {
-  PROVIDER_IDS,
-  isProviderApiKeyFormatValid,
-} from "./provider-registry";
+  BYOKConnectRequestSchema,
+  BYOKConnectResponseSchema,
+  BYOKDisconnectRequestSchema,
+  BYOKDisconnectResponseSchema,
+  ModelDescriptorSchema,
+  ProviderConnectionSchema,
+  ProviderIdSchema,
+  type BYOKConnectRequest,
+  type BYOKConnectResponse,
+  type BYOKDisconnectRequest,
+  type BYOKDisconnectResponse,
+  type ModelDescriptor,
+  type ProviderConnection,
+  type ProviderId,
+} from "@repo/shared-types";
 
-export const ProviderIdSchema = z.enum(PROVIDER_IDS);
-export type ProviderId = z.infer<typeof ProviderIdSchema>;
-
-export const ConnectProviderRequestSchema = z
-  .object({
-    providerId: ProviderIdSchema,
-    apiKey: z
-      .string()
-      .min(1, "API key cannot be empty")
-      .min(10, "API key must be at least 10 characters")
-      .regex(
-        /^[a-zA-Z0-9\-_]+$/,
-        "API key contains invalid characters (only alphanumeric, hyphens, underscores allowed)",
-      ),
-  })
-  .refine(
-    (data) => {
-      return isProviderApiKeyFormatValid(data.providerId, data.apiKey);
-    },
-    {
-      message: "Invalid API key format for this provider",
-      path: ["apiKey"],
-    },
-  );
-
-export type ConnectProviderRequest = z.infer<
-  typeof ConnectProviderRequestSchema
->;
-
-export const DisconnectProviderRequestSchema = z.object({
-  providerId: ProviderIdSchema,
-});
-
-export type DisconnectProviderRequest = z.infer<
-  typeof DisconnectProviderRequestSchema
->;
-
-export const ProviderConnectionStatusSchema = z.object({
-  providerId: ProviderIdSchema,
-  status: z.enum(["disconnected", "connected", "failed"]),
-  lastValidatedAt: z.string().datetime().optional(),
-  errorMessage: z.string().optional(),
-});
-
-export type ProviderConnectionStatus = z.infer<
-  typeof ProviderConnectionStatusSchema
->;
-
-export const ConnectProviderResponseSchema = z.object({
-  status: z.enum(["connected", "failed"]),
-  providerId: ProviderIdSchema,
-  lastValidatedAt: z.string().datetime().optional(),
-  errorMessage: z.string().optional(),
-});
-
-export type ConnectProviderResponse = z.infer<
-  typeof ConnectProviderResponseSchema
->;
-
-export const DisconnectProviderResponseSchema = z.object({
-  status: z.literal("disconnected"),
-  providerId: ProviderIdSchema,
-});
-
-export type DisconnectProviderResponse = z.infer<
-  typeof DisconnectProviderResponseSchema
->;
-
-export const ModelDescriptorSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  provider: ProviderIdSchema,
-  contextWindow: z.number().optional(),
-  costPer1kTokens: z
-    .object({
-      input: z.number(),
-      output: z.number(),
-    })
-    .optional(),
-  description: z.string().optional(),
-});
-
-export type ModelDescriptor = z.infer<typeof ModelDescriptorSchema>;
+export {
+  ProviderIdSchema,
+  BYOKConnectRequestSchema as ConnectProviderRequestSchema,
+  BYOKConnectResponseSchema as ConnectProviderResponseSchema,
+  BYOKDisconnectRequestSchema as DisconnectProviderRequestSchema,
+  BYOKDisconnectResponseSchema as DisconnectProviderResponseSchema,
+  ModelDescriptorSchema,
+  ProviderConnectionSchema as ProviderConnectionStatusSchema,
+};
+export type {
+  ProviderId,
+  BYOKConnectRequest as ConnectProviderRequest,
+  BYOKConnectResponse as ConnectProviderResponse,
+  BYOKDisconnectRequest as DisconnectProviderRequest,
+  BYOKDisconnectResponse as DisconnectProviderResponse,
+  ModelDescriptor,
+  ProviderConnection as ProviderConnectionStatus,
+};
 
 export const ModelsListResponseSchema = z.object({
   providerId: ProviderIdSchema,
   models: z.array(ModelDescriptorSchema),
   lastFetchedAt: z.string().datetime(),
 });
-
 export type ModelsListResponse = z.infer<typeof ModelsListResponseSchema>;
 
 export const ProviderStatusResponseSchema = z.object({
-  providers: z.array(ProviderConnectionStatusSchema),
+  providers: z.array(ProviderConnectionSchema),
 });
-
 export type ProviderStatusResponse = z.infer<
   typeof ProviderStatusResponseSchema
 >;
 
 /**
- * Schema for validating provider/model selection in chat requests
- * Ensures providerId and modelId are compatible combinations
+ * Schema for validating provider/model selection in chat requests.
+ * If either providerId or modelId is provided, both must be provided.
  */
 export const ChatProviderSelectionSchema = z
   .object({
@@ -119,21 +66,15 @@ export const ChatProviderSelectionSchema = z
     modelId: z.string().optional(),
   })
   .refine(
-    (data) => {
-      // If either providerId or modelId is provided, both should be provided together
-      if (
+    (data) =>
+      !(
         (data.providerId && !data.modelId) ||
         (!data.providerId && data.modelId)
-      ) {
-        return false;
-      }
-      return true;
-    },
+      ),
     {
       message:
         "providerId and modelId must be provided together or both omitted",
       path: ["providerId"],
     },
   );
-
 export type ChatProviderSelection = z.infer<typeof ChatProviderSelectionSchema>;
