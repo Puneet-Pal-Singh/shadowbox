@@ -178,23 +178,31 @@ export function terminalCommandPath(sessionId: string): string {
 }
 
 /**
- * Build provider API endpoints
+ * Build BYOK provider API endpoints
  * All provider operations are routed through Brain service
  */
-export function providerConnectPath(): string {
-  return `${getBrainHttpBase()}/api/providers/connect`;
+export function byokProviderConnectPath(): string {
+  return `${getBrainHttpBase()}/api/byok/providers/connect`;
 }
 
-export function providerDisconnectPath(): string {
-  return `${getBrainHttpBase()}/api/providers/disconnect`;
+export function byokProviderDisconnectPath(): string {
+  return `${getBrainHttpBase()}/api/byok/providers/disconnect`;
 }
 
-export function providerStatusPath(): string {
-  return `${getBrainHttpBase()}/api/providers/status`;
+export function byokProviderConnectionsPath(): string {
+  return `${getBrainHttpBase()}/api/byok/providers/connections`;
 }
 
-export function providerModelsPath(): string {
-  return `${getBrainHttpBase()}/api/providers/models`;
+export function byokProviderCatalogPath(): string {
+  return `${getBrainHttpBase()}/api/byok/providers/catalog`;
+}
+
+export function byokProviderValidatePath(): string {
+  return `${getBrainHttpBase()}/api/byok/providers/validate`;
+}
+
+export function byokPreferencesPath(): string {
+  return `${getBrainHttpBase()}/api/byok/preferences`;
 }
 
 /**
@@ -203,20 +211,26 @@ export function providerModelsPath(): string {
  */
 export function getEndpoint(
   endpointKey:
-    | "PROVIDER_CONNECT"
-    | "PROVIDER_DISCONNECT"
-    | "PROVIDER_STATUS"
-    | "PROVIDER_MODELS",
+    | "BYOK_PROVIDER_CONNECT"
+    | "BYOK_PROVIDER_DISCONNECT"
+    | "BYOK_PROVIDER_CONNECTIONS"
+    | "BYOK_PROVIDER_CATALOG"
+    | "BYOK_PROVIDER_VALIDATE"
+    | "BYOK_PREFERENCES",
 ): string {
   switch (endpointKey) {
-    case "PROVIDER_CONNECT":
-      return providerConnectPath();
-    case "PROVIDER_DISCONNECT":
-      return providerDisconnectPath();
-    case "PROVIDER_STATUS":
-      return providerStatusPath();
-    case "PROVIDER_MODELS":
-      return providerModelsPath();
+    case "BYOK_PROVIDER_CONNECT":
+      return byokProviderConnectPath();
+    case "BYOK_PROVIDER_DISCONNECT":
+      return byokProviderDisconnectPath();
+    case "BYOK_PROVIDER_CONNECTIONS":
+      return byokProviderConnectionsPath();
+    case "BYOK_PROVIDER_CATALOG":
+      return byokProviderCatalogPath();
+    case "BYOK_PROVIDER_VALIDATE":
+      return byokProviderValidatePath();
+    case "BYOK_PREFERENCES":
+      return byokPreferencesPath();
     default:
       throw new Error(`Unknown endpoint: ${endpointKey}`);
   }

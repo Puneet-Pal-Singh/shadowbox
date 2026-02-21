@@ -21,7 +21,7 @@ describe("ProviderApiClient runId headers", () => {
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
       .mockResolvedValue(
-        new Response(JSON.stringify({ providers: [] }), {
+        new Response(JSON.stringify({ connections: [] }), {
           status: 200,
           headers: { "Content-Type": "application/json" },
         }),
@@ -34,7 +34,7 @@ describe("ProviderApiClient runId headers", () => {
 
     expect(fetchSpy).toHaveBeenCalledTimes(1);
     expect(fetchSpy).toHaveBeenCalledWith(
-      "http://brain.test/api/providers/status",
+      "http://brain.test/api/byok/providers/connections",
       expect.objectContaining({
         headers: expect.objectContaining({
           "Content-Type": "application/json",
@@ -62,7 +62,7 @@ describe("ProviderApiClient runId headers", () => {
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
       .mockResolvedValue(
-        new Response(JSON.stringify({ providers: [] }), {
+        new Response(JSON.stringify({ connections: [] }), {
           status: 200,
           headers: { "Content-Type": "application/json" },
         }),
@@ -75,7 +75,7 @@ describe("ProviderApiClient runId headers", () => {
       storageError,
     );
     expect(fetchSpy).toHaveBeenCalledWith(
-      "http://brain.test/api/providers/status",
+      "http://brain.test/api/byok/providers/connections",
       expect.objectContaining({
         headers: expect.objectContaining({
           "X-Run-Id": "run-from-fallback",
@@ -90,7 +90,7 @@ describe("ProviderApiClient runId headers", () => {
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
       .mockResolvedValue(
-        new Response(JSON.stringify({ providers: [] }), {
+        new Response(JSON.stringify({ connections: [] }), {
           status: 200,
           headers: { "Content-Type": "application/json" },
         }),
@@ -102,7 +102,7 @@ describe("ProviderApiClient runId headers", () => {
       "[provider/api] No active runId found; X-Run-Id header omitted",
     );
     expect(fetchSpy).toHaveBeenCalledWith(
-      "http://brain.test/api/providers/status",
+      "http://brain.test/api/byok/providers/connections",
       expect.objectContaining({
         headers: expect.not.objectContaining({
           "X-Run-Id": expect.any(String),
