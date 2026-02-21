@@ -1,0 +1,53 @@
+{
+  "version": "2026-02-21",
+  "owners": {
+    "schemas": "packages/shared-types/src/provider.ts",
+    "apiBoundary": "apps/brain/src/controllers/ProviderController.ts",
+    "runtime": "apps/brain/src/runtime/RunEngineRuntime.ts",
+    "selectionPolicy": "apps/brain/src/services/ai/ModelSelectionPolicy.ts"
+  },
+  "providers": [
+    {
+      "providerId": "openrouter",
+      "supportsConnect": true,
+      "supportsCatalog": true,
+      "supportsValidate": true,
+      "supportsDisconnect": true,
+      "strictModelGuard": true
+    },
+    {
+      "providerId": "openai",
+      "supportsConnect": true,
+      "supportsCatalog": true,
+      "supportsValidate": true,
+      "supportsDisconnect": true,
+      "strictModelGuard": true
+    },
+    {
+      "providerId": "groq",
+      "supportsConnect": true,
+      "supportsCatalog": true,
+      "supportsValidate": true,
+      "supportsDisconnect": true,
+      "strictModelGuard": true
+    }
+  ],
+  "tests": [
+    {
+      "flow": "byok-controller-api-surface",
+      "file": "apps/brain/src/controllers/ProviderController.test.ts"
+    },
+    {
+      "flow": "provider-state-contract-integration",
+      "file": "apps/brain/src/integration/provider-state.contract.test.ts"
+    },
+    {
+      "flow": "strict-provider-model-policy",
+      "file": "apps/brain/src/services/ai/ModelSelectionPolicy.strict-mode.test.ts"
+    },
+    {
+      "flow": "durable-credential-semantics",
+      "file": "apps/brain/src/services/providers/DurableProviderStore.test.ts"
+    }
+  ]
+}
