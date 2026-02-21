@@ -120,6 +120,7 @@ export class ProviderApiClient {
       const endpoint = getEndpoint("BYOK_PROVIDER_CONNECT");
       const response = await fetch(endpoint, {
         method: "POST",
+        credentials: "include",
         headers: ProviderApiClient.createHeaders(),
         body: JSON.stringify(request),
       });
@@ -157,6 +158,7 @@ export class ProviderApiClient {
       const endpoint = getEndpoint("BYOK_PROVIDER_DISCONNECT");
       const response = await fetch(endpoint, {
         method: "POST",
+        credentials: "include",
         headers: ProviderApiClient.createHeaders(),
         body: JSON.stringify(request),
       });
@@ -190,6 +192,7 @@ export class ProviderApiClient {
       const endpoint = getEndpoint("BYOK_PROVIDER_CONNECTIONS");
       const response = await fetch(endpoint, {
         method: "GET",
+        credentials: "include",
         headers: ProviderApiClient.createHeaders(),
       });
 
@@ -224,6 +227,7 @@ export class ProviderApiClient {
       const endpoint = getEndpoint("BYOK_PROVIDER_CATALOG");
       const response = await fetch(endpoint, {
         method: "GET",
+        credentials: "include",
         headers: ProviderApiClient.createHeaders(),
       });
 
