@@ -6,7 +6,7 @@
  * Does NOT check connection state (that's async).
  */
 
-import { ProviderIdSchema, type ProviderId } from "../../schemas/provider";
+import { ProviderIdSchema, type ProviderId } from "@repo/shared-types";
 import {
   InvalidProviderSelectionError,
   ModelNotAllowedError,

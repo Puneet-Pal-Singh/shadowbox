@@ -17,16 +17,16 @@ import {
 } from "../domain/errors";
 import { parseRequestBody, validateWithSchema } from "../http/validation";
 import {
-  ConnectProviderRequestSchema,
-  DisconnectProviderRequestSchema,
-  ProviderIdSchema,
-  type ProviderId,
-} from "../schemas/provider";
-import {
+  BYOKConnectRequestSchema,
+  BYOKDisconnectRequestSchema,
   BYOKPreferencesPatchSchema,
   BYOKValidateRequestSchema,
+  ProviderIdSchema,
+  type BYOKConnectRequest,
+  type BYOKDisconnectRequest,
   type BYOKPreferencesPatch,
   type BYOKValidateRequest,
+  type ProviderId,
 } from "@repo/shared-types";
 import {
   DurableProviderStore,
@@ -155,10 +155,11 @@ export class RunEngineRuntime extends DurableObject {
           return errorResponse(request, env, "Method Not Allowed", 405);
         }
         const body = await parseRequestBody(request, correlationId);
-        const validatedRequest = validateWithSchema<{
-          providerId: ProviderId;
-          apiKey: string;
-        }>(body, ConnectProviderRequestSchema, correlationId);
+        const validatedRequest = validateWithSchema<BYOKConnectRequest>(
+          body,
+          BYOKConnectRequestSchema,
+          correlationId,
+        );
         const response = await configService.connect(validatedRequest);
         return jsonResponse(request, env, response);
       }
@@ -168,9 +169,11 @@ export class RunEngineRuntime extends DurableObject {
           return errorResponse(request, env, "Method Not Allowed", 405);
         }
         const body = await parseRequestBody(request, correlationId);
-        const validatedRequest = validateWithSchema<{
-          providerId: ProviderId;
-        }>(body, DisconnectProviderRequestSchema, correlationId);
+        const validatedRequest = validateWithSchema<BYOKDisconnectRequest>(
+          body,
+          BYOKDisconnectRequestSchema,
+          correlationId,
+        );
         const response = await configService.disconnect(validatedRequest);
         return jsonResponse(request, env, response);
       }

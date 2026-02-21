@@ -4,9 +4,9 @@
  */
 
 import type {
-  ConnectProviderRequest,
-  ConnectProviderResponse,
-} from "../../schemas/provider";
+  BYOKConnectRequest,
+  BYOKConnectResponse,
+} from "@repo/shared-types";
 import type { IProviderConfigService } from "../../services/providers";
 
 /**
@@ -19,7 +19,7 @@ export class ConnectProvider {
   /**
    * Execute provider connection
    */
-  async execute(request: ConnectProviderRequest): Promise<ConnectProviderResponse> {
+  async execute(request: BYOKConnectRequest): Promise<BYOKConnectResponse> {
     return this.configService.connect(request);
   }
 }

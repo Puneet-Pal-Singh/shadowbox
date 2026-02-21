@@ -17,8 +17,12 @@ import {
   encryptToken,
   type EncryptedToken,
 } from "@shadowbox/github-bridge";
-import type { BYOKPreferences, BYOKPreferencesPatch } from "@repo/shared-types";
-import { ProviderIdSchema, type ProviderId } from "../../schemas/provider";
+import {
+  ProviderIdSchema,
+  type BYOKPreferences,
+  type BYOKPreferencesPatch,
+  type ProviderId,
+} from "@repo/shared-types";
 import {
   normalizeProviderScope,
   sanitizeScopeSegment,

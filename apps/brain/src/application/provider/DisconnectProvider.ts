@@ -4,9 +4,9 @@
  */
 
 import type {
-  DisconnectProviderRequest,
+  BYOKDisconnectRequest,
   ProviderId,
-} from "../../schemas/provider";
+} from "@repo/shared-types";
 import type { IProviderConfigService } from "../../services/providers";
 
 /**
@@ -20,7 +20,7 @@ export class DisconnectProvider {
    * Execute provider disconnection
    */
   async execute(
-    request: DisconnectProviderRequest,
+    request: BYOKDisconnectRequest,
   ): Promise<{ status: "disconnected"; providerId: ProviderId }> {
     return this.configService.disconnect(request);
   }

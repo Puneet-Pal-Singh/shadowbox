@@ -8,7 +8,7 @@
 import type { Env } from "../../types/ai";
 import { ProviderError } from "../providers";
 import { validateProviderApiKeyFormat } from "./ProviderEndpointPolicy";
-import type { ProviderId } from "../../schemas/provider";
+import type { ProviderId } from "@repo/shared-types";
 import type { RuntimeProvider } from "./ModelSelectionPolicy";
 
 /**

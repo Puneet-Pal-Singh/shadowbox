@@ -12,19 +12,19 @@
 
 import type { Env } from "../../types/ai";
 import type {
+  BYOKConnectRequest,
+  BYOKConnectResponse,
+  BYOKDisconnectRequest,
   BYOKPreferences,
   BYOKPreferencesPatch,
   BYOKValidateRequest,
   BYOKValidateResponse,
   ProviderCatalogResponse,
+  ProviderConnection,
   ProviderConnectionsResponse,
+  ProviderId,
 } from "@repo/shared-types";
 import type {
-  ProviderId,
-  ConnectProviderRequest,
-  ConnectProviderResponse,
-  DisconnectProviderRequest,
-  ProviderConnectionStatus,
   ModelsListResponse,
 } from "../../schemas/provider";
 import type { DurableProviderStore } from "./DurableProviderStore";
@@ -64,8 +64,8 @@ export class ProviderConfigService {
    * Delegates to ProviderCredentialService
    */
   async connect(
-    request: ConnectProviderRequest,
-  ): Promise<ConnectProviderResponse> {
+    request: BYOKConnectRequest,
+  ): Promise<BYOKConnectResponse> {
     return this.credentialService.connect(request);
   }
 
@@ -80,7 +80,7 @@ export class ProviderConfigService {
    * Delegates to ProviderCredentialService
    */
   async disconnect(
-    request: DisconnectProviderRequest,
+    request: BYOKDisconnectRequest,
   ): Promise<{ status: "disconnected"; providerId: ProviderId }> {
     return this.credentialService.disconnect(request);
   }
@@ -95,7 +95,7 @@ export class ProviderConfigService {
    * Get connection status for all providers
    * Delegates to ProviderConnectionService
    */
-  async getStatus(): Promise<ProviderConnectionStatus[]> {
+  async getStatus(): Promise<ProviderConnection[]> {
     return this.connectionService.getStatus();
   }
 

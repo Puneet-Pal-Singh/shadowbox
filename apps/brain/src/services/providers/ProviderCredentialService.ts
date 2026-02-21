@@ -9,12 +9,10 @@
 
 import type { Env } from "../../types/ai";
 import type {
+  BYOKConnectRequest,
+  BYOKConnectResponse,
+  BYOKDisconnectRequest,
   ProviderId,
-  ConnectProviderRequest,
-  ConnectProviderResponse,
-  DisconnectProviderRequest,
-} from "../../schemas/provider";
-import type {
   BYOKValidateRequest,
   BYOKValidateResponse,
 } from "@repo/shared-types";
@@ -36,24 +34,25 @@ export class ProviderCredentialService {
   }
 
   /**
-   * Connect a provider with API key validation
-   *
-   * Zod schema validates:
-   * - Not empty
-   * - Minimum length (10+ chars)
-   * - Format (alphanumeric, hyphens, underscores only)
-   *
-   * Note: Schema validation happens before this method is called.
-   * This method only stores the credential and tracks connection time.
+   * Connect a provider with API key validation.
+   * Transport-level shape validation happens at request boundaries; provider-specific
+   * key format validation is enforced here before persisting credentials.
    */
   async connect(
-    request: ConnectProviderRequest,
-  ): Promise<ConnectProviderResponse> {
+    request: BYOKConnectRequest,
+  ): Promise<BYOKConnectResponse> {
     try {
       const { providerId, apiKey } = request;
+      const normalizedApiKey = apiKey.trim();
+      if (!isConnectApiKeyValid(providerId, normalizedApiKey)) {
+        return this.failureResponse(
+          providerId,
+          "Invalid API key format for this provider",
+        );
+      }
       const now = new Date().toISOString();
 
-      await this.durableStore.setProvider(providerId, apiKey);
+      await this.durableStore.setProvider(providerId, normalizedApiKey);
       console.log(
         `[provider/credential] ${providerId} connected and persisted (key masked)`,
       );
@@ -106,7 +105,7 @@ export class ProviderCredentialService {
    * Disconnect a provider
    */
   async disconnect(
-    request: DisconnectProviderRequest,
+    request: BYOKDisconnectRequest,
   ): Promise<{ status: "disconnected"; providerId: ProviderId }> {
     try {
       const { providerId } = request;
@@ -146,7 +145,7 @@ export class ProviderCredentialService {
   private failureResponse(
     providerId: ProviderId,
     errorMessage: string,
-  ): ConnectProviderResponse {
+  ): BYOKConnectResponse {
     return {
       status: "failed" as const,
       providerId,
@@ -163,4 +162,14 @@ export class ProviderCredentialService {
   static resetForTests(): void {
     // Durable-store-only implementation has no module-level state to reset.
   }
+}
+
+function isConnectApiKeyValid(providerId: ProviderId, apiKey: string): boolean {
+  if (apiKey.length < 10) {
+    return false;
+  }
+  if (!/^[a-zA-Z0-9\-_]+$/.test(apiKey)) {
+    return false;
+  }
+  return isProviderApiKeyFormatValid(providerId, apiKey);
 }

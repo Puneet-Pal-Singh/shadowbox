@@ -5,7 +5,7 @@
  * Centralized configuration for OpenRouter, Groq, and other direct providers.
  */
 
-import type { ProviderId } from "../../schemas/provider";
+import type { ProviderId } from "@repo/shared-types";
 
 /**
  * Provider endpoint configuration for direct inference
