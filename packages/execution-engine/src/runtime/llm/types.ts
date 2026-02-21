@@ -44,6 +44,18 @@ export interface LLMStructuredResponse<T> {
   providerRequestId?: string;
 }
 
+export interface ProviderCapabilityFlags {
+  streaming: boolean;
+  tools: boolean;
+  structuredOutputs: boolean;
+  jsonMode: boolean;
+}
+
+export interface ProviderCapabilityResolver {
+  getCapabilities(providerId: string): ProviderCapabilityFlags | undefined;
+  isModelAllowed(providerId: string, modelId: string): boolean;
+}
+
 export interface ILLMGateway {
   generateText(req: LLMTextRequest): Promise<LLMTextResponse>;
   generateStructured<T>(

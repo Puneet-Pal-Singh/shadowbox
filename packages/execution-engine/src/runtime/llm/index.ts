@@ -1,5 +1,6 @@
 export {
   LLMGateway,
+  ProviderCapabilityError,
   UnknownPricingError,
   type LLMGatewayDependencies,
 } from "./LLMGateway.js";
@@ -12,4 +13,5 @@ export type {
   LLMStructuredRequest,
   LLMTextResponse,
   LLMStructuredResponse,
+  ProviderCapabilityResolver,
 } from "./types.js";

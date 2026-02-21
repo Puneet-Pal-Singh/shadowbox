@@ -11,6 +11,7 @@ import type {
   LLMTextResponse,
   LLMStructuredRequest,
   LLMStructuredResponse,
+  ProviderCapabilityResolver,
 } from "./types.js";
 
 const TOKEN_CHAR_RATIO = 4;
@@ -21,12 +22,14 @@ export interface LLMGatewayDependencies {
   budgetPolicy: BudgetPolicy;
   costLedger: ICostLedger;
   pricingResolver: IPricingResolver;
+  providerCapabilityResolver?: ProviderCapabilityResolver;
 }
 
 export class LLMGateway implements ILLMGateway {
   constructor(private deps: LLMGatewayDependencies) {}
 
   async generateText(req: LLMTextRequest): Promise<LLMTextResponse> {
+    this.assertProviderCapabilities(req);
     const estimatedUsage = this.estimateUsage(req.messages, req.model);
     await this.preflight(req, estimatedUsage);
     this.assertPricingAllowed(req.context, estimatedUsage);
@@ -56,6 +59,7 @@ export class LLMGateway implements ILLMGateway {
   async generateStructured<T>(
     req: LLMStructuredRequest<T>,
   ): Promise<LLMStructuredResponse<T>> {
+    this.assertProviderCapabilities(req);
     const estimatedUsage = this.estimateUsage(req.messages, req.model);
     await this.preflight(req, estimatedUsage);
     this.assertPricingAllowed(req.context, estimatedUsage);
@@ -83,6 +87,7 @@ export class LLMGateway implements ILLMGateway {
   }
 
   async generateStream(req: LLMTextRequest): Promise<ReadableStream<Uint8Array>> {
+    this.assertProviderCapabilities(req);
     const estimatedUsage = this.estimateUsage(req.messages, req.model);
     await this.preflight(req, estimatedUsage);
     this.assertPricingAllowed(req.context, estimatedUsage);
@@ -269,6 +274,36 @@ export class LLMGateway implements ILLMGateway {
     }
   }
 
+  private assertProviderCapabilities(
+    req: LLMTextRequest | LLMStructuredRequest<unknown>,
+  ): void {
+    if (!req.providerId || !req.model) {
+      return;
+    }
+
+    const resolver = this.deps.providerCapabilityResolver;
+    if (!resolver) {
+      return;
+    }
+
+    const capabilities = resolver.getCapabilities(req.providerId);
+    if (!capabilities) {
+      throw new ProviderCapabilityError(
+        "INVALID_PROVIDER_SELECTION",
+        req.providerId,
+        req.model,
+      );
+    }
+
+    if (!resolver.isModelAllowed(req.providerId, req.model)) {
+      throw new ProviderCapabilityError(
+        "MODEL_NOT_ALLOWED",
+        req.providerId,
+        req.model,
+      );
+    }
+  }
+
   private withIdempotencyKey<T extends LLMTextRequest | LLMStructuredRequest<unknown>>(
     req: T,
     idempotencyKey: string,
@@ -307,5 +342,16 @@ export class UnknownPricingError extends Error {
       `[llm/gateway] Unknown pricing policy blocked execution for ${provider}:${model} in phase ${phase}`,
     );
     this.name = "UnknownPricingError";
+  }
+}
+
+export class ProviderCapabilityError extends Error {
+  constructor(
+    public readonly code: "MODEL_NOT_ALLOWED" | "INVALID_PROVIDER_SELECTION",
+    providerId: string,
+    modelId: string,
+  ) {
+    super(`[llm/gateway] ${code} for provider=${providerId} model=${modelId}`);
+    this.name = "ProviderCapabilityError";
   }
 }
