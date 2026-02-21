@@ -33,6 +33,7 @@ export interface IProviderConfigService {
   disconnect(
     request: BYOKDisconnectRequest,
   ): Promise<{ status: "disconnected"; providerId: ProviderId }>;
+  getPreferences(): Promise<BYOKPreferences>;
   updatePreferences(patch: BYOKPreferencesPatch): Promise<BYOKPreferences>;
   getStatus(): Promise<ProviderConnection[]>;
   getModels(providerId: ProviderId): Promise<ModelsListResponse>;

@@ -113,6 +113,11 @@ function createRouter(): Router {
   );
   router.add(
     /^\/api\/byok\/preferences$/,
+    ProviderController.byokGetPreferences,
+    "GET",
+  );
+  router.add(
+    /^\/api\/byok\/preferences$/,
     ProviderController.byokPreferences,
     "PATCH",
   );

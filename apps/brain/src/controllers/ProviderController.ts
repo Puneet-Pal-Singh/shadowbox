@@ -197,6 +197,27 @@ export class ProviderController {
       return handleByokError(req, env, error, correlationId);
     }
   }
+
+  static async byokGetPreferences(req: Request, env: Env): Promise<Response> {
+    const correlationId = Math.random().toString(36).substring(7);
+    console.log(`[provider/byok-preferences] ${correlationId} request received`);
+    try {
+      const scope = await resolveAuthorizedProviderScope(req, env, correlationId);
+      return await proxyByokOperation(
+        req,
+        env,
+        {
+          scope,
+          method: "GET",
+          path: "/providers/preferences",
+        },
+        BYOKPreferencesSchema,
+        correlationId,
+      );
+    } catch (error) {
+      return handleByokError(req, env, error, correlationId);
+    }
+  }
 }
 
 async function proxyProviderOperation(

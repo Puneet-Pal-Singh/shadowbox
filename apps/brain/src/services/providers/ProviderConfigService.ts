@@ -85,6 +85,10 @@ export class ProviderConfigService {
     return this.credentialService.disconnect(request);
   }
 
+  async getPreferences(): Promise<BYOKPreferences> {
+    return this.durableStore.getPreferences();
+  }
+
   async updatePreferences(
     patch: BYOKPreferencesPatch,
   ): Promise<BYOKPreferences> {
