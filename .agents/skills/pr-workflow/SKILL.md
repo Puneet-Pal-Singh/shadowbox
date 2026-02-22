@@ -415,63 +415,59 @@ feat: add model provider abstraction (OpenAI and LocalMock adapters)
 
 ---
 
-## Phase 2.5: Automated AI Review Loop
+## Phase 3: Automated AI Review Loop
 
-After pushing changes, automatically fetch AI review findings and iterate until all checks pass.
+After pushing changes, fetch AI review findings and iterate with explicit judgment.
 
 ### Auto-Review Workflow
 
-This phase runs automatically after each push:
+Run this after each push (manually or in automation):
 
 ```bash
 # 1. Push changes to remote
 git push origin <branch-name>
 
-# 2. Run AI review script and wait for findings
+# 2. Fetch latest AI review comments
 bash scripts/review-script/fetch-review-comments.sh \
   --wait-minutes 5 \
   --min-comments 1
 
-# 3. Check if review file exists and has findings
-if [[ -f "scripts/review-script/review-findings/ai-review-pr-*.md" ]]; then
-  cat "scripts/review-script/review-findings/ai-review-pr-*.md"
+# 3. Open newest review findings file
+latest_file="$(ls -t scripts/review-script/review-findings/ai-review-pr-*.md 2>/dev/null | head -n 1 || true)"
+if [[ -z "$latest_file" || ! -f "$latest_file" ]]; then
+  echo "ERROR: No review findings file generated"
+  exit 1
 fi
+cat "$latest_file"
 ```
 
 ### Review-Fix-Push Loop
 
-**Iterate until no findings remain:**
+**Iterate until findings are triaged and no new signal appears:**
 
-1. **Fetch AI Review Findings**
-   - Run: `bash scripts/review-script/fetch-review-comments.sh`
-   - Wait for bot comments from coderabbitai, greptile-apps, codex
-   - Parse generated markdown file with findings
+1. **Fetch AI review findings**
+   - Run: `bash scripts/review-script/fetch-review-comments.sh --wait-minutes 2`
+   - Use the newest generated `ai-review-pr-*.md` file.
 
-2. **Check for Findings**
-   - If file shows "No matching bot comments found" → Go to Phase 3 (Merge)
-   - If findings exist → Proceed to fix
+2. **Count findings from latest file**
+   - Count headings with `^## <n>.` as finding entries.
+   - If finding count is `0` → proceed to Phase 4 (Merge).
 
-3. **Fix Each Finding**
-   - Read finding description and suggested fix
-   - Locate the code file and line number
-   - Apply fix using provided suggestion or your judgment
-   - Stage fixed files: `git add path/to/file`
+3. **Triage each finding**
+   - Label each as: `valid-fix`, `not-applicable`, or `defer`.
+   - Fix only `valid-fix` findings after verifying against current code.
 
-4. **Commit Findings Fix**
-   - Commit with descriptive message referencing the findings:
+4. **Commit only intended fixes**
+   - Stage explicit files only: `git add path/to/file1 path/to/file2`
+   - Commit with conventional message, e.g.:
    ```bash
-   git commit -m "fix: resolve AI review findings
-
-   - Finding 1: brief description
-   - Finding 2: brief description
-   - Finding 3: brief description"
+   git commit -m "fix: address AI review findings"
    ```
 
-5. **Push & Re-check**
+5. **Push and repeat**
    - Push: `git push origin <branch-name>`
-   - Wait 5-10 seconds for CI to register push
-   - Re-run review script: `bash scripts/review-script/fetch-review-comments.sh`
-   - Loop to step 2 (check for findings)
+   - Re-run fetch script and compare latest findings to previous iteration.
+   - If findings are unchanged for 2 consecutive attempts, stop and request manual review.
 
 ### Example Loop
 
@@ -481,42 +477,49 @@ set -euo pipefail
 
 ATTEMPTS=0
 MAX_ATTEMPTS=10
+REPEAT_COUNT=0
+PREV_SIG=""
 
 while [[ $ATTEMPTS -lt $MAX_ATTEMPTS ]]; do
   echo "=== AI Review Attempt $((ATTEMPTS + 1)) ==="
-  
-  # Fetch latest findings
+
   bash scripts/review-script/fetch-review-comments.sh --wait-minutes 2
-  
-  # Check if clean
-  latest_file=$(ls -t scripts/review-script/review-findings/ai-review-pr-*.md 2>/dev/null | head -1)
-  if [[ ! -f "$latest_file" ]]; then
+
+  latest_file="$(ls -t scripts/review-script/review-findings/ai-review-pr-*.md 2>/dev/null | head -n 1 || true)"
+  if [[ -z "$latest_file" || ! -f "$latest_file" ]]; then
     echo "ERROR: No review file found"
     exit 1
   fi
-  
-  finding_count=$(grep -c "^## [0-9]\." "$latest_file" || echo "0")
-  
+
+  finding_count="$(awk '/^## [0-9]+\\./{c++} END{print c+0}' "$latest_file")"
+  sig="$(awk '/^## [0-9]+\\./{print}' "$latest_file" | shasum -a 256 | awk '{print $1}')"
+
   if [[ "$finding_count" -eq 0 ]]; then
-    echo "✅ All checks passed! PR is ready for merge."
+    echo "✅ No findings in latest file. Ready for merge checks."
     exit 0
   fi
-  
-  echo "Found $finding_count issues, fixing..."
-  
-  # Display findings
+
+  if [[ "$sig" == "$PREV_SIG" ]]; then
+    REPEAT_COUNT=$((REPEAT_COUNT + 1))
+  else
+    REPEAT_COUNT=0
+  fi
+  PREV_SIG="$sig"
+
+  if [[ "$REPEAT_COUNT" -ge 2 ]]; then
+    echo "⚠️ Findings unchanged across attempts. Manual review required."
+    exit 1
+  fi
+
+  echo "Found $finding_count items. Apply verified fixes, then commit/push."
   cat "$latest_file"
-  
-  # Fix findings (agent reads file and makes changes)
-  # ... (agent applies fixes) ...
-  
-  # Commit and push
-  git add apps/brain/src/  # (or appropriate paths)
-  git commit -m "fix: resolve AI review findings (attempt $((ATTEMPTS + 1)))"
-  git push origin HEAD
-  
+
+  # Apply fixes...
+  # git add path/to/file1 path/to/file2
+  # git commit -m "fix: address AI review findings"
+  # git push origin HEAD
+
   ATTEMPTS=$((ATTEMPTS + 1))
-  sleep 5
 done
 
 echo "❌ Max attempts reached. Manual review needed."
@@ -527,10 +530,10 @@ exit 1
 
 Stop the auto-review loop when:
 
-- **All findings resolved**: Review file shows "No matching bot comments found"
-- **Same findings repeat**: If findings appear multiple times, stop and request user judgment
-- **Max attempts reached**: After 10 iterations, alert user and request manual review
-- **Critical issue**: Stop immediately if a finding indicates security/data loss risk
+- **No findings in latest file**: finding count is `0`
+- **Unchanged findings repeat**: same findings signature repeats 2 times
+- **Max attempts reached**: after 10 iterations, request manual review
+- **Critical issue**: stop immediately for security/data-loss findings
 
 ### Review File Location
 
@@ -542,7 +545,7 @@ Always check the **latest file** (most recent by timestamp) for current findings
 
 ---
 
-## Phase 3: Merge PR
+## Phase 4: Merge PR
 
 ### Pre-Merge Verification
 
@@ -795,12 +798,12 @@ Reference AGENTS.md for complete workflow specifications and constraints.
 
 ## Automated AI Review Integration
 
-**Phase 2.5 (Auto-Review Loop) uses the external script:**
+**Phase 3 (Auto-Review Loop) uses the external script:**
 - `scripts/review-script/fetch-review-comments.sh` - Fetches AI bot comments from PR
 - Fetches findings from: coderabbitai, greptile-apps, codex bots
 - Automatically waits for reviews and generates markdown report
 - Agent reads findings and applies fixes iteratively
-- Loop repeats until all findings resolved or max attempts reached
+- Loop repeats until findings are clear, unchanged, or max attempts reached
 
 **When to invoke auto-review phase:**
 - After pushing changes to a PR branch
