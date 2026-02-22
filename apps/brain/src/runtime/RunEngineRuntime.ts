@@ -33,8 +33,8 @@ import {
   ProviderRateLimitService,
   ProviderConfigService,
   type LegacyCredentialMigrationConfig,
+  readByokEncryptionConfig,
 } from "../services/providers";
-import { readByokEncryptionConfig } from "../services/providers/provider-encryption-key";
 import {
   MAX_SCOPE_IDENTIFIER_LENGTH,
   SAFE_SCOPE_IDENTIFIER_REGEX,

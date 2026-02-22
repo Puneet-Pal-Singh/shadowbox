@@ -31,6 +31,9 @@ export {
   type StreamChunk,
 } from "./base";
 
+// Encryption configuration
+export { readByokEncryptionConfig } from "./provider-encryption-key";
+
 // Adapter implementations
 export { LiteLLMAdapter } from "./adapters";
 export { OpenAIAdapter } from "./adapters";
