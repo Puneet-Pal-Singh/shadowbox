@@ -18,6 +18,7 @@ interface UseChatResult {
   artifactState: ArtifactState;
   runId: string;
   resetRun: () => void;
+  isModelConfigReady: boolean;
 }
 
 /**
@@ -42,6 +43,7 @@ export function useChat(
     setMessages,
     runId: activeRunId,
     resetRun,
+    isModelConfigReady,
   } = useChatCore(sessionId, runId);
 
   // Handle message hydration
@@ -60,6 +62,7 @@ export function useChat(
     messagesLength: messages.length,
     isLoading,
     append,
+    isModelConfigReady,
   });
 
   // Handle artifact state
@@ -80,5 +83,6 @@ export function useChat(
     artifactState,
     runId: activeRunId,
     resetRun,
+    isModelConfigReady,
   };
 }

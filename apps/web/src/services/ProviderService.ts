@@ -232,22 +232,58 @@ class ProviderService {
   private async resolveConnectedSessionModelConfig(
     config: SessionModelConfig,
   ): Promise<SessionModelConfig> {
-    if (!this.hasPersistableModelConfig(config)) {
+    try {
+      const statuses = await ProviderApiClient.getStatus();
+      const connectedProviders = this.getConnectedProviders(statuses);
+      if (
+        this.hasPersistableModelConfig(config) &&
+        connectedProviders.includes(config.providerId)
+      ) {
+        return config;
+      }
+
+      return await this.resolveDefaultConnectedConfig(connectedProviders);
+    } catch (error) {
+      console.warn(
+        "[provider/sessionConfig] Failed to validate provider connectivity for session config",
+        error,
+      );
+      if (this.hasPersistableModelConfig(config)) {
+        return config;
+      }
+      return {};
+    }
+  }
+
+  private getConnectedProviders(
+    statuses: ProviderConnectionStatus[],
+  ): ProviderId[] {
+    return statuses
+      .filter((status) => status.status === "connected")
+      .map((status) => status.providerId);
+  }
+
+  private async resolveDefaultConnectedConfig(
+    connectedProviders: ProviderId[],
+  ): Promise<SessionModelConfig> {
+    const providerId = connectedProviders[0];
+    if (!providerId) {
       return {};
     }
 
     try {
-      const statuses = await ProviderApiClient.getStatus();
-      const selectedProviderStatus = statuses.find(
-        (status) => status.providerId === config.providerId,
-      );
-      if (selectedProviderStatus?.status === "connected") {
-        return config;
+      const modelsResponse = await ProviderApiClient.getModels(providerId);
+      const modelId = modelsResponse.models[0]?.id;
+      if (!modelId) {
+        return {};
       }
-      return {};
+
+      const config: SessionModelConfig = { providerId, modelId };
+      await this.persistPreferences(config);
+      return config;
     } catch (error) {
       console.warn(
-        "[provider/sessionConfig] Failed to validate provider connectivity for session config",
+        `[provider/sessionConfig] Failed to resolve default model for provider ${providerId}`,
         error,
       );
       return {};

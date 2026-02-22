@@ -52,6 +52,12 @@ export function ModelSelector({
           const firstModel = result.models[0];
           if (firstModel) {
             setSelectedModel(firstModel.id);
+            providerService.setSessionModelConfig(
+              sessionId,
+              providerId,
+              firstModel.id,
+            );
+            onModelSelect?.(providerId, firstModel.id);
           }
         }
       } catch (e) {
@@ -63,7 +69,7 @@ export function ModelSelector({
         setIsLoading(false);
       }
     },
-    [],
+    [onModelSelect, sessionId],
   );
 
   // Load saved config and available models
