@@ -38,6 +38,9 @@ export function useChatCore(
   const [sessionModelConfig, setSessionModelConfig] = useState(() =>
     providerService.getSessionModelConfig(sessionId),
   );
+  const hasCompleteOverride = Boolean(
+    sessionModelConfig.providerId && sessionModelConfig.modelId,
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -105,12 +108,12 @@ export function useChatCore(
     body: {
       sessionId,
       runId,
-      ...(sessionModelConfig.providerId && {
-        providerId: sessionModelConfig.providerId,
-      }),
-      ...(sessionModelConfig.modelId && {
-        modelId: sessionModelConfig.modelId,
-      }),
+      ...(hasCompleteOverride
+        ? {
+            providerId: sessionModelConfig.providerId,
+            modelId: sessionModelConfig.modelId,
+          }
+        : {}),
     },
     initialMessages: [],
     id: instanceKey,

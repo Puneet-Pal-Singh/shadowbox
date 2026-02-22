@@ -6,7 +6,11 @@
 import { useState, useEffect, useRef } from "react";
 import { ChevronDown } from "lucide-react";
 import { providerService } from "../../services/ProviderService";
-import type { ProviderId, ModelDescriptor } from "../../types/provider";
+import type {
+  ProviderId,
+  ModelDescriptor,
+  ProviderConnectionStatus,
+} from "../../types/provider";
 
 interface ModelDropdownProps {
   sessionId: string;
@@ -24,7 +28,9 @@ export function ModelDropdown({
     useState<ProviderId>("openrouter");
   const [selectedModel, setSelectedModel] = useState<string>("");
   const [models, setModels] = useState<ModelDescriptor[]>([]);
+  const [providers, setProviders] = useState<ProviderConnectionStatus[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const inflightProviderRef = useRef<ProviderId | null>(null);
 
@@ -32,18 +38,41 @@ export function ModelDropdown({
   useEffect(() => {
     let cancelled = false;
     const loadModelsFromPreferences = async () => {
-      const config = await providerService.syncSessionModelConfig(sessionId);
-      if (cancelled) {
-        return;
-      }
-
-      const providerId = (config.providerId ?? "openrouter") as ProviderId;
-      setSelectedProvider(providerId);
-      setSelectedModel(config.modelId ?? "");
-      setModels([]);
-      setIsLoading(true);
       try {
-        const result = await providerService.getModels(providerId);
+        const config = await providerService.syncSessionModelConfig(sessionId);
+        if (cancelled) {
+          return;
+        }
+
+        const statuses = await providerService.getProviderStatus();
+        if (cancelled) {
+          return;
+        }
+        setProviders(statuses);
+
+        const connectedProviders = getConnectedProviders(statuses);
+        const preferredProvider = resolvePreferredProvider(
+          config.providerId,
+          connectedProviders,
+        );
+        if (!preferredProvider) {
+          setSelectedProvider("openrouter");
+          setSelectedModel("");
+          setModels([]);
+          setIsLoading(false);
+          setError("No BYOK provider connected. Connect one in settings.");
+          return;
+        }
+
+        setSelectedProvider(preferredProvider);
+        setSelectedModel(
+          config.providerId === preferredProvider ? (config.modelId ?? "") : "",
+        );
+        setModels([]);
+        setIsLoading(true);
+        setError(null);
+
+        const result = await providerService.getModels(preferredProvider);
         if (!cancelled) {
           setModels(result.models);
         }
@@ -51,6 +80,7 @@ export function ModelDropdown({
         if (!cancelled) {
           console.error("[ModelDropdown] Failed to load models:", e);
           setModels([]);
+          setError("Failed to load provider models. Check provider settings.");
         }
       } finally {
         if (!cancelled) {
@@ -85,9 +115,16 @@ export function ModelDropdown({
   }, [isOpen]);
 
   const handleProviderChange = (newProvider: ProviderId) => {
+    if (!isProviderConnected(providers, newProvider)) {
+      setError(
+        `Provider ${newProvider} is not connected. Connect it in settings first.`,
+      );
+      return;
+    }
     setSelectedProvider(newProvider);
     setSelectedModel("");
     setIsLoading(true);
+    setError(null);
     inflightProviderRef.current = newProvider;
     providerService
       .getModels(newProvider)
@@ -159,14 +196,22 @@ export function ModelDropdown({
                 <button
                   key={provider}
                   onClick={() => handleProviderChange(provider as ProviderId)}
+                  disabled={!isProviderConnected(providers, provider as ProviderId)}
                   className={`
                     w-full text-left px-2 py-1 text-xs rounded transition-colors
                     ${
                       selectedProvider === provider
                         ? "bg-blue-900 text-blue-200"
-                        : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800"
+                        : isProviderConnected(providers, provider as ProviderId)
+                        ? "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800"
+                        : "text-zinc-600 opacity-60 cursor-not-allowed"
                     }
                   `}
+                  title={
+                    isProviderConnected(providers, provider as ProviderId)
+                      ? undefined
+                      : "Provider not connected"
+                  }
                 >
                   {provider === "openrouter"
                     ? "OpenRouter (Recommended)"
@@ -210,9 +255,42 @@ export function ModelDropdown({
                 ))}
               </div>
             )}
+            {error && (
+              <div className="text-xs text-red-400 py-2 border-t border-zinc-700 mt-2">
+                {error}
+              </div>
+            )}
           </div>
         </div>
       )}
     </div>
+  );
+}
+
+function getConnectedProviders(
+  providers: ProviderConnectionStatus[],
+): ProviderId[] {
+  return providers
+    .filter((provider) => provider.status === "connected")
+    .map((provider) => provider.providerId);
+}
+
+function resolvePreferredProvider(
+  configuredProviderId: ProviderId | undefined,
+  connectedProviders: ProviderId[],
+): ProviderId | undefined {
+  if (configuredProviderId && connectedProviders.includes(configuredProviderId)) {
+    return configuredProviderId;
+  }
+  return connectedProviders[0];
+}
+
+function isProviderConnected(
+  providers: ProviderConnectionStatus[],
+  providerId: ProviderId,
+): boolean {
+  return providers.some(
+    (provider) =>
+      provider.providerId === providerId && provider.status === "connected",
   );
 }
