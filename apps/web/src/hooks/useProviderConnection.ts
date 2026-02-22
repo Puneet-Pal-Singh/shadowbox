@@ -89,43 +89,49 @@ export function useProviderConnection(options: UseProviderConnectionOptions = {}
   );
 
   // Sync session preferences on mount
-  useEffect(() => {
-    let cancelled = false;
+  // NOTE: loadProviderStatuses and loadModels are intentionally excluded from dependencies
+  // to prevent infinite loops. These functions are stable via useCallback with fixed deps.
+  useEffect(
+    () => {
+      let cancelled = false;
 
-    const syncPreferences = async () => {
-      if (!sessionId || !autoLoadModels) {
-        await loadProviderStatuses();
-        return;
-      }
-
-      try {
-        const config = await providerService.syncSessionModelConfig(sessionId);
-        if (cancelled) return;
-
-        const providerId = (config.providerId ?? "openrouter") as ProviderId;
-        setState((prev) => ({
-          ...prev,
-          selectedProvider: providerId,
-          selectedModel: config.modelId ?? "",
-        }));
-
-        await loadProviderStatuses();
-        if (cancelled) return;
-        await loadModels(providerId);
-      } catch (e) {
-        console.error("[useProviderConnection] Failed to sync preferences:", e);
-        if (!cancelled) {
+      const syncPreferences = async () => {
+        if (!sessionId || !autoLoadModels) {
           await loadProviderStatuses();
+          return;
         }
-      }
-    };
 
-    void syncPreferences();
+        try {
+          const config = await providerService.syncSessionModelConfig(sessionId);
+          if (cancelled) return;
 
-    return () => {
-      cancelled = true;
-    };
-  }, [sessionId, autoLoadModels]);
+          const providerId = (config.providerId ?? "openrouter") as ProviderId;
+          setState((prev) => ({
+            ...prev,
+            selectedProvider: providerId,
+            selectedModel: config.modelId ?? "",
+          }));
+
+          await loadProviderStatuses();
+          if (cancelled) return;
+          await loadModels(providerId);
+        } catch (e) {
+          console.error("[useProviderConnection] Failed to sync preferences:", e);
+          if (!cancelled) {
+            await loadProviderStatuses();
+          }
+        }
+      };
+
+      void syncPreferences();
+
+      return () => {
+        cancelled = true;
+      };
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [sessionId, autoLoadModels],
+  );
 
   // Change provider and reload models
   const selectProvider = useCallback(
@@ -239,7 +245,7 @@ export function useProviderConnection(options: UseProviderConnectionOptions = {}
 
   // Validate provider credentials (stub - will be implemented in future PR)
   const validateProvider = useCallback(
-    async (apiKey?: string) => {
+    async () => {
       setState((prev) => ({ ...prev, isValidating: true, error: null }));
 
       try {
