@@ -1,40 +1,82 @@
 # Brain Local Development Configuration
-# Copy this file to .dev.vars and fill in your values for local development
+# Copy this file to .dev.vars and fill in required values.
 
-# LLM Provider Configuration (REQUIRED for chat to work)
-# Options: "litellm" (default, uses Groq/OpenAI), "openai", "anthropic"
+# -----------------------------------------------------------------------------
+# Core Model Runtime
+# -----------------------------------------------------------------------------
+# Options: litellm (default), openai, anthropic
 LLM_PROVIDER=litellm
-# Default model for chat stream (required when LLM_PROVIDER is set)
-# For LiteLLM/Groq: llama-3.3-70b-versatile, mixtral-8x7b-32768, etc.
+# Default model used for non-BYOK chat flows.
 DEFAULT_MODEL=llama-3.3-70b-versatile
+# Optional: override OpenAI-compatible base URL for litellm mode.
+# LITELLM_BASE_URL=https://api.groq.com/openai/v1
 
-# Provider API Keys (at least one required for your chosen LLM_PROVIDER)
-# For LiteLLM (Groq): Required
-GROQ_API_KEY=your-groq-api-key-here
-# For LiteLLM (OpenAI) or OpenAI provider: Optional if using Groq above
-# OPENAI_API_KEY=your-openai-api-key-here
-# For Anthropic provider:
-# ANTHROPIC_API_KEY=your-anthropic-api-key-here
+# Provider API keys for server-side model runtime (set at least one as needed)
+GROQ_API_KEY=your-groq-api-key
+# OPENAI_API_KEY=your-openai-api-key
+# ANTHROPIC_API_KEY=your-anthropic-api-key
+# GOOGLE_GENERATIVE_AI_API_KEY=your-google-api-key
 
-# System Prompt (optional, has sensible default)
+# OpenRouter key note (BYOK flow):
+# OpenRouter API keys are entered in the Web UI under Provider Settings,
+# not loaded from this .dev.vars file.
+# Key format example: sk-or-v1-xxxxxxxxxxxxxxxxxxxx
+
+# Optional custom system prompt
 SYSTEM_PROMPT="You are Shadowbox, an autonomous expert software engineer. Work in /home/sandbox/workspaces/${runId}. Answer directly without over-engineering or unnecessary tool use. Use tools ONLY if explicitly asked. Be concise."
 
-# GitHub OAuth Configuration (REQUIRED for GitHub integration)
-# Create OAuth app at https://github.com/settings/developers
+# -----------------------------------------------------------------------------
+# GitHub Auth + Session (required for GitHub integration)
+# -----------------------------------------------------------------------------
 GITHUB_CLIENT_ID=your-github-client-id
 GITHUB_CLIENT_SECRET=your-github-client-secret
 GITHUB_REDIRECT_URI=http://localhost:8788/auth/github/callback
-# Generate a random 20-char hex string for token encryption
-GITHUB_TOKEN_ENCRYPTION_KEY=your-random-20-char-hex-key
-# Generate a random 12-char hex string for session secret
-SESSION_SECRET=your-random-12-char-hex-key
+# 20+ char random hex/string
+GITHUB_TOKEN_ENCRYPTION_KEY=your-random-token-encryption-key
+# 12+ char random hex/string
+SESSION_SECRET=your-random-session-secret
 FRONTEND_URL=http://localhost:5173
 
-# BYOK Credential Encryption (REQUIRED for BYOK routes)
+# CORS controls (optional)
+# Comma-separated origins; FRONTEND_URL is always included automatically.
+CORS_ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
+CORS_ALLOW_DEV_ORIGINS=true
+
+# -----------------------------------------------------------------------------
+# BYOK Credential Encryption (required for BYOK routes)
+# -----------------------------------------------------------------------------
 # Generate with: openssl rand -hex 32
 BYOK_CREDENTIAL_ENCRYPTION_KEY=your-random-64-char-hex-key
 BYOK_CREDENTIAL_ENCRYPTION_KEY_VERSION=v1
 
-# Optional key rotation fields
+# Optional key rotation
 # BYOK_CREDENTIAL_ENCRYPTION_KEY_PREVIOUS=your-previous-64-char-hex-key
 # BYOK_CREDENTIAL_ENCRYPTION_KEY_PREVIOUS_VERSION=v0
+
+# Optional live validation settings
+BYOK_VALIDATE_LIVE_ENABLED=true
+BYOK_VALIDATE_LIVE_TIMEOUT_MS=4000
+
+# Optional BYOK rate limits
+BYOK_CONNECT_RATE_LIMIT_MAX=10
+BYOK_CONNECT_RATE_LIMIT_WINDOW_SECONDS=60
+BYOK_VALIDATE_RATE_LIMIT_MAX=30
+BYOK_VALIDATE_RATE_LIMIT_WINDOW_SECONDS=60
+
+# Optional BYOK migration flags
+BYOK_LEGACY_READ_FALLBACK_ENABLED=false
+BYOK_LEGACY_BACKFILL_ENABLED=false
+BYOK_LEGACY_ROLLBACK_ENABLED=false
+# BYOK_LEGACY_CUTOFF_AT=2026-01-01T00:00:00Z
+
+# -----------------------------------------------------------------------------
+# Runtime Cost/Budget Controls (optional)
+# -----------------------------------------------------------------------------
+COST_UNKNOWN_PRICING_MODE=warn
+COST_FAIL_ON_UNSEEDED_PRICING=false
+# MAX_RUN_BUDGET=1.00
+# MAX_SESSION_BUDGET=5.00
+
+# Optional service URL override (mainly production/staging)
+# MUSCLE_BASE_URL=http://localhost:8787
+# NODE_ENV=development
