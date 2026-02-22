@@ -19,7 +19,7 @@ describe("ProviderLiveValidationService", () => {
       fetchMock,
     );
 
-    await expect(service.validate("openai", "sk_test_1234567890")).resolves.toBeUndefined();
+    await expect(service.validate("openai", "test-key-12345")).resolves.toBeUndefined();
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
@@ -31,7 +31,7 @@ describe("ProviderLiveValidationService", () => {
     );
 
     await expect(
-      service.validate("groq", "gsk_test_1234567890"),
+      service.validate("groq", "test-key-groq-12345"),
     ).rejects.toMatchObject({
       code: "AUTH_FAILED",
       status: 401,
@@ -65,10 +65,10 @@ describe("ProviderLiveValidationService", () => {
     );
 
     await expect(
-      service.validate("openai", "sk_test_1234567890"),
+      service.validate("openai", "test-key-12345"),
     ).rejects.toBeInstanceOf(ProviderError);
     await expect(
-      service.validate("openai", "sk_test_1234567890"),
+      service.validate("openai", "test-key-12345"),
     ).rejects.toMatchObject({
       code: "PROVIDER_UNAVAILABLE",
       status: 503,

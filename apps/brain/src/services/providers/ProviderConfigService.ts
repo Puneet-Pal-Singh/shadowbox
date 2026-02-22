@@ -96,7 +96,7 @@ export class ProviderConfigService {
       const response = await this.credentialService.validate(request);
       await this.auditService.record({
         eventType: "validate",
-        status: "success",
+        status: response.status === "valid" ? "success" : "failure",
         providerId: request.providerId,
         validationMode: response.validationMode,
       });

@@ -418,6 +418,9 @@ export class DurableProviderStore {
 
     const cutoffAt = Date.parse(this.migrationConfig.legacyCutoffAt);
     if (Number.isNaN(cutoffAt)) {
+      console.warn(
+        `[provider/durable] Invalid legacyCutoffAt value: "${this.migrationConfig.legacyCutoffAt}"; treating as no cutoff.`,
+      );
       return true;
     }
     return Date.now() < cutoffAt;

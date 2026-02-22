@@ -1,9 +1,13 @@
 import type { DurableObjectState } from "@cloudflare/workers-types";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../../types/ai";
 import { ProviderRateLimitService } from "./ProviderRateLimitService";
 
 describe("ProviderRateLimitService", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("blocks connect requests when limit is exceeded", async () => {
     const state = createMockDurableState();
     const service = ProviderRateLimitService.fromEnv(

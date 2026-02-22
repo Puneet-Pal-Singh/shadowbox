@@ -56,10 +56,10 @@ export class ProviderRateLimitService {
     const key = this.getRateLimitKey(action);
     const now = Date.now();
     const current = await this.readWindowRecord(key);
-    const next = computeNextWindowState(current, now, rule.windowMs);
 
-    if (next.count > rule.maxRequests) {
-      const retryAfterSeconds = calculateRetryAfterSeconds(next, now, rule.windowMs);
+    // Check limit BEFORE incrementing to ensure exactly maxRequests per window
+    if (current && current.count >= rule.maxRequests && now - current.windowStartedAt < rule.windowMs) {
+      const retryAfterSeconds = calculateRetryAfterSeconds(current, now, rule.windowMs);
       throw new ProviderError(
         `BYOK ${action} rate limit exceeded. Retry in ${retryAfterSeconds}s.`,
         "RATE_LIMITED",
@@ -68,6 +68,7 @@ export class ProviderRateLimitService {
       );
     }
 
+    const next = computeNextWindowState(current, now, rule.windowMs);
     await this.state.storage?.put(key, JSON.stringify(next));
   }
 

@@ -340,7 +340,8 @@ export class RunEngineRuntime extends DurableObject {
     const env = this.env as Env;
     return {
       legacyReadFallbackEnabled: env.BYOK_LEGACY_READ_FALLBACK_ENABLED === "true",
-      legacyBackfillEnabled: env.BYOK_LEGACY_BACKFILL_ENABLED !== "false",
+      // legacyBackfillEnabled: opt-in semantics (default false, matching legacyReadFallbackEnabled and legacyRollbackEnabled)
+      legacyBackfillEnabled: env.BYOK_LEGACY_BACKFILL_ENABLED === "true",
       legacyRollbackEnabled: env.BYOK_LEGACY_ROLLBACK_ENABLED === "true",
       legacyCutoffAt: env.BYOK_LEGACY_CUTOFF_AT,
     };
