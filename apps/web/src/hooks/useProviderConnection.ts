@@ -122,7 +122,7 @@ export function useProviderConnection(options: UseProviderConnectionOptions = {}
     return () => {
       cancelled = true;
     };
-  }, [sessionId, autoLoadModels, loadProviderStatuses, loadModels]);
+  }, [sessionId, autoLoadModels]);
 
   // Change provider and reload models
   const selectProvider = useCallback(
@@ -232,19 +232,18 @@ export function useProviderConnection(options: UseProviderConnectionOptions = {}
     [loadProviderStatuses],
   );
 
-  // Validate provider credentials
+  // Validate provider credentials (stub - will be implemented in future PR)
   const validateProvider = useCallback(
     async (apiKey?: string) => {
       setState((prev) => ({ ...prev, isValidating: true, error: null }));
 
       try {
-        const result = await providerService.validateProvider({
-          providerId: state.selectedProvider,
-          apiKey: apiKey?.trim(),
-        });
+        // TODO: Implement validateProvider in ProviderApiClient when backend endpoint is ready
+        // For now, validation happens during connect operation
+        console.warn("[useProviderConnection] validateProvider not yet implemented");
 
         setState((prev) => ({ ...prev, isValidating: false }));
-        return { success: result.valid, status: result.status };
+        return { success: false, error: "Validation endpoint not yet implemented" };
       } catch (e) {
         const errorMsg = e instanceof Error ? e.message : "Validation failed";
         setState((prev) => ({
@@ -255,7 +254,7 @@ export function useProviderConnection(options: UseProviderConnectionOptions = {}
         return { success: false, error: errorMsg };
       }
     },
-    [state.selectedProvider],
+    [],
   );
 
   // Clear error

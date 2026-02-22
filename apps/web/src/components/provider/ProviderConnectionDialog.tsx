@@ -41,7 +41,6 @@ export function ProviderConnectionDialog({
     selectModel,
     connectProvider,
     disconnectProvider,
-    validateProvider,
     clearError,
   } = useProviderConnection({ sessionId, autoLoadModels: true });
 
@@ -114,8 +113,7 @@ export function ProviderConnectionDialog({
                 {providers.map((provider) => (
                   <div
                     key={provider.providerId}
-                    className="flex items-center justify-between p-3 bg-zinc-800 rounded border border-zinc-700 hover:border-zinc-600 transition-colors cursor-pointer"
-                    onClick={() => selectProvider(provider.providerId)}
+                    className="flex items-center justify-between p-3 bg-zinc-800 rounded border border-zinc-700 hover:border-zinc-600 transition-colors"
                   >
                     <div className="flex items-center gap-3">
                       {getStatusIcon(provider.status)}
