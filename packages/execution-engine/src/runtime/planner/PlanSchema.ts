@@ -26,7 +26,7 @@ export const PlanSchema = z
   .object({
     tasks: z.array(PlannedTaskSchema).min(1).max(20),
     metadata: z.object({
-      estimatedSteps: z.number().int().positive(),
+      estimatedSteps: z.coerce.number().int().positive(),
       reasoning: z.string().optional(),
     }),
   })
