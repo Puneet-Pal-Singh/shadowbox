@@ -29,3 +29,12 @@ GITHUB_TOKEN_ENCRYPTION_KEY=your-random-20-char-hex-key
 # Generate a random 12-char hex string for session secret
 SESSION_SECRET=your-random-12-char-hex-key
 FRONTEND_URL=http://localhost:5173
+
+# BYOK Credential Encryption (REQUIRED for BYOK routes)
+# Generate with: openssl rand -hex 32
+BYOK_CREDENTIAL_ENCRYPTION_KEY=your-random-64-char-hex-key
+BYOK_CREDENTIAL_ENCRYPTION_KEY_VERSION=v1
+
+# Optional key rotation fields
+# BYOK_CREDENTIAL_ENCRYPTION_KEY_PREVIOUS=your-previous-64-char-hex-key
+# BYOK_CREDENTIAL_ENCRYPTION_KEY_PREVIOUS_VERSION=v0
