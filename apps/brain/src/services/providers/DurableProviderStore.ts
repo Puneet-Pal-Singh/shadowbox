@@ -326,8 +326,12 @@ export class DurableProviderStore {
   }> {
     const current = this.encryptionConfig.current;
     const previous = this.encryptionConfig.previous;
-    if (!keyVersion || keyVersion === current.version) {
+    if (keyVersion === current.version) {
       return [current];
+    }
+    if (!keyVersion) {
+      // Pre-rotation records lack keyVersion; try current first, then previous for backward compatibility
+      return previous ? [current, previous] : [current];
     }
     if (previous && keyVersion === previous.version) {
       return [previous, current];
@@ -368,17 +372,18 @@ export class DurableProviderStore {
     console.warn(
       `[provider/durable] Legacy run-scoped credential fallback used for ${providerId}.`,
     );
+    const connectedAt = legacy.connectedAt ?? new Date().toISOString();
     if (this.migrationConfig.legacyBackfillEnabled) {
       await this.reEncryptCredential(
         providerId,
         legacy.apiKey,
-        legacy.connectedAt ?? new Date().toISOString(),
+        connectedAt,
       );
     }
     return {
       providerId,
       apiKey: legacy.apiKey,
-      connectedAt: legacy.connectedAt ?? new Date().toISOString(),
+      connectedAt,
     };
   }
 

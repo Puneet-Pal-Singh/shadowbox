@@ -32,6 +32,7 @@ import {
   DurableProviderStore,
   ProviderRateLimitService,
   ProviderConfigService,
+  type LegacyCredentialMigrationConfig,
 } from "../services/providers";
 import { readByokEncryptionConfig } from "../services/providers/provider-encryption-key";
 import {
@@ -39,7 +40,6 @@ import {
   SAFE_SCOPE_IDENTIFIER_REGEX,
   type ProviderStoreScopeInput,
 } from "../types/provider-scope";
-import type { LegacyCredentialMigrationConfig } from "../services/providers/DurableProviderStore";
 
 const RunIdSchema = z.string().uuid();
 const ScopeIdSchema = z
