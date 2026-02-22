@@ -4,7 +4,7 @@
  * Replaces previous ModelDropdown with consolidated state management.
  */
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { ChevronDown, AlertCircle } from "lucide-react";
 import { useProviderConnection } from "../../hooks/useProviderConnection";
 import type { ProviderId } from "../../types/provider";
@@ -23,10 +23,11 @@ export function ProviderModelSelector({
   disabled,
 }: ProviderModelSelectorProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
   const {
     providers,
     selectedProvider,
-    connectionStatus,
     models,
     selectedModel,
     isLoading,
@@ -35,7 +36,31 @@ export function ProviderModelSelector({
     selectModel,
   } = useProviderConnection({ sessionId, autoLoadModels: true });
 
-  const isConnected = connectionStatus?.status === "connected";
+  // Handle click outside and escape key
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleEscape);
+
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [isOpen]);
+
   const displayModel = selectedModel || (isLoading ? "Loading..." : "Select Model");
   const displayProvider = selectedProvider || "OpenRouter";
 
@@ -68,7 +93,7 @@ export function ProviderModelSelector({
   }
 
   return (
-    <div className="relative">
+    <div ref={dropdownRef} className="relative">
       <button
         onClick={() => !disabled && setIsOpen(!isOpen)}
         disabled={disabled || isLoading}

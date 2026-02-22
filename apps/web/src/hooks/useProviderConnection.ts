@@ -110,10 +110,13 @@ export function useProviderConnection(options: UseProviderConnectionOptions = {}
         }));
 
         await loadProviderStatuses();
+        if (cancelled) return;
         await loadModels(providerId);
       } catch (e) {
         console.error("[useProviderConnection] Failed to sync preferences:", e);
-        await loadProviderStatuses();
+        if (!cancelled) {
+          await loadProviderStatuses();
+        }
       }
     };
 
@@ -151,14 +154,15 @@ export function useProviderConnection(options: UseProviderConnectionOptions = {}
 
   // Select model and save preference
   const selectModel = useCallback(
-    async (modelId: string) => {
+    async (modelId: string, providerId?: ProviderId) => {
       setState((prev) => ({ ...prev, selectedModel: modelId, error: null }));
 
       if (sessionId) {
         try {
+          const effectiveProvider = providerId ?? state.selectedProvider;
           await providerService.setSessionModelConfig(
             sessionId,
-            state.selectedProvider,
+            effectiveProvider,
             modelId,
           );
         } catch (e) {
@@ -175,12 +179,13 @@ export function useProviderConnection(options: UseProviderConnectionOptions = {}
 
   // Connect provider with API key
   const connectProvider = useCallback(
-    async (apiKey: string) => {
+    async (apiKey: string, providerId?: ProviderId) => {
       setState((prev) => ({ ...prev, isLoading: true, error: null }));
 
       try {
+        const effectiveProvider = providerId ?? state.selectedProvider;
         const result = await providerService.connectProvider({
-          providerId: state.selectedProvider,
+          providerId: effectiveProvider,
           apiKey: apiKey.trim(),
         });
 

@@ -4,7 +4,7 @@
  * Consolidates ProviderSettings + ModelSelector + ModelDropdown flows.
  */
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Check, X, AlertCircle, Loader, ChevronDown } from "lucide-react";
 import { useProviderConnection } from "../../hooks/useProviderConnection";
 import type { ProviderId } from "../../types/provider";
@@ -28,7 +28,6 @@ export function ProviderConnectionDialog({
 }: ProviderConnectionDialogProps) {
   const [step, setStep] = useState<DialogStep>("overview");
   const [apiKey, setApiKey] = useState("");
-  const [isValidating, setIsValidating] = useState(false);
 
   const {
     providers,
@@ -44,6 +43,20 @@ export function ProviderConnectionDialog({
     clearError,
   } = useProviderConnection({ sessionId, autoLoadModels: true });
 
+  // Handle escape key and backdrop click
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        onClose();
+      }
+    };
+
+    document.addEventListener("keydown", handleEscape);
+    return () => document.removeEventListener("keydown", handleEscape);
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   const currentProviderStatus = providers.find((p) => p.providerId === selectedProvider);
@@ -55,14 +68,12 @@ export function ProviderConnectionDialog({
       return;
     }
 
-    setIsValidating(true);
     const result = await connectProvider(apiKey);
-    setIsValidating(false);
 
     if (result.success) {
       setApiKey("");
       onProviderConnect?.(selectedProvider);
-      setStep(isLoading ? "overview" : "select-model");
+      setStep("select-model");
     }
   };
 
@@ -72,8 +83,8 @@ export function ProviderConnectionDialog({
     setStep("overview");
   };
 
-  const handleDisconnect = async () => {
-    await disconnectProvider(selectedProvider);
+  const handleDisconnect = async (providerId: ProviderId) => {
+    await disconnectProvider(providerId);
   };
 
   const getStatusIcon = (status?: string) => {
@@ -90,8 +101,8 @@ export function ProviderConnectionDialog({
   // Step 1: Overview - Show all providers and connection status
   if (step === "overview") {
     return (
-      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-        <div className="bg-zinc-900 rounded-lg border border-zinc-800 w-full max-w-lg max-h-[600px] flex flex-col">
+      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={onClose}>
+        <div className="bg-zinc-900 rounded-lg border border-zinc-800 w-full max-w-lg max-h-[600px] flex flex-col" onClick={(e) => e.stopPropagation()}>
           {/* Header */}
           <div className="flex items-center justify-between p-4 border-b border-zinc-800">
             <h2 className="text-lg font-semibold text-zinc-200">Provider Settings</h2>
@@ -127,7 +138,7 @@ export function ProviderConnectionDialog({
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            handleDisconnect();
+                            handleDisconnect(provider.providerId);
                           }}
                           disabled={isLoading}
                           className="text-xs px-2 py-1 text-red-400 hover:text-red-300 disabled:opacity-50 transition-colors"
@@ -180,8 +191,8 @@ export function ProviderConnectionDialog({
   // Step 2: Connect - Enter API key and validate
   if (step === "connect") {
     return (
-      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-        <div className="bg-zinc-900 rounded-lg border border-zinc-800 w-full max-w-lg">
+      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={onClose}>
+        <div className="bg-zinc-900 rounded-lg border border-zinc-800 w-full max-w-lg" onClick={(e) => e.stopPropagation()}>
           {/* Header */}
           <div className="flex items-center justify-between p-4 border-b border-zinc-800">
             <h2 className="text-lg font-semibold text-zinc-200">
@@ -208,9 +219,15 @@ export function ProviderConnectionDialog({
                   onChange={(e) => selectProvider(e.target.value as ProviderId)}
                   className="w-full bg-zinc-800 text-zinc-200 text-sm rounded px-3 py-2 border border-zinc-700 focus:outline-none focus:border-zinc-500 appearance-none"
                 >
-                  <option value="openrouter">OpenRouter</option>
-                  <option value="openai">OpenAI</option>
-                  <option value="groq">Groq</option>
+                  {providers.map((provider) => (
+                    <option key={provider.providerId} value={provider.providerId}>
+                      {provider.providerId === "openrouter"
+                        ? "OpenRouter"
+                        : provider.providerId === "groq"
+                          ? "Groq"
+                          : "OpenAI"}
+                    </option>
+                  ))}
                 </select>
                 <ChevronDown className="w-4 h-4 text-zinc-500 absolute right-3 top-3 pointer-events-none" />
               </div>
@@ -254,10 +271,10 @@ export function ProviderConnectionDialog({
             </button>
             <button
               onClick={handleConnect}
-              disabled={isValidating || !apiKey.trim()}
+              disabled={isLoading || !apiKey.trim()}
               className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-900 disabled:opacity-50 text-white text-sm font-medium rounded transition-colors flex items-center justify-center gap-2"
             >
-              {isValidating && <Loader className="w-4 h-4 animate-spin" />}
+              {isLoading && <Loader className="w-4 h-4 animate-spin" />}
               Connect
             </button>
           </div>
@@ -269,8 +286,8 @@ export function ProviderConnectionDialog({
   // Step 3: Select Model
   if (step === "select-model") {
     return (
-      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-        <div className="bg-zinc-900 rounded-lg border border-zinc-800 w-full max-w-lg max-h-[600px] flex flex-col">
+      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={onClose}>
+        <div className="bg-zinc-900 rounded-lg border border-zinc-800 w-full max-w-lg max-h-[600px] flex flex-col" onClick={(e) => e.stopPropagation()}>
           {/* Header */}
           <div className="flex items-center justify-between p-4 border-b border-zinc-800">
             <h2 className="text-lg font-semibold text-zinc-200">Select Model</h2>
