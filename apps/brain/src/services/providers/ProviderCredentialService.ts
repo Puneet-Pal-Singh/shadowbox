@@ -22,15 +22,18 @@ import {
 } from "../../domain/errors";
 import { isProviderApiKeyFormatValid } from "../../schemas/provider-registry";
 import type { DurableProviderStore } from "./DurableProviderStore";
+import { ProviderLiveValidationService } from "./ProviderLiveValidationService";
 
 /**
  * ProviderCredentialService - Manages provider API credentials
  */
 export class ProviderCredentialService {
   private durableStore: DurableProviderStore;
+  private liveValidationService: ProviderLiveValidationService;
 
-  constructor(_env: Env, durableStore: DurableProviderStore) {
+  constructor(env: Env, durableStore: DurableProviderStore) {
     this.durableStore = durableStore;
+    this.liveValidationService = ProviderLiveValidationService.fromEnv(env);
   }
 
   /**
@@ -79,6 +82,7 @@ export class ProviderCredentialService {
     request: BYOKValidateRequest,
   ): Promise<BYOKValidateResponse> {
     const { providerId } = request;
+    const validationMode = request.mode ?? "format";
     const apiKey = await this.getApiKey(providerId);
     if (!apiKey) {
       throw new ProviderNotConnectedError(providerId);
@@ -94,10 +98,15 @@ export class ProviderCredentialService {
       );
     }
 
+    if (validationMode === "live") {
+      this.liveValidationService.ensureEnabled();
+      await this.liveValidationService.validate(providerId, apiKey);
+    }
     return {
       providerId,
       status: "valid",
       checkedAt: new Date().toISOString(),
+      validationMode,
     };
   }
 

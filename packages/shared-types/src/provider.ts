@@ -111,8 +111,12 @@ export const BYOKDisconnectResponseSchema = z.object({
 });
 export type BYOKDisconnectResponse = z.infer<typeof BYOKDisconnectResponseSchema>;
 
+export const BYOKValidationModeSchema = z.enum(["format", "live"]);
+export type BYOKValidationMode = z.infer<typeof BYOKValidationModeSchema>;
+
 export const BYOKValidateRequestSchema = z.object({
   providerId: ProviderIdSchema,
+  mode: BYOKValidationModeSchema.optional(),
 });
 export type BYOKValidateRequest = z.infer<typeof BYOKValidateRequestSchema>;
 
@@ -120,6 +124,7 @@ export const BYOKValidateResponseSchema = z.object({
   providerId: ProviderIdSchema,
   status: z.enum(["valid", "invalid"]),
   checkedAt: z.string().datetime(),
+  validationMode: BYOKValidationModeSchema.optional(),
 });
 export type BYOKValidateResponse = z.infer<typeof BYOKValidateResponseSchema>;
 

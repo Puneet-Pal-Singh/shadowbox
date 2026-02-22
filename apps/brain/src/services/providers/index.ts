@@ -8,6 +8,13 @@ export { ProviderCatalogService } from "./ProviderCatalogService";
 export { ProviderConnectionService } from "./ProviderConnectionService";
 export { ProviderConfigService } from "./ProviderConfigService";
 export { DurableProviderStore } from "./DurableProviderStore";
+export { ProviderRateLimitService } from "./ProviderRateLimitService";
+export { ProviderLiveValidationService } from "./ProviderLiveValidationService";
+export { ProviderAuditService } from "./ProviderAuditService";
+export type {
+  LegacyCredentialMigrationConfig,
+  ProviderAuditEvent,
+} from "./DurableProviderStore";
 export {
   PROVIDER_CAPABILITY_MATRIX,
   isModelAllowedByCapabilityMatrix,
@@ -23,6 +30,9 @@ export {
   type GenerationResult,
   type StreamChunk,
 } from "./base";
+
+// Encryption configuration
+export { readByokEncryptionConfig } from "./provider-encryption-key";
 
 // Adapter implementations
 export { LiteLLMAdapter } from "./adapters";

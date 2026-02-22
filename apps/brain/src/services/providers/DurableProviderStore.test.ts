@@ -56,7 +56,7 @@ describe("DurableProviderStore", () => {
     expect(storage.get("provider:v2:user-1:workspace-1:groq")).toBeUndefined();
     expect(storage.has(`provider:${runId}:${providerId}`)).toBe(true);
     expect(warnSpy).toHaveBeenCalledWith(
-      `[provider/durable] Legacy run-scoped credential detected for ${providerId}; legacy format is unsupported after BYOK cutover. Reconnect provider.`,
+      `[provider/durable] Legacy run-scoped credential detected for ${providerId}; fallback disabled or cutoff reached.`,
     );
   });
 
@@ -197,6 +197,107 @@ describe("DurableProviderStore", () => {
 
     expect(storage.has(`provider:${runId}:openai`)).toBe(false);
     expect(storage.get("provider:v2:user-1:workspace-1:openai")).toBeUndefined();
+  });
+
+  it("reads legacy credential when fallback is enabled and backfills scoped storage", async () => {
+    const { state, storage } = createMockDurableState();
+    const providerId: ProviderId = "openai";
+    const runId = "run-fallback";
+    storage.set(
+      `provider:${runId}:${providerId}`,
+      JSON.stringify({
+        providerId,
+        apiKey: "sk_legacy_key_fallback_1234567890",
+        connectedAt: "2026-02-20T00:00:00.000Z",
+      }),
+    );
+
+    const store = new DurableProviderStore(
+      state,
+      { runId, userId: "user-1", workspaceId: "workspace-1" },
+      "test-encryption-key",
+      {
+        legacyReadFallbackEnabled: true,
+        legacyBackfillEnabled: true,
+        legacyRollbackEnabled: false,
+      },
+    );
+
+    await expect(store.getApiKey(providerId)).resolves.toBe(
+      "sk_legacy_key_fallback_1234567890",
+    );
+
+    const scopedRaw = storage.get("provider:v2:user-1:workspace-1:openai");
+    expect(scopedRaw).toBeDefined();
+    expect(scopedRaw).not.toContain("sk_legacy_key_fallback_1234567890");
+  });
+
+  it("decrypts with previous key version and re-encrypts to current key", async () => {
+    const { state, storage } = createMockDurableState();
+    const scope = {
+      runId: "run-rotation",
+      userId: "user-1",
+      workspaceId: "workspace-1",
+    };
+    const storeV1 = new DurableProviderStore(state, scope, {
+      current: { version: "v1", key: "encryption-key-v1" },
+    });
+    await storeV1.setProvider("openai", "sk_rotation_key_1234567890");
+
+    const storeV2 = new DurableProviderStore(state, scope, {
+      current: { version: "v2", key: "encryption-key-v2" },
+      previous: { version: "v1", key: "encryption-key-v1" },
+    });
+
+    await expect(storeV2.getApiKey("openai")).resolves.toBe(
+      "sk_rotation_key_1234567890",
+    );
+
+    const raw = storage.get("provider:v2:user-1:workspace-1:openai");
+    expect(raw).toBeDefined();
+    const parsed = JSON.parse(raw ?? "{}") as { keyVersion?: string };
+    expect(parsed.keyVersion).toBe("v2");
+  });
+
+  it("blocks legacy fallback after cutoff unless rollback is enabled", async () => {
+    const { state, storage } = createMockDurableState();
+    const providerId: ProviderId = "groq";
+    const runId = "run-cutoff";
+    storage.set(
+      `provider:${runId}:${providerId}`,
+      JSON.stringify({
+        providerId,
+        apiKey: "gsk_legacy_cutoff_key_1234567890",
+      }),
+    );
+
+    const cutoffStore = new DurableProviderStore(
+      state,
+      { runId, userId: "user-1", workspaceId: "workspace-1" },
+      "test-encryption-key",
+      {
+        legacyReadFallbackEnabled: true,
+        legacyBackfillEnabled: false,
+        legacyRollbackEnabled: false,
+        legacyCutoffAt: "2020-01-01T00:00:00.000Z",
+      },
+    );
+    await expect(cutoffStore.getApiKey(providerId)).resolves.toBeNull();
+
+    const rollbackStore = new DurableProviderStore(
+      state,
+      { runId, userId: "user-1", workspaceId: "workspace-1" },
+      "test-encryption-key",
+      {
+        legacyReadFallbackEnabled: false,
+        legacyBackfillEnabled: false,
+        legacyRollbackEnabled: true,
+        legacyCutoffAt: "2020-01-01T00:00:00.000Z",
+      },
+    );
+    await expect(rollbackStore.getApiKey(providerId)).resolves.toBe(
+      "gsk_legacy_cutoff_key_1234567890",
+    );
   });
 });
 
