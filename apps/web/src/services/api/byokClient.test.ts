@@ -13,7 +13,9 @@ describe("ByokApiClient", () => {
 
   beforeEach(() => {
     client = new ByokApiClient();
-    fetchSpy = vi.spyOn(global, "fetch");
+    fetchSpy = vi.spyOn(globalThis, "fetch") as unknown as ReturnType<
+      typeof vi.spyOn
+    >;
   });
 
   afterEach(() => {

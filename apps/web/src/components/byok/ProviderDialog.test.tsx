@@ -10,7 +10,9 @@ import { ProviderDialog } from "./ProviderDialog.js";
 import * as useByokStoreModule from "../../hooks/useByokStore.js";
 
 describe("ProviderDialog", () => {
-  let mockStore: Record<string, unknown>;
+  type UseByokStoreResult = ReturnType<typeof useByokStoreModule.useByokStore>;
+  let mockStore: UseByokStoreResult;
+  const credentialId = "550e8400-e29b-41d4-a716-446655440000";
 
   beforeEach(() => {
     mockStore = {
@@ -19,15 +21,22 @@ describe("ProviderDialog", () => {
           providerId: "openai",
           displayName: "OpenAI",
           authModes: ["api_key"],
+          capabilities: {
+            streaming: true,
+            tools: true,
+            jsonMode: true,
+            structuredOutputs: true,
+          },
+          modelSource: "static",
         },
       ],
       credentials: [
         {
-          credentialId: "cred-1",
+          credentialId,
           userId: "user-1",
           workspaceId: "ws-1",
           providerId: "openai",
-          label: "",
+          label: "Default key",
           keyFingerprint: "abc123xyz",
           encryptedSecretJson: "{}",
           keyVersion: "1",
@@ -39,30 +48,42 @@ describe("ProviderDialog", () => {
         },
       ],
       preferences: {
+        userId: "user-1",
+        workspaceId: "ws-1",
         fallbackMode: "strict",
+        fallbackChain: [],
+        updatedAt: new Date().toISOString(),
       },
       selectedProviderId: "openai",
-      selectedCredentialId: "cred-1",
+      selectedCredentialId: credentialId,
       selectedModelId: "gpt-4",
       status: "ready",
       error: null,
       isValidating: false,
       lastResolvedConfig: {
         providerId: "openai",
-        credentialId: "cred-1",
+        credentialId,
         modelId: "gpt-4",
         resolvedAt: "workspace_preference",
         resolvedAtTime: new Date().toISOString(),
         fallbackUsed: false,
       },
-      bootstrap: vi.fn(),
-      connectCredential: vi.fn(),
-      disconnectCredential: vi.fn(),
-      validateCredential: vi.fn(),
-      updatePreferences: vi.fn(),
+      bootstrap: vi.fn(async () => undefined),
+      connectCredential: vi.fn(async () => undefined),
+      disconnectCredential: vi.fn(async () => undefined),
+      validateCredential: vi.fn(async () => undefined),
+      updatePreferences: vi.fn(async () => undefined),
       setSelection: vi.fn(),
-      resolveForChat: vi.fn(),
+      resolveForChat: vi.fn(async () => ({
+        providerId: "openai",
+        credentialId,
+        modelId: "gpt-4",
+        resolvedAt: "workspace_preference" as const,
+        resolvedAtTime: new Date().toISOString(),
+        fallbackUsed: false,
+      })),
       clearError: vi.fn(),
+      reset: vi.fn(),
     };
 
     vi.spyOn(useByokStoreModule, "useByokStore").mockReturnValue(mockStore);
@@ -89,7 +110,7 @@ describe("ProviderDialog", () => {
     it("displays connected credentials", () => {
       render(<ProviderDialog isOpen={true} onClose={vi.fn()} />);
 
-      expect(screen.getByText("openai (default)")).toBeInTheDocument();
+      expect(screen.getByText("Default key")).toBeInTheDocument();
       expect(screen.getByText("Provider: openai")).toBeInTheDocument();
     });
 
@@ -109,7 +130,7 @@ describe("ProviderDialog", () => {
       fireEvent.click(removeButton);
 
       await waitFor(() => {
-        expect(mockStore.disconnectCredential).toHaveBeenCalledWith("cred-1");
+        expect(mockStore.disconnectCredential).toHaveBeenCalledWith(credentialId);
       });
     });
 
@@ -121,7 +142,7 @@ describe("ProviderDialog", () => {
 
       await waitFor(() => {
         expect(mockStore.validateCredential).toHaveBeenCalledWith(
-          "cred-1",
+          credentialId,
           "format"
         );
       });
@@ -221,8 +242,11 @@ describe("ProviderDialog", () => {
       render(<ProviderDialog isOpen={true} onClose={onClose} />);
 
       const footerCloseButtons = screen.getAllByRole("button", { name: /Close/i });
-      // The footer close button is the second one (first is the X in header)
-      fireEvent.click(footerCloseButtons[1]);
+      const footerCloseButton = footerCloseButtons[1];
+      expect(footerCloseButton).toBeDefined();
+      if (footerCloseButton) {
+        fireEvent.click(footerCloseButton);
+      }
 
       expect(onClose).toHaveBeenCalled();
     });

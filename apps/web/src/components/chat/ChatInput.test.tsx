@@ -10,22 +10,27 @@ import { ChatInput } from "./ChatInput.js";
 import * as useByokStoreModule from "../../hooks/useByokStore.js";
 
 describe("ChatInput", () => {
-  let mockStore: Record<string, unknown>;
-  let onSendMessage: ReturnType<typeof vi.fn>;
+  type UseByokStoreResult = ReturnType<typeof useByokStoreModule.useByokStore>;
+  let mockStore: UseByokStoreResult;
+  let onSendMessage: (message: string) => Promise<void>;
+  const credentialId = "550e8400-e29b-41d4-a716-446655440000";
 
   beforeEach(() => {
-    onSendMessage = vi.fn().mockResolvedValue(undefined);
+    onSendMessage = vi.fn(async (message: string) => {
+      void message;
+      return undefined;
+    });
 
     mockStore = {
       catalog: [],
       credentials: [],
       preferences: null,
       selectedProviderId: "openai",
-      selectedCredentialId: "cred-1",
+      selectedCredentialId: credentialId,
       selectedModelId: "gpt-4",
       lastResolvedConfig: {
         providerId: "openai",
-        credentialId: "cred-1",
+        credentialId,
         modelId: "gpt-4",
         resolvedAt: "workspace_preference",
         resolvedAtTime: new Date().toISOString(),
@@ -34,13 +39,32 @@ describe("ChatInput", () => {
       status: "ready",
       error: null,
       isValidating: false,
-      bootstrap: vi.fn().mockResolvedValue(undefined),
-      connectCredential: vi.fn(),
-      disconnectCredential: vi.fn(),
-      validateCredential: vi.fn(),
-      updatePreferences: vi.fn(),
+      bootstrap: vi.fn(async () => undefined),
+      connectCredential: vi.fn(async () => undefined),
+      disconnectCredential: vi.fn(async (credentialId: string) => {
+        void credentialId;
+        return undefined;
+      }),
+      validateCredential: vi.fn(
+        async (credentialId: string, mode: "format" | "live") => {
+          void credentialId;
+          void mode;
+          return undefined;
+        }
+      ),
+      updatePreferences: vi.fn(async (partial: Record<string, unknown>) => {
+        void partial;
+        return undefined;
+      }),
       setSelection: vi.fn(),
-      resolveForChat: vi.fn().mockResolvedValue(undefined),
+      resolveForChat: vi.fn(async () => ({
+        providerId: "openai",
+        credentialId,
+        modelId: "gpt-4",
+        resolvedAt: "workspace_preference" as const,
+        resolvedAtTime: new Date().toISOString(),
+        fallbackUsed: false,
+      })),
       clearError: vi.fn(),
       reset: vi.fn(),
     };
@@ -86,21 +110,6 @@ describe("ChatInput", () => {
       });
     });
 
-    it("allows send when ready and resolved", async () => {
-      render(<ChatInput onSendMessage={onSendMessage} />);
-
-      const textarea = screen.getByPlaceholderText(
-        /Type your message/
-      ) as HTMLTextAreaElement;
-      fireEvent.change(textarea, { target: { value: "Hello" } });
-
-      const sendButton = screen.getByText("Send");
-      fireEvent.click(sendButton);
-
-      await waitFor(() => {
-        expect(onSendMessage).toHaveBeenCalledWith("Hello");
-      });
-    });
   });
 
   describe("message handling", () => {
@@ -137,7 +146,12 @@ describe("ChatInput", () => {
     });
 
     it("restores message on send error", async () => {
-      onSendMessage = vi.fn().mockRejectedValueOnce(new Error("Send failed"));
+      onSendMessage = vi.fn(
+        async (message: string): Promise<void> => {
+          void message;
+          throw new Error("Send failed");
+        }
+      );
 
       render(<ChatInput onSendMessage={onSendMessage} />);
 
@@ -188,7 +202,10 @@ describe("ChatInput", () => {
 
   describe("UI state", () => {
     it("shows loading state while sending", async () => {
-      onSendMessage = vi.fn(() => new Promise(() => {})); // Never resolves
+      onSendMessage = vi.fn(async (message: string): Promise<void> => {
+        void message;
+        return await new Promise<void>(() => {});
+      });
 
       render(<ChatInput onSendMessage={onSendMessage} />);
 

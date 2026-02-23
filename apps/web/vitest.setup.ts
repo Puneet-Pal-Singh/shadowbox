@@ -4,7 +4,7 @@
  * (localStorage, sessionStorage, etc.)
  */
 
-import "@testing-library/jest-dom";
+import "@testing-library/jest-dom/vitest";
 
 // Mock localStorage for Node.js test environment
 class LocalStorageMock {

@@ -58,10 +58,32 @@ export interface ValidateCredentialRequest {
 }
 
 /**
+ * API client contract for store operations.
+ * Keeps store testable and decoupled from concrete client implementation.
+ */
+export interface ByokApiClientContract {
+  getCatalog(): Promise<ProviderRegistryEntry[]>;
+  getCredentials(): Promise<BYOKCredential[]>;
+  getPreferences(): Promise<BYOKPreference>;
+  connectCredential(req: ConnectCredentialRequest): Promise<BYOKCredential>;
+  disconnectCredential(credentialId: string): Promise<void>;
+  validateCredential(
+    credentialId: string,
+    req: ValidateCredentialRequest
+  ): Promise<{ valid: boolean; error?: string }>;
+  updatePreferences(req: Partial<BYOKPreference>): Promise<BYOKPreference>;
+  resolveForChat(req: {
+    providerId?: string;
+    credentialId?: string;
+    modelId?: string;
+  }): Promise<BYOKResolution>;
+}
+
+/**
  * Store initialization options
  */
 export interface ByokStoreOptions {
-  apiClient?: ByokApiClient;
+  apiClient?: ByokApiClientContract;
   enableLogging?: boolean;
 }
 
@@ -71,12 +93,12 @@ export interface ByokStoreOptions {
 export class ByokStore {
   private static instance: ByokStore;
   private state: ByokStoreState;
-  private apiClient: ByokApiClient;
+  private apiClient: ByokApiClientContract;
   private listeners: Set<(state: ByokStoreState) => void> = new Set();
   private inflight: Map<string, Promise<unknown>> = new Map();
   private enableLogging: boolean;
 
-  private constructor(apiClient: ByokApiClient, enableLogging = false) {
+  private constructor(apiClient: ByokApiClientContract, enableLogging = false) {
     this.apiClient = apiClient;
     this.enableLogging = enableLogging;
     this.state = {
