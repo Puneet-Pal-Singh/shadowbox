@@ -62,6 +62,7 @@ interface CredentialWithPlaintext extends BYOKCredential {
  */
 export interface IDatabase {
   prepare(sql: string): PreparedStatement;
+  batch?(statements: BoundStatement[]): Promise<unknown[]>;
 }
 
 export interface PreparedStatement {

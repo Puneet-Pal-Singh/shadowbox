@@ -1,20 +1,18 @@
 /**
  * BYOK Migration Service
  *
- * Handles v2 → v3 credential migration with:
+ * Handles v2 -> v3 credential migration with:
  * - Background migration execution
  * - Idempotency to prevent duplicate migrations
  * - Progress tracking for observability
  * - Error handling and retry logic
- *
- * Usage:
- *   const migrator = new ByokBackgroundMigrator(db, encryptionService);
- *   const result = await migrator.migrate();
- *   console.log(`Migrated ${result.migratedCount} of ${result.totalCount} credentials`);
  */
 
-import type { IDatabase } from "./repository.js";
-import { CredentialEncryptionService } from "./encryption.js";
+import type { BoundStatement, IDatabase } from "./repository.js";
+import {
+  EncryptedSecretSchema,
+  type ICredentialEncryptionService,
+} from "./encryption.js";
 
 /**
  * Migration progress record
@@ -44,6 +42,13 @@ interface V2CredentialRecord {
   migrated_at?: string;
 }
 
+export interface MigrationCryptoConfig {
+  targetMasterKey: string;
+  targetKeyVersion: string;
+  legacyMasterKey?: string;
+  legacyPreviousMasterKey?: string;
+}
+
 /**
  * Migration result
  */
@@ -62,44 +67,52 @@ export interface MigrationResult {
  */
 export class ByokBackgroundMigrator {
   private db: IDatabase;
-  private encryptionService: CredentialEncryptionService;
+  private encryptionService: ICredentialEncryptionService;
   private batchSize: number;
+  private cryptoConfig: MigrationCryptoConfig;
+  private completedAt: string | null = null;
+  private lastFailedCount = 0;
+  private lastFailedIds: string[] = [];
+  private lastRunFailed = false;
 
   constructor(
     db: IDatabase,
-    encryptionService: CredentialEncryptionService,
+    encryptionService: ICredentialEncryptionService,
     batchSize: number = 100,
+    cryptoConfig: MigrationCryptoConfig = {
+      targetMasterKey: "migration-placeholder-master-key",
+      targetKeyVersion: "v1",
+    },
   ) {
     this.db = db;
     this.encryptionService = encryptionService;
     this.batchSize = batchSize;
+    this.cryptoConfig = cryptoConfig;
   }
 
   /**
    * Execute background migration
-   * Fetches unmigrated v2 records and converts to v3
+   * Fetches unmigrated v2 records and converts to v3.
    */
   async migrate(): Promise<MigrationResult> {
     const startTime = Date.now();
     let migratedCount = 0;
     let failedCount = 0;
     const failedIds: string[] = [];
+    let totalCount = 0;
+
+    this.completedAt = null;
+    this.lastRunFailed = false;
 
     try {
       console.log("[ByokBackgroundMigrator] Starting migration");
 
-      // Get count of unmigrated records
-      const countResult = await this.db
-        .prepare(
-          "SELECT COUNT(*) as count FROM v2_provider_connections WHERE migrated_at IS NULL",
-        )
-        .bind()
-        .first<{ count: number }>();
-
-      const totalCount = countResult?.count ?? 0;
-
+      totalCount = await this.getUnmigratedCount();
       if (totalCount === 0) {
         console.log("[ByokBackgroundMigrator] No unmigrated records found");
+        this.lastFailedCount = 0;
+        this.lastFailedIds = [];
+        this.completedAt = new Date().toISOString();
         return {
           success: true,
           migratedCount: 0,
@@ -114,33 +127,22 @@ export class ByokBackgroundMigrator {
         `[ByokBackgroundMigrator] Found ${totalCount} unmigrated records`,
       );
 
-      // Process in batches
-      // Note: Using OFFSET 0 always because the WHERE clause filters on migrated_at IS NULL,
-      // which changes as records are migrated. This prevents skipping records when the result set shrinks.
       while (true) {
-        const batch = await this.db
-          .prepare(
-            `
-            SELECT 
-              id, user_id, workspace_id, provider_id, label, secret, created_at, updated_at
-            FROM v2_provider_connections 
-            WHERE migrated_at IS NULL
-            LIMIT ? OFFSET 0
-          `,
-          )
-          .bind(this.batchSize)
-          .all<V2CredentialRecord>();
-
-        if (!batch.results || batch.results.length === 0) break;
+        const batch = await this.fetchUnmigratedBatch();
+        if (batch.length === 0) {
+          break;
+        }
 
         console.log(
-          `[ByokBackgroundMigrator] Processing batch size: ${batch.results.length}`,
+          `[ByokBackgroundMigrator] Processing batch size: ${batch.length}`,
         );
 
-        for (const v2Record of batch.results) {
+        let batchMigratedCount = 0;
+        for (const v2Record of batch) {
           try {
             await this.migrateRecord(v2Record);
             migratedCount++;
+            batchMigratedCount++;
           } catch (error) {
             failedCount++;
             failedIds.push(v2Record.id);
@@ -150,20 +152,30 @@ export class ByokBackgroundMigrator {
           }
         }
 
-        // Log progress
         console.log(
           `[ByokBackgroundMigrator] Progress: ${migratedCount} migrated, ${failedCount} failed`,
         );
+
+        if (batchMigratedCount === 0) {
+          this.lastRunFailed = true;
+          console.warn(
+            "[ByokBackgroundMigrator] Stopping migration: batch produced no successful migrations",
+          );
+          break;
+        }
       }
 
       const durationMs = Date.now() - startTime;
+      this.completedAt = new Date().toISOString();
+      this.lastFailedCount = failedCount;
+      this.lastFailedIds = [...failedIds];
 
       console.log(
         `[ByokBackgroundMigrator] Migration complete: ${migratedCount} migrated, ${failedCount} failed in ${durationMs}ms`,
       );
 
       return {
-        success: failedCount === 0,
+        success: failedCount === 0 && !this.lastRunFailed,
         migratedCount,
         failedCount,
         totalCount,
@@ -175,15 +187,17 @@ export class ByokBackgroundMigrator {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
 
-      console.error(
-        `[ByokBackgroundMigrator] Migration failed: ${errorMessage}`,
-      );
+      this.lastRunFailed = true;
+      this.lastFailedCount = failedCount;
+      this.lastFailedIds = [...failedIds];
+
+      console.error(`[ByokBackgroundMigrator] Migration failed: ${errorMessage}`);
 
       return {
         success: false,
         migratedCount,
         failedCount,
-        totalCount: 0,
+        totalCount,
         failedIds,
         durationMs,
         errorMessage,
@@ -192,24 +206,18 @@ export class ByokBackgroundMigrator {
   }
 
   /**
-   * Migrate a single v2 record to v3
-   * Private method called by migrate()
+   * Migrate a single v2 record to v3.
    */
   private async migrateRecord(v2Record: V2CredentialRecord): Promise<void> {
-    // Note: In a real implementation, would decrypt v2 secret and re-encrypt with v3 key
-    // For now, using placeholder encrypted payload
-    // This will be fully implemented when v3 encryption service is complete
-    const placeholderEncrypted = {
-      alg: "AES-256-GCM",
-      ciphertext: "placeholder",
-      iv: "placeholder",
-      tag: "placeholder",
-      wrappedDek: "placeholder",
-      keyVersion: "v1",
-    };
+    const plaintext = await this.resolveLegacySecret(v2Record.secret);
+    const encrypted = await this.encryptionService.encrypt(plaintext, {
+      keyVersion: this.cryptoConfig.targetKeyVersion,
+      masterKey: this.cryptoConfig.targetMasterKey,
+    });
+    const keyFingerprint = this.encryptionService.generateFingerprint(plaintext);
+    const migratedAt = new Date().toISOString();
 
-    // Insert into v3 table
-    await this.db
+    const insertStatement = this.db
       .prepare(
         `
         INSERT INTO byok_credentials (
@@ -221,65 +229,49 @@ export class ByokBackgroundMigrator {
       `,
       )
       .bind(
-        v2Record.id, // credential_id
+        v2Record.id,
         v2Record.user_id,
         v2Record.workspace_id,
         v2Record.provider_id,
         v2Record.label || "Migrated from v2",
-        `migrated_v2_${v2Record.id.substring(0, 8)}`, // Safe fingerprint
-        JSON.stringify(placeholderEncrypted),
-        "v1", // key_version
-        "connected", // status
+        keyFingerprint,
+        JSON.stringify(encrypted),
+        encrypted.keyVersion,
+        "connected",
         v2Record.created_at,
         v2Record.updated_at,
-      )
-      .run();
+      );
 
-    // Mark v2 record as migrated
-    await this.db
-      .prepare(
-        "UPDATE v2_provider_connections SET migrated_at = ? WHERE id = ?",
-      )
-      .bind(new Date().toISOString(), v2Record.id)
-      .run();
+    const updateStatement = this.db
+      .prepare("UPDATE v2_provider_connections SET migrated_at = ? WHERE id = ?")
+      .bind(migratedAt, v2Record.id);
+
+    await this.runAtomicMigrationStatements(insertStatement, updateStatement);
 
     console.log(`[ByokBackgroundMigrator] Migrated credential ${v2Record.id}`);
   }
 
   /**
-   * Check migration status
+   * Check migration status.
    */
   async getProgress(): Promise<MigrationProgress> {
-    const unmigrated = await this.db
-      .prepare(
-        "SELECT COUNT(*) as count FROM v2_provider_connections WHERE migrated_at IS NULL",
-      )
-      .bind()
-      .first<{ count: number }>();
-
-    const total = await this.db
-      .prepare("SELECT COUNT(*) as count FROM v2_provider_connections")
-      .bind()
-      .first<{ count: number }>();
-
-    const totalCount = total?.count ?? 0;
-    const unmiggedCount = unmigrated?.count ?? 0;
-    const migratedCount = totalCount - unmiggedCount;
+    const unmigratedCount = await this.getUnmigratedCount();
+    const totalCount = await this.getTotalCount();
+    const migratedCount = totalCount - unmigratedCount;
 
     return {
       totalCount,
       migratedCount,
-      failedCount: 0, // Would need to track in separate table for full accuracy
-      failedIds: [],
+      failedCount: this.lastFailedCount,
+      failedIds: [...this.lastFailedIds],
       lastBatchSize: this.batchSize,
-      completedAt: unmiggedCount === 0 ? new Date().toISOString() : null,
-      status: unmiggedCount === 0 ? "completed" : "in_progress",
+      completedAt: unmigratedCount === 0 ? this.completedAt : null,
+      status: this.resolveStatus(totalCount, unmigratedCount, migratedCount),
     };
   }
 
   /**
-   * Rollback migration (for emergency only)
-   * Marks all v3 records as unmigrated
+   * Rollback migration (for emergency only).
    */
   async rollback(): Promise<void> {
     console.warn(
@@ -293,7 +285,103 @@ export class ByokBackgroundMigrator {
       .bind()
       .run();
 
-    // Note: v3 records remain in place, but are effectively "stale"
-    // Clean up should be done separately if needed
+    this.completedAt = null;
+    this.lastRunFailed = false;
+  }
+
+  private async getUnmigratedCount(): Promise<number> {
+    const countResult = await this.db
+      .prepare(
+        "SELECT COUNT(*) as count FROM v2_provider_connections WHERE migrated_at IS NULL",
+      )
+      .bind()
+      .first<{ count: number }>();
+    return countResult?.count ?? 0;
+  }
+
+  private async getTotalCount(): Promise<number> {
+    const total = await this.db
+      .prepare("SELECT COUNT(*) as count FROM v2_provider_connections")
+      .bind()
+      .first<{ count: number }>();
+    return total?.count ?? 0;
+  }
+
+  private async fetchUnmigratedBatch(): Promise<V2CredentialRecord[]> {
+    const batch = await this.db
+      .prepare(
+        `
+        SELECT
+          id, user_id, workspace_id, provider_id, label, secret, created_at, updated_at
+        FROM v2_provider_connections
+        WHERE migrated_at IS NULL
+        LIMIT ? OFFSET 0
+      `,
+      )
+      .bind(this.batchSize)
+      .all<V2CredentialRecord>();
+
+    return batch.results ?? [];
+  }
+
+  private async resolveLegacySecret(secret: string): Promise<string> {
+    const maybeEncrypted = this.parseEncryptedSecret(secret);
+    if (!maybeEncrypted) {
+      return secret;
+    }
+
+    if (!this.cryptoConfig.legacyMasterKey) {
+      throw new Error(
+        "Legacy encrypted secret detected but legacyMasterKey is not configured",
+      );
+    }
+
+    return this.encryptionService.decrypt(maybeEncrypted, {
+      masterKey: this.cryptoConfig.legacyMasterKey,
+      previousMasterKey: this.cryptoConfig.legacyPreviousMasterKey,
+    });
+  }
+
+  private parseEncryptedSecret(secret: string) {
+    try {
+      const parsed = JSON.parse(secret) as unknown;
+      const result = EncryptedSecretSchema.safeParse(parsed);
+      return result.success ? result.data : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private async runAtomicMigrationStatements(
+    insertStatement: BoundStatement,
+    updateStatement: BoundStatement,
+  ): Promise<void> {
+    if (this.db.batch) {
+      await this.db.batch([insertStatement, updateStatement]);
+      return;
+    }
+
+    await insertStatement.run();
+    await updateStatement.run();
+  }
+
+  private resolveStatus(
+    totalCount: number,
+    unmigratedCount: number,
+    migratedCount: number,
+  ): MigrationProgress["status"] {
+    if (totalCount === 0 || unmigratedCount === 0) {
+      return "completed";
+    }
+
+    if (this.lastRunFailed) {
+      return "failed";
+    }
+
+    if (migratedCount === 0) {
+      return "pending";
+    }
+
+    return "in_progress";
   }
 }

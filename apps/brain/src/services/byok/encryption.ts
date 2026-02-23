@@ -45,6 +45,19 @@ export interface DecryptionOptions {
   previousMasterKey?: string; // For key rotation
 }
 
+export interface ICredentialEncryptionService {
+  encrypt(
+    plaintext: string,
+    options: EncryptionOptions,
+  ): Promise<EncryptedSecret>;
+  decrypt(
+    encrypted: EncryptedSecret,
+    options: DecryptionOptions,
+  ): Promise<string>;
+  generateFingerprint(plaintext: string): string;
+  isValidKeyFormat(plaintext: string): boolean;
+}
+
 /**
  * CredentialEncryptionService
  *

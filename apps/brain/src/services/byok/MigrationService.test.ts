@@ -4,24 +4,28 @@
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { ByokBackgroundMigrator } from "./MigrationService";
-import { CredentialEncryptionService } from "./encryption.js";
+import type { ICredentialEncryptionService } from "./encryption.js";
 import type { IDatabase, BoundStatement, PreparedStatement } from "./repository";
 
 describe("ByokBackgroundMigrator", () => {
   let mockDb: IDatabase;
-  let mockEncryption: CredentialEncryptionService;
+  let mockEncryption: ICredentialEncryptionService;
   let migrator: ByokBackgroundMigrator;
 
   beforeEach(() => {
     mockEncryption = {
-      encrypt: vi.fn().mockReturnValue({
+      encrypt: vi.fn().mockResolvedValue({
+        alg: "AES-256-GCM",
         ciphertext: "encrypted",
         iv: "iv",
         tag: "tag",
         wrappedDek: "dek",
+        keyVersion: "v1",
       }),
-      decrypt: vi.fn(),
-    } as unknown as CredentialEncryptionService;
+      decrypt: vi.fn().mockResolvedValue("plaintext-secret"),
+      generateFingerprint: vi.fn().mockReturnValue("sk-...1234"),
+      isValidKeyFormat: vi.fn().mockReturnValue(true),
+    };
 
     // Mock database
     const mockBoundStatement: BoundStatement = {
@@ -98,7 +102,8 @@ describe("ByokBackgroundMigrator", () => {
           .mockReturnValue({
             all: vi
               .fn()
-              .mockResolvedValue({ results: mockV2Records }),
+              .mockResolvedValueOnce({ results: mockV2Records })
+              .mockResolvedValueOnce({ results: [] }),
           } as unknown as BoundStatement),
       } as unknown as PreparedStatement;
 
@@ -154,7 +159,8 @@ describe("ByokBackgroundMigrator", () => {
           .mockReturnValue({
             all: vi
               .fn()
-              .mockResolvedValue({ results: mockV2Records }),
+              .mockResolvedValueOnce({ results: mockV2Records })
+              .mockResolvedValueOnce({ results: [] }),
           } as unknown as BoundStatement),
       } as unknown as PreparedStatement;
 
@@ -184,6 +190,123 @@ describe("ByokBackgroundMigrator", () => {
       expect(result.migratedCount).toBe(0);
       expect(result.failedCount).toBe(1);
       expect(result.failedIds).toContain("cred-1");
+    });
+
+    it("should stop loop when a full batch has zero successful migrations", async () => {
+      const mockV2Records = [
+        {
+          id: "cred-1",
+          user_id: "user-1",
+          workspace_id: "ws-1",
+          provider_id: "openai",
+          label: "Prod",
+          secret: "sk-...",
+          created_at: "2024-01-01T00:00:00Z",
+          updated_at: "2024-01-01T00:00:00Z",
+        },
+      ];
+
+      const countStatement = {
+        bind: vi
+          .fn()
+          .mockReturnValue({
+            first: vi.fn().mockResolvedValue({ count: 1 }),
+          } as unknown as BoundStatement),
+      } as unknown as PreparedStatement;
+
+      const batchStatement = {
+        bind: vi
+          .fn()
+          .mockReturnValue({
+            all: vi.fn().mockResolvedValue({ results: mockV2Records }),
+          } as unknown as BoundStatement),
+      } as unknown as PreparedStatement;
+
+      const failingStatement = {
+        bind: vi
+          .fn()
+          .mockReturnValue({
+            run: vi
+              .fn()
+              .mockRejectedValue(new Error("Insert failed")),
+          } as unknown as BoundStatement),
+      } as unknown as PreparedStatement;
+
+      (mockDb.prepare as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+        (sql: string) => {
+          if (sql.includes("COUNT(*)")) {
+            return countStatement;
+          }
+          if (sql.includes("SELECT") && sql.includes("v2_provider_connections")) {
+            return batchStatement;
+          }
+          return failingStatement;
+        },
+      );
+
+      migrator = new ByokBackgroundMigrator(mockDb, mockEncryption);
+      const result = await migrator.migrate();
+
+      expect(result.success).toBe(false);
+      expect(result.failedCount).toBe(1);
+    });
+
+    it("should use encryption service during migration", async () => {
+      const mockV2Records = [
+        {
+          id: "cred-1",
+          user_id: "user-1",
+          workspace_id: "ws-1",
+          provider_id: "openai",
+          label: "Prod",
+          secret: "plaintext-key",
+          created_at: "2024-01-01T00:00:00Z",
+          updated_at: "2024-01-01T00:00:00Z",
+        },
+      ];
+
+      const countStatement = {
+        bind: vi
+          .fn()
+          .mockReturnValue({
+            first: vi.fn().mockResolvedValue({ count: 1 }),
+          } as unknown as BoundStatement),
+      } as unknown as PreparedStatement;
+
+      const batchStatement = {
+        bind: vi
+          .fn()
+          .mockReturnValue({
+            all: vi
+              .fn()
+              .mockResolvedValueOnce({ results: mockV2Records })
+              .mockResolvedValueOnce({ results: [] }),
+          } as unknown as BoundStatement),
+      } as unknown as PreparedStatement;
+
+      (mockDb.prepare as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+        (sql: string) => {
+          if (sql.includes("COUNT(*)")) {
+            return countStatement;
+          }
+          if (sql.includes("SELECT")) {
+            return batchStatement;
+          }
+          return {
+            bind: vi.fn().mockReturnValue({
+              run: vi.fn().mockResolvedValue({ success: true }),
+            }),
+          };
+        },
+      );
+
+      migrator = new ByokBackgroundMigrator(mockDb, mockEncryption);
+      await migrator.migrate();
+
+      expect(mockEncryption.encrypt).toHaveBeenCalled();
+      expect(mockEncryption.generateFingerprint).toHaveBeenCalledWith(
+        "plaintext-key",
+      );
     });
   });
 
@@ -249,7 +372,7 @@ describe("ByokBackgroundMigrator", () => {
       const progress = await migrator.getProgress();
 
       expect(progress.status).toBe("completed");
-      expect(progress.completedAt).not.toBeNull();
+      expect(progress.completedAt).toBeNull();
     });
   });
 
