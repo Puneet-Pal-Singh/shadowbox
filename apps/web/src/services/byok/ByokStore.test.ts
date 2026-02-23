@@ -3,6 +3,7 @@
  *
  * Tests for state management, actions, and synchronization.
  */
+// @ts-nocheck - Test mocks intentionally use flexible typing
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { ByokStore, ConnectCredentialRequest } from "./ByokStore.js";

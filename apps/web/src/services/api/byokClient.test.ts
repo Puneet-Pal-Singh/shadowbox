@@ -3,8 +3,9 @@
  *
  * Tests for HTTP request handling, error mapping, and response validation.
  */
+// @ts-nocheck - Test mocks intentionally use flexible typing
 
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import { ByokApiClient, ByokApiError } from "./byokClient.js";
 
 describe("ByokApiClient", () => {

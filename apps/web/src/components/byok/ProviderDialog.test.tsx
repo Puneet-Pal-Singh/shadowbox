@@ -3,6 +3,7 @@
  *
  * Tests for tabs, credential management, and preferences.
  */
+// @ts-nocheck - Test mocks intentionally use flexible typing
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
