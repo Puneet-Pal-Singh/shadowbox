@@ -41,7 +41,9 @@ export function useChatCore(
   );
   const [isModelConfigReady, setIsModelConfigReady] = useState(false);
   const hasCompleteOverride = Boolean(
-    sessionModelConfig.providerId && sessionModelConfig.modelId,
+    isModelConfigReady &&
+      sessionModelConfig.providerId &&
+      sessionModelConfig.modelId,
   );
 
   useEffect(() => {

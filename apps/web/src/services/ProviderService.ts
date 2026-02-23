@@ -114,10 +114,9 @@ class ProviderService {
         `[provider/sessionConfig] Failed to sync persisted preferences for session ${sessionId}`,
         error,
       );
-      const resolvedConfig =
-        await this.resolveConnectedSessionModelConfig(localConfig);
-      this.persistResolvedConfig(sessionId, localConfig, resolvedConfig);
-      return resolvedConfig;
+      // In error path, use local config directly without retrying API call
+      this.persistResolvedConfig(sessionId, localConfig, localConfig);
+      return localConfig;
     }
   }
 
@@ -278,9 +277,11 @@ class ProviderService {
         return {};
       }
 
-      const config: SessionModelConfig = { providerId, modelId };
-      await this.persistPreferences(config);
-      return config;
+      // Return resolved config without persisting—callers decide when to persist
+      console.debug(
+        `[provider/sessionConfig] Resolved default config: providerId=${providerId}, modelId=${modelId}`,
+      );
+      return { providerId, modelId };
     } catch (error) {
       console.warn(
         `[provider/sessionConfig] Failed to resolve default model for provider ${providerId}`,

@@ -158,23 +158,27 @@ export function ModelSelector({
             onChange={(e) =>
               handleProviderChange(e.target.value as ProviderId)
             }
-            disabled={disabled}
+            disabled={disabled || providers.length === 0}
             className="w-full bg-zinc-800 text-zinc-200 text-sm rounded px-3 py-2 appearance-none cursor-pointer border border-zinc-700 focus:outline-none focus:border-zinc-500 disabled:opacity-50"
           >
-            {providers.map((provider) => (
-              <option
-                key={provider.providerId}
-                value={provider.providerId}
-                disabled={provider.status !== "connected"}
-              >
-                {provider.providerId === "openrouter"
-                  ? "OpenRouter"
-                  : provider.providerId === "groq"
-                  ? "Groq"
-                  : "OpenAI"}
-                {provider.status !== "connected" ? " (disconnected)" : ""}
-              </option>
-            ))}
+            {providers.length === 0 ? (
+              <option disabled>Loading providers…</option>
+            ) : (
+              providers.map((provider) => (
+                <option
+                  key={provider.providerId}
+                  value={provider.providerId}
+                  disabled={provider.status !== "connected"}
+                >
+                  {provider.providerId === "openrouter"
+                    ? "OpenRouter"
+                    : provider.providerId === "groq"
+                    ? "Groq"
+                    : "OpenAI"}
+                  {provider.status !== "connected" ? " (disconnected)" : ""}
+                </option>
+              ))
+            )}
           </select>
           <ChevronDown className="w-4 h-4 text-zinc-500 absolute right-3 top-2.5 pointer-events-none" />
         </div>
