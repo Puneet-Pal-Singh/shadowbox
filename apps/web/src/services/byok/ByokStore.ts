@@ -12,10 +12,9 @@
 
 import {
   BYOKResolution,
-  BYOKError,
-  ProviderCatalogEntry,
-  ProviderCredential,
-  WorkspacePreferences,
+  BYOKCredential,
+  BYOKPreference,
+  ProviderRegistryEntry,
 } from "@repo/shared-types";
 import { ByokApiClient } from "../api/byokClient.js";
 
@@ -24,9 +23,9 @@ import { ByokApiClient } from "../api/byokClient.js";
  */
 export interface ByokStoreState {
   // Data
-  catalog: ProviderCatalogEntry[];
-  credentials: ProviderCredential[];
-  preferences: WorkspacePreferences | null;
+  catalog: ProviderRegistryEntry[];
+  credentials: BYOKCredential[];
+  preferences: BYOKPreference | null;
 
   // Current selection
   selectedProviderId: string | null;
@@ -203,7 +202,7 @@ export class ByokStore {
       });
 
       this.log("[connectCredential] Success", {
-        credentialId: credential.id,
+        credentialId: credential.credentialId,
       });
     } catch (error) {
       const message =
@@ -247,7 +246,7 @@ export class ByokStore {
       // Remove from credentials list
       this.setState({
         credentials: this.state.credentials.filter(
-          (c) => c.id !== credentialId
+          (c) => c.credentialId !== credentialId
         ),
         // Clear selection if it was the disconnected credential
         selectedCredentialId:
@@ -309,13 +308,13 @@ export class ByokStore {
 
       // Update credential status if validation succeeded
       const credential = this.state.credentials.find(
-        (c) => c.id === credentialId
+        (c) => c.credentialId === credentialId
       );
       if (credential) {
         const updated = { ...credential, status: "connected" as const };
         this.setState({
           credentials: this.state.credentials.map((c) =>
-            c.id === credentialId ? updated : c
+            c.credentialId === credentialId ? updated : c
           ),
         });
       }
@@ -335,7 +334,7 @@ export class ByokStore {
    * Update workspace preferences
    */
   async updatePreferences(
-    partial: Partial<WorkspacePreferences>
+    partial: Partial<BYOKPreference>
   ): Promise<void> {
     const key = "preferences";
 
@@ -359,7 +358,7 @@ export class ByokStore {
    * Internal preferences update implementation
    */
   private async executeUpdatePreferences(
-    partial: Partial<WorkspacePreferences>
+    partial: Partial<BYOKPreference>
   ): Promise<void> {
     this.log("[updatePreferences] Starting", partial);
 

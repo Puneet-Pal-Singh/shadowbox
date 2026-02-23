@@ -12,11 +12,10 @@
 
 import {
   BYOKResolution,
-  BYOKError,
   BYOKResolveRequest,
-  ProviderCatalogEntry,
-  ProviderCredential,
-  WorkspacePreferences,
+  BYOKCredential,
+  BYOKPreference,
+  ProviderRegistryEntry,
 } from "@repo/shared-types";
 
 /**
@@ -51,15 +50,9 @@ export interface ValidationResult {
 }
 
 /**
- * Update preferences request
- */
-export interface UpdatePreferencesRequest
-  extends Partial<WorkspacePreferences> {}
-
-/**
  * Resolve for chat request
  */
-export interface ResolveChatRequest extends BYOKResolveRequest {}
+export type ResolveChatRequest = BYOKResolveRequest;
 
 /**
  * HTTP error wrapper with BYOK semantics
@@ -90,15 +83,15 @@ export class ByokApiClient {
   /**
    * GET /api/byok/providers (catalog)
    */
-  async getCatalog(): Promise<ProviderCatalogEntry[]> {
-    return this.get<ProviderCatalogEntry[]>("/providers");
+  async getCatalog(): Promise<ProviderRegistryEntry[]> {
+    return this.get<ProviderRegistryEntry[]>("/providers");
   }
 
   /**
    * GET /api/byok/credentials
    */
-  async getCredentials(): Promise<ProviderCredential[]> {
-    return this.get<ProviderCredential[]>("/credentials");
+  async getCredentials(): Promise<BYOKCredential[]> {
+    return this.get<BYOKCredential[]>("/credentials");
   }
 
   /**
@@ -106,8 +99,8 @@ export class ByokApiClient {
    */
   async connectCredential(
     req: ConnectCredentialRequest
-  ): Promise<ProviderCredential> {
-    return this.post<ProviderCredential>("/credentials", req);
+  ): Promise<BYOKCredential> {
+    return this.post<BYOKCredential>("/credentials", req);
   }
 
   /**
@@ -116,8 +109,8 @@ export class ByokApiClient {
   async updateCredential(
     credentialId: string,
     req: UpdateCredentialRequest
-  ): Promise<ProviderCredential> {
-    return this.patch<ProviderCredential>(
+  ): Promise<BYOKCredential> {
+    return this.patch<BYOKCredential>(
       `/credentials/${credentialId}`,
       req
     );
@@ -146,17 +139,17 @@ export class ByokApiClient {
   /**
    * GET /api/byok/preferences
    */
-  async getPreferences(): Promise<WorkspacePreferences> {
-    return this.get<WorkspacePreferences>("/preferences");
+  async getPreferences(): Promise<BYOKPreference> {
+    return this.get<BYOKPreference>("/preferences");
   }
 
   /**
    * PATCH /api/byok/preferences
    */
   async updatePreferences(
-    req: UpdatePreferencesRequest
-  ): Promise<WorkspacePreferences> {
-    return this.patch<WorkspacePreferences>("/preferences", req);
+    req: Partial<BYOKPreference>
+  ): Promise<BYOKPreference> {
+    return this.patch<BYOKPreference>("/preferences", req);
   }
 
   /**
@@ -278,7 +271,7 @@ export class ByokApiClient {
    * Handle error responses with BYOK error envelope
    */
   private async handleErrorResponse(response: Response): Promise<never> {
-    let errorData: any = {};
+    let errorData: Record<string, unknown> = {};
 
     try {
       const contentType = response.headers.get("content-type");
@@ -289,10 +282,10 @@ export class ByokApiClient {
       // Ignore JSON parse errors, use default error
     }
 
-    const error = errorData.error || {};
-    const message = error.message || `HTTP ${response.status}`;
-    const code = error.code || "API_ERROR";
-    const correlationId = error.correlationId;
+    const error = (errorData.error || {}) as Record<string, unknown>;
+    const message = (error.message as string) || `HTTP ${response.status}`;
+    const code = (error.code as string) || "API_ERROR";
+    const correlationId = error.correlationId as string | undefined;
 
     throw new ByokApiError(response.status, code, message, correlationId);
   }

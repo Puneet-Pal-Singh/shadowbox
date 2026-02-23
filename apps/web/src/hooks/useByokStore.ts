@@ -19,7 +19,6 @@ import {
   ByokStore,
   ByokStoreState,
   ConnectCredentialRequest,
-  ValidateCredentialRequest,
 } from "../services/byok/ByokStore.js";
 import { BYOKResolution } from "@repo/shared-types";
 

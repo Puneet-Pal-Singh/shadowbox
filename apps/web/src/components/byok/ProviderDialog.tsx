@@ -11,11 +11,12 @@
  * - Session: Quick-switch for current chat session
  */
 
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { useByokStore } from "../../hooks/useByokStore.js";
 import {
-  ProviderCredential,
-  WorkspacePreferences,
+  BYOKCredential,
+  BYOKPreference,
+  ProviderRegistryEntry,
 } from "@repo/shared-types";
 
 /**
@@ -44,7 +45,6 @@ export function ProviderDialog({
     selectedModelId,
     status,
     error,
-    isValidating,
     connectCredential,
     disconnectCredential,
     validateCredential,
@@ -57,7 +57,6 @@ export function ProviderDialog({
     "connected" | "available" | "preferences" | "session"
   >(mode === "composer" ? "session" : "connected");
 
-  const [showValidationModal, setShowValidationModal] = useState(false);
   const [validatingCredentialId, setValidatingCredentialId] = useState<
     string | null
   >(null);
@@ -92,9 +91,6 @@ export function ProviderDialog({
       setConnectSecret("");
       setConnectProvider("");
       setConnectLabel("");
-
-      // Show validation modal
-      setShowValidationModal(true);
     } catch (err) {
       setConnectError(
         err instanceof Error ? err.message : "Failed to connect credential"
@@ -113,7 +109,7 @@ export function ProviderDialog({
 
     try {
       await validateCredential(credentialId, mode);
-    } catch (err) {
+    } catch {
       // Error handled by store
     } finally {
       setValidatingCredentialId(null);
@@ -124,11 +120,11 @@ export function ProviderDialog({
    * Handle preference update
    */
   const handleUpdatePreferences = async (
-    partial: Partial<WorkspacePreferences>
+    partial: Partial<BYOKPreference>
   ) => {
     try {
       await updatePreferences(partial);
-    } catch (err) {
+    } catch {
       // Error handled by store
     }
   };
@@ -145,7 +141,7 @@ export function ProviderDialog({
 
     try {
       await resolveForChat();
-    } catch (err) {
+    } catch {
       // Error shown in UI
     }
   };
@@ -228,8 +224,6 @@ export function ProviderDialog({
           {activeTab === "preferences" && (
             <PreferencesTab
               preferences={preferences}
-              credentials={credentials}
-              catalog={catalog}
               onUpdate={handleUpdatePreferences}
             />
           )}
@@ -359,7 +353,7 @@ function AvailableTab({
   onLabelChange,
   onConnect,
 }: {
-  catalog: any[];
+  catalog: ProviderRegistryEntry[];
   error: string | null;
   secret: string;
   provider: string;
@@ -435,14 +429,10 @@ function AvailableTab({
  */
 function PreferencesTab({
   preferences,
-  credentials,
-  catalog,
   onUpdate,
 }: {
-  preferences: WorkspacePreferences | null;
-  credentials: ProviderCredential[];
-  catalog: any[];
-  onUpdate: (partial: Partial<WorkspacePreferences>) => Promise<void>;
+  preferences: BYOKPreference | null;
+  onUpdate: (partial: Partial<BYOKPreference>) => Promise<void>;
 }): React.ReactElement {
   const [fallbackMode, setFallbackMode] = useState<"strict" | "allow_fallback">(
     preferences?.fallbackMode || "strict"
@@ -506,8 +496,8 @@ function SessionTab({
   selectedModelId,
   onSelect,
 }: {
-  catalog: any[];
-  credentials: ProviderCredential[];
+  catalog: ProviderRegistryEntry[];
+  credentials: BYOKCredential[];
   selectedProviderId: string | null;
   selectedCredentialId: string | null;
   selectedModelId: string | null;

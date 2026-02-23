@@ -8,6 +8,5 @@ export type {
   UpdateCredentialRequest,
   ValidateCredentialRequest,
   ValidationResult,
-  UpdatePreferencesRequest,
   ResolveChatRequest,
 } from "./byokClient.js";
