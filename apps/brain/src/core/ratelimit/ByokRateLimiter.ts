@@ -56,12 +56,16 @@ interface TokenBucket {
  * ByokRateLimiter - Token bucket rate limiting
  */
 export class ByokRateLimiter {
+  private static readonly GLOBAL_BURST_SIZE = 2000;
+  private static readonly MAX_BUCKETS = 10_000;
+  private static readonly BUCKET_TTL_MS = 2 * 60 * 1000;
+
   private buckets: Map<string, TokenBucket> = new Map();
   private limits: Map<string, RateLimitConfig> = new Map();
   private globalBucket: TokenBucket = {
-    tokens: 2000,
+    tokens: ByokRateLimiter.GLOBAL_BURST_SIZE,
     lastRefillAt: Date.now(),
-    refillRatePerMs: 2000 / 60000, // 2000 tokens per 60 seconds
+    refillRatePerMs: ByokRateLimiter.GLOBAL_BURST_SIZE / 60000,
   };
 
   constructor() {
@@ -108,7 +112,10 @@ export class ByokRateLimiter {
 
     if (!canConsume) {
       // Restore global token since we didn't use operation-level token
-      this.globalBucket.tokens += 1;
+      this.globalBucket.tokens = Math.min(
+        this.globalBucket.tokens + 1,
+        ByokRateLimiter.GLOBAL_BURST_SIZE,
+      );
 
       return {
         allowed: false,
@@ -141,6 +148,9 @@ export class ByokRateLimiter {
     }
 
     this.refillTokens(bucket);
+    const config = this.limits.get(operation);
+    const burstSize = config?.burstSize ?? config?.tokensPerMinute ?? Infinity;
+    bucket.tokens = Math.min(bucket.tokens, burstSize);
     return Math.floor(bucket.tokens);
   }
 
@@ -170,6 +180,10 @@ export class ByokRateLimiter {
     limitConfigs: Record<string, RateLimitConfig>;
   } {
     this.refillTokens(this.globalBucket);
+    this.globalBucket.tokens = Math.min(
+      this.globalBucket.tokens,
+      ByokRateLimiter.GLOBAL_BURST_SIZE,
+    );
 
     return {
       activeBuckets: this.buckets.size,
@@ -219,6 +233,8 @@ export class ByokRateLimiter {
     tokensPerMinute: number,
     burstSize: number,
   ): TokenBucket {
+    this.evictStaleBucketsIfNeeded();
+
     let bucket = this.buckets.get(key);
 
     if (!bucket) {
@@ -270,6 +286,10 @@ export class ByokRateLimiter {
    */
   private tryConsumeGlobal(): boolean {
     this.refillTokens(this.globalBucket);
+    this.globalBucket.tokens = Math.min(
+      this.globalBucket.tokens,
+      ByokRateLimiter.GLOBAL_BURST_SIZE,
+    );
 
     if (this.globalBucket.tokens >= 1) {
       this.globalBucket.tokens -= 1;
@@ -289,5 +309,18 @@ export class ByokRateLimiter {
     const msNeeded = Math.ceil(tokensNeeded / bucket.refillRatePerMs);
 
     return Math.max(msNeeded, 100);
+  }
+
+  private evictStaleBucketsIfNeeded(): void {
+    if (this.buckets.size <= ByokRateLimiter.MAX_BUCKETS) {
+      return;
+    }
+
+    const now = Date.now();
+    for (const [key, bucket] of this.buckets.entries()) {
+      if (now - bucket.lastRefillAt > ByokRateLimiter.BUCKET_TTL_MS) {
+        this.buckets.delete(key);
+      }
+    }
   }
 }
