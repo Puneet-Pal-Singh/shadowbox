@@ -271,7 +271,7 @@ function ConnectedTab({
   onValidate,
   validatingId,
 }: {
-  credentials: ProviderCredential[];
+  credentials: BYOKCredential[];
   onDisconnect: (id: string) => Promise<void>;
   onValidate: (id: string, mode: "format" | "live") => Promise<void>;
   validatingId: string | null;
@@ -517,7 +517,7 @@ function SessionTab({
             const provider = e.target.value;
             const cred = credentials.find((c) => c.providerId === provider);
             if (cred) {
-              onSelect(provider, cred.id);
+              onSelect(provider, cred.credentialId);
             }
           }}
           className="w-full border rounded px-3 py-2 text-sm"
@@ -538,21 +538,21 @@ function SessionTab({
             <select
               value={selectedCredentialId || ""}
               onChange={(e) => {
-                const credId = e.target.value;
-                const cred = credentials.find((c) => c.id === credId);
-                if (cred) {
-                  onSelect(selectedProviderId, credId);
-                }
-              }}
-              className="w-full border rounded px-3 py-2 text-sm"
-            >
-              {credentials
-                .filter((c) => c.providerId === selectedProviderId)
-                .map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.label || "Default"}
-                  </option>
-                ))}
+                 const credId = e.target.value;
+                 const cred = credentials.find((c) => c.credentialId === credId);
+                 if (cred) {
+                   onSelect(selectedProviderId, credId);
+                 }
+               }}
+               className="w-full border rounded px-3 py-2 text-sm"
+              >
+               {credentials
+                 .filter((c) => c.providerId === selectedProviderId)
+                 .map((c) => (
+                   <option key={c.credentialId} value={c.credentialId}>
+                     {c.label || "Default"}
+                   </option>
+                 ))}
             </select>
           </div>
 
