@@ -57,7 +57,7 @@ describe("ProviderVaultCoordinatorDO", () => {
       expect(response.success).toBe(true);
     });
 
-    it("supports idempotency keys", async () => {
+    it("supports idempotency keys and returns cached result on duplicate", async () => {
       const mutation: CoordinatorMutation = {
         type: "connectCredential",
         data: { providerId: "openai" },
@@ -76,10 +76,11 @@ describe("ProviderVaultCoordinatorDO", () => {
 
       expect(response1.success).toBe(true);
       expect(response2.success).toBe(true);
-      // Both should return the same result
+      // Both should return the same cached result
+      expect(response1).toEqual(response2);
     });
 
-    it("rejects duplicate mutations without idempotency key", async () => {
+    it("processes duplicate mutations independently without idempotency key", async () => {
       const mutation: CoordinatorMutation = {
         type: "connectCredential",
         data: { providerId: "openai" },
@@ -88,12 +89,12 @@ describe("ProviderVaultCoordinatorDO", () => {
       const response1 = await coordinator.processMutation(mutation);
       const response2 = await coordinator.processMutation(mutation);
 
-      // Both should succeed (queued and processed)
+      // Both should succeed (queued and processed independently)
       expect(response1.success).toBe(true);
       expect(response2.success).toBe(true);
     });
 
-    it("handles unknown mutation types gracefully", async () => {
+    it("returns error for unknown mutation types", async () => {
       const mutation = {
         type: "unknownType",
         data: {},
@@ -103,9 +104,9 @@ describe("ProviderVaultCoordinatorDO", () => {
       // Unknown types return an error response
       const response = await coordinator.processMutation(mutation);
 
-      // The coordinator itself succeeds in processing the mutation,
-      // but the mutation execution returns an error
-      expect(response).toBeDefined();
+      // Should propagate the actual error from executeMutation
+      expect(response.success).toBe(false);
+      expect(response.error).toBe("Unknown mutation type");
     });
   });
 

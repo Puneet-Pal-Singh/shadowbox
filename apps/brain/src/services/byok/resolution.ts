@@ -37,6 +37,19 @@ export interface PlatformDefaults {
 }
 
 /**
+ * Workspace preferences (Phase 2 placeholder)
+ *
+ * Defines user/workspace-level provider preferences and fallback behavior.
+ */
+export interface WorkspacePreferences {
+  defaultProviderId?: string;
+  defaultCredentialId?: string;
+  defaultModelId?: string;
+  fallbackMode?: "strict" | "allow_fallback";
+  fallbackChain?: string[];
+}
+
+/**
  * ProviderResolutionService
  *
  * Resolves effective provider configuration through a prioritized pipeline.
@@ -60,40 +73,18 @@ export class ProviderResolutionService {
   ): Promise<BYOKResolution | BYOKError> {
     try {
       // Step 1: Check request overrides
-      if (request.providerId && request.credentialId && request.modelId) {
-        return {
-          providerId: request.providerId,
-          credentialId: request.credentialId,
-          modelId: request.modelId,
-          resolvedAt: "request_override",
-          resolvedAtTime: new Date().toISOString(),
-          fallbackUsed: false,
-        };
+      const requestOverride = await this.resolveFromRequestOverride(request);
+      if (requestOverride) {
+        return requestOverride;
       }
 
       // Step 2: Check workspace preferences
       const preferences = await this.loadPreferences(context);
-
-      if (
-        preferences?.defaultProviderId &&
-        preferences.defaultCredentialId &&
-        preferences.defaultModelId
-      ) {
-        // Validate credential exists and is active
-        const credential = await this.repository.retrieve(
-          preferences.defaultCredentialId,
-        );
-
-        if (credential && credential.status === "connected") {
-          return {
-            providerId: preferences.defaultProviderId,
-            credentialId: preferences.defaultCredentialId,
-            modelId: preferences.defaultModelId,
-            resolvedAt: "workspace_preference",
-            resolvedAtTime: new Date().toISOString(),
-            fallbackUsed: false,
-          };
-        }
+      const workspaceResolution = await this.resolveFromWorkspacePreference(
+        preferences,
+      );
+      if (workspaceResolution) {
+        return workspaceResolution;
       }
 
       // Step 3: Try fallback chain if enabled
@@ -112,14 +103,7 @@ export class ProviderResolutionService {
       }
 
       // Step 4: Platform fallback
-      return {
-        providerId: this.platformDefaults.providerId,
-        credentialId: "", // No credential for platform default
-        modelId: this.platformDefaults.modelId,
-        resolvedAt: "platform_fallback",
-        resolvedAtTime: new Date().toISOString(),
-        fallbackUsed: true,
-      };
+      return this.resolvePlatformFallback();
     } catch (error) {
       return createBYOKError(
         "RESOLUTION_FAILED",
@@ -130,10 +114,83 @@ export class ProviderResolutionService {
   }
 
   /**
-   * Try fallback chain in order
+   * Step 1: Resolve from request overrides with credential validation
+   */
+  private async resolveFromRequestOverride(
+    request: BYOKResolveRequest,
+  ): Promise<BYOKResolution | null> {
+    if (!request.providerId || !request.credentialId || !request.modelId) {
+      return null;
+    }
+
+    // Validate credential exists and is connected
+    const credential = await this.repository.retrieve(request.credentialId);
+    if (!credential || credential.status !== "connected") {
+      return null; // Fall through to next step
+    }
+
+    return {
+      providerId: request.providerId,
+      credentialId: request.credentialId,
+      modelId: request.modelId,
+      resolvedAt: "request_override",
+      resolvedAtTime: new Date().toISOString(),
+      fallbackUsed: false,
+    };
+  }
+
+  /**
+   * Step 2: Resolve from workspace preferences
+   */
+  private async resolveFromWorkspacePreference(
+    preferences: WorkspacePreferences | null,
+  ): Promise<BYOKResolution | null> {
+    if (
+      !preferences?.defaultProviderId ||
+      !preferences.defaultCredentialId ||
+      !preferences.defaultModelId
+    ) {
+      return null;
+    }
+
+    // Validate credential exists and is active
+    const credential = await this.repository.retrieve(
+      preferences.defaultCredentialId,
+    );
+
+    if (!credential || credential.status !== "connected") {
+      return null;
+    }
+
+    return {
+      providerId: preferences.defaultProviderId,
+      credentialId: preferences.defaultCredentialId,
+      modelId: preferences.defaultModelId,
+      resolvedAt: "workspace_preference",
+      resolvedAtTime: new Date().toISOString(),
+      fallbackUsed: false,
+    };
+  }
+
+  /**
+   * Step 4: Platform fallback
+   */
+  private resolvePlatformFallback(): BYOKResolution {
+    return {
+      providerId: this.platformDefaults.providerId,
+      credentialId: "", // No credential for platform default
+      modelId: this.platformDefaults.modelId,
+      resolvedAt: "platform_fallback",
+      resolvedAtTime: new Date().toISOString(),
+      fallbackUsed: true,
+    };
+  }
+
+  /**
+   * Step 3: Try fallback chain in order
    */
   private async tryFallbackChain(
-    preferences: any, // Would be BYOKPreference in Phase 2
+    preferences: WorkspacePreferences,
     context: ResolutionContext,
   ): Promise<Omit<BYOKResolution, "fallbackUsed"> | null> {
     const fallbackChain = preferences?.fallbackChain || [];
@@ -143,6 +200,8 @@ export class ProviderResolutionService {
       // 1. Get credentials for this provider
       // 2. Try to validate
       // 3. Return first working one
+
+      // Placeholder: skip implementation until Phase 2
     }
 
     return null; // No fallback available
@@ -151,7 +210,9 @@ export class ProviderResolutionService {
   /**
    * Load workspace preferences
    */
-  private async loadPreferences(context: ResolutionContext): Promise<any> {
+  private async loadPreferences(
+    context: ResolutionContext,
+  ): Promise<WorkspacePreferences | null> {
     // In Phase 2, would load from preferences table
     // For now, return null to fall through to platform default
     return null;

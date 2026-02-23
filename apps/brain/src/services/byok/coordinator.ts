@@ -8,6 +8,7 @@
  * Key: `vault:{userId}:{workspaceId}`
  */
 
+import { DurableObjectState } from "@cloudflare/workers-types";
 import { ProviderVaultRepository, IDatabase } from "./repository.js";
 
 /**
@@ -38,6 +39,15 @@ interface IdempotencyKey {
 }
 
 /**
+ * Pending mutation tracking for promise-based result propagation
+ */
+interface PendingMutation {
+  resolve: (response: CoordinatorResponse) => void;
+  reject: (error: Error) => void;
+  expiresAt: number;
+}
+
+/**
  * ProviderVaultCoordinatorDO
  *
  * Durable Object for BYOK mutation coordination.
@@ -49,7 +59,9 @@ export class ProviderVaultCoordinatorDO {
   private mutationQueue: Array<{
     mutation: CoordinatorMutation;
     idempotencyKey?: string;
+    id: symbol;
   }> = [];
+  private pendingMutations: Map<symbol, PendingMutation> = new Map();
 
   constructor(
     private state: DurableObjectState,
@@ -76,14 +88,26 @@ export class ProviderVaultCoordinatorDO {
       }
     }
 
+    // Create a promise that resolves when this specific mutation completes
+    const mutationId = Symbol("mutation-id");
+    const resultPromise = new Promise<CoordinatorResponse>((resolve, reject) => {
+      this.pendingMutations.set(mutationId, {
+        resolve,
+        reject,
+        expiresAt: Date.now() + 60 * 1000, // 60 second TTL
+      });
+    });
+
     // Queue the mutation
-    this.mutationQueue.push({ mutation, idempotencyKey });
+    this.mutationQueue.push({ mutation, idempotencyKey, id: mutationId });
 
-    // Process queue
-    await this.processQueue();
+    // Process queue (non-blocking)
+    this.processQueue().catch(() => {
+      // Errors are handled in processQueue, just ensure it runs
+    });
 
-    // Return success (actual result would be in cache invalidation)
-    return { success: true };
+    // Wait for this specific mutation to complete
+    return resultPromise;
   }
 
   /**
@@ -97,8 +121,11 @@ export class ProviderVaultCoordinatorDO {
     this.mutationInProgress = true;
 
     try {
+      // Evict expired idempotency and pending entries
+      this.evictExpiredEntries();
+
       while (this.mutationQueue.length > 0) {
-        const { mutation, idempotencyKey } = this.mutationQueue.shift()!;
+        const { mutation, idempotencyKey, id: mutationId } = this.mutationQueue.shift()!;
 
         let response: CoordinatorResponse;
 
@@ -124,9 +151,38 @@ export class ProviderVaultCoordinatorDO {
             error: error instanceof Error ? error.message : String(error),
           };
         }
+
+        // Resolve the promise for this specific mutation
+        const pending = this.pendingMutations.get(mutationId);
+        if (pending) {
+          pending.resolve(response);
+          this.pendingMutations.delete(mutationId);
+        }
       }
     } finally {
       this.mutationInProgress = false;
+    }
+  }
+
+  /**
+   * Evict expired idempotency and pending mutation entries
+   */
+  private evictExpiredEntries(): void {
+    const now = Date.now();
+
+    // Evict expired idempotency keys
+    for (const [key, entry] of this.idempotencyMap) {
+      if (entry.expiresAt <= now) {
+        this.idempotencyMap.delete(key);
+      }
+    }
+
+    // Evict expired pending mutations
+    for (const [id, pending] of this.pendingMutations) {
+      if (pending.expiresAt <= now) {
+        pending.reject(new Error("Mutation timeout"));
+        this.pendingMutations.delete(id);
+      }
     }
   }
 
@@ -193,14 +249,9 @@ export class ProviderVaultCoordinatorDO {
 }
 
 /**
- * Type stubs for DurableObject interfaces
- * (In real implementation, these would come from @cloudflare/workers-types)
+ * KV Namespace interface for cache operations
+ * (from @cloudflare/workers-types)
  */
-interface DurableObjectState {
-  waitUntil(promise: Promise<unknown>): void;
-  blockConcurrencyWhile<T>(callback: () => Promise<T>): Promise<T>;
-}
-
 interface KVNamespace {
   get(key: string): Promise<string | null>;
   delete(key: string): Promise<void>;
