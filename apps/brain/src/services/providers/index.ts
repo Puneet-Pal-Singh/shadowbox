@@ -11,10 +11,7 @@ export { DurableProviderStore } from "./DurableProviderStore";
 export { ProviderRateLimitService } from "./ProviderRateLimitService";
 export { ProviderLiveValidationService } from "./ProviderLiveValidationService";
 export { ProviderAuditService } from "./ProviderAuditService";
-export type {
-  LegacyCredentialMigrationConfig,
-  ProviderAuditEvent,
-} from "./DurableProviderStore";
+export type { ProviderAuditEvent } from "./DurableProviderStore";
 export {
   PROVIDER_CAPABILITY_MATRIX,
   isModelAllowedByCapabilityMatrix,
