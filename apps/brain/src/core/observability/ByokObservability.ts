@@ -74,7 +74,7 @@ export class ByokObservability {
   recordConnect(
     providerId: string,
     status: "success" | "failure",
-    latencyMs: number
+    latencyMs: number,
   ): void {
     const key = `${providerId}_${status}`;
     this.metrics.byok_connect_total[key] =
@@ -82,7 +82,7 @@ export class ByokObservability {
 
     if (this.enableLogging) {
       console.log(
-        `[byok.metrics] connect provider=${providerId} status=${status} latencyMs=${latencyMs}`
+        `[byok.metrics] connect provider=${providerId} status=${status} latencyMs=${latencyMs}`,
       );
     }
   }
@@ -94,7 +94,7 @@ export class ByokObservability {
     providerId: string,
     mode: "format" | "live",
     status: "success" | "failure",
-    latencyMs: number
+    latencyMs: number,
   ): void {
     const key = `${providerId}_${mode}_${status}`;
     this.metrics.byok_validate_total[key] =
@@ -102,7 +102,7 @@ export class ByokObservability {
 
     if (this.enableLogging) {
       console.log(
-        `[byok.metrics] validate provider=${providerId} mode=${mode} status=${status} latencyMs=${latencyMs}`
+        `[byok.metrics] validate provider=${providerId} mode=${mode} status=${status} latencyMs=${latencyMs}`,
       );
     }
   }
@@ -110,7 +110,11 @@ export class ByokObservability {
   /**
    * Record a resolution operation
    */
-  recordResolve(source: "v3" | "v2", latencyMs: number, success: boolean): void {
+  recordResolve(
+    source: "v3" | "v2",
+    latencyMs: number,
+    success: boolean,
+  ): void {
     const key = `${source}_${success ? "success" : "failure"}`;
     this.metrics.byok_resolve_total[key] =
       (this.metrics.byok_resolve_total[key] ?? 0) + 1;
@@ -123,7 +127,7 @@ export class ByokObservability {
 
     if (this.enableLogging) {
       console.log(
-        `[byok.metrics] resolve source=${source} latencyMs=${latencyMs} status=${success ? "success" : "failure"}`
+        `[byok.metrics] resolve source=${source} latencyMs=${latencyMs} status=${success ? "success" : "failure"}`,
       );
     }
   }
@@ -131,10 +135,7 @@ export class ByokObservability {
   /**
    * Record migration progress
    */
-  recordMigrationProgress(
-    migratedCount: number,
-    failedCount: number
-  ): void {
+  recordMigrationProgress(migratedCount: number, failedCount: number): void {
     this.metrics.byok_migration_progress = {
       migratedCount,
       failedCount,
@@ -143,7 +144,7 @@ export class ByokObservability {
 
     if (this.enableLogging) {
       console.log(
-        `[byok.metrics] migration migratedCount=${migratedCount} failedCount=${failedCount}`
+        `[byok.metrics] migration migratedCount=${migratedCount} failedCount=${failedCount}`,
       );
     }
   }
@@ -171,9 +172,7 @@ export class ByokObservability {
       errorMessage: this.sanitizeErrorMessage(context.errorMessage),
     };
 
-    console.log(
-      `[byok.operation] ${JSON.stringify(sanitized)}`
-    );
+    console.log(`[byok.operation] ${JSON.stringify(sanitized)}`);
   }
 
   /**
@@ -189,36 +188,40 @@ export class ByokObservability {
   getStatistics(): {
     connectFailureRate: number;
     resolveP95Latency: number;
-    resolvepP99Latency: number;
+    resolveP99Latency: number;
     chatResolutionFailureCount: number;
     migrationProgress: { percent: number; remaining: number };
   } {
     // Connect failure rate
-    const connectTotal = Object.values(
-      this.metrics.byok_connect_total
-    ).reduce((a, b) => a + b, 0);
-    const connectFailures = this.metrics.byok_connect_total["*_failure"] ?? 0;
+    const connectTotal = Object.values(this.metrics.byok_connect_total).reduce(
+      (a, b) => a + b,
+      0,
+    );
+    const connectFailures = Object.entries(this.metrics.byok_connect_total)
+      .filter(([key]) => key.endsWith("_failure"))
+      .reduce((sum, [, value]) => sum + value, 0);
     const connectFailureRate =
       connectTotal > 0 ? connectFailures / connectTotal : 0;
 
     // Resolve latency percentiles
     const sortedLatencies = [...this.metrics.byok_resolve_latency].sort(
-      (a, b) => a - b
+      (a, b) => a - b,
     );
     const resolveP95Latency =
       sortedLatencies.length > 0
-        ? sortedLatencies[Math.max(0, Math.floor(sortedLatencies.length * 0.95) - 1)] ?? 0
+        ? (sortedLatencies[
+            Math.max(0, Math.floor(sortedLatencies.length * 0.95) - 1)
+          ] ?? 0)
         : 0;
-    const resolvepP99Latency =
+    const resolveP99Latency =
       sortedLatencies.length > 0
-        ? sortedLatencies[Math.max(0, Math.floor(sortedLatencies.length * 0.99) - 1)] ?? 0
+        ? (sortedLatencies[
+            Math.max(0, Math.floor(sortedLatencies.length * 0.99) - 1)
+          ] ?? 0)
         : 0;
 
     // Migration progress
-    const {
-      migratedCount,
-      failedCount,
-    } = this.metrics.byok_migration_progress;
+    const { migratedCount, failedCount } = this.metrics.byok_migration_progress;
     const totalMigration = migratedCount + failedCount;
     const migrationProgress = {
       percent:
@@ -231,7 +234,7 @@ export class ByokObservability {
     return {
       connectFailureRate,
       resolveP95Latency,
-      resolvepP99Latency,
+      resolveP99Latency,
       chatResolutionFailureCount:
         this.metrics.chat_provider_resolution_fail_total,
       migrationProgress,
@@ -261,10 +264,10 @@ export class ByokObservability {
     }
 
     // Alert 2: Resolve p99 latency > 1000ms
-    if (stats.resolvepP99Latency > 1000) {
+    if (stats.resolveP99Latency > 1000) {
       alerts.push({
         severity: "warning",
-        message: `BYOK resolve latency high: p99=${stats.resolvepP99Latency}ms`,
+        message: `BYOK resolve latency high: p99=${stats.resolveP99Latency}ms`,
       });
     }
 
@@ -277,7 +280,10 @@ export class ByokObservability {
     }
 
     // Alert 4: Migration failures accumulating
-    if (stats.migrationProgress.remaining > 1000 && stats.connectFailureRate > 0.01) {
+    if (
+      stats.migrationProgress.remaining > 1000 &&
+      stats.connectFailureRate > 0.01
+    ) {
       alerts.push({
         severity: "warning",
         message: `BYOK migration progress slow: ${stats.migrationProgress.remaining} records remaining`,
