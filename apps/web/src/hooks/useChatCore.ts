@@ -14,6 +14,7 @@ interface UseChatCoreResult {
   setMessages: (messages: Message[]) => void;
   runId: string;
   resetRun: () => void;
+  isModelConfigReady: boolean;
 }
 
 /**
@@ -38,12 +39,19 @@ export function useChatCore(
   const [sessionModelConfig, setSessionModelConfig] = useState(() =>
     providerService.getSessionModelConfig(sessionId),
   );
+  const [isModelConfigReady, setIsModelConfigReady] = useState(false);
+  const hasCompleteOverride = Boolean(
+    isModelConfigReady &&
+      sessionModelConfig.providerId &&
+      sessionModelConfig.modelId,
+  );
 
   useEffect(() => {
     let cancelled = false;
-    providerService
-      .syncSessionModelConfig(sessionId)
-      .then((config) => {
+    const syncSessionModelConfig = async () => {
+      setIsModelConfigReady(false);
+      try {
+        const config = await providerService.syncSessionModelConfig(sessionId);
         if (cancelled) {
           return;
         }
@@ -56,13 +64,19 @@ export function useChatCore(
           }
           return config;
         });
-      })
-      .catch((error) => {
+      } catch (error) {
         console.error(
           `[useChatCore] Failed to sync session model config for session ${sessionId}`,
           error,
         );
-      });
+      } finally {
+        if (!cancelled) {
+          setIsModelConfigReady(true);
+        }
+      }
+    };
+
+    void syncSessionModelConfig();
 
     return () => {
       cancelled = true;
@@ -105,12 +119,12 @@ export function useChatCore(
     body: {
       sessionId,
       runId,
-      ...(sessionModelConfig.providerId && {
-        providerId: sessionModelConfig.providerId,
-      }),
-      ...(sessionModelConfig.modelId && {
-        modelId: sessionModelConfig.modelId,
-      }),
+      ...(hasCompleteOverride
+        ? {
+            providerId: sessionModelConfig.providerId,
+            modelId: sessionModelConfig.modelId,
+          }
+        : {}),
     },
     initialMessages: [],
     id: instanceKey,
@@ -147,5 +161,6 @@ export function useChatCore(
     setMessages,
     runId,
     resetRun,
+    isModelConfigReady,
   };
 }

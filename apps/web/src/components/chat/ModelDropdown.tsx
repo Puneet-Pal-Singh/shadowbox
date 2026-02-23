@@ -6,7 +6,11 @@
 import { useState, useEffect, useRef } from "react";
 import { ChevronDown } from "lucide-react";
 import { providerService } from "../../services/ProviderService";
-import type { ProviderId, ModelDescriptor } from "../../types/provider";
+import type {
+  ProviderId,
+  ModelDescriptor,
+  ProviderConnectionStatus,
+} from "../../types/provider";
 
 interface ModelDropdownProps {
   sessionId: string;
@@ -24,7 +28,9 @@ export function ModelDropdown({
     useState<ProviderId>("openrouter");
   const [selectedModel, setSelectedModel] = useState<string>("");
   const [models, setModels] = useState<ModelDescriptor[]>([]);
+  const [providers, setProviders] = useState<ProviderConnectionStatus[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const inflightProviderRef = useRef<ProviderId | null>(null);
 
@@ -32,18 +38,42 @@ export function ModelDropdown({
   useEffect(() => {
     let cancelled = false;
     const loadModelsFromPreferences = async () => {
-      const config = await providerService.syncSessionModelConfig(sessionId);
-      if (cancelled) {
-        return;
-      }
-
-      const providerId = (config.providerId ?? "openrouter") as ProviderId;
-      setSelectedProvider(providerId);
-      setSelectedModel(config.modelId ?? "");
-      setModels([]);
-      setIsLoading(true);
       try {
-        const result = await providerService.getModels(providerId);
+        const config = await providerService.syncSessionModelConfig(sessionId);
+        if (cancelled) {
+          return;
+        }
+
+        const statuses = await providerService.getProviderStatus();
+        if (cancelled) {
+          return;
+        }
+        setProviders(statuses);
+
+        const connectedProviders = getConnectedProviders(statuses);
+        const preferredProvider = resolvePreferredProvider(
+          config.providerId,
+          connectedProviders,
+        );
+        if (!preferredProvider) {
+          setSelectedProvider("openrouter");
+          setSelectedModel("");
+          setModels([]);
+          setIsLoading(false);
+          setError("No BYOK provider connected. Connect one in settings.");
+          return;
+        }
+
+        setSelectedProvider(preferredProvider);
+        // Preserve model from config if provider matches, show saved selection before models load
+        setSelectedModel(
+          config.providerId === preferredProvider ? (config.modelId ?? "") : "",
+        );
+        setModels([]);
+        setIsLoading(true);
+        setError(null);
+
+        const result = await providerService.getModels(preferredProvider);
         if (!cancelled) {
           setModels(result.models);
         }
@@ -51,6 +81,7 @@ export function ModelDropdown({
         if (!cancelled) {
           console.error("[ModelDropdown] Failed to load models:", e);
           setModels([]);
+          setError("Failed to load provider models. Check provider settings.");
         }
       } finally {
         if (!cancelled) {
@@ -85,9 +116,16 @@ export function ModelDropdown({
   }, [isOpen]);
 
   const handleProviderChange = (newProvider: ProviderId) => {
+    if (!isProviderConnected(providers, newProvider)) {
+      setError(
+        `Provider ${newProvider} is not connected. Connect it in settings first.`,
+      );
+      return;
+    }
     setSelectedProvider(newProvider);
     setSelectedModel("");
     setIsLoading(true);
+    setError(null);
     inflightProviderRef.current = newProvider;
     providerService
       .getModels(newProvider)
@@ -128,91 +166,140 @@ export function ModelDropdown({
   const displayProvider = selectedProvider || "OpenRouter";
 
   return (
-    <div ref={dropdownRef} className="relative">
-      <button
-        onClick={() => !disabled && setIsOpen(!isOpen)}
-        disabled={disabled || isLoading}
-        type="button"
-        aria-haspopup="listbox"
-        aria-expanded={isOpen}
-        aria-label={`Select model: ${displayModel}`}
-        className="flex items-center gap-1 px-2 py-1.5 text-xs text-zinc-500 hover:text-zinc-300 transition-colors rounded border border-transparent hover:border-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed"
-      >
-        <span className="font-medium truncate max-w-[120px]">
-          {displayModel}
-        </span>
-        <span className="text-zinc-600 hidden sm:inline text-[10px]">
-          {displayProvider}
-        </span>
-        <ChevronDown size={12} className={isOpen ? "rotate-180" : ""} />
-      </button>
+    <div className="space-y-1">
+      <div ref={dropdownRef} className="relative">
+        <button
+          onClick={() => !disabled && setIsOpen(!isOpen)}
+          disabled={disabled || isLoading}
+          type="button"
+          aria-haspopup="listbox"
+          aria-expanded={isOpen}
+          aria-label={`Select model: ${displayModel}`}
+          className={`flex items-center gap-1 px-2 py-1.5 text-xs transition-colors rounded border disabled:opacity-50 disabled:cursor-not-allowed ${
+            error
+              ? "border-red-700 text-red-400"
+              : "text-zinc-500 hover:text-zinc-300 border-transparent hover:border-zinc-700"
+          }`}
+        >
+          <span className="font-medium truncate max-w-[120px]">
+            {displayModel}
+          </span>
+          <span className="text-zinc-600 hidden sm:inline text-[10px]">
+            {displayProvider}
+          </span>
+          <ChevronDown size={12} className={isOpen ? "rotate-180" : ""} />
+        </button>
 
-      {isOpen && (
-        <div className="absolute bottom-full right-0 mb-2 z-50 min-w-[180px] bg-zinc-900 rounded border border-zinc-700 shadow-lg">
-          {/* Provider selector */}
-          <div className="px-3 py-2 border-b border-zinc-700">
-            <div className="text-xs font-medium text-zinc-400 mb-2">
-              Provider
-            </div>
-            <div className="space-y-1">
-              {["openrouter", "openai", "groq"].map((provider) => (
-                <button
-                  key={provider}
-                  onClick={() => handleProviderChange(provider as ProviderId)}
-                  className={`
-                    w-full text-left px-2 py-1 text-xs rounded transition-colors
-                    ${
-                      selectedProvider === provider
-                        ? "bg-blue-900 text-blue-200"
-                        : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800"
-                    }
-                  `}
-                >
-                  {provider === "openrouter"
-                    ? "OpenRouter (Recommended)"
-                    : provider === "groq"
-                      ? "Groq (Fast)"
-                      : "OpenAI"}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Model selector */}
-          <div className="px-3 py-2 max-h-[180px] overflow-y-auto">
-            <div className="text-xs font-medium text-zinc-400 mb-2">Model</div>
-            {isLoading ? (
-              <div className="text-xs text-zinc-500 py-2">
-                Loading models...
+        {isOpen && (
+          <div className="absolute bottom-full right-0 mb-2 z-50 min-w-[180px] bg-zinc-900 rounded border border-zinc-700 shadow-lg">
+            {/* Provider selector */}
+            <div className="px-3 py-2 border-b border-zinc-700">
+              <div className="text-xs font-medium text-zinc-400 mb-2">
+                Provider
               </div>
-            ) : models.length === 0 ? (
-              <div className="text-xs text-zinc-500 py-2">
-                No models available
-              </div>
-            ) : (
               <div className="space-y-1">
-                {models.map((model) => (
+                {["openrouter", "openai", "groq"].map((provider) => (
                   <button
-                    key={model.id}
-                    onClick={() => handleModelChange(model.id)}
+                    key={provider}
+                    onClick={() => handleProviderChange(provider as ProviderId)}
+                    disabled={!isProviderConnected(providers, provider as ProviderId)}
                     className={`
-                      w-full text-left px-2 py-1 text-xs rounded transition-colors truncate
+                      w-full text-left px-2 py-1 text-xs rounded transition-colors
                       ${
-                        selectedModel === model.id
-                          ? "bg-green-900 text-green-200"
-                          : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800"
+                        selectedProvider === provider
+                          ? "bg-blue-900 text-blue-200"
+                          : isProviderConnected(providers, provider as ProviderId)
+                          ? "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800"
+                          : "text-zinc-600 opacity-60 cursor-not-allowed"
                       }
                     `}
-                    title={model.name}
+                    title={
+                      isProviderConnected(providers, provider as ProviderId)
+                        ? undefined
+                        : "Provider not connected"
+                    }
                   >
-                    {model.name}
+                    {provider === "openrouter"
+                      ? "OpenRouter (Recommended)"
+                      : provider === "groq"
+                        ? "Groq (Fast)"
+                        : "OpenAI"}
                   </button>
                 ))}
               </div>
-            )}
+            </div>
+
+            {/* Model selector */}
+            <div className="px-3 py-2 max-h-[180px] overflow-y-auto">
+              <div className="text-xs font-medium text-zinc-400 mb-2">Model</div>
+              {isLoading ? (
+                <div className="text-xs text-zinc-500 py-2">
+                  Loading models...
+                </div>
+              ) : models.length === 0 ? (
+                <div className="text-xs text-zinc-500 py-2">
+                  No models available
+                </div>
+              ) : (
+                <div className="space-y-1">
+                  {models.map((model) => (
+                    <button
+                      key={model.id}
+                      onClick={() => handleModelChange(model.id)}
+                      className={`
+                        w-full text-left px-2 py-1 text-xs rounded transition-colors truncate
+                        ${
+                          selectedModel === model.id
+                            ? "bg-green-900 text-green-200"
+                            : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800"
+                        }
+                      `}
+                      title={model.name}
+                    >
+                      {model.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
+        )}
+      </div>
+
+      {/* Error message rendered outside dropdown, always visible */}
+      {error && (
+        <div className="text-xs text-red-400 px-2 py-1">
+          {error}
         </div>
       )}
     </div>
+  );
+}
+
+function getConnectedProviders(
+  providers: ProviderConnectionStatus[],
+): ProviderId[] {
+  return providers
+    .filter((provider) => provider.status === "connected")
+    .map((provider) => provider.providerId);
+}
+
+function resolvePreferredProvider(
+  configuredProviderId: ProviderId | undefined,
+  connectedProviders: ProviderId[],
+): ProviderId | undefined {
+  if (configuredProviderId && connectedProviders.includes(configuredProviderId)) {
+    return configuredProviderId;
+  }
+  return connectedProviders[0];
+}
+
+function isProviderConnected(
+  providers: ProviderConnectionStatus[],
+  providerId: ProviderId,
+): boolean {
+  return providers.some(
+    (provider) =>
+      provider.providerId === providerId && provider.status === "connected",
   );
 }

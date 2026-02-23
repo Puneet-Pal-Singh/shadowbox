@@ -98,23 +98,25 @@ class ProviderService {
    * Local storage is treated as cache only, not source-of-truth.
    */
   async syncSessionModelConfig(sessionId: string): Promise<SessionModelConfig> {
+    const localConfig = this.getSessionModelConfig(sessionId);
     try {
       const preferences = await ProviderApiClient.getPreferences();
       const config = this.mapPreferencesToConfig(preferences);
-
-      if (!this.hasPersistableModelConfig(config)) {
-        return this.getSessionModelConfig(sessionId);
-      }
-
-      this.storeSessionModelConfig(sessionId, config);
-      this.notifyListeners(sessionId, config);
-      return config;
+      const candidateConfig = this.hasPersistableModelConfig(config)
+        ? config
+        : localConfig;
+      const resolvedConfig =
+        await this.resolveConnectedSessionModelConfig(candidateConfig);
+      this.persistResolvedConfig(sessionId, localConfig, resolvedConfig);
+      return resolvedConfig;
     } catch (error) {
       console.warn(
         `[provider/sessionConfig] Failed to sync persisted preferences for session ${sessionId}`,
         error,
       );
-      return this.getSessionModelConfig(sessionId);
+      // In error path, use local config directly without retrying API call
+      this.persistResolvedConfig(sessionId, localConfig, localConfig);
+      return localConfig;
     }
   }
 
@@ -224,6 +226,88 @@ class ProviderService {
     config: SessionModelConfig,
   ): config is { providerId: ProviderId; modelId: string } {
     return !!config.providerId && !!config.modelId;
+  }
+
+  private async resolveConnectedSessionModelConfig(
+    config: SessionModelConfig,
+  ): Promise<SessionModelConfig> {
+    try {
+      const statuses = await ProviderApiClient.getStatus();
+      const connectedProviders = this.getConnectedProviders(statuses);
+      if (
+        this.hasPersistableModelConfig(config) &&
+        connectedProviders.includes(config.providerId)
+      ) {
+        return config;
+      }
+
+      return await this.resolveDefaultConnectedConfig(connectedProviders);
+    } catch (error) {
+      console.warn(
+        "[provider/sessionConfig] Failed to validate provider connectivity for session config",
+        error,
+      );
+      if (this.hasPersistableModelConfig(config)) {
+        return config;
+      }
+      return {};
+    }
+  }
+
+  private getConnectedProviders(
+    statuses: ProviderConnectionStatus[],
+  ): ProviderId[] {
+    return statuses
+      .filter((status) => status.status === "connected")
+      .map((status) => status.providerId);
+  }
+
+  private async resolveDefaultConnectedConfig(
+    connectedProviders: ProviderId[],
+  ): Promise<SessionModelConfig> {
+    const providerId = connectedProviders[0];
+    if (!providerId) {
+      return {};
+    }
+
+    try {
+      const modelsResponse = await ProviderApiClient.getModels(providerId);
+      const modelId = modelsResponse.models[0]?.id;
+      if (!modelId) {
+        return {};
+      }
+
+      // Return resolved config without persisting—callers decide when to persist
+      console.debug(
+        `[provider/sessionConfig] Resolved default config: providerId=${providerId}, modelId=${modelId}`,
+      );
+      return { providerId, modelId };
+    } catch (error) {
+      console.warn(
+        `[provider/sessionConfig] Failed to resolve default model for provider ${providerId}`,
+        error,
+      );
+      return {};
+    }
+  }
+
+  private persistResolvedConfig(
+    sessionId: string,
+    current: SessionModelConfig,
+    next: SessionModelConfig,
+  ): void {
+    if (this.isSameSessionModelConfig(current, next)) {
+      return;
+    }
+    this.storeSessionModelConfig(sessionId, next);
+    this.notifyListeners(sessionId, next);
+  }
+
+  private isSameSessionModelConfig(
+    left: SessionModelConfig,
+    right: SessionModelConfig,
+  ): boolean {
+    return left.providerId === right.providerId && left.modelId === right.modelId;
   }
 }
 

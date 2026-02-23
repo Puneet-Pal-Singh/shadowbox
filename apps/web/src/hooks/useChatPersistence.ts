@@ -8,6 +8,7 @@ interface UseChatPersistenceProps {
   messages: Message[];
   messagesLength: number;
   isLoading: boolean;
+  isModelConfigReady: boolean;
   append: (message: { role: "user"; content: string }) => void;
 }
 
@@ -22,6 +23,7 @@ export function useChatPersistence({
   messages,
   messagesLength,
   isLoading,
+  isModelConfigReady,
   append,
 }: UseChatPersistenceProps): void {
   const persistenceService = useMemo(() => new ChatPersistenceService(), []);
@@ -35,6 +37,7 @@ export function useChatPersistence({
   useEffect(() => {
     const pendingQuery = persistenceService.getPendingQuery(sessionId);
     if (
+      isModelConfigReady &&
       pendingQuery &&
       persistenceService.shouldRestorePendingQuery(messagesLength, isLoading)
     ) {
@@ -45,6 +48,7 @@ export function useChatPersistence({
     sessionId,
     messagesLength,
     isLoading,
+    isModelConfigReady,
     append,
     persistenceService,
   ]);

@@ -16,6 +16,7 @@ describe("brain cors policy", () => {
     );
     expect(headers["Access-Control-Allow-Credentials"]).toBe("true");
     expect(headers["Access-Control-Allow-Headers"]).toContain("X-Run-Id");
+    expect(headers["Access-Control-Allow-Methods"]).toContain("PATCH");
   });
 
   it("rejects non-allowlisted origin on preflight", async () => {
