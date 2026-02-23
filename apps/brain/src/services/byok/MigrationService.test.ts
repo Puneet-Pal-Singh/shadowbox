@@ -11,6 +11,10 @@ describe("ByokBackgroundMigrator", () => {
   let mockDb: IDatabase;
   let mockEncryption: ICredentialEncryptionService;
   let migrator: ByokBackgroundMigrator;
+  const migrationConfig = {
+    targetMasterKey: "test-master-key",
+    targetKeyVersion: "v1",
+  };
 
   beforeEach(() => {
     mockEncryption = {
@@ -43,6 +47,24 @@ describe("ByokBackgroundMigrator", () => {
     };
   });
 
+  describe("constructor", () => {
+    it("throws when crypto config is missing", () => {
+      expect(() => new ByokBackgroundMigrator(mockDb, mockEncryption)).toThrow(
+        "Migration crypto configuration is required",
+      );
+    });
+
+    it("throws when placeholder target master key is used", () => {
+      expect(
+        () =>
+          new ByokBackgroundMigrator(mockDb, mockEncryption, 100, {
+            targetMasterKey: "migration-placeholder-master-key",
+            targetKeyVersion: "v1",
+          }),
+      ).toThrow("Migration target master key is invalid");
+    });
+  });
+
   describe("migrate", () => {
     it("should return success when no unmigrated records", async () => {
       const countStatement = {
@@ -66,7 +88,12 @@ describe("ByokBackgroundMigrator", () => {
         };
       });
 
-      migrator = new ByokBackgroundMigrator(mockDb, mockEncryption);
+      migrator = new ByokBackgroundMigrator(
+        mockDb,
+        mockEncryption,
+        100,
+        migrationConfig,
+      );
       const result = await migrator.migrate();
 
       expect(result.success).toBe(true);
@@ -123,7 +150,12 @@ describe("ByokBackgroundMigrator", () => {
         };
       });
 
-      migrator = new ByokBackgroundMigrator(mockDb, mockEncryption);
+      migrator = new ByokBackgroundMigrator(
+        mockDb,
+        mockEncryption,
+        100,
+        migrationConfig,
+      );
       const result = await migrator.migrate();
 
       expect(result.totalCount).toBe(1);
@@ -184,7 +216,12 @@ describe("ByokBackgroundMigrator", () => {
         return failingStatement;
       });
 
-      migrator = new ByokBackgroundMigrator(mockDb, mockEncryption);
+      migrator = new ByokBackgroundMigrator(
+        mockDb,
+        mockEncryption,
+        100,
+        migrationConfig,
+      );
       const result = await migrator.migrate();
 
       expect(result.migratedCount).toBe(0);
@@ -244,7 +281,12 @@ describe("ByokBackgroundMigrator", () => {
         },
       );
 
-      migrator = new ByokBackgroundMigrator(mockDb, mockEncryption);
+      migrator = new ByokBackgroundMigrator(
+        mockDb,
+        mockEncryption,
+        100,
+        migrationConfig,
+      );
       const result = await migrator.migrate();
 
       expect(result.success).toBe(false);
@@ -300,7 +342,12 @@ describe("ByokBackgroundMigrator", () => {
         },
       );
 
-      migrator = new ByokBackgroundMigrator(mockDb, mockEncryption);
+      migrator = new ByokBackgroundMigrator(
+        mockDb,
+        mockEncryption,
+        100,
+        migrationConfig,
+      );
       await migrator.migrate();
 
       expect(mockEncryption.encrypt).toHaveBeenCalled();
@@ -335,7 +382,12 @@ describe("ByokBackgroundMigrator", () => {
         return totalStatement;
       });
 
-      migrator = new ByokBackgroundMigrator(mockDb, mockEncryption);
+      migrator = new ByokBackgroundMigrator(
+        mockDb,
+        mockEncryption,
+        100,
+        migrationConfig,
+      );
       const progress = await migrator.getProgress();
 
       expect(progress.totalCount).toBe(10);
@@ -344,7 +396,7 @@ describe("ByokBackgroundMigrator", () => {
       expect(progress.completedAt).toBeNull();
     });
 
-    it("should mark as completed when all migrated", async () => {
+    it("should report completed status when no unmigrated records remain", async () => {
       const unmigratedStatement = {
         bind: vi
           .fn()
@@ -368,7 +420,12 @@ describe("ByokBackgroundMigrator", () => {
         return totalStatement;
       });
 
-      migrator = new ByokBackgroundMigrator(mockDb, mockEncryption);
+      migrator = new ByokBackgroundMigrator(
+        mockDb,
+        mockEncryption,
+        100,
+        migrationConfig,
+      );
       const progress = await migrator.getProgress();
 
       expect(progress.status).toBe("completed");
@@ -388,8 +445,22 @@ describe("ByokBackgroundMigrator", () => {
 
       (mockDb.prepare as any).mockImplementation(() => rollbackStatement);
 
-      migrator = new ByokBackgroundMigrator(mockDb, mockEncryption);
+      migrator = new ByokBackgroundMigrator(
+        mockDb,
+        mockEncryption,
+        100,
+        migrationConfig,
+      );
       await expect(migrator.rollback()).resolves.not.toThrow();
+
+      const prepareMock = mockDb.prepare as unknown as ReturnType<typeof vi.fn>;
+      expect(prepareMock).toHaveBeenCalledTimes(2);
+      expect(String(prepareMock.mock.calls[0]?.[0])).toContain(
+        "DELETE FROM byok_credentials",
+      );
+      expect(String(prepareMock.mock.calls[1]?.[0])).toContain(
+        "UPDATE v2_provider_connections SET migrated_at = NULL",
+      );
     });
   });
 });

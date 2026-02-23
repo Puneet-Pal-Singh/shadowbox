@@ -62,10 +62,20 @@ export interface MigrationResult {
   errorMessage?: string;
 }
 
+interface MigrationBatchProgress {
+  migratedCount: number;
+  failedCount: number;
+  failedIds: string[];
+  runFailed: boolean;
+}
+
 /**
  * ByokBackgroundMigrator - Migrates v2 credentials to v3 format
  */
 export class ByokBackgroundMigrator {
+  private static readonly PLACEHOLDER_MASTER_KEY =
+    "migration-placeholder-master-key";
+
   private db: IDatabase;
   private encryptionService: ICredentialEncryptionService;
   private batchSize: number;
@@ -79,15 +89,12 @@ export class ByokBackgroundMigrator {
     db: IDatabase,
     encryptionService: ICredentialEncryptionService,
     batchSize: number = 100,
-    cryptoConfig: MigrationCryptoConfig = {
-      targetMasterKey: "migration-placeholder-master-key",
-      targetKeyVersion: "v1",
-    },
+    cryptoConfig?: MigrationCryptoConfig,
   ) {
     this.db = db;
     this.encryptionService = encryptionService;
     this.batchSize = batchSize;
-    this.cryptoConfig = cryptoConfig;
+    this.cryptoConfig = this.validateCryptoConfig(cryptoConfig);
   }
 
   /**
@@ -96,13 +103,10 @@ export class ByokBackgroundMigrator {
    */
   async migrate(): Promise<MigrationResult> {
     const startTime = Date.now();
-    let migratedCount = 0;
-    let failedCount = 0;
-    const failedIds: string[] = [];
+    const progress: MigrationBatchProgress = this.createInitialProgress();
     let totalCount = 0;
 
-    this.completedAt = null;
-    this.lastRunFailed = false;
+    this.resetRunState();
 
     try {
       console.log("[ByokBackgroundMigrator] Starting migration");
@@ -110,98 +114,20 @@ export class ByokBackgroundMigrator {
       totalCount = await this.getUnmigratedCount();
       if (totalCount === 0) {
         console.log("[ByokBackgroundMigrator] No unmigrated records found");
-        this.lastFailedCount = 0;
-        this.lastFailedIds = [];
-        this.completedAt = new Date().toISOString();
-        return {
-          success: true,
-          migratedCount: 0,
-          failedCount: 0,
-          totalCount: 0,
-          failedIds: [],
-          durationMs: Date.now() - startTime,
-        };
+        return this.buildNoRecordsResult(startTime);
       }
 
       console.log(
         `[ByokBackgroundMigrator] Found ${totalCount} unmigrated records`,
       );
 
-      while (true) {
-        const batch = await this.fetchUnmigratedBatch();
-        if (batch.length === 0) {
-          break;
-        }
-
-        console.log(
-          `[ByokBackgroundMigrator] Processing batch size: ${batch.length}`,
-        );
-
-        let batchMigratedCount = 0;
-        for (const v2Record of batch) {
-          try {
-            await this.migrateRecord(v2Record);
-            migratedCount++;
-            batchMigratedCount++;
-          } catch (error) {
-            failedCount++;
-            failedIds.push(v2Record.id);
-            console.error(
-              `[ByokBackgroundMigrator] Failed to migrate ${v2Record.id}: ${error instanceof Error ? error.message : String(error)}`,
-            );
-          }
-        }
-
-        console.log(
-          `[ByokBackgroundMigrator] Progress: ${migratedCount} migrated, ${failedCount} failed`,
-        );
-
-        if (batchMigratedCount === 0) {
-          this.lastRunFailed = true;
-          console.warn(
-            "[ByokBackgroundMigrator] Stopping migration: batch produced no successful migrations",
-          );
-          break;
-        }
-      }
-
-      const durationMs = Date.now() - startTime;
-      this.completedAt = new Date().toISOString();
-      this.lastFailedCount = failedCount;
-      this.lastFailedIds = [...failedIds];
-
-      console.log(
-        `[ByokBackgroundMigrator] Migration complete: ${migratedCount} migrated, ${failedCount} failed in ${durationMs}ms`,
-      );
-
-      return {
-        success: failedCount === 0 && !this.lastRunFailed,
-        migratedCount,
-        failedCount,
-        totalCount,
-        failedIds,
-        durationMs,
-      };
+      await this.processBatches(progress);
+      return this.buildSuccessResult(progress, totalCount, startTime);
     } catch (error) {
-      const durationMs = Date.now() - startTime;
       const errorMessage =
         error instanceof Error ? error.message : String(error);
-
-      this.lastRunFailed = true;
-      this.lastFailedCount = failedCount;
-      this.lastFailedIds = [...failedIds];
-
       console.error(`[ByokBackgroundMigrator] Migration failed: ${errorMessage}`);
-
-      return {
-        success: false,
-        migratedCount,
-        failedCount,
-        totalCount,
-        failedIds,
-        durationMs,
-        errorMessage,
-      };
+      return this.buildFailureResult(progress, totalCount, errorMessage, startTime);
     }
   }
 
@@ -277,6 +203,20 @@ export class ByokBackgroundMigrator {
     console.warn(
       "[ByokBackgroundMigrator] ROLLBACK: Marking all v3 records as unmigrated",
     );
+
+    await this.db
+      .prepare(
+        `
+        DELETE FROM byok_credentials
+        WHERE credential_id IN (
+          SELECT id
+          FROM v2_provider_connections
+          WHERE migrated_at IS NOT NULL
+        )
+      `,
+      )
+      .bind()
+      .run();
 
     await this.db
       .prepare(
@@ -363,6 +303,150 @@ export class ByokBackgroundMigrator {
 
     await insertStatement.run();
     await updateStatement.run();
+  }
+
+  private validateCryptoConfig(
+    cryptoConfig?: MigrationCryptoConfig,
+  ): MigrationCryptoConfig {
+    if (!cryptoConfig) {
+      throw new Error(
+        "Migration crypto configuration is required for ByokBackgroundMigrator",
+      );
+    }
+
+    if (
+      !cryptoConfig.targetMasterKey ||
+      cryptoConfig.targetMasterKey ===
+        ByokBackgroundMigrator.PLACEHOLDER_MASTER_KEY
+    ) {
+      throw new Error(
+        "Migration target master key is invalid. Configure a non-placeholder key.",
+      );
+    }
+
+    if (!cryptoConfig.targetKeyVersion) {
+      throw new Error(
+        "Migration target key version is required for ByokBackgroundMigrator",
+      );
+    }
+
+    return cryptoConfig;
+  }
+
+  private createInitialProgress(): MigrationBatchProgress {
+    return {
+      migratedCount: 0,
+      failedCount: 0,
+      failedIds: [],
+      runFailed: false,
+    };
+  }
+
+  private resetRunState(): void {
+    this.completedAt = null;
+    this.lastRunFailed = false;
+  }
+
+  private buildNoRecordsResult(startTime: number): MigrationResult {
+    this.lastFailedCount = 0;
+    this.lastFailedIds = [];
+    this.completedAt = new Date().toISOString();
+
+    return {
+      success: true,
+      migratedCount: 0,
+      failedCount: 0,
+      totalCount: 0,
+      failedIds: [],
+      durationMs: Date.now() - startTime,
+    };
+  }
+
+  private buildSuccessResult(
+    progress: MigrationBatchProgress,
+    totalCount: number,
+    startTime: number,
+  ): MigrationResult {
+    const durationMs = Date.now() - startTime;
+    this.completedAt = new Date().toISOString();
+    this.lastFailedCount = progress.failedCount;
+    this.lastFailedIds = [...progress.failedIds];
+    this.lastRunFailed = progress.runFailed;
+
+    console.log(
+      `[ByokBackgroundMigrator] Migration complete: ${progress.migratedCount} migrated, ${progress.failedCount} failed in ${durationMs}ms`,
+    );
+
+    return {
+      success: progress.failedCount === 0 && !this.lastRunFailed,
+      migratedCount: progress.migratedCount,
+      failedCount: progress.failedCount,
+      totalCount,
+      failedIds: [...progress.failedIds],
+      durationMs,
+    };
+  }
+
+  private buildFailureResult(
+    progress: MigrationBatchProgress,
+    totalCount: number,
+    errorMessage: string,
+    startTime: number,
+  ): MigrationResult {
+    const durationMs = Date.now() - startTime;
+    this.lastRunFailed = true;
+    this.lastFailedCount = progress.failedCount;
+    this.lastFailedIds = [...progress.failedIds];
+
+    return {
+      success: false,
+      migratedCount: progress.migratedCount,
+      failedCount: progress.failedCount,
+      totalCount,
+      failedIds: [...progress.failedIds],
+      durationMs,
+      errorMessage,
+    };
+  }
+
+  private async processBatches(progress: MigrationBatchProgress): Promise<void> {
+    while (true) {
+      const batch = await this.fetchUnmigratedBatch();
+      if (batch.length === 0) {
+        return;
+      }
+
+      console.log(
+        `[ByokBackgroundMigrator] Processing batch size: ${batch.length}`,
+      );
+
+      let batchMigratedCount = 0;
+      for (const v2Record of batch) {
+        try {
+          await this.migrateRecord(v2Record);
+          progress.migratedCount++;
+          batchMigratedCount++;
+        } catch (error) {
+          progress.failedCount++;
+          progress.failedIds.push(v2Record.id);
+          console.error(
+            `[ByokBackgroundMigrator] Failed to migrate ${v2Record.id}: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      }
+
+      console.log(
+        `[ByokBackgroundMigrator] Progress: ${progress.migratedCount} migrated, ${progress.failedCount} failed`,
+      );
+
+      if (batchMigratedCount === 0) {
+        progress.runFailed = true;
+        console.warn(
+          "[ByokBackgroundMigrator] Stopping migration: batch produced no successful migrations",
+        );
+        return;
+      }
+    }
   }
 
   private resolveStatus(
