@@ -21,7 +21,11 @@ describe("ProviderResolutionService", () => {
 
   beforeEach(() => {
     mockRepository = {
-      retrieve: vi.fn().mockResolvedValue(null),
+      retrieve: vi.fn().mockResolvedValue({
+        id: "cred-123",
+        status: "connected",
+        providerId: "openai",
+      }),
     };
 
     service = new ProviderResolutionService(mockRepository, platformDefaults);
