@@ -23,10 +23,19 @@ describe("ProviderDialog", () => {
       ],
       credentials: [
         {
-          id: "cred-1",
+          credentialId: "cred-1",
+          userId: "user-1",
+          workspaceId: "ws-1",
           providerId: "openai",
+          label: "",
+          keyFingerprint: "abc123xyz",
+          encryptedSecretJson: "{}",
+          keyVersion: "1",
           status: "connected",
-          fingerprint: "abc123xyz",
+          lastValidatedAt: null,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          deletedAt: null,
         },
       ],
       preferences: {
@@ -89,7 +98,7 @@ describe("ProviderDialog", () => {
       render(<ProviderDialog isOpen={true} onClose={vi.fn()} />);
 
       expect(
-        screen.getByText("No credentials connected")
+        screen.getByText(/No credentials connected/)
       ).toBeInTheDocument();
     });
 
@@ -211,7 +220,8 @@ describe("ProviderDialog", () => {
       const onClose = vi.fn();
       render(<ProviderDialog isOpen={true} onClose={onClose} />);
 
-      const footerCloseButtons = screen.getAllByText("Close");
+      const footerCloseButtons = screen.getAllByRole("button", { name: /Close/i });
+      // The footer close button is the second one (first is the X in header)
       fireEvent.click(footerCloseButtons[1]);
 
       expect(onClose).toHaveBeenCalled();

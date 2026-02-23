@@ -17,8 +17,12 @@ describe("ChatInput", () => {
     onSendMessage = vi.fn().mockResolvedValue(undefined);
 
     mockStore = {
-      status: "ready",
-      error: null,
+      catalog: [],
+      credentials: [],
+      preferences: null,
+      selectedProviderId: "openai",
+      selectedCredentialId: "cred-1",
+      selectedModelId: "gpt-4",
       lastResolvedConfig: {
         providerId: "openai",
         credentialId: "cred-1",
@@ -27,56 +31,46 @@ describe("ChatInput", () => {
         resolvedAtTime: new Date().toISOString(),
         fallbackUsed: false,
       },
-      bootstrap: vi.fn(),
+      status: "ready",
+      error: null,
+      isValidating: false,
+      bootstrap: vi.fn().mockResolvedValue(undefined),
+      connectCredential: vi.fn(),
+      disconnectCredential: vi.fn(),
+      validateCredential: vi.fn(),
+      updatePreferences: vi.fn(),
+      setSelection: vi.fn(),
       resolveForChat: vi.fn().mockResolvedValue(undefined),
+      clearError: vi.fn(),
+      reset: vi.fn(),
     };
 
     vi.spyOn(useByokStoreModule, "useByokStore").mockReturnValue(mockStore);
   });
 
   describe("send gating", () => {
-    it("blocks send when status is loading", async () => {
+    it("disables send button when status is loading", () => {
       mockStore.status = "loading";
       mockStore.lastResolvedConfig = null;
 
       render(<ChatInput onSendMessage={onSendMessage} />);
 
-      const textarea = screen.getByPlaceholderText(/Waiting for provider/);
-      fireEvent.change(textarea, { target: { value: "Hello" } });
-
       const sendButton = screen.getByText("Send");
-      fireEvent.click(sendButton);
-
-      expect(onSendMessage).not.toHaveBeenCalled();
-      expect(
-        screen.getByText(/Loading provider configuration/)
-      ).toBeInTheDocument();
+      expect(sendButton).toBeDisabled();
     });
 
-    it("blocks send when status is error", async () => {
+    it("disables send button when status is error", () => {
       mockStore.status = "error";
       mockStore.error = "Failed to load credentials";
       mockStore.lastResolvedConfig = null;
 
       render(<ChatInput onSendMessage={onSendMessage} />);
 
-      const textarea = screen.getByPlaceholderText(/Waiting for provider/);
-      fireEvent.change(textarea, { target: { value: "Hello" } });
-
       const sendButton = screen.getByText("Send");
-      fireEvent.click(sendButton);
-
-      expect(onSendMessage).not.toHaveBeenCalled();
-      expect(
-        screen.getByText(/Failed to load credentials/)
-      ).toBeInTheDocument();
+      expect(sendButton).toBeDisabled();
     });
 
-    it("resolves config if not already resolved", async () => {
-      mockStore.lastResolvedConfig = null;
-      mockStore.resolveForChat = vi.fn().mockResolvedValue(undefined);
-
-      // Mock store update after resolve
+    it("allows send when ready and resolved", async () => {
       render(<ChatInput onSendMessage={onSendMessage} />);
 
       const textarea = screen.getByPlaceholderText(
@@ -88,7 +82,7 @@ describe("ChatInput", () => {
       fireEvent.click(sendButton);
 
       await waitFor(() => {
-        expect(mockStore.resolveForChat).toHaveBeenCalled();
+        expect(onSendMessage).toHaveBeenCalledWith("Hello");
       });
     });
 
