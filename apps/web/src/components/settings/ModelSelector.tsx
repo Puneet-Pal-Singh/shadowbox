@@ -106,7 +106,11 @@ export function ModelSelector({
           return;
         }
 
-        loadModels(providerId, savedModelId);
+        await loadModels(providerId, savedModelId);
+        // Check cancelled after loadModels completes to prevent stale state updates
+        if (cancelled) {
+          return;
+        }
       } catch (e) {
         if (!cancelled) {
           setModels([]);
