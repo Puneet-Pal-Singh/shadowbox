@@ -286,7 +286,7 @@ function ConnectedTab({
         <div className="space-y-4">
           {credentials.map((cred) => (
             <div
-              key={cred.id}
+              key={cred.credentialId}
               className="border rounded-lg p-4 hover:bg-gray-50 transition"
             >
               <div className="flex items-start justify-between">
@@ -297,9 +297,9 @@ function ConnectedTab({
                   <p className="text-sm text-gray-600">
                     Provider: {cred.providerId}
                   </p>
-                  {cred.fingerprint && (
+                  {cred.keyFingerprint && (
                     <p className="text-xs text-gray-500 mt-1">
-                      Fingerprint: {cred.fingerprint.slice(0, 16)}...
+                      Fingerprint: {cred.keyFingerprint.slice(0, 16)}...
                     </p>
                   )}
                   <div className="flex gap-2 mt-2">
@@ -317,14 +317,14 @@ function ConnectedTab({
 
                 <div className="flex gap-2">
                   <button
-                    onClick={() => onValidate(cred.id, "format")}
-                    disabled={validatingId === cred.id}
+                    onClick={() => onValidate(cred.credentialId, "format")}
+                    disabled={validatingId === cred.credentialId}
                     className="text-sm px-3 py-1 border rounded hover:bg-gray-100 disabled:opacity-50 transition"
                   >
-                    {validatingId === cred.id ? "Validating..." : "Test"}
+                    {validatingId === cred.credentialId ? "Validating..." : "Test"}
                   </button>
                   <button
-                    onClick={() => onDisconnect(cred.id)}
+                    onClick={() => onDisconnect(cred.credentialId)}
                     className="text-sm px-3 py-1 border border-red-300 text-red-700 rounded hover:bg-red-50 transition"
                   >
                     Remove
