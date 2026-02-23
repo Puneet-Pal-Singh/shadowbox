@@ -114,7 +114,7 @@ const PROVIDER_REGISTRY: Record<string, ProviderEntry> = {
     },
     defaultModel: "openrouter/auto",
     baseUrl: "https://openrouter.ai/api/v1",
-    modelSource: "static",
+    modelSource: "remote",
     keyFormat: { prefix: "sk-or-" },
     modelFetchUrl: "https://openrouter.ai/api/v1/models",
   },
@@ -308,12 +308,8 @@ export class ProviderRegistryV3 {
    * WARNING: Not persistent, use for testing only
    */
   registerProvider(entry: ProviderEntry): void {
-    ProviderRegistryV3.registry[entry.providerId] = {
-      ...entry,
-      authModes: [...entry.authModes],
-      capabilities: { ...entry.capabilities },
-      keyFormat: entry.keyFormat ? { ...entry.keyFormat } : undefined,
-    };
+    ProviderRegistryV3.registry[entry.providerId] =
+      ProviderRegistryV3.normalizeProviderEntry(entry);
     console.log(
       `[ProviderRegistryV3] Registered provider: ${entry.providerId}`,
     );
@@ -339,14 +335,14 @@ export class ProviderRegistryV3 {
     const publicEntry: ProviderRegistryEntry = {
       providerId: entry.providerId,
       displayName: entry.displayName,
-      authModes: entry.authModes,
+      authModes: [...entry.authModes],
       capabilities: {
         streaming: entry.capabilities.streaming,
         tools: entry.capabilities.tools,
         jsonMode: entry.capabilities.jsonMode,
         structuredOutputs: entry.capabilities.structuredOutputs,
       },
-      modelSource: entry.modelFetchUrl ? "remote" : "static",
+      modelSource: entry.modelSource,
     };
 
     if (entry.baseUrl) {
@@ -367,14 +363,28 @@ export class ProviderRegistryV3 {
   ): Record<string, ProviderEntry> {
     const clonedEntries = Object.entries(source).map(([key, value]) => [
       key,
-      {
-        ...value,
-        authModes: [...value.authModes],
-        capabilities: { ...value.capabilities },
-        keyFormat: value.keyFormat ? { ...value.keyFormat } : undefined,
-      },
+      ProviderRegistryV3.normalizeProviderEntry(value),
     ]);
 
     return Object.fromEntries(clonedEntries);
+  }
+
+  private static normalizeProviderEntry(entry: ProviderEntry): ProviderEntry {
+    return {
+      ...entry,
+      modelSource: ProviderRegistryV3.resolveModelSource(entry),
+      authModes: [...entry.authModes],
+      capabilities: { ...entry.capabilities },
+      keyFormat: entry.keyFormat ? { ...entry.keyFormat } : undefined,
+    };
+  }
+
+  private static resolveModelSource(
+    entry: Pick<ProviderEntry, "modelSource" | "modelFetchUrl">,
+  ): ProviderRegistryEntry["modelSource"] {
+    if (entry.modelSource === "remote" || entry.modelFetchUrl) {
+      return "remote";
+    }
+    return "static";
   }
 }

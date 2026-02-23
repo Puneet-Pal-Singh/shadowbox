@@ -159,12 +159,11 @@ describe("ProviderRegistryV3", () => {
       expect(providers.some((p) => p.providerId === "openai")).toBe(true);
     });
 
-    it("should return empty for unsupported capability", () => {
-      // Assuming no provider has reasoning by default in subset
+    it("should return providers with reasoning capability", () => {
       const providers = registry.getProvidersByCapability("reasoning");
 
-      // Should return some (openai, anthropic, deepseek have reasoning)
       expect(providers.length).toBeGreaterThan(0);
+      expect(providers.some((p) => p.providerId === "openai")).toBe(true);
     });
 
     it("should return providers with jsonMode", () => {
