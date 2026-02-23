@@ -109,3 +109,6 @@ export {
   convertLegacyEvent,
   normalizeEvent,
 } from "./run-events.compat.js";
+
+// BYOK module (new architecture)
+export * from "./byok/index.js";
