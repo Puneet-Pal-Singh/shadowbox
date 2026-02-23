@@ -152,7 +152,7 @@ export function isRetryableError(code: BYOKErrorCode): boolean {
 }
 
 /**
- * Helper: Is error a auth/access issue?
+ * Helper: Is error an auth/access issue?
  */
 export const AUTH_ERRORS: Set<BYOKErrorCode> = new Set([
   "PROVIDER_AUTH_FAILED",

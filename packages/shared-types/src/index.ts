@@ -111,4 +111,43 @@ export {
 } from "./run-events.compat.js";
 
 // BYOK module (new architecture)
-export * from "./byok/index.js";
+// Note: Use explicit named exports to avoid conflicts with legacy v2 BYOK types
+export {
+  BYOKCredentialSchema,
+  BYOKCredentialDTOSchema,
+  BYOKPreferenceSchema,
+  BYOKPreferencePatchSchema,
+  BYOKResolutionSchema,
+  BYOKResolveRequestSchema,
+  BYOKErrorCodeSchema,
+  BYOKErrorSchema,
+  BYOKErrorEnvelopeSchema,
+  BYOKValidationErrorDetailSchema,
+  BYOKValidationErrorResponseSchema,
+  RETRYABLE_ERRORS,
+  isRetryableError,
+  AUTH_ERRORS,
+  isAuthError,
+  createBYOKError,
+  ProviderRegistryEntrySchema,
+  ProviderRegistrySchema,
+  BUILTIN_PROVIDERS,
+  getBuiltinRegistry,
+  findBuiltinProvider,
+  isKnownProvider,
+  getKnownProviderIds,
+  // API contracts (exclude to avoid conflicts with v2)
+  type BYOKCredential,
+  type BYOKCredentialDTO,
+  type BYOKPreference,
+  type BYOKPreferencePatch,
+  type BYOKResolution,
+  type BYOKResolveRequest,
+  type BYOKErrorCode,
+  type BYOKError,
+  type BYOKErrorEnvelope,
+  type BYOKValidationErrorDetail,
+  type BYOKValidationErrorResponse,
+  type ProviderRegistryEntry,
+  type ProviderRegistry,
+} from "./byok/index.js";

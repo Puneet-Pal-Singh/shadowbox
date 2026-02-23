@@ -219,6 +219,8 @@ export function getBuiltinRegistry(): ProviderRegistry {
 
 /**
  * Find provider by ID in builtin registry
+ *
+ * Provider IDs are case-insensitive and normalized to lowercase.
  */
 export function findBuiltinProvider(
   providerId: string,
@@ -228,6 +230,8 @@ export function findBuiltinProvider(
 
 /**
  * Validate provider exists in builtin registry
+ *
+ * Provider IDs are case-insensitive and normalized to lowercase.
  */
 export function isKnownProvider(providerId: string): boolean {
   return providerId.toLowerCase() in BUILTIN_PROVIDERS;
@@ -235,6 +239,10 @@ export function isKnownProvider(providerId: string): boolean {
 
 /**
  * Get all provider IDs in builtin registry
+ *
+ * Note: All returned IDs are lowercase. Use with `isKnownProvider()` which
+ * handles case-insensitive comparison, or manually normalize input before
+ * comparing against this list.
  */
 export function getKnownProviderIds(): string[] {
   return Object.keys(BUILTIN_PROVIDERS);
