@@ -10,8 +10,8 @@ import { ChatInput } from "./ChatInput.js";
 import * as useByokStoreModule from "../../hooks/useByokStore.js";
 
 describe("ChatInput", () => {
-  let mockStore: any;
-  let onSendMessage: any;
+  let mockStore: Record<string, unknown>;
+  let onSendMessage: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     onSendMessage = vi.fn().mockResolvedValue(undefined);
@@ -77,7 +77,7 @@ describe("ChatInput", () => {
       mockStore.resolveForChat = vi.fn().mockResolvedValue(undefined);
 
       // Mock store update after resolve
-      const { rerender } = render(<ChatInput onSendMessage={onSendMessage} />);
+      render(<ChatInput onSendMessage={onSendMessage} />);
 
       const textarea = screen.getByPlaceholderText(
         /Type your message/

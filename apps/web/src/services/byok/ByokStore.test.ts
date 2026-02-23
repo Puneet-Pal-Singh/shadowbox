@@ -6,15 +6,14 @@
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { ByokStore, ConnectCredentialRequest } from "./ByokStore.js";
-import { ByokApiClient } from "../api/byokClient.js";
 
 describe("ByokStore", () => {
   let store: ByokStore;
-  let mockApiClient: any;
+  let mockApiClient: Record<string, unknown>;
 
   beforeEach(() => {
     // Reset singleton
-    (ByokStore as any).instance = undefined;
+    (ByokStore as Record<string, unknown>).instance = undefined;
 
     mockApiClient = {
       getCatalog: vi.fn().mockResolvedValue([
@@ -100,7 +99,7 @@ describe("ByokStore", () => {
 
       try {
         await store.bootstrap();
-      } catch (error) {
+      } catch {
         // Expected
       }
 
@@ -132,7 +131,7 @@ describe("ByokStore", () => {
 
       const state = store.getState();
       expect(state.credentials).toHaveLength(2);
-      expect(state.credentials.some((c) => c.id === "cred-2")).toBe(true);
+      expect(state.credentials.some((c) => c.credentialId === "cred-2")).toBe(true);
     });
 
     it("deduplicates concurrent connect requests", async () => {

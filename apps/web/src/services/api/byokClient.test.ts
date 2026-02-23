@@ -9,7 +9,7 @@ import { ByokApiClient, ByokApiError } from "./byokClient.js";
 
 describe("ByokApiClient", () => {
   let client: ByokApiClient;
-  let fetchSpy: any;
+  let fetchSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
     client = new ByokApiClient();
@@ -226,7 +226,6 @@ describe("ByokApiClient", () => {
     });
 
     it("handles abort signal", async () => {
-      const controller = new AbortController();
       const error = new Error("Aborted");
       error.name = "AbortError";
       fetchSpy.mockRejectedValueOnce(error);

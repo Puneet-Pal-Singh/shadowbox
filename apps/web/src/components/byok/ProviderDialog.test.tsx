@@ -10,7 +10,7 @@ import { ProviderDialog } from "./ProviderDialog.js";
 import * as useByokStoreModule from "../../hooks/useByokStore.js";
 
 describe("ProviderDialog", () => {
-  let mockStore: any;
+  let mockStore: Record<string, unknown>;
 
   beforeEach(() => {
     mockStore = {
