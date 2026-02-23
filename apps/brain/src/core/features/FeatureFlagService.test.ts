@@ -141,14 +141,19 @@ describe("FeatureFlagService", () => {
   describe("getAllFlags", () => {
     it("should return all flag states", async () => {
       const service = FeatureFlagService.getInstance(env);
-      await service.initialize();
-
-      const allFlags = service.getAllFlags();
+      const allFlags = await service.getAllFlags();
 
       expect(allFlags[FeatureFlagName.BYOK_V3_ENABLED]).toBe(false);
       expect(allFlags[FeatureFlagName.BYOK_MIGRATION_ENABLED]).toBe(false);
       expect(allFlags[FeatureFlagName.BYOK_MIGRATION_CUTOVER]).toBe(false);
       expect(allFlags[FeatureFlagName.BYOK_RATE_LIMIT_ENABLED]).toBe(true);
+    });
+
+    it("should auto-initialize when called before initialize", async () => {
+      const service = FeatureFlagService.getInstance(env);
+
+      const allFlags = await service.getAllFlags();
+      expect(allFlags[FeatureFlagName.BYOK_V3_ENABLED]).toBe(false);
     });
   });
 
@@ -176,6 +181,28 @@ describe("FeatureFlagService", () => {
       const service2 = FeatureFlagService.getInstance(env);
 
       expect(service1).toBe(service2);
+    });
+
+    it("should refresh env snapshot when a new env object is provided", async () => {
+      const firstEnv = {
+        ...env,
+        FEATURE_FLAG_BYOK_V3_ENABLED: "false",
+      } as Env;
+      const secondEnv = {
+        ...env,
+        FEATURE_FLAG_BYOK_V3_ENABLED: "true",
+      } as Env;
+
+      const service = FeatureFlagService.getInstance(firstEnv);
+      expect(await service.isEnabled(FeatureFlagName.BYOK_V3_ENABLED)).toBe(
+        false,
+      );
+
+      const sameService = FeatureFlagService.getInstance(secondEnv);
+      expect(sameService).toBe(service);
+      expect(
+        await sameService.isEnabled(FeatureFlagName.BYOK_V3_ENABLED),
+      ).toBe(true);
     });
   });
 });

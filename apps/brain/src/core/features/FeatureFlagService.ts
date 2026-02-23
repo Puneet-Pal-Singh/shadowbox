@@ -65,7 +65,7 @@ export class FeatureFlagService {
   private static instance: FeatureFlagService;
   private flags: Map<FeatureFlagName, boolean> = new Map();
   private env: Env;
-  private initialized: boolean = false;
+  private initialized = false;
 
   private constructor(env: Env) {
     this.env = env;
@@ -77,7 +77,10 @@ export class FeatureFlagService {
   static getInstance(env: Env): FeatureFlagService {
     if (!FeatureFlagService.instance) {
       FeatureFlagService.instance = new FeatureFlagService(env);
+      return FeatureFlagService.instance;
     }
+
+    FeatureFlagService.instance.refreshEnv(env);
     return FeatureFlagService.instance;
   }
 
@@ -97,7 +100,7 @@ export class FeatureFlagService {
       this.flags.set(flagDef.name, isEnabled);
 
       console.log(
-        `[FeatureFlagService] Initialized ${flagDef.name}: ${isEnabled} (from ${envValue !== undefined ? "env" : "default"})`
+        `[FeatureFlagService] Initialized ${flagDef.name}: ${isEnabled} (from ${envValue !== undefined ? "env" : "default"})`,
       );
     }
 
@@ -115,7 +118,7 @@ export class FeatureFlagService {
     const value = this.flags.get(flagName);
     if (value === undefined) {
       console.warn(
-        `[FeatureFlagService] Unknown flag: ${flagName}, defaulting to false`
+        `[FeatureFlagService] Unknown flag: ${flagName}, defaulting to false`,
       );
       return false;
     }
@@ -129,14 +132,18 @@ export class FeatureFlagService {
   setFlag(flagName: FeatureFlagName, value: boolean): void {
     this.flags.set(flagName, value);
     console.log(
-      `[FeatureFlagService] Runtime override: ${flagName} = ${value}`
+      `[FeatureFlagService] Runtime override: ${flagName} = ${value}`,
     );
   }
 
   /**
    * Get all flag states
    */
-  getAllFlags(): Record<FeatureFlagName, boolean> {
+  async getAllFlags(): Promise<Record<FeatureFlagName, boolean>> {
+    if (!this.initialized) {
+      await this.initialize();
+    }
+
     const result: Record<string, boolean> = {};
     for (const [name, value] of this.flags.entries()) {
       result[name] = value;
@@ -151,5 +158,19 @@ export class FeatureFlagService {
     this.flags.clear();
     this.initialized = false;
     await this.initialize();
+  }
+
+  /**
+   * Refresh request-scoped env bindings.
+   * Cloudflare isolates can outlive a single request; this prevents stale env snapshots.
+   */
+  private refreshEnv(env: Env): void {
+    if (this.env === env) {
+      return;
+    }
+
+    this.env = env;
+    this.flags.clear();
+    this.initialized = false;
   }
 }
