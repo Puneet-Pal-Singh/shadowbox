@@ -1,0 +1,310 @@
+/**
+ * ByokStore Tests
+ *
+ * Tests for state management, actions, and synchronization.
+ */
+
+import { describe, it, expect, beforeEach, vi } from "vitest";
+import type {
+  BYOKCredential,
+  BYOKPreference,
+  BYOKResolution,
+  ProviderRegistryEntry,
+} from "@repo/shared-types";
+import {
+  ByokStore,
+  ConnectCredentialRequest,
+  ByokApiClientContract,
+} from "./ByokStore.js";
+
+describe("ByokStore", () => {
+  let store: ByokStore;
+  let mockApiClient: ByokApiClientContract;
+
+  const credential1Id = "550e8400-e29b-41d4-a716-446655440000";
+  const credential2Id = "550e8400-e29b-41d4-a716-446655440001";
+
+  beforeEach(() => {
+    // Reset singleton between tests
+    (ByokStore as unknown as { instance?: ByokStore }).instance = undefined;
+
+    const catalog: ProviderRegistryEntry[] = [
+      {
+        providerId: "openai",
+        displayName: "OpenAI",
+        authModes: ["api_key"],
+        capabilities: {
+          streaming: true,
+          tools: true,
+          jsonMode: true,
+          structuredOutputs: true,
+        },
+        modelSource: "static",
+      },
+    ];
+
+    const credentials: BYOKCredential[] = [
+      {
+        credentialId: credential1Id,
+        userId: "user-1",
+        workspaceId: "ws-1",
+        providerId: "openai",
+        label: "Production",
+        keyFingerprint: "abc123xyz",
+        encryptedSecretJson: "{}",
+        keyVersion: "1",
+        status: "connected",
+        lastValidatedAt: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      },
+    ];
+
+    const preferences: BYOKPreference = {
+      userId: "user-1",
+      workspaceId: "ws-1",
+      defaultProviderId: "openai",
+      defaultCredentialId: credential1Id,
+      defaultModelId: "gpt-4",
+      fallbackMode: "strict",
+      fallbackChain: [],
+      updatedAt: new Date().toISOString(),
+    };
+
+    const resolvedConfig: BYOKResolution = {
+      providerId: "openai",
+      credentialId: credential1Id,
+      modelId: "gpt-4",
+      resolvedAt: "workspace_preference",
+      resolvedAtTime: new Date().toISOString(),
+      fallbackUsed: false,
+    };
+
+    const connectedCredential: BYOKCredential = {
+      credentialId: credential2Id,
+      userId: "user-1",
+      workspaceId: "ws-1",
+      providerId: "openai",
+      label: "Testing",
+      keyFingerprint: "def456uvw",
+      encryptedSecretJson: "{}",
+      keyVersion: "1",
+      status: "connected",
+      lastValidatedAt: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      deletedAt: null,
+    };
+
+    mockApiClient = {
+      getCatalog: vi.fn(async () => catalog),
+      getCredentials: vi.fn(async () => credentials),
+      getPreferences: vi.fn(async () => preferences),
+      connectCredential: vi.fn(async (req: ConnectCredentialRequest) => {
+        void req;
+        return connectedCredential;
+      }),
+      disconnectCredential: vi.fn(async (credentialId: string) => {
+        void credentialId;
+        return undefined;
+      }),
+      validateCredential: vi.fn(
+        async (credentialId: string, req: { mode: "format" | "live" }) => {
+          void credentialId;
+          void req;
+          return { valid: true };
+        }
+      ),
+      updatePreferences: vi.fn(async (partial: Partial<BYOKPreference>) => {
+        void partial;
+        return {
+          ...preferences,
+          defaultModelId: "gpt-4-turbo",
+        };
+      }),
+      resolveForChat: vi.fn(
+        async (req: {
+          providerId?: string;
+          credentialId?: string;
+          modelId?: string;
+        }) => {
+          void req;
+          return resolvedConfig;
+        }
+      ),
+    } satisfies ByokApiClientContract;
+
+    store = ByokStore.getInstance({ apiClient: mockApiClient });
+  });
+
+  describe("initialization", () => {
+    it("starts in idle state", () => {
+      const state = store.getState();
+      expect(state.status).toBe("idle");
+      expect(state.catalog).toEqual([]);
+      expect(state.credentials).toEqual([]);
+    });
+
+    it("uses singleton pattern", () => {
+      const store1 = ByokStore.getInstance({ apiClient: mockApiClient });
+      const store2 = ByokStore.getInstance({ apiClient: mockApiClient });
+      expect(store1).toBe(store2);
+    });
+  });
+
+  describe("bootstrap", () => {
+    it("fetches catalog, credentials, and preferences", async () => {
+      await store.bootstrap();
+
+      expect(mockApiClient.getCatalog).toHaveBeenCalled();
+      expect(mockApiClient.getCredentials).toHaveBeenCalled();
+      expect(mockApiClient.getPreferences).toHaveBeenCalled();
+    });
+
+    it("sets status to ready on success", async () => {
+      await store.bootstrap();
+
+      const state = store.getState();
+      expect(state.status).toBe("ready");
+      expect(state.catalog).toHaveLength(1);
+      expect(state.credentials).toHaveLength(1);
+    });
+
+    it("sets status to error on failure", async () => {
+      vi.mocked(mockApiClient.getCatalog).mockRejectedValueOnce(
+        new Error("Network error")
+      );
+
+      await expect(store.bootstrap()).rejects.toThrow("Network error");
+
+      const state = store.getState();
+      expect(state.status).toBe("error");
+      expect(state.error).toContain("Network error");
+    });
+
+    it("prevents concurrent bootstrap calls", async () => {
+      const promise1 = store.bootstrap();
+      const promise2 = store.bootstrap();
+
+      await Promise.all([promise1, promise2]);
+
+      expect(mockApiClient.getCatalog).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("connect credential", () => {
+    it("connects a new credential", async () => {
+      await store.bootstrap();
+
+      const req: ConnectCredentialRequest = {
+        providerId: "openai",
+        secret: "sk-test",
+      };
+
+      await store.connectCredential(req);
+
+      const state = store.getState();
+      expect(state.credentials).toHaveLength(2);
+      expect(
+        state.credentials.some((c) => c.credentialId === credential2Id)
+      ).toBe(true);
+    });
+
+    it("deduplicates concurrent connect requests", async () => {
+      const req: ConnectCredentialRequest = {
+        providerId: "openai",
+        secret: "sk-test",
+      };
+
+      await Promise.all([store.connectCredential(req), store.connectCredential(req)]);
+
+      expect(mockApiClient.connectCredential).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("disconnect credential", () => {
+    it("removes credential from list", async () => {
+      await store.bootstrap();
+
+      await store.disconnectCredential(credential1Id);
+
+      const state = store.getState();
+      expect(state.credentials).toHaveLength(0);
+    });
+
+    it("clears selection if disconnecting selected credential", async () => {
+      await store.bootstrap();
+      store.setSelection("openai", credential1Id, "gpt-4");
+
+      await store.disconnectCredential(credential1Id);
+
+      const state = store.getState();
+      expect(state.selectedCredentialId).toBeNull();
+    });
+  });
+
+  describe("setSelection", () => {
+    it("updates provider/credential/model selection", () => {
+      store.setSelection("openai", credential1Id, "gpt-4");
+
+      const state = store.getState();
+      expect(state.selectedProviderId).toBe("openai");
+      expect(state.selectedCredentialId).toBe(credential1Id);
+      expect(state.selectedModelId).toBe("gpt-4");
+    });
+  });
+
+  describe("resolveForChat", () => {
+    it("resolves provider config", async () => {
+      await store.bootstrap();
+      store.setSelection("openai", credential1Id, "gpt-4");
+
+      const config = await store.resolveForChat();
+
+      expect(config.providerId).toBe("openai");
+      expect(config.credentialId).toBe(credential1Id);
+    });
+
+    it("deduplicates concurrent resolve requests", async () => {
+      await store.bootstrap();
+
+      await Promise.all([store.resolveForChat(), store.resolveForChat()]);
+
+      expect(mockApiClient.resolveForChat).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("subscribe", () => {
+    it("notifies listeners on state change", () => {
+      const listener = vi.fn();
+      store.subscribe(listener);
+
+      store.setSelection("openai", credential1Id);
+
+      expect(listener).toHaveBeenCalled();
+      const state = listener.mock.calls[0][0];
+      expect(state.selectedProviderId).toBe("openai");
+    });
+
+    it("unsubscribes listener", () => {
+      const listener = vi.fn();
+      const unsubscribe = store.subscribe(listener);
+
+      unsubscribe();
+      store.setSelection("openai", credential1Id);
+
+      expect(listener).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("clearError", () => {
+    it("clears error message", () => {
+      const state = store.getState();
+      expect(state.error).toBeNull();
+
+      store.clearError();
+      expect(store.getState().error).toBeNull();
+    });
+  });
+});

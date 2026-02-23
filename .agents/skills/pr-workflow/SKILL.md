@@ -38,6 +38,10 @@ When this skill is used in the Shadowbox repo, these rules are mandatory:
 - Never use `git add -A` or `git add .`.
 - Prefer non-interactive git flows in automated sessions.
 - Use the required PR description structure from `AGENTS.md` Section 18.
+- **CRITICAL**: Never create task completion reports, summaries, or documentation files unless explicitly requested by user.
+  - ❌ Do NOT create `PR-4-COMPLETION-REPORT.md`, `SUMMARY.md`, auto-generated docs
+  - ✅ DO put all details in PR description itself
+  - See `AGENTS.md` Section 18 "Documentation Files: STRICT RULE"
 
 ## Naming Standards (Shadowbox)
 
