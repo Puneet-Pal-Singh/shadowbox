@@ -299,23 +299,32 @@ describe("BYOK API Contracts", () => {
 
 describe("Provider Capabilities", () => {
   it("openai has all capabilities", () => {
-    const openai = BUILTIN_PROVIDERS.openai;
-    expect(openai.capabilities.streaming).toBe(true);
-    expect(openai.capabilities.tools).toBe(true);
-    expect(openai.capabilities.jsonMode).toBe(true);
-    expect(openai.capabilities.structuredOutputs).toBe(true);
+    const openai = BUILTIN_PROVIDERS["openai"];
+    expect(openai).toBeDefined();
+    if (openai) {
+      expect(openai.capabilities.streaming).toBe(true);
+      expect(openai.capabilities.tools).toBe(true);
+      expect(openai.capabilities.jsonMode).toBe(true);
+      expect(openai.capabilities.structuredOutputs).toBe(true);
+    }
   });
 
   it("groq has limited capabilities", () => {
-    const groq = BUILTIN_PROVIDERS.groq;
-    expect(groq.capabilities.streaming).toBe(true);
-    expect(groq.capabilities.tools).toBe(true);
-    expect(groq.capabilities.jsonMode).toBe(false);
-    expect(groq.capabilities.structuredOutputs).toBe(false);
+    const groq = BUILTIN_PROVIDERS["groq"];
+    expect(groq).toBeDefined();
+    if (groq) {
+      expect(groq.capabilities.streaming).toBe(true);
+      expect(groq.capabilities.tools).toBe(true);
+      expect(groq.capabilities.jsonMode).toBe(false);
+      expect(groq.capabilities.structuredOutputs).toBe(false);
+    }
   });
 
   it("openrouter supports remote model source", () => {
-    const openrouter = BUILTIN_PROVIDERS.openrouter;
-    expect(openrouter.modelSource).toBe("remote");
+    const openrouter = BUILTIN_PROVIDERS["openrouter"];
+    expect(openrouter).toBeDefined();
+    if (openrouter) {
+      expect(openrouter.modelSource).toBe("remote");
+    }
   });
 });
