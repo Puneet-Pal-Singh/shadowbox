@@ -15,13 +15,15 @@ import { z } from "zod";
  * 2. Session preference
  * 3. Workspace preference
  * 4. Platform fallback
+ *
+ * Note: credentialId may be empty string for platform fallback (no BYOK credential).
  */
 export const BYOKResolutionSchema = z.object({
   /** Resolved provider ID */
   providerId: z.string().min(1),
 
-  /** Resolved credential ID */
-  credentialId: z.string().uuid(),
+  /** Resolved credential ID (empty string for platform fallback) */
+  credentialId: z.string(),
 
   /** Resolved model ID */
   modelId: z.string().min(1),
