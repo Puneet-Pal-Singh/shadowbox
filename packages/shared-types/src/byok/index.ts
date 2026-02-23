@@ -33,6 +33,7 @@ export {
 export {
   BYOKErrorCodeSchema,
   BYOKErrorSchema,
+  BYOKErrorInternalSchema,
   BYOKErrorEnvelopeSchema,
   BYOKValidationErrorDetailSchema,
   BYOKValidationErrorResponseSchema,
@@ -41,8 +42,10 @@ export {
   AUTH_ERRORS,
   isAuthError,
   createBYOKError,
+  createBYOKErrorInternal,
   type BYOKErrorCode,
   type BYOKError,
+  type BYOKErrorInternal,
   type BYOKErrorEnvelope,
   type BYOKValidationErrorDetail,
   type BYOKValidationErrorResponse,
