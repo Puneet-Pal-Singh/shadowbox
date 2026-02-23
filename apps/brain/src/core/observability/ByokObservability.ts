@@ -207,11 +207,11 @@ export class ByokObservability {
     );
     const resolveP95Latency =
       sortedLatencies.length > 0
-        ? sortedLatencies[Math.floor(sortedLatencies.length * 0.95)]
+        ? sortedLatencies[Math.max(0, Math.floor(sortedLatencies.length * 0.95) - 1)] ?? 0
         : 0;
     const resolvepP99Latency =
       sortedLatencies.length > 0
-        ? sortedLatencies[Math.floor(sortedLatencies.length * 0.99)]
+        ? sortedLatencies[Math.max(0, Math.floor(sortedLatencies.length * 0.99) - 1)] ?? 0
         : 0;
 
     // Migration progress

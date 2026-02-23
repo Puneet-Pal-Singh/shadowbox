@@ -61,6 +61,7 @@ const PROVIDER_REGISTRY: Record<string, ProviderEntry> = {
     },
     defaultModel: "gpt-4",
     baseUrl: "https://api.openai.com/v1",
+    modelSource: "static",
     keyFormat: { prefix: "sk-" },
   },
 
@@ -78,6 +79,7 @@ const PROVIDER_REGISTRY: Record<string, ProviderEntry> = {
     },
     defaultModel: "claude-3-opus",
     baseUrl: "https://api.anthropic.com",
+    modelSource: "static",
     keyFormat: { prefix: "sk-ant-" },
   },
 
@@ -94,6 +96,7 @@ const PROVIDER_REGISTRY: Record<string, ProviderEntry> = {
     },
     defaultModel: "mixtral-8x7b-32768",
     baseUrl: "https://api.groq.com/openai/v1",
+    modelSource: "static",
     keyFormat: { prefix: "gsk_" },
   },
 
@@ -111,9 +114,9 @@ const PROVIDER_REGISTRY: Record<string, ProviderEntry> = {
     },
     defaultModel: "openrouter/auto",
     baseUrl: "https://openrouter.ai/api/v1",
+    modelSource: "static",
     keyFormat: { prefix: "sk-or-" },
     modelFetchUrl: "https://openrouter.ai/api/v1/models",
-    modelFetchIntervalHours: 24,
   },
 
   cohere: {
@@ -129,6 +132,7 @@ const PROVIDER_REGISTRY: Record<string, ProviderEntry> = {
     },
     defaultModel: "command-r-plus",
     baseUrl: "https://api.cohere.ai/v1",
+    modelSource: "static",
     keyFormat: { prefix: "sk-" },
   },
 
@@ -145,6 +149,7 @@ const PROVIDER_REGISTRY: Record<string, ProviderEntry> = {
     },
     defaultModel: "mistralai/Mistral-7B-Instruct-v0.1",
     baseUrl: "https://api-inference.huggingface.co",
+    modelSource: "static",
     keyFormat: { prefix: "hf_" },
   },
 
@@ -161,6 +166,7 @@ const PROVIDER_REGISTRY: Record<string, ProviderEntry> = {
     },
     defaultModel: "mistral-large-latest",
     baseUrl: "https://api.mistral.ai/v1",
+    modelSource: "static",
     keyFormat: { prefix: "sk-" },
   },
 
@@ -176,6 +182,7 @@ const PROVIDER_REGISTRY: Record<string, ProviderEntry> = {
       vision: true,
     },
     baseUrl: "https://api.replicate.com/v1",
+    modelSource: "static",
     keyFormat: { prefix: "r8_" },
   },
 
@@ -193,6 +200,7 @@ const PROVIDER_REGISTRY: Record<string, ProviderEntry> = {
     },
     defaultModel: "deepseek-chat",
     baseUrl: "https://api.deepseek.com/v1",
+    modelSource: "static",
     keyFormat: { prefix: "sk-" },
   },
 
@@ -209,6 +217,7 @@ const PROVIDER_REGISTRY: Record<string, ProviderEntry> = {
     },
     defaultModel: "grok-1",
     baseUrl: "https://api.x.ai/v1",
+    modelSource: "static",
     keyFormat: { prefix: "sk-" },
   },
 

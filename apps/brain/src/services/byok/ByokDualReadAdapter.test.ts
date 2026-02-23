@@ -3,12 +3,11 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { ByokDualReadAdapter } from "./ByokDualReadAdapter";
+import { ByokDualReadAdapter, type IProviderVaultRepository } from "./ByokDualReadAdapter";
 import { BYOKCredential, BYOKPreference } from "@repo/shared-types";
-import type { IDatabase } from "./repository";
 
 describe("ByokDualReadAdapter", () => {
-  let mockDb: IDatabase;
+  let mockRepository: IProviderVaultRepository;
   let adapter: ByokDualReadAdapter;
 
   const mockCredential: BYOKCredential = {
@@ -33,19 +32,25 @@ describe("ByokDualReadAdapter", () => {
   };
 
   beforeEach(() => {
-    mockDb = {
-      prepare: vi.fn().mockReturnThis(),
-    } as unknown as IDatabase;
+    mockRepository = {
+      listCredentials: vi.fn(),
+      getCredential: vi.fn(),
+      getPreferences: vi.fn(),
+      createCredential: vi.fn(),
+      updateCredential: vi.fn(),
+      deleteCredential: vi.fn(),
+      updatePreferences: vi.fn(),
+    };
   });
 
   describe("initialization", () => {
     it("should create adapter with default fallback enabled", () => {
-      adapter = new ByokDualReadAdapter(mockDb);
+      adapter = new ByokDualReadAdapter(mockRepository);
       expect(adapter.isFallbackEnabled()).toBe(true);
     });
 
     it("should create adapter with fallback disabled", () => {
-      adapter = new ByokDualReadAdapter(mockDb, { enableFallback: false });
+      adapter = new ByokDualReadAdapter(mockRepository, { enableFallback: false });
       expect(adapter.isFallbackEnabled()).toBe(false);
     });
   });

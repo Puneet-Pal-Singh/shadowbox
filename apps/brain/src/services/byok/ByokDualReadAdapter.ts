@@ -11,8 +11,6 @@
  */
 
 import { BYOKCredential, BYOKPreference } from "@repo/shared-types";
-import { ProviderVaultRepository } from "./repository.js";
-import type { IDatabase } from "./repository.js";
 
 /**
  * Read source tracking for observability
@@ -33,17 +31,30 @@ export interface PreferencesWithSource {
 }
 
 /**
+ * V3 Repository contract (placeholder - will be implemented in full)
+ */
+export interface IProviderVaultRepository {
+  listCredentials(userId: string, workspaceId: string): Promise<BYOKCredential[]>;
+  getCredential(credentialId: string, userId: string, workspaceId: string): Promise<BYOKCredential | null>;
+  getPreferences(userId: string, workspaceId: string): Promise<BYOKPreference | null>;
+  createCredential(data: { userId: string; workspaceId: string; providerId: string; secret: string; label?: string }): Promise<BYOKCredential>;
+  updateCredential(credentialId: string, userId: string, workspaceId: string, updates: { label?: string; status?: string }): Promise<BYOKCredential>;
+  deleteCredential(credentialId: string, userId: string, workspaceId: string): Promise<void>;
+  updatePreferences(userId: string, workspaceId: string, updates: Partial<BYOKPreference>): Promise<BYOKPreference>;
+}
+
+/**
  * ByokDualReadAdapter - Routes reads between v3 and v2
  */
 export class ByokDualReadAdapter {
-  private v3Repository: ProviderVaultRepository;
+  private v3Repository: IProviderVaultRepository;
   private enableFallback: boolean;
 
   constructor(
-    db: IDatabase,
+    v3Repository: IProviderVaultRepository,
     options: { enableFallback: boolean } = { enableFallback: true }
   ) {
-    this.v3Repository = new ProviderVaultRepository(db);
+    this.v3Repository = v3Repository;
     this.enableFallback = options.enableFallback;
   }
 
