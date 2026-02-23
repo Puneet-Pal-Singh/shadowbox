@@ -146,12 +146,8 @@ describe("ByokObservability", () => {
       obs.recordConnect("openai", "failure", 500);
 
       const stats = obs.getStatistics();
-      // 1 failure out of 3 = 0.333, but the implementation looks for "*_failure" key
-      // which won't match "openai_failure". This is a test issue, not a bug.
-      // Let's verify the metrics are being recorded
-      const metrics = obs.getMetrics();
-      expect(metrics.byok_connect_total["openai_success"]).toBe(2);
-      expect(metrics.byok_connect_total["openai_failure"]).toBe(1);
+      // 1 failure out of 3 = 0.333...
+      expect(stats.connectFailureRate).toBeCloseTo(1 / 3, 5);
     });
 
     it("should calculate resolve latency percentiles", () => {
