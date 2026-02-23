@@ -1,7 +1,7 @@
 /**
  * BYOK Vault Services
  *
- * Exports for credential encryption, storage, and repository patterns.
+ * Exports for credential encryption, storage, repository, coordination, and resolution.
  */
 
 export {
@@ -18,6 +18,18 @@ export {
   type PreparedStatement,
   type BoundStatement,
 } from "./repository.js";
+
+export {
+  ProviderVaultCoordinatorDO,
+  type CoordinatorMutation,
+  type CoordinatorResponse,
+} from "./coordinator.js";
+
+export {
+  ProviderResolutionService,
+  type ResolutionContext,
+  type PlatformDefaults,
+} from "./resolution.js";
 
 export {
   BYOK_CREDENTIALS_SCHEMA,
