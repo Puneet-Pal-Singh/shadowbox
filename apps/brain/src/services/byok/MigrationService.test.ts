@@ -75,7 +75,7 @@ describe("ByokBackgroundMigrator", () => {
           } as unknown as BoundStatement),
       } as unknown as PreparedStatement;
 
-      (mockDb.prepare as any).mockImplementation((sql: string) => {
+      (mockDb.prepare as unknown as ReturnType<typeof vi.fn>).mockImplementation((sql: string) => {
         if (sql.includes("COUNT(*)")) {
           return countStatement;
         }
@@ -134,7 +134,7 @@ describe("ByokBackgroundMigrator", () => {
           } as unknown as BoundStatement),
       } as unknown as PreparedStatement;
 
-      (mockDb.prepare as any).mockImplementation((sql: string) => {
+      (mockDb.prepare as unknown as ReturnType<typeof vi.fn>).mockImplementation((sql: string) => {
         if (sql.includes("COUNT(*)")) {
           return countStatement;
         }
@@ -206,7 +206,7 @@ describe("ByokBackgroundMigrator", () => {
           } as unknown as BoundStatement),
       } as unknown as PreparedStatement;
 
-      (mockDb.prepare as any).mockImplementation((sql: string) => {
+      (mockDb.prepare as unknown as ReturnType<typeof vi.fn>).mockImplementation((sql: string) => {
         if (sql.includes("COUNT(*)")) {
           return countStatement;
         }
@@ -375,7 +375,7 @@ describe("ByokBackgroundMigrator", () => {
           } as unknown as BoundStatement),
       } as unknown as PreparedStatement;
 
-      (mockDb.prepare as any).mockImplementation((sql: string) => {
+      (mockDb.prepare as unknown as ReturnType<typeof vi.fn>).mockImplementation((sql: string) => {
         if (sql.includes("WHERE migrated_at IS NULL")) {
           return unmigratedStatement;
         }
@@ -413,7 +413,7 @@ describe("ByokBackgroundMigrator", () => {
           } as unknown as BoundStatement),
       } as unknown as PreparedStatement;
 
-      (mockDb.prepare as any).mockImplementation((sql: string) => {
+      (mockDb.prepare as unknown as ReturnType<typeof vi.fn>).mockImplementation((sql: string) => {
         if (sql.includes("WHERE migrated_at IS NULL")) {
           return unmigratedStatement;
         }
@@ -443,7 +443,9 @@ describe("ByokBackgroundMigrator", () => {
           } as unknown as BoundStatement),
       } as unknown as PreparedStatement;
 
-      (mockDb.prepare as any).mockImplementation(() => rollbackStatement);
+      (mockDb.prepare as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+        () => rollbackStatement,
+      );
 
       migrator = new ByokBackgroundMigrator(
         mockDb,

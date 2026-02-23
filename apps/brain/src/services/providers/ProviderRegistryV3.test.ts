@@ -194,6 +194,7 @@ describe("ProviderRegistryV3", () => {
           jsonMode: false,
           structuredOutputs: false,
         },
+        modelSource: "static" as const,
         baseUrl: "https://test.example.com",
         keyFormat: { prefix: "test_" },
       };
