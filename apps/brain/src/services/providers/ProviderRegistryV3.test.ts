@@ -9,6 +9,7 @@ describe("ProviderRegistryV3", () => {
   let registry: ProviderRegistryV3;
 
   beforeEach(() => {
+    ProviderRegistryV3.resetForTests();
     registry = ProviderRegistryV3.getInstance();
   });
 

@@ -229,7 +229,9 @@ const PROVIDER_REGISTRY: Record<string, ProviderEntry> = {
  * ProviderRegistryV3 - Extensible provider registry
  */
 export class ProviderRegistryV3 {
-  private static instance: ProviderRegistryV3;
+  private static instance: ProviderRegistryV3 | undefined;
+  private static registry: Record<string, ProviderEntry> =
+    ProviderRegistryV3.cloneRegistry(PROVIDER_REGISTRY);
 
   private constructor() {}
 
@@ -247,7 +249,7 @@ export class ProviderRegistryV3 {
    * Get a single provider entry
    */
   getProvider(providerId: string): ProviderEntry | null {
-    return PROVIDER_REGISTRY[providerId] ?? null;
+    return ProviderRegistryV3.registry[providerId] ?? null;
   }
 
   /**
@@ -256,48 +258,23 @@ export class ProviderRegistryV3 {
   getProviderPublic(providerId: string): ProviderRegistryEntry | null {
     const entry = this.getProvider(providerId);
     if (!entry) return null;
-
-    return {
-      providerId: entry.providerId,
-      displayName: entry.displayName,
-      authModes: entry.authModes,
-      baseUrl: entry.baseUrl,
-      keyFormat: entry.keyFormat,
-      capabilities: {
-        streaming: entry.capabilities.streaming,
-        tools: entry.capabilities.tools,
-        jsonMode: entry.capabilities.jsonMode,
-        structuredOutputs: entry.capabilities.structuredOutputs,
-      },
-      modelSource: entry.modelFetchUrl ? "remote" : "static",
-    };
+    return this.toPublicEntry(entry);
   }
 
   /**
    * List all registered providers
    */
   listProviders(): ProviderRegistryEntry[] {
-    return Object.values(PROVIDER_REGISTRY).map((entry) => ({
-      providerId: entry.providerId,
-      displayName: entry.displayName,
-      authModes: entry.authModes,
-      baseUrl: entry.baseUrl,
-      keyFormat: entry.keyFormat,
-      capabilities: {
-        streaming: entry.capabilities.streaming,
-        tools: entry.capabilities.tools,
-        jsonMode: entry.capabilities.jsonMode,
-        structuredOutputs: entry.capabilities.structuredOutputs,
-      },
-      modelSource: entry.modelFetchUrl ? "remote" : "static",
-    }));
+    return Object.values(ProviderRegistryV3.registry).map((entry) =>
+      this.toPublicEntry(entry),
+    );
   }
 
   /**
    * Check if provider exists
    */
   hasProvider(providerId: string): boolean {
-    return providerId in PROVIDER_REGISTRY;
+    return providerId in ProviderRegistryV3.registry;
   }
 
   /**
@@ -314,29 +291,16 @@ export class ProviderRegistryV3 {
   getProvidersByCapability(
     capability: keyof ProviderCapabilities
   ): ProviderRegistryEntry[] {
-    return Object.values(PROVIDER_REGISTRY)
+    return Object.values(ProviderRegistryV3.registry)
       .filter((entry) => entry.capabilities[capability])
-      .map((entry) => ({
-        providerId: entry.providerId,
-        displayName: entry.displayName,
-        authModes: entry.authModes,
-        baseUrl: entry.baseUrl,
-        keyFormat: entry.keyFormat,
-        capabilities: {
-          streaming: entry.capabilities.streaming,
-          tools: entry.capabilities.tools,
-          jsonMode: entry.capabilities.jsonMode,
-          structuredOutputs: entry.capabilities.structuredOutputs,
-        },
-        modelSource: entry.modelFetchUrl ? "remote" : "static",
-      }));
+      .map((entry) => this.toPublicEntry(entry));
   }
 
   /**
    * Count total registered providers
    */
   getProviderCount(): number {
-    return Object.keys(PROVIDER_REGISTRY).length;
+    return Object.keys(ProviderRegistryV3.registry).length;
   }
 
   /**
@@ -344,9 +308,14 @@ export class ProviderRegistryV3 {
    * WARNING: Not persistent, use for testing only
    */
   registerProvider(entry: ProviderEntry): void {
-    PROVIDER_REGISTRY[entry.providerId] = entry;
+    ProviderRegistryV3.registry[entry.providerId] = {
+      ...entry,
+      authModes: [...entry.authModes],
+      capabilities: { ...entry.capabilities },
+      keyFormat: entry.keyFormat ? { ...entry.keyFormat } : undefined,
+    };
     console.log(
-      `[ProviderRegistryV3] Registered provider: ${entry.providerId}`
+      `[ProviderRegistryV3] Registered provider: ${entry.providerId}`,
     );
   }
 
@@ -354,6 +323,58 @@ export class ProviderRegistryV3 {
    * Get internal entry with full capability details
    */
   getProviderInternal(providerId: string): ProviderEntry | null {
-    return PROVIDER_REGISTRY[providerId] ?? null;
+    return ProviderRegistryV3.registry[providerId] ?? null;
+  }
+
+  /**
+   * Reset singleton and registry state (test utility).
+   */
+  static resetForTests(): void {
+    ProviderRegistryV3.instance = undefined;
+    ProviderRegistryV3.registry =
+      ProviderRegistryV3.cloneRegistry(PROVIDER_REGISTRY);
+  }
+
+  private toPublicEntry(entry: ProviderEntry): ProviderRegistryEntry {
+    const publicEntry: ProviderRegistryEntry = {
+      providerId: entry.providerId,
+      displayName: entry.displayName,
+      authModes: entry.authModes,
+      capabilities: {
+        streaming: entry.capabilities.streaming,
+        tools: entry.capabilities.tools,
+        jsonMode: entry.capabilities.jsonMode,
+        structuredOutputs: entry.capabilities.structuredOutputs,
+      },
+      modelSource: entry.modelFetchUrl ? "remote" : "static",
+    };
+
+    if (entry.baseUrl) {
+      publicEntry.baseUrl = entry.baseUrl;
+    }
+    if (entry.keyFormat) {
+      publicEntry.keyFormat = { ...entry.keyFormat };
+    }
+    if (entry.defaultModel) {
+      publicEntry.defaultModelId = entry.defaultModel;
+    }
+
+    return publicEntry;
+  }
+
+  private static cloneRegistry(
+    source: Record<string, ProviderEntry>,
+  ): Record<string, ProviderEntry> {
+    const clonedEntries = Object.entries(source).map(([key, value]) => [
+      key,
+      {
+        ...value,
+        authModes: [...value.authModes],
+        capabilities: { ...value.capabilities },
+        keyFormat: value.keyFormat ? { ...value.keyFormat } : undefined,
+      },
+    ]);
+
+    return Object.fromEntries(clonedEntries);
   }
 }
