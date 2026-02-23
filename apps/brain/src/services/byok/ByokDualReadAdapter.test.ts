@@ -3,28 +3,48 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { ByokDualReadAdapter, type IProviderVaultRepository } from "./ByokDualReadAdapter";
-import { BYOKCredential } from "@repo/shared-types";
+import {
+  ByokDualReadAdapter,
+  type IProviderVaultRepository,
+  type ILegacyByokReadRepository,
+} from "./ByokDualReadAdapter";
+import { type BYOKCredential, type BYOKPreference } from "@repo/shared-types";
 
 describe("ByokDualReadAdapter", () => {
-  let mockRepository: IProviderVaultRepository;
+  let mockV3Repository: IProviderVaultRepository;
+  let mockLegacyReadRepository: ILegacyByokReadRepository;
   let adapter: ByokDualReadAdapter;
 
+  const credentialId = "550e8400-e29b-41d4-a716-446655440000";
   const mockCredential: BYOKCredential = {
-    credentialId: "cred-123",
+    credentialId,
     userId: "user-1",
     workspaceId: "ws-1",
     providerId: "openai",
     label: "Production",
-    keyFingerprint: "fp-abc",
+    keyFingerprint: "sk-a...1234",
+    encryptedSecretJson: "{\"ciphertext\":\"test\"}",
+    keyVersion: "v1",
     status: "connected",
     lastValidatedAt: "2024-02-23T00:00:00Z",
     createdAt: "2024-02-20T00:00:00Z",
     updatedAt: "2024-02-23T00:00:00Z",
+    deletedAt: null,
+  };
+
+  const mockPreference: BYOKPreference = {
+    userId: "user-1",
+    workspaceId: "ws-1",
+    defaultProviderId: "openai",
+    defaultCredentialId: credentialId,
+    defaultModelId: "gpt-4",
+    fallbackMode: "strict",
+    fallbackChain: [],
+    updatedAt: "2024-02-23T00:00:00Z",
   };
 
   beforeEach(() => {
-    mockRepository = {
+    mockV3Repository = {
       listCredentials: vi.fn(),
       getCredential: vi.fn(),
       getPreferences: vi.fn(),
@@ -33,58 +53,108 @@ describe("ByokDualReadAdapter", () => {
       deleteCredential: vi.fn(),
       updatePreferences: vi.fn(),
     };
+
+    mockLegacyReadRepository = {
+      listCredentials: vi.fn(),
+      getCredential: vi.fn(),
+      getPreferences: vi.fn(),
+    };
+
+    adapter = new ByokDualReadAdapter(mockV3Repository, {
+      enableFallback: true,
+      legacyReadRepository: mockLegacyReadRepository,
+    });
   });
 
   describe("initialization", () => {
-    it("should create adapter with default fallback enabled", () => {
-      adapter = new ByokDualReadAdapter(mockRepository);
-      expect(adapter.isFallbackEnabled()).toBe(true);
-    });
-
-    it("should create adapter with fallback disabled", () => {
-      adapter = new ByokDualReadAdapter(mockRepository, { enableFallback: false });
-      expect(adapter.isFallbackEnabled()).toBe(false);
-    });
-  });
-
-  describe("interface compliance", () => {
-    it("should implement all required repository methods", () => {
-      adapter = new ByokDualReadAdapter(mockRepository);
-
-      // Verify repository interface is properly used
-      expect(mockRepository.listCredentials).toBeDefined();
-      expect(mockRepository.getCredential).toBeDefined();
-      expect(mockRepository.getPreferences).toBeDefined();
-      expect(mockRepository.createCredential).toBeDefined();
-      expect(mockRepository.updateCredential).toBeDefined();
-      expect(mockRepository.deleteCredential).toBeDefined();
-      expect(mockRepository.updatePreferences).toBeDefined();
-    });
-
-    it("should track read source for observability", () => {
-      adapter = new ByokDualReadAdapter(mockRepository);
-
-      // The adapter's methods track source (v3 vs v2) for observability
-      // Full implementation tested in integration tests
-      expect(adapter).toBeDefined();
-    });
-  });
-
-  describe("fallback strategy", () => {
-    it("should support disabling fallback for strict v3-only mode", () => {
-      const strictAdapter = new ByokDualReadAdapter(mockRepository, {
-        enableFallback: false,
-      });
-
+    it("creates adapter in strict v3 mode by default", () => {
+      const strictAdapter = new ByokDualReadAdapter(mockV3Repository);
       expect(strictAdapter.isFallbackEnabled()).toBe(false);
     });
 
-    it("should support enabling fallback for v2 compatibility", () => {
-      const fallbackAdapter = new ByokDualReadAdapter(mockRepository, {
-        enableFallback: true,
-      });
+    it("throws when fallback is enabled without legacy repository", () => {
+      expect(
+        () =>
+          new ByokDualReadAdapter(mockV3Repository, {
+            enableFallback: true,
+          }),
+      ).toThrow("legacyReadRepository");
+    });
+  });
 
-      expect(fallbackAdapter.isFallbackEnabled()).toBe(true);
+  describe("getCredentialsWithSource", () => {
+    it("returns v3 results when v3 has credentials", async () => {
+      vi.mocked(mockV3Repository.listCredentials).mockResolvedValue([
+        mockCredential,
+      ]);
+
+      const result = await adapter.getCredentialsWithSource("user-1", "ws-1");
+
+      expect(result.source).toBe("v3");
+      expect(result.credentials).toHaveLength(1);
+      expect(mockLegacyReadRepository.listCredentials).not.toHaveBeenCalled();
+    });
+
+    it("falls back to v2 when v3 returns empty and fallback is enabled", async () => {
+      vi.mocked(mockV3Repository.listCredentials).mockResolvedValue([]);
+      vi.mocked(mockLegacyReadRepository.listCredentials).mockResolvedValue([
+        mockCredential,
+      ]);
+
+      const result = await adapter.getCredentialsWithSource("user-1", "ws-1");
+
+      expect(result.source).toBe("v2");
+      expect(result.credentials).toEqual([mockCredential]);
+      expect(mockLegacyReadRepository.listCredentials).toHaveBeenCalledWith(
+        "user-1",
+        "ws-1",
+      );
+    });
+
+    it("falls back to v2 when v3 read throws and fallback is enabled", async () => {
+      vi.mocked(mockV3Repository.listCredentials).mockRejectedValue(
+        new Error("v3 unavailable"),
+      );
+      vi.mocked(mockLegacyReadRepository.listCredentials).mockResolvedValue([
+        mockCredential,
+      ]);
+
+      const result = await adapter.getCredentialsWithSource("user-1", "ws-1");
+
+      expect(result.source).toBe("v2");
+      expect(result.credentials).toEqual([mockCredential]);
+    });
+  });
+
+  describe("getPreferencesWithSource", () => {
+    it("falls back to v2 when v3 preferences are null", async () => {
+      vi.mocked(mockV3Repository.getPreferences).mockResolvedValue(null);
+      vi.mocked(mockLegacyReadRepository.getPreferences).mockResolvedValue(
+        mockPreference,
+      );
+
+      const result = await adapter.getPreferencesWithSource("user-1", "ws-1");
+
+      expect(result.source).toBe("v2");
+      expect(result.preferences).toEqual(mockPreference);
+    });
+  });
+
+  describe("getCredentialWithSource", () => {
+    it("falls back to v2 when v3 credential is null", async () => {
+      vi.mocked(mockV3Repository.getCredential).mockResolvedValue(null);
+      vi.mocked(mockLegacyReadRepository.getCredential).mockResolvedValue(
+        mockCredential,
+      );
+
+      const result = await adapter.getCredentialWithSource(
+        credentialId,
+        "user-1",
+        "ws-1",
+      );
+
+      expect(result?.source).toBe("v2");
+      expect(result?.credential).toEqual(mockCredential);
     });
   });
 });

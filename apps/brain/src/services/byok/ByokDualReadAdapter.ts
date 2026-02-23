@@ -31,6 +31,19 @@ export interface PreferencesWithSource {
 }
 
 /**
+ * Legacy read contract used during v2->v3 migration.
+ */
+export interface ILegacyByokReadRepository {
+  listCredentials(userId: string, workspaceId: string): Promise<BYOKCredential[]>;
+  getCredential(
+    credentialId: string,
+    userId: string,
+    workspaceId: string,
+  ): Promise<BYOKCredential | null>;
+  getPreferences(userId: string, workspaceId: string): Promise<BYOKPreference | null>;
+}
+
+/**
  * V3 Repository contract (placeholder - will be implemented in full)
  */
 export interface IProviderVaultRepository {
@@ -49,13 +62,24 @@ export interface IProviderVaultRepository {
 export class ByokDualReadAdapter {
   private v3Repository: IProviderVaultRepository;
   private enableFallback: boolean;
+  private legacyReadRepository: ILegacyByokReadRepository | null;
 
   constructor(
     v3Repository: IProviderVaultRepository,
-    options: { enableFallback: boolean } = { enableFallback: true }
+    options: {
+      enableFallback?: boolean;
+      legacyReadRepository?: ILegacyByokReadRepository;
+    } = {},
   ) {
     this.v3Repository = v3Repository;
-    this.enableFallback = options.enableFallback;
+    this.enableFallback = options.enableFallback ?? false;
+    this.legacyReadRepository = options.legacyReadRepository ?? null;
+
+    if (this.enableFallback && !this.legacyReadRepository) {
+      throw new Error(
+        "ByokDualReadAdapter fallback requires legacyReadRepository when enableFallback=true",
+      );
+    }
   }
 
   /**
@@ -73,9 +97,17 @@ export class ByokDualReadAdapter {
         workspaceId
       );
 
+      if (v3Creds.length > 0 || !this.enableFallback) {
+        return {
+          credentials: v3Creds,
+          source: "v3",
+        };
+      }
+
+      const fallbackCreds = await this.readV2Credentials(userId, workspaceId);
       return {
-        credentials: v3Creds,
-        source: "v3",
+        credentials: fallbackCreds,
+        source: "v2",
       };
     } catch (error) {
       if (!this.enableFallback) {
@@ -86,11 +118,11 @@ export class ByokDualReadAdapter {
         `[ByokDualReadAdapter] v3 read failed, falling back to v2: ${error instanceof Error ? error.message : String(error)}`
       );
 
-      // In migration phase, v2 fallback would be implemented here
-      // For now, we throw (v2 path not yet migrated)
-      throw new Error(
-        "v2 fallback not yet implemented; please enable v3 only migration"
-      );
+      const fallbackCreds = await this.readV2Credentials(userId, workspaceId);
+      return {
+        credentials: fallbackCreds,
+        source: "v2",
+      };
     }
   }
 
@@ -109,9 +141,17 @@ export class ByokDualReadAdapter {
         workspaceId
       );
 
+      if (v3Prefs || !this.enableFallback) {
+        return {
+          preferences: v3Prefs,
+          source: "v3",
+        };
+      }
+
+      const fallbackPrefs = await this.readV2Preferences(userId, workspaceId);
       return {
-        preferences: v3Prefs,
-        source: "v3",
+        preferences: fallbackPrefs,
+        source: "v2",
       };
     } catch (error) {
       if (!this.enableFallback) {
@@ -122,10 +162,11 @@ export class ByokDualReadAdapter {
         `[ByokDualReadAdapter] v3 preferences read failed, falling back to v2: ${error instanceof Error ? error.message : String(error)}`
       );
 
-      // v2 fallback (to be implemented in migration phase)
-      throw new Error(
-        "v2 fallback not yet implemented; please enable v3 only migration"
-      );
+      const fallbackPrefs = await this.readV2Preferences(userId, workspaceId);
+      return {
+        preferences: fallbackPrefs,
+        source: "v2",
+      };
     }
   }
 
@@ -144,10 +185,24 @@ export class ByokDualReadAdapter {
         workspaceId
       );
 
-      return v3Cred
+      if (v3Cred || !this.enableFallback) {
+        return v3Cred
+          ? {
+              credential: v3Cred,
+              source: "v3",
+            }
+          : null;
+      }
+
+      const fallbackCred = await this.readV2Credential(
+        credentialId,
+        userId,
+        workspaceId,
+      );
+      return fallbackCred
         ? {
-            credential: v3Cred,
-            source: "v3",
+            credential: fallbackCred,
+            source: "v2",
           }
         : null;
     } catch (error) {
@@ -159,10 +214,17 @@ export class ByokDualReadAdapter {
         `[ByokDualReadAdapter] v3 credential read failed, falling back to v2: ${error instanceof Error ? error.message : String(error)}`
       );
 
-      // v2 fallback (to be implemented in migration phase)
-      throw new Error(
-        "v2 fallback not yet implemented; please enable v3 only migration"
+      const fallbackCred = await this.readV2Credential(
+        credentialId,
+        userId,
+        workspaceId,
       );
+      return fallbackCred
+        ? {
+            credential: fallbackCred,
+            source: "v2",
+          }
+        : null;
     }
   }
 
@@ -241,5 +303,38 @@ export class ByokDualReadAdapter {
    */
   isFallbackEnabled(): boolean {
     return this.enableFallback;
+  }
+
+  private getLegacyReadRepository(): ILegacyByokReadRepository {
+    if (!this.legacyReadRepository) {
+      throw new Error("Legacy BYOK read repository is not configured");
+    }
+    return this.legacyReadRepository;
+  }
+
+  private async readV2Credentials(
+    userId: string,
+    workspaceId: string,
+  ): Promise<BYOKCredential[]> {
+    return this.getLegacyReadRepository().listCredentials(userId, workspaceId);
+  }
+
+  private async readV2Preferences(
+    userId: string,
+    workspaceId: string,
+  ): Promise<BYOKPreference | null> {
+    return this.getLegacyReadRepository().getPreferences(userId, workspaceId);
+  }
+
+  private async readV2Credential(
+    credentialId: string,
+    userId: string,
+    workspaceId: string,
+  ): Promise<BYOKCredential | null> {
+    return this.getLegacyReadRepository().getCredential(
+      credentialId,
+      userId,
+      workspaceId,
+    );
   }
 }
