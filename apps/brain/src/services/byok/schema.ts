@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS byok_credentials (
   last_validated_at TEXT,
   last_error_code TEXT,
   last_error_message TEXT,
+  created_by TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   deleted_at TEXT

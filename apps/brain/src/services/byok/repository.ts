@@ -11,6 +11,53 @@ import { BYOKCredential, BYOKCredentialDTO } from "@repo/shared-types";
 import { CredentialEncryptionService, EncryptedSecret } from "./encryption.js";
 
 /**
+ * D1 Row type for byok_credentials table
+ */
+interface CredentialRow {
+  credential_id: string;
+  user_id: string;
+  workspace_id: string;
+  provider_id: string;
+  label: string;
+  key_fingerprint: string;
+  encrypted_secret_json: string;
+  key_version: string;
+  status: string;
+  last_validated_at: string | null;
+  last_error_code?: string;
+  last_error_message?: string;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+}
+
+/**
+ * D1 Row type for credential list queries (without encrypted secret)
+ */
+interface CredentialListRow {
+  credential_id: string;
+  user_id: string;
+  workspace_id: string;
+  provider_id: string;
+  label: string;
+  key_fingerprint: string;
+  status: string;
+  last_validated_at: string | null;
+  last_error_code?: string;
+  last_error_message?: string;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+}
+
+/**
+ * Credential with decrypted plaintext (internal use only)
+ */
+interface CredentialWithPlaintext extends BYOKCredential {
+  plaintext: string;
+}
+
+/**
  * Repository query interface (platform-agnostic)
  */
 export interface IDatabase {
@@ -75,8 +122,8 @@ export class ProviderVaultRepository {
       INSERT INTO byok_credentials (
         credential_id, user_id, workspace_id, provider_id, label,
         key_fingerprint, encrypted_secret_json, key_version,
-        status, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        status, created_by, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
     const stmt = this.db.prepare(query).bind(
@@ -89,6 +136,7 @@ export class ProviderVaultRepository {
       JSON.stringify(encrypted),
       this.keyVersion,
       credential.status,
+      credential.createdBy,
       credential.createdAt,
       credential.updatedAt,
     );
@@ -99,7 +147,22 @@ export class ProviderVaultRepository {
     }
 
     // Return DTO (no plaintext, no encrypted secret)
-    return this.toDTO(credential);
+    const dto: BYOKCredentialDTO = {
+      credentialId: credential.credentialId,
+      userId: credential.userId,
+      workspaceId: credential.workspaceId,
+      providerId: credential.providerId,
+      label: credential.label,
+      keyFingerprint: credential.keyFingerprint,
+      status: credential.status,
+      lastValidatedAt: credential.lastValidatedAt,
+      lastErrorCode: credential.lastErrorCode,
+      lastErrorMessage: credential.lastErrorMessage,
+      createdAt: credential.createdAt,
+      updatedAt: credential.updatedAt,
+      deletedAt: credential.deletedAt,
+    };
+    return dto;
   }
 
   /**
@@ -107,12 +170,12 @@ export class ProviderVaultRepository {
    *
    * @param credentialId The credential to fetch
    * @param options Options including decryption master keys
-   * @returns Credential with decrypted secret
+   * @returns Credential DTO or null
    */
   async retrieve(
     credentialId: string,
     options?: { includePlaintext?: boolean },
-  ): Promise<BYOKCredential | BYOKCredentialDTO | null> {
+  ): Promise<BYOKCredentialDTO | CredentialWithPlaintext | null> {
     const query = `
       SELECT * FROM byok_credentials
       WHERE credential_id = ? AND deleted_at IS NULL
@@ -120,7 +183,7 @@ export class ProviderVaultRepository {
     `;
 
     const stmt = this.db.prepare(query).bind(credentialId);
-    const row = await stmt.first<any>();
+    const row = await stmt.first<CredentialRow>();
 
     if (!row) {
       return null;
@@ -134,11 +197,23 @@ export class ProviderVaultRepository {
       });
 
       return {
-        ...row,
+        credentialId: row.credential_id,
+        userId: row.user_id,
+        workspaceId: row.workspace_id,
+        providerId: row.provider_id,
+        label: row.label,
+        keyFingerprint: row.key_fingerprint,
         encryptedSecretJson: row.encrypted_secret_json,
         keyVersion: row.key_version,
-        plaintext, // Not part of schema, but useful for service layer
-      };
+        status: row.status as "connected" | "failed" | "revoked",
+        lastValidatedAt: row.last_validated_at,
+        lastErrorCode: row.last_error_code,
+        lastErrorMessage: row.last_error_message,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+        deletedAt: row.deleted_at,
+        plaintext,
+      } as CredentialWithPlaintext;
     }
 
     // Return as DTO (no plaintext or encryption details)
@@ -157,14 +232,14 @@ export class ProviderVaultRepository {
       SELECT
         credential_id, user_id, workspace_id, provider_id, label,
         key_fingerprint, status, last_validated_at, last_error_code,
-        last_error_message, created_at, updated_at
+        last_error_message, created_at, updated_at, deleted_at
       FROM byok_credentials
       WHERE user_id = ? AND workspace_id = ? AND deleted_at IS NULL
       ORDER BY created_at DESC
     `;
 
     const stmt = this.db.prepare(query).bind(userId, workspaceId);
-    const rows = await stmt.all<any>();
+    const rows = await stmt.all<CredentialListRow>();
 
     return rows.results.map((row) => this.toDTO(row));
   }
@@ -244,7 +319,7 @@ export class ProviderVaultRepository {
   /**
    * Convert internal row to DTO (excludes secrets and encryption details)
    */
-  private toDTO(row: any): BYOKCredentialDTO {
+  private toDTO(row: CredentialRow | CredentialListRow): BYOKCredentialDTO {
     return {
       credentialId: row.credential_id,
       userId: row.user_id,
@@ -252,7 +327,7 @@ export class ProviderVaultRepository {
       providerId: row.provider_id,
       label: row.label,
       keyFingerprint: row.key_fingerprint,
-      status: row.status,
+      status: row.status as "connected" | "failed" | "revoked",
       lastValidatedAt: row.last_validated_at,
       lastErrorCode: row.last_error_code,
       lastErrorMessage: row.last_error_message,
