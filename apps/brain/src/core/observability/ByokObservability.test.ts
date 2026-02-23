@@ -5,6 +5,10 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { ByokObservability } from "./ByokObservability";
 
+type WithSanitizedErrorMessage = {
+  sanitizeErrorMessage(message?: string): string | undefined;
+};
+
 describe("ByokObservability", () => {
   let obs: ByokObservability;
 
@@ -231,9 +235,17 @@ describe("ByokObservability", () => {
   });
 
   describe("sanitizeErrorMessage", () => {
+    const sanitizeErrorMessage = (
+      value: ByokObservability,
+      message?: string,
+    ): string | undefined =>
+      (value as unknown as WithSanitizedErrorMessage).sanitizeErrorMessage(
+        message,
+      );
+
     it("should mask API keys", () => {
-      const obs2 = new ByokObservability(true);
-      const msg = (obs2 as any).sanitizeErrorMessage(
+      const msg = sanitizeErrorMessage(
+        obs,
         "Invalid key: sk-abcdefghijklmnopqrst failed",
       );
 
@@ -242,8 +254,8 @@ describe("ByokObservability", () => {
     });
 
     it("should mask bearer tokens", () => {
-      const obs2 = new ByokObservability(true);
-      const msg = (obs2 as any).sanitizeErrorMessage(
+      const msg = sanitizeErrorMessage(
+        obs,
         'Header: "Authorization: Bearer eyJhbGciOiJIUzI1NiIs..."',
       );
 
@@ -251,8 +263,7 @@ describe("ByokObservability", () => {
     });
 
     it("should handle undefined messages", () => {
-      const obs2 = new ByokObservability(true);
-      const msg = (obs2 as any).sanitizeErrorMessage(undefined);
+      const msg = sanitizeErrorMessage(obs, undefined);
 
       expect(msg).toBeUndefined();
     });

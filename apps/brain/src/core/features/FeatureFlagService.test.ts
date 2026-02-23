@@ -57,7 +57,7 @@ describe("FeatureFlagService", () => {
       const testEnv = {
         ...env,
         FEATURE_FLAG_BYOK_V3_ENABLED: "1",
-        FEATURE_FLAG_BYOK_MIGRATION_CUTOVER: "0",
+        FEATURE_FLAG_BYOK_RATE_LIMIT_ENABLED: "0",
       } as Env;
 
       const service = FeatureFlagService.getInstance(testEnv);
@@ -67,7 +67,7 @@ describe("FeatureFlagService", () => {
         true
       );
       expect(
-        await service.isEnabled(FeatureFlagName.BYOK_MIGRATION_CUTOVER)
+        await service.isEnabled(FeatureFlagName.BYOK_RATE_LIMIT_ENABLED)
       ).toBe(false);
     });
 
@@ -78,8 +78,13 @@ describe("FeatureFlagService", () => {
       await service.initialize();
       await service.initialize();
 
-      // All calls should complete without error
-      expect(true).toBe(true);
+      // Repeated initialization should keep values stable.
+      expect(await service.isEnabled(FeatureFlagName.BYOK_V3_ENABLED)).toBe(
+        false
+      );
+      expect(
+        await service.isEnabled(FeatureFlagName.BYOK_RATE_LIMIT_ENABLED)
+      ).toBe(true);
     });
   });
 
