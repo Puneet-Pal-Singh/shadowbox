@@ -49,6 +49,8 @@ interface MetricsBucket {
  * ByokObservability - Records metrics and structured logs
  */
 export class ByokObservability {
+  private static readonly MAX_LATENCY_SAMPLES = 10_000;
+
   private metrics: MetricsBucket;
   private enableLogging: boolean;
 
@@ -120,6 +122,16 @@ export class ByokObservability {
       (this.metrics.byok_resolve_total[key] ?? 0) + 1;
 
     this.metrics.byok_resolve_latency.push(latencyMs);
+
+    if (
+      this.metrics.byok_resolve_latency.length >
+      ByokObservability.MAX_LATENCY_SAMPLES
+    ) {
+      this.metrics.byok_resolve_latency =
+        this.metrics.byok_resolve_latency.slice(
+          -ByokObservability.MAX_LATENCY_SAMPLES,
+        );
+    }
 
     if (!success) {
       this.metrics.chat_provider_resolution_fail_total++;

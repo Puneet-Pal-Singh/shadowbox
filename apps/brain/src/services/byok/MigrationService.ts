@@ -68,7 +68,7 @@ export class ByokBackgroundMigrator {
   constructor(
     db: IDatabase,
     encryptionService: CredentialEncryptionService,
-    batchSize: number = 100
+    batchSize: number = 100,
   ) {
     this.db = db;
     this.encryptionService = encryptionService;
@@ -90,7 +90,9 @@ export class ByokBackgroundMigrator {
 
       // Get count of unmigrated records
       const countResult = await this.db
-        .prepare("SELECT COUNT(*) as count FROM v2_provider_connections WHERE migrated_at IS NULL")
+        .prepare(
+          "SELECT COUNT(*) as count FROM v2_provider_connections WHERE migrated_at IS NULL",
+        )
         .bind()
         .first<{ count: number }>();
 
@@ -109,13 +111,13 @@ export class ByokBackgroundMigrator {
       }
 
       console.log(
-        `[ByokBackgroundMigrator] Found ${totalCount} unmigrated records`
+        `[ByokBackgroundMigrator] Found ${totalCount} unmigrated records`,
       );
 
       // Process in batches
-      let offset = 0;
-
-      while (offset < totalCount) {
+      // Note: Using OFFSET 0 always because the WHERE clause filters on migrated_at IS NULL,
+      // which changes as records are migrated. This prevents skipping records when the result set shrinks.
+      while (true) {
         const batch = await this.db
           .prepare(
             `
@@ -123,16 +125,16 @@ export class ByokBackgroundMigrator {
               id, user_id, workspace_id, provider_id, label, secret, created_at, updated_at
             FROM v2_provider_connections 
             WHERE migrated_at IS NULL
-            LIMIT ? OFFSET ?
-          `
+            LIMIT ? OFFSET 0
+          `,
           )
-          .bind(this.batchSize, offset)
+          .bind(this.batchSize)
           .all<V2CredentialRecord>();
 
         if (!batch.results || batch.results.length === 0) break;
 
         console.log(
-          `[ByokBackgroundMigrator] Processing batch at offset ${offset}, size: ${batch.results.length}`
+          `[ByokBackgroundMigrator] Processing batch size: ${batch.results.length}`,
         );
 
         for (const v2Record of batch.results) {
@@ -143,23 +145,21 @@ export class ByokBackgroundMigrator {
             failedCount++;
             failedIds.push(v2Record.id);
             console.error(
-              `[ByokBackgroundMigrator] Failed to migrate ${v2Record.id}: ${error instanceof Error ? error.message : String(error)}`
+              `[ByokBackgroundMigrator] Failed to migrate ${v2Record.id}: ${error instanceof Error ? error.message : String(error)}`,
             );
           }
         }
 
-        offset += batch.results.length;
-
         // Log progress
         console.log(
-          `[ByokBackgroundMigrator] Progress: ${migratedCount} migrated, ${failedCount} failed`
+          `[ByokBackgroundMigrator] Progress: ${migratedCount} migrated, ${failedCount} failed`,
         );
       }
 
       const durationMs = Date.now() - startTime;
 
       console.log(
-        `[ByokBackgroundMigrator] Migration complete: ${migratedCount} migrated, ${failedCount} failed in ${durationMs}ms`
+        `[ByokBackgroundMigrator] Migration complete: ${migratedCount} migrated, ${failedCount} failed in ${durationMs}ms`,
       );
 
       return {
@@ -176,7 +176,7 @@ export class ByokBackgroundMigrator {
         error instanceof Error ? error.message : String(error);
 
       console.error(
-        `[ByokBackgroundMigrator] Migration failed: ${errorMessage}`
+        `[ByokBackgroundMigrator] Migration failed: ${errorMessage}`,
       );
 
       return {
@@ -218,7 +218,7 @@ export class ByokBackgroundMigrator {
           created_at, updated_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(credential_id) DO NOTHING
-      `
+      `,
       )
       .bind(
         v2Record.id, // credential_id
@@ -231,21 +231,19 @@ export class ByokBackgroundMigrator {
         "v1", // key_version
         "connected", // status
         v2Record.created_at,
-        v2Record.updated_at
+        v2Record.updated_at,
       )
       .run();
 
     // Mark v2 record as migrated
     await this.db
       .prepare(
-        "UPDATE v2_provider_connections SET migrated_at = ? WHERE id = ?"
+        "UPDATE v2_provider_connections SET migrated_at = ? WHERE id = ?",
       )
       .bind(new Date().toISOString(), v2Record.id)
       .run();
 
-    console.log(
-      `[ByokBackgroundMigrator] Migrated credential ${v2Record.id}`
-    );
+    console.log(`[ByokBackgroundMigrator] Migrated credential ${v2Record.id}`);
   }
 
   /**
@@ -253,7 +251,9 @@ export class ByokBackgroundMigrator {
    */
   async getProgress(): Promise<MigrationProgress> {
     const unmigrated = await this.db
-      .prepare("SELECT COUNT(*) as count FROM v2_provider_connections WHERE migrated_at IS NULL")
+      .prepare(
+        "SELECT COUNT(*) as count FROM v2_provider_connections WHERE migrated_at IS NULL",
+      )
       .bind()
       .first<{ count: number }>();
 
@@ -283,12 +283,12 @@ export class ByokBackgroundMigrator {
    */
   async rollback(): Promise<void> {
     console.warn(
-      "[ByokBackgroundMigrator] ROLLBACK: Marking all v3 records as unmigrated"
+      "[ByokBackgroundMigrator] ROLLBACK: Marking all v3 records as unmigrated",
     );
 
     await this.db
       .prepare(
-        "UPDATE v2_provider_connections SET migrated_at = NULL WHERE migrated_at IS NOT NULL"
+        "UPDATE v2_provider_connections SET migrated_at = NULL WHERE migrated_at IS NOT NULL",
       )
       .bind()
       .run();

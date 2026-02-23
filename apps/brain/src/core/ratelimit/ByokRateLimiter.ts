@@ -78,7 +78,7 @@ export class ByokRateLimiter {
     operation: "connect" | "validate" | "resolve",
     userId: string,
     workspaceId: string,
-    providerId?: string
+    providerId?: string,
   ): Promise<{ allowed: boolean; remaining: number; retryAfterMs?: number }> {
     const config = this.limits.get(operation);
     if (!config) {
@@ -101,7 +101,7 @@ export class ByokRateLimiter {
     const bucket = this.getOrCreateBucket(
       key,
       config.tokensPerMinute,
-      config.burstSize ?? config.tokensPerMinute * 1.5
+      config.burstSize ?? config.tokensPerMinute * 1.5,
     );
 
     const canConsume = this.tryConsume(bucket, 1);
@@ -130,7 +130,7 @@ export class ByokRateLimiter {
     operation: "connect" | "validate" | "resolve",
     userId: string,
     workspaceId: string,
-    providerId?: string
+    providerId?: string,
   ): number {
     const key = this.getBucketKey(operation, userId, workspaceId, providerId);
     const bucket = this.buckets.get(key);
@@ -157,7 +157,7 @@ export class ByokRateLimiter {
     }
 
     console.log(
-      `[ByokRateLimiter] Reset limits for user=${userId} workspace=${workspaceId}`
+      `[ByokRateLimiter] Reset limits for user=${userId} workspace=${workspaceId}`,
     );
   }
 
@@ -181,15 +181,19 @@ export class ByokRateLimiter {
   /**
    * Set custom limit for an operation
    */
-  setLimit(operation: string, tokensPerMinute: number, burstSize?: number): void {
+  setLimit(
+    operation: "connect" | "validate" | "resolve",
+    tokensPerMinute: number,
+    burstSize?: number,
+  ): void {
     this.limits.set(operation, {
-      operation: operation as any,
+      operation,
       tokensPerMinute,
       burstSize: burstSize ?? tokensPerMinute * 1.5,
     });
 
     console.log(
-      `[ByokRateLimiter] Updated limit: ${operation} = ${tokensPerMinute}/min`
+      `[ByokRateLimiter] Updated limit: ${operation} = ${tokensPerMinute}/min`,
     );
   }
 
@@ -202,7 +206,7 @@ export class ByokRateLimiter {
     operation: string,
     userId: string,
     workspaceId: string,
-    providerId?: string
+    providerId?: string,
   ): string {
     return `${userId}:${workspaceId}:${operation}${providerId ? `:${providerId}` : ""}`;
   }
@@ -213,7 +217,7 @@ export class ByokRateLimiter {
   private getOrCreateBucket(
     key: string,
     tokensPerMinute: number,
-    burstSize: number
+    burstSize: number,
   ): TokenBucket {
     let bucket = this.buckets.get(key);
 

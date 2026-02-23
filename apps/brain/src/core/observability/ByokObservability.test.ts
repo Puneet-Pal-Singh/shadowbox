@@ -169,8 +169,8 @@ describe("ByokObservability", () => {
 
       // P99 should be around 990ms
       // With 100 values, p99 is at index 98, which is 990ms
-      expect(stats.resolvepP99Latency).toBeGreaterThanOrEqual(980);
-      expect(stats.resolvepP99Latency).toBeLessThanOrEqual(1000);
+      expect(stats.resolveP99Latency).toBeGreaterThanOrEqual(980);
+      expect(stats.resolveP99Latency).toBeLessThanOrEqual(1000);
     });
 
     it("should track migration progress percentage", () => {
@@ -197,14 +197,12 @@ describe("ByokObservability", () => {
       const alerts = obs.checkAlerts();
 
       // Should have latency alert
-      const hasLatencyAlert = alerts.some((a) =>
-        a.message.includes("latency")
-      );
+      const hasLatencyAlert = alerts.some((a) => a.message.includes("latency"));
       expect(hasLatencyAlert).toBe(true);
 
       // Should have resolution failure alert
       const hasFailureAlert = alerts.some((a) =>
-        a.message.includes("resolution")
+        a.message.includes("resolution"),
       );
       expect(hasFailureAlert).toBe(true);
     });
@@ -240,7 +238,7 @@ describe("ByokObservability", () => {
     it("should mask API keys", () => {
       const obs2 = new ByokObservability(true);
       const msg = (obs2 as any).sanitizeErrorMessage(
-        "Invalid key: sk-abcdefghijklmnopqrst failed"
+        "Invalid key: sk-abcdefghijklmnopqrst failed",
       );
 
       expect(msg).toContain("sk-***");
@@ -250,7 +248,7 @@ describe("ByokObservability", () => {
     it("should mask bearer tokens", () => {
       const obs2 = new ByokObservability(true);
       const msg = (obs2 as any).sanitizeErrorMessage(
-        'Header: "Authorization: Bearer eyJhbGciOiJIUzI1NiIs..."'
+        'Header: "Authorization: Bearer eyJhbGciOiJIUzI1NiIs..."',
       );
 
       expect(msg).toContain("Bearer ***");
