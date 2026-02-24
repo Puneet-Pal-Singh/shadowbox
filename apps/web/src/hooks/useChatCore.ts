@@ -1,7 +1,7 @@
 import { useChat as useVercelChat, type Message } from "@ai-sdk/react";
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useMemo, useState, type FormEvent } from "react";
 import { chatStreamPath } from "../lib/platform-endpoints.js";
-import { providerService } from "../services/ProviderService";
+import { useByokStore } from "./useByokStore.js";
 
 interface UseChatCoreResult {
   messages: Message[];
@@ -34,77 +34,15 @@ export function useChatCore(
 
   // Stable instance key - changes when runId changes
   const instanceKey = useMemo(() => `chat-${runId}`, [runId]);
-
-  // Track session model config reactively with state to update when storage changes
-  const [sessionModelConfig, setSessionModelConfig] = useState(() =>
-    providerService.getSessionModelConfig(sessionId),
-  );
-  const [isModelConfigReady, setIsModelConfigReady] = useState(false);
+  const { status, preferences, lastResolvedConfig, resolveForChat } =
+    useByokStore();
+  const isModelConfigReady = status === "ready";
+  const activeProviderId =
+    lastResolvedConfig?.providerId ?? preferences?.defaultProviderId;
+  const activeModelId = lastResolvedConfig?.modelId ?? preferences?.defaultModelId;
   const hasCompleteOverride = Boolean(
-    isModelConfigReady &&
-      sessionModelConfig.providerId &&
-      sessionModelConfig.modelId,
+    isModelConfigReady && activeProviderId && activeModelId,
   );
-
-  useEffect(() => {
-    let cancelled = false;
-    const syncSessionModelConfig = async () => {
-      setIsModelConfigReady(false);
-      try {
-        const config = await providerService.syncSessionModelConfig(sessionId);
-        if (cancelled) {
-          return;
-        }
-        setSessionModelConfig((prev) => {
-          if (
-            prev.providerId === config.providerId &&
-            prev.modelId === config.modelId
-          ) {
-            return prev;
-          }
-          return config;
-        });
-      } catch (error) {
-        console.error(
-          `[useChatCore] Failed to sync session model config for session ${sessionId}`,
-          error,
-        );
-      } finally {
-        if (!cancelled) {
-          setIsModelConfigReady(true);
-        }
-      }
-    };
-
-    void syncSessionModelConfig();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [sessionId]);
-
-  // Subscribe to config changes when sessionId changes
-  useEffect(() => {
-    // Subscribe to config changes for this session
-    const unsubscribe = providerService.subscribeToSessionConfig(
-      sessionId,
-      (config) => {
-        // Only update if config actually changed (prevent cascading renders)
-        setSessionModelConfig((prev) => {
-          if (
-            prev.providerId === config.providerId &&
-            prev.modelId === config.modelId
-          ) {
-            return prev;
-          }
-          return config;
-        });
-      },
-    );
-
-    // Cleanup subscription when sessionId changes or component unmounts
-    return unsubscribe;
-  }, [sessionId]);
 
   const {
     messages,
@@ -121,8 +59,8 @@ export function useChatCore(
       runId,
       ...(hasCompleteOverride
         ? {
-            providerId: sessionModelConfig.providerId,
-            modelId: sessionModelConfig.modelId,
+            providerId: activeProviderId,
+            modelId: activeModelId,
           }
         : {}),
     },
@@ -144,10 +82,26 @@ export function useChatCore(
     (e?: FormEvent) => {
       e?.preventDefault();
       const trimmedInput = input.trim();
-      if (!trimmedInput || isLoading) return;
-      append({ role: "user", content: trimmedInput });
+      if (!trimmedInput || isLoading || status !== "ready") return;
+
+      const submitWithResolution = async (): Promise<void> => {
+        if (!lastResolvedConfig) {
+          try {
+            await resolveForChat();
+          } catch (error) {
+            console.error(
+              `[useChatCore] Failed to resolve provider config for session ${sessionId}`,
+              error,
+            );
+            return;
+          }
+        }
+        append({ role: "user", content: trimmedInput });
+      };
+
+      void submitWithResolution();
     },
-    [input, isLoading, append],
+    [append, input, isLoading, lastResolvedConfig, resolveForChat, sessionId, status],
   );
 
   return {

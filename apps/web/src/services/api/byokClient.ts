@@ -17,6 +17,7 @@ import {
   BYOKPreference,
   ProviderRegistryEntry,
 } from "@repo/shared-types";
+import { SessionStateService } from "../SessionStateService";
 
 /**
  * Connect credential request
@@ -79,6 +80,7 @@ export class ByokApiError extends Error {
 export class ByokApiClient {
   private baseUrl: string = "/api/byok";
   private abortControllers: Map<string, AbortController> = new Map();
+  private static readonly SESSION_RUN_ID_KEY = "currentRunId";
 
   /**
    * GET /api/byok/providers (catalog)
@@ -226,9 +228,8 @@ export class ByokApiClient {
 
     const fetchOptions: RequestInit = {
       method,
-      headers: {
-        "Content-Type": "application/json",
-      },
+      credentials: "include",
+      headers: this.createHeaders(),
       signal,
     };
 
@@ -265,6 +266,32 @@ export class ByokApiClient {
         error instanceof Error ? error.message : "Network request failed"
       );
     }
+  }
+
+  private createHeaders(): HeadersInit {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+
+    const runId = this.resolveRunId();
+    if (runId) {
+      headers["X-Run-Id"] = runId;
+    }
+
+    return headers;
+  }
+
+  private resolveRunId(): string | null {
+    try {
+      const runId = sessionStorage.getItem(ByokApiClient.SESSION_RUN_ID_KEY);
+      if (runId) {
+        return runId;
+      }
+    } catch {
+      // No-op: continue to fallback lookup.
+    }
+
+    return SessionStateService.loadActiveSessionRunId();
   }
 
   /**

@@ -20,7 +20,7 @@ import {
   ByokStoreState,
   ConnectCredentialRequest,
 } from "../services/byok/ByokStore.js";
-import { BYOKResolution } from "@repo/shared-types";
+import { BYOKPreference, BYOKResolution } from "@repo/shared-types";
 
 /**
  * useByokStore Hook
@@ -37,7 +37,7 @@ export function useByokStore(): ByokStoreState & {
     mode: "format" | "live"
   ) => Promise<void>;
   updatePreferences: (
-    partial: Record<string, unknown>
+    partial: Partial<BYOKPreference>
   ) => Promise<void>;
   setSelection: (
     providerId: string,
@@ -60,6 +60,14 @@ export function useByokStore(): ByokStoreState & {
     return unsubscribe;
   }, [store]);
 
+  useEffect(() => {
+    if (state.status === "idle") {
+      store.bootstrap().catch((error) => {
+        console.error("[byok/store] bootstrap failed", error);
+      });
+    }
+  }, [state.status, store]);
+
   const bootstrap = useCallback(() => store.bootstrap(), [store]);
   const connectCredential = useCallback(
     (req: ConnectCredentialRequest) => store.connectCredential(req),
@@ -75,7 +83,7 @@ export function useByokStore(): ByokStoreState & {
     [store]
   );
   const updatePreferences = useCallback(
-    (partial: Record<string, unknown>) => store.updatePreferences(partial),
+    (partial: Partial<BYOKPreference>) => store.updatePreferences(partial),
     [store]
   );
   const setSelection = useCallback(

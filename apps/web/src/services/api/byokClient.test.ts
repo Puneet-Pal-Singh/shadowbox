@@ -16,6 +16,7 @@ describe("ByokApiClient", () => {
     fetchSpy = vi.spyOn(globalThis, "fetch") as unknown as ReturnType<
       typeof vi.spyOn
     >;
+    sessionStorage.clear();
   });
 
   afterEach(() => {
@@ -41,6 +42,7 @@ describe("ByokApiClient", () => {
 
       expect(fetchSpy).toHaveBeenCalledWith("/api/byok/providers", {
         method: "GET",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         signal: undefined,
       });
@@ -67,6 +69,7 @@ describe("ByokApiClient", () => {
 
       expect(fetchSpy).toHaveBeenCalledWith("/api/byok/credentials", {
         method: "GET",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         signal: undefined,
       });
@@ -94,6 +97,7 @@ describe("ByokApiClient", () => {
 
       expect(fetchSpy).toHaveBeenCalledWith("/api/byok/credentials", {
         method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         signal: undefined,
         body: JSON.stringify({
@@ -116,6 +120,7 @@ describe("ByokApiClient", () => {
 
       expect(fetchSpy).toHaveBeenCalledWith("/api/byok/credentials/cred-1", {
         method: "DELETE",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         signal: undefined,
       });
