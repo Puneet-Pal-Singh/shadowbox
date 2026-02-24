@@ -34,9 +34,10 @@ export function useChatCore(
 
   // Stable instance key - changes when runId changes
   const instanceKey = useMemo(() => `chat-${runId}`, [runId]);
-  const { status, preferences, lastResolvedConfig, resolveForChat } =
+  const { status, credentials, preferences, lastResolvedConfig, resolveForChat } =
     useByokStore();
-  const isModelConfigReady = status === "ready";
+  const hasConnectedCredential = credentials.length > 0;
+  const isModelConfigReady = status === "ready" && hasConnectedCredential;
   const activeProviderId =
     lastResolvedConfig?.providerId ?? preferences?.defaultProviderId;
   const activeModelId = lastResolvedConfig?.modelId ?? preferences?.defaultModelId;
@@ -81,8 +82,8 @@ export function useChatCore(
   const appendWithResolution = useCallback(
     async (message: { role: "user"; content: string }): Promise<void> => {
       const content = message.content.trim();
-      if (!content || status !== "ready") {
-        throw new Error("Provider configuration is not ready.");
+      if (!content || status !== "ready" || !hasConnectedCredential) {
+        throw new Error("No BYOK provider connected. Connect one in settings.");
       }
 
       let resolvedConfig = lastResolvedConfig;
@@ -102,14 +103,22 @@ export function useChatCore(
         },
       );
     },
-    [append, lastResolvedConfig, resolveForChat, runId, sessionId, status],
+    [
+      append,
+      hasConnectedCredential,
+      lastResolvedConfig,
+      resolveForChat,
+      runId,
+      sessionId,
+      status,
+    ],
   );
 
   const handleSubmit = useCallback(
     (e?: FormEvent) => {
       e?.preventDefault();
       const trimmedInput = input.trim();
-      if (!trimmedInput || isLoading || status !== "ready") return;
+      if (!trimmedInput || isLoading || !isModelConfigReady) return;
 
       const submitWithResolution = async (): Promise<void> => {
         try {
@@ -124,7 +133,7 @@ export function useChatCore(
 
       void submitWithResolution();
     },
-    [appendWithResolution, input, isLoading, sessionId, status],
+    [appendWithResolution, input, isLoading, isModelConfigReady, sessionId],
   );
 
   return {
