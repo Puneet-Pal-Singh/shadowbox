@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 import fs from "fs";
 import path from "path";
 
-const SRC_ROOT = path.join(__dirname, "..");
+const srcRoot = path.join(__dirname, "..");
 
 function collectSourceFiles(dir: string): string[] {
   const entries = fs.readdirSync(dir, { withFileTypes: true });
@@ -38,7 +38,7 @@ function collectSourceFiles(dir: string): string[] {
 describe("Architecture Boundary: BYOK v2 removal", () => {
   it("should not contain the deprecated dual-read adapter source", () => {
     const dualReadPath = path.join(
-      SRC_ROOT,
+      srcRoot,
       "services",
       "byok",
       "ByokDualReadAdapter.ts",
@@ -59,7 +59,7 @@ describe("Architecture Boundary: BYOK v2 removal", () => {
     ];
     const violations: string[] = [];
 
-    for (const file of collectSourceFiles(SRC_ROOT)) {
+    for (const file of collectSourceFiles(srcRoot)) {
       const content = fs.readFileSync(file, "utf-8");
       for (const token of forbiddenTokens) {
         if (content.includes(token)) {

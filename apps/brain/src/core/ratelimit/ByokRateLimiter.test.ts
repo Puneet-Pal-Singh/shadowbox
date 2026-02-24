@@ -2,7 +2,7 @@
  * ByokRateLimiter Tests
  */
 
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { ByokRateLimiter } from "./ByokRateLimiter";
 
 describe("ByokRateLimiter", () => {
@@ -11,6 +11,10 @@ describe("ByokRateLimiter", () => {
   beforeEach(() => {
     // Each test gets a fresh limiter to avoid global state pollution
     limiter = new ByokRateLimiter();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   // Helper: Some tests create fresh limiters, others use shared limiter
@@ -347,6 +351,51 @@ describe("ByokRateLimiter", () => {
       // Verify we hit global limit
       expect(consumed).toBeLessThanOrEqual(2000);
       expect(consumed).toBeGreaterThan(1000); // Should get pretty close
+    });
+  });
+
+  describe("scale hardening", () => {
+    it("caps active buckets under high-cardinality traffic", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-02-01T00:00:00.000Z"));
+
+      const testLimiter = new ByokRateLimiter();
+      const batches = 6;
+      const requestsPerBatch = 2000;
+      let allowed = 0;
+
+      for (let batch = 0; batch < batches; batch++) {
+        for (let i = 0; i < requestsPerBatch; i++) {
+          const result = await testLimiter.checkLimit(
+            "connect",
+            `user-${batch}-${i}`,
+            "workspace-scale",
+          );
+          if (result.allowed) {
+            allowed++;
+          }
+        }
+
+        vi.setSystemTime(Date.now() + 60_000);
+      }
+
+      const stats = testLimiter.getStatistics();
+      expect(allowed).toBe(batches * requestsPerBatch);
+      expect(stats.activeBuckets).toBeLessThanOrEqual(10_000);
+    });
+
+    it("keeps global token balance bounded after long idle periods", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-02-01T00:00:00.000Z"));
+
+      const testLimiter = new ByokRateLimiter();
+      await testLimiter.checkLimit("resolve", "user-1", "workspace-1");
+
+      vi.setSystemTime(Date.now() + 6 * 60 * 60 * 1000);
+
+      const stats = testLimiter.getStatistics();
+      expect(stats.globalTokensRemaining).toBeLessThanOrEqual(2000);
+      expect(stats.globalTokensRemaining).toBeGreaterThan(0);
     });
   });
 });
