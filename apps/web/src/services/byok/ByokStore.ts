@@ -93,6 +93,7 @@ export interface ByokStoreOptions {
 export class ByokStore {
   private static instance: ByokStore;
   private state: ByokStoreState;
+  private activeRunId: string | null = null;
   private apiClient: ByokApiClientContract;
   private listeners: Set<(state: ByokStoreState) => void> = new Set();
   private inflight: Map<string, Promise<unknown>> = new Map();
@@ -127,6 +128,28 @@ export class ByokStore {
       );
     }
     return ByokStore.instance;
+  }
+
+  /**
+   * Bind store state to active run scope.
+   * Resets store when run changes to prevent cross-run leakage.
+   */
+  setActiveRunId(runId: string): void {
+    if (!runId || this.activeRunId === runId) {
+      return;
+    }
+
+    const previousRunId = this.activeRunId;
+    const didSwitchRun = previousRunId !== null && previousRunId !== runId;
+    this.activeRunId = runId;
+
+    if (didSwitchRun) {
+      this.log("[run] switched active run, resetting store", {
+        previousRunId,
+        nextRunId: runId,
+      });
+      this.reset();
+    }
   }
 
   /**

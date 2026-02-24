@@ -21,6 +21,7 @@ import {
   ConnectCredentialRequest,
 } from "../services/byok/ByokStore.js";
 import { BYOKPreference, BYOKResolution } from "@repo/shared-types";
+import { useRunContext } from "./useRunContext";
 
 /**
  * useByokStore Hook
@@ -49,6 +50,7 @@ export function useByokStore(): ByokStoreState & {
   reset: () => void;
 } {
   const store = ByokStore.getInstance();
+  const { runId } = useRunContext();
   const [state, setState] = useState<ByokStoreState>(store.getState());
 
   useEffect(() => {
@@ -61,12 +63,18 @@ export function useByokStore(): ByokStoreState & {
   }, [store]);
 
   useEffect(() => {
+    if (!runId) {
+      return;
+    }
+
+    store.setActiveRunId(runId);
+
     if (state.status === "idle") {
       store.bootstrap().catch((error) => {
         console.error("[byok/store] bootstrap failed", error);
       });
     }
-  }, [state.status, store]);
+  }, [runId, state.status, store]);
 
   const bootstrap = useCallback(() => store.bootstrap(), [store]);
   const connectCredential = useCallback(
