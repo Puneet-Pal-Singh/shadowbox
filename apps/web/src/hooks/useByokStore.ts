@@ -21,6 +21,7 @@ import {
   ConnectCredentialRequest,
 } from "../services/byok/ByokStore.js";
 import { BYOKPreference, BYOKResolution } from "@repo/shared-types";
+import type { ProviderModelOption } from "../services/api/byokClient.js";
 import { useRunContext } from "./useRunContext";
 
 /**
@@ -37,6 +38,7 @@ export function useByokStore(): ByokStoreState & {
     credentialId: string,
     mode: "format" | "live"
   ) => Promise<void>;
+  loadProviderModels: (providerId: string) => Promise<ProviderModelOption[]>;
   updatePreferences: (
     partial: Partial<BYOKPreference>
   ) => Promise<void>;
@@ -90,6 +92,10 @@ export function useByokStore(): ByokStoreState & {
       store.validateCredential(credentialId, mode),
     [store]
   );
+  const loadProviderModels = useCallback(
+    (providerId: string) => store.loadProviderModels(providerId),
+    [store]
+  );
   const updatePreferences = useCallback(
     (partial: Partial<BYOKPreference>) => store.updatePreferences(partial),
     [store]
@@ -112,6 +118,7 @@ export function useByokStore(): ByokStoreState & {
     connectCredential,
     disconnectCredential,
     validateCredential,
+    loadProviderModels,
     updatePreferences,
     setSelection,
     resolveForChat,

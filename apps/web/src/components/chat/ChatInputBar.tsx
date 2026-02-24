@@ -63,9 +63,15 @@ export function ChatInputBar({
   }, [lastResolvedConfig, onModelSelect]);
 
   const providerLabel =
-    selectedProviderId ?? preferences?.defaultProviderId ?? "provider";
+    selectedProviderId ??
+    lastResolvedConfig?.providerId ??
+    preferences?.defaultProviderId ??
+    "provider";
   const modelLabel =
-    selectedModelId ?? preferences?.defaultModelId ?? "Select Model";
+    selectedModelId ??
+    lastResolvedConfig?.modelId ??
+    preferences?.defaultModelId ??
+    "Select Model";
   const availabilityLabel = status === "ready" ? modelLabel : "Loading BYOK...";
 
   return (

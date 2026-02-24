@@ -16,7 +16,10 @@ import {
   BYOKPreference,
   ProviderRegistryEntry,
 } from "@repo/shared-types";
-import { ByokApiClient } from "../api/byokClient.js";
+import {
+  ByokApiClient,
+  type ProviderModelOption,
+} from "../api/byokClient.js";
 
 /**
  * Store state shape
@@ -26,6 +29,7 @@ export interface ByokStoreState {
   catalog: ProviderRegistryEntry[];
   credentials: BYOKCredential[];
   preferences: BYOKPreference | null;
+  providerModels: Record<string, ProviderModelOption[]>;
 
   // Current selection
   selectedProviderId: string | null;
@@ -39,6 +43,7 @@ export interface ByokStoreState {
   status: "idle" | "loading" | "ready" | "error";
   error: string | null;
   isValidating: boolean;
+  loadingModelsForProviderId: string | null;
 }
 
 /**
@@ -63,6 +68,7 @@ export interface ValidateCredentialRequest {
  */
 export interface ByokApiClientContract {
   getCatalog(): Promise<ProviderRegistryEntry[]>;
+  getProviderModels(providerId: string): Promise<ProviderModelOption[]>;
   getCredentials(): Promise<BYOKCredential[]>;
   getPreferences(): Promise<BYOKPreference>;
   connectCredential(req: ConnectCredentialRequest): Promise<BYOKCredential>;
@@ -106,6 +112,7 @@ export class ByokStore {
       catalog: [],
       credentials: [],
       preferences: null,
+      providerModels: {},
       selectedProviderId: null,
       selectedCredentialId: null,
       selectedModelId: null,
@@ -113,6 +120,7 @@ export class ByokStore {
       status: "idle",
       error: null,
       isValidating: false,
+      loadingModelsForProviderId: null,
     };
   }
 
@@ -240,10 +248,47 @@ export class ByokStore {
 
     try {
       const credential = await this.apiClient.connectCredential(req);
+      const preferences = await this.apiClient.getPreferences();
 
-      // Add to credentials list
+      let providerModels = this.state.providerModels;
+      try {
+        const models = await this.loadProviderModels(req.providerId);
+        providerModels = {
+          ...providerModels,
+          [req.providerId]: models,
+        };
+      } catch (error) {
+        this.log("[connectCredential] model preload failed", { error });
+      }
+
+      const defaultModelId =
+        (preferences.defaultProviderId === req.providerId
+          ? preferences.defaultModelId
+          : undefined) ??
+        providerModels[req.providerId]?.[0]?.id ??
+        this.state.catalog.find((p) => p.providerId === req.providerId)
+          ?.defaultModelId ??
+        null;
+      const currentCredentialIndex = this.state.credentials.findIndex(
+        (existing) => existing.credentialId === credential.credentialId
+      );
+      const nextCredentials =
+        currentCredentialIndex === -1
+          ? [...this.state.credentials, credential]
+          : this.state.credentials.map((existing) =>
+              existing.credentialId === credential.credentialId
+                ? credential
+                : existing
+            );
+
       this.setState({
-        credentials: [...this.state.credentials, credential],
+        credentials: nextCredentials,
+        preferences,
+        providerModels,
+        selectedProviderId: this.state.selectedProviderId ?? req.providerId,
+        selectedCredentialId:
+          this.state.selectedCredentialId ?? credential.credentialId,
+        selectedModelId: this.state.selectedModelId ?? defaultModelId,
       });
 
       this.log("[connectCredential] Success", {
@@ -399,6 +444,47 @@ export class ByokStore {
     }
   }
 
+  async loadProviderModels(providerId: string): Promise<ProviderModelOption[]> {
+    const key = `models:${providerId}`;
+
+    if (this.inflight.has(key)) {
+      this.log("[loadProviderModels] Request already in flight", { providerId });
+      return (await this.inflight.get(key)) as ProviderModelOption[];
+    }
+
+    this.setState({ loadingModelsForProviderId: providerId });
+    const promise = this.executeLoadProviderModels(providerId);
+    this.inflight.set(key, promise);
+
+    try {
+      return (await promise) as ProviderModelOption[];
+    } finally {
+      this.inflight.delete(key);
+      if (this.state.loadingModelsForProviderId === providerId) {
+        this.setState({ loadingModelsForProviderId: null });
+      }
+    }
+  }
+
+  private async executeLoadProviderModels(
+    providerId: string
+  ): Promise<ProviderModelOption[]> {
+    this.log("[loadProviderModels] Starting", { providerId });
+    const models = await this.apiClient.getProviderModels(providerId);
+
+    this.setState({
+      providerModels: {
+        ...this.state.providerModels,
+        [providerId]: models,
+      },
+    });
+    this.log("[loadProviderModels] Success", {
+      providerId,
+      modelCount: models.length,
+    });
+    return models;
+  }
+
   /**
    * Internal preferences update implementation
    */
@@ -515,6 +601,7 @@ export class ByokStore {
       catalog: [],
       credentials: [],
       preferences: null,
+      providerModels: {},
       selectedProviderId: null,
       selectedCredentialId: null,
       selectedModelId: null,
@@ -522,6 +609,7 @@ export class ByokStore {
       status: "idle",
       error: null,
       isValidating: false,
+      loadingModelsForProviderId: null,
     };
     this.emit();
   }

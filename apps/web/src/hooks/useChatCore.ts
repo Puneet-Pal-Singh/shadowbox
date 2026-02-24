@@ -85,9 +85,10 @@ export function useChatCore(
       if (!trimmedInput || isLoading || status !== "ready") return;
 
       const submitWithResolution = async (): Promise<void> => {
-        if (!lastResolvedConfig) {
+        let resolvedConfig = lastResolvedConfig;
+        if (!resolvedConfig) {
           try {
-            await resolveForChat();
+            resolvedConfig = await resolveForChat();
           } catch (error) {
             console.error(
               `[useChatCore] Failed to resolve provider config for session ${sessionId}`,
@@ -96,12 +97,22 @@ export function useChatCore(
             return;
           }
         }
-        append({ role: "user", content: trimmedInput });
+        append(
+          { role: "user", content: trimmedInput },
+          {
+            body: {
+              sessionId,
+              runId,
+              providerId: resolvedConfig.providerId,
+              modelId: resolvedConfig.modelId,
+            },
+          },
+        );
       };
 
       void submitWithResolution();
     },
-    [append, input, isLoading, lastResolvedConfig, resolveForChat, sessionId, status],
+    [append, input, isLoading, lastResolvedConfig, resolveForChat, runId, sessionId, status],
   );
 
   return {

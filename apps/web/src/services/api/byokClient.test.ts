@@ -52,6 +52,32 @@ describe("ByokApiClient", () => {
     });
   });
 
+  describe("getProviderModels", () => {
+    it("fetches model options for provider", async () => {
+      const mockModels = [
+        { id: "openai/gpt-4o-mini", name: "GPT-4o Mini", provider: "openai" },
+      ];
+      fetchSpy.mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ "content-type": "application/json" }),
+        json: vi.fn().mockResolvedValueOnce(mockModels),
+      });
+
+      const models = await client.getProviderModels("openrouter");
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        `${byokBaseUrl}/providers/openrouter/models`,
+        {
+          method: "GET",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          signal: undefined,
+        }
+      );
+      expect(models).toEqual(mockModels);
+    });
+  });
+
   describe("getCredentials", () => {
     it("fetches credentials", async () => {
       const mockCredentials = [

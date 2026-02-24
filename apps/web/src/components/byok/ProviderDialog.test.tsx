@@ -47,6 +47,15 @@ describe("ProviderDialog", () => {
           deletedAt: null,
         },
       ],
+      providerModels: {
+        openai: [
+          {
+            id: "gpt-4",
+            name: "GPT-4",
+            provider: "openai",
+          },
+        ],
+      },
       preferences: {
         userId: "user-1",
         workspaceId: "ws-1",
@@ -60,6 +69,7 @@ describe("ProviderDialog", () => {
       status: "ready",
       error: null,
       isValidating: false,
+      loadingModelsForProviderId: null,
       lastResolvedConfig: {
         providerId: "openai",
         credentialId,
@@ -72,6 +82,13 @@ describe("ProviderDialog", () => {
       connectCredential: vi.fn(async () => undefined),
       disconnectCredential: vi.fn(async () => undefined),
       validateCredential: vi.fn(async () => undefined),
+      loadProviderModels: vi.fn(async () => [
+        {
+          id: "gpt-4",
+          name: "GPT-4",
+          provider: "openai",
+        },
+      ]),
       updatePreferences: vi.fn(async () => undefined),
       setSelection: vi.fn(),
       resolveForChat: vi.fn(async () => ({

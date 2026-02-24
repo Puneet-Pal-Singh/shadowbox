@@ -15,6 +15,7 @@ import {
   BYOKResolveRequest,
   BYOKCredential,
   BYOKPreference,
+  type ModelDescriptor,
   ProviderRegistryEntry,
 } from "@repo/shared-types";
 import { getBrainHttpBase } from "../../lib/platform-endpoints.js";
@@ -49,6 +50,12 @@ export interface ValidateCredentialRequest {
 export interface ValidationResult {
   valid: boolean;
   error?: string;
+}
+
+export interface ProviderModelOption {
+  id: string;
+  name: string;
+  provider?: string;
 }
 
 /**
@@ -88,6 +95,20 @@ export class ByokApiClient {
    */
   async getCatalog(): Promise<ProviderRegistryEntry[]> {
     return this.get<ProviderRegistryEntry[]>("/providers");
+  }
+
+  /**
+   * GET /api/byok/providers/:providerId/models
+   */
+  async getProviderModels(providerId: string): Promise<ProviderModelOption[]> {
+    const models = await this.get<ModelDescriptor[]>(
+      `/providers/${encodeURIComponent(providerId)}/models`
+    );
+    return models.map((model) => ({
+      id: model.id,
+      name: model.name,
+      provider: model.provider,
+    }));
   }
 
   /**

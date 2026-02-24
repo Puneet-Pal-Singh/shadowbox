@@ -99,6 +99,16 @@ describe("ByokStore", () => {
 
     mockApiClient = {
       getCatalog: vi.fn(async () => catalog),
+      getProviderModels: vi.fn(async (providerId: string) => {
+        void providerId;
+        return [
+          {
+            id: "openrouter/auto",
+            name: "Auto",
+            provider: "openrouter",
+          },
+        ];
+      }),
       getCredentials: vi.fn(async () => credentials),
       getPreferences: vi.fn(async () => preferences),
       connectCredential: vi.fn(async (req: ConnectCredentialRequest) => {
@@ -144,6 +154,7 @@ describe("ByokStore", () => {
       expect(state.status).toBe("idle");
       expect(state.catalog).toEqual([]);
       expect(state.credentials).toEqual([]);
+      expect(state.providerModels).toEqual({});
     });
 
     it("uses singleton pattern", () => {
@@ -160,6 +171,13 @@ describe("ByokStore", () => {
       expect(mockApiClient.getCatalog).toHaveBeenCalled();
       expect(mockApiClient.getCredentials).toHaveBeenCalled();
       expect(mockApiClient.getPreferences).toHaveBeenCalled();
+    });
+
+    it("loads provider models on demand", async () => {
+      const models = await store.loadProviderModels("openrouter");
+      expect(models).toHaveLength(1);
+      expect(mockApiClient.getProviderModels).toHaveBeenCalledWith("openrouter");
+      expect(store.getState().providerModels.openrouter).toHaveLength(1);
     });
 
     it("sets status to ready on success", async () => {
