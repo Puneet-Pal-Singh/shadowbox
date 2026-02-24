@@ -32,7 +32,6 @@ import {
   DurableProviderStore,
   ProviderRateLimitService,
   ProviderConfigService,
-  type LegacyCredentialMigrationConfig,
   readByokEncryptionConfig,
 } from "../services/providers";
 import {
@@ -308,7 +307,6 @@ export class RunEngineRuntime extends DurableObject {
       this.ctx as unknown as LegacyDurableObjectState,
       scope,
       this.resolveProviderEncryptionConfig(correlationId),
-      this.resolveLegacyCredentialMigrationConfig(),
     );
     return new ProviderConfigService(this.env as Env, durableProviderStore);
   }
@@ -334,17 +332,6 @@ export class RunEngineRuntime extends DurableObject {
       );
     }
     return config;
-  }
-
-  private resolveLegacyCredentialMigrationConfig(): LegacyCredentialMigrationConfig {
-    const env = this.env as Env;
-    return {
-      legacyReadFallbackEnabled: env.BYOK_LEGACY_READ_FALLBACK_ENABLED === "true",
-      // legacyBackfillEnabled: opt-in semantics (default false, matching legacyReadFallbackEnabled and legacyRollbackEnabled)
-      legacyBackfillEnabled: env.BYOK_LEGACY_BACKFILL_ENABLED === "true",
-      legacyRollbackEnabled: env.BYOK_LEGACY_ROLLBACK_ENABLED === "true",
-      legacyCutoffAt: env.BYOK_LEGACY_CUTOFF_AT,
-    };
   }
 
   private parseRequiredRunId(

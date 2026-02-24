@@ -30,7 +30,7 @@ describe("DurableProviderStore", () => {
     expect(restored).toBe("sk-test-sensitive-1234567890");
   });
 
-  it("treats legacy run-scoped credentials as unsupported after cutover", async () => {
+  it("ignores legacy run-scoped credentials in strict v3 mode", async () => {
     const { state, storage } = createMockDurableState();
     const providerId: ProviderId = "groq";
     const runId = "run-legacy";
@@ -50,41 +50,10 @@ describe("DurableProviderStore", () => {
       "test-encryption-key",
     );
 
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const apiKey = await store.getApiKey(providerId);
     expect(apiKey).toBeNull();
     expect(storage.get("provider:v2:user-1:workspace-1:groq")).toBeUndefined();
     expect(storage.has(`provider:${runId}:${providerId}`)).toBe(true);
-    expect(warnSpy).toHaveBeenCalledWith(
-      `[provider/durable] Legacy run-scoped credential detected for ${providerId}; fallback disabled or cutoff reached.`,
-    );
-  });
-
-  it("returns null when legacy credential inspection fails", async () => {
-    const getError = new Error("storage unavailable");
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    const state = {
-      storage: {
-        put: async () => {},
-        get: async (_key: string) => {
-          throw getError;
-        },
-        delete: async () => {},
-        list: async () => new Map<string, string>(),
-      },
-    } as unknown as DurableObjectState;
-
-    const store = new DurableProviderStore(
-      state,
-      { runId: "run-error", userId: "user-1", workspaceId: "workspace-1" },
-      "test-encryption-key",
-    );
-
-    await expect(store.getApiKey("openai")).resolves.toBeNull();
-    expect(errorSpy).toHaveBeenCalledWith(
-      "[provider/durable] Failed to inspect legacy credential for openai:",
-      getError,
-    );
   });
 
   it("stores provider preferences without polluting provider connection list", async () => {
@@ -133,6 +102,36 @@ describe("DurableProviderStore", () => {
     expect(await storeB.getApiKey("openai")).toBe("sk-test-sensitive-2222222222");
   });
 
+  it("handles high-cardinality scoped writes without cross-scope leakage", async () => {
+    const { state } = createMockDurableState();
+    const scopeCount = 250;
+    const stores: DurableProviderStore[] = [];
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    try {
+      for (let i = 0; i < scopeCount; i++) {
+        const store = new DurableProviderStore(
+          state,
+          {
+            runId: `run-scale-${i}`,
+            userId: `user-${i}`,
+            workspaceId: `workspace-${i % 5}`,
+          },
+          "test-encryption-key",
+        );
+        stores.push(store);
+        await store.setProvider("openai", `sk-scale-key-${i}-1234567890`);
+      }
+
+      for (let i = 0; i < scopeCount; i++) {
+        const key = await stores[i].getApiKey("openai");
+        expect(key).toBe(`sk-scale-key-${i}-1234567890`);
+      }
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
   it("does not include legacy run-scoped records in provider list", async () => {
     const { state, storage } = createMockDurableState();
     storage.set(
@@ -174,62 +173,19 @@ describe("DurableProviderStore", () => {
     expect(providers).toEqual(["openai"]);
   });
 
-  it("cleans up scoped and legacy keys on delete", async () => {
+  it("cleans up scoped keys on delete", async () => {
     const { state, storage } = createMockDurableState();
-    const runId = "run-delete";
-    storage.set(
-      `provider:${runId}:openai`,
-      JSON.stringify({
-        providerId: "openai",
-        apiKey: "sk_legacy_concurrency_1234567890",
-        connectedAt: "2026-02-20T00:00:00.000Z",
-      }),
-    );
 
     const store = new DurableProviderStore(
       state,
-      { runId, userId: "user-1", workspaceId: "workspace-1" },
+      { runId: "run-delete", userId: "user-1", workspaceId: "workspace-1" },
       "test-encryption-key",
     );
 
     await store.setProvider("openai", "sk_scoped_key_1234567890");
     await store.deleteProvider("openai");
 
-    expect(storage.has(`provider:${runId}:openai`)).toBe(false);
     expect(storage.get("provider:v2:user-1:workspace-1:openai")).toBeUndefined();
-  });
-
-  it("reads legacy credential when fallback is enabled and backfills scoped storage", async () => {
-    const { state, storage } = createMockDurableState();
-    const providerId: ProviderId = "openai";
-    const runId = "run-fallback";
-    storage.set(
-      `provider:${runId}:${providerId}`,
-      JSON.stringify({
-        providerId,
-        apiKey: "sk_legacy_key_fallback_1234567890",
-        connectedAt: "2026-02-20T00:00:00.000Z",
-      }),
-    );
-
-    const store = new DurableProviderStore(
-      state,
-      { runId, userId: "user-1", workspaceId: "workspace-1" },
-      "test-encryption-key",
-      {
-        legacyReadFallbackEnabled: true,
-        legacyBackfillEnabled: true,
-        legacyRollbackEnabled: false,
-      },
-    );
-
-    await expect(store.getApiKey(providerId)).resolves.toBe(
-      "sk_legacy_key_fallback_1234567890",
-    );
-
-    const scopedRaw = storage.get("provider:v2:user-1:workspace-1:openai");
-    expect(scopedRaw).toBeDefined();
-    expect(scopedRaw).not.toContain("sk_legacy_key_fallback_1234567890");
   });
 
   it("decrypts with previous key version and re-encrypts to current key", async () => {
@@ -259,46 +215,6 @@ describe("DurableProviderStore", () => {
     expect(parsed.keyVersion).toBe("v2");
   });
 
-  it("blocks legacy fallback after cutoff unless rollback is enabled", async () => {
-    const { state, storage } = createMockDurableState();
-    const providerId: ProviderId = "groq";
-    const runId = "run-cutoff";
-    storage.set(
-      `provider:${runId}:${providerId}`,
-      JSON.stringify({
-        providerId,
-        apiKey: "gsk_legacy_cutoff_key_1234567890",
-      }),
-    );
-
-    const cutoffStore = new DurableProviderStore(
-      state,
-      { runId, userId: "user-1", workspaceId: "workspace-1" },
-      "test-encryption-key",
-      {
-        legacyReadFallbackEnabled: true,
-        legacyBackfillEnabled: false,
-        legacyRollbackEnabled: false,
-        legacyCutoffAt: "2020-01-01T00:00:00.000Z",
-      },
-    );
-    await expect(cutoffStore.getApiKey(providerId)).resolves.toBeNull();
-
-    const rollbackStore = new DurableProviderStore(
-      state,
-      { runId, userId: "user-1", workspaceId: "workspace-1" },
-      "test-encryption-key",
-      {
-        legacyReadFallbackEnabled: false,
-        legacyBackfillEnabled: false,
-        legacyRollbackEnabled: true,
-        legacyCutoffAt: "2020-01-01T00:00:00.000Z",
-      },
-    );
-    await expect(rollbackStore.getApiKey(providerId)).resolves.toBe(
-      "gsk_legacy_cutoff_key_1234567890",
-    );
-  });
 });
 
 function createMockDurableState(): {

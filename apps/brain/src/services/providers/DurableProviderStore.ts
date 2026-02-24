@@ -48,12 +48,6 @@ interface ProviderCredentialRecordV2 {
   workspaceId: string;
 }
 
-interface LegacyProviderCredentialRecord {
-  providerId: ProviderId;
-  apiKey: string;
-  connectedAt?: string;
-}
-
 interface ProviderAuditRecordV1 {
   version: "v1";
   eventType: string;
@@ -72,16 +66,8 @@ interface ProviderPreferencesRecordV1 {
 }
 
 const PROVIDER_STORE_V2_PREFIX = "provider:v2:";
-const PROVIDER_STORE_LEGACY_PREFIX = "provider:";
 const PROVIDER_PREFERENCES_SUFFIX = "_preferences";
 const PROVIDER_AUDIT_PREFIX = "provider:audit:v1:";
-
-export interface LegacyCredentialMigrationConfig {
-  legacyReadFallbackEnabled: boolean;
-  legacyBackfillEnabled: boolean;
-  legacyRollbackEnabled: boolean;
-  legacyCutoffAt?: string;
-}
 
 export interface ProviderAuditEvent {
   eventType: string;
@@ -95,17 +81,14 @@ export interface ProviderAuditEvent {
 export class DurableProviderStore {
   private readonly scope;
   private readonly encryptionConfig: ProviderEncryptionConfig;
-  private readonly migrationConfig: LegacyCredentialMigrationConfig;
 
   constructor(
     private state: DurableObjectState,
     scopeInput: ProviderStoreScopeInput,
     encryption: string | ProviderEncryptionConfig,
-    migrationConfig: LegacyCredentialMigrationConfig = defaultMigrationConfig(),
   ) {
     this.scope = normalizeProviderScope(scopeInput);
     this.encryptionConfig = normalizeEncryptionConfig(encryption);
-    this.migrationConfig = migrationConfig;
   }
 
   /**
@@ -126,19 +109,13 @@ export class DurableProviderStore {
   /**
    * Get a provider credential
    * Returns null if not found.
-   * Legacy run-scoped keys are intentionally unsupported after BYOK cutover.
    */
   async getProvider(providerId: ProviderId): Promise<ProviderCredential | null> {
     const scopedData = await this.readScopedProviderRaw(providerId);
-    const scopedCredential = await this.parseScopedCredential(
+    return await this.parseScopedCredential(
       providerId,
       scopedData,
     );
-    if (scopedCredential) {
-      return scopedCredential;
-    }
-
-    return await this.getLegacyCredentialWithControls(providerId);
   }
 
   private async readScopedProviderRaw(providerId: ProviderId): Promise<unknown> {
@@ -175,7 +152,6 @@ export class DurableProviderStore {
    */
   async deleteProvider(providerId: ProviderId): Promise<void> {
     await this.state.storage?.delete(this.getScopedKey(providerId));
-    await this.state.storage?.delete(this.getLegacyKey(providerId));
     console.log(`[provider/durable] Deleted credential for ${providerId}`);
   }
 
@@ -264,7 +240,6 @@ export class DurableProviderStore {
     }
 
     await this.deleteEntriesByPrefix(this.getScopedPrefix());
-    await this.deleteEntriesByPrefix(this.getLegacyPrefix());
     await this.deleteEntriesByPrefix(this.getAuditPrefix());
 
     console.log("[provider/durable] Cleared all credentials (test only)");
@@ -357,86 +332,6 @@ export class DurableProviderStore {
     }
   }
 
-  private async getLegacyCredentialWithControls(
-    providerId: ProviderId,
-  ): Promise<ProviderCredential | null> {
-    const legacy = await this.readLegacyCredential(providerId);
-    if (!legacy) {
-      return null;
-    }
-    if (!this.isLegacyReadAllowed()) {
-      this.logLegacyCredentialCutoff(providerId);
-      return null;
-    }
-
-    console.warn(
-      `[provider/durable] Legacy run-scoped credential fallback used for ${providerId}.`,
-    );
-    const connectedAt = legacy.connectedAt ?? new Date().toISOString();
-    if (this.migrationConfig.legacyBackfillEnabled) {
-      await this.reEncryptCredential(
-        providerId,
-        legacy.apiKey,
-        connectedAt,
-      );
-    }
-    return {
-      providerId,
-      apiKey: legacy.apiKey,
-      connectedAt,
-    };
-  }
-
-  private async readLegacyCredential(
-    providerId: ProviderId,
-  ): Promise<LegacyProviderCredentialRecord | null> {
-    try {
-      const legacyKey = this.getLegacyKey(providerId);
-      const legacyData = await this.state.storage?.get(legacyKey);
-      if (typeof legacyData !== "string") {
-        return null;
-      }
-      const parsed = JSON.parse(legacyData) as LegacyProviderCredentialRecord;
-      if (typeof parsed.apiKey !== "string" || parsed.apiKey.length === 0) {
-        return null;
-      }
-      return parsed;
-    } catch (error) {
-      console.error(
-        `[provider/durable] Failed to inspect legacy credential for ${providerId}:`,
-        error,
-      );
-      return null;
-    }
-  }
-
-  private isLegacyReadAllowed(): boolean {
-    if (this.migrationConfig.legacyRollbackEnabled) {
-      return true;
-    }
-    if (!this.migrationConfig.legacyReadFallbackEnabled) {
-      return false;
-    }
-    if (!this.migrationConfig.legacyCutoffAt) {
-      return true;
-    }
-
-    const cutoffAt = Date.parse(this.migrationConfig.legacyCutoffAt);
-    if (Number.isNaN(cutoffAt)) {
-      console.warn(
-        `[provider/durable] Invalid legacyCutoffAt value: "${this.migrationConfig.legacyCutoffAt}"; treating as no cutoff.`,
-      );
-      return true;
-    }
-    return Date.now() < cutoffAt;
-  }
-
-  private logLegacyCredentialCutoff(providerId: ProviderId): void {
-    console.warn(
-      `[provider/durable] Legacy run-scoped credential detected for ${providerId}; fallback disabled or cutoff reached.`,
-    );
-  }
-
   private getScopedPrefix(): string {
     return `${PROVIDER_STORE_V2_PREFIX}${sanitizeScopeSegment(this.scope.userId)}:${sanitizeScopeSegment(this.scope.workspaceId)}:`;
   }
@@ -472,14 +367,6 @@ export class DurableProviderStore {
 
   private getPreferencesKey(): string {
     return `${this.getScopedPrefix()}${PROVIDER_PREFERENCES_SUFFIX}`;
-  }
-
-  private getLegacyPrefix(): string {
-    return `${PROVIDER_STORE_LEGACY_PREFIX}${this.scope.runId}:`;
-  }
-
-  private getLegacyKey(providerId: ProviderId): string {
-    return `${this.getLegacyPrefix()}${providerId}`;
   }
 
   private getAuditPrefix(): string {
@@ -521,14 +408,6 @@ function normalizeEncryptionConfig(
     };
   }
   return encryption;
-}
-
-function defaultMigrationConfig(): LegacyCredentialMigrationConfig {
-  return {
-    legacyReadFallbackEnabled: false,
-    legacyBackfillEnabled: true,
-    legacyRollbackEnabled: false,
-  };
 }
 
 function createKeyFingerprint(apiKey: string): string {
