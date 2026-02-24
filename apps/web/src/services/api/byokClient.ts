@@ -17,6 +17,7 @@ import {
   BYOKPreference,
   ProviderRegistryEntry,
 } from "@repo/shared-types";
+import { getBrainHttpBase } from "../../lib/platform-endpoints.js";
 import { SessionStateService } from "../SessionStateService";
 
 /**
@@ -78,7 +79,7 @@ export class ByokApiError extends Error {
  * ByokApiClient - Typed HTTP client for BYOK v3 APIs
  */
 export class ByokApiClient {
-  private baseUrl: string = "/api/byok";
+  private baseUrl: string = `${getBrainHttpBase()}/api/byok`;
   private abortControllers: Map<string, AbortController> = new Map();
   private static readonly SESSION_RUN_ID_KEY = "currentRunId";
 
@@ -244,12 +245,7 @@ export class ByokApiClient {
         await this.handleErrorResponse(response);
       }
 
-      if (method === "DELETE" && response.status === 204) {
-        return undefined as T;
-      }
-
-      const data = await response.json();
-      return data as T;
+      return await this.parseSuccessResponse<T>(response, method, path);
     } catch (error) {
       if (error instanceof ByokApiError) {
         throw error;
@@ -264,6 +260,37 @@ export class ByokApiClient {
         500,
         "NETWORK_ERROR",
         error instanceof Error ? error.message : "Network request failed"
+      );
+    }
+  }
+
+  private async parseSuccessResponse<T>(
+    response: Response,
+    method: string,
+    path: string
+  ): Promise<T> {
+    if (response.status === 204 || method === "DELETE") {
+      return undefined as T;
+    }
+
+    const contentType = response.headers.get("content-type") ?? "";
+    if (!contentType.includes("application/json")) {
+      const preview = await this.readResponsePreview(response);
+      throw new ByokApiError(
+        502,
+        "INVALID_RESPONSE_FORMAT",
+        `Expected JSON response for ${method} ${path}${preview ? `; received: ${preview}` : ""}`
+      );
+    }
+
+    try {
+      const data = await response.json();
+      return data as T;
+    } catch {
+      throw new ByokApiError(
+        502,
+        "INVALID_RESPONSE_FORMAT",
+        `Invalid JSON response for ${method} ${path}`
       );
     }
   }
@@ -299,21 +326,41 @@ export class ByokApiClient {
    */
   private async handleErrorResponse(response: Response): Promise<never> {
     let errorData: Record<string, unknown> = {};
+    let message = `HTTP ${response.status}`;
+    let code = "API_ERROR";
+    let correlationId: string | undefined;
 
     try {
       const contentType = response.headers.get("content-type");
       if (contentType?.includes("application/json")) {
         errorData = await response.json();
+        const error = (errorData.error || {}) as Record<string, unknown>;
+        message = (error.message as string) || message;
+        code = (error.code as string) || code;
+        correlationId = error.correlationId as string | undefined;
+      } else {
+        const preview = await this.readResponsePreview(response);
+        if (preview) {
+          message = `Unexpected non-JSON error response: ${preview}`;
+          code = "INVALID_ERROR_RESPONSE";
+        }
       }
     } catch {
       // Ignore JSON parse errors, use default error
     }
 
-    const error = (errorData.error || {}) as Record<string, unknown>;
-    const message = (error.message as string) || `HTTP ${response.status}`;
-    const code = (error.code as string) || "API_ERROR";
-    const correlationId = error.correlationId as string | undefined;
-
     throw new ByokApiError(response.status, code, message, correlationId);
+  }
+
+  private async readResponsePreview(response: Response): Promise<string> {
+    try {
+      const text = (await response.text()).trim();
+      if (!text) {
+        return "";
+      }
+      return text.slice(0, 120);
+    } catch {
+      return "";
+    }
   }
 }

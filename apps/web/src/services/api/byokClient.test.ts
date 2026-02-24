@@ -8,6 +8,7 @@ import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import { ByokApiClient, ByokApiError } from "./byokClient.js";
 
 describe("ByokApiClient", () => {
+  const byokBaseUrl = "http://localhost:8788/api/byok";
   let client: ByokApiClient;
   let fetchSpy: ReturnType<typeof vi.spyOn>;
 
@@ -35,12 +36,13 @@ describe("ByokApiClient", () => {
 
       fetchSpy.mockResolvedValueOnce({
         ok: true,
+        headers: new Headers({ "content-type": "application/json" }),
         json: vi.fn().mockResolvedValueOnce(mockCatalog),
       });
 
       const catalog = await client.getCatalog();
 
-      expect(fetchSpy).toHaveBeenCalledWith("/api/byok/providers", {
+      expect(fetchSpy).toHaveBeenCalledWith(`${byokBaseUrl}/providers`, {
         method: "GET",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -62,12 +64,13 @@ describe("ByokApiClient", () => {
 
       fetchSpy.mockResolvedValueOnce({
         ok: true,
+        headers: new Headers({ "content-type": "application/json" }),
         json: vi.fn().mockResolvedValueOnce(mockCredentials),
       });
 
       const credentials = await client.getCredentials();
 
-      expect(fetchSpy).toHaveBeenCalledWith("/api/byok/credentials", {
+      expect(fetchSpy).toHaveBeenCalledWith(`${byokBaseUrl}/credentials`, {
         method: "GET",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -87,6 +90,7 @@ describe("ByokApiClient", () => {
 
       fetchSpy.mockResolvedValueOnce({
         ok: true,
+        headers: new Headers({ "content-type": "application/json" }),
         json: vi.fn().mockResolvedValueOnce(mockCredential),
       });
 
@@ -95,7 +99,7 @@ describe("ByokApiClient", () => {
         secret: "sk-test",
       });
 
-      expect(fetchSpy).toHaveBeenCalledWith("/api/byok/credentials", {
+      expect(fetchSpy).toHaveBeenCalledWith(`${byokBaseUrl}/credentials`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -118,7 +122,7 @@ describe("ByokApiClient", () => {
 
       await client.disconnectCredential("cred-1");
 
-      expect(fetchSpy).toHaveBeenCalledWith("/api/byok/credentials/cred-1", {
+      expect(fetchSpy).toHaveBeenCalledWith(`${byokBaseUrl}/credentials/cred-1`, {
         method: "DELETE",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -131,6 +135,7 @@ describe("ByokApiClient", () => {
     it("validates credential with format mode", async () => {
       fetchSpy.mockResolvedValueOnce({
         ok: true,
+        headers: new Headers({ "content-type": "application/json" }),
         json: vi.fn().mockResolvedValueOnce({ valid: true }),
       });
 
@@ -140,7 +145,7 @@ describe("ByokApiClient", () => {
 
       expect(result).toEqual({ valid: true });
       expect(fetchSpy).toHaveBeenCalledWith(
-        "/api/byok/credentials/cred-1/validate",
+        `${byokBaseUrl}/credentials/cred-1/validate`,
         expect.objectContaining({
           method: "POST",
           body: JSON.stringify({ mode: "format" }),
@@ -151,6 +156,7 @@ describe("ByokApiClient", () => {
     it("validates credential with live mode", async () => {
       fetchSpy.mockResolvedValueOnce({
         ok: true,
+        headers: new Headers({ "content-type": "application/json" }),
         json: vi.fn().mockResolvedValueOnce({ valid: true }),
       });
 
@@ -265,6 +271,20 @@ describe("ByokApiClient", () => {
       } catch (error) {
         expect((error as ByokApiError).correlationId).toBe("req-123");
       }
+    });
+
+    it("maps non-json success payload to invalid response format error", async () => {
+      fetchSpy.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        headers: new Headers({ "content-type": "text/html" }),
+        text: vi.fn().mockResolvedValueOnce("<!doctype html><html>"),
+      });
+
+      await expect(client.getCatalog()).rejects.toMatchObject({
+        code: "INVALID_RESPONSE_FORMAT",
+        statusCode: 502,
+      });
     });
   });
 
