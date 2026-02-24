@@ -469,4 +469,90 @@ describe("ProviderController", () => {
       expect(typeof getData.updatedAt).toBe("string");
     });
   });
+
+  describe("byok v3", () => {
+    it("returns provider registry entries", async () => {
+      const env = createMockEnv();
+      const response = await ProviderController.byokProviders(
+        new Request("http://localhost/api/byok/providers", {
+          method: "GET",
+          headers: await withByokHeaders(env),
+        }),
+        env,
+      );
+      const data = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(Array.isArray(data)).toBe(true);
+      expect(data[0].providerId).toBeDefined();
+      expect(data[0].authModes).toContain("api_key");
+    });
+
+    it("connects credential and resolves selection", async () => {
+      const env = createMockEnv();
+      const connectResponse = await ProviderController.byokConnectCredential(
+        new Request("http://localhost/api/byok/credentials", {
+          method: "POST",
+          headers: await withByokHeaders(env),
+          body: JSON.stringify({
+            providerId: "openai",
+            secret: "sk-test-1234567890",
+            label: "Primary",
+          }),
+        }),
+        env,
+      );
+      const connectData = await connectResponse.json();
+
+      expect(connectResponse.status).toBe(200);
+      expect(connectData.providerId).toBe("openai");
+      expect(connectData.label).toBe("Primary");
+
+      const resolveResponse = await ProviderController.byokResolve(
+        new Request("http://localhost/api/byok/resolve", {
+          method: "POST",
+          headers: await withByokHeaders(env),
+          body: JSON.stringify({}),
+        }),
+        env,
+      );
+      const resolveData = await resolveResponse.json();
+
+      expect(resolveResponse.status).toBe(200);
+      expect(resolveData.providerId).toBe("openai");
+      expect(resolveData.credentialId).toBe(connectData.credentialId);
+      expect(resolveData.modelId).toBe("gpt-4o");
+    });
+
+    it("disconnects credential by credentialId", async () => {
+      const env = createMockEnv();
+      const connectResponse = await ProviderController.byokConnectCredential(
+        new Request("http://localhost/api/byok/credentials", {
+          method: "POST",
+          headers: await withByokHeaders(env),
+          body: JSON.stringify({
+            providerId: "groq",
+            secret: "gsk_test_provider_state_1234567890",
+          }),
+        }),
+        env,
+      );
+      const connectData = await connectResponse.json();
+
+      const disconnectHeaders = await withByokHeaders(env);
+      delete disconnectHeaders["Content-Type"];
+      const disconnectResponse = await ProviderController.byokDisconnectCredential(
+        new Request(
+          `http://localhost/api/byok/credentials/${connectData.credentialId}`,
+          {
+            method: "DELETE",
+            headers: disconnectHeaders,
+          },
+        ),
+        env,
+      );
+
+      expect(disconnectResponse.status).toBe(204);
+    });
+  });
 });
