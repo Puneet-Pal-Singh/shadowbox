@@ -187,6 +187,9 @@ describe("ByokStore", () => {
       expect(state.status).toBe("ready");
       expect(state.catalog).toHaveLength(1);
       expect(state.credentials).toHaveLength(1);
+      expect(state.selectedProviderId).toBe("openai");
+      expect(state.selectedCredentialId).toBe(credential1Id);
+      expect(state.selectedModelId).toBe("gpt-4");
     });
 
     it("sets status to error on failure", async () => {
@@ -290,6 +293,26 @@ describe("ByokStore", () => {
       await Promise.all([store.resolveForChat(), store.resolveForChat()]);
 
       expect(mockApiClient.resolveForChat).toHaveBeenCalledTimes(1);
+    });
+
+    it("reuses cached resolution for stable selection", async () => {
+      await store.bootstrap();
+
+      const first = await store.resolveForChat();
+      const second = await store.resolveForChat();
+
+      expect(first).toEqual(second);
+      expect(mockApiClient.resolveForChat).toHaveBeenCalledTimes(1);
+    });
+
+    it("fails early when no provider is connected", async () => {
+      vi.mocked(mockApiClient.getCredentials).mockResolvedValueOnce([]);
+      await store.bootstrap();
+
+      await expect(store.resolveForChat()).rejects.toThrow(
+        "No BYOK provider connected. Connect one in settings."
+      );
+      expect(mockApiClient.resolveForChat).not.toHaveBeenCalled();
     });
   });
 

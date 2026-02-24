@@ -46,6 +46,12 @@ export interface ByokStoreState {
   loadingModelsForProviderId: string | null;
 }
 
+interface ByokSelectionSnapshot {
+  selectedProviderId: string | null;
+  selectedCredentialId: string | null;
+  selectedModelId: string | null;
+}
+
 /**
  * Connect credential request
  */
@@ -103,6 +109,8 @@ export class ByokStore {
   private apiClient: ByokApiClientContract;
   private listeners: Set<(state: ByokStoreState) => void> = new Set();
   private inflight: Map<string, Promise<unknown>> = new Map();
+  private lastResolveSelectionKey: string | null = null;
+  private lastResolveError: Error | null = null;
   private enableLogging: boolean;
 
   private constructor(apiClient: ByokApiClientContract, enableLogging = false) {
@@ -194,13 +202,39 @@ export class ByokStore {
         this.apiClient.getCredentials(),
         this.apiClient.getPreferences(),
       ]);
+      const selection = this.deriveSelectionSnapshot({
+        catalog,
+        credentials,
+        preferences,
+        providerModels: this.state.providerModels,
+        selectedProviderId: this.state.selectedProviderId,
+        selectedCredentialId: this.state.selectedCredentialId,
+        selectedModelId: this.state.selectedModelId,
+      });
 
       this.setState({
         catalog,
         credentials,
         preferences,
+        selectedProviderId: selection.selectedProviderId,
+        selectedCredentialId: selection.selectedCredentialId,
+        selectedModelId: selection.selectedModelId,
         status: "ready",
       });
+
+      if (
+        selection.selectedProviderId &&
+        !this.state.providerModels[selection.selectedProviderId]
+      ) {
+        void this.loadProviderModels(selection.selectedProviderId).catch(
+          (error) => {
+            this.log("[bootstrap] model preload failed", {
+              providerId: selection.selectedProviderId,
+              error,
+            });
+          }
+        );
+      }
 
       this.log("[bootstrap] Success", {
         providers: catalog.length,
@@ -280,8 +314,8 @@ export class ByokStore {
                 ? credential
                 : existing
             );
-
-      this.setState({
+      const selection = this.deriveSelectionSnapshot({
+        catalog: this.state.catalog,
         credentials: nextCredentials,
         preferences,
         providerModels,
@@ -289,6 +323,15 @@ export class ByokStore {
         selectedCredentialId:
           this.state.selectedCredentialId ?? credential.credentialId,
         selectedModelId: this.state.selectedModelId ?? defaultModelId,
+      });
+
+      this.setState({
+        credentials: nextCredentials,
+        preferences,
+        providerModels,
+        selectedProviderId: selection.selectedProviderId,
+        selectedCredentialId: selection.selectedCredentialId,
+        selectedModelId: selection.selectedModelId,
       });
 
       this.log("[connectCredential] Success", {
@@ -334,15 +377,26 @@ export class ByokStore {
       await this.apiClient.disconnectCredential(credentialId);
 
       // Remove from credentials list
-      this.setState({
-        credentials: this.state.credentials.filter(
-          (c) => c.credentialId !== credentialId
-        ),
-        // Clear selection if it was the disconnected credential
+      const nextCredentials = this.state.credentials.filter(
+        (credential) => credential.credentialId !== credentialId
+      );
+      const selection = this.deriveSelectionSnapshot({
+        catalog: this.state.catalog,
+        credentials: nextCredentials,
+        preferences: this.state.preferences,
+        providerModels: this.state.providerModels,
+        selectedProviderId: this.state.selectedProviderId,
         selectedCredentialId:
           this.state.selectedCredentialId === credentialId
             ? null
             : this.state.selectedCredentialId,
+        selectedModelId: this.state.selectedModelId,
+      });
+      this.setState({
+        credentials: nextCredentials,
+        selectedProviderId: selection.selectedProviderId,
+        selectedCredentialId: selection.selectedCredentialId,
+        selectedModelId: selection.selectedModelId,
       });
 
       this.log("[disconnectCredential] Success", { credentialId });
@@ -477,6 +531,10 @@ export class ByokStore {
         ...this.state.providerModels,
         [providerId]: models,
       },
+      selectedModelId:
+        this.state.selectedProviderId === providerId
+          ? this.state.selectedModelId ?? models[0]?.id ?? null
+          : this.state.selectedModelId,
     });
     this.log("[loadProviderModels] Success", {
       providerId,
@@ -495,9 +553,21 @@ export class ByokStore {
 
     try {
       const updated = await this.apiClient.updatePreferences(partial);
+      const selection = this.deriveSelectionSnapshot({
+        catalog: this.state.catalog,
+        credentials: this.state.credentials,
+        preferences: updated,
+        providerModels: this.state.providerModels,
+        selectedProviderId: this.state.selectedProviderId,
+        selectedCredentialId: this.state.selectedCredentialId,
+        selectedModelId: this.state.selectedModelId,
+      });
 
       this.setState({
         preferences: updated,
+        selectedProviderId: selection.selectedProviderId,
+        selectedCredentialId: selection.selectedCredentialId,
+        selectedModelId: selection.selectedModelId,
       });
 
       this.log("[updatePreferences] Success");
@@ -536,15 +606,40 @@ export class ByokStore {
    * Returns the effective provider config based on selection and preferences.
    */
   async resolveForChat(): Promise<BYOKResolution> {
+    const selection = this.deriveSelectionSnapshot({
+      catalog: this.state.catalog,
+      credentials: this.state.credentials,
+      preferences: this.state.preferences,
+      providerModels: this.state.providerModels,
+      selectedProviderId: this.state.selectedProviderId,
+      selectedCredentialId: this.state.selectedCredentialId,
+      selectedModelId: this.state.selectedModelId,
+    });
+    const selectionKey = this.buildResolveSelectionKey(selection);
+
+    if (
+      this.state.lastResolvedConfig &&
+      this.lastResolveSelectionKey === selectionKey &&
+      !this.lastResolveError
+    ) {
+      return this.state.lastResolvedConfig;
+    }
+    if (this.lastResolveError && this.lastResolveSelectionKey === selectionKey) {
+      throw this.lastResolveError;
+    }
+
     const key = "resolve";
 
     if (this.inflight.has(key)) {
       this.log("[resolveForChat] Request already in flight");
       await this.inflight.get(key);
-      return this.state.lastResolvedConfig!;
+      if (this.state.lastResolvedConfig) {
+        return this.state.lastResolvedConfig;
+      }
+      throw new Error("Provider resolution failed.");
     }
 
-    const promise = this.executeResolve();
+    const promise = this.executeResolve(selection, selectionKey);
     this.inflight.set(key, promise);
 
     try {
@@ -558,19 +653,42 @@ export class ByokStore {
   /**
    * Internal resolve implementation
    */
-  private async executeResolve(): Promise<void> {
+  private async executeResolve(
+    selection: ByokSelectionSnapshot,
+    selectionKey: string
+  ): Promise<void> {
     this.log("[resolveForChat] Starting");
+
+    if (!selection.selectedProviderId || !selection.selectedCredentialId) {
+      const error = new Error(
+        "No BYOK provider connected. Connect one in settings."
+      );
+      this.lastResolveSelectionKey = selectionKey;
+      this.lastResolveError = error;
+      throw error;
+    }
+
+    this.setState({
+      selectedProviderId: selection.selectedProviderId,
+      selectedCredentialId: selection.selectedCredentialId,
+      selectedModelId: selection.selectedModelId,
+    });
 
     try {
       const config = await this.apiClient.resolveForChat({
-        providerId: this.state.selectedProviderId || undefined,
-        credentialId: this.state.selectedCredentialId || undefined,
-        modelId: this.state.selectedModelId || undefined,
+        providerId: selection.selectedProviderId,
+        credentialId: selection.selectedCredentialId,
+        modelId: selection.selectedModelId || undefined,
       });
 
       this.setState({
         lastResolvedConfig: config,
+        selectedProviderId: config.providerId,
+        selectedCredentialId: config.credentialId,
+        selectedModelId: config.modelId,
       });
+      this.lastResolveSelectionKey = selectionKey;
+      this.lastResolveError = null;
 
       this.log("[resolveForChat] Success", {
         providerId: config.providerId,
@@ -581,6 +699,9 @@ export class ByokStore {
         error instanceof Error
           ? error.message
           : "Failed to resolve provider configuration";
+      this.lastResolveSelectionKey = selectionKey;
+      this.lastResolveError =
+        error instanceof Error ? error : new Error(message);
       this.log("[resolveForChat] Error", { error: message });
       throw error;
     }
@@ -597,6 +718,8 @@ export class ByokStore {
    * Reset store to initial state
    */
   reset(): void {
+    this.lastResolveSelectionKey = null;
+    this.lastResolveError = null;
     this.state = {
       catalog: [],
       credentials: [],
@@ -618,7 +741,16 @@ export class ByokStore {
    * Internal state setter with notification
    */
   private setState(partial: Partial<ByokStoreState>): void {
-    this.state = { ...this.state, ...partial };
+    const shouldInvalidateResolution = this.shouldInvalidateResolution(partial);
+    const nextPartial =
+      shouldInvalidateResolution && partial.lastResolvedConfig === undefined
+        ? { ...partial, lastResolvedConfig: null }
+        : partial;
+    if (shouldInvalidateResolution) {
+      this.lastResolveSelectionKey = null;
+      this.lastResolveError = null;
+    }
+    this.state = { ...this.state, ...nextPartial };
     this.emit();
   }
 
@@ -636,5 +768,98 @@ export class ByokStore {
     if (this.enableLogging) {
       console.log(`[ByokStore] ${message}`, context);
     }
+  }
+
+  private shouldInvalidateResolution(partial: Partial<ByokStoreState>): boolean {
+    return (
+      partial.catalog !== undefined ||
+      partial.credentials !== undefined ||
+      partial.preferences !== undefined ||
+      partial.providerModels !== undefined ||
+      partial.selectedProviderId !== undefined ||
+      partial.selectedCredentialId !== undefined ||
+      partial.selectedModelId !== undefined
+    );
+  }
+
+  private buildResolveSelectionKey(selection: ByokSelectionSnapshot): string {
+    return [
+      selection.selectedProviderId ?? "none",
+      selection.selectedCredentialId ?? "none",
+      selection.selectedModelId ?? "none",
+    ].join("|");
+  }
+
+  private deriveSelectionSnapshot(input: {
+    catalog: ProviderRegistryEntry[];
+    credentials: BYOKCredential[];
+    preferences: BYOKPreference | null;
+    providerModels: Record<string, ProviderModelOption[]>;
+    selectedProviderId: string | null;
+    selectedCredentialId: string | null;
+    selectedModelId: string | null;
+  }): ByokSelectionSnapshot {
+    const {
+      catalog,
+      credentials,
+      preferences,
+      providerModels,
+      selectedProviderId,
+      selectedCredentialId,
+      selectedModelId,
+    } = input;
+    const selectedCredential = selectedCredentialId
+      ? credentials.find(
+          (credential) => credential.credentialId === selectedCredentialId
+        )
+      : undefined;
+    const hasSelectedProviderCredential = selectedProviderId
+      ? credentials.some((credential) => credential.providerId === selectedProviderId)
+      : false;
+
+    const providerId =
+      selectedCredential?.providerId ??
+      (hasSelectedProviderCredential ? selectedProviderId : null) ??
+      (preferences?.defaultProviderId &&
+      credentials.some(
+        (credential) => credential.providerId === preferences.defaultProviderId
+      )
+        ? preferences.defaultProviderId
+        : null) ??
+      credentials[0]?.providerId ??
+      null;
+
+    const providerCredentials = providerId
+      ? credentials.filter((credential) => credential.providerId === providerId)
+      : [];
+    const credentialId =
+      providerCredentials.find(
+        (credential) => credential.credentialId === selectedCredentialId
+      )?.credentialId ??
+      (preferences?.defaultCredentialId &&
+      providerCredentials.some(
+        (credential) => credential.credentialId === preferences.defaultCredentialId
+      )
+        ? preferences.defaultCredentialId
+        : null) ??
+      providerCredentials[0]?.credentialId ??
+      null;
+
+    const selectedModelForProvider =
+      providerId && selectedProviderId === providerId ? selectedModelId : null;
+    const modelId =
+      selectedModelForProvider ??
+      preferences?.defaultModelId ??
+      (providerId ? providerModels[providerId]?.[0]?.id : undefined) ??
+      (providerId
+        ? catalog.find((entry) => entry.providerId === providerId)?.defaultModelId
+        : undefined) ??
+      null;
+
+    return {
+      selectedProviderId: providerId,
+      selectedCredentialId: credentialId,
+      selectedModelId: modelId,
+    };
   }
 }
