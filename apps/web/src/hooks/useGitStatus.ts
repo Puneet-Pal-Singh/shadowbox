@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import type { GitStatusResponse } from "@repo/shared-types";
 import { useRunContext } from "./useRunContext";
+import { gitStatusPath } from "../lib/platform-endpoints.js";
 
 interface UseGitStatusResult {
   status: GitStatusResponse | null;
@@ -25,9 +26,7 @@ export function useGitStatus(): UseGitStatusResult {
     setError(null);
 
     try {
-      const response = await fetch(
-        `/api/git/status?runId=${encodeURIComponent(runId)}`,
-      );
+      const response = await fetch(gitStatusPath(runId));
 
       if (!response.ok) {
         throw new Error(`Failed to fetch git status: ${response.statusText}`);
