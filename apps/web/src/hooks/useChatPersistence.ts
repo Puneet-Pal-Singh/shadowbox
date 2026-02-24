@@ -9,7 +9,7 @@ interface UseChatPersistenceProps {
   messagesLength: number;
   isLoading: boolean;
   isModelConfigReady: boolean;
-  append: (message: { role: "user"; content: string }) => void;
+  append: (message: { role: "user"; content: string }) => Promise<void>;
 }
 
 /**
@@ -36,14 +36,23 @@ export function useChatPersistence({
   // Restore pending query from localStorage
   useEffect(() => {
     const pendingQuery = persistenceService.getPendingQuery(sessionId);
-    if (
-      isModelConfigReady &&
-      pendingQuery &&
-      persistenceService.shouldRestorePendingQuery(messagesLength, isLoading)
-    ) {
-      append({ role: "user", content: pendingQuery });
-      persistenceService.clearPendingQuery(sessionId);
+    if (!isModelConfigReady || !pendingQuery) {
+      return;
     }
+    if (!persistenceService.shouldRestorePendingQuery(messagesLength, isLoading)) {
+      return;
+    }
+
+    const restorePendingQuery = async (): Promise<void> => {
+      try {
+        await append({ role: "user", content: pendingQuery });
+        persistenceService.clearPendingQuery(sessionId);
+      } catch (error) {
+        console.error("[useChatPersistence] Failed to restore pending query", error);
+      }
+    };
+
+    void restorePendingQuery();
   }, [
     sessionId,
     messagesLength,

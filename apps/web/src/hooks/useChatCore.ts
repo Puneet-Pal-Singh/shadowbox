@@ -8,7 +8,7 @@ interface UseChatCoreResult {
   input: string;
   handleInputChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
   handleSubmit: (e?: FormEvent) => void;
-  append: (message: { role: "user"; content: string }) => void;
+  append: (message: { role: "user"; content: string }) => Promise<void>;
   isLoading: boolean;
   stop: () => void;
   setMessages: (messages: Message[]) => void;
@@ -78,6 +78,33 @@ export function useChatCore(
     // setMessages will be called after the new instance is created via instanceKey change
   }, [externalRunId]);
 
+  const appendWithResolution = useCallback(
+    async (message: { role: "user"; content: string }): Promise<void> => {
+      const content = message.content.trim();
+      if (!content || status !== "ready") {
+        throw new Error("Provider configuration is not ready.");
+      }
+
+      let resolvedConfig = lastResolvedConfig;
+      if (!resolvedConfig) {
+        resolvedConfig = await resolveForChat();
+      }
+
+      await append(
+        { role: "user", content },
+        {
+          body: {
+            sessionId,
+            runId,
+            providerId: resolvedConfig.providerId,
+            modelId: resolvedConfig.modelId,
+          },
+        },
+      );
+    },
+    [append, lastResolvedConfig, resolveForChat, runId, sessionId, status],
+  );
+
   const handleSubmit = useCallback(
     (e?: FormEvent) => {
       e?.preventDefault();
@@ -85,34 +112,19 @@ export function useChatCore(
       if (!trimmedInput || isLoading || status !== "ready") return;
 
       const submitWithResolution = async (): Promise<void> => {
-        let resolvedConfig = lastResolvedConfig;
-        if (!resolvedConfig) {
-          try {
-            resolvedConfig = await resolveForChat();
-          } catch (error) {
-            console.error(
-              `[useChatCore] Failed to resolve provider config for session ${sessionId}`,
-              error,
-            );
-            return;
-          }
+        try {
+          await appendWithResolution({ role: "user", content: trimmedInput });
+        } catch (error) {
+          console.error(
+            `[useChatCore] Failed to append resolved message for session ${sessionId}`,
+            error,
+          );
         }
-        append(
-          { role: "user", content: trimmedInput },
-          {
-            body: {
-              sessionId,
-              runId,
-              providerId: resolvedConfig.providerId,
-              modelId: resolvedConfig.modelId,
-            },
-          },
-        );
       };
 
       void submitWithResolution();
     },
-    [append, input, isLoading, lastResolvedConfig, resolveForChat, runId, sessionId, status],
+    [appendWithResolution, input, isLoading, sessionId, status],
   );
 
   return {
@@ -120,7 +132,7 @@ export function useChatCore(
     input,
     handleInputChange,
     handleSubmit,
-    append,
+    append: appendWithResolution,
     isLoading,
     stop,
     setMessages,
