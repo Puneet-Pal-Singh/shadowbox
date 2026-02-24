@@ -249,8 +249,16 @@ function TaskItemComponent({
       transition={{ delay, duration: 0.2 }}
       className="relative"
     >
-      <button
+      <div
+        role="button"
+        tabIndex={0}
         onClick={onSelect}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onSelect();
+          }
+        }}
         className={cn(
           "group flex items-center gap-2 px-2 py-1.5 text-sm rounded-md transition-all w-full text-left",
           task.isActive
@@ -284,7 +292,7 @@ function TaskItemComponent({
             CONFIRM
           </button>
         )}
-      </button>
+      </div>
     </motion.div>
   );
 }
