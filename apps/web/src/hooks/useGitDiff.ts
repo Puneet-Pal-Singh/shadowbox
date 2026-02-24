@@ -9,8 +9,9 @@ interface UseGitDiffResult {
   fetch: (path: string, staged?: boolean) => Promise<void>;
 }
 
-export function useGitDiff(): UseGitDiffResult {
-  const { runId } = useRunContext();
+export function useGitDiff(explicitRunId?: string): UseGitDiffResult {
+  const { runId: contextRunId } = useRunContext();
+  const runId = explicitRunId ?? contextRunId;
   const [diff, setDiff] = useState<DiffContent | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
