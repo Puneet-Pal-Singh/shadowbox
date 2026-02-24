@@ -11,6 +11,7 @@ import {
   type ProviderRegistryEntry,
   type BYOKCredential,
   type BYOKPreference,
+  ModelDescriptorSchema,
   BYOKResolveRequestSchema,
   type BYOKResolution,
   BYOKConnectRequestSchema,
@@ -79,12 +80,19 @@ const PreferencePatchV3Schema = z
     { message: "At least one preference field is required" },
   );
 
+const ProviderModelsResponseSchema = z.object({
+  providerId: z.string().min(1).max(64),
+  models: z.array(ModelDescriptorSchema),
+  lastFetchedAt: z.string().datetime(),
+});
+
 const credentialLabelOverrides = new Map<string, string>();
 type CredentialConnectRequest = z.infer<typeof CredentialConnectRequestSchema>;
 type CredentialUpdateRequest = z.infer<typeof CredentialUpdateRequestSchema>;
 type CredentialValidateRequest = z.infer<typeof CredentialValidateRequestSchema>;
 type PreferencePatchV3 = z.infer<typeof PreferencePatchV3Schema>;
 type BYOKResolveRequest = z.infer<typeof BYOKResolveRequestSchema>;
+type ProviderModelsResponse = z.infer<typeof ProviderModelsResponseSchema>;
 
 /**
  * ProviderController - Route handlers for provider API
@@ -92,6 +100,39 @@ type BYOKResolveRequest = z.infer<typeof BYOKResolveRequestSchema>;
  * Provider state is delegated to RunEngineRuntime per runId
  */
 export class ProviderController {
+  static async byokProviderModels(req: Request, env: Env): Promise<Response> {
+    const correlationId = Math.random().toString(36).substring(7);
+    try {
+      const scope = await resolveAuthorizedProviderScope(req, env, correlationId);
+      const providerId = extractProviderIdFromModelsPath(req.url, correlationId);
+
+      const response = await proxyByokOperation(
+        req,
+        env,
+        {
+          scope,
+          method: "GET",
+          path: `/providers/models?providerId=${encodeURIComponent(providerId)}`,
+        },
+        ProviderModelsResponseSchema,
+        correlationId,
+      );
+      const payload = await readResponseJson<ProviderModelsResponse>(
+        response,
+        correlationId,
+      );
+
+      const models = payload.models.map((model) => ({
+        id: model.id,
+        name: model.name,
+        provider: model.provider,
+      }));
+      return withScopeJson(req, env, scope, models);
+    } catch (error) {
+      return handleByokError(req, env, error, correlationId);
+    }
+  }
+
   static async byokProviders(req: Request, env: Env): Promise<Response> {
     const correlationId = Math.random().toString(36).substring(7);
     try {
@@ -642,6 +683,23 @@ export class ProviderController {
       return handleByokError(req, env, error, correlationId);
     }
   }
+}
+
+function extractProviderIdFromModelsPath(
+  urlValue: string,
+  correlationId: string,
+): string {
+  const url = new URL(urlValue);
+  const match = url.pathname.match(/^\/api\/byok\/providers\/([^/]+)\/models$/);
+  const providerId = match?.[1];
+  if (!providerId) {
+    throw new ValidationError(
+      "Missing providerId in models request path.",
+      "MISSING_PROVIDER_ID",
+      correlationId,
+    );
+  }
+  return decodeURIComponent(providerId);
 }
 
 async function proxyProviderOperation(

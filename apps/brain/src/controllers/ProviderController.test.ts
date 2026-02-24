@@ -99,6 +99,21 @@ function createMockEnv(): Env {
           });
         }
 
+        if (url.pathname === "/providers/models" && request.method === "GET") {
+          const providerId = url.searchParams.get("providerId") as ProviderId | null;
+          if (!providerId || !(providerId in catalog)) {
+            return jsonError("Missing or invalid providerId", 400, "MISSING_PROVIDER_ID");
+          }
+          return jsonOk({
+            providerId,
+            models: catalog[providerId].map((model) => ({
+              ...model,
+              provider: providerId,
+            })),
+            lastFetchedAt: new Date().toISOString(),
+          });
+        }
+
         if (
           url.pathname === "/providers/connections" &&
           request.method === "GET"
@@ -471,6 +486,22 @@ describe("ProviderController", () => {
   });
 
   describe("byok v3", () => {
+    it("returns provider models for selected provider", async () => {
+      const env = createMockEnv();
+      const response = await ProviderController.byokProviderModels(
+        new Request("http://localhost/api/byok/providers/openrouter/models", {
+          method: "GET",
+          headers: await withByokHeaders(env),
+        }),
+        env,
+      );
+      const data = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(Array.isArray(data)).toBe(true);
+      expect(data[0].id).toBe("openrouter/auto");
+    });
+
     it("returns provider registry entries", async () => {
       const env = createMockEnv();
       const response = await ProviderController.byokProviders(
