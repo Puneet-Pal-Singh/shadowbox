@@ -1094,6 +1094,16 @@ async function loadWorkspacePreference(
   };
 }
 
+/**
+ * Resolve provider/model for chat execution.
+ *
+ * Fallback chain:
+ * 1. Request override (providerId/credentialId/modelId)
+ * 2. Workspace preference (defaultProviderId/defaultModelId)
+ * 3. OpenRouter default fallback (google/gemma-2-9b-it:free)
+ *
+ * When no BYOK credential is connected, falls back to OpenRouter default.
+ */
 function resolveSelection(
   request: BYOKResolveRequest,
   credentials: BYOKCredential[],
@@ -1141,11 +1151,28 @@ function resolveSelection(
     resolvedAt = "workspace_preference";
   }
 
+  // Fallback to OpenRouter default when no BYOK credential is connected
   if (!selectedCredential) {
-    throw new ProviderNotConnectedError(
-      request.providerId ?? preference.defaultProviderId ?? "default",
-      correlationId,
+    console.log(
+      `[provider/resolve] No BYOK credential connected. Using OpenRouter defaults.`,
     );
+    const openrouterProvider = catalog.providers.find(
+      (entry) => entry.providerId === "openrouter",
+    );
+    const modelId =
+      request.modelId ??
+      preference.defaultModelId ??
+      openrouterProvider?.models[0]?.id ??
+      "google/gemma-2-9b-it:free";
+
+    return {
+      providerId: "openrouter",
+      credentialId: "", // No credential for default OpenRouter
+      modelId,
+      resolvedAt: "platform_fallback",
+      resolvedAtTime: new Date().toISOString(),
+      fallbackUsed: true,
+    };
   }
 
   const modelId =
