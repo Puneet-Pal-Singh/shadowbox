@@ -1,26 +1,8 @@
 # Brain Local Development Configuration
 # Copy this file to .dev.vars and fill in required values.
 
-# -----------------------------------------------------------------------------
-# Core Model Runtime
-# -----------------------------------------------------------------------------
-# Options: litellm (default), openai, anthropic
-LLM_PROVIDER=litellm
-# Default model used for non-BYOK chat flows.
-DEFAULT_MODEL=llama-3.3-70b-versatile
-# Optional: override OpenAI-compatible base URL for litellm mode.
-# LITELLM_BASE_URL=https://api.groq.com/openai/v1
-
-# Provider API keys for server-side model runtime (set at least one as needed)
-GROQ_API_KEY=your-groq-api-key
-# OPENAI_API_KEY=your-openai-api-key
-# ANTHROPIC_API_KEY=your-anthropic-api-key
-# GOOGLE_GENERATIVE_AI_API_KEY=your-google-api-key
-
-# OpenRouter key note (BYOK flow):
-# OpenRouter API keys are entered in the Web UI under Provider Settings,
-# not loaded from this .dev.vars file.
-# Key format example: sk-or-v1-xxxxxxxxxxxxxxxxxxxx
+# Keep this file minimal: only critical env vars.
+# Provider API keys are optional and not required for baseline chat startup.
 
 # Optional custom system prompt
 SYSTEM_PROMPT="You are Shadowbox, an autonomous expert software engineer. Work in /home/sandbox/workspaces/${runId}. Answer directly without over-engineering or unnecessary tool use. Use tools ONLY if explicitly asked. Be concise."
@@ -52,30 +34,6 @@ BYOK_CREDENTIAL_ENCRYPTION_KEY_VERSION=v1
 # Optional key rotation
 # BYOK_CREDENTIAL_ENCRYPTION_KEY_PREVIOUS=your-previous-64-char-hex-key
 # BYOK_CREDENTIAL_ENCRYPTION_KEY_PREVIOUS_VERSION=v0
-
-# Optional live validation settings
-BYOK_VALIDATE_LIVE_ENABLED=true
-BYOK_VALIDATE_LIVE_TIMEOUT_MS=4000
-
-# Optional BYOK rate limits
-BYOK_CONNECT_RATE_LIMIT_MAX=10
-BYOK_CONNECT_RATE_LIMIT_WINDOW_SECONDS=60
-BYOK_VALIDATE_RATE_LIMIT_MAX=30
-BYOK_VALIDATE_RATE_LIMIT_WINDOW_SECONDS=60
-
-# Optional BYOK migration flags
-BYOK_LEGACY_READ_FALLBACK_ENABLED=false
-BYOK_LEGACY_BACKFILL_ENABLED=false
-BYOK_LEGACY_ROLLBACK_ENABLED=false
-# BYOK_LEGACY_CUTOFF_AT=2026-01-01T00:00:00Z
-
-# -----------------------------------------------------------------------------
-# Runtime Cost/Budget Controls (optional)
-# -----------------------------------------------------------------------------
-COST_UNKNOWN_PRICING_MODE=warn
-COST_FAIL_ON_UNSEEDED_PRICING=false
-# MAX_RUN_BUDGET=1.00
-# MAX_SESSION_BUDGET=5.00
 
 # Optional service URL override (mainly production/staging)
 # MUSCLE_BASE_URL=http://localhost:8787
