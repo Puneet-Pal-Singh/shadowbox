@@ -76,8 +76,12 @@ export class AIService {
   /**
    * Resolve provider/model override selection
    * @see ModelSelectionPolicy.resolveModelSelection for logic details
+   *
+   * @param providerId - Provider override ID
+   * @param modelId - Model override ID
+   * @param isByokOverride - If true, allows provider-native models even if not in allowlist
    */
-  resolveModelSelection(providerId?: string, modelId?: string) {
+  resolveModelSelection(providerId?: string, modelId?: string, isByokOverride = false) {
     return resolveModelSelection(
       providerId,
       modelId,
@@ -85,6 +89,7 @@ export class AIService {
       this.defaultModel,
       mapProviderIdToRuntimeProvider,
       getRuntimeProviderFromAdapter,
+      { isByokOverride },
     );
   }
 
