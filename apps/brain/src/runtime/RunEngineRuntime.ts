@@ -129,6 +129,10 @@ export class RunEngineRuntime extends DurableObject {
         );
       });
     } catch (error: unknown) {
+      if (isDomainError(error)) {
+        const { status, code, message } = mapDomainErrorToHttp(error);
+        return errorResponse(request, this.env as Env, message, status, code);
+      }
       const message =
         error instanceof Error
           ? error.message
