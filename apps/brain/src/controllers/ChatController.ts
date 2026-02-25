@@ -14,6 +14,7 @@ import {
   validateWithSchema,
 } from "../http/validation";
 import {
+  DomainError,
   ValidationError,
   isDomainError,
   mapDomainErrorToHttp,
@@ -23,6 +24,8 @@ import {
   mapAgentIdToType,
   parseOptionalScopeIdentifier,
 } from "./chat-request-helpers";
+import { extractSessionToken } from "../services/AuthService";
+import { resolveAuthorizedProviderScope } from "./provider/ProviderAuthScopeService";
 
 // Zod schema for request body validation
 const ChatRequestBodySchema = z.object({
@@ -41,6 +44,11 @@ interface ChatRequest {
   correlationId: string;
   sessionId: string;
   runId: string;
+  userId?: string;
+  workspaceId?: string;
+}
+
+interface ExecutionScope {
   userId?: string;
   workspaceId?: string;
 }
@@ -94,16 +102,12 @@ export class ChatController {
         correlationId,
         sessionId: identifiers.sessionId,
         runId: identifiers.runId,
-        userId: parseOptionalScopeIdentifier(
-          req.headers.get("X-User-Id"),
-          "X-User-Id",
+        ...(await ChatController.resolveExecutionScope(
+          req,
+          env,
+          identifiers.runId,
           correlationId,
-        ),
-        workspaceId: parseOptionalScopeIdentifier(
-          req.headers.get("X-Workspace-Id"),
-          "X-Workspace-Id",
-          correlationId,
-        ),
+        )),
       };
 
       console.log(`[chat/request] ${correlationId} routing to RunEngine`);
@@ -219,6 +223,62 @@ export class ChatController {
     return typeof lastUserMessage.content === "string"
       ? lastUserMessage.content
       : JSON.stringify(lastUserMessage.content);
+  }
+
+  private static async resolveExecutionScope(
+    req: Request,
+    env: Env,
+    runId: string,
+    correlationId: string,
+  ): Promise<ExecutionScope> {
+    // Keep chat usable for non-auth local/dev flows.
+    const unauthenticatedScope = {
+      userId: parseOptionalScopeIdentifier(
+        req.headers.get("X-User-Id"),
+        "X-User-Id",
+        correlationId,
+      ),
+      workspaceId: parseOptionalScopeIdentifier(
+        req.headers.get("X-Workspace-Id"),
+        "X-Workspace-Id",
+        correlationId,
+      ),
+    };
+
+    const sessionToken = extractSessionToken(req);
+    if (!sessionToken) {
+      return unauthenticatedScope;
+    }
+
+    const scopeHeaders = new Headers(req.headers);
+    scopeHeaders.set("X-Run-Id", runId);
+    const scopedRequest = new Request(req.url, {
+      method: req.method,
+      headers: scopeHeaders,
+    });
+
+    try {
+      const scope = await resolveAuthorizedProviderScope(
+        scopedRequest,
+        env,
+        correlationId,
+      );
+      return {
+        userId: scope.userId,
+        workspaceId: scope.workspaceId,
+      };
+    } catch (error) {
+      if (isDomainError(error)) {
+        throw error;
+      }
+      throw new DomainError(
+        "AUTH_FAILED",
+        "Failed to resolve authenticated execution scope.",
+        401,
+        false,
+        correlationId,
+      );
+    }
   }
 
   private static async executeViaRunEngineDurableObject(
