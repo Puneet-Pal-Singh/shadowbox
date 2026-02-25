@@ -69,6 +69,7 @@ export function useChatCore(
     append,
   } = useVercelChat({
     api: chatStreamPath(),
+    streamProtocol: "text",
     body: {
       sessionId,
       runId,
