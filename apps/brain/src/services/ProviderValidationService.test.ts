@@ -45,7 +45,7 @@ describe("ProviderValidationService", () => {
     it("should pass with OPENROUTER_API_KEY and DEFAULT_MODEL", () => {
       const env = withSecurityConfig({
         OPENROUTER_API_KEY: "sk-or-v1-test",
-        DEFAULT_MODEL: "google/gemma-2-9b-it:free",
+        DEFAULT_MODEL: "arcee-ai/trinity-large-preview:free",
         LLM_PROVIDER: "litellm",
       });
 

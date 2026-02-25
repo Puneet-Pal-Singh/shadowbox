@@ -1,5 +1,6 @@
 import { useChat as useVercelChat, type Message } from "@ai-sdk/react";
 import { useCallback, useMemo, useState, type FormEvent } from "react";
+import { DEFAULT_PLATFORM_MODEL_ID } from "@repo/shared-types";
 import { chatStreamPath } from "../lib/platform-endpoints.js";
 import { useByokStore } from "./useByokStore.js";
 
@@ -56,7 +57,7 @@ export function useChatCore(
     selectedModelId ??
     (hasConnectedCredential ? lastResolvedConfig?.modelId : undefined) ??
     (hasConnectedCredential ? preferences?.defaultModelId : undefined) ??
-    "google/gemma-2-9b-it:free";
+    DEFAULT_PLATFORM_MODEL_ID;
 
   const {
     messages,
@@ -200,6 +201,12 @@ function normalizeChatErrorMessage(error: Error): string {
       if (containsMissingDefaultKeyError(parsed.error)) {
         return "No default provider key is configured. Connect a BYOK provider in Settings or set OPENROUTER_API_KEY, GROQ_API_KEY, or OPENAI_API_KEY for local fallback.";
       }
+      if (containsOpenRouterKeyLimitError(parsed.error)) {
+        return "OpenRouter key limit is exhausted ($0 total limit). Increase key limit in https://openrouter.ai/settings/keys or use a BYOK provider key.";
+      }
+      if (containsToolChoiceUnsupportedError(parsed.error)) {
+        return "The selected default model does not support required tool-calling/structured planning. Choose another model or disable OpenRouter routing constraints.";
+      }
       return parsed.error;
     }
   } catch {
@@ -208,6 +215,12 @@ function normalizeChatErrorMessage(error: Error): string {
 
   if (containsMissingDefaultKeyError(rawMessage)) {
     return "No default provider key is configured. Connect a BYOK provider in Settings or set OPENROUTER_API_KEY, GROQ_API_KEY, or OPENAI_API_KEY for local fallback.";
+  }
+  if (containsOpenRouterKeyLimitError(rawMessage)) {
+    return "OpenRouter key limit is exhausted ($0 total limit). Increase key limit in https://openrouter.ai/settings/keys or use a BYOK provider key.";
+  }
+  if (containsToolChoiceUnsupportedError(rawMessage)) {
+    return "The selected default model does not support required tool-calling/structured planning. Choose another model or disable OpenRouter routing constraints.";
   }
   return rawMessage;
 }
@@ -220,4 +233,12 @@ function containsMissingDefaultKeyError(message: string): boolean {
     ) ||
     message.includes("No default provider key is configured")
   );
+}
+
+function containsOpenRouterKeyLimitError(message: string): boolean {
+  return message.includes("Key limit exceeded (total limit)");
+}
+
+function containsToolChoiceUnsupportedError(message: string): boolean {
+  return message.includes("support the provided 'tool_choice' value");
 }

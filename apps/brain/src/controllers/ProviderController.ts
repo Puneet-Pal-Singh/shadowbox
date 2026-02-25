@@ -27,6 +27,7 @@ import {
   type ProviderConnection,
   ProviderConnectionsResponseSchema,
   type ProviderConnectionsResponse,
+  DEFAULT_PLATFORM_MODEL_ID,
 } from "@repo/shared-types";
 import type { Env } from "../types/ai";
 import {
@@ -1100,7 +1101,7 @@ async function loadWorkspacePreference(
  * Fallback chain:
  * 1. Request override (providerId/credentialId/modelId)
  * 2. Workspace preference (defaultProviderId/defaultModelId)
- * 3. OpenRouter default fallback (google/gemma-2-9b-it:free)
+ * 3. OpenRouter default fallback (DEFAULT_PLATFORM_MODEL_ID)
  *
  * When no BYOK credential is connected, falls back to OpenRouter default.
  */
@@ -1162,8 +1163,9 @@ function resolveSelection(
     const modelId =
       request.modelId ??
       preference.defaultModelId ??
+      env.DEFAULT_MODEL ??
       openrouterProvider?.models[0]?.id ??
-      "google/gemma-2-9b-it:free";
+      DEFAULT_PLATFORM_MODEL_ID;
 
     return {
       providerId: "openrouter",

@@ -11,6 +11,12 @@ export type {
   StageFilesRequest,
 } from "./git.js";
 
+// Platform defaults
+export {
+  DEFAULT_PLATFORM_PROVIDER_ID,
+  DEFAULT_PLATFORM_MODEL_ID,
+} from "./defaults.js";
+
 // Provider/BYOK contracts
 export {
   PROVIDER_IDS,

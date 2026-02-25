@@ -12,6 +12,7 @@
  */
 
 import type { Env } from "../types/ai";
+import { DEFAULT_PLATFORM_MODEL_ID } from "@repo/shared-types";
 
 export interface ValidationError {
   code: string;
@@ -171,7 +172,7 @@ export class ProviderValidationService {
         code: "NO_DEFAULT_MODEL",
         message: "DEFAULT_MODEL not set",
         severity: "warning",
-        hint: "Will use OpenRouter free model (google/gemma-2-9b-it:free). Optionally set for explicit model selection",
+        hint: `Will use OpenRouter fallback model (${DEFAULT_PLATFORM_MODEL_ID}). Optionally set for explicit model selection`,
       });
     }
   }
@@ -199,7 +200,7 @@ export class ProviderValidationService {
         code: "NO_DEFAULT_MODEL",
         message: "DEFAULT_MODEL not set",
         severity: "warning",
-        hint: "Will use OpenRouter free model. Optionally set for explicit model selection (e.g., gpt-4)",
+        hint: "Will use OpenRouter fallback model. Optionally set for explicit model selection (e.g., gpt-4)",
       });
     }
   }
@@ -227,7 +228,7 @@ export class ProviderValidationService {
         code: "NO_DEFAULT_MODEL",
         message: "DEFAULT_MODEL not set",
         severity: "warning",
-        hint: "Will use OpenRouter free model. Optionally set for explicit model selection (e.g., claude-3-sonnet-20240229)",
+        hint: "Will use OpenRouter fallback model. Optionally set for explicit model selection (e.g., claude-3-sonnet-20240229)",
       });
     }
   }
