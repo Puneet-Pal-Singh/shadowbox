@@ -13,7 +13,9 @@ export interface TaskStateTransition {
 export class TaskState {
   private static readonly VALID_TRANSITIONS: Record<TaskStatus, TaskStatus[]> =
     {
-      PENDING: ["READY", "CANCELLED"],
+      // PENDING may fail before execution when dependency resolution is invalid
+      // (e.g. missing dependency IDs in generated plans).
+      PENDING: ["READY", "FAILED", "CANCELLED"],
       READY: ["RUNNING", "BLOCKED", "CANCELLED"],
       RUNNING: ["DONE", "FAILED", "CANCELLED"],
       DONE: [],
