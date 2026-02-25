@@ -5,6 +5,7 @@ import { ExploredFilesSummary } from "./ExploredFilesSummary";
 import { ChatBranchSelector } from "./ChatBranchSelector";
 import type { Message } from "@ai-sdk/react";
 import type { ProviderId } from "../../types/provider";
+import type { ChatDebugEvent } from "../../types/chat-debug.js";
 
 interface ChatInterfaceProps {
   chatProps: {
@@ -14,6 +15,7 @@ interface ChatInterfaceProps {
     handleSubmit: () => void;
     isLoading: boolean;
     error?: string | null;
+    debugEvents?: ChatDebugEvent[];
   };
   sessionId: string;
   onArtifactOpen?: (path: string, content: string) => void;
@@ -26,8 +28,15 @@ export function ChatInterface({
   onArtifactOpen,
   onModelSelect,
 }: ChatInterfaceProps) {
-  const { messages, input, handleInputChange, handleSubmit, isLoading, error } =
-    chatProps;
+  const {
+    messages,
+    input,
+    handleInputChange,
+    handleSubmit,
+    isLoading,
+    error,
+    debugEvents = [],
+  } = chatProps;
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll to bottom on new messages
@@ -63,6 +72,41 @@ export function ChatInterface({
               {error}
             </div>
           )}
+
+          <div className="rounded border border-cyan-800/60 bg-cyan-950/20">
+            <div className="px-3 py-2 border-b border-cyan-800/40 text-cyan-200 text-xs font-semibold uppercase tracking-wider">
+              Debug Trace (Client)
+            </div>
+            <div className="max-h-56 overflow-y-auto p-3 space-y-3">
+              {debugEvents.length === 0 ? (
+                <div className="text-xs text-cyan-300/70">
+                  Waiting for first request...
+                </div>
+              ) : (
+                debugEvents.map((event) => (
+                  <div
+                    key={event.id}
+                    className="rounded border border-cyan-900/60 bg-black/50 p-2"
+                  >
+                    <div className="flex items-center justify-between gap-2 mb-2">
+                      <span className="text-[11px] font-semibold uppercase tracking-wider text-cyan-300">
+                        {event.phase}
+                      </span>
+                      <span className="text-[11px] text-zinc-400">
+                        {new Date(event.timestamp).toLocaleTimeString()}
+                      </span>
+                    </div>
+                    <div className="text-xs text-cyan-100 mb-2">
+                      {event.summary}
+                    </div>
+                    <pre className="text-[11px] text-zinc-200 whitespace-pre-wrap break-all overflow-x-auto">
+                      {formatDebugPayload(event.payload)}
+                    </pre>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
 
           {messages.map((msg) => (
             <ChatMessage
@@ -100,4 +144,19 @@ export function ChatInterface({
       </div>
     </div>
   );
+}
+
+function formatDebugPayload(payload: unknown): string {
+  try {
+    const serialized = JSON.stringify(payload, null, 2);
+    if (!serialized) {
+      return "(empty payload)";
+    }
+    if (serialized.length > 5000) {
+      return `${serialized.slice(0, 5000)}\n...<truncated>`;
+    }
+    return serialized;
+  } catch {
+    return String(payload);
+  }
 }

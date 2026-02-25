@@ -3,6 +3,7 @@ import { useCallback, useMemo, useState, type FormEvent } from "react";
 import { DEFAULT_PLATFORM_MODEL_ID } from "@repo/shared-types";
 import { chatStreamPath } from "../lib/platform-endpoints.js";
 import { useByokStore } from "./useByokStore.js";
+import type { ChatDebugEvent } from "../types/chat-debug.js";
 
 interface UseChatCoreResult {
   messages: Message[];
@@ -17,6 +18,7 @@ interface UseChatCoreResult {
   resetRun: () => void;
   isModelConfigReady: boolean;
   error: string | null;
+  debugEvents: ChatDebugEvent[];
 }
 
 /**
@@ -33,7 +35,23 @@ export function useChatCore(
     crypto.randomUUID(),
   );
   const [error, setError] = useState<string | null>(null);
+  const [debugEvents, setDebugEvents] = useState<ChatDebugEvent[]>([]);
   const runId = externalRunId || internalRunId;
+  const apiPath = chatStreamPath();
+
+  const pushDebugEvent = useCallback(
+    (event: Omit<ChatDebugEvent, "id" | "timestamp">) => {
+      setDebugEvents((previous) => [
+        {
+          id: crypto.randomUUID(),
+          timestamp: new Date().toISOString(),
+          ...event,
+        },
+        ...previous,
+      ].slice(0, 50));
+    },
+    [],
+  );
 
   // Stable instance key - changes when runId changes
   const instanceKey = useMemo(() => `chat-${runId}`, [runId]);
@@ -46,7 +64,7 @@ export function useChatCore(
     selectedModelId,
     lastResolvedConfig,
     resolveForChat,
-  } = useByokStore();
+  } = useByokStore(runId);
   const hasConnectedCredential = credentials.length > 0;
   // Ready for chat if store is initialized (no longer requires connected BYOK)
   const isModelConfigReady = status === "ready";
@@ -68,7 +86,7 @@ export function useChatCore(
     setMessages,
     append,
   } = useVercelChat({
-    api: chatStreamPath(),
+    api: apiPath,
     streamProtocol: "text",
     body: {
       sessionId,
@@ -76,9 +94,38 @@ export function useChatCore(
     },
     initialMessages: [],
     id: instanceKey,
+    onResponse: (response: Response) => {
+      pushDebugEvent({
+        phase: "response",
+        summary: `HTTP ${response.status} ${response.statusText}`,
+        payload: {
+          status: response.status,
+          statusText: response.statusText,
+          headers: pickDebugHeaders(response.headers),
+        },
+      });
+    },
+    onFinish: (message, details) => {
+      pushDebugEvent({
+        phase: "finish",
+        summary: "Stream finished",
+        payload: {
+          assistantMessage: message.content,
+          finishDetails: details,
+        },
+      });
+    },
     onError: (error: Error) => {
       const message = normalizeChatErrorMessage(error);
       setError(message);
+      pushDebugEvent({
+        phase: "error",
+        summary: message,
+        payload: {
+          rawError: error.message,
+          normalizedError: message,
+        },
+      });
       console.error("🧬 [Shadowbox] Chat Stream Error:", message);
     },
   });
@@ -120,20 +167,40 @@ export function useChatCore(
       const includeOverride = Boolean(
         hasConnectedCredential && credentialId && providerId && modelId,
       );
+      const requestBody: {
+        sessionId: string;
+        runId: string;
+        providerId?: string;
+        modelId?: string;
+      } = {
+        sessionId,
+        runId,
+      };
+      if (includeOverride) {
+        requestBody.providerId = providerId;
+        requestBody.modelId = modelId;
+      }
+
+      pushDebugEvent({
+        phase: "request",
+        summary: `POST ${apiPath}`,
+        payload: {
+          endpoint: apiPath,
+          requestBody,
+          userMessage: content,
+          includeOverride,
+          resolvedConfig: {
+            providerId: providerId ?? null,
+            modelId: modelId ?? null,
+            credentialId: credentialId ?? null,
+          },
+        },
+      });
 
       await append(
         { role: "user", content },
         {
-          body: {
-            sessionId,
-            runId,
-            ...(includeOverride
-              ? {
-                  providerId,
-                  modelId,
-                }
-              : {}),
-          },
+          body: requestBody,
         },
       );
     },
@@ -148,6 +215,8 @@ export function useChatCore(
       selectedCredentialId,
       sessionId,
       status,
+      pushDebugEvent,
+      apiPath,
     ],
   );
 
@@ -166,6 +235,17 @@ export function useChatCore(
               ? normalizeChatErrorMessage(error)
               : "Failed to send message.";
           setError(message);
+          pushDebugEvent({
+            phase: "error",
+            summary: message,
+            payload: {
+              source: "appendWithResolution",
+              error:
+                error instanceof Error
+                  ? error.message
+                  : "Unknown append error",
+            },
+          });
           console.error(
             `[useChatCore] Failed to append resolved message for session ${sessionId}`,
             error,
@@ -175,7 +255,14 @@ export function useChatCore(
 
       void submitWithResolution();
     },
-    [appendWithResolution, input, isLoading, isModelConfigReady, sessionId],
+    [
+      appendWithResolution,
+      input,
+      isLoading,
+      isModelConfigReady,
+      sessionId,
+      pushDebugEvent,
+    ],
   );
 
   return {
@@ -191,7 +278,26 @@ export function useChatCore(
     resetRun,
     isModelConfigReady,
     error,
+    debugEvents,
   };
+}
+
+function pickDebugHeaders(headers: Headers): Record<string, string> {
+  const allowedHeaders = new Set([
+    "content-type",
+    "transfer-encoding",
+    "x-request-id",
+    "x-vercel-ai-data-stream",
+    "x-ai-sdk-data-stream",
+    "cache-control",
+  ]);
+  const picked: Record<string, string> = {};
+  for (const [key, value] of headers.entries()) {
+    if (allowedHeaders.has(key.toLowerCase())) {
+      picked[key] = value;
+    }
+  }
+  return picked;
 }
 
 function normalizeChatErrorMessage(error: Error): string {

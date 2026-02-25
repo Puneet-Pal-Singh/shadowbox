@@ -30,7 +30,7 @@ import { useRunContext } from "./useRunContext";
  * Returns current store state and bound action methods.
  * Automatically subscribes to state changes.
  */
-export function useByokStore(): ByokStoreState & {
+type UseByokStoreResult = ByokStoreState & {
   bootstrap: () => Promise<void>;
   connectCredential: (req: ConnectCredentialRequest) => Promise<void>;
   disconnectCredential: (credentialId: string) => Promise<void>;
@@ -50,9 +50,14 @@ export function useByokStore(): ByokStoreState & {
   resolveForChat: () => Promise<BYOKResolution>;
   clearError: () => void;
   reset: () => void;
-} {
+};
+
+export function useByokStore(
+  runIdOverride?: string,
+): UseByokStoreResult {
   const store = ByokStore.getInstance();
-  const { runId } = useRunContext();
+  const { runId: contextRunId } = useRunContext();
+  const runId = runIdOverride ?? contextRunId;
   const [state, setState] = useState<ByokStoreState>(store.getState());
 
   useEffect(() => {

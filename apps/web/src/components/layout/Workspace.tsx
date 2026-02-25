@@ -62,6 +62,7 @@ export function Workspace({
     isHydrating,
     runId: activeRunId,
     error: chatError,
+    debugEvents,
   } = useChat(sessionId, initialRunId, () => {
     explorerRef.current?.refresh();
   });
@@ -145,6 +146,7 @@ export function Workspace({
                 handleSubmit,
                 isLoading,
                 error: chatError,
+                debugEvents,
               }}
               sessionId={sessionId}
               onArtifactOpen={(path, content) => {
