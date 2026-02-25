@@ -14,6 +14,7 @@ import type { Plan, PlanContext } from "../planner/index.js";
 import { PlanSchema } from "../planner/index.js";
 import { BaseAgent } from "./BaseAgent.js";
 import { validateSafePath, extractStructuredField } from "./validation.js";
+import { formatExecutionResult, formatTaskOutput } from "./ResultFormatter.js";
 
 export class CodingAgent extends BaseAgent {
   readonly type: AgentType = "coding";
@@ -76,7 +77,7 @@ export class CodingAgent extends BaseAgent {
     const taskSummaries = context.completedTasks
       .map(
         (t) =>
-          `- Task ${t.id}: ${t.status} — ${t.output?.content ?? "no output"}`,
+          `- Task ${t.id}: ${t.status} — ${formatTaskOutput(t.output?.content)}`,
       )
       .join("\n");
 
@@ -147,7 +148,7 @@ Rules:
     const result = await this.executionService.execute("filesystem", "read", {
       path,
     });
-    return this.buildSuccessResult(task.id, String(result));
+    return this.buildSuccessResult(task.id, formatExecutionResult(result));
   }
 
   private async executeEdit(task: Task): Promise<TaskResult> {
@@ -164,7 +165,7 @@ Rules:
       path,
       content,
     });
-    return this.buildSuccessResult(task.id, String(result));
+    return this.buildSuccessResult(task.id, formatExecutionResult(result));
   }
 
   private async executeTest(task: Task): Promise<TaskResult> {
@@ -175,7 +176,7 @@ Rules:
     const result = await this.executionService.execute("shell", "execute", {
       command,
     });
-    return this.buildSuccessResult(task.id, String(result));
+    return this.buildSuccessResult(task.id, formatExecutionResult(result));
   }
 
   private async executeShell(task: Task): Promise<TaskResult> {
@@ -186,7 +187,7 @@ Rules:
     const result = await this.executionService.execute("shell", "execute", {
       command,
     });
-    return this.buildSuccessResult(task.id, String(result));
+    return this.buildSuccessResult(task.id, formatExecutionResult(result));
   }
 
   private async executeGit(task: Task): Promise<TaskResult> {
@@ -202,7 +203,7 @@ Rules:
     const result = await this.executionService.execute("git", action, {
       message: task.input.description,
     });
-    return this.buildSuccessResult(task.id, String(result));
+    return this.buildSuccessResult(task.id, formatExecutionResult(result));
   }
 
   private async executeReview(

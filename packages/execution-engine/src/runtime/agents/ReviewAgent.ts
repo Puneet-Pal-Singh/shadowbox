@@ -14,6 +14,7 @@ import { PlanSchema } from "../planner/index.js";
 import { BaseAgent } from "./BaseAgent.js";
 import { UnsupportedTaskTypeError } from "./CodingAgent.js";
 import { validateSafePath, extractStructuredField } from "./validation.js";
+import { formatExecutionResult, formatTaskOutput } from "./ResultFormatter.js";
 
 export class ReviewAgent extends BaseAgent {
   readonly type: AgentType = "review";
@@ -66,7 +67,7 @@ export class ReviewAgent extends BaseAgent {
     const taskSummaries = context.completedTasks
       .map(
         (t) =>
-          `- Task ${t.id}: ${t.status} — ${t.output?.content ?? "no output"}`,
+          `- Task ${t.id}: ${t.status} — ${formatTaskOutput(t.output?.content)}`,
       )
       .join("\n");
 
@@ -146,7 +147,7 @@ Rules:
           content:
             "Analyze the following code for quality, patterns, and potential issues.",
         },
-        { role: "user", content: String(result) },
+        { role: "user", content: formatExecutionResult(result) },
       ],
       model: context.modelId,
       providerId: context.providerId,
