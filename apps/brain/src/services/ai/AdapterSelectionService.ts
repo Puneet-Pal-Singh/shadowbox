@@ -75,6 +75,10 @@ export async function selectAdapter(
 
   // Provider was selected but not connected
   if (!overrideApiKey) {
+    console.error("[ai/adapter-selection] provider not connected", {
+      providerId: selection.providerId ?? selection.runtimeProvider,
+      correlationId,
+    });
     throw new ProviderNotConnectedError(
       selection.providerId ?? selection.runtimeProvider,
       correlationId,

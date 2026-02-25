@@ -527,7 +527,7 @@ describe("ProviderController", () => {
           headers: await withByokHeaders(env),
           body: JSON.stringify({
             providerId: "openai",
-            secret: "sk-test-1234567890",
+            secret: "sk-test-NOT-A-REAL-KEY-1234567890",
             label: "Primary",
           }),
         }),
@@ -553,6 +553,40 @@ describe("ProviderController", () => {
       expect(resolveData.providerId).toBe("openai");
       expect(resolveData.credentialId).toBe(connectData.credentialId);
       expect(resolveData.modelId).toBe("gpt-4o");
+    });
+
+    it("persists fallback preferences in v3 endpoints", async () => {
+      const env = createMockEnv();
+      const patchResponse = await ProviderController.byokPreferencesV3(
+        new Request("http://localhost/api/byok/preferences", {
+          method: "PATCH",
+          headers: await withByokHeaders(env),
+          body: JSON.stringify({
+            fallbackMode: "allow_fallback",
+            fallbackChain: ["openrouter", "groq"],
+          }),
+        }),
+        env,
+      );
+      const patchData = await patchResponse.json();
+
+      expect(patchResponse.status).toBe(200);
+      expect(patchData.fallbackMode).toBe("allow_fallback");
+      expect(patchData.fallbackChain).toEqual(["openrouter", "groq"]);
+
+      const getHeaders = await withByokHeaders(env);
+      delete getHeaders["Content-Type"];
+      const getResponse = await ProviderController.byokGetPreferencesV3(
+        new Request("http://localhost/api/byok/preferences", {
+          method: "GET",
+          headers: getHeaders,
+        }),
+        env,
+      );
+      const getData = await getResponse.json();
+      expect(getResponse.status).toBe(200);
+      expect(getData.fallbackMode).toBe("allow_fallback");
+      expect(getData.fallbackChain).toEqual(["openrouter", "groq"]);
     });
 
     it("disconnects credential by credentialId", async () => {

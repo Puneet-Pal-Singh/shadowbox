@@ -86,13 +86,19 @@ const ProviderModelsResponseSchema = z.object({
   lastFetchedAt: z.string().datetime(),
 });
 
-const credentialLabelOverrides = new Map<string, string>();
+const WorkspaceByokMetadataSchema = z.object({
+  credentialLabels: z.record(z.string(), z.string()).default({}),
+  fallbackMode: z.enum(["strict", "allow_fallback"]).default("strict"),
+  fallbackChain: z.array(z.string()).default([]),
+});
+const BYOK_WORKSPACE_METADATA_PREFIX = "byok:workspace-meta:";
 type CredentialConnectRequest = z.infer<typeof CredentialConnectRequestSchema>;
 type CredentialUpdateRequest = z.infer<typeof CredentialUpdateRequestSchema>;
 type CredentialValidateRequest = z.infer<typeof CredentialValidateRequestSchema>;
 type PreferencePatchV3 = z.infer<typeof PreferencePatchV3Schema>;
 type BYOKResolveRequest = z.infer<typeof BYOKResolveRequestSchema>;
 type ProviderModelsResponse = z.infer<typeof ProviderModelsResponseSchema>;
+type WorkspaceByokMetadata = z.infer<typeof WorkspaceByokMetadataSchema>;
 
 /**
  * ProviderController - Route handlers for provider API
@@ -190,38 +196,17 @@ export class ProviderController {
         correlationId,
       );
 
-      const existingPreference = await fetchRuntimePreferences(
+      await ensureDefaultPreferenceConfigured(
         req,
         env,
         scope,
+        request.providerId,
         correlationId,
       );
-      if (!existingPreference.defaultProviderId) {
-        const catalog = await fetchRuntimeCatalog(req, env, scope, correlationId);
-        const defaultModel = resolveDefaultModel(request.providerId, catalog, env);
-        await proxyByokOperation(
-          req,
-          env,
-          {
-            scope,
-            method: "PATCH",
-            path: "/providers/preferences",
-            body: {
-              defaultProviderId: request.providerId,
-              defaultModelId: defaultModel,
-            },
-          },
-          BYOKPreferencesSchema,
-          correlationId,
-        );
-      }
 
       const credentialId = buildVirtualCredentialId(request.providerId);
       if (request.label) {
-        credentialLabelOverrides.set(
-          buildCredentialScopeKey(scope, credentialId),
-          request.label,
-        );
+        await persistCredentialLabel(env, scope, credentialId, request.label);
       }
 
       const credentials = await loadConnectedCredentials(
@@ -259,10 +244,7 @@ export class ProviderController {
       );
 
       if (patch.label) {
-        credentialLabelOverrides.set(
-          buildCredentialScopeKey(scope, credentialId),
-          patch.label,
-        );
+        await persistCredentialLabel(env, scope, credentialId, patch.label);
       }
 
       const credentials = await loadConnectedCredentials(
@@ -324,7 +306,7 @@ export class ProviderController {
         BYOKDisconnectResponseSchema,
         correlationId,
       );
-      credentialLabelOverrides.delete(buildCredentialScopeKey(scope, credentialId));
+      await deleteCredentialLabel(env, scope, credentialId);
 
       return withEngineHeaders(
         req,
@@ -426,6 +408,19 @@ export class ProviderController {
       if (patch.defaultModelId) {
         runtimePatch.defaultModelId = patch.defaultModelId;
       }
+      const metadata = await loadWorkspaceByokMetadata(env, scope);
+      const fallbackMode = patch.fallbackMode ?? metadata.fallbackMode;
+      const fallbackChain = patch.fallbackChain ?? metadata.fallbackChain;
+      if (
+        patch.fallbackMode !== undefined ||
+        patch.fallbackChain !== undefined
+      ) {
+        await saveWorkspaceByokMetadata(env, scope, {
+          ...metadata,
+          fallbackMode,
+          fallbackChain,
+        });
+      }
 
       let runtimePreference: {
         defaultProviderId?: string;
@@ -458,8 +453,8 @@ export class ProviderController {
           ? buildVirtualCredentialId(runtimePreference.defaultProviderId)
           : undefined,
         defaultModelId: runtimePreference.defaultModelId,
-        fallbackMode: patch.fallbackMode ?? "strict",
-        fallbackChain: patch.fallbackChain ?? [],
+        fallbackMode,
+        fallbackChain,
         updatedAt: runtimePreference.updatedAt,
       };
       return withScopeJson(req, env, scope, preference);
@@ -1018,6 +1013,7 @@ async function loadConnectedCredentials(
   correlationId: string,
 ): Promise<BYOKCredential[]> {
   const runtime = await fetchRuntimeConnections(req, env, scope, correlationId);
+  const metadata = await loadWorkspaceByokMetadata(env, scope);
   const now = new Date().toISOString();
   const credentials: BYOKCredential[] = [];
 
@@ -1032,7 +1028,7 @@ async function loadConnectedCredentials(
       userId: scope.userId,
       workspaceId: scope.workspaceId,
       providerId: connection.providerId,
-      label: resolveCredentialLabel(scope, connection, credentialId),
+      label: resolveCredentialLabel(connection, credentialId, metadata),
       keyFingerprint: connection.keyFingerprint ?? "unavailable",
       encryptedSecretJson: "{}",
       keyVersion: "v2",
@@ -1050,21 +1046,14 @@ async function loadConnectedCredentials(
 }
 
 function resolveCredentialLabel(
-  scope: AuthorizedProviderScope,
   connection: ProviderConnection,
   credentialId: string,
+  metadata: WorkspaceByokMetadata,
 ): string {
   return (
-    credentialLabelOverrides.get(buildCredentialScopeKey(scope, credentialId)) ??
+    metadata.credentialLabels[credentialId] ??
     `${connection.providerId} key`
   );
-}
-
-function buildCredentialScopeKey(
-  scope: AuthorizedProviderScope,
-  credentialId: string,
-): string {
-  return `${scope.userId}:${scope.workspaceId}:${credentialId}`;
 }
 
 function buildVirtualCredentialId(providerId: string): string {
@@ -1090,6 +1079,7 @@ async function loadWorkspacePreference(
   correlationId: string,
 ): Promise<BYOKPreference> {
   const runtime = await fetchRuntimePreferences(req, env, scope, correlationId);
+  const metadata = await loadWorkspaceByokMetadata(env, scope);
   return {
     userId: scope.userId,
     workspaceId: scope.workspaceId,
@@ -1098,8 +1088,8 @@ async function loadWorkspacePreference(
       ? buildVirtualCredentialId(runtime.defaultProviderId)
       : undefined,
     defaultModelId: runtime.defaultModelId,
-    fallbackMode: "strict",
-    fallbackChain: [],
+    fallbackMode: metadata.fallbackMode,
+    fallbackChain: metadata.fallbackChain,
     updatedAt: runtime.updatedAt,
   };
 }
@@ -1210,4 +1200,121 @@ function extractCredentialIdFromPath(
     );
   }
   return decodeURIComponent(match[1]);
+}
+
+async function ensureDefaultPreferenceConfigured(
+  req: Request,
+  env: Env,
+  scope: AuthorizedProviderScope,
+  providerId: string,
+  correlationId: string,
+): Promise<void> {
+  const existingPreference = await fetchRuntimePreferences(
+    req,
+    env,
+    scope,
+    correlationId,
+  );
+  if (existingPreference.defaultProviderId) {
+    return;
+  }
+
+  const catalog = await fetchRuntimeCatalog(req, env, scope, correlationId);
+  const defaultModel = resolveDefaultModel(providerId, catalog, env);
+  await proxyByokOperation(
+    req,
+    env,
+    {
+      scope,
+      method: "PATCH",
+      path: "/providers/preferences",
+      body: {
+        defaultProviderId: providerId,
+        defaultModelId: defaultModel,
+      },
+    },
+    BYOKPreferencesSchema,
+    correlationId,
+  );
+}
+
+async function persistCredentialLabel(
+  env: Env,
+  scope: AuthorizedProviderScope,
+  credentialId: string,
+  label: string,
+): Promise<void> {
+  const metadata = await loadWorkspaceByokMetadata(env, scope);
+  await saveWorkspaceByokMetadata(env, scope, {
+    ...metadata,
+    credentialLabels: {
+      ...metadata.credentialLabels,
+      [credentialId]: label,
+    },
+  });
+}
+
+async function deleteCredentialLabel(
+  env: Env,
+  scope: AuthorizedProviderScope,
+  credentialId: string,
+): Promise<void> {
+  const metadata = await loadWorkspaceByokMetadata(env, scope);
+  if (!metadata.credentialLabels[credentialId]) {
+    return;
+  }
+  const nextLabels = { ...metadata.credentialLabels };
+  delete nextLabels[credentialId];
+  await saveWorkspaceByokMetadata(env, scope, {
+    ...metadata,
+    credentialLabels: nextLabels,
+  });
+}
+
+async function loadWorkspaceByokMetadata(
+  env: Env,
+  scope: AuthorizedProviderScope,
+): Promise<WorkspaceByokMetadata> {
+  const raw = await env.SESSIONS.get(buildWorkspaceByokMetadataKey(scope));
+  if (!raw) {
+    return {
+      credentialLabels: {},
+      fallbackMode: "strict",
+      fallbackChain: [],
+    };
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    const result = WorkspaceByokMetadataSchema.safeParse(parsed);
+    if (!result.success) {
+      return {
+        credentialLabels: {},
+        fallbackMode: "strict",
+        fallbackChain: [],
+      };
+    }
+    return result.data;
+  } catch {
+    return {
+      credentialLabels: {},
+      fallbackMode: "strict",
+      fallbackChain: [],
+    };
+  }
+}
+
+async function saveWorkspaceByokMetadata(
+  env: Env,
+  scope: AuthorizedProviderScope,
+  metadata: WorkspaceByokMetadata,
+): Promise<void> {
+  await env.SESSIONS.put(
+    buildWorkspaceByokMetadataKey(scope),
+    JSON.stringify(metadata),
+  );
+}
+
+function buildWorkspaceByokMetadataKey(scope: AuthorizedProviderScope): string {
+  return `${BYOK_WORKSPACE_METADATA_PREFIX}${scope.userId}:${scope.workspaceId}`;
 }

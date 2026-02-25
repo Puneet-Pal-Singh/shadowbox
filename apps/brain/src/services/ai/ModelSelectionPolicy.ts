@@ -83,7 +83,7 @@ export function resolveModelSelection(
   if (!providerId || !modelId) {
     throw new ValidationError(
       `Partial provider/model override: providerId=${providerId}, modelId=${modelId}. Both must be provided together.`,
-      "PARTIAL_OVERRIDE",
+      "INVALID_PROVIDER_SELECTION",
       correlationId,
     );
   }
