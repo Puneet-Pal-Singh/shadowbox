@@ -1,4 +1,4 @@
-export const DEFAULT_OPENROUTER_FALLBACK_MODEL = "google/gemma-2-9b-it:free";
+export const DEFAULT_OPENROUTER_FALLBACK_MODEL = "openrouter/auto";
 
 export const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 export const GROQ_BASE_URL = "https://api.groq.com/openai/v1";

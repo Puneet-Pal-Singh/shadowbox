@@ -8,6 +8,13 @@
 SYSTEM_PROMPT="You are Shadowbox, an autonomous expert software engineer. Work in /home/sandbox/workspaces/${runId}. Answer directly without over-engineering or unnecessary tool use. Use tools ONLY if explicitly asked. Be concise."
 
 # -----------------------------------------------------------------------------
+# Default Chat Fallback (recommended)
+# -----------------------------------------------------------------------------
+# Used when no BYOK provider is connected.
+OPENROUTER_API_KEY=your-openrouter-api-key
+DEFAULT_MODEL=google/gemma-2-9b-it:free
+
+# -----------------------------------------------------------------------------
 # GitHub Auth + Session (required for GitHub integration)
 # -----------------------------------------------------------------------------
 GITHUB_CLIENT_ID=your-github-client-id
