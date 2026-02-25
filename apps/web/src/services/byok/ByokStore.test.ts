@@ -305,14 +305,23 @@ describe("ByokStore", () => {
       expect(mockApiClient.resolveForChat).toHaveBeenCalledTimes(1);
     });
 
-    it("fails early when no provider is connected", async () => {
+    it("requests platform fallback when no provider is connected", async () => {
       vi.mocked(mockApiClient.getCredentials).mockResolvedValueOnce([]);
+      vi.mocked(mockApiClient.resolveForChat).mockResolvedValueOnce({
+        providerId: "openrouter",
+        credentialId: "",
+        modelId: "google/gemma-2-9b-it:free",
+        resolvedAt: "platform_fallback",
+        resolvedAtTime: new Date().toISOString(),
+        fallbackUsed: true,
+      });
       await store.bootstrap();
 
-      await expect(store.resolveForChat()).rejects.toThrow(
-        "No BYOK provider connected. Connect one in settings."
-      );
-      expect(mockApiClient.resolveForChat).not.toHaveBeenCalled();
+      const config = await store.resolveForChat();
+
+      expect(config.providerId).toBe("openrouter");
+      expect(config.fallbackUsed).toBe(true);
+      expect(mockApiClient.resolveForChat).toHaveBeenCalledWith({});
     });
   });
 

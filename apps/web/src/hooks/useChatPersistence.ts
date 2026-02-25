@@ -63,6 +63,11 @@ export function useChatPersistence({
         if (shouldDropPendingQuery(error)) {
           persistenceService.clearPendingQuery(sessionId);
           attemptedRestoreKeyRef.current = null;
+          console.warn(
+            "[useChatPersistence] Dropping stale pending query after non-retryable restore error",
+            error,
+          );
+          return;
         }
         console.error("[useChatPersistence] Failed to restore pending query", error);
       }
@@ -85,6 +90,7 @@ function shouldDropPendingQuery(error: unknown): boolean {
   }
   return (
     error instanceof Error &&
-    error.message.includes("No BYOK provider connected")
+    (error.message.includes("No BYOK provider connected") ||
+      error.message.includes("INVALID_PROVIDER_SELECTION"))
   );
 }
