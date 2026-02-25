@@ -13,6 +13,7 @@ interface ChatInterfaceProps {
     handleInputChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
     handleSubmit: () => void;
     isLoading: boolean;
+    error?: string | null;
   };
   sessionId: string;
   onArtifactOpen?: (path: string, content: string) => void;
@@ -25,7 +26,7 @@ export function ChatInterface({
   onArtifactOpen,
   onModelSelect,
 }: ChatInterfaceProps) {
-  const { messages, input, handleInputChange, handleSubmit, isLoading } =
+  const { messages, input, handleInputChange, handleSubmit, isLoading, error } =
     chatProps;
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -55,6 +56,12 @@ export function ChatInterface({
         <div className="max-w-4xl mx-auto space-y-6">
           {messages.length > 0 && (
             <ExploredFilesSummary fileCount={fileReferences.length} />
+          )}
+
+          {error && (
+            <div className="px-4 py-3 rounded border border-red-500/40 bg-red-950/30 text-red-200 text-sm">
+              {error}
+            </div>
           )}
 
           {messages.map((msg) => (

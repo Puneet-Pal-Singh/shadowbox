@@ -15,6 +15,7 @@ interface UseChatCoreResult {
   runId: string;
   resetRun: () => void;
   isModelConfigReady: boolean;
+  error: string | null;
 }
 
 /**
@@ -30,22 +31,32 @@ export function useChatCore(
   const [internalRunId, setInternalRunId] = useState<string>(() =>
     crypto.randomUUID(),
   );
+  const [error, setError] = useState<string | null>(null);
   const runId = externalRunId || internalRunId;
 
   // Stable instance key - changes when runId changes
   const instanceKey = useMemo(() => `chat-${runId}`, [runId]);
-  const { status, credentials, preferences, lastResolvedConfig, resolveForChat } =
-    useByokStore();
+  const {
+    status,
+    credentials,
+    preferences,
+    selectedProviderId,
+    selectedCredentialId,
+    selectedModelId,
+    lastResolvedConfig,
+    resolveForChat,
+  } = useByokStore();
   const hasConnectedCredential = credentials.length > 0;
   // Ready for chat if store is initialized (no longer requires connected BYOK)
   const isModelConfigReady = status === "ready";
   const activeProviderId =
-    lastResolvedConfig?.providerId ?? preferences?.defaultProviderId ?? "openrouter";
+    selectedProviderId ??
+    (hasConnectedCredential ? lastResolvedConfig?.providerId : undefined);
   const activeModelId =
-    lastResolvedConfig?.modelId ?? preferences?.defaultModelId ?? "google/gemma-2-9b-it:free";
-  const hasCompleteOverride = Boolean(
-    status === "ready" && activeProviderId && activeModelId,
-  );
+    selectedModelId ??
+    (hasConnectedCredential ? lastResolvedConfig?.modelId : undefined) ??
+    (hasConnectedCredential ? preferences?.defaultModelId : undefined) ??
+    "google/gemma-2-9b-it:free";
 
   const {
     messages,
@@ -60,17 +71,13 @@ export function useChatCore(
     body: {
       sessionId,
       runId,
-      ...(hasCompleteOverride
-        ? {
-            providerId: activeProviderId,
-            modelId: activeModelId,
-          }
-        : {}),
     },
     initialMessages: [],
     id: instanceKey,
     onError: (error: Error) => {
-      console.error("🧬 [Shadowbox] Chat Stream Error:", error.message);
+      const message = normalizeChatErrorMessage(error);
+      setError(message);
+      console.error("🧬 [Shadowbox] Chat Stream Error:", message);
     },
   });
 
@@ -87,18 +94,30 @@ export function useChatCore(
       if (!content || status !== "ready") {
         throw new Error("Chat is not ready. Please try again.");
       }
+      setError(null);
 
       // Resolve provider/model: use lastResolvedConfig if available,
       // otherwise fallback to defaults for no-BYOK path
       let providerId = activeProviderId;
       let modelId = activeModelId;
+      let credentialId = selectedCredentialId;
 
-      if (hasConnectedCredential && !lastResolvedConfig) {
-        // Only call resolveForChat if BYOK is connected and we need resolution
+      if (hasConnectedCredential && (!lastResolvedConfig || !selectedCredentialId)) {
+        // Resolve when BYOK is connected and selection is incomplete
         const resolvedConfig = await resolveForChat();
-        providerId = resolvedConfig.providerId;
+        if (resolvedConfig.credentialId.trim().length > 0) {
+          credentialId = resolvedConfig.credentialId;
+          providerId = resolvedConfig.providerId;
+        } else {
+          credentialId = null;
+          providerId = undefined;
+        }
         modelId = resolvedConfig.modelId;
       }
+
+      const includeOverride = Boolean(
+        hasConnectedCredential && credentialId && providerId && modelId,
+      );
 
       await append(
         { role: "user", content },
@@ -106,8 +125,12 @@ export function useChatCore(
           body: {
             sessionId,
             runId,
-            providerId,
-            modelId,
+            ...(includeOverride
+              ? {
+                  providerId,
+                  modelId,
+                }
+              : {}),
           },
         },
       );
@@ -120,6 +143,7 @@ export function useChatCore(
       lastResolvedConfig,
       resolveForChat,
       runId,
+      selectedCredentialId,
       sessionId,
       status,
     ],
@@ -135,6 +159,11 @@ export function useChatCore(
         try {
           await appendWithResolution({ role: "user", content: trimmedInput });
         } catch (error) {
+          const message =
+            error instanceof Error
+              ? normalizeChatErrorMessage(error)
+              : "Failed to send message.";
+          setError(message);
           console.error(
             `[useChatCore] Failed to append resolved message for session ${sessionId}`,
             error,
@@ -159,5 +188,36 @@ export function useChatCore(
     runId,
     resetRun,
     isModelConfigReady,
+    error,
   };
+}
+
+function normalizeChatErrorMessage(error: Error): string {
+  const rawMessage = error.message || "Unknown chat error";
+  try {
+    const parsed = JSON.parse(rawMessage) as { error?: string };
+    if (parsed?.error) {
+      if (containsMissingDefaultKeyError(parsed.error)) {
+        return "No default provider key is configured. Connect a BYOK provider in Settings or set OPENROUTER_API_KEY, GROQ_API_KEY, or OPENAI_API_KEY for local fallback.";
+      }
+      return parsed.error;
+    }
+  } catch {
+    // Not JSON payload
+  }
+
+  if (containsMissingDefaultKeyError(rawMessage)) {
+    return "No default provider key is configured. Connect a BYOK provider in Settings or set OPENROUTER_API_KEY, GROQ_API_KEY, or OPENAI_API_KEY for local fallback.";
+  }
+  return rawMessage;
+}
+
+function containsMissingDefaultKeyError(message: string): boolean {
+  return (
+    message.includes("Missing GROQ_API_KEY or OPENAI_API_KEY") ||
+    message.includes(
+      "Missing GROQ_API_KEY, OPENROUTER_API_KEY, or OPENAI_API_KEY",
+    ) ||
+    message.includes("No default provider key is configured")
+  );
 }

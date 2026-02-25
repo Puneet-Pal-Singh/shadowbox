@@ -19,6 +19,7 @@ interface UseChatResult {
   runId: string;
   resetRun: () => void;
   isModelConfigReady: boolean;
+  error: string | null;
 }
 
 /**
@@ -44,6 +45,7 @@ export function useChat(
     runId: activeRunId,
     resetRun,
     isModelConfigReady,
+    error,
   } = useChatCore(sessionId, runId);
 
   // Handle message hydration
@@ -84,5 +86,6 @@ export function useChat(
     runId: activeRunId,
     resetRun,
     isModelConfigReady,
+    error,
   };
 }

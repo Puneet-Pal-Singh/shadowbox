@@ -61,12 +61,13 @@ export function Workspace({
     isLoading,
     isHydrating,
     runId: activeRunId,
+    error: chatError,
   } = useChat(sessionId, initialRunId, () => {
     explorerRef.current?.refresh();
   });
   const { status } = useGitStatus(activeRunId);
   const { fetch: fetchDiff, diff } = useGitDiff(activeRunId);
-  const changesCount = status?.files.length || 0;
+  const changesCount = status?.files?.length ?? 0;
 
   const { handleFileClick, handleGitHubFileSelect } = useFileLoader({
     sandboxId,
@@ -143,6 +144,7 @@ export function Workspace({
                 handleInputChange,
                 handleSubmit,
                 isLoading,
+                error: chatError,
               }}
               sessionId={sessionId}
               onArtifactOpen={(path, content) => {
