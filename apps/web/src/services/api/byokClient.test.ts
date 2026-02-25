@@ -9,11 +9,14 @@ import { ByokApiClient, ByokApiError } from "./byokClient.js";
 
 describe("ByokApiClient", () => {
   const byokBaseUrl = "http://localhost:8788/api/byok";
+  const testRunId = "run-123";
   let client: ByokApiClient;
   let fetchSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
-    client = new ByokApiClient();
+    client = new ByokApiClient({
+      getRunId: () => testRunId,
+    });
     fetchSpy = vi.spyOn(globalThis, "fetch") as unknown as ReturnType<
       typeof vi.spyOn
     >;
@@ -45,7 +48,10 @@ describe("ByokApiClient", () => {
       expect(fetchSpy).toHaveBeenCalledWith(`${byokBaseUrl}/providers`, {
         method: "GET",
         credentials: "include",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "X-Run-Id": testRunId,
+        },
         signal: undefined,
       });
       expect(catalog).toEqual(mockCatalog);
@@ -70,7 +76,10 @@ describe("ByokApiClient", () => {
         {
           method: "GET",
           credentials: "include",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            "X-Run-Id": testRunId,
+          },
           signal: undefined,
         }
       );
@@ -99,7 +108,10 @@ describe("ByokApiClient", () => {
       expect(fetchSpy).toHaveBeenCalledWith(`${byokBaseUrl}/credentials`, {
         method: "GET",
         credentials: "include",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "X-Run-Id": testRunId,
+        },
         signal: undefined,
       });
       expect(credentials).toEqual(mockCredentials);
@@ -128,7 +140,10 @@ describe("ByokApiClient", () => {
       expect(fetchSpy).toHaveBeenCalledWith(`${byokBaseUrl}/credentials`, {
         method: "POST",
         credentials: "include",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "X-Run-Id": testRunId,
+        },
         signal: undefined,
         body: JSON.stringify({
           providerId: "openai",
@@ -151,7 +166,10 @@ describe("ByokApiClient", () => {
       expect(fetchSpy).toHaveBeenCalledWith(`${byokBaseUrl}/credentials/cred-1`, {
         method: "DELETE",
         credentials: "include",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "X-Run-Id": testRunId,
+        },
         signal: undefined,
       });
     });
@@ -276,6 +294,17 @@ describe("ByokApiClient", () => {
         expect(error).toBeInstanceOf(ByokApiError);
         expect((error as ByokApiError).code).toBe("ABORTED");
       }
+    });
+
+    it("fails fast when run id is missing", async () => {
+      const clientWithMissingRunId = new ByokApiClient({
+        getRunId: () => null,
+      });
+      await expect(clientWithMissingRunId.getCatalog()).rejects.toMatchObject({
+        code: "MISSING_RUN_ID",
+        statusCode: 400,
+      });
+      expect(fetchSpy).not.toHaveBeenCalled();
     });
 
     it("includes correlationId in error", async () => {

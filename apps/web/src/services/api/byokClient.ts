@@ -58,6 +58,10 @@ export interface ProviderModelOption {
   provider?: string;
 }
 
+export interface RunIdResolver {
+  getRunId(): string | null;
+}
+
 /**
  * Resolve for chat request
  */
@@ -88,7 +92,14 @@ export class ByokApiError extends Error {
 export class ByokApiClient {
   private baseUrl: string = `${getBrainHttpBase()}/api/byok`;
   private abortControllers: Map<string, AbortController> = new Map();
-  private static readonly SESSION_RUN_ID_KEY = "currentRunId";
+  private static readonly sessionRunIdKey = "currentRunId";
+  private static readonly responsePreviewLimit = 120;
+
+  constructor(
+    private readonly runIdResolver: RunIdResolver = new DefaultRunIdResolver(
+      ByokApiClient.sessionRunIdKey
+    )
+  ) {}
 
   /**
    * GET /api/byok/providers (catalog)
@@ -322,24 +333,20 @@ export class ByokApiClient {
     };
 
     const runId = this.resolveRunId();
-    if (runId) {
-      headers["X-Run-Id"] = runId;
+    if (!runId) {
+      throw new ByokApiError(
+        400,
+        "MISSING_RUN_ID",
+        "Run ID is required for BYOK requests"
+      );
     }
+    headers["X-Run-Id"] = runId;
 
     return headers;
   }
 
   private resolveRunId(): string | null {
-    try {
-      const runId = sessionStorage.getItem(ByokApiClient.SESSION_RUN_ID_KEY);
-      if (runId) {
-        return runId;
-      }
-    } catch {
-      // No-op: continue to fallback lookup.
-    }
-
-    return SessionStateService.loadActiveSessionRunId();
+    return this.runIdResolver.getRunId();
   }
 
   /**
@@ -379,9 +386,30 @@ export class ByokApiClient {
       if (!text) {
         return "";
       }
-      return text.slice(0, 120);
-    } catch {
+      return text.slice(0, ByokApiClient.responsePreviewLimit);
+    } catch (error) {
+      console.warn(
+        "[byok/readResponsePreview] Failed to read response text",
+        error
+      );
       return "";
     }
+  }
+}
+
+class DefaultRunIdResolver implements RunIdResolver {
+  constructor(private readonly runIdStorageKey: string) {}
+
+  getRunId(): string | null {
+    try {
+      const runId = sessionStorage.getItem(this.runIdStorageKey);
+      if (runId) {
+        return runId;
+      }
+    } catch (error) {
+      console.warn("[byok/resolveRunId] Failed to read sessionStorage", error);
+    }
+
+    return SessionStateService.loadActiveSessionRunId();
   }
 }

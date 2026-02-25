@@ -109,8 +109,10 @@ export class ByokStore {
   private apiClient: ByokApiClientContract;
   private listeners: Set<(state: ByokStoreState) => void> = new Set();
   private inflight: Map<string, Promise<unknown>> = new Map();
+  private bootstrapPromise: Promise<void> | null = null;
   private lastResolveSelectionKey: string | null = null;
   private lastResolveError: Error | null = null;
+  private epoch = 0;
   private enableLogging: boolean;
 
   private constructor(apiClient: ByokApiClientContract, enableLogging = false) {
@@ -189,19 +191,35 @@ export class ByokStore {
   async bootstrap(): Promise<void> {
     this.log("[bootstrap] Starting");
 
-    if (this.state.status === "loading") {
-      this.log("[bootstrap] Already loading, skipping");
+    if (this.bootstrapPromise) {
+      this.log("[bootstrap] Request already in flight");
+      await this.bootstrapPromise;
       return;
     }
 
-    this.setState({ status: "loading", error: null });
+    const epoch = this.epoch;
+    const promise = this.executeBootstrap(epoch);
+    this.bootstrapPromise = promise;
+    try {
+      await promise;
+    } finally {
+      if (this.bootstrapPromise === promise) {
+        this.bootstrapPromise = null;
+      }
+    }
+  }
 
+  private async executeBootstrap(epoch: number): Promise<void> {
+    this.setState({ status: "loading", error: null });
     try {
       const [catalog, credentials, preferences] = await Promise.all([
         this.apiClient.getCatalog(),
         this.apiClient.getCredentials(),
         this.apiClient.getPreferences(),
       ]);
+      if (this.isStaleEpoch("bootstrap", epoch)) {
+        return;
+      }
       const selection = this.deriveSelectionSnapshot({
         catalog,
         credentials,
@@ -241,6 +259,9 @@ export class ByokStore {
         credentials: credentials.length,
       });
     } catch (error) {
+      if (this.isStaleEpoch("bootstrap", epoch)) {
+        return;
+      }
       const message =
         error instanceof Error ? error.message : "Failed to bootstrap BYOK";
       this.setState({
@@ -279,14 +300,21 @@ export class ByokStore {
    */
   private async executeConnect(req: ConnectCredentialRequest): Promise<void> {
     this.log("[connectCredential] Starting", { providerId: req.providerId });
+    const epoch = this.epoch;
 
     try {
       const credential = await this.apiClient.connectCredential(req);
       const preferences = await this.apiClient.getPreferences();
+      if (this.isStaleEpoch("connectCredential", epoch)) {
+        return;
+      }
 
       let providerModels = this.state.providerModels;
       try {
         const models = await this.loadProviderModels(req.providerId);
+        if (this.isStaleEpoch("connectCredential", epoch)) {
+          return;
+        }
         providerModels = {
           ...providerModels,
           [req.providerId]: models,
@@ -372,9 +400,13 @@ export class ByokStore {
    */
   private async executeDisconnect(credentialId: string): Promise<void> {
     this.log("[disconnectCredential] Starting", { credentialId });
+    const epoch = this.epoch;
 
     try {
       await this.apiClient.disconnectCredential(credentialId);
+      if (this.isStaleEpoch("disconnectCredential", epoch)) {
+        return;
+      }
 
       // Remove from credentials list
       const nextCredentials = this.state.credentials.filter(
@@ -446,9 +478,13 @@ export class ByokStore {
     mode: "format" | "live"
   ): Promise<void> {
     this.log("[validateCredential] Starting", { credentialId, mode });
+    const epoch = this.epoch;
 
     try {
       await this.apiClient.validateCredential(credentialId, { mode });
+      if (this.isStaleEpoch("validateCredential", epoch)) {
+        return;
+      }
 
       // Update credential status if validation succeeded
       const credential = this.state.credentials.find(
@@ -507,7 +543,7 @@ export class ByokStore {
     }
 
     this.setState({ loadingModelsForProviderId: providerId });
-    const promise = this.executeLoadProviderModels(providerId);
+    const promise = this.executeLoadProviderModels(providerId, this.epoch);
     this.inflight.set(key, promise);
 
     try {
@@ -521,10 +557,14 @@ export class ByokStore {
   }
 
   private async executeLoadProviderModels(
-    providerId: string
+    providerId: string,
+    epoch: number
   ): Promise<ProviderModelOption[]> {
     this.log("[loadProviderModels] Starting", { providerId });
     const models = await this.apiClient.getProviderModels(providerId);
+    if (this.isStaleEpoch("loadProviderModels", epoch)) {
+      return models;
+    }
 
     this.setState({
       providerModels: {
@@ -550,9 +590,13 @@ export class ByokStore {
     partial: Partial<BYOKPreference>
   ): Promise<void> {
     this.log("[updatePreferences] Starting", partial);
+    const epoch = this.epoch;
 
     try {
       const updated = await this.apiClient.updatePreferences(partial);
+      if (this.isStaleEpoch("updatePreferences", epoch)) {
+        return;
+      }
       const selection = this.deriveSelectionSnapshot({
         catalog: this.state.catalog,
         credentials: this.state.credentials,
@@ -639,7 +683,7 @@ export class ByokStore {
       throw new Error("Provider resolution failed.");
     }
 
-    const promise = this.executeResolve(selection, selectionKey);
+    const promise = this.executeResolve(selection, selectionKey, this.epoch);
     this.inflight.set(key, promise);
 
     try {
@@ -655,7 +699,8 @@ export class ByokStore {
    */
   private async executeResolve(
     selection: ByokSelectionSnapshot,
-    selectionKey: string
+    selectionKey: string,
+    epoch: number
   ): Promise<void> {
     this.log("[resolveForChat] Starting");
 
@@ -680,6 +725,9 @@ export class ByokStore {
         credentialId: selection.selectedCredentialId,
         modelId: selection.selectedModelId || undefined,
       });
+      if (this.isStaleEpoch("resolveForChat", epoch)) {
+        return;
+      }
 
       this.setState({
         lastResolvedConfig: config,
@@ -718,6 +766,9 @@ export class ByokStore {
    * Reset store to initial state
    */
   reset(): void {
+    this.epoch += 1;
+    this.inflight.clear();
+    this.bootstrapPromise = null;
     this.lastResolveSelectionKey = null;
     this.lastResolveError = null;
     this.state = {
@@ -849,7 +900,9 @@ export class ByokStore {
       providerId && selectedProviderId === providerId ? selectedModelId : null;
     const modelId =
       selectedModelForProvider ??
-      preferences?.defaultModelId ??
+      (preferences?.defaultProviderId === providerId
+        ? preferences.defaultModelId
+        : undefined) ??
       (providerId ? providerModels[providerId]?.[0]?.id : undefined) ??
       (providerId
         ? catalog.find((entry) => entry.providerId === providerId)?.defaultModelId
@@ -861,5 +914,16 @@ export class ByokStore {
       selectedCredentialId: credentialId,
       selectedModelId: modelId,
     };
+  }
+
+  private isStaleEpoch(operation: string, epoch: number): boolean {
+    if (epoch === this.epoch) {
+      return false;
+    }
+    this.log(`[${operation}] skipping stale async result`, {
+      operationEpoch: epoch,
+      currentEpoch: this.epoch,
+    });
+    return true;
   }
 }
