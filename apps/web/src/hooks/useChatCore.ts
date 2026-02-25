@@ -37,12 +37,14 @@ export function useChatCore(
   const { status, credentials, preferences, lastResolvedConfig, resolveForChat } =
     useByokStore();
   const hasConnectedCredential = credentials.length > 0;
-  const isModelConfigReady = status === "ready" && hasConnectedCredential;
+  // Ready for chat if store is initialized (no longer requires connected BYOK)
+  const isModelConfigReady = status === "ready";
   const activeProviderId =
-    lastResolvedConfig?.providerId ?? preferences?.defaultProviderId;
-  const activeModelId = lastResolvedConfig?.modelId ?? preferences?.defaultModelId;
+    lastResolvedConfig?.providerId ?? preferences?.defaultProviderId ?? "openrouter";
+  const activeModelId =
+    lastResolvedConfig?.modelId ?? preferences?.defaultModelId ?? "google/gemma-2-9b-it:free";
   const hasCompleteOverride = Boolean(
-    isModelConfigReady && activeProviderId && activeModelId,
+    status === "ready" && activeProviderId && activeModelId,
   );
 
   const {
@@ -82,13 +84,20 @@ export function useChatCore(
   const appendWithResolution = useCallback(
     async (message: { role: "user"; content: string }): Promise<void> => {
       const content = message.content.trim();
-      if (!content || status !== "ready" || !hasConnectedCredential) {
-        throw new Error("No BYOK provider connected. Connect one in settings.");
+      if (!content || status !== "ready") {
+        throw new Error("Chat is not ready. Please try again.");
       }
 
-      let resolvedConfig = lastResolvedConfig;
-      if (!resolvedConfig) {
-        resolvedConfig = await resolveForChat();
+      // Resolve provider/model: use lastResolvedConfig if available,
+      // otherwise fallback to defaults for no-BYOK path
+      let providerId = activeProviderId;
+      let modelId = activeModelId;
+
+      if (hasConnectedCredential && !lastResolvedConfig) {
+        // Only call resolveForChat if BYOK is connected and we need resolution
+        const resolvedConfig = await resolveForChat();
+        providerId = resolvedConfig.providerId;
+        modelId = resolvedConfig.modelId;
       }
 
       await append(
@@ -97,14 +106,16 @@ export function useChatCore(
           body: {
             sessionId,
             runId,
-            providerId: resolvedConfig.providerId,
-            modelId: resolvedConfig.modelId,
+            providerId,
+            modelId,
           },
         },
       );
     },
     [
       append,
+      activeProviderId,
+      activeModelId,
       hasConnectedCredential,
       lastResolvedConfig,
       resolveForChat,
