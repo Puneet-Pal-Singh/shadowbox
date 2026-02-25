@@ -20,7 +20,9 @@ import {
   ByokStoreState,
   ConnectCredentialRequest,
 } from "../services/byok/ByokStore.js";
-import { BYOKResolution } from "@repo/shared-types";
+import { BYOKPreference, BYOKResolution } from "@repo/shared-types";
+import type { ProviderModelOption } from "../services/api/byokClient.js";
+import { useRunContext } from "./useRunContext";
 
 /**
  * useByokStore Hook
@@ -36,8 +38,9 @@ export function useByokStore(): ByokStoreState & {
     credentialId: string,
     mode: "format" | "live"
   ) => Promise<void>;
+  loadProviderModels: (providerId: string) => Promise<ProviderModelOption[]>;
   updatePreferences: (
-    partial: Record<string, unknown>
+    partial: Partial<BYOKPreference>
   ) => Promise<void>;
   setSelection: (
     providerId: string,
@@ -49,6 +52,7 @@ export function useByokStore(): ByokStoreState & {
   reset: () => void;
 } {
   const store = ByokStore.getInstance();
+  const { runId } = useRunContext();
   const [state, setState] = useState<ByokStoreState>(store.getState());
 
   useEffect(() => {
@@ -59,6 +63,20 @@ export function useByokStore(): ByokStoreState & {
 
     return unsubscribe;
   }, [store]);
+
+  useEffect(() => {
+    if (!runId) {
+      return;
+    }
+
+    store.setActiveRunId(runId);
+
+    if (state.status === "idle") {
+      store.bootstrap().catch((error) => {
+        console.error("[byok/store] bootstrap failed", error);
+      });
+    }
+  }, [runId, state.status, store]);
 
   const bootstrap = useCallback(() => store.bootstrap(), [store]);
   const connectCredential = useCallback(
@@ -74,8 +92,12 @@ export function useByokStore(): ByokStoreState & {
       store.validateCredential(credentialId, mode),
     [store]
   );
+  const loadProviderModels = useCallback(
+    (providerId: string) => store.loadProviderModels(providerId),
+    [store]
+  );
   const updatePreferences = useCallback(
-    (partial: Record<string, unknown>) => store.updatePreferences(partial),
+    (partial: Partial<BYOKPreference>) => store.updatePreferences(partial),
     [store]
   );
   const setSelection = useCallback(
@@ -96,6 +118,7 @@ export function useByokStore(): ByokStoreState & {
     connectCredential,
     disconnectCredential,
     validateCredential,
+    loadProviderModels,
     updatePreferences,
     setSelection,
     resolveForChat,

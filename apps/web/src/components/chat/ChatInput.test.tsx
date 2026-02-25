@@ -25,6 +25,7 @@ describe("ChatInput", () => {
       catalog: [],
       credentials: [],
       preferences: null,
+      providerModels: {},
       selectedProviderId: "openai",
       selectedCredentialId: credentialId,
       selectedModelId: "gpt-4",
@@ -39,6 +40,7 @@ describe("ChatInput", () => {
       status: "ready",
       error: null,
       isValidating: false,
+      loadingModelsForProviderId: null,
       bootstrap: vi.fn(async () => undefined),
       connectCredential: vi.fn(async () => undefined),
       disconnectCredential: vi.fn(async (credentialId: string) => {
@@ -55,6 +57,10 @@ describe("ChatInput", () => {
       updatePreferences: vi.fn(async (partial: Record<string, unknown>) => {
         void partial;
         return undefined;
+      }),
+      loadProviderModels: vi.fn(async (providerId: string) => {
+        void providerId;
+        return [];
       }),
       setSelection: vi.fn(),
       resolveForChat: vi.fn(async () => ({

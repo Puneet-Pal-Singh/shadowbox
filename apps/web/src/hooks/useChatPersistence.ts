@@ -1,6 +1,7 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import type { Message } from "@ai-sdk/react";
 import { ChatPersistenceService } from "../services/ChatPersistenceService";
+import { ByokApiError } from "../services/api/byokClient.js";
 
 interface UseChatPersistenceProps {
   sessionId: string;
@@ -9,7 +10,7 @@ interface UseChatPersistenceProps {
   messagesLength: number;
   isLoading: boolean;
   isModelConfigReady: boolean;
-  append: (message: { role: "user"; content: string }) => void;
+  append: (message: { role: "user"; content: string }) => Promise<void>;
 }
 
 /**
@@ -27,6 +28,7 @@ export function useChatPersistence({
   append,
 }: UseChatPersistenceProps): void {
   const persistenceService = useMemo(() => new ChatPersistenceService(), []);
+  const attemptedRestoreKeyRef = useRef<string | null>(null);
 
   // Sync messages to global store
   useEffect(() => {
@@ -36,14 +38,37 @@ export function useChatPersistence({
   // Restore pending query from localStorage
   useEffect(() => {
     const pendingQuery = persistenceService.getPendingQuery(sessionId);
-    if (
-      isModelConfigReady &&
-      pendingQuery &&
-      persistenceService.shouldRestorePendingQuery(messagesLength, isLoading)
-    ) {
-      append({ role: "user", content: pendingQuery });
-      persistenceService.clearPendingQuery(sessionId);
+    if (!pendingQuery) {
+      attemptedRestoreKeyRef.current = null;
+      return;
     }
+    if (!isModelConfigReady) {
+      return;
+    }
+    if (!persistenceService.shouldRestorePendingQuery(messagesLength, isLoading)) {
+      return;
+    }
+    const restoreKey = `${sessionId}:${pendingQuery}`;
+    if (attemptedRestoreKeyRef.current === restoreKey) {
+      return;
+    }
+    attemptedRestoreKeyRef.current = restoreKey;
+
+    const restorePendingQuery = async (): Promise<void> => {
+      try {
+        await append({ role: "user", content: pendingQuery });
+        persistenceService.clearPendingQuery(sessionId);
+        attemptedRestoreKeyRef.current = null;
+      } catch (error) {
+        if (shouldDropPendingQuery(error)) {
+          persistenceService.clearPendingQuery(sessionId);
+          attemptedRestoreKeyRef.current = null;
+        }
+        console.error("[useChatPersistence] Failed to restore pending query", error);
+      }
+    };
+
+    void restorePendingQuery();
   }, [
     sessionId,
     messagesLength,
@@ -52,4 +77,14 @@ export function useChatPersistence({
     append,
     persistenceService,
   ]);
+}
+
+function shouldDropPendingQuery(error: unknown): boolean {
+  if (error instanceof ByokApiError) {
+    return error.statusCode >= 400 && error.statusCode < 500;
+  }
+  return (
+    error instanceof Error &&
+    error.message.includes("No BYOK provider connected")
+  );
 }

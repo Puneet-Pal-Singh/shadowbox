@@ -11,7 +11,7 @@ interface UseChatResult {
   input: string;
   handleInputChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
   handleSubmit: (e?: FormEvent) => void;
-  append: (message: { role: "user"; content: string }) => void;
+  append: (message: { role: "user"; content: string }) => Promise<void>;
   isLoading: boolean;
   isHydrating: boolean;
   stop: () => void;

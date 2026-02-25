@@ -53,10 +53,6 @@ export function Workspace({
   const { repoTree, isLoadingTree, repo, branch, isGitHubLoaded } =
     useGitHubTree(repository);
 
-  const { status } = useGitStatus();
-  const { fetch: fetchDiff, diff } = useGitDiff();
-  const changesCount = status?.files.length || 0;
-
   const {
     messages,
     input,
@@ -68,6 +64,9 @@ export function Workspace({
   } = useChat(sessionId, initialRunId, () => {
     explorerRef.current?.refresh();
   });
+  const { status } = useGitStatus(activeRunId);
+  const { fetch: fetchDiff, diff } = useGitDiff(activeRunId);
+  const changesCount = status?.files.length || 0;
 
   const { handleFileClick, handleGitHubFileSelect } = useFileLoader({
     sandboxId,

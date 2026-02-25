@@ -25,11 +25,6 @@ import {
   resolveGroqKey,
   resolveLiteLLMKey,
 } from "./ProviderKeyValidator";
-import {
-  isStrictMode,
-  logCompatFallback,
-  CompatFallbackReasonCodes,
-} from "../../config/runtime-compat";
 import { ValidationError, ProviderError } from "../../domain/errors";
 
 /**
@@ -59,21 +54,10 @@ export function createDefaultAdapter(env: Env): ProviderAdapter {
       return createAnthropicAdapter(env);
 
     default:
-      if (isStrictMode()) {
-        throw new ValidationError(
-          `Unknown LLM provider: "${provider}". Supported providers: litellm, openai, anthropic`,
-          "UNKNOWN_PROVIDER",
-        );
-      }
-      // Compat mode: log and fallback
-      logCompatFallback({
-        reasonCode: CompatFallbackReasonCodes.PROVIDER_ADAPTER_DEFAULTED,
-        requestedProvider: provider,
-        resolvedProvider: "litellm",
-        requestedModel: env.DEFAULT_MODEL,
-        resolvedModel: env.DEFAULT_MODEL ?? "unknown",
-      });
-      return createLiteLLMAdapter(env);
+      throw new ValidationError(
+        `Unknown LLM provider: "${provider}". Supported providers: litellm, openai, anthropic`,
+        "UNKNOWN_PROVIDER",
+      );
   }
 }
 

@@ -1,14 +1,14 @@
 import { useChat as useVercelChat, type Message } from "@ai-sdk/react";
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useMemo, useState, type FormEvent } from "react";
 import { chatStreamPath } from "../lib/platform-endpoints.js";
-import { providerService } from "../services/ProviderService";
+import { useByokStore } from "./useByokStore.js";
 
 interface UseChatCoreResult {
   messages: Message[];
   input: string;
   handleInputChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
   handleSubmit: (e?: FormEvent) => void;
-  append: (message: { role: "user"; content: string }) => void;
+  append: (message: { role: "user"; content: string }) => Promise<void>;
   isLoading: boolean;
   stop: () => void;
   setMessages: (messages: Message[]) => void;
@@ -34,77 +34,16 @@ export function useChatCore(
 
   // Stable instance key - changes when runId changes
   const instanceKey = useMemo(() => `chat-${runId}`, [runId]);
-
-  // Track session model config reactively with state to update when storage changes
-  const [sessionModelConfig, setSessionModelConfig] = useState(() =>
-    providerService.getSessionModelConfig(sessionId),
-  );
-  const [isModelConfigReady, setIsModelConfigReady] = useState(false);
+  const { status, credentials, preferences, lastResolvedConfig, resolveForChat } =
+    useByokStore();
+  const hasConnectedCredential = credentials.length > 0;
+  const isModelConfigReady = status === "ready" && hasConnectedCredential;
+  const activeProviderId =
+    lastResolvedConfig?.providerId ?? preferences?.defaultProviderId;
+  const activeModelId = lastResolvedConfig?.modelId ?? preferences?.defaultModelId;
   const hasCompleteOverride = Boolean(
-    isModelConfigReady &&
-      sessionModelConfig.providerId &&
-      sessionModelConfig.modelId,
+    isModelConfigReady && activeProviderId && activeModelId,
   );
-
-  useEffect(() => {
-    let cancelled = false;
-    const syncSessionModelConfig = async () => {
-      setIsModelConfigReady(false);
-      try {
-        const config = await providerService.syncSessionModelConfig(sessionId);
-        if (cancelled) {
-          return;
-        }
-        setSessionModelConfig((prev) => {
-          if (
-            prev.providerId === config.providerId &&
-            prev.modelId === config.modelId
-          ) {
-            return prev;
-          }
-          return config;
-        });
-      } catch (error) {
-        console.error(
-          `[useChatCore] Failed to sync session model config for session ${sessionId}`,
-          error,
-        );
-      } finally {
-        if (!cancelled) {
-          setIsModelConfigReady(true);
-        }
-      }
-    };
-
-    void syncSessionModelConfig();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [sessionId]);
-
-  // Subscribe to config changes when sessionId changes
-  useEffect(() => {
-    // Subscribe to config changes for this session
-    const unsubscribe = providerService.subscribeToSessionConfig(
-      sessionId,
-      (config) => {
-        // Only update if config actually changed (prevent cascading renders)
-        setSessionModelConfig((prev) => {
-          if (
-            prev.providerId === config.providerId &&
-            prev.modelId === config.modelId
-          ) {
-            return prev;
-          }
-          return config;
-        });
-      },
-    );
-
-    // Cleanup subscription when sessionId changes or component unmounts
-    return unsubscribe;
-  }, [sessionId]);
 
   const {
     messages,
@@ -121,8 +60,8 @@ export function useChatCore(
       runId,
       ...(hasCompleteOverride
         ? {
-            providerId: sessionModelConfig.providerId,
-            modelId: sessionModelConfig.modelId,
+            providerId: activeProviderId,
+            modelId: activeModelId,
           }
         : {}),
     },
@@ -140,14 +79,61 @@ export function useChatCore(
     // setMessages will be called after the new instance is created via instanceKey change
   }, [externalRunId]);
 
+  const appendWithResolution = useCallback(
+    async (message: { role: "user"; content: string }): Promise<void> => {
+      const content = message.content.trim();
+      if (!content || status !== "ready" || !hasConnectedCredential) {
+        throw new Error("No BYOK provider connected. Connect one in settings.");
+      }
+
+      let resolvedConfig = lastResolvedConfig;
+      if (!resolvedConfig) {
+        resolvedConfig = await resolveForChat();
+      }
+
+      await append(
+        { role: "user", content },
+        {
+          body: {
+            sessionId,
+            runId,
+            providerId: resolvedConfig.providerId,
+            modelId: resolvedConfig.modelId,
+          },
+        },
+      );
+    },
+    [
+      append,
+      hasConnectedCredential,
+      lastResolvedConfig,
+      resolveForChat,
+      runId,
+      sessionId,
+      status,
+    ],
+  );
+
   const handleSubmit = useCallback(
     (e?: FormEvent) => {
       e?.preventDefault();
       const trimmedInput = input.trim();
-      if (!trimmedInput || isLoading) return;
-      append({ role: "user", content: trimmedInput });
+      if (!trimmedInput || isLoading || !isModelConfigReady) return;
+
+      const submitWithResolution = async (): Promise<void> => {
+        try {
+          await appendWithResolution({ role: "user", content: trimmedInput });
+        } catch (error) {
+          console.error(
+            `[useChatCore] Failed to append resolved message for session ${sessionId}`,
+            error,
+          );
+        }
+      };
+
+      void submitWithResolution();
     },
-    [input, isLoading, append],
+    [appendWithResolution, input, isLoading, isModelConfigReady, sessionId],
   );
 
   return {
@@ -155,7 +141,7 @@ export function useChatCore(
     input,
     handleInputChange,
     handleSubmit,
-    append,
+    append: appendWithResolution,
     isLoading,
     stop,
     setMessages,

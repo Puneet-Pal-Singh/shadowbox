@@ -12,7 +12,6 @@ import {
   ModelNotAllowedError,
   ValidationError,
 } from "../../domain/errors";
-import { isStrictMode, logCompatFallback, CompatFallbackReasonCodes } from "../../config/runtime-compat";
 import { isModelAllowedByCapabilityMatrix } from "../providers/provider-capability-matrix";
 
 /**
@@ -82,54 +81,20 @@ export function resolveModelSelection(
 
   // Partial override: one of providerId/modelId missing
   if (!providerId || !modelId) {
-    if (isStrictMode()) {
-      throw new ValidationError(
-        `Partial provider/model override: providerId=${providerId}, modelId=${modelId}. Both must be provided together.`,
-        "PARTIAL_OVERRIDE",
-        correlationId,
-      );
-    }
-    // Compat mode: log and fallback
-    logCompatFallback({
-      reasonCode: CompatFallbackReasonCodes.PROVIDER_SELECTION_DEFAULTED,
-      requestedProvider: providerId,
-      requestedModel: modelId,
-      resolvedProvider: defaultProvider,
-      resolvedModel: defaultModel,
-      runId: correlationId,
-    });
-    return {
-      model: defaultModel,
-      provider: defaultProvider,
-      runtimeProvider: defaultRuntimeProvider,
-      fallback: true,
-    };
+    throw new ValidationError(
+      `Partial provider/model override: providerId=${providerId}, modelId=${modelId}. Both must be provided together.`,
+      "INVALID_PROVIDER_SELECTION",
+      correlationId,
+    );
   }
 
   // Validate providerId is a known provider
   const parseResult = ProviderIdSchema.safeParse(providerId);
   if (!parseResult.success) {
-    if (isStrictMode()) {
-      throw new InvalidProviderSelectionError(
-        providerId,
-        correlationId,
-      );
-    }
-    // Compat mode: log and fallback
-    logCompatFallback({
-      reasonCode: CompatFallbackReasonCodes.PROVIDER_SELECTION_DEFAULTED,
-      requestedProvider: providerId,
-      requestedModel: modelId,
-      resolvedProvider: defaultProvider,
-      resolvedModel: defaultModel,
-      runId: correlationId,
-    });
-    return {
-      model: defaultModel,
-      provider: defaultProvider,
-      runtimeProvider: defaultRuntimeProvider,
-      fallback: true,
-    };
+    throw new InvalidProviderSelectionError(
+      providerId,
+      correlationId,
+    );
   }
 
   const validProviderId: ProviderId = parseResult.data;
@@ -137,24 +102,7 @@ export function resolveModelSelection(
   const isAllowedModel = isModelAllowedForProvider(validProviderId, modelId);
 
   if (!isAllowedModel) {
-    if (isStrictMode()) {
-      throw new ModelNotAllowedError(modelId, validProviderId, correlationId);
-    }
-
-    logCompatFallback({
-      reasonCode: CompatFallbackReasonCodes.MODEL_SELECTION_DEFAULTED,
-      requestedProvider: validProviderId,
-      requestedModel: modelId,
-      resolvedProvider: defaultProvider,
-      resolvedModel: defaultModel,
-      runId: correlationId,
-    });
-    return {
-      model: defaultModel,
-      provider: defaultProvider,
-      runtimeProvider: defaultRuntimeProvider,
-      fallback: true,
-    };
+    throw new ModelNotAllowedError(modelId, validProviderId, correlationId);
   }
 
   // Attempt to use provider override (actual connection check happens later)
