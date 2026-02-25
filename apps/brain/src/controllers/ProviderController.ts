@@ -1157,14 +1157,10 @@ function resolveSelection(
     console.log(
       `[provider/resolve] No BYOK credential connected. Using OpenRouter defaults.`,
     );
-    const openrouterProvider = catalog.providers.find(
-      (entry) => entry.providerId === "openrouter",
-    );
     const modelId =
       request.modelId ??
       preference.defaultModelId ??
       env.DEFAULT_MODEL ??
-      openrouterProvider?.models[0]?.id ??
       DEFAULT_PLATFORM_MODEL_ID;
 
     return {
