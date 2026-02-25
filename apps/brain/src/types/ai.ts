@@ -15,6 +15,7 @@ export interface Env {
   GOOGLE_GENERATIVE_AI_API_KEY?: string;
   ANTHROPIC_API_KEY?: string;
   GROQ_API_KEY?: string;
+  OPENROUTER_API_KEY?: string;
   OPENAI_API_KEY?: string;
   SYSTEM_PROMPT?: string;
 

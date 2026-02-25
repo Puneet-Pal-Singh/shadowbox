@@ -25,7 +25,8 @@ import {
   resolveGroqKey,
   resolveLiteLLMKey,
 } from "./ProviderKeyValidator";
-import { ValidationError, ProviderError } from "../../domain/errors";
+import { ValidationError } from "../../domain/errors";
+import { DEFAULT_OPENROUTER_FALLBACK_MODEL } from "./defaults";
 
 /**
  * Build the default provider adapter based on env configuration.
@@ -72,14 +73,7 @@ export function createLiteLLMAdapter(
   overrideApiKey?: string,
 ): LiteLLMAdapter {
   const { apiKey, baseURL } = resolveLiteLLMKey(env, overrideApiKey);
-
-  const defaultModel = env.DEFAULT_MODEL;
-  if (!defaultModel) {
-    throw new ProviderError(
-      "DEFAULT_MODEL is required for LiteLLM provider",
-      "MISSING_DEFAULT_MODEL",
-    );
-  }
+  const defaultModel = env.DEFAULT_MODEL ?? DEFAULT_OPENROUTER_FALLBACK_MODEL;
 
   return new LiteLLMAdapter({
     apiKey,

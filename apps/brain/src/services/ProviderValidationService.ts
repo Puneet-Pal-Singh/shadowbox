@@ -154,14 +154,15 @@ export class ProviderValidationService {
     warnings: ValidationError[],
   ): void {
     const hasGroqKey = !!env.GROQ_API_KEY;
+    const hasOpenRouterKey = !!env.OPENROUTER_API_KEY;
     const hasOpenAIKey = !!env.OPENAI_API_KEY;
 
-    if (!hasGroqKey && !hasOpenAIKey) {
+    if (!hasGroqKey && !hasOpenRouterKey && !hasOpenAIKey) {
       warnings.push({
         code: "MISSING_LITELLM_KEYS",
         message: "LiteLLM provider keys not configured",
         severity: "warning",
-        hint: "Chat will use OpenRouter defaults. Optionally set GROQ_API_KEY or OPENAI_API_KEY for self-hosted models",
+        hint: "Chat requires at least one fallback key. Set OPENROUTER_API_KEY (recommended), GROQ_API_KEY, or OPENAI_API_KEY",
       });
     }
 

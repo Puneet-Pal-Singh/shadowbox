@@ -42,6 +42,21 @@ describe("ProviderValidationService", () => {
       expect(result.errors).toHaveLength(0);
     });
 
+    it("should pass with OPENROUTER_API_KEY and DEFAULT_MODEL", () => {
+      const env = withSecurityConfig({
+        OPENROUTER_API_KEY: "sk-or-v1-test",
+        DEFAULT_MODEL: "google/gemma-2-9b-it:free",
+        LLM_PROVIDER: "litellm",
+      });
+
+      const result = ProviderValidationService.validate(env);
+      expect(result.valid).toBe(true);
+      expect(result.errors).toHaveLength(0);
+      expect(result.warnings.some((w) => w.code === "MISSING_LITELLM_KEYS")).toBe(
+        false,
+      );
+    });
+
     it("should warn (not error) without API key", () => {
       const env = withSecurityConfig({
         DEFAULT_MODEL: "llama-3.3-70b-versatile",
