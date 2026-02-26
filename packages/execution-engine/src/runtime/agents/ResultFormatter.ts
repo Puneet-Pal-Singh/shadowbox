@@ -8,7 +8,7 @@ const PRIMARY_TEXT_KEYS = [
 
 export function formatExecutionResult(result: unknown): string {
   if (typeof result === "string") {
-    return result;
+    return redactInternalRuntimeDetails(result);
   }
   if (typeof result === "number" || typeof result === "boolean") {
     return String(result);
@@ -19,7 +19,7 @@ export function formatExecutionResult(result: unknown): string {
   if (isRecord(result)) {
     const directText = findPrimaryText(result);
     if (directText) {
-      return directText;
+      return redactInternalRuntimeDetails(directText);
     }
     if ("data" in result) {
       const nestedText = formatExecutionResult(result.data);
@@ -28,7 +28,7 @@ export function formatExecutionResult(result: unknown): string {
       }
     }
   }
-  return safeStringify(result);
+  return redactInternalRuntimeDetails(safeStringify(result));
 }
 
 export function formatTaskOutput(outputContent: unknown): string {
@@ -58,6 +58,15 @@ function safeStringify(value: unknown): string {
   } catch {
     return String(value);
   }
+}
+
+function redactInternalRuntimeDetails(text: string): string {
+  return text
+    .replace(
+      /\/home\/sandbox\/runs\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\//gi,
+      "/home/sandbox/runs/[run]/",
+    )
+    .replace(/http:\/\/internal(?:\/[^\s"']*)?/gi, "[internal-url]");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

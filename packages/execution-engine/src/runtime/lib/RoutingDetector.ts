@@ -1,58 +1,74 @@
-// apps/brain/src/services/chat/ChatIntentDetector.ts
-// Phase 3: Detect whether chat should bypass planning or go through execution
-
-export type ChatIntent = "conversational" | "action" | "unknown";
-
 /**
- * Detects the user's intent in a chat message.
- * Phase 3: Route to direct LLM response vs task planning/execution.
+ * RoutingDetector: Unified conversational vs action intent detection
  *
- * Conversational intents bypass task planning and return direct LLM responses:
- * - Simple greetings ("hey?", "hello", "how are you?")
- * - General knowledge questions ("what is X?", "explain Y")
- * - No code changes requested
- * - No file operations mentioned
- *
- * Action intents require task planning and execution:
- * - "check README", "read file", "analyze code"
- * - "create file", "update", "add", "write"
- * - "run tests", "test this", "execute"
- * - "git commit", "push code"
- * - Explicit requests for file/code operations
+ * This service provides a single source of truth for routing decisions.
+ * It mirrors the logic in @shadowbox/brain/ChatIntentDetector but is
+ * standalone to avoid circular dependencies.
  */
-export class ChatIntentDetector {
+
+export type RoutingIntent = "conversational" | "action" | "unknown";
+
+export interface RoutingDecision {
+  intent: RoutingIntent;
+  bypass: boolean;
+  reason: string;
+}
+
+export class RoutingDetector {
   /**
-   * Analyze user prompt to determine chat intent
+   * Detect intent and determine if planning should be bypassed
    */
-  static detectIntent(prompt: string): ChatIntent {
+  static analyze(prompt: string): RoutingDecision {
     const normalized = prompt.toLowerCase().trim();
 
+    // Strip conversational lead-ins before analysis
+    const cleanedPrompt = this.stripConversationalLeadIns(normalized);
+
     // Conversational patterns (no action requested)
-    if (this.isConversational(normalized)) {
-      return "conversational";
+    if (this.isConversational(cleanedPrompt)) {
+      return {
+        intent: "conversational",
+        bypass: true,
+        reason: "detected conversational pattern",
+      };
     }
 
     if (
-      this.isShortConversationalUtterance(normalized) &&
-      !this.isAction(normalized)
+      this.isShortConversationalUtterance(cleanedPrompt) &&
+      !this.isAction(cleanedPrompt)
     ) {
-      return "conversational";
+      return {
+        intent: "conversational",
+        bypass: true,
+        reason: "short utterance without action keywords",
+      };
     }
 
     // Action patterns (explicit file/code operations)
     if (this.isAction(normalized)) {
-      return "action";
+      return {
+        intent: "action",
+        bypass: false,
+        reason: "detected action pattern",
+      };
     }
 
     // Default to action to be safe
-    return "unknown";
+    return {
+      intent: "unknown",
+      bypass: false,
+      reason: "ambiguous intent, defaulting to planning",
+    };
   }
 
-  /**
-   * Route to conversational path (direct LLM response)?
-   */
   static shouldBypassPlanning(prompt: string): boolean {
-    return this.detectIntent(prompt) === "conversational";
+    return this.analyze(prompt).bypass;
+  }
+
+  private static stripConversationalLeadIns(normalized: string): string {
+    return normalized
+      .replace(/^(so|well|hmm|uh+|um+|ok(?:ay)?)\b[\s,!?-]*/i, "")
+      .trim();
   }
 
   private static isConversational(normalized: string): boolean {

@@ -169,12 +169,16 @@ export class TaskScheduler implements ITaskScheduler {
       const result = await this.executor.execute(task);
 
       if (result.status !== "DONE") {
+        // Non-DONE status means task failed or errored, not success
         const fallbackMessage = `Task ${task.id} returned non-success status: ${result.status}`;
         const errorMessage = result.error?.message ?? fallbackMessage;
+        console.warn(
+          `[task/scheduler] Task ${task.id} executor returned non-DONE status: ${result.status}`,
+        );
         throw new SchedulerTaskResultError(task.id, result.status, errorMessage);
       }
 
-      // Mark as DONE
+      // Mark as DONE only when result.status is explicitly DONE
       task.transition("DONE", { output: result.output });
       await this.taskRepo.update(task);
 

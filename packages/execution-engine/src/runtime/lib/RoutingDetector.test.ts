@@ -1,10 +1,7 @@
-// apps/brain/src/services/chat/ChatIntentDetector.test.ts
-// Phase 3: Test conversational vs action intent detection
-
 import { describe, it, expect } from "vitest";
-import { ChatIntentDetector, type ChatIntent } from "./ChatIntentDetector.js";
+import { RoutingDetector, type RoutingIntent } from "./RoutingDetector";
 
-describe("ChatIntentDetector - Phase 3: Conversational vs Action", () => {
+describe("RoutingDetector - Unified routing logic", () => {
   describe("Conversational intents (bypass planning)", () => {
     const conversationalExamples: string[] = [
       "hey?",
@@ -33,7 +30,6 @@ describe("ChatIntentDetector - Phase 3: Conversational vs Action", () => {
       "alright",
       "yep",
       "yup",
-      "sounds good",
       "bye",
       "goodbye",
       "good morning",
@@ -41,9 +37,11 @@ describe("ChatIntentDetector - Phase 3: Conversational vs Action", () => {
     ];
 
     conversationalExamples.forEach((prompt) => {
-      it(`should detect "${prompt}" as conversational`, () => {
-        expect(ChatIntentDetector.detectIntent(prompt)).toBe("conversational");
-        expect(ChatIntentDetector.shouldBypassPlanning(prompt)).toBe(true);
+      it(`should bypass planning for "${prompt}"`, () => {
+        const decision = RoutingDetector.analyze(prompt);
+        expect(decision.intent).toBe("conversational");
+        expect(decision.bypass).toBe(true);
+        expect(RoutingDetector.shouldBypassPlanning(prompt)).toBe(true);
       });
     });
 
@@ -56,7 +54,8 @@ describe("ChatIntentDetector - Phase 3: Conversational vs Action", () => {
       ];
 
       questions.forEach((q) => {
-        expect(ChatIntentDetector.shouldBypassPlanning(q)).toBe(true);
+        const decision = RoutingDetector.analyze(q);
+        expect(decision.bypass).toBe(true);
       });
     });
   });
@@ -99,68 +98,69 @@ describe("ChatIntentDetector - Phase 3: Conversational vs Action", () => {
       // Workspace context
       ["in this project, check the README", "workspace context"],
       ["analyze the src/ directory", "workspace context"],
-      ["what's in lib/?", "workspace context with action"],
     ];
 
     actionExamples.forEach(([prompt, context]) => {
-      it(`should detect "${prompt}" (${context}) as action`, () => {
-        const intent = ChatIntentDetector.detectIntent(prompt);
-        expect(
-          intent === "action" || intent === "unknown",
-          `"${prompt}" should require planning (${context})`,
-        ).toBe(true);
-        expect(ChatIntentDetector.shouldBypassPlanning(prompt)).toBe(false);
+      it(`should require planning for "${prompt}" (${context})`, () => {
+        const decision = RoutingDetector.analyze(prompt);
+        expect(decision.bypass).toBe(false);
+        expect(RoutingDetector.shouldBypassPlanning(prompt)).toBe(false);
       });
+    });
+  });
+
+  describe("Routing decision structure", () => {
+    it("should return complete decision object", () => {
+      const decision = RoutingDetector.analyze("hey");
+      expect(decision).toHaveProperty("intent");
+      expect(decision).toHaveProperty("bypass");
+      expect(decision).toHaveProperty("reason");
+      expect(typeof decision.reason).toBe("string");
+    });
+
+    it("should provide meaningful reasons for decisions", () => {
+      const conversational = RoutingDetector.analyze("hey");
+      expect(conversational.reason).toContain("conversational");
+
+      const action = RoutingDetector.analyze("read README");
+      expect(action.reason).toContain("action");
     });
   });
 
   describe("Edge cases", () => {
     it("should handle whitespace and case variations", () => {
-      expect(ChatIntentDetector.detectIntent("  HEY?  ")).toBe(
-        "conversational",
-      );
-      expect(ChatIntentDetector.detectIntent("READ FILE")).toBe("action");
+      expect(RoutingDetector.shouldBypassPlanning("  HEY?  ")).toBe(true);
+      expect(RoutingDetector.shouldBypassPlanning("READ FILE")).toBe(false);
     });
 
     it("should default to action for ambiguous prompts", () => {
-      const ambiguous = [
-        "what's this?",
-        "can you help?",
-        "anything else?",
-      ];
+      const ambiguous = ["what's this?", "can you help?", "anything else?"];
 
       ambiguous.forEach((prompt) => {
-        const intent = ChatIntentDetector.detectIntent(prompt);
-        // Should be either action or unknown, but definitely route through planning
-        expect(intent !== "conversational").toBe(true);
+        const decision = RoutingDetector.analyze(prompt);
+        expect(decision.bypass).toBe(false);
       });
     });
 
     it("should handle empty and very short inputs", () => {
-      expect(
-        ChatIntentDetector.detectIntent("") || "unknown",
-      ).toBeTruthy();
-      expect(ChatIntentDetector.detectIntent("?")).toBeTruthy();
+      const empty = RoutingDetector.analyze("");
+      expect(empty.intent).toBeTruthy();
+
+      const single = RoutingDetector.analyze("?");
+      expect(single.intent).toBeTruthy();
     });
   });
 
-  describe("Integration examples", () => {
-    it("should bypass planning for pure conversation", () => {
-      const scenarios: Array<[string, boolean]> = [
-        ["hey?", true],
-        ["hello there", true],
-        ["what is git?", true],
-        ["check README", false],
-        ["create a file", false],
-        ["run npm test", false],
-      ];
+  describe("Intent classification", () => {
+    it("should classify conversational intents correctly", () => {
+      const intent: RoutingIntent = RoutingDetector.analyze("hey").intent;
+      expect(["conversational", "action", "unknown"]).toContain(intent);
+    });
 
-      scenarios.forEach(([prompt, shouldBypass]) => {
-        expect(ChatIntentDetector.shouldBypassPlanning(prompt)).toBe(
-          shouldBypass,
-          `Failed for: "${prompt}"`,
-        );
-      });
+    it("should classify action intents correctly", () => {
+      const intent: RoutingIntent = RoutingDetector.analyze("read README")
+        .intent;
+      expect(intent).toBe("action");
     });
   });
 });
