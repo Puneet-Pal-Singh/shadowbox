@@ -24,6 +24,16 @@ export class RoutingDetector {
     // Strip conversational lead-ins before analysis
     const cleanedPrompt = this.stripConversationalLeadIns(normalized);
 
+    // Action patterns (explicit file/code/workspace operations)
+    // Action takes precedence over conversational tone.
+    if (this.isAction(normalized)) {
+      return {
+        intent: "action",
+        bypass: false,
+        reason: "detected action pattern",
+      };
+    }
+
     // Conversational patterns (no action requested)
     if (this.isConversational(cleanedPrompt)) {
       return {
@@ -44,20 +54,12 @@ export class RoutingDetector {
       };
     }
 
-    // Action patterns (explicit file/code operations)
-    if (this.isAction(normalized)) {
-      return {
-        intent: "action",
-        bypass: false,
-        reason: "detected action pattern",
-      };
-    }
-
-    // Default to action to be safe
+    // Default to conversational unless action is explicit.
+    // This avoids turning normal chat into unnecessary task plans.
     return {
-      intent: "unknown",
-      bypass: false,
-      reason: "ambiguous intent, defaulting to planning",
+      intent: "conversational",
+      bypass: true,
+      reason: "no explicit action pattern detected",
     };
   }
 
@@ -120,7 +122,14 @@ export class RoutingDetector {
   }
 
   private static isAction(normalized: string): boolean {
+    const imperativeActionVerb =
+      "(read|check|view|analyze|examine|inspect|show|create|write|add|edit|modify|update|change|fix|delete|remove|run|execute|implement|refactor|optimize|lint|format|compile|transpile|debug|investigate)";
+
     const actionPatterns = [
+      // Imperative command-style prompts
+      new RegExp(`^(please\\s+)?${imperativeActionVerb}\\b`, "i"),
+      new RegExp(`\\b(can you|could you|would you|please)\\s+${imperativeActionVerb}\\b`, "i"),
+
       // File operations - read/check/view file operations
       /\b(read|check|view|analyze|examine|inspect|look at|show me)\s+(file|README|config|src|test)/i,
       // File operations - create/edit operations
@@ -129,7 +138,8 @@ export class RoutingDetector {
       /\b(delete|remove|rm|mkdir|make)\s+(file|directory|dir|folder)/i,
 
       // Git operations
-      /\b(git|commit|push|pull|merge|branch|checkout|stage|add)\b/i,
+      /\bgit\s+(commit|push|pull|merge|branch|checkout|add|status|diff|log|rebase|cherry-pick)\b/i,
+      /\b(commit|push|pull|merge|branch|checkout|rebase|cherry-pick)\b/i,
       /\b(version control|source control)\b/i,
 
       // Test operations
@@ -146,7 +156,7 @@ export class RoutingDetector {
 
       // Workspace awareness
       /\b(in this (project|repo|workspace)|codebase|repository)\b/i,
-      /\b(src\/|tests\/|lib\/|package\.json|tsconfig)\b/i,
+      /(src\/|tests\/|lib\/|docs\/|scripts\/|package\.json|tsconfig)/i,
     ];
 
     return actionPatterns.some((p) => p.test(normalized));

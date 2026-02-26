@@ -17,6 +17,7 @@ describe("ChatIntentDetector - Phase 3: Conversational vs Action", () => {
       "how are you?",
       "how r u",
       "what's your name?",
+      "what can you do?",
       "what is your purpose?",
       "thanks",
       "thank you",
@@ -100,6 +101,8 @@ describe("ChatIntentDetector - Phase 3: Conversational vs Action", () => {
       ["in this project, check the README", "workspace context"],
       ["analyze the src/ directory", "workspace context"],
       ["what's in lib/?", "workspace context with action"],
+      ["fix this", "imperative action"],
+      ["can you check README?", "polite imperative action"],
     ];
 
     actionExamples.forEach(([prompt, context]) => {
@@ -122,7 +125,7 @@ describe("ChatIntentDetector - Phase 3: Conversational vs Action", () => {
       expect(ChatIntentDetector.detectIntent("READ FILE")).toBe("action");
     });
 
-    it("should default to action for ambiguous prompts", () => {
+    it("should default to conversational for non-action prompts", () => {
       const ambiguous = [
         "what's this?",
         "can you help?",
@@ -131,8 +134,7 @@ describe("ChatIntentDetector - Phase 3: Conversational vs Action", () => {
 
       ambiguous.forEach((prompt) => {
         const intent = ChatIntentDetector.detectIntent(prompt);
-        // Should be either action or unknown, but definitely route through planning
-        expect(intent !== "conversational").toBe(true);
+        expect(intent).toBe("conversational");
       });
     });
 
