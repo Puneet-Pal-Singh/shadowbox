@@ -5,6 +5,7 @@ import { z } from "zod";
 
 /**
  * PlannedTask represents a single unit of work
+ * Phase 2: Extended with structured `input` field to preserve task parameters end-to-end
  */
 export const PlannedTaskSchema = z
   .object({
@@ -13,6 +14,7 @@ export const PlannedTaskSchema = z
     description: z.string().min(1).max(1000),
     dependsOn: z.array(z.string()).default([]),
     expectedOutput: z.string().optional(),
+    input: z.record(z.string(), z.unknown()).optional(),
   })
   .transform((task) => ({
     ...task,

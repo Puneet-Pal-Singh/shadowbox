@@ -1,18 +1,3 @@
-/**
- * AIService - Pure inference layer facade
- *
- * This service:
- * 1. Orchestrates model selection and adapter resolution
- * 2. Delegates text/structured/stream generation to specialized services
- * 3. Returns standardized results including LLMUsage
- * 4. Does NOT perform cost tracking (handled by RunEngine)
- *
- * Design: Thin facade coordinating extraction layer modules.
- * Each generation path is in a dedicated service module.
- * Provider adapter creation is factory-based.
- * SDK calls (generateObject, AI SDK imports) happen here per eslint restrictions.
- */
-
 import { generateObject, type CoreMessage, type CoreTool } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createAnthropic } from "@ai-sdk/anthropic";
@@ -43,15 +28,6 @@ import { resolveSelectionWithPreferences } from "./ai/preference-selection";
 import { DEFAULT_OPENROUTER_FALLBACK_MODEL } from "./ai/defaults";
 import { DefaultAdapterService } from "./ai/DefaultAdapterService";
 
-/**
- * AIService - Orchestrates LLM inference through provider adapters
- *
- * Responsibilities:
- * - Model selection (with override support)
- * - Adapter resolution (with fallback logic)
- * - Delegation to specialized generation services
- * - Unified usage tracking
- */
 export class AIService {
   private adapter: ProviderAdapter;
   private defaultModel: string;
@@ -66,28 +42,14 @@ export class AIService {
     this.providerConfigService = providerConfigService;
   }
 
-  /**
-   * Get the current provider name
-   */
   getProvider(): string {
     return this.adapter.provider;
   }
 
-  /**
-   * Get the default model
-   */
   getDefaultModel(): string {
     return this.defaultModel;
   }
 
-  /**
-   * Resolve provider/model override selection
-   * @see ModelSelectionPolicy.resolveModelSelection for logic details
-   *
-   * @param providerId - Provider override ID
-   * @param modelId - Model override ID
-   * @param isByokOverride - If true, allows provider-native models even if not in allowlist
-   */
   resolveModelSelection(providerId?: string, modelId?: string, isByokOverride = false) {
     return resolveModelSelection(
       providerId,
@@ -100,10 +62,6 @@ export class AIService {
     );
   }
 
-  /**
-   * Generate text with usage tracking
-   * Pure inference - no cost tracking
-   */
   async generateText({
     messages,
     model,
@@ -139,10 +97,6 @@ export class AIService {
     });
   }
 
-  /**
-   * Generate structured output with usage tracking
-   * Pure inference - no cost tracking
-   */
   async generateStructured<T>({
     messages,
     schema,
@@ -208,10 +162,6 @@ export class AIService {
     };
   }
 
-  /**
-   * Create a streaming chat response
-   * Pure inference - no cost tracking
-   */
   async createChatStream({
     messages,
     system,
@@ -248,30 +198,26 @@ export class AIService {
       this.providerConfigService,
     );
 
-    return createChatStream(selectedAdapter, {
-      messages,
-      system,
-      tools,
-      temperature,
-      model: selection.model,
-    }, {
-      onFinish,
-      onChunk,
-    });
+    return createChatStream(
+      selectedAdapter,
+      {
+        messages,
+        system,
+        tools,
+        temperature,
+        model: selection.model,
+      },
+      {
+        onFinish,
+        onChunk,
+      },
+    );
   }
 
-  /**
-   * Get the underlying provider adapter
-   * For advanced use cases
-   */
   getProviderAdapter(): ProviderAdapter {
     return this.adapter;
   }
 
-  /**
-   * Create an AI SDK model instance from config.
-   * Private method - handles SDK instantiation per eslint restrictions.
-   */
   private createSDKModel(config: SDKModelConfig) {
     const { provider, apiKey, baseURL, model } = config;
 

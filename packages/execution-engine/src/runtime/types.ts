@@ -26,6 +26,13 @@ export type RunStatus =
 
 export type AgentType = "coding" | "review" | "ci" | (string & {});
 
+export interface RepositoryContext {
+  owner?: string;
+  repo?: string;
+  branch?: string;
+  baseUrl?: string;
+}
+
 export interface RunInput {
   agentType: AgentType;
   prompt: string;
@@ -33,6 +40,8 @@ export interface RunInput {
   providerId?: string;
   modelId?: string;
   metadata?: Record<string, unknown>;
+  // Phase 4: Repository context for workspace-aware operations
+  repositoryContext?: RepositoryContext;
 }
 
 export interface RunOutput {

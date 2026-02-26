@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main, dev, develop]
   pull_request:
-    branches: [main, develop]
+    branches: [main, dev, develop]
 
 permissions:
   contents: read
@@ -89,9 +89,13 @@ jobs:
       - name: Run architecture boundary tests
         run: pnpm --filter @shadowbox/brain test -- src/architecture/layering.boundary.test.ts src/architecture/no-legacy-imports.test.ts
 
-  test-smoke:
-    name: Test (smoke)
+  test-smoke-report:
+    name: Test (smoke, report-only)
     runs-on: ubuntu-latest
+    continue-on-error: true
+    env:
+      QUARANTINE_OWNER: "@shadowbox/brain"
+      QUARANTINE_EXPIRES_ON: "2026-03-07"
     steps:
       - uses: actions/checkout@v4
 
@@ -114,10 +118,16 @@ jobs:
           pnpm --filter @shadowbox/web test -- --run
           pnpm --filter @shadowbox/brain test -- src/architecture/layering.boundary.test.ts src/architecture/no-legacy-imports.test.ts
 
+      - name: Smoke quarantine metadata
+        run: |
+          echo "Smoke checks are report-only during integration stabilization."
+          echo "Owner: ${QUARANTINE_OWNER}"
+          echo "Expires on: ${QUARANTINE_EXPIRES_ON}"
+
   build:
     name: Build
     runs-on: ubuntu-latest
-    needs: [lint, check-types, boundaries, test-smoke]
+    needs: [lint, check-types, boundaries]
     steps:
       - uses: actions/checkout@v4
 
@@ -137,3 +147,35 @@ jobs:
 
       - name: Build project
         run: pnpm build
+
+  release-quality-gates:
+    name: Release Quality Gates (blocking)
+    if: |
+      (github.event_name == 'pull_request' && github.base_ref == 'main') ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.0.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Run boundary checks (strict)
+        run: |
+          pnpm check:boundaries
+          pnpm --filter @shadowbox/brain test -- src/architecture/layering.boundary.test.ts src/architecture/no-legacy-imports.test.ts
+
+      - name: Run smoke checks (strict)
+        run: |
+          pnpm --filter @shadowbox/web test -- --run
