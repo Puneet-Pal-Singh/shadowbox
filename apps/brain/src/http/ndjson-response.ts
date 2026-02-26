@@ -28,18 +28,28 @@ export async function ndjsonResponse(
   eventStream: AsyncIterable<ChatResponseEventUnion>,
   runId: string,
 ): Promise<Response> {
-  const { readable, writable } = new TransformStream<
-    ChatResponseEventUnion,
-    Uint8Array
-  >();
+  // Create a transform stream that converts events to NDJSON bytes
+  const transformStream = new TransformStream<ChatResponseEventUnion, Uint8Array>(
+    {
+      transform(event, controller) {
+        const serialized = serializeChatResponseEvent(event);
+        const line = `${serialized}\n`;
+        const encoded = new TextEncoder().encode(line);
+        controller.enqueue(encoded);
+        console.log(
+          `[chat/ndjson] Emitted event: ${event.type} for run ${event.runId}`,
+        );
+      },
+    },
+  );
 
-  // Start writing events to the stream in background
+  // Pipe events through the transform stream in background
   // (void fires but doesn't block the response)
-  writeEventsToStream(writable, eventStream).catch((error) => {
+  pipeEventsToStream(eventStream, transformStream.writable).catch((error) => {
     console.error(`[chat/ndjson] Event stream error for run ${runId}:`, error);
   });
 
-  return new Response(readable, {
+  return new Response(transformStream.readable, {
     status: 200,
     headers: {
       "Content-Type": "application/x-ndjson; charset=utf-8",
@@ -52,26 +62,18 @@ export async function ndjsonResponse(
 }
 
 /**
- * Write events to a WritableStream as NDJSON lines
+ * Pipe events to a WritableStream
  * @internal
  */
-async function writeEventsToStream(
-  writable: WritableStream<Uint8Array>,
+async function pipeEventsToStream(
   eventStream: AsyncIterable<ChatResponseEventUnion>,
+  writable: WritableStream<ChatResponseEventUnion>,
 ): Promise<void> {
   const writer = writable.getWriter();
-  const encoder = new TextEncoder();
 
   try {
     for await (const event of eventStream) {
-      const serialized = serializeChatResponseEvent(event);
-      const line = `${serialized}\n`;
-      const encoded = encoder.encode(line);
-
-      await writer.write(encoded);
-      console.log(
-        `[chat/ndjson] Emitted event: ${event.type} for run ${event.runId}`,
-      );
+      await writer.write(event);
     }
   } catch (error) {
     console.error("[chat/ndjson] Error during event stream:", error);
