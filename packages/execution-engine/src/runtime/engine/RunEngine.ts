@@ -221,6 +221,11 @@ export class RunEngine implements IRunEngine {
         this.persistConversationMessages(runId, sessionId, messages, "user"),
       );
 
+      if (this.shouldBypassPlanning(input.prompt)) {
+        console.log(`[run/engine] Conversational bypass for run ${runId}`);
+        return await this.executeConversationalTurn(run, input, messages);
+      }
+
       console.log(`[run/engine] Planning phase for run ${runId}`);
       try {
         run.transition("PLANNING");
@@ -516,6 +521,154 @@ export class RunEngine implements IRunEngine {
       });
     }
     return this.synthesizeResult(run, originalPrompt, memoryContext);
+  }
+
+  private async executeConversationalTurn(
+    run: Run,
+    input: RunInput,
+    messages: CoreMessage[],
+  ): Promise<Response> {
+    run.transition("RUNNING");
+    await this.runRepo.update(run);
+
+    const upstream = await this.llmGateway.generateStream({
+      context: {
+        runId: run.id,
+        sessionId: run.sessionId,
+        agentType: run.agentType,
+        phase: "synthesis",
+      },
+      messages,
+      model: input.modelId,
+      providerId: input.providerId,
+      temperature: 0.7,
+    });
+
+    const reader = upstream.getReader();
+    const decoder = new TextDecoder();
+    let accumulatedText = "";
+    let finalized = false;
+
+    const finalize = async (): Promise<void> => {
+      if (finalized) {
+        return;
+      }
+      finalized = true;
+
+      const remaining = decoder.decode();
+      if (remaining.length > 0) {
+        accumulatedText += remaining;
+      }
+
+      await this.safeMemoryOperation(() =>
+        this.memoryCoordinator.extractAndPersist({
+          runId: run.id,
+          sessionId: run.sessionId,
+          source: "synthesis",
+          content: accumulatedText,
+          phase: "synthesis",
+        }),
+      );
+
+      await this.safeMemoryOperation(() =>
+        this.persistConversationMessages(
+          run.id,
+          run.sessionId,
+          [{ role: "assistant", content: accumulatedText }],
+          "assistant",
+        ),
+      );
+
+      await this.safeMemoryOperation(() =>
+        this.memoryCoordinator.createCheckpoint({
+          runId: run.id,
+          sequence: 1,
+          phase: "synthesis",
+          runStatus: "COMPLETED",
+          taskStatuses: {},
+        }),
+      );
+
+      run.transition("COMPLETED");
+      run.output = { content: accumulatedText };
+      await this.runRepo.update(run);
+      console.log(`[run/engine] Completed conversational run ${run.id}`);
+    };
+
+    const stream = new ReadableStream<Uint8Array>({
+      pull: async (controller) => {
+        try {
+          const chunk = await reader.read();
+          if (chunk.done) {
+            await finalize();
+            controller.close();
+            return;
+          }
+
+          if (chunk.value) {
+            accumulatedText += decoder.decode(chunk.value, { stream: true });
+            controller.enqueue(chunk.value);
+          }
+        } catch (error) {
+          controller.error(error);
+        }
+      },
+      cancel: async (reason) => {
+        await reader.cancel(reason);
+      },
+    });
+
+    return new Response(stream, {
+      headers: {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Transfer-Encoding": "chunked",
+      },
+    });
+  }
+
+  private shouldBypassPlanning(prompt: string): boolean {
+    const normalized = prompt.toLowerCase().trim();
+    if (normalized.length === 0) {
+      return false;
+    }
+
+    // Tiny greetings and short utterances should remain conversational.
+    if (normalized.length <= 3 && /^(\?+|[a-z]+\??)$/.test(normalized)) {
+      return true;
+    }
+
+    if (this.hasActionKeywords(normalized)) {
+      return false;
+    }
+
+    const conversationalPatterns = [
+      /^(hey|hi|hello|howdy|greetings)\??(\s|$)/,
+      /^how\s+(are|r)\s+(u|you)/,
+      /^what('?s|\s+is)\s+(your\s+)?(name|goal|purpose)/,
+      /^(thanks|thank you|thx|ty)(\s|$)/,
+      /^(good\s+(morning|afternoon|evening|night)|bye|goodbye|see you)/,
+      /^what\s+is\s+/,
+      /^explain\s+/,
+      /^how\s+does\s+/,
+      /^why\s+/,
+    ];
+
+    return conversationalPatterns.some((pattern) => pattern.test(normalized));
+  }
+
+  private hasActionKeywords(normalized: string): boolean {
+    const actionPatterns = [
+      /\b(read|check|view|analyze|examine|inspect|look at|show me)\s+(file|readme|config|src|test)/i,
+      /\b(create|write|add|edit|modify|update|change|fix)\s+(file|code|function|class|test|readme)/i,
+      /\b(delete|remove|rm|mkdir|make)\s+(file|directory|dir|folder)/i,
+      /\b(git|commit|push|pull|merge|branch|checkout|stage|add)\b/i,
+      /\b(test|run tests|npm test|jest|mocha|vitest)\b/i,
+      /\b(run|execute|exec|npm|yarn|pnpm|node|npx)\s+/i,
+      /\b(in this (project|repo|workspace)|codebase|repository)\b/i,
+      /\b(src\/|tests\/|lib\/|package\.json|tsconfig)\b/i,
+    ];
+
+    return actionPatterns.some((pattern) => pattern.test(normalized));
   }
 
   private async synthesizeResult(
