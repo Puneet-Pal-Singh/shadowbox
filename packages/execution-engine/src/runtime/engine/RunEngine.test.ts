@@ -58,6 +58,18 @@ describe("RunEngine", () => {
     );
     expect(sanitized).toContain("/home/sandbox/runs/[run]/");
   });
+
+  it("builds conversational system prompt with direct-answer style guidance", () => {
+    const runEngine = createRunEngine();
+    const privateApi = runEngine as unknown as {
+      buildConversationalSystemPrompt(): string;
+    };
+
+    const prompt = privateApi.buildConversationalSystemPrompt();
+    expect(prompt).toContain("Answer the user directly in the first sentence");
+    expect(prompt).toContain("Avoid robotic report phrasing");
+    expect(prompt).toContain("Do not fabricate tool execution");
+  });
 });
 
 function createRunEngine(): RunEngine {
