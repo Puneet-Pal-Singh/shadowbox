@@ -273,8 +273,13 @@ async function readErrorPreview(response: Response): Promise<string> {
       return text.slice(0, 200);
     }
   } catch {
-    // No-op.
+    console.warn(
+      `[git/controller] Failed to read error preview body (status=${response.status})`,
+    );
   }
 
+  console.warn(
+    `[git/controller] Empty error preview for non-OK response (status=${response.status} ${response.statusText})`,
+  );
   return "";
 }

@@ -141,7 +141,9 @@ export function useChatCore(
     async (message: { role: "user"; content: string }): Promise<void> => {
       const content = message.content.trim();
       if (!content || status !== "ready") {
-        throw new Error("Chat is not ready. Please try again.");
+        throw new Error(
+          "Chat is still initializing model settings. Wait a moment, then try again. If this continues, open Settings and reconnect a provider key.",
+        );
       }
       setError(null);
 
@@ -302,34 +304,35 @@ function pickDebugHeaders(headers: Headers): Record<string, string> {
 
 function normalizeChatErrorMessage(error: Error): string {
   const rawMessage = error.message || "Unknown chat error";
+  const parsedMessage = parseJsonErrorMessage(rawMessage);
+  const message = parsedMessage ?? rawMessage;
+  const normalized = mapKnownChatErrorMessage(message);
+  return normalized ?? message;
+}
+
+function parseJsonErrorMessage(rawMessage: string): string | null {
   try {
     const parsed = JSON.parse(rawMessage) as { error?: string };
-    if (parsed?.error) {
-      if (containsMissingDefaultKeyError(parsed.error)) {
-        return "No default provider key is configured. Connect a BYOK provider in Settings or set OPENROUTER_API_KEY, GROQ_API_KEY, or OPENAI_API_KEY for local fallback.";
-      }
-      if (containsOpenRouterKeyLimitError(parsed.error)) {
-        return "OpenRouter key limit is exhausted ($0 total limit). Increase key limit in https://openrouter.ai/settings/keys or use a BYOK provider key.";
-      }
-      if (containsToolChoiceUnsupportedError(parsed.error)) {
-        return "The selected default model does not support required tool-calling/structured planning. Choose another model or disable OpenRouter routing constraints.";
-      }
-      return parsed.error;
+    if (typeof parsed?.error === "string" && parsed.error.trim().length > 0) {
+      return parsed.error.trim();
     }
   } catch {
-    // Not JSON payload
+    // Not a JSON payload
   }
+  return null;
+}
 
-  if (containsMissingDefaultKeyError(rawMessage)) {
+function mapKnownChatErrorMessage(message: string): string | null {
+  if (containsMissingDefaultKeyError(message)) {
     return "No default provider key is configured. Connect a BYOK provider in Settings or set OPENROUTER_API_KEY, GROQ_API_KEY, or OPENAI_API_KEY for local fallback.";
   }
-  if (containsOpenRouterKeyLimitError(rawMessage)) {
+  if (containsOpenRouterKeyLimitError(message)) {
     return "OpenRouter key limit is exhausted ($0 total limit). Increase key limit in https://openrouter.ai/settings/keys or use a BYOK provider key.";
   }
-  if (containsToolChoiceUnsupportedError(rawMessage)) {
+  if (containsToolChoiceUnsupportedError(message)) {
     return "The selected default model does not support required tool-calling/structured planning. Choose another model or disable OpenRouter routing constraints.";
   }
-  return rawMessage;
+  return null;
 }
 
 function containsMissingDefaultKeyError(message: string): boolean {

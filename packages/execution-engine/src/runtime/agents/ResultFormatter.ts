@@ -54,8 +54,7 @@ function findPrimaryText(record: Record<string, unknown>): string | null {
 
 function safeStringify(value: unknown): string {
   try {
-    const serialized = JSON.stringify(value, null, 2);
-    return serialized ?? String(value);
+    return JSON.stringify(value, null, 2);
   } catch {
     return String(value);
   }

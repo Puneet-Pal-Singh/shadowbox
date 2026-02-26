@@ -300,7 +300,7 @@ export class AIService {
         "[ai/service] default adapter unavailable; using deferred error adapter",
         error,
       );
-      return new MissingProviderConfigAdapter(env, error);
+      return new MissingProviderConfigAdapter(env);
     }
   }
 }
@@ -312,13 +312,12 @@ class MissingProviderConfigAdapter implements ProviderAdapter {
 
   private readonly configurationError: ValidationError;
 
-  constructor(env: Env, cause: unknown) {
+  constructor(env: Env) {
     this.provider = env.LLM_PROVIDER ?? "litellm";
     this.configurationError = new ValidationError(
       "No default provider key is configured. Connect a BYOK provider in Settings or configure OPENROUTER_API_KEY, GROQ_API_KEY, or OPENAI_API_KEY.",
       "INFERENCE_PROVIDER_NOT_CONFIGURED",
     );
-    void cause;
   }
 
   supportsModel(_model: string): boolean {
