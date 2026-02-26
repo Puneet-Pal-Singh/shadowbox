@@ -220,9 +220,63 @@ export class ChatController {
       );
     }
 
-    return typeof lastUserMessage.content === "string"
-      ? lastUserMessage.content
-      : JSON.stringify(lastUserMessage.content);
+    const extractedText = this.extractTextFromMessageContent(
+      lastUserMessage.content,
+    );
+    if (extractedText.length > 0) {
+      return extractedText;
+    }
+
+    return this.safeStringify(lastUserMessage.content);
+  }
+
+  private static extractTextFromMessageContent(content: unknown): string {
+    if (typeof content === "string") {
+      return content;
+    }
+
+    if (Array.isArray(content)) {
+      const parts = content
+        .map((part) => this.extractTextFromPart(part))
+        .filter((part) => part.length > 0);
+      return parts.join("\n").trim();
+    }
+
+    return this.extractTextFromPart(content);
+  }
+
+  private static extractTextFromPart(part: unknown): string {
+    if (typeof part === "string") {
+      return part;
+    }
+
+    if (!part || typeof part !== "object") {
+      return "";
+    }
+
+    const record = part as Record<string, unknown>;
+
+    if (record.type === "text" && typeof record.text === "string") {
+      return record.text;
+    }
+
+    if (typeof record.text === "string") {
+      return record.text;
+    }
+
+    if (typeof record.content === "string") {
+      return record.content;
+    }
+
+    return "";
+  }
+
+  private static safeStringify(value: unknown): string {
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return String(value);
+    }
   }
 
   private static async resolveExecutionScope(
