@@ -131,6 +131,16 @@ export {
   type ChatResponseEventUnion,
 } from "./chat-response-events.js";
 
+// Chat response contract (v1 frozen DTOs for provider parity)
+export {
+  CHAT_RESPONSE_PROTOCOL_VERSION,
+  ChatResponseEventSchema,
+  validateChatResponseEvent,
+  parseChatResponseEvent as parseChatResponseEventContract,
+  safeParseChatResponseEvent,
+  type ChatResponseEvent as ChatResponseEventContract,
+} from "./chat-response-contract.js";
+
 // Compatibility layer
 export {
   LEGACY_EVENT_NAMES,
