@@ -486,6 +486,7 @@ export class RunEngine implements IRunEngine {
       {
         description: planned.description,
         expectedOutput: planned.expectedOutput,
+        ...(planned.input ?? {}),
       },
     );
   }
@@ -632,43 +633,64 @@ export class RunEngine implements IRunEngine {
       return false;
     }
 
-    // Tiny greetings and short utterances should remain conversational.
-    if (normalized.length <= 3 && /^(\?+|[a-z]+\??)$/.test(normalized)) {
+    const conversationalCandidate = this.stripConversationalLeadIns(normalized);
+
+    // Tiny greetings and short utterances (e.g., "yo", "?", "hi") - conversational by default
+    if (
+      conversationalCandidate.length <= 3 &&
+      /^(\?+|[a-z]+\??)?$/.test(conversationalCandidate)
+    ) {
       return true;
     }
 
+    // Check for action keywords first - if present, requires planning
     if (this.hasActionKeywords(normalized)) {
       return false;
     }
 
+    // Greetings and common conversational patterns
     const conversationalPatterns = [
       /^(hey|hi|hello|howdy|greetings)\??(\s|$)/,
       /^how\s+(are|r)\s+(u|you)/,
-      /^what('?s|\s+is)\s+(your\s+)?(name|goal|purpose)/,
+      /\bwhat('?s|\s+is)\s+(your\s+)?(name|goal|purpose)\b/,
       /^(thanks|thank you|thx|ty)(\s|$)/,
       /^(good\s+(morning|afternoon|evening|night)|bye|goodbye|see you)/,
-      /^what\s+is\s+/,
-      /^explain\s+/,
-      /^how\s+does\s+/,
-      /^why\s+/,
+      /\bwhat\s+is\s+\b/,
+      /\bexplain\s+\b/,
+      /\bhow\s+does\s+\b/,
+      /\bwhy\s+\b/,
+      /\bwhat\s+are\s+(the\s+)?(benefits|advantages|differences|pros)\b/,
     ];
 
-    return conversationalPatterns.some((pattern) => pattern.test(normalized));
+    return conversationalPatterns.some((pattern) =>
+      pattern.test(conversationalCandidate),
+    );
   }
 
   private hasActionKeywords(normalized: string): boolean {
     const actionPatterns = [
-      /\b(read|check|view|analyze|examine|inspect|look at|show me)\s+(file|readme|config|src|test)/i,
-      /\b(create|write|add|edit|modify|update|change|fix)\s+(file|code|function|class|test|readme)/i,
+      /\b(read|check|view|analyze|examine|inspect|look at|show me)\s+(file|README|config|src|test)/i,
+      /\b(create|write|add|edit|modify|update|change|fix)\s+(file|code|function|class|test|README)/i,
       /\b(delete|remove|rm|mkdir|make)\s+(file|directory|dir|folder)/i,
       /\b(git|commit|push|pull|merge|branch|checkout|stage|add)\b/i,
+      /\b(version control|source control)\b/i,
       /\b(test|run tests|npm test|jest|mocha|vitest)\b/i,
+      /\b(fix.*failing|make.*pass|debug.*test)\b/i,
       /\b(run|execute|exec|npm|yarn|pnpm|node|npx)\s+/i,
+      /\bsh(ell)?.*command\b/i,
+      /\b(implement|refactor|optimize|lint|format|compile|transpile)\b/i,
+      /\b(console|error|warn|debug|throw|exception|stack trace)\b/i,
       /\b(in this (project|repo|workspace)|codebase|repository)\b/i,
       /\b(src\/|tests\/|lib\/|package\.json|tsconfig)\b/i,
     ];
 
     return actionPatterns.some((pattern) => pattern.test(normalized));
+  }
+
+  private stripConversationalLeadIns(normalized: string): string {
+    return normalized
+      .replace(/^(so|well|hmm|uh+|um+|ok(?:ay)?)\b[\s,!?-]*/i, "")
+      .trim();
   }
 
   private async synthesizeResult(

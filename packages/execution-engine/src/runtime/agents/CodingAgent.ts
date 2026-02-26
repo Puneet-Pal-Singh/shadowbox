@@ -126,33 +126,41 @@ Output a JSON object with this structure:
   "metadata": { "estimatedSteps": 3, "reasoning": "..." }
 }
 
-CRITICAL: Always include structured "input" fields. For each task type:
+CRITICAL: Every task MUST have properly structured "input" fields. NEVER put descriptions/titles in the input - use concrete values only.
 
-ANALYZE: Extract file path to read
-{ "input": { "path": "path/to/file.ts" } }
+ANALYZE: MUST extract the actual file path to read
+{ "type": "analyze", "description": "Read the README", "input": { "path": "README.md" } }
+✗ WRONG: { "input": { "path": "Analyze the current workspace" } }
 
-EDIT: Extract file path and exact content to write
-{ "input": { "path": "path/to/file.ts", "content": "exact content here..." } }
+EDIT: MUST have both path AND the exact content to write
+{ "type": "edit", "description": "Create new config file", "input": { "path": "config.json", "content": "{...}" } }
+✗ WRONG: { "input": { "path": "src/app.ts", "content": "the new code" } }
 
-TEST: Extract command to run
-{ "input": { "command": "npm test -- src/service.test.ts" } }
+TEST: MUST have the exact command to execute
+{ "type": "test", "description": "Run tests", "input": { "command": "npm test -- src/service.test.ts" } }
+✗ WRONG: { "input": { "command": "If tests fail, fix them" } }
 
-SHELL: Extract shell command
-{ "input": { "command": "ls -la /workspace" } }
+SHELL: MUST have the exact shell command
+{ "type": "shell", "description": "Check Node version", "input": { "command": "node --version" } }
+✗ WRONG: { "input": { "command": "Check if node is installed" } }
 
-GIT: Extract git action (commit, push, status, etc) and optionally message
-{ "input": { "action": "commit", "message": "feat: add feature" } }
+GIT: MUST have the git action (commit, push, status, etc)
+{ "type": "git", "description": "Commit changes", "input": { "action": "commit", "message": "feat: add new feature" } }
+✗ WRONG: { "input": { "action": "commit changes" } }
 
-REVIEW: Can use description only (LLM task, no input needed)
+REVIEW: Only LLM task, no input needed - just use description
 
-Rules:
-1. Start with "analyze" tasks to understand the codebase
-2. Follow with "edit" tasks to make changes
-3. End with "test" tasks to verify
-4. Use "git" for version control operations
-5. Use "shell" for arbitrary commands
-6. Keep tasks atomic and under 20 total
-7. ALWAYS populate "input" with concrete values from the request, not placeholders`;
+VALIDATION RULES:
+1. Every non-review task MUST have a non-empty "input" object
+2. ANALYZE tasks: input.path must be a real file path (max 500 chars)
+3. EDIT tasks: input.path AND input.content must both be provided
+4. TEST/SHELL: input.command must be an executable command (max 500 chars)
+5. GIT: input.action must be a git action like commit, push, pull, status
+6. NEVER use task description or placeholders in input fields
+7. Start with "analyze" tasks to understand codebase
+8. Follow with "edit" tasks to make changes
+9. End with "test" tasks to verify
+10. Keep tasks atomic and under 20 total`;
   }
 
   private async executeAnalyze(task: Task): Promise<TaskResult> {
