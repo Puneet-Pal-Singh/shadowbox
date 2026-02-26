@@ -61,6 +61,12 @@ export class ChatIntentDetector {
       return true;
     }
 
+    // Single-word question prompts should stay conversational.
+    // Example: "how?" should not trigger full planning/task execution.
+    if (/^(how|why|what|who|when|where)\?+$/i.test(normalized)) {
+      return true;
+    }
+
     // Simple greetings and acknowledgments
     const greetings = [
       /^(hey|hi|hello|howdy|greetings)\??(\s|$)/,

@@ -11,6 +11,8 @@ describe("ChatIntentDetector - Phase 3: Conversational vs Action", () => {
       "hey",
       "hi",
       "hello",
+      "how?",
+      "why?",
       "howdy",
       "how are you?",
       "how r u",

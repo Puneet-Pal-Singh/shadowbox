@@ -8,6 +8,8 @@ describe("RoutingDetector - Unified routing logic", () => {
       "hey",
       "hi",
       "hello",
+      "how?",
+      "why?",
       "howdy",
       "how are you?",
       "how r u",
