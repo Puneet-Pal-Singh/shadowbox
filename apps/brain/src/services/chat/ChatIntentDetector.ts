@@ -61,9 +61,11 @@ export class ChatIntentDetector {
       return true;
     }
 
-    // Simple greetings
+    // Simple greetings and acknowledgments
     const greetings = [
       /^(hey|hi|hello|howdy|greetings)\??(\s|$)/,
+      /^(great|cool|nice|awesome|excellent|perfect)\??(\s|$)/,
+      /^(ok|okay|sure|alright|yep|yup)\??(\s|$)/,
       /^how\s+(are|r)\s+(u|you)/,
       /^what('?s|\s+is)\s+(your\s+)?(name|goal|purpose)/,
       /^(thanks|thank you|thx|ty)(\s|$)/,
