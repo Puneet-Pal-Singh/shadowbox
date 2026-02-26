@@ -648,6 +648,10 @@ export class RunEngine implements IRunEngine {
       return false;
     }
 
+    if (this.isShortConversationalUtterance(conversationalCandidate)) {
+      return true;
+    }
+
     // Greetings and common conversational patterns
     const conversationalPatterns = [
       /^(hey|hi|hello|howdy|greetings)\??(\s|$)/,
@@ -691,6 +695,35 @@ export class RunEngine implements IRunEngine {
     return normalized
       .replace(/^(so|well|hmm|uh+|um+|ok(?:ay)?)\b[\s,!?-]*/i, "")
       .trim();
+  }
+
+  private isShortConversationalUtterance(normalized: string): boolean {
+    if (normalized.includes("?")) {
+      return false;
+    }
+
+    const tokenCount = normalized.split(/\s+/).filter(Boolean).length;
+    if (tokenCount === 0 || tokenCount > 3 || normalized.length > 24) {
+      return false;
+    }
+
+    if (/[\/\\]|package\.json|readme|tsconfig|src\/|tests\//i.test(normalized)) {
+      return false;
+    }
+
+    if (/^[a-z]+\s+-/.test(normalized)) {
+      return false;
+    }
+
+    if (
+      /\b(read|check|view|analyze|examine|inspect|show|create|write|add|edit|modify|update|change|fix|delete|remove|run|execute|exec|test|commit|push|pull|merge|branch|checkout|stage|install|build|deploy)\b/i.test(
+        normalized,
+      )
+    ) {
+      return false;
+    }
+
+    return true;
   }
 
   private async synthesizeResult(

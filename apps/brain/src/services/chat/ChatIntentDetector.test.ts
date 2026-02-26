@@ -18,6 +18,8 @@ describe("ChatIntentDetector - Phase 3: Conversational vs Action", () => {
       "what is your purpose?",
       "thanks",
       "thank you",
+      "great",
+      "sounds good",
       "bye",
       "goodbye",
       "good morning",
