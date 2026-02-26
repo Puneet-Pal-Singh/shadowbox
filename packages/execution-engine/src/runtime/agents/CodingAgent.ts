@@ -121,15 +121,29 @@ export class CodingAgent extends BaseAgent {
 Output a JSON object with this structure:
 {
   "tasks": [
-    { "id": "1", "type": "analyze|edit|test|review|git|shell", "description": "...", "dependsOn": [], "expectedOutput": "..." }
+    { "id": "1", "type": "analyze|edit|test|review|git|shell", "description": "...", "dependsOn": [], "expectedOutput": "...", "input": {...} }
   ],
   "metadata": { "estimatedSteps": 3, "reasoning": "..." }
 }
 
-For "edit" tasks, include a "content" field in the task input with the file content to write.
-For "git" tasks, include an "action" field with the git operation (e.g., "commit", "push", "status").
-For "test" tasks, include a "command" field with the test command to run (e.g., "npm test").
-For "shell" tasks, include a "command" field with the shell command.
+CRITICAL: Always include structured "input" fields. For each task type:
+
+ANALYZE: Extract file path to read
+{ "input": { "path": "path/to/file.ts" } }
+
+EDIT: Extract file path and exact content to write
+{ "input": { "path": "path/to/file.ts", "content": "exact content here..." } }
+
+TEST: Extract command to run
+{ "input": { "command": "npm test -- src/service.test.ts" } }
+
+SHELL: Extract shell command
+{ "input": { "command": "ls -la /workspace" } }
+
+GIT: Extract git action (commit, push, status, etc) and optionally message
+{ "input": { "action": "commit", "message": "feat: add feature" } }
+
+REVIEW: Can use description only (LLM task, no input needed)
 
 Rules:
 1. Start with "analyze" tasks to understand the codebase
@@ -137,7 +151,8 @@ Rules:
 3. End with "test" tasks to verify
 4. Use "git" for version control operations
 5. Use "shell" for arbitrary commands
-6. Keep tasks atomic and under 20 total`;
+6. Keep tasks atomic and under 20 total
+7. ALWAYS populate "input" with concrete values from the request, not placeholders`;
   }
 
   private async executeAnalyze(task: Task): Promise<TaskResult> {
