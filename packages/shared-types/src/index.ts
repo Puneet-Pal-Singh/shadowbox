@@ -107,6 +107,30 @@ export {
   getEventPayloadSchema,
 } from "./run-events.zod.js";
 
+// Chat response events (NDJSON streaming)
+export {
+  CHAT_RESPONSE_EVENT_TYPES,
+  isChatResponseEvent,
+  isChatResponseEventOfType,
+  serializeChatResponseEvent,
+  parseChatResponseEvent,
+  type ChatResponseEventType,
+  type ChatResponseEvent,
+  type TextDeltaPayload,
+  type ToolCallPayload,
+  type ToolResultPayload,
+  type ToolErrorPayload,
+  type RunStatusPayload,
+  type FinalPayload,
+  type TextDeltaEvent,
+  type ToolCallEvent,
+  type ToolResultEvent,
+  type ToolErrorEvent,
+  type RunStatusEvent,
+  type FinalEvent,
+  type ChatResponseEventUnion,
+} from "./chat-response-events.js";
+
 // Compatibility layer
 export {
   LEGACY_EVENT_NAMES,
