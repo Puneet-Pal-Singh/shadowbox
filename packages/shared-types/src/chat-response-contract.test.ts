@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
   CHAT_RESPONSE_PROTOCOL_VERSION,
-  ChatResponseEventSchema,
   validateChatResponseEvent,
   parseChatResponseEvent,
   safeParseChatResponseEvent,
