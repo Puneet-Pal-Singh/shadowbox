@@ -14,6 +14,7 @@ describe("RoutingDetector - Unified routing logic", () => {
       "how are you?",
       "how r u",
       "what's your name?",
+      "what can you do?",
       "what is your purpose?",
       "thanks",
       "thank you",
@@ -98,6 +99,8 @@ describe("RoutingDetector - Unified routing logic", () => {
       // Workspace context
       ["in this project, check the README", "workspace context"],
       ["analyze the src/ directory", "workspace context"],
+      ["fix this", "imperative action"],
+      ["can you check README?", "polite imperative action"],
     ];
 
     actionExamples.forEach(([prompt, context]) => {
@@ -133,12 +136,13 @@ describe("RoutingDetector - Unified routing logic", () => {
       expect(RoutingDetector.shouldBypassPlanning("READ FILE")).toBe(false);
     });
 
-    it("should default to action for ambiguous prompts", () => {
+    it("should default to conversational for non-action prompts", () => {
       const ambiguous = ["what's this?", "can you help?", "anything else?"];
 
       ambiguous.forEach((prompt) => {
         const decision = RoutingDetector.analyze(prompt);
-        expect(decision.bypass).toBe(false);
+        expect(decision.bypass).toBe(true);
+        expect(decision.intent).toBe("conversational");
       });
     });
 

@@ -27,6 +27,12 @@ export class ChatIntentDetector {
   static detectIntent(prompt: string): ChatIntent {
     const normalized = prompt.toLowerCase().trim();
 
+    // Action patterns (explicit file/code/workspace operations)
+    // Action takes precedence over conversational tone.
+    if (this.isAction(normalized)) {
+      return "action";
+    }
+
     // Conversational patterns (no action requested)
     if (this.isConversational(normalized)) {
       return "conversational";
@@ -39,13 +45,9 @@ export class ChatIntentDetector {
       return "conversational";
     }
 
-    // Action patterns (explicit file/code operations)
-    if (this.isAction(normalized)) {
-      return "action";
-    }
-
-    // Default to action to be safe
-    return "unknown";
+    // Default to conversational unless action is explicit.
+    // This avoids turning normal chat into unnecessary task plans.
+    return "conversational";
   }
 
   /**
@@ -104,7 +106,14 @@ export class ChatIntentDetector {
   }
 
   private static isAction(normalized: string): boolean {
+    const imperativeActionVerb =
+      "(read|check|view|analyze|examine|inspect|show|create|write|add|edit|modify|update|change|fix|delete|remove|run|execute|implement|refactor|optimize|lint|format|compile|transpile|debug|investigate)";
+
     const actionPatterns = [
+      // Imperative command-style prompts
+      new RegExp(`^(please\\s+)?${imperativeActionVerb}\\b`, "i"),
+      new RegExp(`\\b(can you|could you|would you|please)\\s+${imperativeActionVerb}\\b`, "i"),
+
       // File operations - read/check/view file operations
       /\b(read|check|view|analyze|examine|inspect|look at|show me)\s+(file|README|config|src|test)/i,
       // File operations - create/edit operations
@@ -113,7 +122,8 @@ export class ChatIntentDetector {
       /\b(delete|remove|rm|mkdir|make)\s+(file|directory|dir|folder)/i,
 
       // Git operations
-      /\b(git|commit|push|pull|merge|branch|checkout|stage|add)\b/i,
+      /\bgit\s+(commit|push|pull|merge|branch|checkout|add|status|diff|log|rebase|cherry-pick)\b/i,
+      /\b(commit|push|pull|merge|branch|checkout|rebase|cherry-pick)\b/i,
       /\b(version control|source control)\b/i,
 
       // Test operations
@@ -130,7 +140,7 @@ export class ChatIntentDetector {
 
       // Workspace awareness
       /\b(in this (project|repo|workspace)|codebase|repository)\b/i,
-      /\b(src\/|tests\/|lib\/|package\.json|tsconfig)\b/i,
+      /(src\/|tests\/|lib\/|docs\/|scripts\/|package\.json|tsconfig)/i,
     ];
 
     return actionPatterns.some((p) => p.test(normalized));

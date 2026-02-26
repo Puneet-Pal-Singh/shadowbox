@@ -35,10 +35,12 @@ describe("RunEngine", () => {
     };
 
     expect(privateApi.shouldBypassPlanning("so? what is your name?")).toBe(true);
+    expect(privateApi.shouldBypassPlanning("what can you do?")).toBe(true);
     expect(privateApi.shouldBypassPlanning("how?")).toBe(true);
     expect(privateApi.shouldBypassPlanning("great")).toBe(true);
     expect(privateApi.shouldBypassPlanning("sounds good")).toBe(true);
     expect(privateApi.shouldBypassPlanning("check README file")).toBe(false);
+    expect(privateApi.shouldBypassPlanning("fix this")).toBe(false);
   });
 });
 
