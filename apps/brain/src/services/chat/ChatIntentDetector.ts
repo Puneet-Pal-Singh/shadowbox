@@ -32,6 +32,13 @@ export class ChatIntentDetector {
       return "conversational";
     }
 
+    if (
+      this.isShortConversationalUtterance(normalized) &&
+      !this.isAction(normalized)
+    ) {
+      return "conversational";
+    }
+
     // Action patterns (explicit file/code operations)
     if (this.isAction(normalized)) {
       return "action";
@@ -148,5 +155,34 @@ export class ChatIntentDetector {
 
     // Note: Excluded "code", "git", "analyze" as they can be used in academic contexts
     return actionKeywords.some((kw) => normalized.includes(kw));
+  }
+
+  private static isShortConversationalUtterance(normalized: string): boolean {
+    if (normalized.includes("?")) {
+      return false;
+    }
+
+    const tokenCount = normalized.split(/\s+/).filter(Boolean).length;
+    if (tokenCount === 0 || tokenCount > 3 || normalized.length > 24) {
+      return false;
+    }
+
+    if (/[\/\\]|package\.json|readme|tsconfig|src\/|tests\//i.test(normalized)) {
+      return false;
+    }
+
+    if (/^[a-z]+\s+-/.test(normalized)) {
+      return false;
+    }
+
+    if (
+      /\b(read|check|view|analyze|examine|inspect|show|create|write|add|edit|modify|update|change|fix|delete|remove|run|execute|exec|test|commit|push|pull|merge|branch|checkout|stage|install|build|deploy)\b/i.test(
+        normalized,
+      )
+    ) {
+      return false;
+    }
+
+    return true;
   }
 }

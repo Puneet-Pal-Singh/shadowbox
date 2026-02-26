@@ -168,6 +168,12 @@ export class TaskScheduler implements ITaskScheduler {
       // Execute the task
       const result = await this.executor.execute(task);
 
+      if (result.status !== "DONE") {
+        const fallbackMessage = `Task ${task.id} returned non-success status: ${result.status}`;
+        const errorMessage = result.error?.message ?? fallbackMessage;
+        throw new SchedulerTaskResultError(task.id, result.status, errorMessage);
+      }
+
       // Mark as DONE
       task.transition("DONE", { output: result.output });
       await this.taskRepo.update(task);
@@ -347,5 +353,14 @@ export class SchedulerError extends Error {
   constructor(message: string) {
     super(`[task/scheduler] ${message}`);
     this.name = "SchedulerError";
+  }
+}
+
+export class SchedulerTaskResultError extends Error {
+  constructor(taskId: string, status: string, message: string) {
+    super(
+      `[task/scheduler] Task ${taskId} returned ${status}: ${message}`,
+    );
+    this.name = "SchedulerTaskResultError";
   }
 }
