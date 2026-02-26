@@ -227,6 +227,19 @@ export class RunEngine implements IRunEngine {
         return await this.executeConversationalTurn(run, input, messages);
       }
 
+      const clarificationMessage = this.getActionClarificationMessage(
+        input.prompt,
+      );
+      if (clarificationMessage) {
+        console.log(
+          `[run/engine] Clarification required before action planning for run ${runId}`,
+        );
+        return await this.completeRunWithAssistantMessage(
+          run,
+          clarificationMessage,
+        );
+      }
+
       console.log(`[run/engine] Planning phase for run ${runId}`);
       try {
         run.transition("PLANNING");
@@ -313,11 +326,12 @@ export class RunEngine implements IRunEngine {
       );
 
       console.log(`[run/engine] Synthesis phase for run ${runId}`);
-      const finalOutput = await this.generateSynthesis(
+      const finalOutputRaw = await this.generateSynthesis(
         run,
         input.prompt,
         this.currentMemoryContext,
       );
+      const finalOutput = this.sanitizeUserFacingOutput(finalOutputRaw);
 
       await this.safeMemoryOperation(() =>
         this.memoryCoordinator.extractAndPersist({
@@ -533,7 +547,7 @@ export class RunEngine implements IRunEngine {
     run.transition("RUNNING");
     await this.runRepo.update(run);
 
-    const upstream = await this.llmGateway.generateStream({
+    const result = await this.llmGateway.generateText({
       context: {
         runId: run.id,
         sessionId: run.sessionId,
@@ -541,91 +555,12 @@ export class RunEngine implements IRunEngine {
         phase: "synthesis",
       },
       messages,
+      system: this.buildConversationalSystemPrompt(),
       model: input.modelId,
       providerId: input.providerId,
       temperature: 0.7,
     });
-
-    const reader = upstream.getReader();
-    const decoder = new TextDecoder();
-    let accumulatedText = "";
-    let finalized = false;
-
-    const finalize = async (): Promise<void> => {
-      if (finalized) {
-        return;
-      }
-      finalized = true;
-
-      const remaining = decoder.decode();
-      if (remaining.length > 0) {
-        accumulatedText += remaining;
-      }
-
-      await this.safeMemoryOperation(() =>
-        this.memoryCoordinator.extractAndPersist({
-          runId: run.id,
-          sessionId: run.sessionId,
-          source: "synthesis",
-          content: accumulatedText,
-          phase: "synthesis",
-        }),
-      );
-
-      await this.safeMemoryOperation(() =>
-        this.persistConversationMessages(
-          run.id,
-          run.sessionId,
-          [{ role: "assistant", content: accumulatedText }],
-          "assistant",
-        ),
-      );
-
-      await this.safeMemoryOperation(() =>
-        this.memoryCoordinator.createCheckpoint({
-          runId: run.id,
-          sequence: 1,
-          phase: "synthesis",
-          runStatus: "COMPLETED",
-          taskStatuses: {},
-        }),
-      );
-
-      run.transition("COMPLETED");
-      run.output = { content: accumulatedText };
-      await this.runRepo.update(run);
-      console.log(`[run/engine] Completed conversational run ${run.id}`);
-    };
-
-    const stream = new ReadableStream<Uint8Array>({
-      pull: async (controller) => {
-        try {
-          const chunk = await reader.read();
-          if (chunk.done) {
-            await finalize();
-            controller.close();
-            return;
-          }
-
-          if (chunk.value) {
-            accumulatedText += decoder.decode(chunk.value, { stream: true });
-            controller.enqueue(chunk.value);
-          }
-        } catch (error) {
-          controller.error(error);
-        }
-      },
-      cancel: async (reason) => {
-        await reader.cancel(reason);
-      },
-    });
-
-    return new Response(stream, {
-      headers: {
-        "Content-Type": "text/plain; charset=utf-8",
-        "Transfer-Encoding": "chunked",
-      },
-    });
+    return this.completeRunWithAssistantMessage(run, result.text);
   }
 
   private shouldBypassPlanning(prompt: string): boolean {
@@ -702,10 +637,11 @@ Provide a concise summary of what was accomplished.`;
   }
 
   private createStreamResponse(content: string): Response {
+    const safeContent = this.sanitizeUserFacingOutput(content);
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
       start(controller) {
-        controller.enqueue(encoder.encode(content));
+        controller.enqueue(encoder.encode(safeContent));
         controller.close();
       },
     });
@@ -716,6 +652,113 @@ Provide a concise summary of what was accomplished.`;
         "Transfer-Encoding": "chunked",
       },
     });
+  }
+
+  private buildConversationalSystemPrompt(): string {
+    const nowIso = new Date().toISOString();
+    return [
+      "You are Shadowbox assistant in conversational chat mode.",
+      "Answer the user directly in the first sentence, then add brief helpful details.",
+      "Use a natural, friendly tone. Avoid robotic report phrasing.",
+      'Do not start with phrases like "Based on the analysis", "The system", or "Based on completed tasks".',
+      "Treat casual prompts as normal conversation.",
+      "If asked about capabilities, answer in plain language about what you can help with.",
+      "Do not fabricate tool execution, file access, command output, or repository inspection.",
+      "Do not claim you analyzed files unless the user explicitly asked for file/repo operations in this turn.",
+      "Do not mention internal run IDs, internal URLs, filesystem paths, or debug traces.",
+      `Current runtime timestamp (UTC): ${nowIso}. If asked for date/time, use this timestamp as reference.`,
+      "If the user asks about capabilities, describe what you can help with conversationally and ask for explicit permission/request before operational actions.",
+    ].join("\n");
+  }
+
+  private async completeRunWithAssistantMessage(
+    run: Run,
+    text: string,
+  ): Promise<Response> {
+    const sanitizedText = this.sanitizeUserFacingOutput(text);
+
+    await this.safeMemoryOperation(() =>
+      this.memoryCoordinator.extractAndPersist({
+        runId: run.id,
+        sessionId: run.sessionId,
+        source: "synthesis",
+        content: sanitizedText,
+        phase: "synthesis",
+      }),
+    );
+
+    await this.safeMemoryOperation(() =>
+      this.persistConversationMessages(
+        run.id,
+        run.sessionId,
+        [{ role: "assistant", content: sanitizedText }],
+        "assistant",
+      ),
+    );
+
+    await this.safeMemoryOperation(() =>
+      this.memoryCoordinator.createCheckpoint({
+        runId: run.id,
+        sequence: 1,
+        phase: "synthesis",
+        runStatus: "COMPLETED",
+        taskStatuses: {},
+      }),
+    );
+
+    run.transition("COMPLETED");
+    run.output = { content: sanitizedText };
+    await this.runRepo.update(run);
+    console.log(`[run/engine] Completed conversational run ${run.id}`);
+
+    return this.createStreamResponse(sanitizedText);
+  }
+
+  private getActionClarificationMessage(prompt: string): string | null {
+    const normalized = prompt.toLowerCase().trim();
+    const asksToInspectFile =
+      /\b(read|check|view|open|analyze|inspect|review)\b/.test(normalized) &&
+      /\b(file|files|document|doc|readme|code)\b/.test(normalized);
+
+    if (!asksToInspectFile) {
+      return null;
+    }
+
+    if (this.hasExplicitWorkspaceTarget(normalized)) {
+      return null;
+    }
+
+    return "Sure. I can check it, but I need the exact file path first (for example `README.md` or `src/app.ts`).";
+  }
+
+  private hasExplicitWorkspaceTarget(prompt: string): boolean {
+    const fileNamePattern = /\b[\w.-]+\.[a-z0-9]{1,10}\b/i;
+    const folderPathPattern = /\b(src|lib|docs|tests?|scripts)\/[^\s`"']+/i;
+    const knownRootFiles =
+      /\b(readme|readme\.md|package\.json|tsconfig\.json|dockerfile|components\.json)\b/i;
+
+    return (
+      fileNamePattern.test(prompt) ||
+      folderPathPattern.test(prompt) ||
+      knownRootFiles.test(prompt)
+    );
+  }
+
+  private sanitizeUserFacingOutput(text: string): string {
+    return text
+      .replace(
+        /\/home\/sandbox\/runs\/(?:\[run\]|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/[^\s"']+/gi,
+        "[workspace-file]",
+      )
+      .replace(
+        /\/home\/sandbox\/runs\/(?:\[run\]|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/gi,
+        "[workspace]",
+      )
+      .replace(
+        /(?:error:\s*)?cat:\s*\[workspace-file\]\s*:?\s*no such file or directory/gi,
+        "The requested file was not found in the current workspace.",
+      )
+      .replace(/http:\/\/internal(?:\/[^\s"']*)?/gi, "[internal-url]");
   }
 
   private async handleExecutionError(

@@ -35,10 +35,54 @@ describe("RunEngine", () => {
     };
 
     expect(privateApi.shouldBypassPlanning("so? what is your name?")).toBe(true);
+    expect(privateApi.shouldBypassPlanning("what can you do?")).toBe(true);
     expect(privateApi.shouldBypassPlanning("how?")).toBe(true);
     expect(privateApi.shouldBypassPlanning("great")).toBe(true);
     expect(privateApi.shouldBypassPlanning("sounds good")).toBe(true);
     expect(privateApi.shouldBypassPlanning("check README file")).toBe(false);
+    expect(privateApi.shouldBypassPlanning("fix this")).toBe(false);
+  });
+
+  it("sanitizes internal runtime paths in user-facing output", () => {
+    const runEngine = createRunEngine();
+    const privateApi = runEngine as unknown as {
+      sanitizeUserFacingOutput(text: string): string;
+    };
+
+    const leaked =
+      'cat: /home/sandbox/runs/5212f17b-eb1f-463f-a41f-2c4c6b9d4ba6/README.md: No such file or directory';
+    const sanitized = privateApi.sanitizeUserFacingOutput(leaked);
+
+    expect(sanitized).not.toContain(
+      "/home/sandbox/runs/5212f17b-eb1f-463f-a41f-2c4c6b9d4ba6/",
+    );
+    expect(sanitized).toContain(
+      "The requested file was not found in the current workspace.",
+    );
+  });
+
+  it("asks for clarification on vague file-check prompts", () => {
+    const runEngine = createRunEngine();
+    const privateApi = runEngine as unknown as {
+      getActionClarificationMessage(prompt: string): string | null;
+    };
+
+    expect(privateApi.getActionClarificationMessage("can you check my file?")).toContain(
+      "need the exact file path",
+    );
+    expect(privateApi.getActionClarificationMessage("check README.md")).toBeNull();
+  });
+
+  it("builds conversational system prompt with direct-answer style guidance", () => {
+    const runEngine = createRunEngine();
+    const privateApi = runEngine as unknown as {
+      buildConversationalSystemPrompt(): string;
+    };
+
+    const prompt = privateApi.buildConversationalSystemPrompt();
+    expect(prompt).toContain("Answer the user directly in the first sentence");
+    expect(prompt).toContain("Avoid robotic report phrasing");
+    expect(prompt).toContain("Do not fabricate tool execution");
   });
 });
 

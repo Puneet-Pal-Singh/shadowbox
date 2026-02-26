@@ -49,7 +49,8 @@ export function ChatInterface({
 
   // Extract file references from messages (mock implementation)
   const fileReferences = ["README.md", "package.json", "tsconfig.json"];
-  const showDebugPanel = import.meta.env.MODE !== "production";
+  const showDebugPanel =
+    import.meta.env.VITE_ENABLE_CHAT_DEBUG_PANEL === "true";
 
   const handleInputChangeWrapper = (value: string) => {
     // Create a synthetic event to match the expected interface
