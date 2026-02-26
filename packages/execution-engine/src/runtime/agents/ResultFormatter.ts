@@ -63,8 +63,16 @@ function safeStringify(value: unknown): string {
 function redactInternalRuntimeDetails(text: string): string {
   return text
     .replace(
-      /\/home\/sandbox\/runs\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\//gi,
-      "/home/sandbox/runs/[run]/",
+      /\/home\/sandbox\/runs\/(?:\[run\]|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/[^\s"']+/gi,
+      "[workspace-file]",
+    )
+    .replace(
+      /\/home\/sandbox\/runs\/(?:\[run\]|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/gi,
+      "[workspace]",
+    )
+    .replace(
+      /(?:error:\s*)?cat:\s*\[workspace-file\]\s*:?\s*no such file or directory/gi,
+      "The requested file was not found in the current workspace.",
     )
     .replace(/http:\/\/internal(?:\/[^\s"']*)?/gi, "[internal-url]");
 }

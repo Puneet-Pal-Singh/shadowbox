@@ -56,7 +56,21 @@ describe("RunEngine", () => {
     expect(sanitized).not.toContain(
       "/home/sandbox/runs/5212f17b-eb1f-463f-a41f-2c4c6b9d4ba6/",
     );
-    expect(sanitized).toContain("/home/sandbox/runs/[run]/");
+    expect(sanitized).toContain(
+      "The requested file was not found in the current workspace.",
+    );
+  });
+
+  it("asks for clarification on vague file-check prompts", () => {
+    const runEngine = createRunEngine();
+    const privateApi = runEngine as unknown as {
+      getActionClarificationMessage(prompt: string): string | null;
+    };
+
+    expect(privateApi.getActionClarificationMessage("can you check my file?")).toContain(
+      "need the exact file path",
+    );
+    expect(privateApi.getActionClarificationMessage("check README.md")).toBeNull();
   });
 
   it("builds conversational system prompt with direct-answer style guidance", () => {

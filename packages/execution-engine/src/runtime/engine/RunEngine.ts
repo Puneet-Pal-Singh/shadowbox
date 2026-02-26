@@ -227,6 +227,19 @@ export class RunEngine implements IRunEngine {
         return await this.executeConversationalTurn(run, input, messages);
       }
 
+      const clarificationMessage = this.getActionClarificationMessage(
+        input.prompt,
+      );
+      if (clarificationMessage) {
+        console.log(
+          `[run/engine] Clarification required before action planning for run ${runId}`,
+        );
+        return await this.completeRunWithAssistantMessage(
+          run,
+          clarificationMessage,
+        );
+      }
+
       console.log(`[run/engine] Planning phase for run ${runId}`);
       try {
         run.transition("PLANNING");
@@ -547,43 +560,7 @@ export class RunEngine implements IRunEngine {
       providerId: input.providerId,
       temperature: 0.7,
     });
-    const sanitizedText = this.sanitizeUserFacingOutput(result.text);
-
-    await this.safeMemoryOperation(() =>
-      this.memoryCoordinator.extractAndPersist({
-        runId: run.id,
-        sessionId: run.sessionId,
-        source: "synthesis",
-        content: sanitizedText,
-        phase: "synthesis",
-      }),
-    );
-
-    await this.safeMemoryOperation(() =>
-      this.persistConversationMessages(
-        run.id,
-        run.sessionId,
-        [{ role: "assistant", content: sanitizedText }],
-        "assistant",
-      ),
-    );
-
-    await this.safeMemoryOperation(() =>
-      this.memoryCoordinator.createCheckpoint({
-        runId: run.id,
-        sequence: 1,
-        phase: "synthesis",
-        runStatus: "COMPLETED",
-        taskStatuses: {},
-      }),
-    );
-
-    run.transition("COMPLETED");
-    run.output = { content: sanitizedText };
-    await this.runRepo.update(run);
-    console.log(`[run/engine] Completed conversational run ${run.id}`);
-
-    return this.createStreamResponse(sanitizedText);
+    return this.completeRunWithAssistantMessage(run, result.text);
   }
 
   private shouldBypassPlanning(prompt: string): boolean {
@@ -694,11 +671,92 @@ Provide a concise summary of what was accomplished.`;
     ].join("\n");
   }
 
+  private async completeRunWithAssistantMessage(
+    run: Run,
+    text: string,
+  ): Promise<Response> {
+    const sanitizedText = this.sanitizeUserFacingOutput(text);
+
+    await this.safeMemoryOperation(() =>
+      this.memoryCoordinator.extractAndPersist({
+        runId: run.id,
+        sessionId: run.sessionId,
+        source: "synthesis",
+        content: sanitizedText,
+        phase: "synthesis",
+      }),
+    );
+
+    await this.safeMemoryOperation(() =>
+      this.persistConversationMessages(
+        run.id,
+        run.sessionId,
+        [{ role: "assistant", content: sanitizedText }],
+        "assistant",
+      ),
+    );
+
+    await this.safeMemoryOperation(() =>
+      this.memoryCoordinator.createCheckpoint({
+        runId: run.id,
+        sequence: 1,
+        phase: "synthesis",
+        runStatus: "COMPLETED",
+        taskStatuses: {},
+      }),
+    );
+
+    run.transition("COMPLETED");
+    run.output = { content: sanitizedText };
+    await this.runRepo.update(run);
+    console.log(`[run/engine] Completed conversational run ${run.id}`);
+
+    return this.createStreamResponse(sanitizedText);
+  }
+
+  private getActionClarificationMessage(prompt: string): string | null {
+    const normalized = prompt.toLowerCase().trim();
+    const asksToInspectFile =
+      /\b(read|check|view|open|analyze|inspect|review)\b/.test(normalized) &&
+      /\b(file|files|document|doc|readme|code)\b/.test(normalized);
+
+    if (!asksToInspectFile) {
+      return null;
+    }
+
+    if (this.hasExplicitWorkspaceTarget(normalized)) {
+      return null;
+    }
+
+    return "Sure. I can check it, but I need the exact file path first (for example `README.md` or `src/app.ts`).";
+  }
+
+  private hasExplicitWorkspaceTarget(prompt: string): boolean {
+    const fileNamePattern = /\b[\w.-]+\.[a-z0-9]{1,10}\b/i;
+    const folderPathPattern = /\b(src|lib|docs|tests?|scripts)\/[^\s`"']+/i;
+    const knownRootFiles =
+      /\b(readme|readme\.md|package\.json|tsconfig\.json|dockerfile|components\.json)\b/i;
+
+    return (
+      fileNamePattern.test(prompt) ||
+      folderPathPattern.test(prompt) ||
+      knownRootFiles.test(prompt)
+    );
+  }
+
   private sanitizeUserFacingOutput(text: string): string {
     return text
       .replace(
-        /\/home\/sandbox\/runs\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\//gi,
-        "/home/sandbox/runs/[run]/",
+        /\/home\/sandbox\/runs\/(?:\[run\]|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/[^\s"']+/gi,
+        "[workspace-file]",
+      )
+      .replace(
+        /\/home\/sandbox\/runs\/(?:\[run\]|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/gi,
+        "[workspace]",
+      )
+      .replace(
+        /(?:error:\s*)?cat:\s*\[workspace-file\]\s*:?\s*no such file or directory/gi,
+        "The requested file was not found in the current workspace.",
       )
       .replace(/http:\/\/internal(?:\/[^\s"']*)?/gi, "[internal-url]");
   }
