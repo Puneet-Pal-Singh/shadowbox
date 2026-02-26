@@ -153,16 +153,33 @@ export async function getRepositoryTree(
   sha: string = "HEAD",
 ): Promise<Array<{ path: string; type: string; sha: string }>> {
   const response = await fetch(
-    `${BRAIN_API_URL}/api/github/tree?owner=${owner}&repo=${repo}&sha=${sha}`,
+    `${BRAIN_API_URL}/api/github/tree?owner=${encodeURIComponent(owner)}&repo=${encodeURIComponent(repo)}&sha=${encodeURIComponent(sha)}`,
     getFetchOptions(),
   );
 
   if (!response.ok) {
-    throw new Error("Failed to fetch tree");
+    const message = await readGitHubErrorMessage(response);
+    if (response.status >= 500 || message.includes("not a git repository")) {
+      console.warn(
+        "[github/tree] falling back to empty tree due to server error",
+        { status: response.status, message },
+      );
+      return [];
+    }
+    throw new Error(message || "Failed to fetch tree");
   }
 
   const data = await response.json();
   return data.tree;
+}
+
+async function readGitHubErrorMessage(response: Response): Promise<string> {
+  try {
+    const payload = (await response.json()) as { error?: string };
+    return payload.error ?? `Failed to fetch tree: HTTP ${response.status}`;
+  } catch {
+    return `Failed to fetch tree: HTTP ${response.status}`;
+  }
 }
 
 /**

@@ -89,7 +89,8 @@ async function createGitStatusRequest(runId: string): Promise<GitStatusResponse>
       throw new Error(message);
     }
 
-    return (await response.json()) as GitStatusResponse;
+    const payload = (await response.json()) as unknown;
+    return normalizeGitStatusResponse(payload);
   } finally {
     inflightByRunId.delete(runId);
   }
@@ -105,4 +106,61 @@ async function readGitStatusErrorMessage(response: Response): Promise<string> {
     // No-op, fallback below.
   }
   return `Failed to fetch git status: HTTP ${response.status}`;
+}
+
+function normalizeGitStatusResponse(payload: unknown): GitStatusResponse {
+  if (!payload || typeof payload !== "object") {
+    throw new Error("Invalid git status response: expected JSON object");
+  }
+
+  const apiErrorPayload = payload as { success?: boolean; error?: string };
+  if (
+    apiErrorPayload.success === false &&
+    typeof apiErrorPayload.error === "string"
+  ) {
+    if (apiErrorPayload.error.includes("not a git repository")) {
+      return getEmptyGitStatus();
+    }
+    throw new Error(apiErrorPayload.error);
+  }
+
+  const candidate = payload as Partial<GitStatusResponse>;
+  const files = Array.isArray(candidate.files) ? candidate.files : [];
+  if (!Array.isArray(candidate.files) && looksLikeSoftGitStatusPayload(payload)) {
+    return getEmptyGitStatus();
+  }
+
+  return {
+    files,
+    ahead: typeof candidate.ahead === "number" ? candidate.ahead : 0,
+    behind: typeof candidate.behind === "number" ? candidate.behind : 0,
+    branch: typeof candidate.branch === "string" ? candidate.branch : "",
+    hasStaged:
+      typeof candidate.hasStaged === "boolean" ? candidate.hasStaged : false,
+    hasUnstaged:
+      typeof candidate.hasUnstaged === "boolean" ? candidate.hasUnstaged : false,
+  };
+}
+
+function looksLikeSoftGitStatusPayload(payload: unknown): boolean {
+  if (!payload || typeof payload !== "object") {
+    return false;
+  }
+  const objectPayload = payload as Record<string, unknown>;
+  return (
+    "success" in objectPayload ||
+    "error" in objectPayload ||
+    "message" in objectPayload
+  );
+}
+
+function getEmptyGitStatus(): GitStatusResponse {
+  return {
+    files: [],
+    ahead: 0,
+    behind: 0,
+    branch: "",
+    hasStaged: false,
+    hasUnstaged: false,
+  };
 }

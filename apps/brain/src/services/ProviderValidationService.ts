@@ -12,6 +12,7 @@
  */
 
 import type { Env } from "../types/ai";
+import { DEFAULT_PLATFORM_MODEL_ID } from "@repo/shared-types";
 
 export interface ValidationError {
   code: string;
@@ -30,30 +31,40 @@ export class ProviderValidationService {
   /**
    * Validate provider configuration for the given environment
    * Returns structured errors that can be presented to users
+   *
+   * Note: With BYOK support, provider API keys are now optional.
+   * Chat will fallback to OpenRouter defaults when keys are missing.
+   * Only truly critical configuration (security, encryption) blocks startup.
    */
   static validate(env: Env): ProviderValidationResult {
     const errors: ValidationError[] = [];
     const warnings: ValidationError[] = [];
 
+    // Validate critical security configuration (always required)
+    this.validateCriticalSecurity(env, errors);
+
+    // Provider API keys are now optional (warnings instead of errors)
+    // Chat can fallback to OpenRouter defaults
     const provider = env.LLM_PROVIDER ?? "litellm";
 
-    // Check required env vars based on provider type
+    // Check optional provider configuration
     switch (provider) {
       case "litellm":
-        this.validateLiteLLM(env, errors, warnings);
+        this.validateLiteLLMOptional(env, errors, warnings);
         break;
       case "openai":
-        this.validateOpenAI(env, errors, warnings);
+        this.validateOpenAIOptional(env, errors, warnings);
         break;
       case "anthropic":
-        this.validateAnthropic(env, errors, warnings);
+        this.validateAnthropicOptional(env, errors, warnings);
         break;
       default:
-        errors.push({
+        // Unknown provider is just a warning; fallback to OpenRouter will handle it
+        warnings.push({
           code: "UNKNOWN_PROVIDER",
-          message: `Unknown LLM provider: ${provider}`,
-          severity: "error",
-          hint: `Set LLM_PROVIDER to one of: litellm, openai, anthropic`,
+          message: `Unknown LLM_PROVIDER: ${provider}. Will use OpenRouter defaults.`,
+          severity: "warning",
+          hint: `Set LLM_PROVIDER to one of: litellm, openai, anthropic, or leave unset`,
         });
     }
 
@@ -62,6 +73,45 @@ export class ProviderValidationService {
       errors,
       warnings,
     };
+  }
+
+  /**
+   * Validate critical security and encryption configuration
+   * These always block startup
+   */
+  private static validateCriticalSecurity(
+    env: Env,
+    errors: ValidationError[],
+  ): void {
+    // Session security
+    if (!env.SESSION_SECRET) {
+      errors.push({
+        code: "MISSING_SESSION_SECRET",
+        message: "SESSION_SECRET is required for session encryption",
+        severity: "error",
+        hint: "Set SESSION_SECRET in your environment or .dev.vars file",
+      });
+    }
+
+    // GitHub OAuth
+    if (!env.GITHUB_CLIENT_ID || !env.GITHUB_CLIENT_SECRET) {
+      errors.push({
+        code: "MISSING_GITHUB_OAUTH",
+        message: "GitHub OAuth credentials are required",
+        severity: "error",
+        hint: "Set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET",
+      });
+    }
+
+    // BYOK credential encryption (required for credential persistence)
+    if (!env.BYOK_CREDENTIAL_ENCRYPTION_KEY) {
+      errors.push({
+        code: "MISSING_BYOK_ENCRYPTION_KEY",
+        message: "BYOK_CREDENTIAL_ENCRYPTION_KEY is required for credential storage",
+        severity: "error",
+        hint: "Set BYOK_CREDENTIAL_ENCRYPTION_KEY for encrypted BYOK credential persistence",
+      });
+    }
   }
 
   /**
@@ -95,86 +145,90 @@ export class ProviderValidationService {
     return lines.join("\n");
   }
 
-  private static validateLiteLLM(
+  /**
+   * Validate LiteLLM provider configuration (optional)
+   * Missing keys will use OpenRouter fallback
+   */
+  private static validateLiteLLMOptional(
     env: Env,
     errors: ValidationError[],
     warnings: ValidationError[],
   ): void {
     const hasGroqKey = !!env.GROQ_API_KEY;
+    const hasOpenRouterKey = !!env.OPENROUTER_API_KEY;
     const hasOpenAIKey = !!env.OPENAI_API_KEY;
 
-    if (!hasGroqKey && !hasOpenAIKey) {
-      errors.push({
-        code: "MISSING_API_KEY",
-        message: "LiteLLM provider requires API key",
-        severity: "error",
-        hint: "Set GROQ_API_KEY (preferred) or OPENAI_API_KEY in your .dev.vars or environment",
+    if (!hasGroqKey && !hasOpenRouterKey && !hasOpenAIKey) {
+      warnings.push({
+        code: "MISSING_LITELLM_KEYS",
+        message: "LiteLLM provider keys not configured",
+        severity: "warning",
+        hint: "Chat requires at least one fallback key. Set OPENROUTER_API_KEY (recommended), GROQ_API_KEY, or OPENAI_API_KEY",
       });
     }
 
     if (!env.DEFAULT_MODEL) {
-      errors.push({
-        code: "MISSING_DEFAULT_MODEL",
-        message: "DEFAULT_MODEL is required for LiteLLM provider",
-        severity: "error",
-        hint: "Set DEFAULT_MODEL to a valid model (e.g., llama-3.3-70b-versatile for Groq)",
-      });
-    }
-
-    if (hasGroqKey && !hasOpenAIKey && !env.DEFAULT_MODEL) {
       warnings.push({
-        code: "GROQ_ONLY",
-        message: "Using Groq API key without OpenAI fallback",
+        code: "NO_DEFAULT_MODEL",
+        message: "DEFAULT_MODEL not set",
         severity: "warning",
-        hint: "If Groq rate limit is hit, chat will fail. Consider adding OPENAI_API_KEY",
+        hint: `Will use OpenRouter fallback model (${DEFAULT_PLATFORM_MODEL_ID}). Optionally set for explicit model selection`,
       });
     }
   }
 
-  private static validateOpenAI(
+  /**
+   * Validate OpenAI provider configuration (optional)
+   * Missing keys will use OpenRouter fallback
+   */
+  private static validateOpenAIOptional(
     env: Env,
     errors: ValidationError[],
     warnings: ValidationError[],
   ): void {
     if (!env.OPENAI_API_KEY) {
-      errors.push({
+      warnings.push({
         code: "MISSING_OPENAI_API_KEY",
-        message: "OpenAI provider requires OPENAI_API_KEY",
-        severity: "error",
-        hint: "Set OPENAI_API_KEY in your .dev.vars or environment",
+        message: "OPENAI_API_KEY not configured",
+        severity: "warning",
+        hint: "Chat will use OpenRouter defaults. Optionally set OPENAI_API_KEY for direct OpenAI access",
       });
     }
 
     if (!env.DEFAULT_MODEL) {
       warnings.push({
         code: "NO_DEFAULT_MODEL",
-        message: "DEFAULT_MODEL not set for OpenAI provider",
+        message: "DEFAULT_MODEL not set",
         severity: "warning",
-        hint: "Will use hardcoded fallback. Set DEFAULT_MODEL for explicit model selection (e.g., gpt-4)",
+        hint: "Will use OpenRouter fallback model. Optionally set for explicit model selection (e.g., gpt-4)",
       });
     }
   }
 
-  private static validateAnthropic(
+  /**
+   * Validate Anthropic provider configuration (optional)
+   * Missing keys will use OpenRouter fallback
+   */
+  private static validateAnthropicOptional(
     env: Env,
     errors: ValidationError[],
     warnings: ValidationError[],
   ): void {
     if (!env.ANTHROPIC_API_KEY) {
-      errors.push({
+      warnings.push({
         code: "MISSING_ANTHROPIC_API_KEY",
-        message: "Anthropic provider requires ANTHROPIC_API_KEY",
-        severity: "error",
-        hint: "Set ANTHROPIC_API_KEY in your .dev.vars or environment",
+        message: "ANTHROPIC_API_KEY not configured",
+        severity: "warning",
+        hint: "Chat will use OpenRouter defaults. Optionally set ANTHROPIC_API_KEY for direct Anthropic access",
       });
     }
 
     if (!env.DEFAULT_MODEL) {
       warnings.push({
         code: "NO_DEFAULT_MODEL",
-        message: "DEFAULT_MODEL not set for Anthropic provider",
+        message: "DEFAULT_MODEL not set",
         severity: "warning",
-        hint: "Will use hardcoded fallback. Set DEFAULT_MODEL for explicit model selection (e.g., claude-3-sonnet-20240229)",
+        hint: "Will use OpenRouter fallback model. Optionally set for explicit model selection (e.g., claude-3-sonnet-20240229)",
       });
     }
   }

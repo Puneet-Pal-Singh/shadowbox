@@ -5,6 +5,7 @@ import { useChatHydration } from "./useChatHydration";
 import { useChatPersistence } from "./useChatPersistence";
 import { useChatArtifacts } from "./useChatArtifacts";
 import type { ArtifactState } from "../types/chat";
+import type { ChatDebugEvent } from "../types/chat-debug.js";
 
 interface UseChatResult {
   messages: Message[];
@@ -19,6 +20,8 @@ interface UseChatResult {
   runId: string;
   resetRun: () => void;
   isModelConfigReady: boolean;
+  error: string | null;
+  debugEvents: ChatDebugEvent[];
 }
 
 /**
@@ -44,6 +47,8 @@ export function useChat(
     runId: activeRunId,
     resetRun,
     isModelConfigReady,
+    error,
+    debugEvents,
   } = useChatCore(sessionId, runId);
 
   // Handle message hydration
@@ -84,5 +89,7 @@ export function useChat(
     runId: activeRunId,
     resetRun,
     isModelConfigReady,
+    error,
+    debugEvents,
   };
 }

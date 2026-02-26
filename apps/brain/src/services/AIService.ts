@@ -18,7 +18,12 @@ import { createOpenAI } from "@ai-sdk/openai";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import type { ZodSchema } from "zod";
 import type { Env } from "../types/ai";
-import type { ProviderAdapter } from "./providers";
+import type {
+  ProviderAdapter,
+  GenerationParams,
+  GenerationResult,
+  StreamChunk,
+} from "./providers";
 import type { LLMUsage } from "@shadowbox/execution-engine/runtime/cost";
 import { ProviderConfigService } from "./providers";
 import {
@@ -35,6 +40,8 @@ import {
   type GenerateStructuredResult,
 } from "./ai";
 import { resolveSelectionWithPreferences } from "./ai/preference-selection";
+import { ValidationError } from "../domain/errors";
+import { DEFAULT_OPENROUTER_FALLBACK_MODEL } from "./ai/defaults";
 
 /**
  * AIService - Orchestrates LLM inference through provider adapters
@@ -54,8 +61,8 @@ export class AIService {
     private env: Env,
     providerConfigService?: ProviderConfigService,
   ) {
-    this.adapter = createDefaultAdapter(env);
-    this.defaultModel = env.DEFAULT_MODEL ?? "llama-3.3-70b-versatile";
+    this.adapter = this.createResilientDefaultAdapter(env);
+    this.defaultModel = env.DEFAULT_MODEL ?? DEFAULT_OPENROUTER_FALLBACK_MODEL;
     this.providerConfigService = providerConfigService;
   }
 
@@ -76,8 +83,12 @@ export class AIService {
   /**
    * Resolve provider/model override selection
    * @see ModelSelectionPolicy.resolveModelSelection for logic details
+   *
+   * @param providerId - Provider override ID
+   * @param modelId - Model override ID
+   * @param isByokOverride - If true, allows provider-native models even if not in allowlist
    */
-  resolveModelSelection(providerId?: string, modelId?: string) {
+  resolveModelSelection(providerId?: string, modelId?: string, isByokOverride = false) {
     return resolveModelSelection(
       providerId,
       modelId,
@@ -85,6 +96,7 @@ export class AIService {
       this.defaultModel,
       mapProviderIdToRuntimeProvider,
       getRuntimeProviderFromAdapter,
+      { isByokOverride },
     );
   }
 
@@ -172,6 +184,11 @@ export class AIService {
       messages,
       schema,
       temperature,
+      // OpenRouter often rejects tool-based structured generation for some models.
+      // Force JSON mode for OpenAI-compatible providers to avoid `tool_choice` routing failures.
+      ...(selection.runtimeProvider === "anthropic"
+        ? {}
+        : { mode: "json" as const }),
     });
 
     // Standardize usage
@@ -274,5 +291,46 @@ export class AIService {
 
     return client(model);
   }
+
+  private createResilientDefaultAdapter(env: Env): ProviderAdapter {
+    try {
+      return createDefaultAdapter(env);
+    } catch (error) {
+      console.warn(
+        "[ai/service] default adapter unavailable; using deferred error adapter",
+        error,
+      );
+      return new MissingProviderConfigAdapter(env);
+    }
+  }
 }
 export type { GenerateTextResult };
+
+class MissingProviderConfigAdapter implements ProviderAdapter {
+  readonly provider: string;
+  readonly supportedModels: string[] = [];
+
+  private readonly configurationError: ValidationError;
+
+  constructor(env: Env) {
+    this.provider = env.LLM_PROVIDER ?? "litellm";
+    this.configurationError = new ValidationError(
+      "No default provider key is configured. Connect a BYOK provider in Settings or configure OPENROUTER_API_KEY, GROQ_API_KEY, or OPENAI_API_KEY.",
+      "INFERENCE_PROVIDER_NOT_CONFIGURED",
+    );
+  }
+
+  supportsModel(_model: string): boolean {
+    return false;
+  }
+
+  async generate(_params: GenerationParams): Promise<GenerationResult> {
+    throw this.configurationError;
+  }
+
+  async *generateStream(
+    _params: GenerationParams,
+  ): AsyncGenerator<StreamChunk, GenerationResult, unknown> {
+    throw this.configurationError;
+  }
+}

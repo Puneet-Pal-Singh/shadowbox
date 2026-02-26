@@ -47,7 +47,7 @@ export class GitController {
       }
 
       const response = await fetch(
-        `${this.getMuscleBaseUrl(env)}/?session=${runId}`,
+        `${GitController.getMuscleBaseUrl(env)}/?session=${runId}`,
         {
           method: "POST",
           headers: {
@@ -63,9 +63,7 @@ export class GitController {
         },
       );
 
-      if (!response.ok) {
-        throw new Error(`Muscle returned ${response.status}`);
-      }
+      await assertMuscleResponseOk(response, "status");
 
       const data = (await response.json()) as GitStatusResponse;
 
@@ -96,7 +94,7 @@ export class GitController {
       }
 
       const response = await fetch(
-       `${this.getMuscleBaseUrl(env)}/?session=${runId}`,
+       `${GitController.getMuscleBaseUrl(env)}/?session=${runId}`,
        {
          method: "POST",
          headers: {
@@ -114,9 +112,7 @@ export class GitController {
         },
       );
 
-      if (!response.ok) {
-        throw new Error(`Muscle returned ${response.status}`);
-      }
+      await assertMuscleResponseOk(response, "diff");
 
       const data = (await response.json()) as DiffContent;
 
@@ -145,7 +141,7 @@ export class GitController {
       }
 
       const response = await fetch(
-        `${this.getMuscleBaseUrl(env)}/?session=${runId}`,
+        `${GitController.getMuscleBaseUrl(env)}/?session=${runId}`,
         {
           method: "POST",
           headers: {
@@ -162,9 +158,7 @@ export class GitController {
         },
       );
 
-      if (!response.ok) {
-        throw new Error(`Muscle returned ${response.status}`);
-      }
+      await assertMuscleResponseOk(response, unstage ? "unstage" : "stage");
 
       return corsJsonResponse(req, env, { success: true });
     } catch (error) {
@@ -191,7 +185,7 @@ export class GitController {
       }
 
       const response = await fetch(
-        `${this.getMuscleBaseUrl(env)}/?session=${runId}`,
+        `${GitController.getMuscleBaseUrl(env)}/?session=${runId}`,
         {
           method: "POST",
           headers: {
@@ -209,9 +203,7 @@ export class GitController {
         },
       );
 
-      if (!response.ok) {
-        throw new Error(`Muscle returned ${response.status}`);
-      }
+      await assertMuscleResponseOk(response, "commit");
 
       return corsJsonResponse(req, env, { success: true });
     } catch (error) {
@@ -249,4 +241,45 @@ function errorResponse(req: Request, env: Env, message: string, status: number):
       ...getCorsHeaders(req, env),
     },
   });
+}
+
+async function assertMuscleResponseOk(
+  response: Response,
+  operation: "status" | "diff" | "stage" | "unstage" | "commit",
+): Promise<void> {
+  if (response.ok) {
+    return;
+  }
+  const details = await readErrorPreview(response);
+  const suffix = details ? `: ${details}` : "";
+  throw new Error(
+    `Git ${operation} failed with HTTP ${response.status}${suffix}`,
+  );
+}
+
+async function readErrorPreview(response: Response): Promise<string> {
+  try {
+    const payload = (await response.clone().json()) as { error?: string };
+    if (typeof payload.error === "string" && payload.error.trim().length > 0) {
+      return payload.error.trim();
+    }
+  } catch {
+    // No-op: fallback to text preview.
+  }
+
+  try {
+    const text = (await response.text()).trim();
+    if (text.length > 0) {
+      return text.slice(0, 200);
+    }
+  } catch {
+    console.warn(
+      `[git/controller] Failed to read error preview body (status=${response.status})`,
+    );
+  }
+
+  console.warn(
+    `[git/controller] Empty error preview for non-OK response (status=${response.status} ${response.statusText})`,
+  );
+  return "";
 }

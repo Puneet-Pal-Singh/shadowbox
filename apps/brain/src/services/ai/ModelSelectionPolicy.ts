@@ -41,6 +41,12 @@ export interface ModelSelection {
  * Strict Mode (default):
  *   - Invalid providerId throws InvalidProviderSelectionError
  *   - Partial override throws InvalidProviderSelectionError
+ *   - Model not in capability matrix throws ModelNotAllowedError
+ *
+ * BYOK Mode (isByokOverride=true):
+ *   - Model validation is relaxed for BYOK-selected provider/model pairs
+ *   - Allows provider-native model IDs even if absent from static allowlist
+ *   - Still validates providerId schema and rejects empty model IDs
  *
  * Compat Mode (BRAIN_RUNTIME_COMPAT_MODE=1):
  *   - Invalid or partial overrides fall back to default with structured logging
@@ -54,7 +60,7 @@ export interface ModelSelection {
  * @param defaultModel - The default model name
  * @param mapToRuntimeProvider - Function to map ProviderId to RuntimeProvider
  * @param getRuntimeProviderFromAdapter - Function to map adapter provider to RuntimeProvider
- * @param correlationId - Optional correlation ID for error tracking
+ * @param options - Configuration options (isByokOverride, correlationId)
  * @returns ModelSelection with resolved provider/model
  * @throws InvalidProviderSelectionError in strict mode on validation failure
  */
@@ -65,8 +71,12 @@ export function resolveModelSelection(
   defaultModel: string,
   mapToRuntimeProvider: (id: ProviderId) => RuntimeProvider,
   getRuntimeProviderFromAdapter: (adapter: string) => RuntimeProvider,
-  correlationId?: string,
+  options?: {
+    isByokOverride?: boolean;
+    correlationId?: string;
+  },
 ): ModelSelection {
+  const { isByokOverride = false, correlationId } = options ?? {};
   const defaultRuntimeProvider = getRuntimeProviderFromAdapter(defaultProvider);
 
   // If no override specified, use default
@@ -99,10 +109,25 @@ export function resolveModelSelection(
 
   const validProviderId: ProviderId = parseResult.data;
   const runtimeProvider = mapToRuntimeProvider(validProviderId);
-  const isAllowedModel = isModelAllowedForProvider(validProviderId, modelId);
 
-  if (!isAllowedModel) {
-    throw new ModelNotAllowedError(modelId, validProviderId, correlationId);
+  // For BYOK overrides, skip capability matrix check and allow provider-native model IDs
+  if (!isByokOverride) {
+    const isAllowedModel = isModelAllowedForProvider(validProviderId, modelId);
+    if (!isAllowedModel) {
+      throw new ModelNotAllowedError(modelId, validProviderId, correlationId);
+    }
+  } else {
+    // Still validate that modelId is not empty/obviously invalid
+    if (!modelId || modelId.trim().length === 0) {
+      throw new ValidationError(
+        `Empty model ID for BYOK provider override`,
+        "INVALID_MODEL_ID",
+        correlationId,
+      );
+    }
+    console.log(
+      `[ai/model-selection] BYOK override: relaxed model validation for providerId=${validProviderId}, modelId=${modelId}`,
+    );
   }
 
   // Attempt to use provider override (actual connection check happens later)

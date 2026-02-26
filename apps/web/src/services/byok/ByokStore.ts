@@ -703,36 +703,34 @@ export class ByokStore {
     epoch: number
   ): Promise<void> {
     this.log("[resolveForChat] Starting");
-
-    if (!selection.selectedProviderId || !selection.selectedCredentialId) {
-      const error = new Error(
-        "No BYOK provider connected. Connect one in settings."
-      );
-      this.lastResolveSelectionKey = selectionKey;
-      this.lastResolveError = error;
-      throw error;
+    const request: {
+      providerId?: string;
+      credentialId?: string;
+      modelId?: string;
+    } = {};
+    if (selection.selectedProviderId) {
+      request.providerId = selection.selectedProviderId;
+    }
+    if (selection.selectedCredentialId) {
+      request.credentialId = selection.selectedCredentialId;
+    }
+    if (selection.selectedModelId) {
+      request.modelId = selection.selectedModelId;
     }
 
-    this.setState({
-      selectedProviderId: selection.selectedProviderId,
-      selectedCredentialId: selection.selectedCredentialId,
-      selectedModelId: selection.selectedModelId,
-    });
-
     try {
-      const config = await this.apiClient.resolveForChat({
-        providerId: selection.selectedProviderId,
-        credentialId: selection.selectedCredentialId,
-        modelId: selection.selectedModelId || undefined,
-      });
+      const config = await this.apiClient.resolveForChat(request);
       if (this.isStaleEpoch("resolveForChat", epoch)) {
         return;
       }
 
+      const normalizedCredentialId =
+        config.credentialId.trim().length > 0 ? config.credentialId : null;
+
       this.setState({
         lastResolvedConfig: config,
         selectedProviderId: config.providerId,
-        selectedCredentialId: config.credentialId,
+        selectedCredentialId: normalizedCredentialId,
         selectedModelId: config.modelId,
       });
       this.lastResolveSelectionKey = selectionKey;
