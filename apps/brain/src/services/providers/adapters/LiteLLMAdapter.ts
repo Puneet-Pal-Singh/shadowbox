@@ -6,6 +6,11 @@ import {
   OpenAICompatibleAdapter,
   type OpenAICompatibleConfig,
 } from "./OpenAICompatibleAdapter";
+import {
+  OPENAI_BASE_URL,
+  OPENROUTER_BASE_URL,
+  GROQ_BASE_URL,
+} from "../../ai/defaults";
 
 interface LiteLLMConfig {
   apiKey: string;
@@ -17,6 +22,7 @@ interface LiteLLMConfig {
 export class LiteLLMAdapter extends OpenAICompatibleAdapter {
   readonly provider = "litellm";
   readonly supportedModels: string[];
+  private readonly usageProvider: "litellm" | "openrouter" | "groq" | "openai";
 
   constructor(config: LiteLLMConfig) {
     if (!config.defaultModel || config.defaultModel.trim() === "") {
@@ -33,6 +39,7 @@ export class LiteLLMAdapter extends OpenAICompatibleAdapter {
     };
     super(adapterConfig);
     this.supportedModels = config.supportedModels ?? [];
+    this.usageProvider = inferUsageProviderFromBaseURL(config.baseURL);
   }
 
   protected standardizeUsage(
@@ -40,7 +47,7 @@ export class LiteLLMAdapter extends OpenAICompatibleAdapter {
     model: string,
   ): LLMUsage {
     return {
-      provider: this.provider,
+      provider: this.usageProvider,
       model,
       promptTokens: usage.promptTokens,
       completionTokens: usage.completionTokens,
@@ -48,4 +55,21 @@ export class LiteLLMAdapter extends OpenAICompatibleAdapter {
       raw: usage,
     };
   }
+}
+
+function inferUsageProviderFromBaseURL(
+  baseURL: string,
+): "litellm" | "openrouter" | "groq" | "openai" {
+  const normalized = baseURL.toLowerCase();
+
+  if (normalized.includes(new URL(OPENROUTER_BASE_URL).host)) {
+    return "openrouter";
+  }
+  if (normalized.includes(new URL(GROQ_BASE_URL).host)) {
+    return "groq";
+  }
+  if (normalized.includes(new URL(OPENAI_BASE_URL).host)) {
+    return "openai";
+  }
+  return "litellm";
 }

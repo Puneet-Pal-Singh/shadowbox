@@ -25,7 +25,12 @@ import {
   type GenerateStructuredResult,
 } from "./ai";
 import { resolveSelectionWithPreferences } from "./ai/preference-selection";
-import { DEFAULT_OPENROUTER_FALLBACK_MODEL } from "./ai/defaults";
+import {
+  DEFAULT_OPENROUTER_FALLBACK_MODEL,
+  OPENAI_BASE_URL,
+  OPENROUTER_BASE_URL,
+  GROQ_BASE_URL,
+} from "./ai/defaults";
 import { DefaultAdapterService } from "./ai/DefaultAdapterService";
 
 export class AIService {
@@ -147,7 +152,7 @@ export class AIService {
 
     // Standardize usage
     const usage: LLMUsage = {
-      provider: selection.runtimeProvider,
+      provider: inferUsageProvider(selection.runtimeProvider, sdkModelConfig.baseURL),
       model: selection.model,
       promptTokens: result.usage?.promptTokens ?? 0,
       completionTokens: result.usage?.completionTokens ?? 0,
@@ -240,3 +245,25 @@ export class AIService {
 }
 
 export type { GenerateTextResult };
+
+function inferUsageProvider(
+  runtimeProvider: SDKModelConfig["provider"],
+  baseURL: string,
+): "litellm" | "openai" | "anthropic" | "openrouter" | "groq" {
+  if (runtimeProvider !== "litellm") {
+    return runtimeProvider;
+  }
+
+  const normalized = baseURL.toLowerCase();
+  if (normalized.includes(new URL(OPENROUTER_BASE_URL).host)) {
+    return "openrouter";
+  }
+  if (normalized.includes(new URL(GROQ_BASE_URL).host)) {
+    return "groq";
+  }
+  if (normalized.includes(new URL(OPENAI_BASE_URL).host)) {
+    return "openai";
+  }
+
+  return "litellm";
+}

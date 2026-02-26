@@ -45,4 +45,26 @@ export const DEFAULT_SEED_PRICING: Record<string, PricingEntry> = {
       version: "2026-02-14",
     },
   },
+  "openrouter:arcee-ai/trinity-large-preview:free": {
+    inputPrice: 0,
+    outputPrice: 0,
+    currency: "USD",
+    effectiveDate: "2026-02-26",
+    lastUpdated: "2026-02-26",
+    metadata: {
+      source: "openrouter-free-tier",
+      version: "2026-02-26",
+    },
+  },
+  "litellm:arcee-ai/trinity-large-preview:free": {
+    inputPrice: 0,
+    outputPrice: 0,
+    currency: "USD",
+    effectiveDate: "2026-02-26",
+    lastUpdated: "2026-02-26",
+    metadata: {
+      source: "litellm-free-tier-fallback",
+      version: "2026-02-26",
+    },
+  },
 };
