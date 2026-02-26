@@ -145,7 +145,7 @@ Rules:
       extractStructuredField(task.input, "path") ?? task.input.description;
     validateSafePath(path);
 
-    const result = await this.executionService.execute("filesystem", "read", {
+    const result = await this.executionService.execute("filesystem", "read_file", {
       path,
     });
     return this.buildSuccessResult(task.id, formatExecutionResult(result));
@@ -161,7 +161,7 @@ Rules:
       throw new TaskInputError("edit", "Missing 'content' field in task input");
     }
 
-    const result = await this.executionService.execute("filesystem", "write", {
+    const result = await this.executionService.execute("filesystem", "write_file", {
       path,
       content,
     });
@@ -173,7 +173,7 @@ Rules:
       extractStructuredField(task.input, "command") ?? task.input.description;
     validateShellCommand(command);
 
-    const result = await this.executionService.execute("shell", "execute", {
+    const result = await this.executionService.execute("node", "run", {
       command,
     });
     return this.buildSuccessResult(task.id, formatExecutionResult(result));
@@ -184,7 +184,7 @@ Rules:
       extractStructuredField(task.input, "command") ?? task.input.description;
     validateShellCommand(command);
 
-    const result = await this.executionService.execute("shell", "execute", {
+    const result = await this.executionService.execute("node", "run", {
       command,
     });
     return this.buildSuccessResult(task.id, formatExecutionResult(result));
