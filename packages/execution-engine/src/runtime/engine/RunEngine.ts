@@ -313,11 +313,12 @@ export class RunEngine implements IRunEngine {
       );
 
       console.log(`[run/engine] Synthesis phase for run ${runId}`);
-      const finalOutput = await this.generateSynthesis(
+      const finalOutputRaw = await this.generateSynthesis(
         run,
         input.prompt,
         this.currentMemoryContext,
       );
+      const finalOutput = this.sanitizeUserFacingOutput(finalOutputRaw);
 
       await this.safeMemoryOperation(() =>
         this.memoryCoordinator.extractAndPersist({
@@ -533,7 +534,7 @@ export class RunEngine implements IRunEngine {
     run.transition("RUNNING");
     await this.runRepo.update(run);
 
-    const upstream = await this.llmGateway.generateStream({
+    const result = await this.llmGateway.generateText({
       context: {
         runId: run.id,
         sessionId: run.sessionId,
@@ -541,91 +542,48 @@ export class RunEngine implements IRunEngine {
         phase: "synthesis",
       },
       messages,
+      system: this.buildConversationalSystemPrompt(),
       model: input.modelId,
       providerId: input.providerId,
       temperature: 0.7,
     });
+    const sanitizedText = this.sanitizeUserFacingOutput(result.text);
 
-    const reader = upstream.getReader();
-    const decoder = new TextDecoder();
-    let accumulatedText = "";
-    let finalized = false;
+    await this.safeMemoryOperation(() =>
+      this.memoryCoordinator.extractAndPersist({
+        runId: run.id,
+        sessionId: run.sessionId,
+        source: "synthesis",
+        content: sanitizedText,
+        phase: "synthesis",
+      }),
+    );
 
-    const finalize = async (): Promise<void> => {
-      if (finalized) {
-        return;
-      }
-      finalized = true;
+    await this.safeMemoryOperation(() =>
+      this.persistConversationMessages(
+        run.id,
+        run.sessionId,
+        [{ role: "assistant", content: sanitizedText }],
+        "assistant",
+      ),
+    );
 
-      const remaining = decoder.decode();
-      if (remaining.length > 0) {
-        accumulatedText += remaining;
-      }
+    await this.safeMemoryOperation(() =>
+      this.memoryCoordinator.createCheckpoint({
+        runId: run.id,
+        sequence: 1,
+        phase: "synthesis",
+        runStatus: "COMPLETED",
+        taskStatuses: {},
+      }),
+    );
 
-      await this.safeMemoryOperation(() =>
-        this.memoryCoordinator.extractAndPersist({
-          runId: run.id,
-          sessionId: run.sessionId,
-          source: "synthesis",
-          content: accumulatedText,
-          phase: "synthesis",
-        }),
-      );
+    run.transition("COMPLETED");
+    run.output = { content: sanitizedText };
+    await this.runRepo.update(run);
+    console.log(`[run/engine] Completed conversational run ${run.id}`);
 
-      await this.safeMemoryOperation(() =>
-        this.persistConversationMessages(
-          run.id,
-          run.sessionId,
-          [{ role: "assistant", content: accumulatedText }],
-          "assistant",
-        ),
-      );
-
-      await this.safeMemoryOperation(() =>
-        this.memoryCoordinator.createCheckpoint({
-          runId: run.id,
-          sequence: 1,
-          phase: "synthesis",
-          runStatus: "COMPLETED",
-          taskStatuses: {},
-        }),
-      );
-
-      run.transition("COMPLETED");
-      run.output = { content: accumulatedText };
-      await this.runRepo.update(run);
-      console.log(`[run/engine] Completed conversational run ${run.id}`);
-    };
-
-    const stream = new ReadableStream<Uint8Array>({
-      pull: async (controller) => {
-        try {
-          const chunk = await reader.read();
-          if (chunk.done) {
-            await finalize();
-            controller.close();
-            return;
-          }
-
-          if (chunk.value) {
-            accumulatedText += decoder.decode(chunk.value, { stream: true });
-            controller.enqueue(chunk.value);
-          }
-        } catch (error) {
-          controller.error(error);
-        }
-      },
-      cancel: async (reason) => {
-        await reader.cancel(reason);
-      },
-    });
-
-    return new Response(stream, {
-      headers: {
-        "Content-Type": "text/plain; charset=utf-8",
-        "Transfer-Encoding": "chunked",
-      },
-    });
+    return this.createStreamResponse(sanitizedText);
   }
 
   private shouldBypassPlanning(prompt: string): boolean {
@@ -702,10 +660,11 @@ Provide a concise summary of what was accomplished.`;
   }
 
   private createStreamResponse(content: string): Response {
+    const safeContent = this.sanitizeUserFacingOutput(content);
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
       start(controller) {
-        controller.enqueue(encoder.encode(content));
+        controller.enqueue(encoder.encode(safeContent));
         controller.close();
       },
     });
@@ -716,6 +675,27 @@ Provide a concise summary of what was accomplished.`;
         "Transfer-Encoding": "chunked",
       },
     });
+  }
+
+  private buildConversationalSystemPrompt(): string {
+    const nowIso = new Date().toISOString();
+    return [
+      "You are Shadowbox assistant in conversational chat mode.",
+      "Answer the user directly and briefly.",
+      "Do not fabricate tool execution, file access, command output, or repository inspection.",
+      "Do not mention internal run IDs, internal URLs, filesystem paths, or debug traces.",
+      `Current runtime timestamp (UTC): ${nowIso}. If asked for date/time, use this timestamp as reference.`,
+      "If the user asks about capabilities, describe what you can help with conversationally and ask for explicit permission/request before operational actions.",
+    ].join("\n");
+  }
+
+  private sanitizeUserFacingOutput(text: string): string {
+    return text
+      .replace(
+        /\/home\/sandbox\/runs\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\//gi,
+        "/home/sandbox/runs/[run]/",
+      )
+      .replace(/http:\/\/internal(?:\/[^\s"']*)?/gi, "[internal-url]");
   }
 
   private async handleExecutionError(

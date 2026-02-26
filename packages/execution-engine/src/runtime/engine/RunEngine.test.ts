@@ -42,6 +42,22 @@ describe("RunEngine", () => {
     expect(privateApi.shouldBypassPlanning("check README file")).toBe(false);
     expect(privateApi.shouldBypassPlanning("fix this")).toBe(false);
   });
+
+  it("sanitizes internal runtime paths in user-facing output", () => {
+    const runEngine = createRunEngine();
+    const privateApi = runEngine as unknown as {
+      sanitizeUserFacingOutput(text: string): string;
+    };
+
+    const leaked =
+      'cat: /home/sandbox/runs/5212f17b-eb1f-463f-a41f-2c4c6b9d4ba6/README.md: No such file or directory';
+    const sanitized = privateApi.sanitizeUserFacingOutput(leaked);
+
+    expect(sanitized).not.toContain(
+      "/home/sandbox/runs/5212f17b-eb1f-463f-a41f-2c4c6b9d4ba6/",
+    );
+    expect(sanitized).toContain("/home/sandbox/runs/[run]/");
+  });
 });
 
 function createRunEngine(): RunEngine {
