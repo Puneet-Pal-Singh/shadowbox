@@ -37,6 +37,8 @@ describe("ResultFormatter", () => {
     expect(formatted).not.toContain(
       "/home/sandbox/runs/4ccbe9ee-6201-4d9b-8377-dbae1e386894/",
     );
-    expect(formatted).toContain("/home/sandbox/runs/[run]/");
+    expect(formatted).toContain(
+      "The requested file was not found in the current workspace.",
+    );
   });
 });
