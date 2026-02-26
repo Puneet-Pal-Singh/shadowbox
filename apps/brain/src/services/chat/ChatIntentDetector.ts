@@ -137,33 +137,16 @@ export class ChatIntentDetector {
   }
 
   private static hasActionKeywords(normalized: string): boolean {
-    // Action keywords that indicate file/code operations
-    const actionKeywords = [
-      "file",
-      "read",
-      "write",
-      "edit",
-      "create",
-      "delete",
-      "update",
-      "modify",
-      "test",
-      "run",
-      "commit",
-      "push",
-      "pull",
-      "check",
-      "src/",
-      "npm",
-      "yarn",
-      "pnpm",
-      "command",
-      "execute",
-    ];
+     // Action keywords that indicate file/code operations
+     // Use word boundaries (\b) to avoid false positives like "bread" containing "read"
+     const actionKeywordPatterns = [
+       /\b(file|read|write|edit|create|delete|update|modify|test|run|commit|push|pull|check|npm|yarn|pnpm|command|execute)\b/,
+       /src\//,
+     ];
 
-    // Note: Excluded "code", "git", "analyze" as they can be used in academic contexts
-    return actionKeywords.some((kw) => normalized.includes(kw));
-  }
+     // Note: Excluded "code", "git", "analyze" as they can be used in academic contexts
+     return actionKeywordPatterns.some((pattern) => pattern.test(normalized));
+   }
 
   private static isShortConversationalUtterance(normalized: string): boolean {
     if (normalized.includes("?")) {

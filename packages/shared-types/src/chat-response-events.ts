@@ -158,12 +158,29 @@ export function isChatResponseEvent(value: unknown): value is ChatResponseEventU
     return false;
   }
   const obj = value as Record<string, unknown>;
-  return (
-    typeof obj.type === "string" &&
-    Object.values(CHAT_RESPONSE_EVENT_TYPES).includes(
+  
+  // Validate type field
+  if (
+    typeof obj.type !== "string" ||
+    !Object.values(CHAT_RESPONSE_EVENT_TYPES).includes(
       obj.type as ChatResponseEventType,
     )
-  );
+  ) {
+    return false;
+  }
+  
+  // Validate required envelope fields
+  if (typeof obj.runId !== "string" || obj.runId.length === 0) {
+    return false;
+  }
+  if (typeof obj.timestamp !== "string" || obj.timestamp.length === 0) {
+    return false;
+  }
+  if (!Object.prototype.hasOwnProperty.call(obj, "payload")) {
+    return false;
+  }
+  
+  return true;
 }
 
 export function isChatResponseEventOfType<T extends ChatResponseEventType>(

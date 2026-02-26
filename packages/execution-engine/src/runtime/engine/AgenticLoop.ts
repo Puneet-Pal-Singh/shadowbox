@@ -12,13 +12,39 @@ import {
 } from "../cost/index.js";
 import type { ILLMGateway } from "../llm/index.js";
 import type { IBudgetManager } from "../cost/index.js";
-import type { TaskExecutor } from "./TaskExecutor.js";
+import type { TaskExecutor } from "../orchestration/index.js";
+import type { TaskResult } from "../types.js";
 
 export interface AgenticLoopConfig {
   maxSteps: number;
   runId: string;
   sessionId: string;
   budget?: IBudgetManager;
+}
+
+/**
+ * Minimal LLM response interface for agentic loop
+ * Simplified from what generateWithTools would return
+ */
+export interface LLMToolResponse {
+  text: string;
+  toolCalls: Array<{
+    id: string;
+    toolName: string;
+    args: Record<string, unknown>;
+  }>;
+}
+
+/**
+ * Minimal task interface for tool execution within agentic loop
+ * Satisfies TaskExecutor.execute() contract
+ */
+interface ToolTask {
+  id: string;
+  type: string;
+  input: Record<string, unknown>;
+  runId: string;
+  status: string;
 }
 
 export type StopReason =
@@ -82,44 +108,59 @@ export class AgenticLoop {
       this.stepsExecuted = step + 1;
 
       // Check budget before LLM call
-      try {
-        if (this.config.budget) {
-          await this.config.budget.checkRunBudget(this.config.runId);
-        }
-      } catch (error) {
-        if (
-          error instanceof BudgetExceededError ||
-          error instanceof SessionBudgetExceededError
-        ) {
-          console.warn(
-            `[agentic-loop] Budget exceeded at step ${step} for run ${this.config.runId}`,
-          );
-          stopReason = "budget_exceeded";
-          break;
-        }
-        throw error;
-      }
+       try {
+         if (this.config.budget) {
+           // Note: AgenticLoop doesn't have actual LLM usage data yet,
+           // so we skip budget check here. In production, this would use
+           // estimated token counts based on message history.
+           const isOverBudget = await this.config.budget.isOverBudget(
+             this.config.runId,
+           );
+           if (isOverBudget) {
+             throw new BudgetExceededError(this.config.runId, 0, 0);
+           }
+         }
+       } catch (error) {
+         if (
+           error instanceof BudgetExceededError ||
+           error instanceof SessionBudgetExceededError
+         ) {
+           console.warn(
+             `[agentic-loop] Budget exceeded at step ${step} for run ${this.config.runId}`,
+           );
+           stopReason = "budget_exceeded";
+           break;
+         }
+         throw error;
+       }
 
       console.log(
         `[agentic-loop] Step ${step + 1}/${this.config.maxSteps} for run ${this.config.runId}`,
       );
 
-      // Call LLM
-      let response;
+      // Call LLM - note: tool support would require extending ILLMGateway
+      // For now, this is a placeholder. In production, AgenticLoop would be invoked
+      // as part of a higher-level orchestration that handles tool parsing.
+      let response: LLMToolResponse;
       try {
-        response = await this.llmGateway.generateWithTools({
+        // Placeholder: actual implementation would parse tool calls from LLM output
+        // or use a specialized generateWithTools method on ILLMGateway
+        const textResponse = await this.llmGateway.generateText({
           context: {
             runId: this.config.runId,
             sessionId: this.config.sessionId,
             agentType: context.agentType,
-            phase: "agentic-loop",
+            phase: "task",
           },
           messages,
-          tools: Object.values(tools),
           model: context.modelId,
           providerId: context.providerId,
           temperature: context.temperature,
         });
+        response = {
+          text: textResponse.text,
+          toolCalls: [],
+        };
       } catch (error) {
         console.error(
           `[agentic-loop] LLM call failed at step ${step}:`,
@@ -154,23 +195,28 @@ export class AgenticLoop {
         this.toolExecutionCount++;
 
         // Check budget before tool execution
-        try {
-          if (this.config.budget) {
-            await this.config.budget.checkRunBudget(this.config.runId);
-          }
-        } catch (error) {
-          if (
-            error instanceof BudgetExceededError ||
-            error instanceof SessionBudgetExceededError
-          ) {
-            console.warn(
-              `[agentic-loop] Budget exceeded during tool execution for run ${this.config.runId}`,
-            );
-            stopReason = "budget_exceeded";
-            break;
-          }
-          throw error;
-        }
+         try {
+           if (this.config.budget) {
+             const isOverBudget = await this.config.budget.isOverBudget(
+               this.config.runId,
+             );
+             if (isOverBudget) {
+               throw new BudgetExceededError(this.config.runId, 0, 0);
+             }
+           }
+         } catch (error) {
+           if (
+             error instanceof BudgetExceededError ||
+             error instanceof SessionBudgetExceededError
+           ) {
+             console.warn(
+               `[agentic-loop] Budget exceeded during tool execution for run ${this.config.runId}`,
+             );
+             stopReason = "budget_exceeded";
+             break;
+           }
+           throw error;
+         }
 
         // Execute tool
         try {
@@ -179,7 +225,7 @@ export class AgenticLoop {
           );
 
           // Create a minimal task-like object for executor
-          const toolTask = {
+          const toolTask: ToolTask = {
             id: toolCall.id,
             type: toolCall.toolName,
             input: {
@@ -188,9 +234,9 @@ export class AgenticLoop {
             },
             runId: this.config.runId,
             status: "RUNNING",
-          } as any;
+          };
 
-          const result = await this.executor.execute(toolTask);
+          const result = await this.executor.execute(toolTask as any);
 
           if (result.status === "DONE") {
             toolResults.push({

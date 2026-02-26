@@ -20,38 +20,38 @@ export const CHAT_RESPONSE_PROTOCOL_VERSION = 1;
  */
 
 export const TextDeltaPayloadSchema = z.object({
-  content: z.string().describe("Text chunk content"),
+  content: z.string().min(1).describe("Text chunk content"),
   index: z.number().int().min(0).describe("Zero-based chunk index"),
-});
+}).strict();
 
 export const ToolCallPayloadSchema = z.object({
-  toolId: z.string().describe("Unique tool identifier"),
-  toolName: z.string().describe("Human-readable tool name"),
+  toolId: z.string().min(1).describe("Unique tool identifier"),
+  toolName: z.string().min(1).describe("Human-readable tool name"),
   arguments: z
     .record(z.unknown())
     .describe("Tool invocation arguments"),
-  callId: z.string().describe("Unique call identifier for tracking"),
-});
+  callId: z.string().min(1).describe("Unique call identifier for tracking"),
+}).strict();
 
 export const ToolResultPayloadSchema = z.object({
-  toolId: z.string(),
-  toolName: z.string(),
-  callId: z.string(),
+  toolId: z.string().min(1),
+  toolName: z.string().min(1),
+  callId: z.string().min(1),
   result: z.unknown().describe("Tool execution result"),
   executionTimeMs: z
     .number()
     .int()
     .min(0)
     .describe("Wall-clock execution time"),
-});
+}).strict();
 
 export const ToolErrorPayloadSchema = z.object({
-  toolId: z.string(),
-  toolName: z.string(),
-  callId: z.string(),
-  error: z.string().describe("Error message from tool"),
+  toolId: z.string().min(1),
+  toolName: z.string().min(1),
+  callId: z.string().min(1),
+  error: z.string().min(1).describe("Error message from tool"),
   executionTimeMs: z.number().int().min(0),
-});
+}).strict();
 
 export const RunStatusPayloadSchema = z.object({
   status: z.enum([
@@ -75,7 +75,7 @@ export const RunStatusPayloadSchema = z.object({
     .min(0)
     .optional()
     .describe("Completed task count"),
-});
+}).strict();
 
 export const FinalPayloadSchema = z.object({
   status: z.enum(["success", "failed"]).describe("Final outcome"),
@@ -91,62 +91,57 @@ export const FinalPayloadSchema = z.object({
     .min(0)
     .describe("Failed tool count"),
   message: z.string().optional().describe("Optional summary message"),
-});
+}).strict();
 
 // Event envelope schema
 export const ChatResponseEventSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal(CHAT_RESPONSE_EVENT_TYPES.TEXT_DELTA),
-    runId: z.string(),
+    runId: z.string().min(1),
     timestamp: z.string().datetime(),
     payload: TextDeltaPayloadSchema,
-  }),
+  }).strict(),
   z.object({
     type: z.literal(CHAT_RESPONSE_EVENT_TYPES.TOOL_CALL),
-    runId: z.string(),
+    runId: z.string().min(1),
     timestamp: z.string().datetime(),
     payload: ToolCallPayloadSchema,
-  }),
+  }).strict(),
   z.object({
     type: z.literal(CHAT_RESPONSE_EVENT_TYPES.TOOL_RESULT),
-    runId: z.string(),
+    runId: z.string().min(1),
     timestamp: z.string().datetime(),
     payload: ToolResultPayloadSchema,
-  }),
+  }).strict(),
   z.object({
     type: z.literal(CHAT_RESPONSE_EVENT_TYPES.TOOL_ERROR),
-    runId: z.string(),
+    runId: z.string().min(1),
     timestamp: z.string().datetime(),
     payload: ToolErrorPayloadSchema,
-  }),
+  }).strict(),
   z.object({
     type: z.literal(CHAT_RESPONSE_EVENT_TYPES.RUN_STATUS),
-    runId: z.string(),
+    runId: z.string().min(1),
     timestamp: z.string().datetime(),
     payload: RunStatusPayloadSchema,
-  }),
+  }).strict(),
   z.object({
     type: z.literal(CHAT_RESPONSE_EVENT_TYPES.FINAL),
-    runId: z.string(),
+    runId: z.string().min(1),
     timestamp: z.string().datetime(),
     payload: FinalPayloadSchema,
-  }),
+  }).strict(),
 ]);
 
 export type ChatResponseEvent = z.infer<typeof ChatResponseEventSchema>;
 
 /**
- * Validate event conforms to contract
- */
+  * Validate event conforms to contract
+  */
 export function validateChatResponseEvent(
   event: unknown,
 ): event is ChatResponseEvent {
-  try {
-    ChatResponseEventSchema.parse(event);
-    return true;
-  } catch {
-    return false;
-  }
+  return ChatResponseEventSchema.safeParse(event).success;
 }
 
 /**
