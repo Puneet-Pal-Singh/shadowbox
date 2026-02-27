@@ -17,22 +17,27 @@ const lastLoggedErrorByRunId = new Map<string, string>();
 
 const RETRY_DELAY_MS = 5000;
 
-export function useGitStatus(explicitRunId?: string): UseGitStatusResult {
-  const { runId: contextRunId } = useRunContext();
+export function useGitStatus(
+  explicitRunId?: string,
+  explicitSessionId?: string,
+): UseGitStatusResult {
+  const { runId: contextRunId, sessionId: contextSessionId } = useRunContext();
   const runId = explicitRunId ?? contextRunId;
+  const sessionId = explicitSessionId ?? contextSessionId;
+  const cacheKey = runId && sessionId ? `${sessionId}:${runId}` : null;
   const [status, setStatus] = useState<GitStatusResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const fetchStatus = useCallback(async () => {
-    if (!runId) {
+    if (!runId || !sessionId || !cacheKey) {
       setLoading(false);
       setStatus(null);
-      setError(null);
+      setError(!runId ? null : "No session context available");
       return;
     }
 
-    const cachedStatus = statusCacheByRunId.get(runId);
+    const cachedStatus = statusCacheByRunId.get(cacheKey);
     if (cachedStatus) {
       setStatus(cachedStatus);
       setError(null);
@@ -40,7 +45,7 @@ export function useGitStatus(explicitRunId?: string): UseGitStatusResult {
       setStatus(null);
     }
 
-    const retryAfter = retryAfterByRunId.get(runId);
+    const retryAfter = retryAfterByRunId.get(cacheKey);
     if (retryAfter && Date.now() < retryAfter) {
       return;
     }
@@ -50,26 +55,26 @@ export function useGitStatus(explicitRunId?: string): UseGitStatusResult {
 
     try {
       const request =
-        inflightByRunId.get(runId) ?? createGitStatusRequest(runId);
-      inflightByRunId.set(runId, request);
+        inflightByRunId.get(cacheKey) ?? createGitStatusRequest(runId, sessionId);
+      inflightByRunId.set(cacheKey, request);
       const data = await request;
 
-      statusCacheByRunId.set(runId, data);
-      retryAfterByRunId.delete(runId);
+      statusCacheByRunId.set(cacheKey, data);
+      retryAfterByRunId.delete(cacheKey);
       setStatus(data);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error";
-      retryAfterByRunId.set(runId, Date.now() + RETRY_DELAY_MS);
+      retryAfterByRunId.set(cacheKey, Date.now() + RETRY_DELAY_MS);
       setStatus(null);
       setError(message);
-      if (lastLoggedErrorByRunId.get(runId) !== message) {
+      if (lastLoggedErrorByRunId.get(cacheKey) !== message) {
         console.error("[useGitStatus] Error:", err);
-        lastLoggedErrorByRunId.set(runId, message);
+        lastLoggedErrorByRunId.set(cacheKey, message);
       }
     } finally {
       setLoading(false);
     }
-  }, [runId]);
+  }, [cacheKey, runId, sessionId]);
 
   useEffect(() => {
     void fetchStatus();
@@ -78,10 +83,14 @@ export function useGitStatus(explicitRunId?: string): UseGitStatusResult {
   return { status, loading, error, refetch: fetchStatus };
 }
 
-async function createGitStatusRequest(runId: string): Promise<GitStatusResponse> {
+async function createGitStatusRequest(
+  runId: string,
+  sessionId: string,
+): Promise<GitStatusResponse> {
+  const cacheKey = `${sessionId}:${runId}`;
   try {
     const response = await fetch(
-      `${getBrainHttpBase()}/api/git/status?runId=${encodeURIComponent(runId)}`
+      `${getBrainHttpBase()}/api/git/status?runId=${encodeURIComponent(runId)}&sessionId=${encodeURIComponent(sessionId)}`
     );
 
     if (!response.ok) {
@@ -92,7 +101,7 @@ async function createGitStatusRequest(runId: string): Promise<GitStatusResponse>
     const payload = (await response.json()) as unknown;
     return normalizeGitStatusResponse(payload);
   } finally {
-    inflightByRunId.delete(runId);
+    inflightByRunId.delete(cacheKey);
   }
 }
 

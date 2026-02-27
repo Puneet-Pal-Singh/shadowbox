@@ -41,13 +41,15 @@ export class GitController {
     try {
       const url = new URL(req.url);
       const runId = url.searchParams.get("runId");
+      const sessionId = url.searchParams.get("sessionId");
 
       if (!runId) {
         return errorResponse(req, env, "runId is required", 400);
       }
 
+      const muscleSession = resolveMuscleSessionId(runId, sessionId);
       const response = await fetch(
-        `${GitController.getMuscleBaseUrl(env)}/?session=${runId}`,
+        `${GitController.getMuscleBaseUrl(env)}/?session=${encodeURIComponent(muscleSession)}`,
         {
           method: "POST",
           headers: {
@@ -87,6 +89,7 @@ export class GitController {
     try {
       const url = new URL(req.url);
       const runId = url.searchParams.get("runId");
+      const sessionId = url.searchParams.get("sessionId");
       const filePath = url.searchParams.get("path");
       const staged = url.searchParams.get("staged") === "true";
 
@@ -94,8 +97,9 @@ export class GitController {
         return errorResponse(req, env, "runId is required", 400);
       }
 
+      const muscleSession = resolveMuscleSessionId(runId, sessionId);
       const response = await fetch(
-       `${GitController.getMuscleBaseUrl(env)}/?session=${runId}`,
+       `${GitController.getMuscleBaseUrl(env)}/?session=${encodeURIComponent(muscleSession)}`,
        {
          method: "POST",
          headers: {
@@ -135,15 +139,19 @@ export class GitController {
    */
   static async stageFiles(req: Request, env: Env): Promise<Response> {
     try {
-      const body = (await req.json()) as StageFilesRequest & { runId: string };
-      const { runId, files, unstage = false } = body;
+      const body = (await req.json()) as StageFilesRequest & {
+        runId: string;
+        sessionId?: string;
+      };
+      const { runId, sessionId, files, unstage = false } = body;
 
       if (!runId || !files || !Array.isArray(files)) {
         return errorResponse(req, env, "runId and files array are required", 400);
       }
 
+      const muscleSession = resolveMuscleSessionId(runId, sessionId);
       const response = await fetch(
-        `${GitController.getMuscleBaseUrl(env)}/?session=${runId}`,
+        `${GitController.getMuscleBaseUrl(env)}/?session=${encodeURIComponent(muscleSession)}`,
         {
           method: "POST",
           headers: {
@@ -180,15 +188,19 @@ export class GitController {
    */
   static async commit(req: Request, env: Env): Promise<Response> {
     try {
-      const body = (await req.json()) as CommitPayload & { runId: string };
-      const { runId, message, files } = body;
+      const body = (await req.json()) as CommitPayload & {
+        runId: string;
+        sessionId?: string;
+      };
+      const { runId, sessionId, message, files } = body;
 
       if (!runId || !message) {
         return errorResponse(req, env, "runId and message are required", 400);
       }
 
+      const muscleSession = resolveMuscleSessionId(runId, sessionId);
       const response = await fetch(
-        `${GitController.getMuscleBaseUrl(env)}/?session=${runId}`,
+        `${GitController.getMuscleBaseUrl(env)}/?session=${encodeURIComponent(muscleSession)}`,
         {
           method: "POST",
           headers: {
@@ -225,6 +237,14 @@ export class GitController {
 interface PluginSuccessPayload {
   success: true;
   output?: unknown;
+}
+
+function resolveMuscleSessionId(runId: string, sessionId?: string | null): string {
+  const normalizedSessionId = sessionId?.trim();
+  if (normalizedSessionId && normalizedSessionId.length > 0) {
+    return normalizedSessionId;
+  }
+  return runId;
 }
 
 interface PluginErrorPayload {

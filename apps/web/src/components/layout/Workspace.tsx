@@ -66,8 +66,8 @@ export function Workspace({
   } = useChat(sessionId, initialRunId, () => {
     explorerRef.current?.refresh();
   });
-  const { status } = useGitStatus(activeRunId);
-  const { fetch: fetchDiff, diff } = useGitDiff(activeRunId);
+  const { status } = useGitStatus(activeRunId, sessionId);
+  const { fetch: fetchDiff, diff } = useGitDiff(activeRunId, sessionId);
   const changesCount = status?.files?.length ?? 0;
 
   const { handleFileClick, handleGitHubFileSelect } = useFileLoader({
@@ -124,7 +124,7 @@ export function Workspace({
   };
 
   return (
-    <RunContextProvider runId={activeRunId}>
+    <RunContextProvider runId={activeRunId} sessionId={sessionId}>
       <div className="flex-1 flex bg-black overflow-hidden relative">
         {/* Chat Area */}
         <main className="flex-1 flex flex-col min-w-0 bg-black relative">

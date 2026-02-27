@@ -9,16 +9,20 @@ interface UseGitDiffResult {
   fetch: (path: string, staged?: boolean) => Promise<void>;
 }
 
-export function useGitDiff(explicitRunId?: string): UseGitDiffResult {
-  const { runId: contextRunId } = useRunContext();
+export function useGitDiff(
+  explicitRunId?: string,
+  explicitSessionId?: string,
+): UseGitDiffResult {
+  const { runId: contextRunId, sessionId: contextSessionId } = useRunContext();
   const runId = explicitRunId ?? contextRunId;
+  const sessionId = explicitSessionId ?? contextSessionId;
   const [diff, setDiff] = useState<DiffContent | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const fetchDiff = async (path: string, staged = false) => {
-    if (!runId) {
-      setError("No run context available");
+    if (!runId || !sessionId) {
+      setError(!runId ? "No run context available" : "No session context available");
       return;
     }
 
@@ -28,6 +32,7 @@ export function useGitDiff(explicitRunId?: string): UseGitDiffResult {
     try {
       const params = new URLSearchParams({
         runId,
+        sessionId,
         path,
         staged: String(staged),
       });
