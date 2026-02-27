@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { RunEngine } from "./RunEngine.js";
+import { RunEngine, type RunEngineDependencies } from "./RunEngine.js";
 import type { PlannedTask } from "../planner/PlanSchema.js";
 import type { RuntimeDurableObjectState, RuntimeStorage } from "../types.js";
 import type { Task } from "../task/index.js";
@@ -64,13 +64,29 @@ describe("RunEngine", () => {
   it("asks for clarification on vague file-check prompts", () => {
     const runEngine = createRunEngine();
     const privateApi = runEngine as unknown as {
-      getActionClarificationMessage(prompt: string): string | null;
+      getActionClarificationMessage(
+        prompt: string,
+        repositoryContext?: { owner?: string; repo?: string },
+      ): string | null;
     };
 
-    expect(privateApi.getActionClarificationMessage("can you check my file?")).toContain(
-      "need the exact file path",
+    expect(
+      privateApi.getActionClarificationMessage("can you check my file?"),
+    ).toContain(
+      "select a repository first",
     );
-    expect(privateApi.getActionClarificationMessage("check README.md")).toBeNull();
+    expect(
+      privateApi.getActionClarificationMessage("can you check my file?", {
+        owner: "sourcegraph",
+        repo: "shadowbox",
+      }),
+    ).toContain("need the exact file path");
+    expect(
+      privateApi.getActionClarificationMessage("check README.md", {
+        owner: "sourcegraph",
+        repo: "shadowbox",
+      }),
+    ).toBeNull();
   });
 
   it("builds conversational system prompt with direct-answer style guidance", () => {
@@ -84,9 +100,33 @@ describe("RunEngine", () => {
     expect(prompt).toContain("Avoid robotic report phrasing");
     expect(prompt).toContain("Do not fabricate tool execution");
   });
+
+  it("returns a clear auth message when workspace bootstrap needs authorization", async () => {
+    const runEngine = createRunEngine({
+      workspaceBootstrapper: {
+        bootstrap: async () => ({ status: "needs-auth" }),
+      },
+    });
+    const privateApi = runEngine as unknown as {
+      getWorkspaceBootstrapMessage(
+        runId: string,
+        repositoryContext?: { owner?: string; repo?: string; branch?: string },
+      ): Promise<string | null>;
+    };
+
+    const message = await privateApi.getWorkspaceBootstrapMessage("run-1", {
+      owner: "sourcegraph",
+      repo: "shadowbox",
+      branch: "main",
+    });
+
+    expect(message).toContain("GitHub authorization");
+  });
 });
 
-function createRunEngine(): RunEngine {
+function createRunEngine(
+  dependencies: Partial<RunEngineDependencies> = {},
+): RunEngine {
   const state = new MockRuntimeState();
   const llmGateway = createMockLLMGateway();
   return new RunEngine(
@@ -98,7 +138,7 @@ function createRunEngine(): RunEngine {
     },
     undefined,
     undefined,
-    { llmGateway },
+    { llmGateway, ...dependencies },
   );
 }
 
