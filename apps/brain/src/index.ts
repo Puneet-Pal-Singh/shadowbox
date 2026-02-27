@@ -3,6 +3,7 @@ import { ChatController } from "./controllers/ChatController";
 import { AuthController } from "./controllers/AuthController";
 import { GitHubController } from "./controllers/GitHubController";
 import { GitController } from "./controllers/GitController";
+import { RunController } from "./controllers/RunController";
 import { ProviderController } from "./controllers/ProviderController";
 import { handleOptions, getCorsHeaders } from "./lib/cors";
 import { Env } from "./types/ai";
@@ -84,6 +85,8 @@ function createRouter(): Router {
   router.add(/\/api\/git\/diff/, GitController.getDiff);
   router.add(/\/api\/git\/stage/, GitController.stageFiles, "POST");
   router.add(/\/api\/git\/commit/, GitController.commit, "POST");
+  router.add(/\/api\/run\/summary/, RunController.getSummary, "GET");
+  router.add(/\/api\/run\/cancel/, RunController.cancel, "POST");
 
   // BYOK v3 routes
   router.add(
