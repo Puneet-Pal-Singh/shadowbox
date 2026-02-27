@@ -39,14 +39,9 @@ export function ChangesPanel({
     }
   }, [status]);
 
-  useEffect(() => {
-    if (selectedFile) {
-      fetchDiff(selectedFile.path, stagedFiles.has(selectedFile.path));
-    }
-  }, [selectedFile, fetchDiff, stagedFiles]);
-
   const handleSelectFile = (file: FileStatus) => {
     setSelectedFile(file);
+    void fetchDiff(file.path, stagedFiles.has(file.path));
     onFileSelect?.(file.path);
   };
 
@@ -92,7 +87,7 @@ export function ChangesPanel({
     await refetch();
   };
 
-  if (statusLoading) {
+  if (statusLoading && !status) {
     return (
       <div
         className={`flex items-center justify-center h-full bg-black ${className}`}

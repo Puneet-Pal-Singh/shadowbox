@@ -1,4 +1,4 @@
-import { useRef, useEffect } from "react";
+import { useRef, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
 import { FileExplorerHandle } from "../FileExplorer";
 import { ChatInterface } from "../chat/ChatInterface";
@@ -118,10 +118,14 @@ export function Workspace({
     handleFileClick,
   ]);
 
-  const handleViewChange = (path: string) => {
-    fetchDiff(path);
-    // Diff view will be set by the useEffect above
-  };
+  const handleViewChange = useCallback(
+    (path: string) => {
+      // Open changed file content in viewer and fetch git diff in parallel.
+      void handleFileClick(path);
+      void fetchDiff(path);
+    },
+    [fetchDiff, handleFileClick],
+  );
 
   return (
     <RunContextProvider runId={activeRunId} sessionId={sessionId}>

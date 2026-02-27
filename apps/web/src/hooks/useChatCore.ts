@@ -233,13 +233,22 @@ export function useChatCore(
   const handleSubmit = useCallback(
     (e?: FormEvent) => {
       e?.preventDefault();
+      const originalInput = input;
       const trimmedInput = input.trim();
       if (!trimmedInput || isLoading || !isModelConfigReady) return;
+      const clearedInputEvent = {
+        target: { value: "" },
+      } as React.ChangeEvent<HTMLTextAreaElement>;
+      handleInputChange(clearedInputEvent);
 
       const submitWithResolution = async (): Promise<void> => {
         try {
           await appendWithResolution({ role: "user", content: trimmedInput });
         } catch (error) {
+          const restoreInputEvent = {
+            target: { value: originalInput },
+          } as React.ChangeEvent<HTMLTextAreaElement>;
+          handleInputChange(restoreInputEvent);
           const message =
             error instanceof Error
               ? normalizeChatErrorMessage(error)
@@ -267,6 +276,7 @@ export function useChatCore(
     },
     [
       appendWithResolution,
+      handleInputChange,
       input,
       isLoading,
       isModelConfigReady,
