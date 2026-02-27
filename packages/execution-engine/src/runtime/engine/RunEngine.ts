@@ -789,9 +789,16 @@ Provide a concise summary of what was accomplished.`;
     const asksToInspectFile =
       /\b(read|check|view|open|analyze|inspect|review)\b/.test(normalized) &&
       /\b(file|files|document|doc|readme|code)\b/.test(normalized);
+    const asksToInspectRepo =
+      /\b(read|check|view|open|analyze|inspect|review)\b/.test(normalized) &&
+      /\b(repo|repository)\b/.test(normalized);
 
     if (asksForRepoOrFileAction && !this.hasRepositorySelection(repositoryContext)) {
       return "Sure. I can help with that, but I need you to select a repository first. Then share the file path if you want file-level analysis.";
+    }
+
+    if (asksToInspectRepo && !this.hasExplicitRepoCheckGoal(normalized)) {
+      return "Sure. What should I check in the repo: `git status`, recent commits, branch status, or a specific file/path?";
     }
 
     if (!asksToInspectFile) {
@@ -816,6 +823,16 @@ Provide a concise summary of what was accomplished.`;
       folderPathPattern.test(prompt) ||
       knownRootFiles.test(prompt)
     );
+  }
+
+  private hasExplicitRepoCheckGoal(prompt: string): boolean {
+    const goalPatterns = [
+      /\b(status|changes|diff|branch|branches|commit|commits|history|log)\b/i,
+      /\b(readme|package\.json|tsconfig\.json|dockerfile)\b/i,
+      /\b(src|lib|docs|tests?|scripts)\/[^\s`"']+/i,
+      /\b[\w.-]+\.[a-z0-9]{1,10}\b/i,
+    ];
+    return goalPatterns.some((pattern) => pattern.test(prompt));
   }
 
   private hasRepositorySelection(repositoryContext?: RepositoryContext): boolean {
