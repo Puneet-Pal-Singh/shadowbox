@@ -65,7 +65,8 @@ export class GitController {
 
       await assertMuscleResponseOk(response, "status");
 
-      const data = (await response.json()) as GitStatusResponse;
+      const rawPayload = (await response.json()) as unknown;
+      const data = parseGitPayload<GitStatusResponse>(rawPayload, "status");
 
       return corsJsonResponse(req, env, data);
     } catch (error) {
@@ -114,7 +115,8 @@ export class GitController {
 
       await assertMuscleResponseOk(response, "diff");
 
-      const data = (await response.json()) as DiffContent;
+      const rawPayload = (await response.json()) as unknown;
+      const data = parseGitPayload<DiffContent>(rawPayload, "diff");
 
       return corsJsonResponse(req, env, data);
     } catch (error) {
@@ -159,6 +161,7 @@ export class GitController {
       );
 
       await assertMuscleResponseOk(response, unstage ? "unstage" : "stage");
+      await assertPluginResultSuccess(response, unstage ? "unstage" : "stage");
 
       return corsJsonResponse(req, env, { success: true });
     } catch (error) {
@@ -204,6 +207,7 @@ export class GitController {
       );
 
       await assertMuscleResponseOk(response, "commit");
+      await assertPluginResultSuccess(response, "commit");
 
       return corsJsonResponse(req, env, { success: true });
     } catch (error) {
@@ -216,6 +220,67 @@ export class GitController {
       );
     }
   }
+}
+
+interface PluginSuccessPayload {
+  success: true;
+  output?: unknown;
+}
+
+interface PluginErrorPayload {
+  success: false;
+  error?: string;
+}
+
+function isPluginPayload(
+  payload: unknown,
+): payload is PluginSuccessPayload | PluginErrorPayload {
+  if (!payload || typeof payload !== "object") {
+    return false;
+  }
+  return "success" in payload;
+}
+
+function parseGitPayload<T>(
+  payload: unknown,
+  operation: "status" | "diff",
+): T {
+  if (isPluginPayload(payload)) {
+    if (payload.success === false) {
+      const details =
+        typeof payload.error === "string" && payload.error.trim().length > 0
+          ? payload.error.trim()
+          : "unknown plugin error";
+      throw new Error(`Git ${operation} failed: ${details}`);
+    }
+
+    if (payload.output === undefined) {
+      throw new Error(`Git ${operation} returned no output payload`);
+    }
+
+    return parseGitOutput<T>(payload.output, operation);
+  }
+
+  return payload as T;
+}
+
+function parseGitOutput<T>(
+  output: unknown,
+  operation: "status" | "diff",
+): T {
+  if (typeof output === "string") {
+    try {
+      return JSON.parse(output) as T;
+    } catch {
+      throw new Error(`Git ${operation} returned invalid JSON output`);
+    }
+  }
+
+  if (output && typeof output === "object") {
+    return output as T;
+  }
+
+  throw new Error(`Git ${operation} returned unsupported output format`);
 }
 
 function corsJsonResponse(
@@ -255,6 +320,25 @@ async function assertMuscleResponseOk(
   throw new Error(
     `Git ${operation} failed with HTTP ${response.status}${suffix}`,
   );
+}
+
+async function assertPluginResultSuccess(
+  response: Response,
+  operation: "stage" | "unstage" | "commit",
+): Promise<void> {
+  const payload = (await response.clone().json()) as unknown;
+  if (!isPluginPayload(payload)) {
+    return;
+  }
+  if (payload.success) {
+    return;
+  }
+
+  const details =
+    typeof payload.error === "string" && payload.error.trim().length > 0
+      ? payload.error.trim()
+      : "unknown plugin error";
+  throw new Error(`Git ${operation} failed: ${details}`);
 }
 
 async function readErrorPreview(response: Response): Promise<string> {
