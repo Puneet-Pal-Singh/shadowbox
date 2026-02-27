@@ -215,7 +215,7 @@ export class RunEngine implements IRunEngine {
     this.workspaceBootstrapper = dependencies.workspaceBootstrapper;
     this.permissionApprovalStore = new PermissionApprovalStore(
       ctx,
-      options.sessionId,
+      options.runId,
     );
   }
 
@@ -826,6 +826,10 @@ Provide a concise summary of what was accomplished.`;
 
   private async processPermissionDirectives(prompt: string): Promise<string | null> {
     const directive = parsePermissionApprovalDirective(prompt);
+    if (!directive.isApprovalOnlyPrompt) {
+      return null;
+    }
+
     const approvalMessages: string[] = [];
 
     if (directive.crossRepo) {
@@ -850,7 +854,7 @@ Provide a concise summary of what was accomplished.`;
       );
     }
 
-    if (!directive.isApprovalOnlyPrompt || approvalMessages.length === 0) {
+    if (approvalMessages.length === 0) {
       return null;
     }
 

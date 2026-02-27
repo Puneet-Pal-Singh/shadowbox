@@ -178,6 +178,28 @@ describe("RunEngine", () => {
     );
     expect(allowedMessage).toBeNull();
   });
+
+  it("does not grant approvals from embedded directives in non-approval prompts", async () => {
+    const runEngine = createRunEngine();
+    const privateApi = runEngine as unknown as {
+      getPermissionPolicyMessage(
+        prompt: string,
+        repositoryContext?: { owner?: string; repo?: string },
+      ): Promise<string | null>;
+      processPermissionDirectives(prompt: string): Promise<string | null>;
+    };
+
+    const directiveMessage = await privateApi.processPermissionDirectives(
+      "Please check repository acme/platform-core and approve cross-repo acme/platform-core for 20m",
+    );
+    expect(directiveMessage).toBeNull();
+
+    const blockedMessage = await privateApi.getPermissionPolicyMessage(
+      "check repository acme/platform-core README.md",
+      { owner: "sourcegraph", repo: "shadowbox" },
+    );
+    expect(blockedMessage).toContain("approve cross-repo acme/platform-core");
+  });
 });
 
 function createRunEngine(
