@@ -25,6 +25,9 @@ import type {
   RunStatus,
   IAgent,
   RuntimeDurableObjectState,
+  RepositoryContext,
+  WorkspaceBootstrapper,
+  WorkspaceBootstrapResult,
 } from "../types.js";
 import type { Plan, PlannedTask } from "../planner/index.js";
 import {
@@ -39,6 +42,17 @@ import {
   type MemoryContext,
 } from "../memory/index.js";
 import { RoutingDetector } from "../lib/RoutingDetector.js";
+import { PermissionApprovalStore } from "./PermissionApprovalStore.js";
+import {
+  detectCrossRepoTarget,
+  formatCrossRepoApprovalGrantedMessage,
+  formatCrossRepoApprovalMessage,
+  formatDestructiveApprovalGrantedMessage,
+  formatDestructiveApprovalMessage,
+  getSelectedRepoRef,
+  isDestructiveActionPrompt,
+  parsePermissionApprovalDirective,
+} from "./RepositoryPermissionPolicy.js";
 
 export interface IRunEngine {
   execute(
@@ -79,6 +93,7 @@ export interface RunEngineDependencies {
   scheduler?: TaskScheduler;
   memoryCoordinator?: MemoryCoordinator;
   sessionMemoryClient?: MemoryCoordinatorDependencies["sessionMemoryClient"];
+  workspaceBootstrapper?: WorkspaceBootstrapper;
 }
 
 export class RunEngine implements IRunEngine {
@@ -96,6 +111,8 @@ export class RunEngine implements IRunEngine {
   private memoryCoordinator: MemoryCoordinator;
   private currentMemoryContext?: MemoryContext;
   private readonly sessionCostsLoaded: Promise<void>;
+  private workspaceBootstrapper?: WorkspaceBootstrapper;
+  private permissionApprovalStore: PermissionApprovalStore;
 
   constructor(
     ctx: RuntimeDurableObjectState,
@@ -194,6 +211,12 @@ export class RunEngine implements IRunEngine {
         sessionMemoryClient: dependencies.sessionMemoryClient,
       });
     }
+
+    this.workspaceBootstrapper = dependencies.workspaceBootstrapper;
+    this.permissionApprovalStore = new PermissionApprovalStore(
+      ctx,
+      options.runId,
+    );
   }
 
   async execute(
@@ -222,13 +245,28 @@ export class RunEngine implements IRunEngine {
         this.persistConversationMessages(runId, sessionId, messages, "user"),
       );
 
-      if (this.shouldBypassPlanning(input.prompt)) {
+      const approvalDirectiveMessage = await this.processPermissionDirectives(
+        input.prompt,
+      );
+      if (approvalDirectiveMessage) {
+        console.log(
+          `[run/engine] Permission directive processed for run ${runId}`,
+        );
+        return await this.completeRunWithAssistantMessage(
+          run,
+          approvalDirectiveMessage,
+        );
+      }
+
+      const bypassPlanning = this.shouldBypassPlanning(input.prompt);
+      if (bypassPlanning) {
         console.log(`[run/engine] Conversational bypass for run ${runId}`);
         return await this.executeConversationalTurn(run, input, messages);
       }
 
       const clarificationMessage = this.getActionClarificationMessage(
         input.prompt,
+        input.repositoryContext,
       );
       if (clarificationMessage) {
         console.log(
@@ -238,6 +276,28 @@ export class RunEngine implements IRunEngine {
           run,
           clarificationMessage,
         );
+      }
+
+      const permissionMessage = await this.getPermissionPolicyMessage(
+        input.prompt,
+        input.repositoryContext,
+      );
+      if (permissionMessage) {
+        console.log(
+          `[run/engine] Permission check blocked action planning for run ${runId}`,
+        );
+        return await this.completeRunWithAssistantMessage(run, permissionMessage);
+      }
+
+      const bootstrapMessage = await this.getWorkspaceBootstrapMessage(
+        run.id,
+        input.repositoryContext,
+      );
+      if (bootstrapMessage) {
+        console.log(
+          `[run/engine] Workspace bootstrap blocked action planning for run ${runId}`,
+        );
+        return await this.completeRunWithAssistantMessage(run, bootstrapMessage);
       }
 
       console.log(`[run/engine] Planning phase for run ${runId}`);
@@ -714,11 +774,25 @@ Provide a concise summary of what was accomplished.`;
     return this.createStreamResponse(sanitizedText);
   }
 
-  private getActionClarificationMessage(prompt: string): string | null {
+  private getActionClarificationMessage(
+    prompt: string,
+    repositoryContext?: RepositoryContext,
+  ): string | null {
     const normalized = prompt.toLowerCase().trim();
+    const asksForRepoOrFileAction =
+      /\b(read|check|view|open|analyze|inspect|review|edit|update|fix|search|find)\b/.test(
+        normalized,
+      ) &&
+      /\b(file|files|document|doc|readme|code|repo|repository|branch)\b/.test(
+        normalized,
+      );
     const asksToInspectFile =
       /\b(read|check|view|open|analyze|inspect|review)\b/.test(normalized) &&
       /\b(file|files|document|doc|readme|code)\b/.test(normalized);
+
+    if (asksForRepoOrFileAction && !this.hasRepositorySelection(repositoryContext)) {
+      return "Sure. I can help with that, but I need you to select a repository first. Then share the file path if you want file-level analysis.";
+    }
 
     if (!asksToInspectFile) {
       return null;
@@ -742,6 +816,136 @@ Provide a concise summary of what was accomplished.`;
       folderPathPattern.test(prompt) ||
       knownRootFiles.test(prompt)
     );
+  }
+
+  private hasRepositorySelection(repositoryContext?: RepositoryContext): boolean {
+    return Boolean(
+      repositoryContext?.owner?.trim() && repositoryContext.repo?.trim(),
+    );
+  }
+
+  private async processPermissionDirectives(prompt: string): Promise<string | null> {
+    const directive = parsePermissionApprovalDirective(prompt);
+    if (!directive.isApprovalOnlyPrompt) {
+      return null;
+    }
+
+    const approvalMessages: string[] = [];
+
+    if (directive.crossRepo) {
+      await this.permissionApprovalStore.grantCrossRepo(
+        directive.crossRepo.repoRef,
+        directive.crossRepo.ttlMs,
+      );
+      approvalMessages.push(
+        formatCrossRepoApprovalGrantedMessage(
+          directive.crossRepo.repoRef,
+          directive.crossRepo.ttlMs,
+        ),
+      );
+    }
+
+    if (directive.destructive) {
+      await this.permissionApprovalStore.grantDestructive(
+        directive.destructive.ttlMs,
+      );
+      approvalMessages.push(
+        formatDestructiveApprovalGrantedMessage(directive.destructive.ttlMs),
+      );
+    }
+
+    if (approvalMessages.length === 0) {
+      return null;
+    }
+
+    return `${approvalMessages.join(" ")} Re-send your repository action to continue.`;
+  }
+
+  private async getPermissionPolicyMessage(
+    prompt: string,
+    repositoryContext?: RepositoryContext,
+  ): Promise<string | null> {
+    const selectedRepoRef = getSelectedRepoRef(repositoryContext);
+    const crossRepoTarget = detectCrossRepoTarget(prompt, selectedRepoRef);
+
+    if (crossRepoTarget) {
+      const allowed =
+        await this.permissionApprovalStore.hasCrossRepo(crossRepoTarget);
+      if (!allowed) {
+        return formatCrossRepoApprovalMessage(crossRepoTarget, selectedRepoRef);
+      }
+    }
+
+    if (isDestructiveActionPrompt(prompt)) {
+      const allowed = await this.permissionApprovalStore.hasDestructive();
+      if (!allowed) {
+        return formatDestructiveApprovalMessage();
+      }
+    }
+
+    return null;
+  }
+
+  private async getWorkspaceBootstrapMessage(
+    runId: string,
+    repositoryContext?: RepositoryContext,
+  ): Promise<string | null> {
+    if (!repositoryContext || !this.workspaceBootstrapper) {
+      return null;
+    }
+
+    if (!this.hasRepositorySelection(repositoryContext)) {
+      return "I need a valid repository selection before I can run repository actions. Please reselect the repository and try again.";
+    }
+
+    try {
+      const bootstrapResult = await this.workspaceBootstrapper.bootstrap({
+        runId,
+        repositoryContext,
+      });
+      return this.mapBootstrapResultToMessage(bootstrapResult, repositoryContext);
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : "workspace bootstrap failed";
+      const repoRef = this.describeRepositoryRef(repositoryContext);
+      return `I couldn't prepare the workspace for ${repoRef}. ${errorMessage}`;
+    }
+  }
+
+  private mapBootstrapResultToMessage(
+    bootstrapResult: WorkspaceBootstrapResult,
+    repositoryContext: RepositoryContext,
+  ): string | null {
+    if (bootstrapResult.status === "ready") {
+      return null;
+    }
+
+    if (bootstrapResult.status === "needs-auth") {
+      return (
+        bootstrapResult.message ??
+        "I need GitHub authorization before I can access this repository. Please reconnect GitHub and try again."
+      );
+    }
+
+    if (bootstrapResult.status === "invalid-context") {
+      return (
+        bootstrapResult.message ??
+        "I need valid repository details (owner, repository, branch) before I can continue."
+      );
+    }
+
+    const repoRef = this.describeRepositoryRef(repositoryContext);
+    const reason =
+      bootstrapResult.message ??
+      "Repository sync failed. Please confirm the branch exists and retry.";
+    return `I couldn't prepare the workspace for ${repoRef}. ${reason}`;
+  }
+
+  private describeRepositoryRef(repositoryContext: RepositoryContext): string {
+    const owner = repositoryContext.owner?.trim() || "unknown-owner";
+    const repo = repositoryContext.repo?.trim() || "unknown-repo";
+    const branch = repositoryContext.branch?.trim();
+    return branch ? `${owner}/${repo}@${branch}` : `${owner}/${repo}`;
   }
 
   private sanitizeUserFacingOutput(text: string): string {

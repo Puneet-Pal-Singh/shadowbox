@@ -17,7 +17,10 @@ import type { CoreMessage } from "ai";
 import type { Env } from "../../types/ai";
 import { ValidationError } from "../../domain/errors";
 import { PersistenceService } from "../../services/PersistenceService";
-import type { AgentType } from "@shadowbox/execution-engine/runtime";
+import type {
+  AgentType,
+  RepositoryContext,
+} from "@shadowbox/execution-engine/runtime";
 
 export interface HandleChatRequestInput {
   sessionId: string;
@@ -55,6 +58,7 @@ export interface HandleChatRequestOutput {
       sessionId: string;
       providerId?: string;
       modelId?: string;
+      repositoryContext?: RepositoryContext;
     };
     messages: CoreMessage[];
   };

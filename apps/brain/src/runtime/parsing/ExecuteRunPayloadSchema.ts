@@ -54,6 +54,14 @@ export const ExecuteRunPayloadSchema = z.object({
     sessionId: z.string().min(1),
     providerId: z.string().min(1).optional(),
     modelId: z.string().min(1).optional(),
+    repositoryContext: z
+      .object({
+        owner: z.string().min(1).optional(),
+        repo: z.string().min(1).optional(),
+        branch: z.string().min(1).optional(),
+        baseUrl: z.string().min(1).optional(),
+      })
+      .optional(),
   }),
   messages: z.array(CoreMessageSchema),
 });

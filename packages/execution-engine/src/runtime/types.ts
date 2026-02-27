@@ -33,6 +33,28 @@ export interface RepositoryContext {
   baseUrl?: string;
 }
 
+export type WorkspaceBootstrapStatus =
+  | "ready"
+  | "needs-auth"
+  | "invalid-context"
+  | "sync-failed";
+
+export interface WorkspaceBootstrapRequest {
+  runId: string;
+  repositoryContext: RepositoryContext;
+}
+
+export interface WorkspaceBootstrapResult {
+  status: WorkspaceBootstrapStatus;
+  message?: string;
+}
+
+export interface WorkspaceBootstrapper {
+  bootstrap(
+    request: WorkspaceBootstrapRequest,
+  ): Promise<WorkspaceBootstrapResult>;
+}
+
 export interface RunInput {
   agentType: AgentType;
   prompt: string;

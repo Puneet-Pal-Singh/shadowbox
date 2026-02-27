@@ -37,6 +37,10 @@ const ChatRequestBodySchema = z.object({
   runId: z.string().optional(),
   providerId: z.string().optional(),
   modelId: z.string().optional(),
+  repositoryOwner: z.string().optional(),
+  repositoryName: z.string().optional(),
+  repositoryBranch: z.string().optional(),
+  repositoryBaseUrl: z.string().optional(),
 });
 
 type ChatRequestBody = z.infer<typeof ChatRequestBodySchema>;
@@ -186,6 +190,10 @@ export class ChatController {
           messages: coreMessages,
           providerId: body.providerId,
           modelId: body.modelId,
+          repositoryOwner: body.repositoryOwner,
+          repositoryName: body.repositoryName,
+          repositoryBranch: body.repositoryBranch,
+          repositoryBaseUrl: body.repositoryBaseUrl,
         },
         req.headers.get("Origin") || undefined,
       );

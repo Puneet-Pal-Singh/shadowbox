@@ -12,6 +12,7 @@ import { buildPricingAndBudgeting } from "./BudgetingFactory";
 import { resolveAgent } from "./AgentFactory";
 import { buildSessionMemoryClient } from "./SessionMemoryFactory";
 import type { ExecuteRunPayload } from "../parsing/ExecuteRunPayloadSchema";
+import { WorkspaceBootstrapService } from "../services/WorkspaceBootstrapService";
 
 /**
  * Build complete runtime dependencies for RunEngine execution.
@@ -67,6 +68,7 @@ export function buildRuntimeDependencies(
     llmGateway,
     payload.sessionId,
     payload.runId,
+    payload.userId,
     payload.input.agentType,
     {
       strict: options.strict ?? true,
@@ -78,6 +80,12 @@ export function buildRuntimeDependencies(
   const sessionMemoryClient = buildSessionMemoryClient(
     env,
     payload.sessionId,
+  );
+  const workspaceBootstrapper = WorkspaceBootstrapService.fromEnv(
+    env,
+    payload.sessionId,
+    payload.runId,
+    payload.userId,
   );
 
   return {
@@ -91,6 +99,7 @@ export function buildRuntimeDependencies(
       pricingResolver,
       budgetManager,
       sessionMemoryClient,
+      workspaceBootstrapper,
     },
   };
 }

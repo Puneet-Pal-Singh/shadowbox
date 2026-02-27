@@ -1,5 +1,8 @@
 import type { CoreMessage } from "ai";
-import type { AgentType } from "@shadowbox/execution-engine/runtime";
+import type {
+  AgentType,
+  RepositoryContext,
+} from "@shadowbox/execution-engine/runtime";
 import type { Env } from "../types/ai";
 import {
   DomainError,
@@ -30,6 +33,7 @@ export interface RunEngineExecutionPayload {
     sessionId: string;
     providerId?: string;
     modelId?: string;
+    repositoryContext?: RepositoryContext;
   };
   messages: CoreMessage[];
 }

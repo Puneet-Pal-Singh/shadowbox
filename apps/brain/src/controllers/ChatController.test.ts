@@ -74,6 +74,53 @@ describe("ChatController DO runtime migration", () => {
     expect(payload.input.modelId).toBe("gpt-4");
   });
 
+  it("forwards repository context fields to runtime payload", async () => {
+    const runtime = createMockRuntimeNamespace();
+    const env = createEnv(runtime.namespace);
+    const requestWithRepoContext = new Request("https://brain.local/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sessionId: "session-1",
+        runId: VALID_RUN_ID,
+        repositoryOwner: "sourcegraph",
+        repositoryName: "shadowbox",
+        repositoryBranch: "dev",
+        repositoryBaseUrl: "https://github.com/sourcegraph/shadowbox",
+        messages: [
+          {
+            role: "user",
+            content: "check README.md",
+          },
+        ],
+      }),
+    });
+
+    const response = await ChatController.handle(requestWithRepoContext, env);
+
+    expect(response.status).toBe(200);
+    const fetchCall = runtime.fetch.mock.calls[0];
+    expect(fetchCall).toBeDefined();
+
+    const payloadStr = (fetchCall[1] as { body: string }).body;
+    const payload = JSON.parse(payloadStr) as {
+      input: {
+        repositoryContext?: {
+          owner?: string;
+          repo?: string;
+          branch?: string;
+          baseUrl?: string;
+        };
+      };
+    };
+    expect(payload.input.repositoryContext).toEqual({
+      owner: "sourcegraph",
+      repo: "shadowbox",
+      branch: "dev",
+      baseUrl: "https://github.com/sourcegraph/shadowbox",
+    });
+  });
+
   it("extracts prompt text from structured user message content parts", async () => {
     const runtime = createMockRuntimeNamespace();
     const env = createEnv(runtime.namespace);
