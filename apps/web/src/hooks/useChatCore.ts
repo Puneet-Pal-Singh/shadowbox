@@ -4,6 +4,7 @@ import { DEFAULT_PLATFORM_MODEL_ID } from "@repo/shared-types";
 import { chatStreamPath } from "../lib/platform-endpoints.js";
 import { useByokStore } from "./useByokStore.js";
 import type { ChatDebugEvent } from "../types/chat-debug.js";
+import { SessionStateService } from "../services/SessionStateService";
 
 interface UseChatCoreResult {
   messages: Message[];
@@ -19,6 +20,17 @@ interface UseChatCoreResult {
   isModelConfigReady: boolean;
   error: string | null;
   debugEvents: ChatDebugEvent[];
+}
+
+interface ChatRequestBody {
+  sessionId: string;
+  runId: string;
+  providerId?: string;
+  modelId?: string;
+  repositoryOwner?: string;
+  repositoryName?: string;
+  repositoryBranch?: string;
+  repositoryBaseUrl?: string;
 }
 
 /**
@@ -169,14 +181,10 @@ export function useChatCore(
       const includeOverride = Boolean(
         hasConnectedCredential && credentialId && providerId && modelId,
       );
-      const requestBody: {
-        sessionId: string;
-        runId: string;
-        providerId?: string;
-        modelId?: string;
-      } = {
+      const requestBody: ChatRequestBody = {
         sessionId,
         runId,
+        ...loadRepositoryContextFields(sessionId),
       };
       if (includeOverride) {
         requestBody.providerId = providerId;
@@ -351,4 +359,34 @@ function containsOpenRouterKeyLimitError(message: string): boolean {
 
 function containsToolChoiceUnsupportedError(message: string): boolean {
   return message.includes("support the provided 'tool_choice' value");
+}
+
+function loadRepositoryContextFields(
+  sessionId: string,
+): Pick<
+  ChatRequestBody,
+  "repositoryOwner" | "repositoryName" | "repositoryBranch" | "repositoryBaseUrl"
+> {
+  const context = SessionStateService.loadSessionGitHubContext(sessionId);
+  if (!context) {
+    return {};
+  }
+
+  const owner = context.repoOwner.trim();
+  const name = context.repoName.trim();
+  const branch = context.branch.trim();
+  const fullName = context.fullName.trim();
+
+  if (!owner || !name) {
+    return {};
+  }
+
+  return {
+    repositoryOwner: owner,
+    repositoryName: name,
+    repositoryBranch: branch || undefined,
+    repositoryBaseUrl: fullName
+      ? `https://github.com/${fullName}`
+      : undefined,
+  };
 }
