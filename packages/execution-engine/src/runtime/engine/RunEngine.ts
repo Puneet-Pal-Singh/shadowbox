@@ -322,7 +322,7 @@ export class RunEngine implements IRunEngine {
           }),
         );
       } catch (planError) {
-        run.transition("FAILED");
+        this.transitionRunToFailed(run, runId);
         run.metadata.error =
           planError instanceof Error
             ? planError.message
@@ -422,7 +422,7 @@ export class RunEngine implements IRunEngine {
         ),
       );
 
-      run.transition("COMPLETED");
+      this.transitionRunToCompleted(run, runId);
       run.output = { content: finalOutput };
       await this.runRepo.update(run);
 
@@ -766,7 +766,7 @@ Provide a concise summary of what was accomplished.`;
       }),
     );
 
-    run.transition("COMPLETED");
+    this.transitionRunToCompleted(run, run.id);
     run.output = { content: sanitizedText };
     await this.runRepo.update(run);
     console.log(`[run/engine] Completed conversational run ${run.id}`);
@@ -992,15 +992,7 @@ Provide a concise summary of what was accomplished.`;
     try {
       const run = await this.runRepo.getById(runId);
       if (run) {
-        if (run.status !== "FAILED" && run.status !== "CANCELLED") {
-          if (run.status === "COMPLETED") {
-            console.warn(
-              `[run/engine] Preserving COMPLETED state for run ${runId} after post-completion error`,
-            );
-          } else {
-            run.transition("FAILED");
-          }
-        }
+        this.transitionRunToFailed(run, runId);
         run.metadata.error = errorMessage;
         await this.runRepo.update(run);
       }
@@ -1012,6 +1004,57 @@ Provide a concise summary of what was accomplished.`;
     }
 
     console.error(`[run/engine] Run ${runId} failed:`, errorMessage);
+  }
+
+  private transitionRunToCompleted(run: Run, runId: string): void {
+    if (run.status === "COMPLETED") {
+      return;
+    }
+
+    if (run.status === "FAILED" || run.status === "CANCELLED") {
+      console.warn(
+        `[run/engine] Skipping COMPLETED transition for run ${runId}; current status is ${run.status}`,
+      );
+      return;
+    }
+
+    this.ensureRunReadyForTerminalTransition(run);
+    if (run.status === "RUNNING") {
+      run.transition("COMPLETED");
+    }
+  }
+
+  private transitionRunToFailed(run: Run, runId: string): void {
+    if (run.status === "FAILED" || run.status === "CANCELLED") {
+      return;
+    }
+
+    if (run.status === "COMPLETED") {
+      console.warn(
+        `[run/engine] Preserving COMPLETED state for run ${runId} after post-completion error`,
+      );
+      return;
+    }
+
+    this.ensureRunReadyForTerminalTransition(run);
+    if (run.status === "RUNNING") {
+      run.transition("FAILED");
+      return;
+    }
+
+    console.warn(
+      `[run/engine] Unable to move run ${runId} to FAILED from status ${run.status}`,
+    );
+  }
+
+  private ensureRunReadyForTerminalTransition(run: Run): void {
+    if (
+      run.status === "CREATED" ||
+      run.status === "PLANNING" ||
+      run.status === "PAUSED"
+    ) {
+      run.transition("RUNNING");
+    }
   }
 
   private async safeMemoryOperation<T>(

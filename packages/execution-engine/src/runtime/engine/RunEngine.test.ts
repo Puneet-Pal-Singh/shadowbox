@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
+import type { CoreMessage } from "ai";
 import { RunEngine, type RunEngineDependencies } from "./RunEngine.js";
 import type { PlannedTask } from "../planner/PlanSchema.js";
 import type { RuntimeDurableObjectState, RuntimeStorage } from "../types.js";
 import type { Task } from "../task/index.js";
 import type { ILLMGateway } from "../llm/types.js";
+import { Run } from "../run/index.js";
+
+const TEST_RUN_ID = "f462a003-5c36-4c86-a95d-367b92bf46c9";
 
 describe("RunEngine", () => {
   it("preserves structured task input when creating runtime tasks from a plan", () => {
@@ -99,6 +103,50 @@ describe("RunEngine", () => {
         repo: "shadowbox",
       }),
     ).toBeNull();
+  });
+
+  it("completes clarification-only repo checks from CREATED state", async () => {
+    const runEngine = createRunEngine();
+    const messages: CoreMessage[] = [{ role: "user", content: "check my repo?" }];
+
+    await expect(
+      runEngine.execute(
+        {
+          agentType: "coding",
+          prompt: "check my repo?",
+          sessionId: "session-1",
+          repositoryContext: { owner: "sourcegraph", repo: "shadowbox" },
+        },
+        messages,
+        {},
+      ),
+    ).resolves.toBeInstanceOf(Response);
+
+    await expect(runEngine.getRunStatus(TEST_RUN_ID)).resolves.toBe("COMPLETED");
+  });
+
+  it("marks CREATED runs as FAILED when execution error handling runs", async () => {
+    const runEngine = createRunEngine();
+    const privateApi = runEngine as unknown as {
+      runRepo: {
+        create(run: Run): Promise<void>;
+        getById(runId: string): Promise<Run | null>;
+      };
+      handleExecutionError(runId: string, error: unknown): Promise<void>;
+    };
+
+    const run = new Run("run-created", "session-1", "CREATED", "coding", {
+      agentType: "coding",
+      prompt: "check repo",
+      sessionId: "session-1",
+    });
+    await privateApi.runRepo.create(run);
+
+    await privateApi.handleExecutionError("run-created", new Error("boom"));
+
+    const persisted = await privateApi.runRepo.getById("run-created");
+    expect(persisted?.status).toBe("FAILED");
+    expect(persisted?.metadata.error).toBe("boom");
   });
 
   it("builds conversational system prompt with direct-answer style guidance", () => {
@@ -224,7 +272,7 @@ function createRunEngine(
     {
       env: { NODE_ENV: "test" } as unknown,
       sessionId: "session-1",
-      runId: "run-1",
+      runId: TEST_RUN_ID,
     },
     undefined,
     undefined,
