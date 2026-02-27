@@ -42,6 +42,17 @@ import {
   type MemoryContext,
 } from "../memory/index.js";
 import { RoutingDetector } from "../lib/RoutingDetector.js";
+import { PermissionApprovalStore } from "./PermissionApprovalStore.js";
+import {
+  detectCrossRepoTarget,
+  formatCrossRepoApprovalGrantedMessage,
+  formatCrossRepoApprovalMessage,
+  formatDestructiveApprovalGrantedMessage,
+  formatDestructiveApprovalMessage,
+  getSelectedRepoRef,
+  isDestructiveActionPrompt,
+  parsePermissionApprovalDirective,
+} from "./RepositoryPermissionPolicy.js";
 
 export interface IRunEngine {
   execute(
@@ -101,6 +112,7 @@ export class RunEngine implements IRunEngine {
   private currentMemoryContext?: MemoryContext;
   private readonly sessionCostsLoaded: Promise<void>;
   private workspaceBootstrapper?: WorkspaceBootstrapper;
+  private permissionApprovalStore: PermissionApprovalStore;
 
   constructor(
     ctx: RuntimeDurableObjectState,
@@ -201,6 +213,10 @@ export class RunEngine implements IRunEngine {
     }
 
     this.workspaceBootstrapper = dependencies.workspaceBootstrapper;
+    this.permissionApprovalStore = new PermissionApprovalStore(
+      ctx,
+      options.sessionId,
+    );
   }
 
   async execute(
@@ -229,6 +245,19 @@ export class RunEngine implements IRunEngine {
         this.persistConversationMessages(runId, sessionId, messages, "user"),
       );
 
+      const approvalDirectiveMessage = await this.processPermissionDirectives(
+        input.prompt,
+      );
+      if (approvalDirectiveMessage) {
+        console.log(
+          `[run/engine] Permission directive processed for run ${runId}`,
+        );
+        return await this.completeRunWithAssistantMessage(
+          run,
+          approvalDirectiveMessage,
+        );
+      }
+
       const bypassPlanning = this.shouldBypassPlanning(input.prompt);
       if (bypassPlanning) {
         console.log(`[run/engine] Conversational bypass for run ${runId}`);
@@ -247,6 +276,17 @@ export class RunEngine implements IRunEngine {
           run,
           clarificationMessage,
         );
+      }
+
+      const permissionMessage = await this.getPermissionPolicyMessage(
+        input.prompt,
+        input.repositoryContext,
+      );
+      if (permissionMessage) {
+        console.log(
+          `[run/engine] Permission check blocked action planning for run ${runId}`,
+        );
+        return await this.completeRunWithAssistantMessage(run, permissionMessage);
       }
 
       const bootstrapMessage = await this.getWorkspaceBootstrapMessage(
@@ -782,6 +822,64 @@ Provide a concise summary of what was accomplished.`;
     return Boolean(
       repositoryContext?.owner?.trim() && repositoryContext.repo?.trim(),
     );
+  }
+
+  private async processPermissionDirectives(prompt: string): Promise<string | null> {
+    const directive = parsePermissionApprovalDirective(prompt);
+    const approvalMessages: string[] = [];
+
+    if (directive.crossRepo) {
+      await this.permissionApprovalStore.grantCrossRepo(
+        directive.crossRepo.repoRef,
+        directive.crossRepo.ttlMs,
+      );
+      approvalMessages.push(
+        formatCrossRepoApprovalGrantedMessage(
+          directive.crossRepo.repoRef,
+          directive.crossRepo.ttlMs,
+        ),
+      );
+    }
+
+    if (directive.destructive) {
+      await this.permissionApprovalStore.grantDestructive(
+        directive.destructive.ttlMs,
+      );
+      approvalMessages.push(
+        formatDestructiveApprovalGrantedMessage(directive.destructive.ttlMs),
+      );
+    }
+
+    if (!directive.isApprovalOnlyPrompt || approvalMessages.length === 0) {
+      return null;
+    }
+
+    return `${approvalMessages.join(" ")} Re-send your repository action to continue.`;
+  }
+
+  private async getPermissionPolicyMessage(
+    prompt: string,
+    repositoryContext?: RepositoryContext,
+  ): Promise<string | null> {
+    const selectedRepoRef = getSelectedRepoRef(repositoryContext);
+    const crossRepoTarget = detectCrossRepoTarget(prompt, selectedRepoRef);
+
+    if (crossRepoTarget) {
+      const allowed =
+        await this.permissionApprovalStore.hasCrossRepo(crossRepoTarget);
+      if (!allowed) {
+        return formatCrossRepoApprovalMessage(crossRepoTarget, selectedRepoRef);
+      }
+    }
+
+    if (isDestructiveActionPrompt(prompt)) {
+      const allowed = await this.permissionApprovalStore.hasDestructive();
+      if (!allowed) {
+        return formatDestructiveApprovalMessage();
+      }
+    }
+
+    return null;
   }
 
   private async getWorkspaceBootstrapMessage(
