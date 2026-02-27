@@ -122,6 +122,62 @@ describe("RunEngine", () => {
 
     expect(message).toContain("GitHub authorization");
   });
+
+  it("blocks cross-repo actions until explicit approval is recorded", async () => {
+    const runEngine = createRunEngine();
+    const privateApi = runEngine as unknown as {
+      getPermissionPolicyMessage(
+        prompt: string,
+        repositoryContext?: { owner?: string; repo?: string },
+      ): Promise<string | null>;
+      processPermissionDirectives(prompt: string): Promise<string | null>;
+    };
+
+    const blockedMessage = await privateApi.getPermissionPolicyMessage(
+      "check repository acme/platform-core README.md",
+      { owner: "sourcegraph", repo: "shadowbox" },
+    );
+    expect(blockedMessage).toContain("approve cross-repo acme/platform-core");
+
+    const directiveMessage = await privateApi.processPermissionDirectives(
+      "approve cross-repo acme/platform-core for 20m",
+    );
+    expect(directiveMessage).toContain("Cross-repo access approved");
+
+    const allowedMessage = await privateApi.getPermissionPolicyMessage(
+      "check repository acme/platform-core README.md",
+      { owner: "sourcegraph", repo: "shadowbox" },
+    );
+    expect(allowedMessage).toBeNull();
+  });
+
+  it("blocks destructive operations until explicit approval is recorded", async () => {
+    const runEngine = createRunEngine();
+    const privateApi = runEngine as unknown as {
+      getPermissionPolicyMessage(
+        prompt: string,
+        repositoryContext?: { owner?: string; repo?: string },
+      ): Promise<string | null>;
+      processPermissionDirectives(prompt: string): Promise<string | null>;
+    };
+
+    const blockedMessage = await privateApi.getPermissionPolicyMessage(
+      "run git reset --hard HEAD~1",
+      { owner: "sourcegraph", repo: "shadowbox" },
+    );
+    expect(blockedMessage).toContain("approve destructive");
+
+    const directiveMessage = await privateApi.processPermissionDirectives(
+      "approve destructive for 15m",
+    );
+    expect(directiveMessage).toContain("Destructive-action approval granted");
+
+    const allowedMessage = await privateApi.getPermissionPolicyMessage(
+      "run git reset --hard HEAD~1",
+      { owner: "sourcegraph", repo: "shadowbox" },
+    );
+    expect(allowedMessage).toBeNull();
+  });
 });
 
 function createRunEngine(
