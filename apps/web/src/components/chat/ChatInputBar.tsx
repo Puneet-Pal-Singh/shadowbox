@@ -1,6 +1,6 @@
 import { useRef, useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { Plus, Mic, ArrowUp, Paperclip, ChevronDown } from "lucide-react";
+import { Plus, Mic, ArrowUp, Paperclip, ChevronDown, Square } from "lucide-react";
 import type { ProviderId } from "../../types/provider";
 import { useByokStore } from "../../hooks/useByokStore.js";
 import { ProviderDialog } from "../byok/ProviderDialog.js";
@@ -9,6 +9,7 @@ interface ChatInputBarProps {
   input: string;
   onChange: (value: string) => void;
   onSubmit: () => void;
+  onStop?: () => void;
   isLoading?: boolean;
   placeholder?: string;
   sessionId: string;
@@ -19,6 +20,7 @@ export function ChatInputBar({
   input,
   onChange,
   onSubmit,
+  onStop,
   isLoading = false,
   placeholder = "Ask Shadowbox anything, @ to add files, / for commands",
   onModelSelect,
@@ -49,6 +51,9 @@ export function ChatInputBar({
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
+      if (isLoading) {
+        return;
+      }
       onSubmit();
     }
   };
@@ -98,7 +103,6 @@ export function ChatInputBar({
             onFocus={() => setIsFocused(true)}
             onBlur={() => setIsFocused(false)}
             placeholder={placeholder}
-            disabled={isLoading}
             rows={1}
             className={`w-full bg-transparent text-sm text-white placeholder-zinc-500 focus:outline-none resize-none overflow-hidden min-h-[20px] ${hasInput ? "max-h-[200px]" : "max-h-[400px]"}`}
             style={{ lineHeight: "1.5" }}
@@ -158,20 +162,23 @@ export function ChatInputBar({
               </motion.button>
 
               <motion.button
-                type="submit"
-                disabled={isLoading || !input.trim()}
+                type="button"
+                onClick={isLoading ? onStop : onSubmit}
+                disabled={isLoading ? !onStop : !input.trim()}
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
                 className={`
                   p-1.5 rounded-full transition-all
                   ${
-                    input.trim()
+                    isLoading
+                      ? "bg-red-500 text-white hover:bg-red-400"
+                      : input.trim()
                       ? "bg-white text-black hover:bg-zinc-200"
                       : "bg-zinc-800 text-zinc-600 cursor-not-allowed"
                   }
                 `}
               >
-                <ArrowUp size={16} />
+                {isLoading ? <Square size={14} /> : <ArrowUp size={16} />}
               </motion.button>
             </div>
           </div>

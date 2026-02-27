@@ -1,7 +1,7 @@
 import { useChat as useVercelChat, type Message } from "@ai-sdk/react";
 import { useCallback, useMemo, useState, type FormEvent } from "react";
 import { DEFAULT_PLATFORM_MODEL_ID } from "@repo/shared-types";
-import { chatStreamPath } from "../lib/platform-endpoints.js";
+import { chatStreamPath, getBrainHttpBase } from "../lib/platform-endpoints.js";
 import { useByokStore } from "./useByokStore.js";
 import type { ChatDebugEvent } from "../types/chat-debug.js";
 import { SessionStateService } from "../services/SessionStateService";
@@ -94,7 +94,7 @@ export function useChatCore(
     input,
     handleInputChange,
     isLoading,
-    stop,
+    stop: stopStream,
     setMessages,
     append,
   } = useVercelChat({
@@ -284,6 +284,26 @@ export function useChatCore(
       pushDebugEvent,
     ],
   );
+
+  const stop = useCallback(() => {
+    stopStream();
+
+    const cancelRun = async (): Promise<void> => {
+      try {
+        await fetch(`${getBrainHttpBase()}/api/run/cancel`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ runId }),
+        });
+      } catch (error) {
+        console.warn("[chat/stop] Failed to cancel run", { runId, error });
+      }
+    };
+
+    void cancelRun();
+  }, [runId, stopStream]);
 
   return {
     messages,

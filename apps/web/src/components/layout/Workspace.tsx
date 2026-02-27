@@ -58,6 +58,7 @@ export function Workspace({
     input,
     handleInputChange,
     handleSubmit,
+    stop,
     isLoading,
     isHydrating,
     runId: activeRunId,
@@ -145,9 +146,11 @@ export function Workspace({
             <ChatInterface
               chatProps={{
                 messages,
+                runId: activeRunId,
                 input,
                 handleInputChange,
                 handleSubmit,
+                stop,
                 isLoading,
                 error: chatError,
                 debugEvents,
