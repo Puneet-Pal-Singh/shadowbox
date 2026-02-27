@@ -372,10 +372,14 @@ function loadRepositoryContextFields(
     return {};
   }
 
-  const owner = context.repoOwner.trim();
-  const name = context.repoName.trim();
-  const branch = context.branch.trim();
-  const fullName = context.fullName.trim();
+  const owner =
+    typeof context.repoOwner === "string" ? context.repoOwner.trim() : "";
+  const name =
+    typeof context.repoName === "string" ? context.repoName.trim() : "";
+  const branch =
+    typeof context.branch === "string" ? context.branch.trim() : "";
+  const fullName =
+    typeof context.fullName === "string" ? context.fullName.trim() : "";
 
   if (!owner || !name) {
     return {};
