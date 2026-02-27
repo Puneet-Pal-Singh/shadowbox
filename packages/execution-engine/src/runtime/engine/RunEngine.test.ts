@@ -87,6 +87,18 @@ describe("RunEngine", () => {
         repo: "shadowbox",
       }),
     ).toBeNull();
+    expect(
+      privateApi.getActionClarificationMessage("check my repo?", {
+        owner: "sourcegraph",
+        repo: "shadowbox",
+      }),
+    ).toContain("What should I check in the repo");
+    expect(
+      privateApi.getActionClarificationMessage("check repo git status", {
+        owner: "sourcegraph",
+        repo: "shadowbox",
+      }),
+    ).toBeNull();
   });
 
   it("builds conversational system prompt with direct-answer style guidance", () => {
