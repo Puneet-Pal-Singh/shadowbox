@@ -161,6 +161,26 @@ export {
   EXTERNAL_EVENT_CONTRACT,
 } from "./external-contracts.js";
 
+// Client SDK readiness pack (web/desktop/cli)
+export {
+  SdkConsumerSurfaceSchema,
+  SdkReadinessStatusSchema,
+  SdkChecklistItemSchema,
+  SdkReferenceExamplesSchema,
+  SdkSurfaceReadinessSchema,
+  SdkReadinessPackSchema,
+  SDK_READINESS_PACK_V1,
+  getSdkReadinessPack,
+  validateSdkReadinessPack,
+  collectSdkBlockers,
+  type SdkConsumerSurface,
+  type SdkReadinessStatus,
+  type SdkChecklistItem,
+  type SdkReferenceExamples,
+  type SdkSurfaceReadiness,
+  type SdkReadinessPack,
+} from "./sdk-readiness.js";
+
 // Compatibility layer
 export {
   LEGACY_EVENT_NAMES,
