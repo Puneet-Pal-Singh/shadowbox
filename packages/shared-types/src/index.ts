@@ -161,6 +161,23 @@ export {
   EXTERNAL_EVENT_CONTRACT,
 } from "./external-contracts.js";
 
+// Protocol versioning + compatibility policy (v1)
+export {
+  PROTOCOL_POLICY_VERSION,
+  PROTOCOL_POLICY_DOCUMENT_PATH,
+  PROTOCOL_CURRENT_VERSION,
+  PROTOCOL_MIN_COMPATIBLE_VERSION,
+  PROTOCOL_DEPRECATION_WINDOW_DAYS,
+  PROTOCOL_CHANGE_CATEGORY,
+  ProtocolChangeAssessmentSchema,
+  evaluateProtocolChange,
+  isProtocolVersionSupported,
+  validateProtocolPolicyReference,
+  type ProtocolChangeCategory,
+  type ProtocolChangeAssessment,
+  type ProtocolCompatibilityDecision,
+} from "./protocol-policy.js";
+
 // Compatibility layer
 export {
   LEGACY_EVENT_NAMES,
