@@ -141,6 +141,16 @@ export {
   type ChatResponseEvent as ChatResponseEventContract,
 } from "./chat-response-contract.js";
 
+// External contract freeze manifest (chat/provider/tool/event)
+export {
+  EXTERNAL_CONTRACT_FREEZE_VERSION,
+  EXTERNAL_CONTRACT_MANIFEST,
+  EXTERNAL_CHAT_CONTRACT,
+  EXTERNAL_PROVIDER_CONTRACT,
+  EXTERNAL_TOOL_CONTRACT,
+  EXTERNAL_EVENT_CONTRACT,
+} from "./external-contracts.js";
+
 // Compatibility layer
 export {
   LEGACY_EVENT_NAMES,
