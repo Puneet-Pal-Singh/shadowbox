@@ -1113,55 +1113,21 @@ function resolveSelection(
   env: Env,
   correlationId: string,
 ): BYOKResolution {
-  let credentialFromRequest: BYOKCredential | undefined;
-  if (request.credentialId) {
-    credentialFromRequest = credentials.find(
-      (credential) => credential.credentialId === request.credentialId,
-    );
-    if (!credentialFromRequest) {
-      throw new NotFoundError(
-        `Credential "${request.credentialId}" was not found.`,
-        "CREDENTIAL_NOT_FOUND",
-        correlationId,
-      );
-    }
-  }
-
-  if (
-    request.providerId &&
-    credentialFromRequest &&
-    credentialFromRequest.providerId !== request.providerId
-  ) {
-    throw new ValidationError(
-      "providerId does not match credentialId scope.",
-      "INVALID_PROVIDER_SELECTION",
-      correlationId,
-    );
-  }
-
-  let selectedCredential =
-    credentialFromRequest ??
-    resolveCredentialForProvider(credentials, request.providerId);
-  let resolvedAt: BYOKResolution["resolvedAt"] = "request_override";
-
-  if (!selectedCredential && preference.defaultProviderId) {
-    selectedCredential = resolveCredentialForProvider(
-      credentials,
-      preference.defaultProviderId,
-    );
-    resolvedAt = "workspace_preference";
-  }
+  const selection = resolveCredentialSelection(
+    request,
+    credentials,
+    preference,
+    correlationId,
+  );
+  const { selectedCredential } = selection;
+  const resolvedAt = selection.resolvedAt;
 
   // Fallback to OpenRouter default when no BYOK credential is connected
   if (!selectedCredential) {
     console.log(
       `[provider/resolve] No BYOK credential connected. Using OpenRouter defaults.`,
     );
-    const modelId =
-      request.modelId ??
-      preference.defaultModelId ??
-      env.DEFAULT_MODEL ??
-      DEFAULT_PLATFORM_MODEL_ID;
+    const modelId = resolvePlatformFallbackModel(request, preference, env);
 
     return {
       providerId: "openrouter",
@@ -1173,10 +1139,13 @@ function resolveSelection(
     };
   }
 
-  const modelId =
-    request.modelId ??
-    preference.defaultModelId ??
-    resolveDefaultModel(selectedCredential.providerId, catalog, env);
+  const modelId = resolveModelForSelectedProvider(
+    request,
+    preference,
+    selectedCredential.providerId,
+    catalog,
+    env,
+  );
 
   return {
     providerId: selectedCredential.providerId,
@@ -1196,6 +1165,127 @@ function resolveCredentialForProvider(
     return undefined;
   }
   return credentials.find((credential) => credential.providerId === providerId);
+}
+
+function resolveCredentialSelection(
+  request: BYOKResolveRequest,
+  credentials: BYOKCredential[],
+  preference: BYOKPreference,
+  correlationId: string,
+): {
+  selectedCredential: BYOKCredential | undefined;
+  resolvedAt: BYOKResolution["resolvedAt"];
+} {
+  const credentialFromRequest = resolveCredentialFromRequest(
+    request,
+    credentials,
+    correlationId,
+  );
+
+  if (credentialFromRequest) {
+    return {
+      selectedCredential: credentialFromRequest,
+      resolvedAt: "request_override",
+    };
+  }
+
+  if (request.providerId) {
+    const credential = resolveCredentialForProvider(credentials, request.providerId);
+    if (!credential) {
+      throw new ProviderNotConnectedError(request.providerId, correlationId);
+    }
+    return {
+      selectedCredential: credential,
+      resolvedAt: "session_preference",
+    };
+  }
+
+  if (preference.defaultProviderId) {
+    const credential = resolveCredentialForProvider(
+      credentials,
+      preference.defaultProviderId,
+    );
+    if (credential) {
+      return {
+        selectedCredential: credential,
+        resolvedAt: request.modelId
+          ? "session_preference"
+          : "workspace_preference",
+      };
+    }
+  }
+
+  return {
+    selectedCredential: undefined,
+    resolvedAt: "platform_fallback",
+  };
+}
+
+function resolveCredentialFromRequest(
+  request: BYOKResolveRequest,
+  credentials: BYOKCredential[],
+  correlationId: string,
+): BYOKCredential | undefined {
+  if (!request.credentialId) {
+    return undefined;
+  }
+
+  const credential = credentials.find(
+    (entry) => entry.credentialId === request.credentialId,
+  );
+  if (!credential) {
+    throw new NotFoundError(
+      `Credential "${request.credentialId}" was not found.`,
+      "CREDENTIAL_NOT_FOUND",
+      correlationId,
+    );
+  }
+
+  if (request.providerId && credential.providerId !== request.providerId) {
+    throw new ValidationError(
+      "providerId does not match credentialId scope.",
+      "INVALID_PROVIDER_SELECTION",
+      correlationId,
+    );
+  }
+
+  return credential;
+}
+
+function resolveModelForSelectedProvider(
+  request: BYOKResolveRequest,
+  preference: BYOKPreference,
+  selectedProviderId: string,
+  catalog: ProviderCatalogResponse,
+  env: Env,
+): string {
+  if (request.modelId) {
+    return request.modelId;
+  }
+  if (
+    preference.defaultProviderId === selectedProviderId &&
+    preference.defaultModelId
+  ) {
+    return preference.defaultModelId;
+  }
+  return resolveDefaultModel(selectedProviderId, catalog, env);
+}
+
+function resolvePlatformFallbackModel(
+  request: BYOKResolveRequest,
+  preference: BYOKPreference,
+  env: Env,
+): string {
+  if (request.modelId) {
+    return request.modelId;
+  }
+  if (
+    preference.defaultProviderId === "openrouter" &&
+    preference.defaultModelId
+  ) {
+    return preference.defaultModelId;
+  }
+  return env.DEFAULT_MODEL ?? DEFAULT_PLATFORM_MODEL_ID;
 }
 
 function resolveDefaultModel(

@@ -555,6 +555,81 @@ describe("ProviderController", () => {
       expect(resolveData.modelId).toBe("gpt-4o");
     });
 
+    it("fails fast when session-selected provider is not connected", async () => {
+      const env = createMockEnv();
+      const resolveResponse = await ProviderController.byokResolve(
+        new Request("http://localhost/api/byok/resolve", {
+          method: "POST",
+          headers: await withByokHeaders(env),
+          body: JSON.stringify({ providerId: "openai" }),
+        }),
+        env,
+      );
+      const resolveData = await resolveResponse.json();
+
+      expect(resolveResponse.status).toBe(400);
+      expect(resolveData.error.code).toBe("PROVIDER_NOT_CONNECTED");
+      expect(resolveData.error.message).toContain("openai");
+    });
+
+    it("does not leak workspace default model into a different session-selected provider", async () => {
+      const env = createMockEnv();
+
+      const connectOpenai = await ProviderController.byokConnectCredential(
+        new Request("http://localhost/api/byok/credentials", {
+          method: "POST",
+          headers: await withByokHeaders(env),
+          body: JSON.stringify({
+            providerId: "openai",
+            secret: "sk-test-openai-1234567890",
+          }),
+        }),
+        env,
+      );
+      expect(connectOpenai.status).toBe(200);
+
+      const connectGroq = await ProviderController.byokConnectCredential(
+        new Request("http://localhost/api/byok/credentials", {
+          method: "POST",
+          headers: await withByokHeaders(env),
+          body: JSON.stringify({
+            providerId: "groq",
+            secret: "gsk-test-groq-1234567890",
+          }),
+        }),
+        env,
+      );
+      expect(connectGroq.status).toBe(200);
+
+      const patchResponse = await ProviderController.byokPreferencesV3(
+        new Request("http://localhost/api/byok/preferences", {
+          method: "PATCH",
+          headers: await withByokHeaders(env),
+          body: JSON.stringify({
+            defaultProviderId: "groq",
+            defaultModelId: "llama-3.3-70b-versatile",
+          }),
+        }),
+        env,
+      );
+      expect(patchResponse.status).toBe(200);
+
+      const resolveResponse = await ProviderController.byokResolve(
+        new Request("http://localhost/api/byok/resolve", {
+          method: "POST",
+          headers: await withByokHeaders(env),
+          body: JSON.stringify({ providerId: "openai" }),
+        }),
+        env,
+      );
+      const resolveData = await resolveResponse.json();
+
+      expect(resolveResponse.status).toBe(200);
+      expect(resolveData.providerId).toBe("openai");
+      expect(resolveData.modelId).toBe("gpt-4o");
+      expect(resolveData.resolvedAt).toBe("session_preference");
+    });
+
     it("persists fallback preferences in v3 endpoints", async () => {
       const env = createMockEnv();
       const patchResponse = await ProviderController.byokPreferencesV3(
