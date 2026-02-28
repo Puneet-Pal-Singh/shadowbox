@@ -43,7 +43,29 @@ describe("RunEngine", () => {
     expect(privateApi.shouldBypassPlanning("great")).toBe(true);
     expect(privateApi.shouldBypassPlanning("sounds good")).toBe(true);
     expect(privateApi.shouldBypassPlanning("check README file")).toBe(false);
+    expect(privateApi.shouldBypassPlanning("read this readme")).toBe(false);
     expect(privateApi.shouldBypassPlanning("fix this")).toBe(false);
+  });
+
+  it("returns deterministic greeting response without invoking LLM", async () => {
+    const runEngine = createRunEngine({
+      llmGateway: createExplodingLLMGateway(),
+    });
+
+    const response = await runEngine.execute(
+      {
+        agentType: "coding",
+        prompt: "hey",
+        sessionId: "session-1",
+      },
+      [{ role: "user", content: "hey" }],
+      {},
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe(
+      "Hey! I'm ready to help with this repo. Tell me what you want to inspect or change.",
+    );
   });
 
   it("sanitizes internal runtime paths in user-facing output", () => {
@@ -265,6 +287,30 @@ function createMockLLMGateway(): ILLMGateway {
         totalTokens: 2,
       },
     }),
+    generateStructured: async () => ({
+      object: { tasks: [], metadata: { estimatedSteps: 1 } },
+      usage: {
+        provider: "mock",
+        model: "mock-model",
+        promptTokens: 1,
+        completionTokens: 1,
+        totalTokens: 2,
+      },
+    }),
+    generateStream: async () =>
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.close();
+        },
+      }),
+  };
+}
+
+function createExplodingLLMGateway(): ILLMGateway {
+  return {
+    generateText: async () => {
+      throw new Error("generateText should not be called for deterministic greeting");
+    },
     generateStructured: async () => ({
       object: { tasks: [], metadata: { estimatedSteps: 1 } },
       usage: {

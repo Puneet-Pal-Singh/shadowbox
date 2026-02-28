@@ -65,6 +65,7 @@ describe("RoutingDetector - Unified routing logic", () => {
     const actionExamples: Array<[string, string]> = [
       // File operations
       ["read the README", "file read"],
+      ["read this readme", "file read phrasing variant"],
       ["check README", "file check"],
       ["analyze src/main.ts", "file analyze"],
       ["view the config file", "file view"],

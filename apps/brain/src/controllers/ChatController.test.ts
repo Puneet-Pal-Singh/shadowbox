@@ -182,6 +182,44 @@ describe("ChatController DO runtime migration", () => {
     expect(runtime.fetch).not.toHaveBeenCalled();
   });
 
+  it("returns validation error when messages array is empty", async () => {
+    const runtime = createMockRuntimeNamespace();
+    const env = createEnv(runtime.namespace);
+    const request = new Request("https://brain.local/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sessionId: "session-1",
+        runId: VALID_RUN_ID,
+        messages: [],
+      }),
+    });
+
+    const response = await ChatController.handle(request, env);
+
+    expect(response.status).toBe(400);
+    const body = (await response.json()) as { error: string; code: string };
+    expect(body.code).toBe("INVALID_MESSAGES");
+    expect(body.error).toContain("expected non-empty array");
+    expect(runtime.fetch).not.toHaveBeenCalled();
+  });
+
+  it("returns typed deprecation error for legacy /api/chat route", async () => {
+    const runtime = createMockRuntimeNamespace();
+    const env = createEnv(runtime.namespace);
+    const response = await ChatController.handleLegacyRoute(
+      new Request("https://brain.local/api/chat", {
+        method: "POST",
+      }),
+      env,
+    );
+
+    expect(response.status).toBe(410);
+    const body = (await response.json()) as { error: string; code: string };
+    expect(body.code).toBe("LEGACY_CHAT_ROUTE_REMOVED");
+    expect(body.error).toContain("/api/chat");
+  });
+
   it("derives authenticated user/workspace scope for runtime payload", async () => {
     const runtime = createMockRuntimeNamespace();
     const env = createEnv(runtime.namespace);

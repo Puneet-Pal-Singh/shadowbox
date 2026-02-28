@@ -59,6 +59,7 @@ function createRouter(): Router {
   const router = new Router();
 
   // Chat routes
+  router.add(/^\/api\/chat(?:\/.*)?$/, ChatController.handleLegacyRoute, "POST");
   router.add(/\/chat/, ChatController.handle, "POST");
 
   // Auth routes - OAuth flow

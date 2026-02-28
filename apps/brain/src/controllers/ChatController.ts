@@ -90,7 +90,7 @@ export class ChatController {
         correlationId,
       );
 
-      if (!body.messages || !Array.isArray(body.messages)) {
+      if (!Array.isArray(body.messages) || body.messages.length === 0) {
         throw new ValidationError(
           "Invalid messages: expected non-empty array",
           "INVALID_MESSAGES",
@@ -127,6 +127,16 @@ export class ChatController {
         error instanceof Error ? error.message : "Internal Server Error";
       return errorResponse(req, env, errorMessage, 500);
     }
+  }
+
+  static async handleLegacyRoute(req: Request, env: Env): Promise<Response> {
+    return errorResponse(
+      req,
+      env,
+      "Legacy chat route '/api/chat' is no longer supported. Use '/chat'.",
+      410,
+      "LEGACY_CHAT_ROUTE_REMOVED",
+    );
   }
 
   static async handleAgentInfo(req: Request, env: Env): Promise<Response> {
