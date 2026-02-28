@@ -18,9 +18,24 @@ export {
   ModelOutputSchema,
   ModelToolCallSchema,
   buildSystemPrompt,
-  buildUserMessage
+  buildUserMessage,
+  ProviderAdapterRegistry,
+  InvalidProviderAdapterIdError,
+  DuplicateProviderAdapterRegistrationError,
+  ProviderAdapterNotRegisteredError,
+  ProviderAdapterIdSchema
 } from './adapters/index.js'
-export type { ToolDefinition, ModelInput, ModelOutput, ModelToolCall, ModelProvider } from './adapters/index.js'
+export type {
+  ToolDefinition,
+  ModelInput,
+  ModelOutput,
+  ModelToolCall,
+  ModelProvider,
+  ProviderAdapterId,
+  ProviderAdapterFactory,
+  ProviderAdapterRegistration,
+  ProviderAdapterDescriptor
+} from './adapters/index.js'
 
 // Output validation
 export * from './output/index.js'

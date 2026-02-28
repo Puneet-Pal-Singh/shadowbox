@@ -24,3 +24,18 @@ export type { OpenAIAdapterConfig } from './OpenAIAdapter.js'
 
 export { LocalMockAdapter } from './LocalMockAdapter.js'
 export type { LocalMockAdapterConfig } from './LocalMockAdapter.js'
+
+export {
+  ProviderAdapterRegistry,
+  InvalidProviderAdapterIdError,
+  DuplicateProviderAdapterRegistrationError,
+  ProviderAdapterNotRegisteredError,
+  ProviderAdapterIdSchema
+} from './ProviderAdapterRegistry.js'
+
+export type {
+  ProviderAdapterId,
+  ProviderAdapterFactory,
+  ProviderAdapterRegistration,
+  ProviderAdapterDescriptor
+} from './ProviderAdapterRegistry.js'
