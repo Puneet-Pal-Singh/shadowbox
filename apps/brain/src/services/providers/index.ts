@@ -4,6 +4,8 @@
 
 // Core services
 export { ProviderCredentialService } from "./ProviderCredentialService";
+export { CloudCredentialVault } from "./CloudCredentialVault";
+export { DesktopCredentialVaultStub } from "./DesktopCredentialVaultStub";
 export { ProviderCatalogService } from "./ProviderCatalogService";
 export { ProviderConnectionService } from "./ProviderConnectionService";
 export { ProviderConfigService } from "./ProviderConfigService";

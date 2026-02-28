@@ -12,6 +12,7 @@ import type {
   BYOKConnectRequest,
   BYOKConnectResponse,
   BYOKDisconnectRequest,
+  CredentialVault,
   ProviderId,
   BYOKValidateRequest,
   BYOKValidateResponse,
@@ -21,18 +22,17 @@ import {
   ProviderNotConnectedError,
 } from "../../domain/errors";
 import { isProviderApiKeyFormatValid } from "../../schemas/provider-registry";
-import type { DurableProviderStore } from "./DurableProviderStore";
 import { ProviderLiveValidationService } from "./ProviderLiveValidationService";
 
 /**
  * ProviderCredentialService - Manages provider API credentials
  */
 export class ProviderCredentialService {
-  private durableStore: DurableProviderStore;
+  private vault: CredentialVault;
   private liveValidationService: ProviderLiveValidationService;
 
-  constructor(env: Env, durableStore: DurableProviderStore) {
-    this.durableStore = durableStore;
+  constructor(env: Env, vault: CredentialVault) {
+    this.vault = vault;
     this.liveValidationService = ProviderLiveValidationService.fromEnv(env);
   }
 
@@ -55,7 +55,7 @@ export class ProviderCredentialService {
       }
       const now = new Date().toISOString();
 
-      await this.durableStore.setProvider(providerId, normalizedApiKey);
+      await this.vault.setCredential(providerId, normalizedApiKey);
       console.log(
         `[provider/credential] ${providerId} connected and persisted (key masked)`,
       );
@@ -119,7 +119,7 @@ export class ProviderCredentialService {
     try {
       const { providerId } = request;
 
-      await this.durableStore.deleteProvider(providerId);
+      await this.vault.deleteCredential(providerId);
       console.log(
         `[provider/credential] ${providerId} disconnected (removed from durable)`,
       );
@@ -140,7 +140,7 @@ export class ProviderCredentialService {
    * Uses durable store as the only source of truth.
    */
   async getApiKey(providerId: ProviderId): Promise<string | null> {
-    return this.durableStore.getApiKey(providerId);
+    return this.vault.getApiKey(providerId);
   }
 
   /**
@@ -148,7 +148,7 @@ export class ProviderCredentialService {
    * Uses durable store as the only source of truth.
    */
   async isConnected(providerId: ProviderId): Promise<boolean> {
-    return this.durableStore.isConnected(providerId);
+    return this.vault.isConnected(providerId);
   }
 
   private failureResponse(

@@ -17,6 +17,16 @@ export {
   DEFAULT_PLATFORM_MODEL_ID,
 } from "./defaults.js";
 
+// Credential vault contracts
+export {
+  CredentialVaultSurfaceSchema,
+  CredentialVaultEntrySchema,
+  CredentialVaultUnsupportedOperationError,
+  type CredentialVaultSurface,
+  type CredentialVaultEntry,
+  type CredentialVault,
+} from "./credential-vault.js";
+
 // Provider/BYOK contracts
 export {
   PROVIDER_IDS,
