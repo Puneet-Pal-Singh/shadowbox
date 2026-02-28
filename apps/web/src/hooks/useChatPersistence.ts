@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import type { Message } from "@ai-sdk/react";
 import { ChatPersistenceService } from "../services/ChatPersistenceService";
-import { ByokApiError } from "../services/api/byokClient.js";
+import { ProviderApiError } from "../services/api/providerClient.js";
 
 interface UseChatPersistenceProps {
   sessionId: string;
@@ -85,12 +85,13 @@ export function useChatPersistence({
 }
 
 function shouldDropPendingQuery(error: unknown): boolean {
-  if (error instanceof ByokApiError) {
+  if (error instanceof ProviderApiError) {
     return error.statusCode >= 400 && error.statusCode < 500;
   }
   return (
     error instanceof Error &&
-    (error.message.includes("No BYOK provider connected") ||
+    (error.message.includes("No provider connected") ||
+      error.message.includes("No BYOK provider connected") ||
       error.message.includes("INVALID_PROVIDER_SELECTION"))
   );
 }

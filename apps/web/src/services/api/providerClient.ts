@@ -1,20 +1,20 @@
 /**
- * BYOK API Client v3
+ * Provider API Client v3
  *
- * Typed HTTP client for BYOK v3 endpoints.
+ * Typed HTTP client for provider credential endpoints.
  * All requests/responses validated against shared-types schemas.
  *
  * Usage:
- *   const client = new ByokApiClient();
+ *   const client = new ProviderApiClient();
  *   const catalog = await client.getCatalog();
  *   const credential = await client.connectCredential({ providerId: 'openai', secret: '...' });
  */
 
 import {
-  BYOKResolution,
-  BYOKResolveRequest,
-  BYOKCredential,
-  BYOKPreference,
+  BYOKResolution as ProviderResolution,
+  BYOKResolveRequest as ProviderResolveRequest,
+  BYOKCredential as ProviderCredential,
+  BYOKPreference as ProviderPreference,
   type ModelDescriptor,
   ProviderRegistryEntry,
 } from "@repo/shared-types";
@@ -65,12 +65,12 @@ export interface RunIdResolver {
 /**
  * Resolve for chat request
  */
-export type ResolveChatRequest = BYOKResolveRequest;
+export type ResolveChatRequest = ProviderResolveRequest;
 
 /**
- * HTTP error wrapper with BYOK semantics
+ * HTTP error wrapper for provider API failures
  */
-export class ByokApiError extends Error {
+export class ProviderApiError extends Error {
   constructor(
     public statusCode: number,
     public code: string,
@@ -78,7 +78,7 @@ export class ByokApiError extends Error {
     public correlationId?: string
   ) {
     super(message);
-    this.name = "ByokApiError";
+    this.name = "ProviderApiError";
   }
 
   isRetryable(): boolean {
@@ -87,9 +87,10 @@ export class ByokApiError extends Error {
 }
 
 /**
- * ByokApiClient - Typed HTTP client for BYOK v3 APIs
+ * ProviderApiClient - Typed HTTP client for provider APIs
  */
-export class ByokApiClient {
+export class ProviderApiClient {
+  // Keep `/api/byok` route for current backend contract compatibility.
   private baseUrl: string = `${getBrainHttpBase()}/api/byok`;
   private abortControllers: Map<string, AbortController> = new Map();
   private static readonly sessionRunIdKey = "currentRunId";
@@ -97,7 +98,7 @@ export class ByokApiClient {
 
   constructor(
     private readonly runIdResolver: RunIdResolver = new DefaultRunIdResolver(
-      ByokApiClient.sessionRunIdKey
+      ProviderApiClient.sessionRunIdKey
     )
   ) {}
 
@@ -125,8 +126,8 @@ export class ByokApiClient {
   /**
    * GET /api/byok/credentials
    */
-  async getCredentials(): Promise<BYOKCredential[]> {
-    return this.get<BYOKCredential[]>("/credentials");
+  async getCredentials(): Promise<ProviderCredential[]> {
+    return this.get<ProviderCredential[]>("/credentials");
   }
 
   /**
@@ -134,8 +135,8 @@ export class ByokApiClient {
    */
   async connectCredential(
     req: ConnectCredentialRequest
-  ): Promise<BYOKCredential> {
-    return this.post<BYOKCredential>("/credentials", req);
+  ): Promise<ProviderCredential> {
+    return this.post<ProviderCredential>("/credentials", req);
   }
 
   /**
@@ -144,8 +145,8 @@ export class ByokApiClient {
   async updateCredential(
     credentialId: string,
     req: UpdateCredentialRequest
-  ): Promise<BYOKCredential> {
-    return this.patch<BYOKCredential>(
+  ): Promise<ProviderCredential> {
+    return this.patch<ProviderCredential>(
       `/credentials/${credentialId}`,
       req
     );
@@ -174,24 +175,24 @@ export class ByokApiClient {
   /**
    * GET /api/byok/preferences
    */
-  async getPreferences(): Promise<BYOKPreference> {
-    return this.get<BYOKPreference>("/preferences");
+  async getPreferences(): Promise<ProviderPreference> {
+    return this.get<ProviderPreference>("/preferences");
   }
 
   /**
    * PATCH /api/byok/preferences
    */
   async updatePreferences(
-    req: Partial<BYOKPreference>
-  ): Promise<BYOKPreference> {
-    return this.patch<BYOKPreference>("/preferences", req);
+    req: Partial<ProviderPreference>
+  ): Promise<ProviderPreference> {
+    return this.patch<ProviderPreference>("/preferences", req);
   }
 
   /**
    * POST /api/byok/resolve (resolve for chat)
    */
-  async resolveForChat(req: ResolveChatRequest): Promise<BYOKResolution> {
-    return this.post<BYOKResolution>("/resolve", req);
+  async resolveForChat(req: ResolveChatRequest): Promise<ProviderResolution> {
+    return this.post<ProviderResolution>("/resolve", req);
   }
 
   /**
@@ -279,16 +280,16 @@ export class ByokApiClient {
 
       return await this.parseSuccessResponse<T>(response, method, path);
     } catch (error) {
-      if (error instanceof ByokApiError) {
+      if (error instanceof ProviderApiError) {
         throw error;
       }
 
       // Network error or abort
       if (error instanceof Error && error.name === "AbortError") {
-        throw new ByokApiError(0, "ABORTED", "Request was aborted");
+        throw new ProviderApiError(0, "ABORTED", "Request was aborted");
       }
 
-      throw new ByokApiError(
+      throw new ProviderApiError(
         500,
         "NETWORK_ERROR",
         error instanceof Error ? error.message : "Network request failed"
@@ -308,7 +309,7 @@ export class ByokApiClient {
     const contentType = response.headers.get("content-type") ?? "";
     if (!contentType.includes("application/json")) {
       const preview = await this.readResponsePreview(response);
-      throw new ByokApiError(
+      throw new ProviderApiError(
         502,
         "INVALID_RESPONSE_FORMAT",
         `Expected JSON response for ${method} ${path}${preview ? `; received: ${preview}` : ""}`
@@ -319,7 +320,7 @@ export class ByokApiClient {
       const data = await response.json();
       return data as T;
     } catch {
-      throw new ByokApiError(
+      throw new ProviderApiError(
         502,
         "INVALID_RESPONSE_FORMAT",
         `Invalid JSON response for ${method} ${path}`
@@ -334,10 +335,10 @@ export class ByokApiClient {
 
     const runId = this.resolveRunId();
     if (!runId) {
-      throw new ByokApiError(
+      throw new ProviderApiError(
         400,
         "MISSING_RUN_ID",
-        "Run ID is required for BYOK requests"
+        "Run ID is required for provider requests"
       );
     }
     headers["X-Run-Id"] = runId;
@@ -350,7 +351,7 @@ export class ByokApiClient {
   }
 
   /**
-   * Handle error responses with BYOK error envelope
+   * Handle error responses with provider error envelope
    */
   private async handleErrorResponse(response: Response): Promise<never> {
     let errorData: Record<string, unknown> = {};
@@ -377,7 +378,7 @@ export class ByokApiClient {
       // Ignore JSON parse errors, use default error
     }
 
-    throw new ByokApiError(response.status, code, message, correlationId);
+    throw new ProviderApiError(response.status, code, message, correlationId);
   }
 
   private async readResponsePreview(response: Response): Promise<string> {
@@ -386,10 +387,10 @@ export class ByokApiClient {
       if (!text) {
         return "";
       }
-      return text.slice(0, ByokApiClient.responsePreviewLimit);
+      return text.slice(0, ProviderApiClient.responsePreviewLimit);
     } catch (error) {
       console.warn(
-        "[byok/readResponsePreview] Failed to read response text",
+        "[provider/readResponsePreview] Failed to read response text",
         error
       );
       return "";
@@ -407,7 +408,7 @@ class DefaultRunIdResolver implements RunIdResolver {
         return runId;
       }
     } catch (error) {
-      console.warn("[byok/resolveRunId] Failed to read sessionStorage", error);
+      console.warn("[provider/resolveRunId] Failed to read sessionStorage", error);
     }
 
     return SessionStateService.loadActiveSessionRunId();

@@ -20,8 +20,8 @@ import {
 } from "../../lib/animations";
 import { useGitHub } from "../github/GitHubContextProvider";
 import { ChatBranchSelector } from "../chat/ChatBranchSelector";
-import { ProviderDialog } from "../byok/ProviderDialog";
-import { useByokStore } from "../../hooks/useByokStore.js";
+import { ProviderDialog } from "../provider/ProviderDialog";
+import { useProviderStore } from "../../hooks/useProviderStore.js";
 
 interface AgentSetupProps {
   sessionId: string;
@@ -62,7 +62,7 @@ export function AgentSetup({
   const [isInputFocused, setIsInputFocused] = useState(false);
   const [hoveredCard, setHoveredCard] = useState<number | null>(null);
   const [showProviderSettings, setShowProviderSettings] = useState(false);
-  const { selectedModelId, selectedProviderId, preferences } = useByokStore();
+  const { selectedModelId, selectedProviderId, preferences } = useProviderStore();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const hasTask = task.trim().length > 0;

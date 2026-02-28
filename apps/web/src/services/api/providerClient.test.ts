@@ -1,20 +1,20 @@
 /**
- * ByokApiClient Tests
+ * ProviderApiClient Tests
  *
  * Tests for HTTP request handling, error mapping, and response validation.
  */
 
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
-import { ByokApiClient, ByokApiError } from "./byokClient.js";
+import { ProviderApiClient, ProviderApiError } from "./providerClient.js";
 
-describe("ByokApiClient", () => {
-  const byokBaseUrl = "http://localhost:8788/api/byok";
+describe("ProviderApiClient", () => {
+  const providerApiBaseUrl = "http://localhost:8788/api/byok";
   const testRunId = "run-123";
-  let client: ByokApiClient;
+  let client: ProviderApiClient;
   let fetchSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
-    client = new ByokApiClient({
+    client = new ProviderApiClient({
       getRunId: () => testRunId,
     });
     fetchSpy = vi.spyOn(globalThis, "fetch") as unknown as ReturnType<
@@ -45,7 +45,7 @@ describe("ByokApiClient", () => {
 
       const catalog = await client.getCatalog();
 
-      expect(fetchSpy).toHaveBeenCalledWith(`${byokBaseUrl}/providers`, {
+      expect(fetchSpy).toHaveBeenCalledWith(`${providerApiBaseUrl}/providers`, {
         method: "GET",
         credentials: "include",
         headers: {
@@ -72,7 +72,7 @@ describe("ByokApiClient", () => {
       const models = await client.getProviderModels("openrouter");
 
       expect(fetchSpy).toHaveBeenCalledWith(
-        `${byokBaseUrl}/providers/openrouter/models`,
+        `${providerApiBaseUrl}/providers/openrouter/models`,
         {
           method: "GET",
           credentials: "include",
@@ -105,7 +105,7 @@ describe("ByokApiClient", () => {
 
       const credentials = await client.getCredentials();
 
-      expect(fetchSpy).toHaveBeenCalledWith(`${byokBaseUrl}/credentials`, {
+      expect(fetchSpy).toHaveBeenCalledWith(`${providerApiBaseUrl}/credentials`, {
         method: "GET",
         credentials: "include",
         headers: {
@@ -137,7 +137,7 @@ describe("ByokApiClient", () => {
         secret: "sk-test",
       });
 
-      expect(fetchSpy).toHaveBeenCalledWith(`${byokBaseUrl}/credentials`, {
+      expect(fetchSpy).toHaveBeenCalledWith(`${providerApiBaseUrl}/credentials`, {
         method: "POST",
         credentials: "include",
         headers: {
@@ -163,7 +163,7 @@ describe("ByokApiClient", () => {
 
       await client.disconnectCredential("cred-1");
 
-      expect(fetchSpy).toHaveBeenCalledWith(`${byokBaseUrl}/credentials/cred-1`, {
+      expect(fetchSpy).toHaveBeenCalledWith(`${providerApiBaseUrl}/credentials/cred-1`, {
         method: "DELETE",
         credentials: "include",
         headers: {
@@ -189,7 +189,7 @@ describe("ByokApiClient", () => {
 
       expect(result).toEqual({ valid: true });
       expect(fetchSpy).toHaveBeenCalledWith(
-        `${byokBaseUrl}/credentials/cred-1/validate`,
+        `${providerApiBaseUrl}/credentials/cred-1/validate`,
         expect.objectContaining({
           method: "POST",
           body: JSON.stringify({ mode: "format" }),
@@ -230,9 +230,9 @@ describe("ByokApiClient", () => {
         await client.getCatalog();
         expect.fail("Should have thrown error");
       } catch (error) {
-        expect(error).toBeInstanceOf(ByokApiError);
-        expect((error as ByokApiError).code).toBe("INVALID_INPUT");
-        expect((error as ByokApiError).statusCode).toBe(400);
+        expect(error).toBeInstanceOf(ProviderApiError);
+        expect((error as ProviderApiError).code).toBe("INVALID_INPUT");
+        expect((error as ProviderApiError).statusCode).toBe(400);
       }
     });
 
@@ -249,7 +249,7 @@ describe("ByokApiClient", () => {
       try {
         await client.getCatalog();
       } catch (error) {
-        expect((error as ByokApiError).isRetryable()).toBe(true);
+        expect((error as ProviderApiError).isRetryable()).toBe(true);
       }
     });
 
@@ -266,7 +266,7 @@ describe("ByokApiClient", () => {
       try {
         await client.getCatalog();
       } catch (error) {
-        expect((error as ByokApiError).isRetryable()).toBe(true);
+        expect((error as ProviderApiError).isRetryable()).toBe(true);
       }
     });
 
@@ -277,8 +277,8 @@ describe("ByokApiClient", () => {
         await client.getCatalog();
         expect.fail("Should have thrown error");
       } catch (error) {
-        expect(error).toBeInstanceOf(ByokApiError);
-        expect((error as ByokApiError).code).toBe("NETWORK_ERROR");
+        expect(error).toBeInstanceOf(ProviderApiError);
+        expect((error as ProviderApiError).code).toBe("NETWORK_ERROR");
       }
     });
 
@@ -291,13 +291,13 @@ describe("ByokApiClient", () => {
         await client.getCatalog();
         expect.fail("Should have thrown error");
       } catch (error) {
-        expect(error).toBeInstanceOf(ByokApiError);
-        expect((error as ByokApiError).code).toBe("ABORTED");
+        expect(error).toBeInstanceOf(ProviderApiError);
+        expect((error as ProviderApiError).code).toBe("ABORTED");
       }
     });
 
     it("fails fast when run id is missing", async () => {
-      const clientWithMissingRunId = new ByokApiClient({
+      const clientWithMissingRunId = new ProviderApiClient({
         getRunId: () => null,
       });
       await expect(clientWithMissingRunId.getCatalog()).rejects.toMatchObject({
@@ -324,7 +324,7 @@ describe("ByokApiClient", () => {
       try {
         await client.getCatalog();
       } catch (error) {
-        expect((error as ByokApiError).correlationId).toBe("req-123");
+        expect((error as ProviderApiError).correlationId).toBe("req-123");
       }
     });
 

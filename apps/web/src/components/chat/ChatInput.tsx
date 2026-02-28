@@ -1,12 +1,12 @@
 /**
- * Chat Input Component (Updated for BYOK v3)
+ * Chat Input Component (Provider Runtime v3)
  *
  * Gated send on provider resolution readiness.
  * Ensures provider config is resolved before sending chat message.
  */
 
 import React, { useState, useRef, useEffect } from "react";
-import { useByokStore } from "../../hooks/useByokStore.js";
+import { useProviderStore } from "../../hooks/useProviderStore.js";
 
 /**
  * Chat Input Props
@@ -17,7 +17,7 @@ export interface ChatInputProps {
 }
 
 /**
- * ChatInput Component with BYOK Resolution Gating
+ * ChatInput Component with provider resolution gating
  */
 export function ChatInput({
   onSendMessage,
@@ -35,7 +35,7 @@ export function ChatInput({
     lastResolvedConfig,
     bootstrap,
     resolveForChat,
-  } = useByokStore();
+  } = useProviderStore();
 
   // Bootstrap store on mount
   useEffect(() => {

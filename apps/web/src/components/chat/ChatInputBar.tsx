@@ -2,8 +2,8 @@ import { useRef, useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { Plus, Mic, ArrowUp, Paperclip, ChevronDown, Square } from "lucide-react";
 import type { ProviderId } from "../../types/provider";
-import { useByokStore } from "../../hooks/useByokStore.js";
-import { ProviderDialog } from "../byok/ProviderDialog.js";
+import { useProviderStore } from "../../hooks/useProviderStore.js";
+import { ProviderDialog } from "../provider/ProviderDialog.js";
 
 interface ChatInputBarProps {
   input: string;
@@ -34,7 +34,7 @@ export function ChatInputBar({
     selectedModelId,
     lastResolvedConfig,
     preferences,
-  } = useByokStore();
+  } = useProviderStore();
 
   const hasInput = input.trim().length > 0;
 
@@ -77,7 +77,8 @@ export function ChatInputBar({
     lastResolvedConfig?.modelId ??
     preferences?.defaultModelId ??
     "Select Model";
-  const availabilityLabel = status === "ready" ? modelLabel : "Loading BYOK...";
+  const availabilityLabel =
+    status === "ready" ? modelLabel : "Loading provider settings...";
 
   return (
     <>

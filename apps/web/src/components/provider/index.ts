@@ -1,5 +1,5 @@
 /**
- * BYOK Components Public API
+ * Provider Components Public API
  */
 
 export { ProviderDialog } from "./ProviderDialog.js";

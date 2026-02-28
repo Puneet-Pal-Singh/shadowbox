@@ -2,11 +2,11 @@
  * API Services Public API
  */
 
-export { ByokApiClient, ByokApiError } from "./byokClient.js";
+export { ProviderApiClient, ProviderApiError } from "./providerClient.js";
 export type {
   ConnectCredentialRequest,
   UpdateCredentialRequest,
   ValidateCredentialRequest,
   ValidationResult,
   ResolveChatRequest,
-} from "./byokClient.js";
+} from "./providerClient.js";
