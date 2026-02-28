@@ -3,6 +3,8 @@ import { ChatController } from "./ChatController";
 import type { Env } from "../types/ai";
 
 const VALID_RUN_ID = "123e4567-e89b-42d3-a456-426614174000";
+const TEST_USER_ID = "user-123";
+const TEST_WORKSPACE_ID = "workspace-main";
 
 describe("ChatController DO runtime migration", () => {
   it("routes execution through RUN_ENGINE_RUNTIME and tags response headers", async () => {
@@ -72,6 +74,84 @@ describe("ChatController DO runtime migration", () => {
     expect(payload.input.modelId).toBe("gpt-4");
   });
 
+  it("forwards repository context fields to runtime payload", async () => {
+    const runtime = createMockRuntimeNamespace();
+    const env = createEnv(runtime.namespace);
+    const requestWithRepoContext = new Request("https://brain.local/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sessionId: "session-1",
+        runId: VALID_RUN_ID,
+        repositoryOwner: "sourcegraph",
+        repositoryName: "shadowbox",
+        repositoryBranch: "dev",
+        repositoryBaseUrl: "https://github.com/sourcegraph/shadowbox",
+        messages: [
+          {
+            role: "user",
+            content: "check README.md",
+          },
+        ],
+      }),
+    });
+
+    const response = await ChatController.handle(requestWithRepoContext, env);
+
+    expect(response.status).toBe(200);
+    const fetchCall = runtime.fetch.mock.calls[0];
+    expect(fetchCall).toBeDefined();
+
+    const payloadStr = (fetchCall[1] as { body: string }).body;
+    const payload = JSON.parse(payloadStr) as {
+      input: {
+        repositoryContext?: {
+          owner?: string;
+          repo?: string;
+          branch?: string;
+          baseUrl?: string;
+        };
+      };
+    };
+    expect(payload.input.repositoryContext).toEqual({
+      owner: "sourcegraph",
+      repo: "shadowbox",
+      branch: "dev",
+      baseUrl: "https://github.com/sourcegraph/shadowbox",
+    });
+  });
+
+  it("extracts prompt text from structured user message content parts", async () => {
+    const runtime = createMockRuntimeNamespace();
+    const env = createEnv(runtime.namespace);
+    const request = new Request("https://brain.local/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sessionId: "session-1",
+        runId: VALID_RUN_ID,
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "so? what is your name?" },
+            ],
+          },
+        ],
+      }),
+    });
+
+    const response = await ChatController.handle(request, env);
+
+    expect(response.status).toBe(200);
+    const fetchCall = runtime.fetch.mock.calls[0];
+    expect(fetchCall).toBeDefined();
+
+    const payloadStr = (fetchCall[1] as { body: string }).body;
+    const payload = JSON.parse(payloadStr) as { input: { prompt: string } };
+    expect(payload.input.prompt).toBe("so? what is your name?");
+  });
+
   it("returns validation error for unsupported agentId", async () => {
     const runtime = createMockRuntimeNamespace();
     const env = createEnv(runtime.namespace);
@@ -100,6 +180,43 @@ describe("ChatController DO runtime migration", () => {
     expect(body.code).toBe("MISSING_FIELD");
     expect(body.error).toContain("runId");
     expect(runtime.fetch).not.toHaveBeenCalled();
+  });
+
+  it("derives authenticated user/workspace scope for runtime payload", async () => {
+    const runtime = createMockRuntimeNamespace();
+    const env = createEnv(runtime.namespace);
+    const token = await createSessionToken(TEST_USER_ID, env.SESSION_SECRET);
+    const request = new Request("https://brain.local/chat", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Cookie: `shadowbox_session=${token}`,
+      },
+      body: JSON.stringify({
+        sessionId: "session-1",
+        runId: VALID_RUN_ID,
+        messages: [
+          {
+            role: "user",
+            content: "hello",
+          },
+        ],
+      }),
+    });
+
+    const response = await ChatController.handle(request, env);
+
+    expect(response.status).toBe(200);
+    const fetchCall = runtime.fetch.mock.calls[0];
+    expect(fetchCall).toBeDefined();
+
+    const payloadStr = (fetchCall[1] as { body: string }).body;
+    const payload = JSON.parse(payloadStr) as {
+      userId?: string;
+      workspaceId?: string;
+    };
+    expect(payload.userId).toBe(TEST_USER_ID);
+    expect(payload.workspaceId).toBe(TEST_WORKSPACE_ID);
   });
 });
 
@@ -145,6 +262,16 @@ function createMockRuntimeNamespace() {
 }
 
 function createEnv(runEngineRuntime: Env["RUN_ENGINE_RUNTIME"]): Env {
+  const sessions = new Map<string, string>();
+  sessions.set(
+    `user_session:${TEST_USER_ID}`,
+    JSON.stringify({
+      userId: TEST_USER_ID,
+      workspaceIds: [TEST_WORKSPACE_ID],
+      defaultWorkspaceId: TEST_WORKSPACE_ID,
+    }),
+  );
+
   return {
     AI: {} as Env["AI"],
     SECURE_API: {
@@ -156,7 +283,37 @@ function createEnv(runEngineRuntime: Env["RUN_ENGINE_RUNTIME"]): Env {
     GITHUB_TOKEN_ENCRYPTION_KEY: "x",
     SESSION_SECRET: "x",
     FRONTEND_URL: "x",
-    SESSIONS: {} as Env["SESSIONS"],
+    SESSIONS: {
+      get: async (key: string) => sessions.get(key) ?? null,
+      put: async (key: string, value: string) => {
+        sessions.set(key, value);
+      },
+      delete: async (key: string) => {
+        sessions.delete(key);
+      },
+    } as unknown as Env["SESSIONS"],
     RUN_ENGINE_RUNTIME: runEngineRuntime,
   };
+}
+
+async function createSessionToken(userId: string, secret: string): Promise<string> {
+  const timestamp = Date.now().toString();
+  const data = `${userId}:${timestamp}`;
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const signatureBuffer = await crypto.subtle.sign(
+    "HMAC",
+    key,
+    encoder.encode(data),
+  );
+  const signature = btoa(
+    String.fromCharCode(...new Uint8Array(signatureBuffer)),
+  );
+  return `${data}:${signature}`;
 }

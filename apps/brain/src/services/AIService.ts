@@ -1,24 +1,14 @@
-/**
- * AIService - Pure inference layer facade
- *
- * This service:
- * 1. Orchestrates model selection and adapter resolution
- * 2. Delegates text/structured/stream generation to specialized services
- * 3. Returns standardized results including LLMUsage
- * 4. Does NOT perform cost tracking (handled by RunEngine)
- *
- * Design: Thin facade coordinating extraction layer modules.
- * Each generation path is in a dedicated service module.
- * Provider adapter creation is factory-based.
- * SDK calls (generateObject, AI SDK imports) happen here per eslint restrictions.
- */
-
 import { generateObject, type CoreMessage, type CoreTool } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import type { ZodSchema } from "zod";
 import type { Env } from "../types/ai";
-import type { ProviderAdapter } from "./providers";
+import type {
+  ProviderAdapter,
+  GenerationParams,
+  GenerationResult,
+  StreamChunk,
+} from "./providers";
 import type { LLMUsage } from "@shadowbox/execution-engine/runtime/cost";
 import { ProviderConfigService } from "./providers";
 import {
@@ -35,16 +25,14 @@ import {
   type GenerateStructuredResult,
 } from "./ai";
 import { resolveSelectionWithPreferences } from "./ai/preference-selection";
+import {
+  DEFAULT_OPENROUTER_FALLBACK_MODEL,
+  OPENAI_BASE_URL,
+  OPENROUTER_BASE_URL,
+  GROQ_BASE_URL,
+} from "./ai/defaults";
+import { DefaultAdapterService } from "./ai/DefaultAdapterService";
 
-/**
- * AIService - Orchestrates LLM inference through provider adapters
- *
- * Responsibilities:
- * - Model selection (with override support)
- * - Adapter resolution (with fallback logic)
- * - Delegation to specialized generation services
- * - Unified usage tracking
- */
 export class AIService {
   private adapter: ProviderAdapter;
   private defaultModel: string;
@@ -54,30 +42,20 @@ export class AIService {
     private env: Env,
     providerConfigService?: ProviderConfigService,
   ) {
-    this.adapter = createDefaultAdapter(env);
-    this.defaultModel = env.DEFAULT_MODEL ?? "llama-3.3-70b-versatile";
+    this.adapter = DefaultAdapterService.createResillient(env);
+    this.defaultModel = env.DEFAULT_MODEL ?? DEFAULT_OPENROUTER_FALLBACK_MODEL;
     this.providerConfigService = providerConfigService;
   }
 
-  /**
-   * Get the current provider name
-   */
   getProvider(): string {
     return this.adapter.provider;
   }
 
-  /**
-   * Get the default model
-   */
   getDefaultModel(): string {
     return this.defaultModel;
   }
 
-  /**
-   * Resolve provider/model override selection
-   * @see ModelSelectionPolicy.resolveModelSelection for logic details
-   */
-  resolveModelSelection(providerId?: string, modelId?: string) {
+  resolveModelSelection(providerId?: string, modelId?: string, isByokOverride = false) {
     return resolveModelSelection(
       providerId,
       modelId,
@@ -85,13 +63,10 @@ export class AIService {
       this.defaultModel,
       mapProviderIdToRuntimeProvider,
       getRuntimeProviderFromAdapter,
+      { isByokOverride },
     );
   }
 
-  /**
-   * Generate text with usage tracking
-   * Pure inference - no cost tracking
-   */
   async generateText({
     messages,
     model,
@@ -127,10 +102,6 @@ export class AIService {
     });
   }
 
-  /**
-   * Generate structured output with usage tracking
-   * Pure inference - no cost tracking
-   */
   async generateStructured<T>({
     messages,
     schema,
@@ -172,11 +143,16 @@ export class AIService {
       messages,
       schema,
       temperature,
+      // OpenRouter often rejects tool-based structured generation for some models.
+      // Force JSON mode for OpenAI-compatible providers to avoid `tool_choice` routing failures.
+      ...(selection.runtimeProvider === "anthropic"
+        ? {}
+        : { mode: "json" as const }),
     });
 
     // Standardize usage
     const usage: LLMUsage = {
-      provider: selection.runtimeProvider,
+      provider: inferUsageProvider(selection.runtimeProvider, sdkModelConfig.baseURL),
       model: selection.model,
       promptTokens: result.usage?.promptTokens ?? 0,
       completionTokens: result.usage?.completionTokens ?? 0,
@@ -191,10 +167,6 @@ export class AIService {
     };
   }
 
-  /**
-   * Create a streaming chat response
-   * Pure inference - no cost tracking
-   */
   async createChatStream({
     messages,
     system,
@@ -231,30 +203,26 @@ export class AIService {
       this.providerConfigService,
     );
 
-    return createChatStream(selectedAdapter, {
-      messages,
-      system,
-      tools,
-      temperature,
-      model: selection.model,
-    }, {
-      onFinish,
-      onChunk,
-    });
+    return createChatStream(
+      selectedAdapter,
+      {
+        messages,
+        system,
+        tools,
+        temperature,
+        model: selection.model,
+      },
+      {
+        onFinish,
+        onChunk,
+      },
+    );
   }
 
-  /**
-   * Get the underlying provider adapter
-   * For advanced use cases
-   */
   getProviderAdapter(): ProviderAdapter {
     return this.adapter;
   }
 
-  /**
-   * Create an AI SDK model instance from config.
-   * Private method - handles SDK instantiation per eslint restrictions.
-   */
   private createSDKModel(config: SDKModelConfig) {
     const { provider, apiKey, baseURL, model } = config;
 
@@ -275,4 +243,27 @@ export class AIService {
     return client(model);
   }
 }
+
 export type { GenerateTextResult };
+
+function inferUsageProvider(
+  runtimeProvider: SDKModelConfig["provider"],
+  baseURL: string,
+): "litellm" | "openai" | "anthropic" | "openrouter" | "groq" {
+  if (runtimeProvider !== "litellm") {
+    return runtimeProvider;
+  }
+
+  const normalized = baseURL.toLowerCase();
+  if (normalized.includes(new URL(OPENROUTER_BASE_URL).host)) {
+    return "openrouter";
+  }
+  if (normalized.includes(new URL(GROQ_BASE_URL).host)) {
+    return "groq";
+  }
+  if (normalized.includes(new URL(OPENAI_BASE_URL).host)) {
+    return "openai";
+  }
+
+  return "litellm";
+}

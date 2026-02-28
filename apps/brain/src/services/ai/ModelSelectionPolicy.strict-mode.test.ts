@@ -46,7 +46,7 @@ describe("ModelSelectionPolicy strict mode", () => {
     );
   });
 
-  it("throws PARTIAL_OVERRIDE for incomplete provider/model override", () => {
+  it("throws INVALID_PROVIDER_SELECTION for incomplete provider/model override", () => {
     setCompatModeOverride(false);
 
     expectDomainError(() =>
@@ -58,7 +58,7 @@ describe("ModelSelectionPolicy strict mode", () => {
         mapProviderIdToRuntimeProvider,
         getRuntimeProviderFromAdapter,
       ),
-      "PARTIAL_OVERRIDE",
+      "INVALID_PROVIDER_SELECTION",
     );
   });
 

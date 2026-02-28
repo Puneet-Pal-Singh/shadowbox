@@ -31,7 +31,6 @@ import type { Env } from "../../types/ai";
 import {
   ProviderNotConnectedError,
 } from "../../domain/errors";
-import { isStrictMode, logCompatFallback, CompatFallbackReasonCodes } from "../../config/runtime-compat";
 
 /**
  * Get the appropriate adapter for a model selection.
@@ -76,23 +75,14 @@ export async function selectAdapter(
 
   // Provider was selected but not connected
   if (!overrideApiKey) {
-    if (isStrictMode()) {
-      throw new ProviderNotConnectedError(
-        selection.providerId ?? selection.runtimeProvider,
-        correlationId,
-      );
-    }
-
-    // Compat mode: log and fallback to default
-    logCompatFallback({
-      reasonCode: CompatFallbackReasonCodes.PROVIDER_ADAPTER_DEFAULTED,
-      requestedProvider: selection.providerId ?? selection.runtimeProvider,
-      resolvedProvider: defaultAdapter.provider,
-      requestedModel: selection.model,
-      resolvedModel: selection.model, // Use requested model as resolved since we're falling back
-      runId: correlationId,
+    console.error("[ai/adapter-selection] provider not connected", {
+      providerId: selection.providerId ?? selection.runtimeProvider,
+      correlationId,
     });
-    return defaultAdapter;
+    throw new ProviderNotConnectedError(
+      selection.providerId ?? selection.runtimeProvider,
+      correlationId,
+    );
   }
 
   // Create adapter with override key

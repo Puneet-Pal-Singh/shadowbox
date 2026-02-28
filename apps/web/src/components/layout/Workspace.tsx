@@ -1,4 +1,4 @@
-import { useRef, useEffect } from "react";
+import { useRef, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
 import { FileExplorerHandle } from "../FileExplorer";
 import { ChatInterface } from "../chat/ChatInterface";
@@ -53,21 +53,23 @@ export function Workspace({
   const { repoTree, isLoadingTree, repo, branch, isGitHubLoaded } =
     useGitHubTree(repository);
 
-  const { status } = useGitStatus();
-  const { fetch: fetchDiff, diff } = useGitDiff();
-  const changesCount = status?.files.length || 0;
-
   const {
     messages,
     input,
     handleInputChange,
     handleSubmit,
+    stop,
     isLoading,
     isHydrating,
     runId: activeRunId,
+    error: chatError,
+    debugEvents,
   } = useChat(sessionId, initialRunId, () => {
     explorerRef.current?.refresh();
   });
+  const { status } = useGitStatus(activeRunId, sessionId);
+  const { fetch: fetchDiff, diff } = useGitDiff(activeRunId, sessionId);
+  const changesCount = status?.files?.length ?? 0;
 
   const { handleFileClick, handleGitHubFileSelect } = useFileLoader({
     sandboxId,
@@ -117,13 +119,17 @@ export function Workspace({
     handleFileClick,
   ]);
 
-  const handleViewChange = (path: string) => {
-    fetchDiff(path);
-    // Diff view will be set by the useEffect above
-  };
+  const handleViewChange = useCallback(
+    (path: string) => {
+      // Open changed file content in viewer and fetch git diff in parallel.
+      void handleFileClick(path);
+      void fetchDiff(path);
+    },
+    [fetchDiff, handleFileClick],
+  );
 
   return (
-    <RunContextProvider runId={activeRunId}>
+    <RunContextProvider runId={activeRunId} sessionId={sessionId}>
       <div className="flex-1 flex bg-black overflow-hidden relative">
         {/* Chat Area */}
         <main className="flex-1 flex flex-col min-w-0 bg-black relative">
@@ -140,10 +146,14 @@ export function Workspace({
             <ChatInterface
               chatProps={{
                 messages,
+                runId: activeRunId,
                 input,
                 handleInputChange,
                 handleSubmit,
+                stop,
                 isLoading,
+                error: chatError,
+                debugEvents,
               }}
               sessionId={sessionId}
               onArtifactOpen={(path, content) => {

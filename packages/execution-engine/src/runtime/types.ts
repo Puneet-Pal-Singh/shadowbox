@@ -26,6 +26,35 @@ export type RunStatus =
 
 export type AgentType = "coding" | "review" | "ci" | (string & {});
 
+export interface RepositoryContext {
+  owner?: string;
+  repo?: string;
+  branch?: string;
+  baseUrl?: string;
+}
+
+export type WorkspaceBootstrapStatus =
+  | "ready"
+  | "needs-auth"
+  | "invalid-context"
+  | "sync-failed";
+
+export interface WorkspaceBootstrapRequest {
+  runId: string;
+  repositoryContext: RepositoryContext;
+}
+
+export interface WorkspaceBootstrapResult {
+  status: WorkspaceBootstrapStatus;
+  message?: string;
+}
+
+export interface WorkspaceBootstrapper {
+  bootstrap(
+    request: WorkspaceBootstrapRequest,
+  ): Promise<WorkspaceBootstrapResult>;
+}
+
 export interface RunInput {
   agentType: AgentType;
   prompt: string;
@@ -33,6 +62,8 @@ export interface RunInput {
   providerId?: string;
   modelId?: string;
   metadata?: Record<string, unknown>;
+  // Phase 4: Repository context for workspace-aware operations
+  repositoryContext?: RepositoryContext;
 }
 
 export interface RunOutput {

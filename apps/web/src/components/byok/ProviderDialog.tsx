@@ -11,13 +11,14 @@
  * - Session: Quick-switch for current chat session
  */
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useByokStore } from "../../hooks/useByokStore.js";
 import {
   BYOKCredential,
   BYOKPreference,
   ProviderRegistryEntry,
 } from "@repo/shared-types";
+import { type ProviderModelOption } from "../../services/api/byokClient.js";
 
 /**
  * Provider Dialog Props
@@ -39,6 +40,8 @@ export function ProviderDialog({
   const {
     catalog,
     credentials,
+    providerModels,
+    loadingModelsForProviderId,
     preferences,
     selectedProviderId,
     selectedCredentialId,
@@ -48,6 +51,7 @@ export function ProviderDialog({
     connectCredential,
     disconnectCredential,
     validateCredential,
+    loadProviderModels,
     updatePreferences,
     setSelection,
     resolveForChat,
@@ -62,6 +66,7 @@ export function ProviderDialog({
   >(null);
 
   const [connectError, setConnectError] = useState<string | null>(null);
+  const [connectSuccess, setConnectSuccess] = useState<string | null>(null);
   const [connectSecret, setConnectSecret] = useState("");
   const [connectProvider, setConnectProvider] = useState("");
   const [connectLabel, setConnectLabel] = useState("");
@@ -74,6 +79,7 @@ export function ProviderDialog({
   const handleConnect = async (e: React.FormEvent) => {
     e.preventDefault();
     setConnectError(null);
+    setConnectSuccess(null);
 
     if (!connectProvider || !connectSecret) {
       setConnectError("Provider and API key are required");
@@ -91,6 +97,8 @@ export function ProviderDialog({
       setConnectSecret("");
       setConnectProvider("");
       setConnectLabel("");
+      setConnectSuccess("API key saved and provider connected.");
+      setActiveTab("connected");
     } catch (err) {
       setConnectError(
         err instanceof Error ? err.message : "Failed to connect credential"
@@ -137,7 +145,15 @@ export function ProviderDialog({
     credentialId: string,
     modelId?: string
   ) => {
-    setSelection(providerId, credentialId, modelId);
+    if (!credentialId) {
+      return;
+    }
+
+    const resolvedModelId =
+      modelId ??
+      providerModels[providerId]?.[0]?.id ??
+      catalog.find((entry) => entry.providerId === providerId)?.defaultModelId;
+    setSelection(providerId, credentialId, resolvedModelId);
 
     try {
       await resolveForChat();
@@ -145,6 +161,13 @@ export function ProviderDialog({
       // Error shown in UI
     }
   };
+
+  const selectedProviderModelOptions = selectedProviderId
+    ? providerModels[selectedProviderId] ?? []
+    : [];
+  const isSelectedProviderModelLoading =
+    loadingModelsForProviderId !== null &&
+    loadingModelsForProviderId === selectedProviderId;
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
@@ -211,11 +234,22 @@ export function ProviderDialog({
             <AvailableTab
               catalog={catalog}
               error={connectError}
+              success={connectSuccess}
               secret={connectSecret}
               provider={connectProvider}
               label={connectLabel}
-              onSecretChange={setConnectSecret}
-              onProviderChange={setConnectProvider}
+              onSecretChange={(value) => {
+                setConnectSecret(value);
+                if (connectSuccess) {
+                  setConnectSuccess(null);
+                }
+              }}
+              onProviderChange={(value) => {
+                setConnectProvider(value);
+                if (connectSuccess) {
+                  setConnectSuccess(null);
+                }
+              }}
               onLabelChange={setConnectLabel}
               onConnect={handleConnect}
             />
@@ -235,6 +269,9 @@ export function ProviderDialog({
               selectedProviderId={selectedProviderId}
               selectedCredentialId={selectedCredentialId}
               selectedModelId={selectedModelId}
+              modelOptions={selectedProviderModelOptions}
+              isModelLoading={isSelectedProviderModelLoading}
+              onLoadModels={loadProviderModels}
               onSelect={handleSessionSelect}
             />
           )}
@@ -345,6 +382,7 @@ function ConnectedTab({
 function AvailableTab({
   catalog,
   error,
+  success,
   secret,
   provider,
   label,
@@ -355,6 +393,7 @@ function AvailableTab({
 }: {
   catalog: ProviderRegistryEntry[];
   error: string | null;
+  success: string | null;
   secret: string;
   provider: string;
   label: string;
@@ -367,6 +406,7 @@ function AvailableTab({
     <div className="p-6">
       <form onSubmit={onConnect} className="space-y-4 max-w-md">
         {error && <div className="bg-red-50 border border-red-200 rounded p-3 text-red-700 text-sm">{error}</div>}
+        {success && <div className="bg-green-50 border border-green-200 rounded p-3 text-green-700 text-sm">{success}</div>}
 
         <div>
           <label className="block text-sm font-medium mb-2">Provider</label>
@@ -494,6 +534,9 @@ function SessionTab({
   selectedProviderId,
   selectedCredentialId,
   selectedModelId,
+  modelOptions,
+  isModelLoading,
+  onLoadModels,
   onSelect,
 }: {
   catalog: ProviderRegistryEntry[];
@@ -501,11 +544,21 @@ function SessionTab({
   selectedProviderId: string | null;
   selectedCredentialId: string | null;
   selectedModelId: string | null;
+  modelOptions: ProviderModelOption[];
+  isModelLoading: boolean;
+  onLoadModels: (providerId: string) => Promise<ProviderModelOption[]>;
   onSelect: (providerId: string, credentialId: string, modelId?: string) => void;
 }): React.ReactElement {
   const availableProviders = catalog.filter((p) =>
     credentials.some((c) => c.providerId === p.providerId)
   );
+
+  useEffect(() => {
+    if (!selectedProviderId) {
+      return;
+    }
+    void onLoadModels(selectedProviderId);
+  }, [onLoadModels, selectedProviderId]);
 
   return (
     <div className="p-6 space-y-4">
@@ -518,6 +571,7 @@ function SessionTab({
             const cred = credentials.find((c) => c.providerId === provider);
             if (cred) {
               onSelect(provider, cred.credentialId);
+              void onLoadModels(provider);
             }
           }}
           className="w-full border rounded px-3 py-2 text-sm"
@@ -558,18 +612,58 @@ function SessionTab({
 
           <div>
             <label className="block text-sm font-medium mb-2">Model</label>
-            <input
-              type="text"
-              value={selectedModelId || ""}
-              onChange={(e) =>
-                onSelect(selectedProviderId, selectedCredentialId || "", e.target.value)
-              }
-              placeholder="e.g., gpt-4, claude-3-opus"
-              className="w-full border rounded px-3 py-2 text-sm"
-            />
-            <p className="text-xs text-gray-500 mt-1">
-              Leave empty to use provider default
-            </p>
+            {modelOptions.length > 0 ? (
+              <select
+                value={selectedModelId || ""}
+                onChange={(e) =>
+                  onSelect(
+                    selectedProviderId,
+                    selectedCredentialId || "",
+                    e.target.value
+                  )
+                }
+                className="w-full border rounded px-3 py-2 text-sm"
+              >
+                <option value="">Select a model...</option>
+                {modelOptions.map((model) => (
+                  <option key={model.id} value={model.id}>
+                    {model.name} ({model.id})
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input
+                type="text"
+                value={selectedModelId || ""}
+                onChange={(e) =>
+                  onSelect(
+                    selectedProviderId,
+                    selectedCredentialId || "",
+                    e.target.value
+                  )
+                }
+                placeholder="e.g., gpt-4, claude-3-opus"
+                className="w-full border rounded px-3 py-2 text-sm"
+              />
+            )}
+            <div className="mt-1 flex items-center justify-between gap-2">
+              <p className="text-xs text-gray-500">
+                {modelOptions.length > 0
+                  ? "Models fetched from provider."
+                  : "No fetched models yet. You can type one manually or refresh."}
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  if (selectedProviderId) {
+                    void onLoadModels(selectedProviderId);
+                  }
+                }}
+                className="text-xs text-blue-700 hover:text-blue-800"
+              >
+                {isModelLoading ? "Loading..." : "Refresh models"}
+              </button>
+            </div>
           </div>
         </>
       )}

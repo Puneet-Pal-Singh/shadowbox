@@ -9,13 +9,17 @@ interface UseGitCommitResult {
 }
 
 export function useGitCommit(): UseGitCommitResult {
-  const { runId } = useRunContext();
+  const { runId, sessionId } = useRunContext();
   const [committing, setCommitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const performCommit = async (payload: CommitPayload) => {
     if (!runId) {
       setError("No run context available");
+      return;
+    }
+    if (!sessionId) {
+      setError("No session context available");
       return;
     }
 
@@ -26,7 +30,7 @@ export function useGitCommit(): UseGitCommitResult {
       const response = await fetch("/api/git/commit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...payload, runId }),
+        body: JSON.stringify({ ...payload, runId, sessionId }),
       });
 
       if (!response.ok) {

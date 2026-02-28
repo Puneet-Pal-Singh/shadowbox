@@ -99,6 +99,16 @@ describe("ByokStore", () => {
 
     mockApiClient = {
       getCatalog: vi.fn(async () => catalog),
+      getProviderModels: vi.fn(async (providerId: string) => {
+        void providerId;
+        return [
+          {
+            id: "openrouter/auto",
+            name: "Auto",
+            provider: "openrouter",
+          },
+        ];
+      }),
       getCredentials: vi.fn(async () => credentials),
       getPreferences: vi.fn(async () => preferences),
       connectCredential: vi.fn(async (req: ConnectCredentialRequest) => {
@@ -144,6 +154,7 @@ describe("ByokStore", () => {
       expect(state.status).toBe("idle");
       expect(state.catalog).toEqual([]);
       expect(state.credentials).toEqual([]);
+      expect(state.providerModels).toEqual({});
     });
 
     it("uses singleton pattern", () => {
@@ -162,6 +173,13 @@ describe("ByokStore", () => {
       expect(mockApiClient.getPreferences).toHaveBeenCalled();
     });
 
+    it("loads provider models on demand", async () => {
+      const models = await store.loadProviderModels("openrouter");
+      expect(models).toHaveLength(1);
+      expect(mockApiClient.getProviderModels).toHaveBeenCalledWith("openrouter");
+      expect(store.getState().providerModels.openrouter).toHaveLength(1);
+    });
+
     it("sets status to ready on success", async () => {
       await store.bootstrap();
 
@@ -169,6 +187,9 @@ describe("ByokStore", () => {
       expect(state.status).toBe("ready");
       expect(state.catalog).toHaveLength(1);
       expect(state.credentials).toHaveLength(1);
+      expect(state.selectedProviderId).toBe("openai");
+      expect(state.selectedCredentialId).toBe(credential1Id);
+      expect(state.selectedModelId).toBe("gpt-4");
     });
 
     it("sets status to error on failure", async () => {
@@ -272,6 +293,35 @@ describe("ByokStore", () => {
       await Promise.all([store.resolveForChat(), store.resolveForChat()]);
 
       expect(mockApiClient.resolveForChat).toHaveBeenCalledTimes(1);
+    });
+
+    it("reuses cached resolution for stable selection", async () => {
+      await store.bootstrap();
+
+      const first = await store.resolveForChat();
+      const second = await store.resolveForChat();
+
+      expect(first).toEqual(second);
+      expect(mockApiClient.resolveForChat).toHaveBeenCalledTimes(1);
+    });
+
+    it("requests platform fallback when no provider is connected", async () => {
+      vi.mocked(mockApiClient.getCredentials).mockResolvedValueOnce([]);
+      vi.mocked(mockApiClient.resolveForChat).mockResolvedValueOnce({
+        providerId: "openrouter",
+        credentialId: "",
+        modelId: "google/gemma-2-9b-it:free",
+        resolvedAt: "platform_fallback",
+        resolvedAtTime: new Date().toISOString(),
+        fallbackUsed: true,
+      });
+      await store.bootstrap();
+
+      const config = await store.resolveForChat();
+
+      expect(config.providerId).toBe("openrouter");
+      expect(config.fallbackUsed).toBe(true);
+      expect(mockApiClient.resolveForChat).toHaveBeenCalledWith({});
     });
   });
 

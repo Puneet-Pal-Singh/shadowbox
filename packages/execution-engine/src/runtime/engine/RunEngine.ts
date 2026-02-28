@@ -25,6 +25,9 @@ import type {
   RunStatus,
   IAgent,
   RuntimeDurableObjectState,
+  RepositoryContext,
+  WorkspaceBootstrapper,
+  WorkspaceBootstrapResult,
 } from "../types.js";
 import type { Plan, PlannedTask } from "../planner/index.js";
 import {
@@ -38,6 +41,18 @@ import {
   type MemoryCoordinatorDependencies,
   type MemoryContext,
 } from "../memory/index.js";
+import { RoutingDetector } from "../lib/RoutingDetector.js";
+import { PermissionApprovalStore } from "./PermissionApprovalStore.js";
+import {
+  detectCrossRepoTarget,
+  formatCrossRepoApprovalGrantedMessage,
+  formatCrossRepoApprovalMessage,
+  formatDestructiveApprovalGrantedMessage,
+  formatDestructiveApprovalMessage,
+  getSelectedRepoRef,
+  isDestructiveActionPrompt,
+  parsePermissionApprovalDirective,
+} from "./RepositoryPermissionPolicy.js";
 
 export interface IRunEngine {
   execute(
@@ -78,6 +93,7 @@ export interface RunEngineDependencies {
   scheduler?: TaskScheduler;
   memoryCoordinator?: MemoryCoordinator;
   sessionMemoryClient?: MemoryCoordinatorDependencies["sessionMemoryClient"];
+  workspaceBootstrapper?: WorkspaceBootstrapper;
 }
 
 export class RunEngine implements IRunEngine {
@@ -95,6 +111,8 @@ export class RunEngine implements IRunEngine {
   private memoryCoordinator: MemoryCoordinator;
   private currentMemoryContext?: MemoryContext;
   private readonly sessionCostsLoaded: Promise<void>;
+  private workspaceBootstrapper?: WorkspaceBootstrapper;
+  private permissionApprovalStore: PermissionApprovalStore;
 
   constructor(
     ctx: RuntimeDurableObjectState,
@@ -193,6 +211,12 @@ export class RunEngine implements IRunEngine {
         sessionMemoryClient: dependencies.sessionMemoryClient,
       });
     }
+
+    this.workspaceBootstrapper = dependencies.workspaceBootstrapper;
+    this.permissionApprovalStore = new PermissionApprovalStore(
+      ctx,
+      options.runId,
+    );
   }
 
   async execute(
@@ -221,6 +245,61 @@ export class RunEngine implements IRunEngine {
         this.persistConversationMessages(runId, sessionId, messages, "user"),
       );
 
+      const approvalDirectiveMessage = await this.processPermissionDirectives(
+        input.prompt,
+      );
+      if (approvalDirectiveMessage) {
+        console.log(
+          `[run/engine] Permission directive processed for run ${runId}`,
+        );
+        return await this.completeRunWithAssistantMessage(
+          run,
+          approvalDirectiveMessage,
+        );
+      }
+
+      const bypassPlanning = this.shouldBypassPlanning(input.prompt);
+      if (bypassPlanning) {
+        console.log(`[run/engine] Conversational bypass for run ${runId}`);
+        return await this.executeConversationalTurn(run, input, messages);
+      }
+
+      const clarificationMessage = this.getActionClarificationMessage(
+        input.prompt,
+        input.repositoryContext,
+      );
+      if (clarificationMessage) {
+        console.log(
+          `[run/engine] Clarification required before action planning for run ${runId}`,
+        );
+        return await this.completeRunWithAssistantMessage(
+          run,
+          clarificationMessage,
+        );
+      }
+
+      const permissionMessage = await this.getPermissionPolicyMessage(
+        input.prompt,
+        input.repositoryContext,
+      );
+      if (permissionMessage) {
+        console.log(
+          `[run/engine] Permission check blocked action planning for run ${runId}`,
+        );
+        return await this.completeRunWithAssistantMessage(run, permissionMessage);
+      }
+
+      const bootstrapMessage = await this.getWorkspaceBootstrapMessage(
+        run.id,
+        input.repositoryContext,
+      );
+      if (bootstrapMessage) {
+        console.log(
+          `[run/engine] Workspace bootstrap blocked action planning for run ${runId}`,
+        );
+        return await this.completeRunWithAssistantMessage(run, bootstrapMessage);
+      }
+
       console.log(`[run/engine] Planning phase for run ${runId}`);
       try {
         run.transition("PLANNING");
@@ -243,7 +322,7 @@ export class RunEngine implements IRunEngine {
           }),
         );
       } catch (planError) {
-        run.transition("FAILED");
+        this.transitionRunToFailed(run, runId);
         run.metadata.error =
           planError instanceof Error
             ? planError.message
@@ -294,6 +373,7 @@ export class RunEngine implements IRunEngine {
       }
 
       const allTasks = await this.taskRepo.getByRun(runId);
+      const finalRunStatus = this.determineRunStatusFromTasks(allTasks);
       await this.safeMemoryOperation(() =>
         this.memoryCoordinator.createCheckpoint({
           runId,
@@ -307,11 +387,12 @@ export class RunEngine implements IRunEngine {
       );
 
       console.log(`[run/engine] Synthesis phase for run ${runId}`);
-      const finalOutput = await this.generateSynthesis(
+      const finalOutputRaw = await this.generateSynthesis(
         run,
         input.prompt,
         this.currentMemoryContext,
       );
+      const finalOutput = this.sanitizeUserFacingOutput(finalOutputRaw);
 
       await this.safeMemoryOperation(() =>
         this.memoryCoordinator.extractAndPersist({
@@ -328,7 +409,7 @@ export class RunEngine implements IRunEngine {
           runId,
           sequence: 3,
           phase: "synthesis",
-          runStatus: "COMPLETED",
+          runStatus: finalRunStatus,
           taskStatuses: {},
         }),
       );
@@ -342,7 +423,7 @@ export class RunEngine implements IRunEngine {
         ),
       );
 
-      run.transition("COMPLETED");
+      this.applyFinalRunStatus(run, runId, finalRunStatus, allTasks);
       run.output = { content: finalOutput };
       await this.runRepo.update(run);
 
@@ -481,6 +562,7 @@ export class RunEngine implements IRunEngine {
       {
         description: planned.description,
         expectedOutput: planned.expectedOutput,
+        ...(planned.input ?? {}),
       },
     );
   }
@@ -503,13 +585,11 @@ export class RunEngine implements IRunEngine {
   ): Promise<string> {
     if (this.agent) {
       const tasks = await this.taskRepo.getByRun(run.id);
-      const completedTasks = tasks
-        .filter((task) => task.status === "DONE")
-        .map((task) => task.toJSON());
+      const taskSnapshots = tasks.map((task) => task.toJSON());
       return this.agent.synthesize({
         runId: run.id,
         sessionId: run.sessionId,
-        completedTasks,
+        completedTasks: taskSnapshots,
         originalPrompt,
         modelId: run.input.modelId,
         providerId: run.input.providerId,
@@ -518,18 +598,48 @@ export class RunEngine implements IRunEngine {
     return this.synthesizeResult(run, originalPrompt, memoryContext);
   }
 
+  private async executeConversationalTurn(
+    run: Run,
+    input: RunInput,
+    messages: CoreMessage[],
+  ): Promise<Response> {
+    run.transition("RUNNING");
+    await this.runRepo.update(run);
+
+    const result = await this.llmGateway.generateText({
+      context: {
+        runId: run.id,
+        sessionId: run.sessionId,
+        agentType: run.agentType,
+        phase: "synthesis",
+      },
+      messages,
+      system: this.buildConversationalSystemPrompt(),
+      model: input.modelId,
+      providerId: input.providerId,
+      temperature: 0.7,
+    });
+    return this.completeRunWithAssistantMessage(run, result.text);
+  }
+
+  private shouldBypassPlanning(prompt: string): boolean {
+    const decision = RoutingDetector.analyze(prompt);
+    console.log(
+      `[run/engine] Routing decision: bypass=${decision.bypass}, intent=${decision.intent}, reason="${decision.reason}"`,
+    );
+    return decision.bypass;
+  }
+
   private async synthesizeResult(
     run: Run,
     originalPrompt: string,
     memoryContext?: MemoryContext,
   ): Promise<string> {
     const tasks = await this.taskRepo.getByRun(run.id);
-    const completedTasks = tasks.filter((task) => task.status === "DONE");
-
-    const taskResults = completedTasks
+    const taskResults = tasks
       .map(
         (task) =>
-          `- ${task.type}: ${task.input.description}\n  Result: ${task.output?.content || "N/A"}`,
+          `- [${task.status}] ${task.type}: ${task.input.description}\n  Result: ${task.output?.content || task.error?.message || "N/A"}`,
       )
       .join("\n");
 
@@ -537,14 +647,15 @@ export class RunEngine implements IRunEngine {
       ? this.memoryCoordinator.formatContextForPrompt(memoryContext)
       : "";
 
-    const synthesisPrompt = `Based on the following completed tasks, provide a final summary:
+    const synthesisPrompt = `Based on the following task outcomes, provide a final summary:
 
 Original Request: ${originalPrompt}
 
 ${memorySection ? `Memory Context:\n${memorySection}\n\n` : ""}Completed Tasks:
 ${taskResults}
 
-Provide a concise summary of what was accomplished.`;
+Provide a concise summary of what actually happened.
+If any task failed or was cancelled, clearly say so and do not claim full completion.`;
 
     try {
       const result = await this.llmGateway.generateText({
@@ -557,7 +668,8 @@ Provide a concise summary of what was accomplished.`;
         messages: [
           {
             role: "system",
-            content: "You are a helpful assistant summarizing task results.",
+          content:
+            "You are a helpful assistant summarizing task execution results accurately.",
           },
           {
             role: "user",
@@ -576,18 +688,21 @@ Provide a concise summary of what was accomplished.`;
         error instanceof SessionBudgetExceededError
       ) {
         console.error(`[run/engine] Budget exceeded for run ${run.id}`);
-        return `## Summary\n\nBudget limit reached for this run.\n\nCompleted ${completedTasks.length} tasks for your request.\n\n${taskResults}`;
+        const completedTasks = tasks.filter((task) => task.status === "DONE").length;
+        return `## Summary\n\nBudget limit reached for this run.\n\nCompleted ${completedTasks}/${tasks.length} tasks for your request.\n\n${taskResults}`;
       }
       console.error("[run/engine] Synthesis failed:", error);
-      return `## Summary\n\nCompleted ${completedTasks.length} tasks for your request.\n\n${taskResults}`;
+      const completedTasks = tasks.filter((task) => task.status === "DONE").length;
+      return `## Summary\n\nCompleted ${completedTasks}/${tasks.length} tasks for your request.\n\n${taskResults}`;
     }
   }
 
   private createStreamResponse(content: string): Response {
+    const safeContent = this.sanitizeUserFacingOutput(content);
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
       start(controller) {
-        controller.enqueue(encoder.encode(content));
+        controller.enqueue(encoder.encode(safeContent));
         controller.close();
       },
     });
@@ -600,6 +715,236 @@ Provide a concise summary of what was accomplished.`;
     });
   }
 
+  private buildConversationalSystemPrompt(): string {
+    const nowIso = new Date().toISOString();
+    return [
+      "You are Shadowbox assistant in conversational chat mode.",
+      "Answer the user directly in the first sentence, then add brief helpful details.",
+      "Use a natural, friendly tone. Avoid robotic report phrasing.",
+      'Do not start with phrases like "Based on the analysis", "The system", or "Based on completed tasks".',
+      "Treat casual prompts as normal conversation.",
+      "If asked about capabilities, answer in plain language about what you can help with.",
+      "Do not fabricate tool execution, file access, command output, or repository inspection.",
+      "Do not claim you analyzed files unless the user explicitly asked for file/repo operations in this turn.",
+      "Do not mention internal run IDs, internal URLs, filesystem paths, or debug traces.",
+      `Current runtime timestamp (UTC): ${nowIso}. If asked for date/time, use this timestamp as reference.`,
+      "If the user asks about capabilities, describe what you can help with conversationally and ask for explicit permission/request before operational actions.",
+    ].join("\n");
+  }
+
+  private async completeRunWithAssistantMessage(
+    run: Run,
+    text: string,
+  ): Promise<Response> {
+    const sanitizedText = this.sanitizeUserFacingOutput(text);
+
+    await this.safeMemoryOperation(() =>
+      this.memoryCoordinator.extractAndPersist({
+        runId: run.id,
+        sessionId: run.sessionId,
+        source: "synthesis",
+        content: sanitizedText,
+        phase: "synthesis",
+      }),
+    );
+
+    await this.safeMemoryOperation(() =>
+      this.persistConversationMessages(
+        run.id,
+        run.sessionId,
+        [{ role: "assistant", content: sanitizedText }],
+        "assistant",
+      ),
+    );
+
+    await this.safeMemoryOperation(() =>
+      this.memoryCoordinator.createCheckpoint({
+        runId: run.id,
+        sequence: 1,
+        phase: "synthesis",
+        runStatus: "COMPLETED",
+        taskStatuses: {},
+      }),
+    );
+
+    this.transitionRunToCompleted(run, run.id);
+    run.output = { content: sanitizedText };
+    await this.runRepo.update(run);
+    console.log(`[run/engine] Completed conversational run ${run.id}`);
+
+    return this.createStreamResponse(sanitizedText);
+  }
+
+  private getActionClarificationMessage(
+    prompt: string,
+    repositoryContext?: RepositoryContext,
+  ): string | null {
+    const normalized = prompt.toLowerCase().trim();
+    const asksForRepoOrFileAction =
+      /\b(read|check|view|open|analyze|inspect|review|edit|update|fix|search|find)\b/.test(
+        normalized,
+      ) &&
+      /\b(file|files|document|doc|readme|code|repo|repository|branch)\b/.test(
+        normalized,
+      );
+
+    if (asksForRepoOrFileAction && !this.hasRepositorySelection(repositoryContext)) {
+      return "Sure. I can help with that, but I need you to select a repository first. Then share the file path if you want file-level analysis.";
+    }
+    return null;
+  }
+
+  private hasRepositorySelection(repositoryContext?: RepositoryContext): boolean {
+    return Boolean(
+      repositoryContext?.owner?.trim() && repositoryContext.repo?.trim(),
+    );
+  }
+
+  private async processPermissionDirectives(prompt: string): Promise<string | null> {
+    const directive = parsePermissionApprovalDirective(prompt);
+    if (!directive.isApprovalOnlyPrompt) {
+      return null;
+    }
+
+    const approvalMessages: string[] = [];
+
+    if (directive.crossRepo) {
+      await this.permissionApprovalStore.grantCrossRepo(
+        directive.crossRepo.repoRef,
+        directive.crossRepo.ttlMs,
+      );
+      approvalMessages.push(
+        formatCrossRepoApprovalGrantedMessage(
+          directive.crossRepo.repoRef,
+          directive.crossRepo.ttlMs,
+        ),
+      );
+    }
+
+    if (directive.destructive) {
+      await this.permissionApprovalStore.grantDestructive(
+        directive.destructive.ttlMs,
+      );
+      approvalMessages.push(
+        formatDestructiveApprovalGrantedMessage(directive.destructive.ttlMs),
+      );
+    }
+
+    if (approvalMessages.length === 0) {
+      return null;
+    }
+
+    return `${approvalMessages.join(" ")} Re-send your repository action to continue.`;
+  }
+
+  private async getPermissionPolicyMessage(
+    prompt: string,
+    repositoryContext?: RepositoryContext,
+  ): Promise<string | null> {
+    const selectedRepoRef = getSelectedRepoRef(repositoryContext);
+    const crossRepoTarget = detectCrossRepoTarget(prompt, selectedRepoRef);
+
+    if (crossRepoTarget) {
+      const allowed =
+        await this.permissionApprovalStore.hasCrossRepo(crossRepoTarget);
+      if (!allowed) {
+        return formatCrossRepoApprovalMessage(crossRepoTarget, selectedRepoRef);
+      }
+    }
+
+    if (isDestructiveActionPrompt(prompt)) {
+      const allowed = await this.permissionApprovalStore.hasDestructive();
+      if (!allowed) {
+        return formatDestructiveApprovalMessage();
+      }
+    }
+
+    return null;
+  }
+
+  private async getWorkspaceBootstrapMessage(
+    runId: string,
+    repositoryContext?: RepositoryContext,
+  ): Promise<string | null> {
+    if (!repositoryContext || !this.workspaceBootstrapper) {
+      return null;
+    }
+
+    if (!this.hasRepositorySelection(repositoryContext)) {
+      return "I need a valid repository selection before I can run repository actions. Please reselect the repository and try again.";
+    }
+
+    try {
+      const bootstrapResult = await this.workspaceBootstrapper.bootstrap({
+        runId,
+        repositoryContext,
+      });
+      return this.mapBootstrapResultToMessage(bootstrapResult, repositoryContext);
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : "workspace bootstrap failed";
+      const repoRef = this.describeRepositoryRef(repositoryContext);
+      return `I couldn't prepare the workspace for ${repoRef}. ${errorMessage}`;
+    }
+  }
+
+  private mapBootstrapResultToMessage(
+    bootstrapResult: WorkspaceBootstrapResult,
+    repositoryContext: RepositoryContext,
+  ): string | null {
+    if (bootstrapResult.status === "ready") {
+      return null;
+    }
+
+    if (bootstrapResult.status === "needs-auth") {
+      return (
+        bootstrapResult.message ??
+        "I need GitHub authorization before I can access this repository. Please reconnect GitHub and try again."
+      );
+    }
+
+    if (bootstrapResult.status === "invalid-context") {
+      return (
+        bootstrapResult.message ??
+        "I need valid repository details (owner, repository, branch) before I can continue."
+      );
+    }
+
+    const repoRef = this.describeRepositoryRef(repositoryContext);
+    const reason =
+      bootstrapResult.message ??
+      "Repository sync failed. Please confirm the branch exists and retry.";
+    return `I couldn't prepare the workspace for ${repoRef}. ${reason}`;
+  }
+
+  private describeRepositoryRef(repositoryContext: RepositoryContext): string {
+    const owner = repositoryContext.owner?.trim() || "unknown-owner";
+    const repo = repositoryContext.repo?.trim() || "unknown-repo";
+    const branch = repositoryContext.branch?.trim();
+    return branch ? `${owner}/${repo}@${branch}` : `${owner}/${repo}`;
+  }
+
+  private sanitizeUserFacingOutput(text: string): string {
+    return text
+      .replace(
+        /\/home\/sandbox\/runs\/(?:\[run\]|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/[^\s"']+/gi,
+        "the workspace file",
+      )
+      .replace(
+        /\/home\/sandbox\/runs\/(?:\[run\]|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/gi,
+        "the workspace directory",
+      )
+      .replace(
+        /(?:error:\s*)?cat:\s*(?:the workspace file|\[workspace-file\])\s*:?\s*no such file or directory/gi,
+        "The requested file was not found in the current workspace.",
+      )
+      .replace(
+        /(?:error:\s*)?cat:\s*(?:the workspace file|\[workspace-file\])\s*:?\s*is a directory/gi,
+        "The requested path is a directory. Please provide a file path.",
+      )
+      .replace(/http:\/\/internal(?:\/[^\s"']*)?/gi, "[internal-url]");
+  }
+
   private async handleExecutionError(
     runId: string,
     error: unknown,
@@ -610,15 +955,7 @@ Provide a concise summary of what was accomplished.`;
     try {
       const run = await this.runRepo.getById(runId);
       if (run) {
-        if (run.status !== "FAILED" && run.status !== "CANCELLED") {
-          if (run.status === "COMPLETED") {
-            console.warn(
-              `[run/engine] Preserving COMPLETED state for run ${runId} after post-completion error`,
-            );
-          } else {
-            run.transition("FAILED");
-          }
-        }
+        this.transitionRunToFailed(run, runId);
         run.metadata.error = errorMessage;
         await this.runRepo.update(run);
       }
@@ -630,6 +967,98 @@ Provide a concise summary of what was accomplished.`;
     }
 
     console.error(`[run/engine] Run ${runId} failed:`, errorMessage);
+  }
+
+  private transitionRunToCompleted(run: Run, runId: string): void {
+    if (run.status === "COMPLETED") {
+      return;
+    }
+
+    if (run.status === "FAILED" || run.status === "CANCELLED") {
+      console.warn(
+        `[run/engine] Skipping COMPLETED transition for run ${runId}; current status is ${run.status}`,
+      );
+      return;
+    }
+
+    this.ensureRunReadyForTerminalTransition(run);
+    if (run.status === "RUNNING") {
+      run.transition("COMPLETED");
+    }
+  }
+
+  private transitionRunToFailed(run: Run, runId: string): void {
+    if (run.status === "FAILED" || run.status === "CANCELLED") {
+      return;
+    }
+
+    if (run.status === "COMPLETED") {
+      console.warn(
+        `[run/engine] Preserving COMPLETED state for run ${runId} after post-completion error`,
+      );
+      return;
+    }
+
+    this.ensureRunReadyForTerminalTransition(run);
+    if (run.status === "RUNNING") {
+      run.transition("FAILED");
+      return;
+    }
+
+    console.warn(
+      `[run/engine] Unable to move run ${runId} to FAILED from status ${run.status}`,
+    );
+  }
+
+  private determineRunStatusFromTasks(tasks: Task[]): RunStatus {
+    if (tasks.some((task) => task.status === "CANCELLED")) {
+      return "CANCELLED";
+    }
+    if (tasks.some((task) => task.status === "FAILED")) {
+      return "FAILED";
+    }
+    return "COMPLETED";
+  }
+
+  private applyFinalRunStatus(
+    run: Run,
+    runId: string,
+    finalRunStatus: RunStatus,
+    tasks: Task[],
+  ): void {
+    if (finalRunStatus === "COMPLETED") {
+      this.transitionRunToCompleted(run, runId);
+      return;
+    }
+
+    if (finalRunStatus === "FAILED") {
+      this.transitionRunToFailed(run, runId);
+      const failedTasks = tasks.filter((task) => task.status === "FAILED");
+      const summary = failedTasks
+        .map((task) => `${task.id}: ${task.error?.message ?? "Task failed"}`)
+        .join("; ");
+      run.metadata.error = summary || "One or more tasks failed";
+      return;
+    }
+
+    if (run.status === "FAILED" || run.status === "COMPLETED") {
+      return;
+    }
+
+    this.ensureRunReadyForTerminalTransition(run);
+    if (run.status === "RUNNING") {
+      run.transition("CANCELLED");
+    }
+  }
+
+  private ensureRunReadyForTerminalTransition(run: Run): void {
+    if (
+      run.status === "CREATED" ||
+      run.status === "PLANNING" ||
+      run.status === "PAUSED"
+    ) {
+      run.transition("RUNNING");
+    }
   }
 
   private async safeMemoryOperation<T>(

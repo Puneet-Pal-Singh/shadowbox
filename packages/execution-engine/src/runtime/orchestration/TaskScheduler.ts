@@ -168,7 +168,17 @@ export class TaskScheduler implements ITaskScheduler {
       // Execute the task
       const result = await this.executor.execute(task);
 
-      // Mark as DONE
+      if (result.status !== "DONE") {
+        // Non-DONE status means task failed or errored, not success
+        const fallbackMessage = `Task ${task.id} returned non-success status: ${result.status}`;
+        const errorMessage = result.error?.message ?? fallbackMessage;
+        console.warn(
+          `[task/scheduler] Task ${task.id} executor returned non-DONE status: ${result.status}`,
+        );
+        throw new SchedulerTaskResultError(task.id, result.status, errorMessage);
+      }
+
+      // Mark as DONE only when result.status is explicitly DONE
       task.transition("DONE", { output: result.output });
       await this.taskRepo.update(task);
 
@@ -209,7 +219,7 @@ export class TaskScheduler implements ITaskScheduler {
       },
     });
 
-    if (task.canRetry()) {
+    if (task.canRetry() && isRetryableTaskError(errorMessage)) {
       task.incrementRetry();
       task.transition("RETRYING");
       await this.taskRepo.update(task);
@@ -343,9 +353,33 @@ export class TaskScheduler implements ITaskScheduler {
   }
 }
 
+function isRetryableTaskError(message: string): boolean {
+  const nonRetryablePatterns = [
+    /command not allowed/i,
+    /unsafe shell token/i,
+    /path traversal detected/i,
+    /absolute paths are not allowed/i,
+    /missing '.*' field/i,
+    /invalid git action/i,
+    /is a directory/i,
+    /no such file or directory/i,
+  ];
+
+  return !nonRetryablePatterns.some((pattern) => pattern.test(message));
+}
+
 export class SchedulerError extends Error {
   constructor(message: string) {
     super(`[task/scheduler] ${message}`);
     this.name = "SchedulerError";
+  }
+}
+
+export class SchedulerTaskResultError extends Error {
+  constructor(taskId: string, status: string, message: string) {
+    super(
+      `[task/scheduler] Task ${taskId} returned ${status}: ${message}`,
+    );
+    this.name = "SchedulerTaskResultError";
   }
 }

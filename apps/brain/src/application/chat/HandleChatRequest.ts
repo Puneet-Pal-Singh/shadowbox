@@ -17,7 +17,10 @@ import type { CoreMessage } from "ai";
 import type { Env } from "../../types/ai";
 import { ValidationError } from "../../domain/errors";
 import { PersistenceService } from "../../services/PersistenceService";
-import type { AgentType } from "@shadowbox/execution-engine/runtime";
+import type {
+  AgentType,
+  RepositoryContext,
+} from "@shadowbox/execution-engine/runtime";
 
 export interface HandleChatRequestInput {
   sessionId: string;
@@ -30,6 +33,11 @@ export interface HandleChatRequestInput {
   messages: CoreMessage[];
   providerId?: string;
   modelId?: string;
+  // Phase 4: Repository context for workspace-aware operations
+  repositoryOwner?: string;
+  repositoryName?: string;
+  repositoryBranch?: string;
+  repositoryBaseUrl?: string;
 }
 
 export interface HandleChatRequestOutput {
@@ -50,6 +58,7 @@ export interface HandleChatRequestOutput {
       sessionId: string;
       providerId?: string;
       modelId?: string;
+      repositoryContext?: RepositoryContext;
     };
     messages: CoreMessage[];
   };
@@ -86,6 +95,10 @@ export class HandleChatRequest {
       agentType,
       prompt,
       messages,
+      repositoryOwner,
+      repositoryName,
+      repositoryBranch,
+      repositoryBaseUrl,
     } = input;
 
     try {
@@ -123,7 +136,7 @@ export class HandleChatRequest {
         // Don't fail the request if persistence fails
       }
 
-      // Build execution payload
+      // Build execution payload with repository context
       const executionPayload = {
         runId,
         userId,
@@ -137,6 +150,16 @@ export class HandleChatRequest {
           sessionId,
           providerId: input.providerId,
           modelId: input.modelId,
+          // Phase 4: Include repository context for workspace-aware operations
+          repositoryContext:
+            repositoryOwner || repositoryName
+              ? {
+                  owner: repositoryOwner,
+                  repo: repositoryName,
+                  branch: repositoryBranch,
+                  baseUrl: repositoryBaseUrl,
+                }
+              : undefined,
         },
         messages,
       };

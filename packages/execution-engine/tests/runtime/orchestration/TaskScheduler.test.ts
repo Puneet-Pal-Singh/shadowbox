@@ -160,4 +160,43 @@ describe("TaskScheduler retry handling", () => {
     expect(persistedTask?.status).toBe("FAILED");
     expect(persistedTask?.error?.message).toContain("executor failure");
   });
+
+  it("marks task FAILED when dependencies are missing without throwing invalid transition", async () => {
+    const task = new Task(
+      "task-missing-dep",
+      "run-missing-dep",
+      "shell",
+      "PENDING",
+      ["dep-1"],
+      { description: "task with missing dependency" },
+      undefined,
+      undefined,
+      0,
+      0,
+    );
+
+    const repository = new InMemoryTaskRepository([task]);
+    const executor: TaskExecutor = {
+      execute: async () => ({
+        taskId: task.id,
+        status: "DONE",
+        output: { content: "should not execute" },
+        completedAt: new Date(),
+      }),
+    };
+
+    const scheduler = new TaskScheduler(
+      repository as unknown as TaskRepository,
+      executor,
+    );
+
+    await scheduler.execute("run-missing-dep");
+
+    const persistedTask = await repository.getById(
+      "task-missing-dep",
+      "run-missing-dep",
+    );
+    expect(persistedTask?.status).toBe("FAILED");
+    expect(persistedTask?.error?.message).toContain("Missing dependencies");
+  });
 });

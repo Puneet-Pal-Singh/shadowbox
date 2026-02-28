@@ -4,6 +4,8 @@ import { z } from "zod";
 import { DurableObject } from "cloudflare:workers";
 import { RunEngine } from "@shadowbox/execution-engine/runtime/engine";
 import { tagRuntimeStateSemantics } from "@shadowbox/execution-engine/runtime";
+import { RunRepository } from "@shadowbox/execution-engine/runtime/run";
+import { TaskRepository } from "@shadowbox/execution-engine/runtime/task";
 import type { Env } from "../types/ai";
 import { parseExecuteRunRequest } from "./parsing/RunEngineRequestParser";
 import { validateProviderModelOverride } from "./policies/ProviderModelOverridePolicy";
@@ -41,6 +43,9 @@ import {
 } from "../types/provider-scope";
 
 const RunIdSchema = z.string().uuid();
+const CancelRunRequestSchema = z.object({
+  runId: RunIdSchema,
+});
 const ScopeIdSchema = z
   .string()
   .min(1)
@@ -62,11 +67,132 @@ export class RunEngineRuntime extends DurableObject {
       return this.handleExecuteRequest(request);
     }
 
+    if (url.pathname === "/summary" && request.method === "GET") {
+      return this.handleSummaryRequest(request);
+    }
+
+    if (url.pathname === "/cancel" && request.method === "POST") {
+      return this.handleCancelRequest(request);
+    }
+
     if (url.pathname.startsWith("/providers/")) {
       return this.handleProviderRequest(request, url);
     }
 
     return errorResponse(request, env, "Not Found", 404);
+  }
+
+  private async handleSummaryRequest(request: Request): Promise<Response> {
+    const env = this.env as Env;
+    const url = new URL(request.url);
+    const runIdRaw = url.searchParams.get("runId");
+
+    if (!runIdRaw) {
+      return errorResponse(request, env, "runId is required", 400);
+    }
+
+    let runId: string;
+    try {
+      runId = validateWithSchema<string>(
+        runIdRaw.trim(),
+        RunIdSchema,
+        "run-summary",
+      );
+    } catch {
+      return errorResponse(request, env, "Invalid runId", 400);
+    }
+
+    const runtimeState = tagRuntimeStateSemantics(
+      this.ctx as unknown as LegacyDurableObjectState,
+      "do",
+    );
+    const runRepo = new RunRepository(runtimeState);
+    const taskRepo = new TaskRepository(runtimeState);
+
+    const run = await runRepo.getById(runId);
+    const tasks = await taskRepo.getByRun(runId);
+
+    const completedTasks = tasks.filter((task) => task.status === "DONE").length;
+    const failedTasks = tasks.filter((task) => task.status === "FAILED").length;
+    const summary = {
+      runId,
+      status: run?.status ?? null,
+      totalTasks: tasks.length,
+      completedTasks,
+      failedTasks,
+      runningTasks: tasks.filter((task) => task.status === "RUNNING").length,
+      pendingTasks: tasks.filter((task) => task.status === "PENDING").length,
+      cancelledTasks: tasks.filter((task) => task.status === "CANCELLED").length,
+    };
+
+    return jsonResponse(request, env, summary);
+  }
+
+  private async handleCancelRequest(request: Request): Promise<Response> {
+    const env = this.env as Env;
+
+    let runId: string;
+    try {
+      const payload = await parseRequestBody(request, "run-cancel");
+      const validated = validateWithSchema<{ runId: string }>(
+        payload,
+        CancelRunRequestSchema,
+        "run-cancel",
+      );
+      runId = validated.runId;
+    } catch {
+      return errorResponse(request, env, "Invalid cancel payload", 400);
+    }
+
+    return this.withExecutionLock(async () => {
+      const runtimeState = tagRuntimeStateSemantics(
+        this.ctx as unknown as LegacyDurableObjectState,
+        "do",
+      );
+      const runRepo = new RunRepository(runtimeState);
+      const taskRepo = new TaskRepository(runtimeState);
+
+      const run = await runRepo.getById(runId);
+      if (!run) {
+        return jsonResponse(request, env, {
+          runId,
+          cancelled: false,
+          status: null,
+        });
+      }
+
+      const isTerminal =
+        run.status === "COMPLETED" ||
+        run.status === "FAILED" ||
+        run.status === "CANCELLED";
+      if (isTerminal) {
+        return jsonResponse(request, env, {
+          runId,
+          cancelled: false,
+          status: run.status,
+        });
+      }
+
+      run.transition("CANCELLED");
+      await runRepo.update(run);
+
+      const tasks = await taskRepo.getByRun(runId);
+      let cancelledTasks = 0;
+      for (const task of tasks) {
+        if (["PENDING", "READY", "RUNNING"].includes(task.status)) {
+          task.transition("CANCELLED");
+          await taskRepo.update(task);
+          cancelledTasks += 1;
+        }
+      }
+
+      return jsonResponse(request, env, {
+        runId,
+        cancelled: true,
+        status: "CANCELLED",
+        cancelledTasks,
+      });
+    });
   }
 
   private async handleExecuteRequest(request: Request): Promise<Response> {
@@ -129,6 +255,10 @@ export class RunEngineRuntime extends DurableObject {
         );
       });
     } catch (error: unknown) {
+      if (isDomainError(error)) {
+        const { status, code, message } = mapDomainErrorToHttp(error);
+        return errorResponse(request, this.env as Env, message, status, code);
+      }
       const message =
         error instanceof Error
           ? error.message

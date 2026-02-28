@@ -25,12 +25,8 @@ import {
   resolveGroqKey,
   resolveLiteLLMKey,
 } from "./ProviderKeyValidator";
-import {
-  isStrictMode,
-  logCompatFallback,
-  CompatFallbackReasonCodes,
-} from "../../config/runtime-compat";
-import { ValidationError, ProviderError } from "../../domain/errors";
+import { ValidationError } from "../../domain/errors";
+import { DEFAULT_OPENROUTER_FALLBACK_MODEL } from "./defaults";
 
 /**
  * Build the default provider adapter based on env configuration.
@@ -59,21 +55,10 @@ export function createDefaultAdapter(env: Env): ProviderAdapter {
       return createAnthropicAdapter(env);
 
     default:
-      if (isStrictMode()) {
-        throw new ValidationError(
-          `Unknown LLM provider: "${provider}". Supported providers: litellm, openai, anthropic`,
-          "UNKNOWN_PROVIDER",
-        );
-      }
-      // Compat mode: log and fallback
-      logCompatFallback({
-        reasonCode: CompatFallbackReasonCodes.PROVIDER_ADAPTER_DEFAULTED,
-        requestedProvider: provider,
-        resolvedProvider: "litellm",
-        requestedModel: env.DEFAULT_MODEL,
-        resolvedModel: env.DEFAULT_MODEL ?? "unknown",
-      });
-      return createLiteLLMAdapter(env);
+      throw new ValidationError(
+        `Unknown LLM provider: "${provider}". Supported providers: litellm, openai, anthropic`,
+        "UNKNOWN_PROVIDER",
+      );
   }
 }
 
@@ -88,14 +73,7 @@ export function createLiteLLMAdapter(
   overrideApiKey?: string,
 ): LiteLLMAdapter {
   const { apiKey, baseURL } = resolveLiteLLMKey(env, overrideApiKey);
-
-  const defaultModel = env.DEFAULT_MODEL;
-  if (!defaultModel) {
-    throw new ProviderError(
-      "DEFAULT_MODEL is required for LiteLLM provider",
-      "MISSING_DEFAULT_MODEL",
-    );
-  }
+  const defaultModel = env.DEFAULT_MODEL ?? DEFAULT_OPENROUTER_FALLBACK_MODEL;
 
   return new LiteLLMAdapter({
     apiKey,

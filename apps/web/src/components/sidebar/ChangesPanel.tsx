@@ -20,7 +20,7 @@ export function ChangesPanel({
   mode = "sidebar",
   onFileSelect 
 }: ChangesPanelProps) {
-  const { runId } = useRunContext();
+  const { runId, sessionId } = useRunContext();
   const { status, loading: statusLoading, error: statusError, refetch } = useGitStatus();
   const { diff, loading: diffLoading, fetch: fetchDiff } = useGitDiff();
   const { committing, error: commitError, commit } = useGitCommit();
@@ -39,26 +39,26 @@ export function ChangesPanel({
     }
   }, [status]);
 
-  useEffect(() => {
-    if (selectedFile) {
-      fetchDiff(selectedFile.path, stagedFiles.has(selectedFile.path));
-    }
-  }, [selectedFile, fetchDiff, stagedFiles]);
-
   const handleSelectFile = (file: FileStatus) => {
     setSelectedFile(file);
+    void fetchDiff(file.path, stagedFiles.has(file.path));
     onFileSelect?.(file.path);
   };
 
   const handleToggleStaged = async (path: string, staged: boolean) => {
-    if (!runId) return;
+    if (!runId || !sessionId) return;
 
     try {
       const endpoint = gitStagePath();
       const response = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ runId, files: [path], unstage: !staged }),
+        body: JSON.stringify({
+          runId,
+          sessionId,
+          files: [path],
+          unstage: !staged,
+        }),
       });
 
       if (response.ok) {
@@ -87,7 +87,7 @@ export function ChangesPanel({
     await refetch();
   };
 
-  if (statusLoading) {
+  if (statusLoading && !status) {
     return (
       <div
         className={`flex items-center justify-center h-full bg-black ${className}`}

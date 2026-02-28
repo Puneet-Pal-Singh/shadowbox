@@ -29,7 +29,7 @@ const mockGitStatusState = vi.hoisted(() => ({
 }));
 
 vi.mock("../../hooks/useRunContext", () => ({
-  useRunContext: () => ({ runId: "run-123" }),
+  useRunContext: () => ({ runId: "run-123", sessionId: "session-123" }),
 }));
 
 vi.mock("../../hooks/useGitStatus", () => ({
@@ -120,6 +120,7 @@ describe("ChangesPanel stage/unstage contract", () => {
     ];
     const body = JSON.parse(init.body) as {
       runId: string;
+      sessionId: string;
       files: string[];
       unstage: boolean;
     };
@@ -128,6 +129,7 @@ describe("ChangesPanel stage/unstage contract", () => {
     expect(init.method).toBe("POST");
     expect(body).toEqual({
       runId: "run-123",
+      sessionId: "session-123",
       files: ["src/main.ts"],
       unstage: false,
     });
@@ -149,11 +151,13 @@ describe("ChangesPanel stage/unstage contract", () => {
     ];
     const body = JSON.parse(init.body) as {
       runId: string;
+      sessionId: string;
       files: string[];
       unstage: boolean;
     };
 
     expect(init.method).toBe("POST");
+    expect(body.sessionId).toBe("session-123");
     expect(body.unstage).toBe(true);
     expect(body.files).toEqual(["src/main.ts"]);
     expect(mockRefetch).toHaveBeenCalledTimes(1);

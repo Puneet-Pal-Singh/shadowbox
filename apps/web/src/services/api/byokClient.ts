@@ -15,8 +15,11 @@ import {
   BYOKResolveRequest,
   BYOKCredential,
   BYOKPreference,
+  type ModelDescriptor,
   ProviderRegistryEntry,
 } from "@repo/shared-types";
+import { getBrainHttpBase } from "../../lib/platform-endpoints.js";
+import { SessionStateService } from "../SessionStateService";
 
 /**
  * Connect credential request
@@ -49,6 +52,16 @@ export interface ValidationResult {
   error?: string;
 }
 
+export interface ProviderModelOption {
+  id: string;
+  name: string;
+  provider?: string;
+}
+
+export interface RunIdResolver {
+  getRunId(): string | null;
+}
+
 /**
  * Resolve for chat request
  */
@@ -77,14 +90,36 @@ export class ByokApiError extends Error {
  * ByokApiClient - Typed HTTP client for BYOK v3 APIs
  */
 export class ByokApiClient {
-  private baseUrl: string = "/api/byok";
+  private baseUrl: string = `${getBrainHttpBase()}/api/byok`;
   private abortControllers: Map<string, AbortController> = new Map();
+  private static readonly sessionRunIdKey = "currentRunId";
+  private static readonly responsePreviewLimit = 120;
+
+  constructor(
+    private readonly runIdResolver: RunIdResolver = new DefaultRunIdResolver(
+      ByokApiClient.sessionRunIdKey
+    )
+  ) {}
 
   /**
    * GET /api/byok/providers (catalog)
    */
   async getCatalog(): Promise<ProviderRegistryEntry[]> {
     return this.get<ProviderRegistryEntry[]>("/providers");
+  }
+
+  /**
+   * GET /api/byok/providers/:providerId/models
+   */
+  async getProviderModels(providerId: string): Promise<ProviderModelOption[]> {
+    const models = await this.get<ModelDescriptor[]>(
+      `/providers/${encodeURIComponent(providerId)}/models`
+    );
+    return models.map((model) => ({
+      id: model.id,
+      name: model.name,
+      provider: model.provider,
+    }));
   }
 
   /**
@@ -226,9 +261,8 @@ export class ByokApiClient {
 
     const fetchOptions: RequestInit = {
       method,
-      headers: {
-        "Content-Type": "application/json",
-      },
+      credentials: "include",
+      headers: this.createHeaders(),
       signal,
     };
 
@@ -243,12 +277,7 @@ export class ByokApiClient {
         await this.handleErrorResponse(response);
       }
 
-      if (method === "DELETE" && response.status === 204) {
-        return undefined as T;
-      }
-
-      const data = await response.json();
-      return data as T;
+      return await this.parseSuccessResponse<T>(response, method, path);
     } catch (error) {
       if (error instanceof ByokApiError) {
         throw error;
@@ -267,26 +296,120 @@ export class ByokApiClient {
     }
   }
 
+  private async parseSuccessResponse<T>(
+    response: Response,
+    method: string,
+    path: string
+  ): Promise<T> {
+    if (response.status === 204 || method === "DELETE") {
+      return undefined as T;
+    }
+
+    const contentType = response.headers.get("content-type") ?? "";
+    if (!contentType.includes("application/json")) {
+      const preview = await this.readResponsePreview(response);
+      throw new ByokApiError(
+        502,
+        "INVALID_RESPONSE_FORMAT",
+        `Expected JSON response for ${method} ${path}${preview ? `; received: ${preview}` : ""}`
+      );
+    }
+
+    try {
+      const data = await response.json();
+      return data as T;
+    } catch {
+      throw new ByokApiError(
+        502,
+        "INVALID_RESPONSE_FORMAT",
+        `Invalid JSON response for ${method} ${path}`
+      );
+    }
+  }
+
+  private createHeaders(): HeadersInit {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+
+    const runId = this.resolveRunId();
+    if (!runId) {
+      throw new ByokApiError(
+        400,
+        "MISSING_RUN_ID",
+        "Run ID is required for BYOK requests"
+      );
+    }
+    headers["X-Run-Id"] = runId;
+
+    return headers;
+  }
+
+  private resolveRunId(): string | null {
+    return this.runIdResolver.getRunId();
+  }
+
   /**
    * Handle error responses with BYOK error envelope
    */
   private async handleErrorResponse(response: Response): Promise<never> {
     let errorData: Record<string, unknown> = {};
+    let message = `HTTP ${response.status}`;
+    let code = "API_ERROR";
+    let correlationId: string | undefined;
 
     try {
       const contentType = response.headers.get("content-type");
       if (contentType?.includes("application/json")) {
         errorData = await response.json();
+        const error = (errorData.error || {}) as Record<string, unknown>;
+        message = (error.message as string) || message;
+        code = (error.code as string) || code;
+        correlationId = error.correlationId as string | undefined;
+      } else {
+        const preview = await this.readResponsePreview(response);
+        if (preview) {
+          message = `Unexpected non-JSON error response: ${preview}`;
+          code = "INVALID_ERROR_RESPONSE";
+        }
       }
     } catch {
       // Ignore JSON parse errors, use default error
     }
 
-    const error = (errorData.error || {}) as Record<string, unknown>;
-    const message = (error.message as string) || `HTTP ${response.status}`;
-    const code = (error.code as string) || "API_ERROR";
-    const correlationId = error.correlationId as string | undefined;
-
     throw new ByokApiError(response.status, code, message, correlationId);
+  }
+
+  private async readResponsePreview(response: Response): Promise<string> {
+    try {
+      const text = (await response.text()).trim();
+      if (!text) {
+        return "";
+      }
+      return text.slice(0, ByokApiClient.responsePreviewLimit);
+    } catch (error) {
+      console.warn(
+        "[byok/readResponsePreview] Failed to read response text",
+        error
+      );
+      return "";
+    }
+  }
+}
+
+class DefaultRunIdResolver implements RunIdResolver {
+  constructor(private readonly runIdStorageKey: string) {}
+
+  getRunId(): string | null {
+    try {
+      const runId = sessionStorage.getItem(this.runIdStorageKey);
+      if (runId) {
+        return runId;
+      }
+    } catch (error) {
+      console.warn("[byok/resolveRunId] Failed to read sessionStorage", error);
+    }
+
+    return SessionStateService.loadActiveSessionRunId();
   }
 }

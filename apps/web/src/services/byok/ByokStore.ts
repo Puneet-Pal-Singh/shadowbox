@@ -16,7 +16,10 @@ import {
   BYOKPreference,
   ProviderRegistryEntry,
 } from "@repo/shared-types";
-import { ByokApiClient } from "../api/byokClient.js";
+import {
+  ByokApiClient,
+  type ProviderModelOption,
+} from "../api/byokClient.js";
 
 /**
  * Store state shape
@@ -26,6 +29,7 @@ export interface ByokStoreState {
   catalog: ProviderRegistryEntry[];
   credentials: BYOKCredential[];
   preferences: BYOKPreference | null;
+  providerModels: Record<string, ProviderModelOption[]>;
 
   // Current selection
   selectedProviderId: string | null;
@@ -39,6 +43,13 @@ export interface ByokStoreState {
   status: "idle" | "loading" | "ready" | "error";
   error: string | null;
   isValidating: boolean;
+  loadingModelsForProviderId: string | null;
+}
+
+interface ByokSelectionSnapshot {
+  selectedProviderId: string | null;
+  selectedCredentialId: string | null;
+  selectedModelId: string | null;
 }
 
 /**
@@ -63,6 +74,7 @@ export interface ValidateCredentialRequest {
  */
 export interface ByokApiClientContract {
   getCatalog(): Promise<ProviderRegistryEntry[]>;
+  getProviderModels(providerId: string): Promise<ProviderModelOption[]>;
   getCredentials(): Promise<BYOKCredential[]>;
   getPreferences(): Promise<BYOKPreference>;
   connectCredential(req: ConnectCredentialRequest): Promise<BYOKCredential>;
@@ -93,9 +105,14 @@ export interface ByokStoreOptions {
 export class ByokStore {
   private static instance: ByokStore;
   private state: ByokStoreState;
+  private activeRunId: string | null = null;
   private apiClient: ByokApiClientContract;
   private listeners: Set<(state: ByokStoreState) => void> = new Set();
   private inflight: Map<string, Promise<unknown>> = new Map();
+  private bootstrapPromise: Promise<void> | null = null;
+  private lastResolveSelectionKey: string | null = null;
+  private lastResolveError: Error | null = null;
+  private epoch = 0;
   private enableLogging: boolean;
 
   private constructor(apiClient: ByokApiClientContract, enableLogging = false) {
@@ -105,6 +122,7 @@ export class ByokStore {
       catalog: [],
       credentials: [],
       preferences: null,
+      providerModels: {},
       selectedProviderId: null,
       selectedCredentialId: null,
       selectedModelId: null,
@@ -112,6 +130,7 @@ export class ByokStore {
       status: "idle",
       error: null,
       isValidating: false,
+      loadingModelsForProviderId: null,
     };
   }
 
@@ -127,6 +146,28 @@ export class ByokStore {
       );
     }
     return ByokStore.instance;
+  }
+
+  /**
+   * Bind store state to active run scope.
+   * Resets store when run changes to prevent cross-run leakage.
+   */
+  setActiveRunId(runId: string): void {
+    if (!runId || this.activeRunId === runId) {
+      return;
+    }
+
+    const previousRunId = this.activeRunId;
+    const didSwitchRun = previousRunId !== null && previousRunId !== runId;
+    this.activeRunId = runId;
+
+    if (didSwitchRun) {
+      this.log("[run] switched active run, resetting store", {
+        previousRunId,
+        nextRunId: runId,
+      });
+      this.reset();
+    }
   }
 
   /**
@@ -150,32 +191,77 @@ export class ByokStore {
   async bootstrap(): Promise<void> {
     this.log("[bootstrap] Starting");
 
-    if (this.state.status === "loading") {
-      this.log("[bootstrap] Already loading, skipping");
+    if (this.bootstrapPromise) {
+      this.log("[bootstrap] Request already in flight");
+      await this.bootstrapPromise;
       return;
     }
 
-    this.setState({ status: "loading", error: null });
+    const epoch = this.epoch;
+    const promise = this.executeBootstrap(epoch);
+    this.bootstrapPromise = promise;
+    try {
+      await promise;
+    } finally {
+      if (this.bootstrapPromise === promise) {
+        this.bootstrapPromise = null;
+      }
+    }
+  }
 
+  private async executeBootstrap(epoch: number): Promise<void> {
+    this.setState({ status: "loading", error: null });
     try {
       const [catalog, credentials, preferences] = await Promise.all([
         this.apiClient.getCatalog(),
         this.apiClient.getCredentials(),
         this.apiClient.getPreferences(),
       ]);
+      if (this.isStaleEpoch("bootstrap", epoch)) {
+        return;
+      }
+      const selection = this.deriveSelectionSnapshot({
+        catalog,
+        credentials,
+        preferences,
+        providerModels: this.state.providerModels,
+        selectedProviderId: this.state.selectedProviderId,
+        selectedCredentialId: this.state.selectedCredentialId,
+        selectedModelId: this.state.selectedModelId,
+      });
 
       this.setState({
         catalog,
         credentials,
         preferences,
+        selectedProviderId: selection.selectedProviderId,
+        selectedCredentialId: selection.selectedCredentialId,
+        selectedModelId: selection.selectedModelId,
         status: "ready",
       });
+
+      if (
+        selection.selectedProviderId &&
+        !this.state.providerModels[selection.selectedProviderId]
+      ) {
+        void this.loadProviderModels(selection.selectedProviderId).catch(
+          (error) => {
+            this.log("[bootstrap] model preload failed", {
+              providerId: selection.selectedProviderId,
+              error,
+            });
+          }
+        );
+      }
 
       this.log("[bootstrap] Success", {
         providers: catalog.length,
         credentials: credentials.length,
       });
     } catch (error) {
+      if (this.isStaleEpoch("bootstrap", epoch)) {
+        return;
+      }
       const message =
         error instanceof Error ? error.message : "Failed to bootstrap BYOK";
       this.setState({
@@ -214,13 +300,66 @@ export class ByokStore {
    */
   private async executeConnect(req: ConnectCredentialRequest): Promise<void> {
     this.log("[connectCredential] Starting", { providerId: req.providerId });
+    const epoch = this.epoch;
 
     try {
       const credential = await this.apiClient.connectCredential(req);
+      const preferences = await this.apiClient.getPreferences();
+      if (this.isStaleEpoch("connectCredential", epoch)) {
+        return;
+      }
 
-      // Add to credentials list
+      let providerModels = this.state.providerModels;
+      try {
+        const models = await this.loadProviderModels(req.providerId);
+        if (this.isStaleEpoch("connectCredential", epoch)) {
+          return;
+        }
+        providerModels = {
+          ...providerModels,
+          [req.providerId]: models,
+        };
+      } catch (error) {
+        this.log("[connectCredential] model preload failed", { error });
+      }
+
+      const defaultModelId =
+        (preferences.defaultProviderId === req.providerId
+          ? preferences.defaultModelId
+          : undefined) ??
+        providerModels[req.providerId]?.[0]?.id ??
+        this.state.catalog.find((p) => p.providerId === req.providerId)
+          ?.defaultModelId ??
+        null;
+      const currentCredentialIndex = this.state.credentials.findIndex(
+        (existing) => existing.credentialId === credential.credentialId
+      );
+      const nextCredentials =
+        currentCredentialIndex === -1
+          ? [...this.state.credentials, credential]
+          : this.state.credentials.map((existing) =>
+              existing.credentialId === credential.credentialId
+                ? credential
+                : existing
+            );
+      const selection = this.deriveSelectionSnapshot({
+        catalog: this.state.catalog,
+        credentials: nextCredentials,
+        preferences,
+        providerModels,
+        selectedProviderId: this.state.selectedProviderId ?? req.providerId,
+        selectedCredentialId:
+          this.state.selectedCredentialId ?? credential.credentialId,
+        selectedModelId: this.state.selectedModelId ?? defaultModelId,
+      });
+
       this.setState({
-        credentials: [...this.state.credentials, credential],
+        credentials: nextCredentials,
+        preferences,
+        providerModels,
+        selectedProviderId: selection.selectedProviderId,
+        selectedCredentialId: selection.selectedCredentialId,
+        selectedModelId: selection.selectedModelId,
       });
 
       this.log("[connectCredential] Success", {
@@ -261,20 +400,35 @@ export class ByokStore {
    */
   private async executeDisconnect(credentialId: string): Promise<void> {
     this.log("[disconnectCredential] Starting", { credentialId });
+    const epoch = this.epoch;
 
     try {
       await this.apiClient.disconnectCredential(credentialId);
+      if (this.isStaleEpoch("disconnectCredential", epoch)) {
+        return;
+      }
 
       // Remove from credentials list
-      this.setState({
-        credentials: this.state.credentials.filter(
-          (c) => c.credentialId !== credentialId
-        ),
-        // Clear selection if it was the disconnected credential
+      const nextCredentials = this.state.credentials.filter(
+        (credential) => credential.credentialId !== credentialId
+      );
+      const selection = this.deriveSelectionSnapshot({
+        catalog: this.state.catalog,
+        credentials: nextCredentials,
+        preferences: this.state.preferences,
+        providerModels: this.state.providerModels,
+        selectedProviderId: this.state.selectedProviderId,
         selectedCredentialId:
           this.state.selectedCredentialId === credentialId
             ? null
             : this.state.selectedCredentialId,
+        selectedModelId: this.state.selectedModelId,
+      });
+      this.setState({
+        credentials: nextCredentials,
+        selectedProviderId: selection.selectedProviderId,
+        selectedCredentialId: selection.selectedCredentialId,
+        selectedModelId: selection.selectedModelId,
       });
 
       this.log("[disconnectCredential] Success", { credentialId });
@@ -324,9 +478,13 @@ export class ByokStore {
     mode: "format" | "live"
   ): Promise<void> {
     this.log("[validateCredential] Starting", { credentialId, mode });
+    const epoch = this.epoch;
 
     try {
       await this.apiClient.validateCredential(credentialId, { mode });
+      if (this.isStaleEpoch("validateCredential", epoch)) {
+        return;
+      }
 
       // Update credential status if validation succeeded
       const credential = this.state.credentials.find(
@@ -376,6 +534,55 @@ export class ByokStore {
     }
   }
 
+  async loadProviderModels(providerId: string): Promise<ProviderModelOption[]> {
+    const key = `models:${providerId}`;
+
+    if (this.inflight.has(key)) {
+      this.log("[loadProviderModels] Request already in flight", { providerId });
+      return (await this.inflight.get(key)) as ProviderModelOption[];
+    }
+
+    this.setState({ loadingModelsForProviderId: providerId });
+    const promise = this.executeLoadProviderModels(providerId, this.epoch);
+    this.inflight.set(key, promise);
+
+    try {
+      return (await promise) as ProviderModelOption[];
+    } finally {
+      this.inflight.delete(key);
+      if (this.state.loadingModelsForProviderId === providerId) {
+        this.setState({ loadingModelsForProviderId: null });
+      }
+    }
+  }
+
+  private async executeLoadProviderModels(
+    providerId: string,
+    epoch: number
+  ): Promise<ProviderModelOption[]> {
+    this.log("[loadProviderModels] Starting", { providerId });
+    const models = await this.apiClient.getProviderModels(providerId);
+    if (this.isStaleEpoch("loadProviderModels", epoch)) {
+      return models;
+    }
+
+    this.setState({
+      providerModels: {
+        ...this.state.providerModels,
+        [providerId]: models,
+      },
+      selectedModelId:
+        this.state.selectedProviderId === providerId
+          ? this.state.selectedModelId ?? models[0]?.id ?? null
+          : this.state.selectedModelId,
+    });
+    this.log("[loadProviderModels] Success", {
+      providerId,
+      modelCount: models.length,
+    });
+    return models;
+  }
+
   /**
    * Internal preferences update implementation
    */
@@ -383,12 +590,28 @@ export class ByokStore {
     partial: Partial<BYOKPreference>
   ): Promise<void> {
     this.log("[updatePreferences] Starting", partial);
+    const epoch = this.epoch;
 
     try {
       const updated = await this.apiClient.updatePreferences(partial);
+      if (this.isStaleEpoch("updatePreferences", epoch)) {
+        return;
+      }
+      const selection = this.deriveSelectionSnapshot({
+        catalog: this.state.catalog,
+        credentials: this.state.credentials,
+        preferences: updated,
+        providerModels: this.state.providerModels,
+        selectedProviderId: this.state.selectedProviderId,
+        selectedCredentialId: this.state.selectedCredentialId,
+        selectedModelId: this.state.selectedModelId,
+      });
 
       this.setState({
         preferences: updated,
+        selectedProviderId: selection.selectedProviderId,
+        selectedCredentialId: selection.selectedCredentialId,
+        selectedModelId: selection.selectedModelId,
       });
 
       this.log("[updatePreferences] Success");
@@ -427,15 +650,40 @@ export class ByokStore {
    * Returns the effective provider config based on selection and preferences.
    */
   async resolveForChat(): Promise<BYOKResolution> {
+    const selection = this.deriveSelectionSnapshot({
+      catalog: this.state.catalog,
+      credentials: this.state.credentials,
+      preferences: this.state.preferences,
+      providerModels: this.state.providerModels,
+      selectedProviderId: this.state.selectedProviderId,
+      selectedCredentialId: this.state.selectedCredentialId,
+      selectedModelId: this.state.selectedModelId,
+    });
+    const selectionKey = this.buildResolveSelectionKey(selection);
+
+    if (
+      this.state.lastResolvedConfig &&
+      this.lastResolveSelectionKey === selectionKey &&
+      !this.lastResolveError
+    ) {
+      return this.state.lastResolvedConfig;
+    }
+    if (this.lastResolveError && this.lastResolveSelectionKey === selectionKey) {
+      throw this.lastResolveError;
+    }
+
     const key = "resolve";
 
     if (this.inflight.has(key)) {
       this.log("[resolveForChat] Request already in flight");
       await this.inflight.get(key);
-      return this.state.lastResolvedConfig!;
+      if (this.state.lastResolvedConfig) {
+        return this.state.lastResolvedConfig;
+      }
+      throw new Error("Provider resolution failed.");
     }
 
-    const promise = this.executeResolve();
+    const promise = this.executeResolve(selection, selectionKey, this.epoch);
     this.inflight.set(key, promise);
 
     try {
@@ -449,19 +697,44 @@ export class ByokStore {
   /**
    * Internal resolve implementation
    */
-  private async executeResolve(): Promise<void> {
+  private async executeResolve(
+    selection: ByokSelectionSnapshot,
+    selectionKey: string,
+    epoch: number
+  ): Promise<void> {
     this.log("[resolveForChat] Starting");
+    const request: {
+      providerId?: string;
+      credentialId?: string;
+      modelId?: string;
+    } = {};
+    if (selection.selectedProviderId) {
+      request.providerId = selection.selectedProviderId;
+    }
+    if (selection.selectedCredentialId) {
+      request.credentialId = selection.selectedCredentialId;
+    }
+    if (selection.selectedModelId) {
+      request.modelId = selection.selectedModelId;
+    }
 
     try {
-      const config = await this.apiClient.resolveForChat({
-        providerId: this.state.selectedProviderId || undefined,
-        credentialId: this.state.selectedCredentialId || undefined,
-        modelId: this.state.selectedModelId || undefined,
-      });
+      const config = await this.apiClient.resolveForChat(request);
+      if (this.isStaleEpoch("resolveForChat", epoch)) {
+        return;
+      }
+
+      const normalizedCredentialId =
+        config.credentialId.trim().length > 0 ? config.credentialId : null;
 
       this.setState({
         lastResolvedConfig: config,
+        selectedProviderId: config.providerId,
+        selectedCredentialId: normalizedCredentialId,
+        selectedModelId: config.modelId,
       });
+      this.lastResolveSelectionKey = selectionKey;
+      this.lastResolveError = null;
 
       this.log("[resolveForChat] Success", {
         providerId: config.providerId,
@@ -472,6 +745,9 @@ export class ByokStore {
         error instanceof Error
           ? error.message
           : "Failed to resolve provider configuration";
+      this.lastResolveSelectionKey = selectionKey;
+      this.lastResolveError =
+        error instanceof Error ? error : new Error(message);
       this.log("[resolveForChat] Error", { error: message });
       throw error;
     }
@@ -488,10 +764,16 @@ export class ByokStore {
    * Reset store to initial state
    */
   reset(): void {
+    this.epoch += 1;
+    this.inflight.clear();
+    this.bootstrapPromise = null;
+    this.lastResolveSelectionKey = null;
+    this.lastResolveError = null;
     this.state = {
       catalog: [],
       credentials: [],
       preferences: null,
+      providerModels: {},
       selectedProviderId: null,
       selectedCredentialId: null,
       selectedModelId: null,
@@ -499,6 +781,7 @@ export class ByokStore {
       status: "idle",
       error: null,
       isValidating: false,
+      loadingModelsForProviderId: null,
     };
     this.emit();
   }
@@ -507,7 +790,16 @@ export class ByokStore {
    * Internal state setter with notification
    */
   private setState(partial: Partial<ByokStoreState>): void {
-    this.state = { ...this.state, ...partial };
+    const shouldInvalidateResolution = this.shouldInvalidateResolution(partial);
+    const nextPartial =
+      shouldInvalidateResolution && partial.lastResolvedConfig === undefined
+        ? { ...partial, lastResolvedConfig: null }
+        : partial;
+    if (shouldInvalidateResolution) {
+      this.lastResolveSelectionKey = null;
+      this.lastResolveError = null;
+    }
+    this.state = { ...this.state, ...nextPartial };
     this.emit();
   }
 
@@ -525,5 +817,111 @@ export class ByokStore {
     if (this.enableLogging) {
       console.log(`[ByokStore] ${message}`, context);
     }
+  }
+
+  private shouldInvalidateResolution(partial: Partial<ByokStoreState>): boolean {
+    return (
+      partial.catalog !== undefined ||
+      partial.credentials !== undefined ||
+      partial.preferences !== undefined ||
+      partial.providerModels !== undefined ||
+      partial.selectedProviderId !== undefined ||
+      partial.selectedCredentialId !== undefined ||
+      partial.selectedModelId !== undefined
+    );
+  }
+
+  private buildResolveSelectionKey(selection: ByokSelectionSnapshot): string {
+    return [
+      selection.selectedProviderId ?? "none",
+      selection.selectedCredentialId ?? "none",
+      selection.selectedModelId ?? "none",
+    ].join("|");
+  }
+
+  private deriveSelectionSnapshot(input: {
+    catalog: ProviderRegistryEntry[];
+    credentials: BYOKCredential[];
+    preferences: BYOKPreference | null;
+    providerModels: Record<string, ProviderModelOption[]>;
+    selectedProviderId: string | null;
+    selectedCredentialId: string | null;
+    selectedModelId: string | null;
+  }): ByokSelectionSnapshot {
+    const {
+      catalog,
+      credentials,
+      preferences,
+      providerModels,
+      selectedProviderId,
+      selectedCredentialId,
+      selectedModelId,
+    } = input;
+    const selectedCredential = selectedCredentialId
+      ? credentials.find(
+          (credential) => credential.credentialId === selectedCredentialId
+        )
+      : undefined;
+    const hasSelectedProviderCredential = selectedProviderId
+      ? credentials.some((credential) => credential.providerId === selectedProviderId)
+      : false;
+
+    const providerId =
+      selectedCredential?.providerId ??
+      (hasSelectedProviderCredential ? selectedProviderId : null) ??
+      (preferences?.defaultProviderId &&
+      credentials.some(
+        (credential) => credential.providerId === preferences.defaultProviderId
+      )
+        ? preferences.defaultProviderId
+        : null) ??
+      credentials[0]?.providerId ??
+      null;
+
+    const providerCredentials = providerId
+      ? credentials.filter((credential) => credential.providerId === providerId)
+      : [];
+    const credentialId =
+      providerCredentials.find(
+        (credential) => credential.credentialId === selectedCredentialId
+      )?.credentialId ??
+      (preferences?.defaultCredentialId &&
+      providerCredentials.some(
+        (credential) => credential.credentialId === preferences.defaultCredentialId
+      )
+        ? preferences.defaultCredentialId
+        : null) ??
+      providerCredentials[0]?.credentialId ??
+      null;
+
+    const selectedModelForProvider =
+      providerId && selectedProviderId === providerId ? selectedModelId : null;
+    const modelId =
+      selectedModelForProvider ??
+      (preferences?.defaultProviderId === providerId
+        ? preferences.defaultModelId
+        : undefined) ??
+      (providerId ? providerModels[providerId]?.[0]?.id : undefined) ??
+      (providerId
+        ? catalog.find((entry) => entry.providerId === providerId)?.defaultModelId
+        : undefined) ??
+      null;
+
+    return {
+      selectedProviderId: providerId,
+      selectedCredentialId: credentialId,
+      selectedModelId: modelId,
+    };
+  }
+
+  private isStaleEpoch(operation: string, epoch: number): boolean {
+    if (epoch === this.epoch) {
+      return false;
+    }
+    this.log(`[${operation}] skipping stale async result`, {
+      operationEpoch: epoch,
+      currentEpoch: this.epoch,
+    });
+    return true;
   }
 }

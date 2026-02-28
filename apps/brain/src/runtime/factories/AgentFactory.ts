@@ -18,6 +18,7 @@ import type { Env } from "../../types/ai";
  * @param llmGateway - LLM gateway for agent initialization
  * @param sessionId - Session ID for execution service
  * @param runId - Run ID for execution service
+ * @param userId - Authenticated user scope for token injection
  * @param requestedAgentType - Requested agent type from payload
  * @param options - Policy options (strict mode, etc.)
  * @returns Resolved IAgent or undefined
@@ -28,10 +29,11 @@ export function resolveAgent(
   llmGateway: LLMGateway,
   sessionId: string,
   runId: string,
+  userId: string | undefined,
   requestedAgentType: AgentType,
   options: { strict?: boolean; correlationId?: string } = {},
 ): IAgent | undefined {
-  const executionService = new ExecutionService(env, sessionId, runId);
+  const executionService = new ExecutionService(env, sessionId, runId, userId);
 
   const runtimeExecutionService = {
     execute: (

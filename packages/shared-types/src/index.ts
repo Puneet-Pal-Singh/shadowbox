@@ -11,6 +11,12 @@ export type {
   StageFilesRequest,
 } from "./git.js";
 
+// Platform defaults
+export {
+  DEFAULT_PLATFORM_PROVIDER_ID,
+  DEFAULT_PLATFORM_MODEL_ID,
+} from "./defaults.js";
+
 // Provider/BYOK contracts
 export {
   PROVIDER_IDS,
@@ -100,6 +106,40 @@ export {
   validateEventEnvelope,
   getEventPayloadSchema,
 } from "./run-events.zod.js";
+
+// Chat response events (NDJSON streaming)
+export {
+  CHAT_RESPONSE_EVENT_TYPES,
+  isChatResponseEvent,
+  isChatResponseEventOfType,
+  serializeChatResponseEvent,
+  parseChatResponseEvent,
+  type ChatResponseEventType,
+  type ChatResponseEvent,
+  type TextDeltaPayload,
+  type ToolCallPayload,
+  type ToolResultPayload,
+  type ToolErrorPayload,
+  type RunStatusPayload,
+  type FinalPayload,
+  type TextDeltaEvent,
+  type ToolCallEvent,
+  type ToolResultEvent,
+  type ToolErrorEvent,
+  type RunStatusEvent,
+  type FinalEvent,
+  type ChatResponseEventUnion,
+} from "./chat-response-events.js";
+
+// Chat response contract (v1 frozen DTOs for provider parity)
+export {
+  CHAT_RESPONSE_PROTOCOL_VERSION,
+  ChatResponseEventSchema,
+  validateChatResponseEvent,
+  parseChatResponseEvent as parseChatResponseEventContract,
+  safeParseChatResponseEvent,
+  type ChatResponseEvent as ChatResponseEventContract,
+} from "./chat-response-contract.js";
 
 // Compatibility layer
 export {

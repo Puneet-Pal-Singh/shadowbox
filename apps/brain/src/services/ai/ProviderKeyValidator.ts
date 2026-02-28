@@ -10,6 +10,11 @@ import { ProviderError } from "../providers";
 import { validateProviderApiKeyFormat } from "./ProviderEndpointPolicy";
 import type { ProviderId } from "@repo/shared-types";
 import type { RuntimeProvider } from "./ModelSelectionPolicy";
+import {
+  GROQ_BASE_URL,
+  OPENAI_BASE_URL,
+  OPENROUTER_BASE_URL,
+} from "./defaults";
 
 /**
  * Validate and retrieve OpenAI API key.
@@ -27,7 +32,7 @@ export function resolveOpenAIKey(
   }
   return {
     apiKey,
-    baseURL: "https://api.openai.com/v1",
+    baseURL: OPENAI_BASE_URL,
   };
 }
 
@@ -69,7 +74,7 @@ export function resolveOpenRouterKey(overrideApiKey?: string): {
 
   return {
     apiKey: overrideApiKey,
-    baseURL: "https://openrouter.ai/api/v1",
+    baseURL: OPENROUTER_BASE_URL,
   };
 }
 
@@ -94,7 +99,7 @@ export function resolveGroqKey(overrideApiKey?: string): {
 
   return {
     apiKey: overrideApiKey,
-    baseURL: "https://api.groq.com/openai/v1",
+    baseURL: GROQ_BASE_URL,
   };
 }
 
@@ -109,17 +114,55 @@ export function resolveLiteLLMKey(
   env: Env,
   overrideApiKey?: string,
 ): { apiKey: string; baseURL: string } {
-  const apiKey =
-    overrideApiKey ?? env.GROQ_API_KEY ?? env.OPENAI_API_KEY;
+  const apiKeySource = resolveLiteLLMKeySource(env, overrideApiKey);
+  const apiKey = apiKeySource.apiKey;
   if (!apiKey) {
     throw new ProviderError(
       "litellm",
-      "Missing GROQ_API_KEY or OPENAI_API_KEY",
+      "Missing GROQ_API_KEY, OPENROUTER_API_KEY, or OPENAI_API_KEY",
     );
   }
 
-  const baseURL = env.LITELLM_BASE_URL ?? "https://api.groq.com/openai/v1";
+  const baseURL = resolveLiteLLMBaseURL(env, apiKeySource.source);
   return { apiKey, baseURL };
+}
+
+type LiteLLMKeySource = "override" | "groq" | "openrouter" | "openai";
+
+function resolveLiteLLMKeySource(
+  env: Env,
+  overrideApiKey?: string,
+): { apiKey?: string; source: LiteLLMKeySource } {
+  if (overrideApiKey) {
+    return { apiKey: overrideApiKey, source: "override" };
+  }
+  if (env.GROQ_API_KEY) {
+    return { apiKey: env.GROQ_API_KEY, source: "groq" };
+  }
+  if (env.OPENROUTER_API_KEY) {
+    return { apiKey: env.OPENROUTER_API_KEY, source: "openrouter" };
+  }
+  if (env.OPENAI_API_KEY) {
+    return { apiKey: env.OPENAI_API_KEY, source: "openai" };
+  }
+  return { source: "override" };
+}
+
+function resolveLiteLLMBaseURL(env: Env, source: LiteLLMKeySource): string {
+  if (env.LITELLM_BASE_URL) {
+    return env.LITELLM_BASE_URL;
+  }
+
+  switch (source) {
+    case "openrouter":
+      return OPENROUTER_BASE_URL;
+    case "openai":
+      return OPENAI_BASE_URL;
+    case "override":
+    case "groq":
+    default:
+      return GROQ_BASE_URL;
+  }
 }
 
 /**

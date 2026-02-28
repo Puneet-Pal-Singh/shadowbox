@@ -21,8 +21,13 @@ import {
 import {
   extractIdentifiers,
   mapAgentIdToType,
-  parseOptionalScopeIdentifier,
 } from "./chat-request-helpers";
+import {
+  executeViaRunEngineDurableObject,
+  extractPromptFromMessages,
+  resolveExecutionScope,
+  type ExecutionScope,
+} from "./chat-runtime-helpers";
 
 // Zod schema for request body validation
 const ChatRequestBodySchema = z.object({
@@ -32,6 +37,10 @@ const ChatRequestBodySchema = z.object({
   runId: z.string().optional(),
   providerId: z.string().optional(),
   modelId: z.string().optional(),
+  repositoryOwner: z.string().optional(),
+  repositoryName: z.string().optional(),
+  repositoryBranch: z.string().optional(),
+  repositoryBaseUrl: z.string().optional(),
 });
 
 type ChatRequestBody = z.infer<typeof ChatRequestBodySchema>;
@@ -94,16 +103,12 @@ export class ChatController {
         correlationId,
         sessionId: identifiers.sessionId,
         runId: identifiers.runId,
-        userId: parseOptionalScopeIdentifier(
-          req.headers.get("X-User-Id"),
-          "X-User-Id",
+        ...(await resolveExecutionScope(
+          req,
+          env,
+          identifiers.runId,
           correlationId,
-        ),
-        workspaceId: parseOptionalScopeIdentifier(
-          req.headers.get("X-Workspace-Id"),
-          "X-Workspace-Id",
-          correlationId,
-        ),
+        )),
       };
 
       console.log(`[chat/request] ${correlationId} routing to RunEngine`);
@@ -168,7 +173,7 @@ export class ChatController {
     const coreMessages: CoreMessage[] =
       body.messages! as unknown as CoreMessage[];
 
-    const prompt = this.extractPrompt(coreMessages, correlationId);
+    const prompt = extractPromptFromMessages(coreMessages, correlationId);
 
     try {
       const useCase = new HandleChatRequest(env);
@@ -185,11 +190,15 @@ export class ChatController {
           messages: coreMessages,
           providerId: body.providerId,
           modelId: body.modelId,
+          repositoryOwner: body.repositoryOwner,
+          repositoryName: body.repositoryName,
+          repositoryBranch: body.repositoryBranch,
+          repositoryBaseUrl: body.repositoryBaseUrl,
         },
         req.headers.get("Origin") || undefined,
       );
 
-      const doResponse = await ChatController.executeViaRunEngineDurableObject(
+      const doResponse = await executeViaRunEngineDurableObject(
         env,
         runId,
         useCaseResult.executionPayload,
@@ -202,56 +211,4 @@ export class ChatController {
     }
   }
 
-  private static extractPrompt(
-    messages: CoreMessage[],
-    correlationId: string,
-  ): string {
-    const lastUserMessage = messages.filter((m) => m.role === "user").pop();
-
-    if (!lastUserMessage) {
-      throw new ValidationError(
-        "No user message found",
-        "NO_USER_MESSAGE",
-        correlationId,
-      );
-    }
-
-    return typeof lastUserMessage.content === "string"
-      ? lastUserMessage.content
-      : JSON.stringify(lastUserMessage.content);
-  }
-
-  private static async executeViaRunEngineDurableObject(
-    env: Env,
-    runId: string,
-    payload: {
-      runId: string;
-      userId?: string;
-      workspaceId?: string;
-      sessionId: string;
-      correlationId: string;
-      requestOrigin?: string;
-      input: {
-        agentType: AgentType;
-        prompt: string;
-        sessionId: string;
-        providerId?: string;
-        modelId?: string;
-      };
-      messages: CoreMessage[];
-    },
-  ): Promise<Response> {
-    if (!env.RUN_ENGINE_RUNTIME) {
-      throw new Error("RUN_ENGINE_RUNTIME binding is unavailable");
-    }
-
-    const id = env.RUN_ENGINE_RUNTIME.idFromName(runId);
-    const stub = env.RUN_ENGINE_RUNTIME.get(id);
-    const runtimeResponse = await stub.fetch("https://run-engine/execute", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    return runtimeResponse as unknown as Response;
-  }
 }

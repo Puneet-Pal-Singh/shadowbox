@@ -369,6 +369,15 @@ function findCommon(arr1: string[], arr2: string[]): string[] {
 - **No God Objects**: If a function exceeds 50 lines, refactor it.
 - **Shared Types**: Define interfaces in `packages/shared-types` if used across apps.
 
+### Compatibility and Fallback Policy
+
+**MANDATORY**: Default to forward-only behavior unless the user explicitly requests compatibility work.
+
+- **No fallback paths by default**: Do not add silent or secondary execution paths.
+- **No backward-compat layers by default**: Do not preserve legacy contracts unless explicitly required.
+- **Fail fast with typed errors**: Prefer explicit errors over hidden compatibility behavior.
+- **Delete deprecated paths quickly**: Once replacement is validated, remove old logic in the same milestone or next immediate PR.
+
 ---
 
 ## 9. Git & Workflow Protocol
@@ -394,6 +403,17 @@ function findCommon(arr1: string[], arr2: string[]): string[] {
 1.  **Read Docs**: Before writing code, check `docs/plans/` for architectural context.
 2.  **Update Plans**: If implementation details change, update the `.md` file in `docs/plans/` first.
 3.  **Safety Check**: Never commit `.dev.vars`, `.env`, or API keys.
+
+### Task Orchestration (Linear + MCP)
+
+Use Linear as the operational source of truth for execution sequencing and multi-agent coordination.
+
+1. Every implementation PR should map to one Linear issue.
+2. Every roadmap/milestone should have one parent epic with child issues.
+3. Status flow must be explicit: `Backlog -> In Progress -> In Review -> Done`.
+4. Keep issue scope PR-sized (target 1-3 PRs per issue, not long-running mega tasks).
+5. Parallel agent work must be non-overlapping by ownership (files/modules), with one merge gate issue controlling sequencing.
+6. Keep acceptance criteria in Linear issue descriptions and update them as code reality changes.
 
 ---
 
@@ -421,6 +441,8 @@ Before declaring a task complete, the Agent must verify:
 3.  Did I respect the `runId` isolation?
 4.  Did I update the relevant documentation?
 5.  Is there a simpler way to achieve this (KISS)?
+6.  Did I add any fallback/backward-compat layer without explicit requirement? (If yes, remove it.)
+7.  Are the tests added actually necessary for behavior, policy, or regression risk? (If no, remove them.)
 
 ---
 
@@ -465,6 +487,9 @@ When multiple agents work in the same repository:
 - Pure test additions generally do **not** need a changelog entry
 - Test coverage: aim for 70%+ on new code
 - Mock external dependencies; test business logic in isolation
+- **No unnecessary unit tests**: Do not add tests for pure renames, formatting-only changes, or trivial pass-through code
+- **Test where risk lives**: Prioritize integration/contract/policy tests for runtime, provider, auth, and orchestration flows
+- **Prefer high-signal tests**: Add tests only when they prevent realistic regressions or validate required invariants
 
 ### Test Commands
 

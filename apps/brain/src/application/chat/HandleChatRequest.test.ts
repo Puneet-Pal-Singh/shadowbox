@@ -37,6 +37,10 @@ describe("HandleChatRequest", () => {
         messages,
         providerId: "openai",
         modelId: "gpt-4",
+        repositoryOwner: "sourcegraph",
+        repositoryName: "shadowbox",
+        repositoryBranch: "dev",
+        repositoryBaseUrl: "https://github.com/sourcegraph/shadowbox",
       },
       "https://shadowbox.local",
     );
@@ -45,6 +49,12 @@ describe("HandleChatRequest", () => {
     expect(result.executionPayload.input.agentType).toBe("coding");
     expect(result.executionPayload.input.providerId).toBe("openai");
     expect(result.executionPayload.input.modelId).toBe("gpt-4");
+    expect(result.executionPayload.input.repositoryContext).toEqual({
+      owner: "sourcegraph",
+      repo: "shadowbox",
+      branch: "dev",
+      baseUrl: "https://github.com/sourcegraph/shadowbox",
+    });
     expect(result.executionPayload.requestOrigin).toBe("https://shadowbox.local");
     expect(result.executionPayload.messages).toEqual(messages);
     expect(persistSpy).toHaveBeenCalledWith(

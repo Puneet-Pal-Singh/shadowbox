@@ -99,6 +99,21 @@ function createMockEnv(): Env {
           });
         }
 
+        if (url.pathname === "/providers/models" && request.method === "GET") {
+          const providerId = url.searchParams.get("providerId") as ProviderId | null;
+          if (!providerId || !(providerId in catalog)) {
+            return jsonError("Missing or invalid providerId", 400, "MISSING_PROVIDER_ID");
+          }
+          return jsonOk({
+            providerId,
+            models: catalog[providerId].map((model) => ({
+              ...model,
+              provider: providerId,
+            })),
+            lastFetchedAt: new Date().toISOString(),
+          });
+        }
+
         if (
           url.pathname === "/providers/connections" &&
           request.method === "GET"
@@ -467,6 +482,142 @@ describe("ProviderController", () => {
       expect(getData.defaultProviderId).toBe("groq");
       expect(getData.defaultModelId).toBe("llama-3.3-70b-versatile");
       expect(typeof getData.updatedAt).toBe("string");
+    });
+  });
+
+  describe("byok v3", () => {
+    it("returns provider models for selected provider", async () => {
+      const env = createMockEnv();
+      const response = await ProviderController.byokProviderModels(
+        new Request("http://localhost/api/byok/providers/openrouter/models", {
+          method: "GET",
+          headers: await withByokHeaders(env),
+        }),
+        env,
+      );
+      const data = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(Array.isArray(data)).toBe(true);
+      expect(data[0].id).toBe("openrouter/auto");
+    });
+
+    it("returns provider registry entries", async () => {
+      const env = createMockEnv();
+      const response = await ProviderController.byokProviders(
+        new Request("http://localhost/api/byok/providers", {
+          method: "GET",
+          headers: await withByokHeaders(env),
+        }),
+        env,
+      );
+      const data = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(Array.isArray(data)).toBe(true);
+      expect(data[0].providerId).toBeDefined();
+      expect(data[0].authModes).toContain("api_key");
+    });
+
+    it("connects credential and resolves selection", async () => {
+      const env = createMockEnv();
+      const connectResponse = await ProviderController.byokConnectCredential(
+        new Request("http://localhost/api/byok/credentials", {
+          method: "POST",
+          headers: await withByokHeaders(env),
+          body: JSON.stringify({
+            providerId: "openai",
+            secret: "sk-test-NOT-A-REAL-KEY-1234567890",
+            label: "Primary",
+          }),
+        }),
+        env,
+      );
+      const connectData = await connectResponse.json();
+
+      expect(connectResponse.status).toBe(200);
+      expect(connectData.providerId).toBe("openai");
+      expect(connectData.label).toBe("Primary");
+
+      const resolveResponse = await ProviderController.byokResolve(
+        new Request("http://localhost/api/byok/resolve", {
+          method: "POST",
+          headers: await withByokHeaders(env),
+          body: JSON.stringify({}),
+        }),
+        env,
+      );
+      const resolveData = await resolveResponse.json();
+
+      expect(resolveResponse.status).toBe(200);
+      expect(resolveData.providerId).toBe("openai");
+      expect(resolveData.credentialId).toBe(connectData.credentialId);
+      expect(resolveData.modelId).toBe("gpt-4o");
+    });
+
+    it("persists fallback preferences in v3 endpoints", async () => {
+      const env = createMockEnv();
+      const patchResponse = await ProviderController.byokPreferencesV3(
+        new Request("http://localhost/api/byok/preferences", {
+          method: "PATCH",
+          headers: await withByokHeaders(env),
+          body: JSON.stringify({
+            fallbackMode: "allow_fallback",
+            fallbackChain: ["openrouter", "groq"],
+          }),
+        }),
+        env,
+      );
+      const patchData = await patchResponse.json();
+
+      expect(patchResponse.status).toBe(200);
+      expect(patchData.fallbackMode).toBe("allow_fallback");
+      expect(patchData.fallbackChain).toEqual(["openrouter", "groq"]);
+
+      const getHeaders = await withByokHeaders(env);
+      delete getHeaders["Content-Type"];
+      const getResponse = await ProviderController.byokGetPreferencesV3(
+        new Request("http://localhost/api/byok/preferences", {
+          method: "GET",
+          headers: getHeaders,
+        }),
+        env,
+      );
+      const getData = await getResponse.json();
+      expect(getResponse.status).toBe(200);
+      expect(getData.fallbackMode).toBe("allow_fallback");
+      expect(getData.fallbackChain).toEqual(["openrouter", "groq"]);
+    });
+
+    it("disconnects credential by credentialId", async () => {
+      const env = createMockEnv();
+      const connectResponse = await ProviderController.byokConnectCredential(
+        new Request("http://localhost/api/byok/credentials", {
+          method: "POST",
+          headers: await withByokHeaders(env),
+          body: JSON.stringify({
+            providerId: "groq",
+            secret: "gsk_test_provider_state_1234567890",
+          }),
+        }),
+        env,
+      );
+      const connectData = await connectResponse.json();
+
+      const disconnectHeaders = await withByokHeaders(env);
+      delete disconnectHeaders["Content-Type"];
+      const disconnectResponse = await ProviderController.byokDisconnectCredential(
+        new Request(
+          `http://localhost/api/byok/credentials/${connectData.credentialId}`,
+          {
+            method: "DELETE",
+            headers: disconnectHeaders,
+          },
+        ),
+        env,
+      );
+
+      expect(disconnectResponse.status).toBe(204);
     });
   });
 });

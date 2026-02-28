@@ -8,14 +8,19 @@ import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import { ByokApiClient, ByokApiError } from "./byokClient.js";
 
 describe("ByokApiClient", () => {
+  const byokBaseUrl = "http://localhost:8788/api/byok";
+  const testRunId = "run-123";
   let client: ByokApiClient;
   let fetchSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
-    client = new ByokApiClient();
+    client = new ByokApiClient({
+      getRunId: () => testRunId,
+    });
     fetchSpy = vi.spyOn(globalThis, "fetch") as unknown as ReturnType<
       typeof vi.spyOn
     >;
+    sessionStorage.clear();
   });
 
   afterEach(() => {
@@ -34,17 +39,51 @@ describe("ByokApiClient", () => {
 
       fetchSpy.mockResolvedValueOnce({
         ok: true,
+        headers: new Headers({ "content-type": "application/json" }),
         json: vi.fn().mockResolvedValueOnce(mockCatalog),
       });
 
       const catalog = await client.getCatalog();
 
-      expect(fetchSpy).toHaveBeenCalledWith("/api/byok/providers", {
+      expect(fetchSpy).toHaveBeenCalledWith(`${byokBaseUrl}/providers`, {
         method: "GET",
-        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Run-Id": testRunId,
+        },
         signal: undefined,
       });
       expect(catalog).toEqual(mockCatalog);
+    });
+  });
+
+  describe("getProviderModels", () => {
+    it("fetches model options for provider", async () => {
+      const mockModels = [
+        { id: "openai/gpt-4o-mini", name: "GPT-4o Mini", provider: "openai" },
+      ];
+      fetchSpy.mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ "content-type": "application/json" }),
+        json: vi.fn().mockResolvedValueOnce(mockModels),
+      });
+
+      const models = await client.getProviderModels("openrouter");
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        `${byokBaseUrl}/providers/openrouter/models`,
+        {
+          method: "GET",
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Run-Id": testRunId,
+          },
+          signal: undefined,
+        }
+      );
+      expect(models).toEqual(mockModels);
     });
   });
 
@@ -60,14 +99,19 @@ describe("ByokApiClient", () => {
 
       fetchSpy.mockResolvedValueOnce({
         ok: true,
+        headers: new Headers({ "content-type": "application/json" }),
         json: vi.fn().mockResolvedValueOnce(mockCredentials),
       });
 
       const credentials = await client.getCredentials();
 
-      expect(fetchSpy).toHaveBeenCalledWith("/api/byok/credentials", {
+      expect(fetchSpy).toHaveBeenCalledWith(`${byokBaseUrl}/credentials`, {
         method: "GET",
-        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Run-Id": testRunId,
+        },
         signal: undefined,
       });
       expect(credentials).toEqual(mockCredentials);
@@ -84,6 +128,7 @@ describe("ByokApiClient", () => {
 
       fetchSpy.mockResolvedValueOnce({
         ok: true,
+        headers: new Headers({ "content-type": "application/json" }),
         json: vi.fn().mockResolvedValueOnce(mockCredential),
       });
 
@@ -92,9 +137,13 @@ describe("ByokApiClient", () => {
         secret: "sk-test",
       });
 
-      expect(fetchSpy).toHaveBeenCalledWith("/api/byok/credentials", {
+      expect(fetchSpy).toHaveBeenCalledWith(`${byokBaseUrl}/credentials`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Run-Id": testRunId,
+        },
         signal: undefined,
         body: JSON.stringify({
           providerId: "openai",
@@ -114,9 +163,13 @@ describe("ByokApiClient", () => {
 
       await client.disconnectCredential("cred-1");
 
-      expect(fetchSpy).toHaveBeenCalledWith("/api/byok/credentials/cred-1", {
+      expect(fetchSpy).toHaveBeenCalledWith(`${byokBaseUrl}/credentials/cred-1`, {
         method: "DELETE",
-        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Run-Id": testRunId,
+        },
         signal: undefined,
       });
     });
@@ -126,6 +179,7 @@ describe("ByokApiClient", () => {
     it("validates credential with format mode", async () => {
       fetchSpy.mockResolvedValueOnce({
         ok: true,
+        headers: new Headers({ "content-type": "application/json" }),
         json: vi.fn().mockResolvedValueOnce({ valid: true }),
       });
 
@@ -135,7 +189,7 @@ describe("ByokApiClient", () => {
 
       expect(result).toEqual({ valid: true });
       expect(fetchSpy).toHaveBeenCalledWith(
-        "/api/byok/credentials/cred-1/validate",
+        `${byokBaseUrl}/credentials/cred-1/validate`,
         expect.objectContaining({
           method: "POST",
           body: JSON.stringify({ mode: "format" }),
@@ -146,6 +200,7 @@ describe("ByokApiClient", () => {
     it("validates credential with live mode", async () => {
       fetchSpy.mockResolvedValueOnce({
         ok: true,
+        headers: new Headers({ "content-type": "application/json" }),
         json: vi.fn().mockResolvedValueOnce({ valid: true }),
       });
 
@@ -241,6 +296,17 @@ describe("ByokApiClient", () => {
       }
     });
 
+    it("fails fast when run id is missing", async () => {
+      const clientWithMissingRunId = new ByokApiClient({
+        getRunId: () => null,
+      });
+      await expect(clientWithMissingRunId.getCatalog()).rejects.toMatchObject({
+        code: "MISSING_RUN_ID",
+        statusCode: 400,
+      });
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
     it("includes correlationId in error", async () => {
       fetchSpy.mockResolvedValueOnce({
         ok: false,
@@ -260,6 +326,20 @@ describe("ByokApiClient", () => {
       } catch (error) {
         expect((error as ByokApiError).correlationId).toBe("req-123");
       }
+    });
+
+    it("maps non-json success payload to invalid response format error", async () => {
+      fetchSpy.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        headers: new Headers({ "content-type": "text/html" }),
+        text: vi.fn().mockResolvedValueOnce("<!doctype html><html>"),
+      });
+
+      await expect(client.getCatalog()).rejects.toMatchObject({
+        code: "INVALID_RESPONSE_FORMAT",
+        statusCode: 502,
+      });
     });
   });
 

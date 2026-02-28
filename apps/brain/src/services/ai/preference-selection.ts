@@ -45,6 +45,15 @@ async function readPreferenceOverride(
     if (!preferences.defaultProviderId || !preferences.defaultModelId) {
       return null;
     }
+    const providerConnected = await providerConfigService.isConnected(
+      preferences.defaultProviderId,
+    );
+    if (!providerConnected) {
+      console.warn(
+        `[ai/preferences] Ignoring stale default provider preference (${preferences.defaultProviderId}); provider is not connected.`,
+      );
+      return null;
+    }
     return {
       providerId: preferences.defaultProviderId,
       modelId: preferences.defaultModelId,
