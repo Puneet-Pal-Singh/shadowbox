@@ -7,11 +7,11 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { ChatInput } from "./ChatInput.js";
-import * as useByokStoreModule from "../../hooks/useByokStore.js";
+import * as useProviderStoreModule from "../../hooks/useProviderStore.js";
 
 describe("ChatInput", () => {
-  type UseByokStoreResult = ReturnType<typeof useByokStoreModule.useByokStore>;
-  let mockStore: UseByokStoreResult;
+  type UseProviderStoreResult = ReturnType<typeof useProviderStoreModule.useProviderStore>;
+  let mockStore: UseProviderStoreResult;
   let onSendMessage: (message: string) => Promise<void>;
   const credentialId = "550e8400-e29b-41d4-a716-446655440000";
 
@@ -83,7 +83,7 @@ describe("ChatInput", () => {
       reset: vi.fn(),
     };
 
-    vi.spyOn(useByokStoreModule, "useByokStore").mockReturnValue(mockStore);
+    vi.spyOn(useProviderStoreModule, "useProviderStore").mockReturnValue(mockStore);
   });
 
   describe("send gating", () => {

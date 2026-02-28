@@ -7,11 +7,11 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { ProviderDialog } from "./ProviderDialog.js";
-import * as useByokStoreModule from "../../hooks/useByokStore.js";
+import * as useProviderStoreModule from "../../hooks/useProviderStore.js";
 
 describe("ProviderDialog", () => {
-  type UseByokStoreResult = ReturnType<typeof useByokStoreModule.useByokStore>;
-  let mockStore: UseByokStoreResult;
+  type UseProviderStoreResult = ReturnType<typeof useProviderStoreModule.useProviderStore>;
+  let mockStore: UseProviderStoreResult;
   const credentialId = "550e8400-e29b-41d4-a716-446655440000";
 
   beforeEach(() => {
@@ -111,7 +111,7 @@ describe("ProviderDialog", () => {
       reset: vi.fn(),
     };
 
-    vi.spyOn(useByokStoreModule, "useByokStore").mockReturnValue(mockStore);
+    vi.spyOn(useProviderStoreModule, "useProviderStore").mockReturnValue(mockStore);
   });
 
   describe("rendering", () => {

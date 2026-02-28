@@ -3,16 +3,16 @@
  * UI-facing provider types.
  *
  * Transport contracts are canonical in @repo/shared-types and re-exported here
- * for backward-compatible imports across web components/services.
+ * with provider-neutral names for web components/services.
  */
 
 import type {
-  BYOKConnectRequest,
-  BYOKConnectResponse,
-  BYOKDisconnectRequest,
-  BYOKDisconnectResponse,
-  BYOKPreferences as SharedBYOKPreferences,
-  BYOKPreferencesPatch as SharedBYOKPreferencesPatch,
+  BYOKConnectRequest as SharedConnectProviderRequest,
+  BYOKConnectResponse as SharedConnectProviderResponse,
+  BYOKDisconnectRequest as SharedDisconnectProviderRequest,
+  BYOKDisconnectResponse as SharedDisconnectProviderResponse,
+  BYOKPreferences as SharedProviderPreferences,
+  BYOKPreferencesPatch as SharedProviderPreferencesPatch,
   ModelDescriptor as SharedModelDescriptor,
   ProviderConnection,
   ProviderId as SharedProviderId,
@@ -21,12 +21,12 @@ import type {
 export type ProviderId = SharedProviderId;
 export type ModelDescriptor = SharedModelDescriptor;
 export type ProviderConnectionStatus = ProviderConnection;
-export type ConnectProviderRequest = BYOKConnectRequest;
-export type ConnectProviderResponse = BYOKConnectResponse;
-export type DisconnectProviderRequest = BYOKDisconnectRequest;
-export type DisconnectProviderResponse = BYOKDisconnectResponse;
-export type BYOKPreferences = SharedBYOKPreferences;
-export type BYOKPreferencesPatch = SharedBYOKPreferencesPatch;
+export type ConnectProviderRequest = SharedConnectProviderRequest;
+export type ConnectProviderResponse = SharedConnectProviderResponse;
+export type DisconnectProviderRequest = SharedDisconnectProviderRequest;
+export type DisconnectProviderResponse = SharedDisconnectProviderResponse;
+export type ProviderPreferences = SharedProviderPreferences;
+export type ProviderPreferencesPatch = SharedProviderPreferencesPatch;
 
 export interface ProviderConfig {
   providerId: ProviderId;

@@ -12,13 +12,13 @@
  */
 
 import React, { useEffect, useState } from "react";
-import { useByokStore } from "../../hooks/useByokStore.js";
+import { useProviderStore } from "../../hooks/useProviderStore.js";
 import {
-  BYOKCredential,
-  BYOKPreference,
+  BYOKCredential as ProviderCredential,
+  BYOKPreference as ProviderPreference,
   ProviderRegistryEntry,
 } from "@repo/shared-types";
-import { type ProviderModelOption } from "../../services/api/byokClient.js";
+import { type ProviderModelOption } from "../../services/api/providerClient.js";
 import { getProviderRecoveryAdvice } from "../../lib/provider-recovery";
 
 /**
@@ -55,7 +55,7 @@ export function ProviderDialog({
     loadProviderModels,
     updatePreferences,
     applySessionSelection,
-  } = useByokStore();
+  } = useProviderStore();
 
   const [activeTab, setActiveTab] = useState<
     "connected" | "available" | "preferences" | "session"
@@ -128,7 +128,7 @@ export function ProviderDialog({
    * Handle preference update
    */
   const handleUpdatePreferences = async (
-    partial: Partial<BYOKPreference>
+    partial: Partial<ProviderPreference>
   ) => {
     try {
       await updatePreferences(partial);
@@ -314,7 +314,7 @@ function ConnectedTab({
   validatingId,
   onOpenAvailableTab,
 }: {
-  credentials: BYOKCredential[];
+  credentials: ProviderCredential[];
   onDisconnect: (id: string) => Promise<void>;
   onValidate: (id: string, mode: "format" | "live") => Promise<void>;
   validatingId: string | null;
@@ -494,8 +494,8 @@ function PreferencesTab({
   preferences,
   onUpdate,
 }: {
-  preferences: BYOKPreference | null;
-  onUpdate: (partial: Partial<BYOKPreference>) => Promise<void>;
+  preferences: ProviderPreference | null;
+  onUpdate: (partial: Partial<ProviderPreference>) => Promise<void>;
 }): React.ReactElement {
   const fallbackMode = preferences?.fallbackMode || "strict";
 
@@ -560,7 +560,7 @@ function SessionTab({
   onSelect,
 }: {
   catalog: ProviderRegistryEntry[];
-  credentials: BYOKCredential[];
+  credentials: ProviderCredential[];
   selectedProviderId: string | null;
   selectedCredentialId: string | null;
   selectedModelId: string | null;

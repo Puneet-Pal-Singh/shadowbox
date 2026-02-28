@@ -43,9 +43,9 @@ If values are not set in development, local defaults are used and warnings are e
 
 ## Provider API Contract
 
-The web app consumes BYOK v2 provider routes through `ProviderApiClient` only:
+The web app consumes provider routes through `ProviderApiClient` only:
 
-- `POST /api/byok/providers/connect`
+- `POST /api/byok/providers/connect` (provider API path)
 - `POST /api/byok/providers/disconnect`
 - `GET /api/byok/providers/connections`
 - `GET /api/byok/providers/catalog`

@@ -1,11 +1,11 @@
 /**
- * useByokStore Hook
+ * useProviderStore Hook
  *
- * React hook for consuming BYOK store state and actions.
+ * React hook for consuming provider store state and actions.
  * Automatically initializes store on first use and subscribes to updates.
  *
  * Usage:
- *   const { credentials, connectCredential } = useByokStore();
+ *   const { credentials, connectCredential } = useProviderStore();
  *   
  *   useEffect(() => {
  *     if (credentials.length === 0) {
@@ -16,22 +16,25 @@
 
 import { useEffect, useState, useCallback } from "react";
 import {
-  ByokStore,
-  ByokStoreState,
+  ProviderStore,
+  ProviderStoreState,
   ConnectCredentialRequest,
   SessionSelectionRequest,
-} from "../services/byok/ByokStore.js";
-import { BYOKPreference, BYOKResolution } from "@repo/shared-types";
-import type { ProviderModelOption } from "../services/api/byokClient.js";
+} from "../services/provider/ProviderStore.js";
+import {
+  BYOKPreference as ProviderPreference,
+  BYOKResolution as ProviderResolution,
+} from "@repo/shared-types";
+import type { ProviderModelOption } from "../services/api/providerClient.js";
 import { useRunContext } from "./useRunContext";
 
 /**
- * useByokStore Hook
+ * useProviderStore Hook
  *
  * Returns current store state and bound action methods.
  * Automatically subscribes to state changes.
  */
-type UseByokStoreResult = ByokStoreState & {
+type UseProviderStoreResult = ProviderStoreState & {
   bootstrap: () => Promise<void>;
   connectCredential: (req: ConnectCredentialRequest) => Promise<void>;
   disconnectCredential: (credentialId: string) => Promise<void>;
@@ -41,7 +44,7 @@ type UseByokStoreResult = ByokStoreState & {
   ) => Promise<void>;
   loadProviderModels: (providerId: string) => Promise<ProviderModelOption[]>;
   updatePreferences: (
-    partial: Partial<BYOKPreference>
+    partial: Partial<ProviderPreference>
   ) => Promise<void>;
   setSelection: (
     providerId: string,
@@ -50,19 +53,19 @@ type UseByokStoreResult = ByokStoreState & {
   ) => void;
   applySessionSelection: (
     request: SessionSelectionRequest,
-  ) => Promise<BYOKResolution>;
-  resolveForChat: () => Promise<BYOKResolution>;
+  ) => Promise<ProviderResolution>;
+  resolveForChat: () => Promise<ProviderResolution>;
   clearError: () => void;
   reset: () => void;
 };
 
-export function useByokStore(
+export function useProviderStore(
   runIdOverride?: string,
-): UseByokStoreResult {
-  const store = ByokStore.getInstance();
+): UseProviderStoreResult {
+  const store = ProviderStore.getInstance();
   const { runId: contextRunId } = useRunContext();
   const runId = runIdOverride ?? contextRunId;
-  const [state, setState] = useState<ByokStoreState>(store.getState());
+  const [state, setState] = useState<ProviderStoreState>(store.getState());
 
   useEffect(() => {
     // Subscribe to store changes
@@ -82,7 +85,7 @@ export function useByokStore(
 
     if (state.status === "idle") {
       store.bootstrap().catch((error) => {
-        console.error("[byok/store] bootstrap failed", error);
+        console.error("[provider/store] bootstrap failed", error);
       });
     }
   }, [runId, state.status, store]);
@@ -106,7 +109,7 @@ export function useByokStore(
     [store]
   );
   const updatePreferences = useCallback(
-    (partial: Partial<BYOKPreference>) => store.updatePreferences(partial),
+    (partial: Partial<ProviderPreference>) => store.updatePreferences(partial),
     [store]
   );
   const setSelection = useCallback(

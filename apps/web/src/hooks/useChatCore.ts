@@ -2,7 +2,7 @@ import { useChat as useVercelChat, type Message } from "@ai-sdk/react";
 import { useCallback, useMemo, useState, type FormEvent } from "react";
 import { DEFAULT_PLATFORM_MODEL_ID } from "@repo/shared-types";
 import { chatStreamPath, getBrainHttpBase } from "../lib/platform-endpoints.js";
-import { useByokStore } from "./useByokStore.js";
+import { useProviderStore } from "./useProviderStore.js";
 import type { ChatDebugEvent } from "../types/chat-debug.js";
 import { SessionStateService } from "../services/SessionStateService";
 
@@ -76,9 +76,9 @@ export function useChatCore(
     selectedModelId,
     lastResolvedConfig,
     resolveForChat,
-  } = useByokStore(runId);
+  } = useProviderStore(runId);
   const hasConnectedCredential = credentials.length > 0;
-  // Ready for chat if store is initialized (no longer requires connected BYOK)
+  // Ready for chat if store is initialized (no longer requires connected provider credentials)
   const isModelConfigReady = status === "ready";
   const activeProviderId =
     selectedProviderId ??
@@ -160,13 +160,13 @@ export function useChatCore(
       setError(null);
 
       // Resolve provider/model: use lastResolvedConfig if available,
-      // otherwise fallback to defaults for no-BYOK path
+      // otherwise fallback to defaults for no-provider-credential path
       let providerId = activeProviderId;
       let modelId = activeModelId;
       let credentialId = selectedCredentialId;
 
       if (hasConnectedCredential && (!lastResolvedConfig || !selectedCredentialId)) {
-        // Resolve when BYOK is connected and selection is incomplete
+        // Resolve when provider credentials are connected and selection is incomplete
         const resolvedConfig = await resolveForChat();
         if (resolvedConfig.credentialId.trim().length > 0) {
           credentialId = resolvedConfig.credentialId;
@@ -362,10 +362,10 @@ function parseJsonErrorMessage(rawMessage: string): string | null {
 
 function mapKnownChatErrorMessage(message: string): string | null {
   if (containsMissingDefaultKeyError(message)) {
-    return "No default provider key is configured. Connect a BYOK provider in Settings or set OPENROUTER_API_KEY, GROQ_API_KEY, or OPENAI_API_KEY for local fallback.";
+    return "No default provider key is configured. Connect a provider key in Settings or set OPENROUTER_API_KEY, GROQ_API_KEY, or OPENAI_API_KEY for local fallback.";
   }
   if (containsOpenRouterKeyLimitError(message)) {
-    return "OpenRouter key limit is exhausted ($0 total limit). Increase key limit in https://openrouter.ai/settings/keys or use a BYOK provider key.";
+    return "OpenRouter key limit is exhausted ($0 total limit). Increase key limit in https://openrouter.ai/settings/keys or use a different provider key.";
   }
   if (containsToolChoiceUnsupportedError(message)) {
     return "The selected default model does not support required tool-calling/structured planning. Choose another model or disable OpenRouter routing constraints.";

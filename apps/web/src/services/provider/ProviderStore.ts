@@ -1,34 +1,34 @@
 /**
- * BYOK Store - Centralized State Management
+ * Provider Store - Centralized State Management
  *
- * Single source of truth for BYOK provider credentials, preferences, and resolution.
- * Provides typed interface for all BYOK operations with built-in error handling and caching.
+ * Single source of truth for provider credentials, preferences, and resolution.
+ * Provides typed interface for all provider operations with built-in error handling and caching.
  *
  * Usage:
- *   const store = ByokStore.getInstance();
+ *   const store = ProviderStore.getInstance();
  *   await store.bootstrap();
  *   const { credentials, preferences } = store.getState();
  */
 
 import {
-  BYOKResolution,
-  BYOKCredential,
-  BYOKPreference,
+  BYOKResolution as ProviderResolution,
+  BYOKCredential as ProviderCredential,
+  BYOKPreference as ProviderPreference,
   ProviderRegistryEntry,
 } from "@repo/shared-types";
 import {
-  ByokApiClient,
+  ProviderApiClient,
   type ProviderModelOption,
-} from "../api/byokClient.js";
+} from "../api/providerClient.js";
 
 /**
  * Store state shape
  */
-export interface ByokStoreState {
+export interface ProviderStoreState {
   // Data
   catalog: ProviderRegistryEntry[];
-  credentials: BYOKCredential[];
-  preferences: BYOKPreference | null;
+  credentials: ProviderCredential[];
+  preferences: ProviderPreference | null;
   providerModels: Record<string, ProviderModelOption[]>;
 
   // Current selection
@@ -37,7 +37,7 @@ export interface ByokStoreState {
   selectedModelId: string | null;
 
   // Computed
-  lastResolvedConfig: BYOKResolution | null;
+  lastResolvedConfig: ProviderResolution | null;
 
   // Status tracking
   status: "idle" | "loading" | "ready" | "error";
@@ -46,7 +46,7 @@ export interface ByokStoreState {
   loadingModelsForProviderId: string | null;
 }
 
-interface ByokSelectionSnapshot {
+interface ProviderSelectionSnapshot {
   selectedProviderId: string | null;
   selectedCredentialId: string | null;
   selectedModelId: string | null;
@@ -72,23 +72,23 @@ export interface ValidateCredentialRequest {
  * API client contract for store operations.
  * Keeps store testable and decoupled from concrete client implementation.
  */
-export interface ByokApiClientContract {
+export interface ProviderApiClientContract {
   getCatalog(): Promise<ProviderRegistryEntry[]>;
   getProviderModels(providerId: string): Promise<ProviderModelOption[]>;
-  getCredentials(): Promise<BYOKCredential[]>;
-  getPreferences(): Promise<BYOKPreference>;
-  connectCredential(req: ConnectCredentialRequest): Promise<BYOKCredential>;
+  getCredentials(): Promise<ProviderCredential[]>;
+  getPreferences(): Promise<ProviderPreference>;
+  connectCredential(req: ConnectCredentialRequest): Promise<ProviderCredential>;
   disconnectCredential(credentialId: string): Promise<void>;
   validateCredential(
     credentialId: string,
     req: ValidateCredentialRequest
   ): Promise<{ valid: boolean; error?: string }>;
-  updatePreferences(req: Partial<BYOKPreference>): Promise<BYOKPreference>;
+  updatePreferences(req: Partial<ProviderPreference>): Promise<ProviderPreference>;
   resolveForChat(req: {
     providerId?: string;
     credentialId?: string;
     modelId?: string;
-  }): Promise<BYOKResolution>;
+  }): Promise<ProviderResolution>;
 }
 
 export interface SessionSelectionRequest {
@@ -100,20 +100,20 @@ export interface SessionSelectionRequest {
 /**
  * Store initialization options
  */
-export interface ByokStoreOptions {
-  apiClient?: ByokApiClientContract;
+export interface ProviderStoreOptions {
+  apiClient?: ProviderApiClientContract;
   enableLogging?: boolean;
 }
 
 /**
- * ByokStore - Manages all BYOK state and operations
+ * ProviderStore - Manages all provider state and operations
  */
-export class ByokStore {
-  private static instance: ByokStore;
-  private state: ByokStoreState;
+export class ProviderStore {
+  private static instance: ProviderStore;
+  private state: ProviderStoreState;
   private activeRunId: string | null = null;
-  private apiClient: ByokApiClientContract;
-  private listeners: Set<(state: ByokStoreState) => void> = new Set();
+  private apiClient: ProviderApiClientContract;
+  private listeners: Set<(state: ProviderStoreState) => void> = new Set();
   private inflight: Map<string, Promise<unknown>> = new Map();
   private bootstrapPromise: Promise<void> | null = null;
   private lastResolveSelectionKey: string | null = null;
@@ -121,7 +121,7 @@ export class ByokStore {
   private epoch = 0;
   private enableLogging: boolean;
 
-  private constructor(apiClient: ByokApiClientContract, enableLogging = false) {
+  private constructor(apiClient: ProviderApiClientContract, enableLogging = false) {
     this.apiClient = apiClient;
     this.enableLogging = enableLogging;
     this.state = {
@@ -143,15 +143,15 @@ export class ByokStore {
   /**
    * Get or create singleton instance
    */
-  static getInstance(options?: ByokStoreOptions): ByokStore {
-    if (!ByokStore.instance) {
-      const apiClient = options?.apiClient || new ByokApiClient();
-      ByokStore.instance = new ByokStore(
+  static getInstance(options?: ProviderStoreOptions): ProviderStore {
+    if (!ProviderStore.instance) {
+      const apiClient = options?.apiClient || new ProviderApiClient();
+      ProviderStore.instance = new ProviderStore(
         apiClient,
         options?.enableLogging ?? false
       );
     }
-    return ByokStore.instance;
+    return ProviderStore.instance;
   }
 
   /**
@@ -179,14 +179,14 @@ export class ByokStore {
   /**
    * Get current state
    */
-  getState(): ByokStoreState {
+  getState(): ProviderStoreState {
     return { ...this.state };
   }
 
   /**
    * Subscribe to state changes
    */
-  subscribe(listener: (state: ByokStoreState) => void): () => void {
+  subscribe(listener: (state: ProviderStoreState) => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   }
@@ -269,7 +269,7 @@ export class ByokStore {
         return;
       }
       const message =
-        error instanceof Error ? error.message : "Failed to bootstrap BYOK";
+        error instanceof Error ? error.message : "Failed to bootstrap provider state";
       this.setState({
         status: "error",
         error: message,
@@ -520,7 +520,7 @@ export class ByokStore {
    * Update workspace preferences
    */
   async updatePreferences(
-    partial: Partial<BYOKPreference>
+    partial: Partial<ProviderPreference>
   ): Promise<void> {
     const key = "preferences";
 
@@ -593,7 +593,7 @@ export class ByokStore {
    * Internal preferences update implementation
    */
   private async executeUpdatePreferences(
-    partial: Partial<BYOKPreference>
+    partial: Partial<ProviderPreference>
   ): Promise<void> {
     this.log("[updatePreferences] Starting", partial);
     const epoch = this.epoch;
@@ -670,7 +670,7 @@ export class ByokStore {
    *
    * Returns the effective provider config based on selection and preferences.
    */
-  async resolveForChat(): Promise<BYOKResolution> {
+  async resolveForChat(): Promise<ProviderResolution> {
     const selection = this.deriveSelectionSnapshot({
       catalog: this.state.catalog,
       credentials: this.state.credentials,
@@ -719,7 +719,7 @@ export class ByokStore {
    * Internal resolve implementation
    */
   private async executeResolve(
-    selection: ByokSelectionSnapshot,
+    selection: ProviderSelectionSnapshot,
     selectionKey: string,
     epoch: number
   ): Promise<void> {
@@ -810,7 +810,7 @@ export class ByokStore {
   /**
    * Internal state setter with notification
    */
-  private setState(partial: Partial<ByokStoreState>): void {
+  private setState(partial: Partial<ProviderStoreState>): void {
     const shouldInvalidateResolution = this.shouldInvalidateResolution(partial);
     const nextPartial =
       shouldInvalidateResolution && partial.lastResolvedConfig === undefined
@@ -836,11 +836,11 @@ export class ByokStore {
    */
   private log(message: string, context?: unknown): void {
     if (this.enableLogging) {
-      console.log(`[ByokStore] ${message}`, context);
+      console.log(`[ProviderStore] ${message}`, context);
     }
   }
 
-  private shouldInvalidateResolution(partial: Partial<ByokStoreState>): boolean {
+  private shouldInvalidateResolution(partial: Partial<ProviderStoreState>): boolean {
     return (
       partial.catalog !== undefined ||
       partial.credentials !== undefined ||
@@ -852,7 +852,7 @@ export class ByokStore {
     );
   }
 
-  private buildResolveSelectionKey(selection: ByokSelectionSnapshot): string {
+  private buildResolveSelectionKey(selection: ProviderSelectionSnapshot): string {
     return [
       selection.selectedProviderId ?? "none",
       selection.selectedCredentialId ?? "none",
@@ -862,13 +862,13 @@ export class ByokStore {
 
   private deriveSelectionSnapshot(input: {
     catalog: ProviderRegistryEntry[];
-    credentials: BYOKCredential[];
-    preferences: BYOKPreference | null;
+    credentials: ProviderCredential[];
+    preferences: ProviderPreference | null;
     providerModels: Record<string, ProviderModelOption[]>;
     selectedProviderId: string | null;
     selectedCredentialId: string | null;
     selectedModelId: string | null;
-  }): ByokSelectionSnapshot {
+  }): ProviderSelectionSnapshot {
     const {
       catalog,
       credentials,

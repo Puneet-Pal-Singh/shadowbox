@@ -1,5 +1,5 @@
 /**
- * ByokStore Tests
+ * ProviderStore Tests
  *
  * Tests for state management, actions, and synchronization.
  */
@@ -12,21 +12,21 @@ import type {
   ProviderRegistryEntry,
 } from "@repo/shared-types";
 import {
-  ByokStore,
+  ProviderStore,
   ConnectCredentialRequest,
-  ByokApiClientContract,
-} from "./ByokStore.js";
+  ProviderApiClientContract,
+} from "./ProviderStore.js";
 
-describe("ByokStore", () => {
-  let store: ByokStore;
-  let mockApiClient: ByokApiClientContract;
+describe("ProviderStore", () => {
+  let store: ProviderStore;
+  let mockApiClient: ProviderApiClientContract;
 
   const credential1Id = "550e8400-e29b-41d4-a716-446655440000";
   const credential2Id = "550e8400-e29b-41d4-a716-446655440001";
 
   beforeEach(() => {
     // Reset singleton between tests
-    (ByokStore as unknown as { instance?: ByokStore }).instance = undefined;
+    (ProviderStore as unknown as { instance?: ProviderStore }).instance = undefined;
 
     const catalog: ProviderRegistryEntry[] = [
       {
@@ -143,9 +143,9 @@ describe("ByokStore", () => {
           return resolvedConfig;
         }
       ),
-    } satisfies ByokApiClientContract;
+    } satisfies ProviderApiClientContract;
 
-    store = ByokStore.getInstance({ apiClient: mockApiClient });
+    store = ProviderStore.getInstance({ apiClient: mockApiClient });
   });
 
   describe("initialization", () => {
@@ -158,8 +158,8 @@ describe("ByokStore", () => {
     });
 
     it("uses singleton pattern", () => {
-      const store1 = ByokStore.getInstance({ apiClient: mockApiClient });
-      const store2 = ByokStore.getInstance({ apiClient: mockApiClient });
+      const store1 = ProviderStore.getInstance({ apiClient: mockApiClient });
+      const store2 = ProviderStore.getInstance({ apiClient: mockApiClient });
       expect(store1).toBe(store2);
     });
   });
