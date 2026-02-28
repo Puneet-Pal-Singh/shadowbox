@@ -260,6 +260,18 @@ export class RunEngine implements IRunEngine {
 
       const bypassPlanning = this.shouldBypassPlanning(input.prompt);
       if (bypassPlanning) {
+        const deterministicReply = this.getDeterministicConversationalReply(
+          input.prompt,
+        );
+        if (deterministicReply) {
+          console.log(
+            `[run/engine] Deterministic conversational reply for run ${runId}`,
+          );
+          return await this.completeRunWithAssistantMessage(
+            run,
+            deterministicReply,
+          );
+        }
         console.log(`[run/engine] Conversational bypass for run ${runId}`);
         return await this.executeConversationalTurn(run, input, messages);
       }
@@ -628,6 +640,18 @@ export class RunEngine implements IRunEngine {
       `[run/engine] Routing decision: bypass=${decision.bypass}, intent=${decision.intent}, reason="${decision.reason}"`,
     );
     return decision.bypass;
+  }
+
+  private getDeterministicConversationalReply(prompt: string): string | null {
+    const normalized = this.normalizeConversationalPrompt(prompt);
+    if (/^(hey|hi|hello|howdy|greetings)[!.?]*$/.test(normalized)) {
+      return "Hey! I'm ready to help with this repo. Tell me what you want to inspect or change.";
+    }
+    return null;
+  }
+
+  private normalizeConversationalPrompt(prompt: string): string {
+    return prompt.toLowerCase().replace(/\s+/g, " ").trim();
   }
 
   private async synthesizeResult(
