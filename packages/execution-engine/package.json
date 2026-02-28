@@ -46,6 +46,10 @@
       "types": "./dist/runtime/planner/index.d.ts",
       "import": "./dist/runtime/planner/index.js"
     },
+    "./runtime/scale": {
+      "types": "./dist/runtime/scale/index.d.ts",
+      "import": "./dist/runtime/scale/index.js"
+    },
     "./runtime/run": {
       "types": "./dist/runtime/run/index.d.ts",
       "import": "./dist/runtime/run/index.js"
