@@ -152,6 +152,11 @@ GIT: MUST have the git action (commit, push, status, etc)
 { "type": "git", "description": "Commit changes", "input": { "action": "commit", "message": "feat: add new feature" } }
 ✗ WRONG: { "input": { "action": "commit changes" } }
 
+IMPORTANT TOOL ROUTING:
+- NEVER use shell tasks for git commands (git ...)
+- Use task type "git" for repository status/diff/branch/commit actions
+- Use analyze tasks for file inspection and directory listing
+
 REVIEW: Only LLM task, no input needed - just use description
 
 VALIDATION RULES:
@@ -252,6 +257,28 @@ VALIDATION RULES:
     const command =
       extractStructuredField(task.input, "command") ?? task.input.description;
     validateShellCommand(command);
+
+    const normalizedCommand = command.trim();
+    if (/^git(\s|$)/i.test(normalizedCommand)) {
+      return this.buildFailureResult(
+        task.id,
+        "Git shell commands are not allowed in shell tasks. Use a git task action instead.",
+      );
+    }
+
+    if (/^ls(\s|$)/i.test(normalizedCommand)) {
+      const path = extractDirectoryFromLsCommand(normalizedCommand);
+      const listResult = await this.executionService.execute(
+        "filesystem",
+        "list_files",
+        { path },
+      );
+      const failure = extractExecutionFailure(listResult);
+      if (failure) {
+        return this.buildFailureResult(task.id, failure);
+      }
+      return this.buildSuccessResult(task.id, formatExecutionResult(listResult));
+    }
 
     const result = await this.executionService.execute("node", "run", {
       command,
@@ -383,6 +410,18 @@ function normalizeTaskPath(input: string): string {
 
 function looksLikeDirectoryError(message: string): boolean {
   return /is a directory/i.test(message);
+}
+
+function extractDirectoryFromLsCommand(command: string): string {
+  const segments = command.split(/\s+/).slice(1);
+  for (let i = segments.length - 1; i >= 0; i -= 1) {
+    const segment = segments[i];
+    if (!segment || segment.startsWith("-")) {
+      continue;
+    }
+    return segment;
+  }
+  return ".";
 }
 
 export class UnsupportedTaskTypeError extends Error {

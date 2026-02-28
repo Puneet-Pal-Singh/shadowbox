@@ -93,6 +93,57 @@ describe("CodingAgent task-phase model selection", () => {
       path: "README.md",
     });
   });
+
+  it("routes ls shell commands to filesystem list_files", async () => {
+    const llmGateway = createLLMGatewayMock();
+    const execute = vi.fn(async () => ({ success: true, output: "README.md" }));
+    const executionService = { execute } as unknown as RuntimeExecutionService;
+    const agent = new CodingAgent(llmGateway, executionService);
+
+    const task = {
+      id: "task-shell-ls",
+      runId: "run-1",
+      type: "shell",
+      input: { description: "list files", command: "ls -la src" },
+    } as unknown as Task;
+
+    const context: ExecutionContext = {
+      runId: "run-1",
+      sessionId: "session-1",
+      dependencies: [],
+    };
+
+    const result = await agent.executeTask(task, context);
+    expect(result.status).toBe("DONE");
+    expect(execute).toHaveBeenCalledWith("filesystem", "list_files", {
+      path: "src",
+    });
+  });
+
+  it("fails fast on git shell commands", async () => {
+    const llmGateway = createLLMGatewayMock();
+    const execute = vi.fn(async () => "ok");
+    const executionService = { execute } as unknown as RuntimeExecutionService;
+    const agent = new CodingAgent(llmGateway, executionService);
+
+    const task = {
+      id: "task-shell-git",
+      runId: "run-1",
+      type: "shell",
+      input: { description: "inspect repo", command: "git status" },
+    } as unknown as Task;
+
+    const context: ExecutionContext = {
+      runId: "run-1",
+      sessionId: "session-1",
+      dependencies: [],
+    };
+
+    const result = await agent.executeTask(task, context);
+    expect(result.status).toBe("FAILED");
+    expect(result.error?.message).toContain("Git shell commands are not allowed");
+    expect(execute).not.toHaveBeenCalled();
+  });
 });
 
 function createLLMGatewayMock(): ILLMGateway {
