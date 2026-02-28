@@ -404,6 +404,16 @@ function findCommon(arr1: string[], arr2: string[]): string[] {
 2.  **Update Plans**: If implementation details change, update the `.md` file in `docs/plans/` first.
 3.  **Safety Check**: Never commit `.dev.vars`, `.env`, or API keys.
 
+### Rebase and Merge Policy
+
+Use rebase as a local cleanup tool, not as a shared-history sync strategy.
+
+1. Rebase is allowed only on private in-progress branches (single owner, pre-first-PR cleanup).
+2. Do not rebase branches already pushed and referenced by PR/review/other agents.
+3. Never rebase integration branches (`main`, `dev`); preserve history with merge commits.
+4. On shared branches, sync with `git pull --ff-only` by default.
+5. For shared/reviewed branch conflict resolution, prefer merge over history rewriting.
+
 ### Task Orchestration (Linear + MCP)
 
 Use Linear as the operational source of truth for execution sequencing and multi-agent coordination.
@@ -455,7 +465,7 @@ When multiple agents work in the same repository:
 - **Do NOT create/apply/drop `git stash`** entries unless explicitly requested
 - **Do NOT switch branches** unless explicitly requested
 - **Do NOT create/remove/modify `git worktree`** checkouts unless explicitly requested
-- When the user says "push", you may `git pull --rebase` to integrate latest changes
+- When the user says "push", sync shared branches with `git pull --ff-only`
 - When the user says "commit", scope to your changes only
 - When you see unrecognized files, keep going; focus on your changes
 
@@ -468,7 +478,8 @@ When multiple agents work in the same repository:
 ### Conflict Resolution
 
 - If there are local changes or unpushed commits when starting a review, stop and alert the user
-- Prefer **rebase** when commits are clean; **squash** when history is messy
+- For shared/reviewed branches, prefer **merge** (not rebase) to preserve traceability
+- Rebase is only for private local cleanup before first PR
 - Focus reports on your edits; avoid guard-rail disclaimers unless truly blocked
 
 ---
