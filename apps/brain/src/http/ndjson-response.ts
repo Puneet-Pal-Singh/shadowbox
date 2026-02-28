@@ -7,6 +7,7 @@
 
 import {
   type ChatResponseEventUnion,
+  parseChatResponseEventContract,
   serializeChatResponseEvent,
 } from "@repo/shared-types";
 import { getCorsHeaders } from "../lib/cors";
@@ -32,13 +33,22 @@ export async function ndjsonResponse(
   const transformStream = new TransformStream<ChatResponseEventUnion, Uint8Array>(
     {
       transform(event, controller) {
-        const serialized = serializeChatResponseEvent(event);
-        const line = `${serialized}\n`;
-        const encoded = new TextEncoder().encode(line);
-        controller.enqueue(encoded);
-        console.log(
-          `[chat/ndjson] Emitted event: ${event.type} for run ${event.runId}`,
-        );
+        try {
+          const validatedEvent = assertValidChatResponseEvent(event);
+          const serialized = serializeChatResponseEvent(validatedEvent);
+          const line = `${serialized}\n`;
+          const encoded = new TextEncoder().encode(line);
+          controller.enqueue(encoded);
+          console.log(
+            `[chat/ndjson] Emitted event: ${validatedEvent.type} for run ${validatedEvent.runId}`,
+          );
+        } catch (error) {
+          console.error(
+            `[chat/ndjson] Contract validation failed for run ${runId}:`,
+            error,
+          );
+          controller.error(toStreamError(error));
+        }
       },
     },
   );
@@ -76,10 +86,19 @@ async function pipeEventsToStream(
       await writer.write(event);
     }
   } catch (error) {
+    if (isWritableStreamClosedError(error)) {
+      return;
+    }
     console.error("[chat/ndjson] Error during event stream:", error);
     throw error;
   } finally {
-    await writer.close();
+    try {
+      await writer.close();
+    } catch (error) {
+      if (!isWritableStreamClosedError(error)) {
+        throw error;
+      }
+    }
   }
 }
 
@@ -111,15 +130,7 @@ export async function* textResponseToNdjsonEvents(
       if (done) {
         // Emit any remaining buffered text
         if (buffer.length > 0) {
-          yield {
-            type: "text-delta",
-            runId,
-            timestamp: new Date().toISOString(),
-            payload: {
-              content: buffer,
-              index: charIndex,
-            },
-          } as unknown as ChatResponseEventUnion;
+          yield createValidatedTextDeltaEvent(runId, buffer, charIndex);
         }
         break;
       }
@@ -132,18 +143,43 @@ export async function* textResponseToNdjsonEvents(
         const content = buffer.substring(0, 10);
         buffer = buffer.substring(10);
 
-        yield {
-          type: "text-delta",
-          runId,
-          timestamp: new Date().toISOString(),
-          payload: {
-            content,
-            index: charIndex++,
-          },
-        } as unknown as ChatResponseEventUnion;
+        yield createValidatedTextDeltaEvent(runId, content, charIndex++);
       }
     }
   } finally {
     reader.releaseLock();
   }
+}
+
+function createValidatedTextDeltaEvent(
+  runId: string,
+  content: string,
+  index: number,
+): ChatResponseEventUnion {
+  return assertValidChatResponseEvent({
+    type: "text-delta",
+    runId,
+    timestamp: new Date().toISOString(),
+    payload: {
+      content,
+      index,
+    },
+  });
+}
+
+function assertValidChatResponseEvent(
+  event: unknown,
+): ChatResponseEventUnion {
+  const parsed = parseChatResponseEventContract(event);
+  return parsed as ChatResponseEventUnion;
+}
+
+function toStreamError(error: unknown): Error {
+  return error instanceof Error
+    ? error
+    : new Error("Failed to validate chat response event contract");
+}
+
+function isWritableStreamClosedError(error: unknown): boolean {
+  return error instanceof TypeError && error.message.includes("Invalid state");
 }
