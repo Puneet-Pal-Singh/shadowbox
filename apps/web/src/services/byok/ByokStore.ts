@@ -91,6 +91,12 @@ export interface ByokApiClientContract {
   }): Promise<BYOKResolution>;
 }
 
+export interface SessionSelectionRequest {
+  providerId: string;
+  credentialId: string;
+  modelId?: string;
+}
+
 /**
  * Store initialization options
  */
@@ -642,6 +648,21 @@ export class ByokStore {
       selectedCredentialId: credentialId,
       selectedModelId: modelId || null,
     });
+  }
+
+  /**
+   * Apply session selection through a single authoritative write path.
+   * Updates selection and resolves runtime config in one operation.
+   */
+  async applySessionSelection(
+    request: SessionSelectionRequest
+  ): Promise<BYOKResolution> {
+    this.setSelection(
+      request.providerId,
+      request.credentialId,
+      request.modelId
+    );
+    return this.resolveForChat();
   }
 
   /**

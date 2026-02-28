@@ -19,6 +19,7 @@ import {
   ByokStore,
   ByokStoreState,
   ConnectCredentialRequest,
+  SessionSelectionRequest,
 } from "../services/byok/ByokStore.js";
 import { BYOKPreference, BYOKResolution } from "@repo/shared-types";
 import type { ProviderModelOption } from "../services/api/byokClient.js";
@@ -47,6 +48,9 @@ type UseByokStoreResult = ByokStoreState & {
     credentialId: string,
     modelId?: string
   ) => void;
+  applySessionSelection: (
+    request: SessionSelectionRequest,
+  ) => Promise<BYOKResolution>;
   resolveForChat: () => Promise<BYOKResolution>;
   clearError: () => void;
   reset: () => void;
@@ -110,6 +114,10 @@ export function useByokStore(
       store.setSelection(providerId, credentialId, modelId),
     [store]
   );
+  const applySessionSelection = useCallback(
+    (request: SessionSelectionRequest) => store.applySessionSelection(request),
+    [store],
+  );
   const resolveForChat = useCallback(
     () => store.resolveForChat(),
     [store]
@@ -126,6 +134,7 @@ export function useByokStore(
     loadProviderModels,
     updatePreferences,
     setSelection,
+    applySessionSelection,
     resolveForChat,
     clearError,
     reset,
