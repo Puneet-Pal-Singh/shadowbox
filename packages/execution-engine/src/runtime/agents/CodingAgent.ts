@@ -148,13 +148,14 @@ SHELL: MUST have the exact shell command
 { "type": "shell", "description": "Check Node version", "input": { "command": "node --version" } }
 ✗ WRONG: { "input": { "command": "Check if node is installed" } }
 
-GIT: MUST have the git action (commit, push, status, etc)
-{ "type": "git", "description": "Commit changes", "input": { "action": "commit", "message": "feat: add new feature" } }
+GIT: MUST have the git action (git_commit, git_push, git_status, git_clone, git_branch_list, etc)
+{ "type": "git", "description": "Commit changes", "input": { "action": "git_commit", "message": "feat: add new feature" } }
 ✗ WRONG: { "input": { "action": "commit changes" } }
 
 IMPORTANT TOOL ROUTING:
 - NEVER use shell tasks for git commands (git ...)
 - Use task type "git" for repository status/diff/branch/commit actions
+- Valid git actions: status, diff, stage, unstage, commit, push, git_clone, git_diff, git_commit, git_push, git_pull, git_fetch, git_branch_create, git_branch_switch, git_branch_list, git_stage, git_status, git_config
 - Use analyze tasks for file inspection and directory listing
 
 REVIEW: Only LLM task, no input needed - just use description
@@ -164,7 +165,7 @@ VALIDATION RULES:
 2. ANALYZE tasks: input.path must be a real file path (max 500 chars)
 3. EDIT tasks: input.path AND input.content must both be provided
 4. TEST/SHELL: input.command must be an executable command (max 500 chars)
-5. GIT: input.action must be a git action like commit, push, pull, status
+5. GIT: input.action must be a valid git action (git_commit, git_push, git_status, git_clone, etc)
 6. NEVER use task description or placeholders in input fields
 7. If the user only asks to inspect/read/check, NEVER create edit tasks
 8. Only create edit tasks when the user explicitly asks to modify files
@@ -357,22 +358,24 @@ VALIDATION RULES:
 }
 
 const ALLOWED_GIT_ACTIONS = [
-  "commit",
-  "push",
-  "pull",
   "status",
   "diff",
-  "log",
-  "add",
-  "checkout",
-  "branch",
-  "merge",
-  "rebase",
-  "stash",
-  "clone",
-  "fetch",
-  "reset",
-  "tag",
+  "stage",
+  "unstage",
+  "commit",
+  "push",
+  "git_clone",
+  "git_diff",
+  "git_commit",
+  "git_push",
+  "git_pull",
+  "git_fetch",
+  "git_branch_create",
+  "git_branch_switch",
+  "git_branch_list",
+  "git_stage",
+  "git_status",
+  "git_config",
 ] as const;
 
 function validateGitAction(action: string): void {
