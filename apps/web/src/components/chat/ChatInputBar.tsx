@@ -171,7 +171,7 @@ export function ChatInputBar({
                   p-1.5 rounded-full transition-all
                   ${
                     isLoading
-                      ? "bg-red-500 text-white hover:bg-red-400"
+                      ? "bg-white text-black hover:bg-zinc-200"
                       : input.trim()
                       ? "bg-white text-black hover:bg-zinc-200"
                       : "bg-zinc-800 text-zinc-600 cursor-not-allowed"
