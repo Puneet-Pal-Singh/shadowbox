@@ -28,6 +28,7 @@ import type {
   ModelsListResponse,
 } from "../../schemas/provider";
 import type { DurableProviderStore } from "./DurableProviderStore";
+import { CloudCredentialVault } from "./CloudCredentialVault";
 import { ProviderCredentialService } from "./ProviderCredentialService";
 import { ProviderCatalogService } from "./ProviderCatalogService";
 import { ProviderConnectionService } from "./ProviderConnectionService";
@@ -45,7 +46,8 @@ export class ProviderConfigService {
 
   constructor(_env: Env, durableStore: DurableProviderStore) {
     this.durableStore = durableStore;
-    this.credentialService = new ProviderCredentialService(_env, durableStore);
+    const credentialVault = new CloudCredentialVault(durableStore);
+    this.credentialService = new ProviderCredentialService(_env, credentialVault);
     this.catalogService = new ProviderCatalogService();
     this.connectionService = new ProviderConnectionService(
       this.credentialService,
