@@ -69,7 +69,8 @@ Output a JSON object with this exact structure:
       "type": "analyze|edit|test|review|git|shell",
       "description": "What this task does",
       "dependsOn": [],
-      "expectedOutput": "What should be produced"
+      "expectedOutput": "What should be produced",
+      "input": { ... task-specific fields ... }
     }
   ],
   "metadata": {
@@ -78,12 +79,35 @@ Output a JSON object with this exact structure:
   }
 }
 
+IMPORTANT: Every task MUST have an "input" object with task-specific fields:
+
+ANALYZE: { "path": "relative/file/path.ts" }
+  Example: { "type": "analyze", "description": "Read main file", "input": { "path": "src/main.ts" } }
+
+EDIT: { "path": "relative/file/path.ts", "content": "new file content" }
+  Example: { "type": "edit", "description": "Update config", "input": { "path": "config.json", "content": "{...}" } }
+
+SHELL: { "command": "npm test" }
+  Example: { "type": "shell", "description": "Run tests", "input": { "command": "npm test" } }
+
+TEST: { "command": "npm test src/feature.test.ts" }
+  Example: { "type": "test", "description": "Test feature", "input": { "command": "npm test src/feature.test.ts" } }
+
+GIT: { "action": "git_status|git_commit|git_push|git_clone|git_branch_list|etc" }
+  Valid git actions: status, diff, stage, unstage, commit, push, git_clone, git_diff, git_commit, git_push, git_pull, git_fetch, git_branch_create, git_branch_switch, git_branch_list, git_stage, git_status, git_config
+  Example: { "type": "git", "description": "Commit changes", "input": { "action": "git_commit", "message": "feat: add feature" } }
+
+REVIEW: No input needed (LLM-only task)
+  Example: { "type": "review", "description": "Review the changes" }
+
 Rules:
 1. Task IDs should be simple strings like "1", "2", "3"
 2. Use dependsOn to specify dependencies (e.g., ["1"] means depends on task 1)
-3. Types: analyze (understand code), edit (modify files), test (run tests), review (check work), git (git operations), shell (commands)
-4. Tasks should be atomic and focused
-5. Keep tasks under 20 total`;
+3. EVERY non-review task MUST have an "input" object with concrete values (not descriptions)
+4. For git tasks, action must be one of the valid git actions
+5. Tasks should be atomic and focused
+6. Keep tasks under 20 total
+7. Never put descriptions or placeholders in the "input" field`;
   }
 
   private formatUserPrompt(
