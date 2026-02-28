@@ -63,6 +63,14 @@ describe("ChatInput", () => {
         return [];
       }),
       setSelection: vi.fn(),
+      applySessionSelection: vi.fn(async () => ({
+        providerId: "openai",
+        credentialId,
+        modelId: "gpt-4",
+        resolvedAt: "workspace_preference" as const,
+        resolvedAtTime: new Date().toISOString(),
+        fallbackUsed: false,
+      })),
       resolveForChat: vi.fn(async () => ({
         providerId: "openai",
         credentialId,

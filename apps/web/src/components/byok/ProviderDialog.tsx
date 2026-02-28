@@ -53,8 +53,7 @@ export function ProviderDialog({
     validateCredential,
     loadProviderModels,
     updatePreferences,
-    setSelection,
-    resolveForChat,
+    applySessionSelection,
   } = useByokStore();
 
   const [activeTab, setActiveTab] = useState<
@@ -153,10 +152,12 @@ export function ProviderDialog({
       modelId ??
       providerModels[providerId]?.[0]?.id ??
       catalog.find((entry) => entry.providerId === providerId)?.defaultModelId;
-    setSelection(providerId, credentialId, resolvedModelId);
-
     try {
-      await resolveForChat();
+      await applySessionSelection({
+        providerId,
+        credentialId,
+        modelId: resolvedModelId,
+      });
     } catch {
       // Error shown in UI
     }
@@ -474,14 +475,11 @@ function PreferencesTab({
   preferences: BYOKPreference | null;
   onUpdate: (partial: Partial<BYOKPreference>) => Promise<void>;
 }): React.ReactElement {
-  const [fallbackMode, setFallbackMode] = useState<"strict" | "allow_fallback">(
-    preferences?.fallbackMode || "strict"
-  );
+  const fallbackMode = preferences?.fallbackMode || "strict";
 
   const handleFallbackChange = async (
     mode: "strict" | "allow_fallback"
   ) => {
-    setFallbackMode(mode);
     await onUpdate({ fallbackMode: mode });
   };
 

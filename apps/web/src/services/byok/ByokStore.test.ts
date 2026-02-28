@@ -274,6 +274,22 @@ describe("ByokStore", () => {
       expect(state.selectedCredentialId).toBe(credential1Id);
       expect(state.selectedModelId).toBe("gpt-4");
     });
+
+    it("applies session selection through single store-owned path", async () => {
+      await store.bootstrap();
+
+      const resolved = await store.applySessionSelection({
+        providerId: "openai",
+        credentialId: credential1Id,
+        modelId: "gpt-4",
+      });
+
+      const state = store.getState();
+      expect(state.selectedProviderId).toBe("openai");
+      expect(state.selectedCredentialId).toBe(credential1Id);
+      expect(state.lastResolvedConfig).toEqual(resolved);
+      expect(mockApiClient.resolveForChat).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe("resolveForChat", () => {
@@ -322,6 +338,39 @@ describe("ByokStore", () => {
       expect(config.providerId).toBe("openrouter");
       expect(config.fallbackUsed).toBe(true);
       expect(mockApiClient.resolveForChat).toHaveBeenCalledWith({});
+    });
+  });
+
+  describe("state ownership integration", () => {
+    it("keeps selection consistent across connect, preference update, and disconnect", async () => {
+      await store.bootstrap();
+
+      const connectReq: ConnectCredentialRequest = {
+        providerId: "openai",
+        secret: "sk-test",
+      };
+      await store.connectCredential(connectReq);
+
+      vi.mocked(mockApiClient.updatePreferences).mockResolvedValueOnce({
+        userId: "user-1",
+        workspaceId: "ws-1",
+        defaultProviderId: "openai",
+        defaultCredentialId: credential2Id,
+        defaultModelId: "gpt-4",
+        fallbackMode: "allow_fallback",
+        fallbackChain: [],
+        updatedAt: new Date().toISOString(),
+      });
+      await store.updatePreferences({ fallbackMode: "allow_fallback" });
+
+      await store.disconnectCredential(credential1Id);
+
+      const state = store.getState();
+      expect(state.preferences?.fallbackMode).toBe("allow_fallback");
+      expect(state.credentials).toHaveLength(1);
+      expect(state.credentials[0]?.credentialId).toBe(credential2Id);
+      expect(state.selectedCredentialId).toBe(credential2Id);
+      expect(state.selectedProviderId).toBe("openai");
     });
   });
 
