@@ -1,12 +1,14 @@
-import { useRef, useEffect } from "react";
+import { useRef, useEffect, useState } from "react";
 import { ChatMessage } from "./ChatMessage";
 import { ChatInputBar } from "./ChatInputBar";
 import { ExploredFilesSummary } from "./ExploredFilesSummary";
 import { ChatBranchSelector } from "./ChatBranchSelector";
+import { ProviderDialog } from "../byok/ProviderDialog";
 import type { Message } from "@ai-sdk/react";
 import type { ProviderId } from "../../types/provider";
 import type { ChatDebugEvent } from "../../types/chat-debug.js";
 import { useRunSummary } from "../../hooks/useRunSummary.js";
+import { getProviderRecoveryAdvice } from "../../lib/provider-recovery";
 
 interface ChatInterfaceProps {
   chatProps: {
@@ -55,6 +57,7 @@ export function ChatInterface({
   const { summary } = useRunSummary(runId, isLoading);
   const showDebugPanel =
     import.meta.env.VITE_ENABLE_CHAT_DEBUG_PANEL === "true";
+  const [showProviderDialog, setShowProviderDialog] = useState(false);
 
   const handleInputChangeWrapper = (value: string) => {
     // Create a synthetic event to match the expected interface
@@ -63,6 +66,8 @@ export function ChatInterface({
     } as React.ChangeEvent<HTMLTextAreaElement>;
     handleInputChange(syntheticEvent);
   };
+
+  const recoveryAdvice = getProviderRecoveryAdvice(error);
 
   return (
     <div className="flex flex-col h-full bg-black">
@@ -80,8 +85,16 @@ export function ChatInterface({
           )}
 
           {error && (
-            <div className="px-4 py-3 rounded border border-red-500/40 bg-red-950/30 text-red-200 text-sm">
-              {error}
+            <div className="px-4 py-3 rounded border border-red-500/40 bg-red-950/30 text-red-200 text-sm space-y-2">
+              <p>{recoveryAdvice.message}</p>
+              <p className="text-red-100/80 text-xs">{recoveryAdvice.remediation}</p>
+              <button
+                type="button"
+                onClick={() => setShowProviderDialog(true)}
+                className="text-xs px-2 py-1 rounded border border-red-300/40 hover:bg-red-900/40 transition"
+              >
+                {recoveryAdvice.actionLabel}
+              </button>
             </div>
           )}
 
@@ -157,6 +170,11 @@ export function ChatInterface({
           </div>
         </div>
       </div>
+      <ProviderDialog
+        isOpen={showProviderDialog}
+        onClose={() => setShowProviderDialog(false)}
+        mode="composer"
+      />
     </div>
   );
 }

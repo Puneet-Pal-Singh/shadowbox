@@ -144,8 +144,9 @@ describe("ProviderDialog", () => {
       render(<ProviderDialog isOpen={true} onClose={vi.fn()} />);
 
       expect(
-        screen.getByText(/No credentials connected/)
+        screen.getByText(/No provider keys connected yet/)
       ).toBeInTheDocument();
+      expect(screen.getByText("Add Provider Key")).toBeInTheDocument();
     });
 
     it("calls disconnectCredential when remove clicked", async () => {

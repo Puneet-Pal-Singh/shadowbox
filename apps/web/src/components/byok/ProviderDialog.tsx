@@ -19,6 +19,7 @@ import {
   ProviderRegistryEntry,
 } from "@repo/shared-types";
 import { type ProviderModelOption } from "../../services/api/byokClient.js";
+import { getProviderRecoveryAdvice } from "../../lib/provider-recovery";
 
 /**
  * Provider Dialog Props
@@ -169,6 +170,7 @@ export function ProviderDialog({
   const isSelectedProviderModelLoading =
     loadingModelsForProviderId !== null &&
     loadingModelsForProviderId === selectedProviderId;
+  const statusRecovery = getProviderRecoveryAdvice(error);
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
@@ -217,8 +219,9 @@ export function ProviderDialog({
         {/* Content */}
         <div className="flex-1 overflow-auto">
           {status === "error" && error && (
-            <div className="bg-red-50 border-b border-red-200 px-6 py-3 text-red-700 text-sm">
-              {error}
+            <div className="bg-red-50 border-b border-red-200 px-6 py-3 text-red-700 text-sm space-y-1">
+              <p>{statusRecovery.message}</p>
+              <p className="text-xs text-red-600">{statusRecovery.remediation}</p>
             </div>
           )}
 
@@ -228,6 +231,7 @@ export function ProviderDialog({
               onDisconnect={disconnectCredential}
               onValidate={handleValidate}
               validatingId={validatingCredentialId}
+              onOpenAvailableTab={() => setActiveTab("available")}
             />
           )}
 
@@ -308,18 +312,29 @@ function ConnectedTab({
   onDisconnect,
   onValidate,
   validatingId,
+  onOpenAvailableTab,
 }: {
   credentials: BYOKCredential[];
   onDisconnect: (id: string) => Promise<void>;
   onValidate: (id: string, mode: "format" | "live") => Promise<void>;
   validatingId: string | null;
+  onOpenAvailableTab: () => void;
 }): React.ReactElement {
   return (
     <div className="p-6">
       {credentials.length === 0 ? (
-        <p className="text-gray-500 text-center py-8">
-          No credentials connected. Go to "Available" to add one.
-        </p>
+        <div className="text-center py-8 space-y-3">
+          <p className="text-gray-500">
+            No provider keys connected yet.
+          </p>
+          <button
+            type="button"
+            onClick={onOpenAvailableTab}
+            className="text-sm px-3 py-2 rounded bg-blue-600 text-white hover:bg-blue-700 transition"
+          >
+            Add Provider Key
+          </button>
+        </div>
       ) : (
         <div className="space-y-4">
           {credentials.map((cred) => (
@@ -403,10 +418,17 @@ function AvailableTab({
   onLabelChange: (v: string) => void;
   onConnect: (e: React.FormEvent) => Promise<void>;
 }): React.ReactElement {
+  const connectErrorAdvice = getProviderRecoveryAdvice(error);
+
   return (
     <div className="p-6">
       <form onSubmit={onConnect} className="space-y-4 max-w-md">
-        {error && <div className="bg-red-50 border border-red-200 rounded p-3 text-red-700 text-sm">{error}</div>}
+        {error && (
+          <div className="bg-red-50 border border-red-200 rounded p-3 text-red-700 text-sm space-y-1">
+            <p>{connectErrorAdvice.message}</p>
+            <p className="text-xs text-red-600">{connectErrorAdvice.remediation}</p>
+          </div>
+        )}
         {success && <div className="bg-green-50 border border-green-200 rounded p-3 text-green-700 text-sm">{success}</div>}
 
         <div>
