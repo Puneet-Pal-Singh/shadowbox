@@ -33,6 +33,7 @@ describe("TaskScheduler", () => {
 
     expect(result.status).toBe("FAILED");
     expect(result.error?.message).toContain("Command not allowed");
+    expect(executor.execute).toHaveBeenCalledTimes(1);
 
     const persisted = await taskRepo.getById("1", "run-1");
     expect(persisted?.status).toBe("FAILED");

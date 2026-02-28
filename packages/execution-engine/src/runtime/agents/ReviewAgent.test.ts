@@ -7,7 +7,8 @@ import type { Task } from "../task";
 describe("ReviewAgent task-phase model selection", () => {
   it("passes model/provider overrides to analyze task LLM calls", async () => {
     const llmGateway = createLLMGatewayMock();
-    const executionService = createExecutionServiceMock("file contents");
+    const execute = vi.fn(async () => "file contents");
+    const executionService = { execute } as unknown as RuntimeExecutionService;
     const agent = new ReviewAgent(llmGateway, executionService);
 
     const task = {
@@ -28,6 +29,9 @@ describe("ReviewAgent task-phase model selection", () => {
     const result = await agent.executeTask(task, context);
 
     expect(result.status).toBe("DONE");
+    expect(execute).toHaveBeenCalledWith("filesystem", "read_file", {
+      path: "src/index.ts",
+    });
     expect(llmGateway.generateText).toHaveBeenCalledWith(
       expect.objectContaining({
         model: "gpt-4o-mini",
@@ -65,6 +69,36 @@ describe("ReviewAgent task-phase model selection", () => {
         providerId: "openai",
       }),
     );
+  });
+
+  it("returns FAILED when analyze file read fails", async () => {
+    const llmGateway = createLLMGatewayMock();
+    const executionService = {
+      execute: vi.fn(async () => ({
+        success: false,
+        error: "cat: src/missing.ts: No such file or directory",
+      })),
+    } as unknown as RuntimeExecutionService;
+    const agent = new ReviewAgent(llmGateway, executionService);
+
+    const task = {
+      id: "task-analyze-fail",
+      runId: "run-1",
+      type: "analyze",
+      input: { description: "src/missing.ts", path: "src/missing.ts" },
+    } as unknown as Task;
+
+    const context: ExecutionContext = {
+      runId: "run-1",
+      sessionId: "session-1",
+      dependencies: [],
+      modelId: "gpt-4o",
+      providerId: "openai",
+    };
+
+    const result = await agent.executeTask(task, context);
+    expect(result.status).toBe("FAILED");
+    expect(result.error?.message).toContain("No such file or directory");
   });
 });
 

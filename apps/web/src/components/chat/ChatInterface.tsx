@@ -6,13 +6,16 @@ import { ChatBranchSelector } from "./ChatBranchSelector";
 import type { Message } from "@ai-sdk/react";
 import type { ProviderId } from "../../types/provider";
 import type { ChatDebugEvent } from "../../types/chat-debug.js";
+import { useRunSummary } from "../../hooks/useRunSummary.js";
 
 interface ChatInterfaceProps {
   chatProps: {
     messages: Message[];
+    runId: string;
     input: string;
     handleInputChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
     handleSubmit: () => void;
+    stop: () => void;
     isLoading: boolean;
     error?: string | null;
     debugEvents?: ChatDebugEvent[];
@@ -30,9 +33,11 @@ export function ChatInterface({
 }: ChatInterfaceProps) {
   const {
     messages,
+    runId,
     input,
     handleInputChange,
     handleSubmit,
+    stop,
     isLoading,
     error,
     debugEvents = [],
@@ -47,8 +52,7 @@ export function ChatInterface({
     });
   }, [messages, isLoading]);
 
-  // Extract file references from messages (mock implementation)
-  const fileReferences = ["README.md", "package.json", "tsconfig.json"];
+  const { summary } = useRunSummary(runId, isLoading);
   const showDebugPanel =
     import.meta.env.VITE_ENABLE_CHAT_DEBUG_PANEL === "true";
 
@@ -65,8 +69,14 @@ export function ChatInterface({
       {/* Scrollable Messages Container - Centered with max-width */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 py-4">
         <div className="max-w-4xl mx-auto space-y-6">
-          {messages.length > 0 && (
-            <ExploredFilesSummary fileCount={fileReferences.length} />
+          {(messages.length > 0 || isLoading) && (
+            <ExploredFilesSummary
+              runStatus={summary?.status}
+              totalTasks={summary?.totalTasks ?? 0}
+              completedTasks={summary?.completedTasks ?? 0}
+              failedTasks={summary?.failedTasks ?? 0}
+              isLoading={isLoading}
+            />
           )}
 
           {error && (
@@ -137,6 +147,7 @@ export function ChatInterface({
             input={input}
             onChange={handleInputChangeWrapper}
             onSubmit={handleSubmit}
+            onStop={stop}
             isLoading={isLoading}
             sessionId={sessionId}
             onModelSelect={onModelSelect}

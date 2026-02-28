@@ -41,13 +41,15 @@ export class GitController {
     try {
       const url = new URL(req.url);
       const runId = url.searchParams.get("runId");
+      const sessionId = url.searchParams.get("sessionId");
 
       if (!runId) {
         return errorResponse(req, env, "runId is required", 400);
       }
 
+      const muscleSession = resolveMuscleSessionId(runId, sessionId);
       const response = await fetch(
-        `${GitController.getMuscleBaseUrl(env)}/?session=${runId}`,
+        `${GitController.getMuscleBaseUrl(env)}/?session=${encodeURIComponent(muscleSession)}`,
         {
           method: "POST",
           headers: {
@@ -65,7 +67,8 @@ export class GitController {
 
       await assertMuscleResponseOk(response, "status");
 
-      const data = (await response.json()) as GitStatusResponse;
+      const rawPayload = (await response.json()) as unknown;
+      const data = parseGitPayload<GitStatusResponse>(rawPayload, "status");
 
       return corsJsonResponse(req, env, data);
     } catch (error) {
@@ -86,6 +89,7 @@ export class GitController {
     try {
       const url = new URL(req.url);
       const runId = url.searchParams.get("runId");
+      const sessionId = url.searchParams.get("sessionId");
       const filePath = url.searchParams.get("path");
       const staged = url.searchParams.get("staged") === "true";
 
@@ -93,8 +97,9 @@ export class GitController {
         return errorResponse(req, env, "runId is required", 400);
       }
 
+      const muscleSession = resolveMuscleSessionId(runId, sessionId);
       const response = await fetch(
-       `${GitController.getMuscleBaseUrl(env)}/?session=${runId}`,
+       `${GitController.getMuscleBaseUrl(env)}/?session=${encodeURIComponent(muscleSession)}`,
        {
          method: "POST",
          headers: {
@@ -114,7 +119,8 @@ export class GitController {
 
       await assertMuscleResponseOk(response, "diff");
 
-      const data = (await response.json()) as DiffContent;
+      const rawPayload = (await response.json()) as unknown;
+      const data = parseGitPayload<DiffContent>(rawPayload, "diff");
 
       return corsJsonResponse(req, env, data);
     } catch (error) {
@@ -133,15 +139,19 @@ export class GitController {
    */
   static async stageFiles(req: Request, env: Env): Promise<Response> {
     try {
-      const body = (await req.json()) as StageFilesRequest & { runId: string };
-      const { runId, files, unstage = false } = body;
+      const body = (await req.json()) as StageFilesRequest & {
+        runId: string;
+        sessionId?: string;
+      };
+      const { runId, sessionId, files, unstage = false } = body;
 
       if (!runId || !files || !Array.isArray(files)) {
         return errorResponse(req, env, "runId and files array are required", 400);
       }
 
+      const muscleSession = resolveMuscleSessionId(runId, sessionId);
       const response = await fetch(
-        `${GitController.getMuscleBaseUrl(env)}/?session=${runId}`,
+        `${GitController.getMuscleBaseUrl(env)}/?session=${encodeURIComponent(muscleSession)}`,
         {
           method: "POST",
           headers: {
@@ -159,6 +169,7 @@ export class GitController {
       );
 
       await assertMuscleResponseOk(response, unstage ? "unstage" : "stage");
+      await assertPluginResultSuccess(response, unstage ? "unstage" : "stage");
 
       return corsJsonResponse(req, env, { success: true });
     } catch (error) {
@@ -177,15 +188,19 @@ export class GitController {
    */
   static async commit(req: Request, env: Env): Promise<Response> {
     try {
-      const body = (await req.json()) as CommitPayload & { runId: string };
-      const { runId, message, files } = body;
+      const body = (await req.json()) as CommitPayload & {
+        runId: string;
+        sessionId?: string;
+      };
+      const { runId, sessionId, message, files } = body;
 
       if (!runId || !message) {
         return errorResponse(req, env, "runId and message are required", 400);
       }
 
+      const muscleSession = resolveMuscleSessionId(runId, sessionId);
       const response = await fetch(
-        `${GitController.getMuscleBaseUrl(env)}/?session=${runId}`,
+        `${GitController.getMuscleBaseUrl(env)}/?session=${encodeURIComponent(muscleSession)}`,
         {
           method: "POST",
           headers: {
@@ -204,6 +219,7 @@ export class GitController {
       );
 
       await assertMuscleResponseOk(response, "commit");
+      await assertPluginResultSuccess(response, "commit");
 
       return corsJsonResponse(req, env, { success: true });
     } catch (error) {
@@ -216,6 +232,75 @@ export class GitController {
       );
     }
   }
+}
+
+interface PluginSuccessPayload {
+  success: true;
+  output?: unknown;
+}
+
+function resolveMuscleSessionId(runId: string, sessionId?: string | null): string {
+  const normalizedSessionId = sessionId?.trim();
+  if (normalizedSessionId && normalizedSessionId.length > 0) {
+    return normalizedSessionId;
+  }
+  return runId;
+}
+
+interface PluginErrorPayload {
+  success: false;
+  error?: string;
+}
+
+function isPluginPayload(
+  payload: unknown,
+): payload is PluginSuccessPayload | PluginErrorPayload {
+  if (!payload || typeof payload !== "object") {
+    return false;
+  }
+  return "success" in payload;
+}
+
+function parseGitPayload<T>(
+  payload: unknown,
+  operation: "status" | "diff",
+): T {
+  if (isPluginPayload(payload)) {
+    if (payload.success === false) {
+      const details =
+        typeof payload.error === "string" && payload.error.trim().length > 0
+          ? payload.error.trim()
+          : "unknown plugin error";
+      throw new Error(`Git ${operation} failed: ${details}`);
+    }
+
+    if (payload.output === undefined) {
+      throw new Error(`Git ${operation} returned no output payload`);
+    }
+
+    return parseGitOutput<T>(payload.output, operation);
+  }
+
+  return payload as T;
+}
+
+function parseGitOutput<T>(
+  output: unknown,
+  operation: "status" | "diff",
+): T {
+  if (typeof output === "string") {
+    try {
+      return JSON.parse(output) as T;
+    } catch {
+      throw new Error(`Git ${operation} returned invalid JSON output`);
+    }
+  }
+
+  if (output && typeof output === "object") {
+    return output as T;
+  }
+
+  throw new Error(`Git ${operation} returned unsupported output format`);
 }
 
 function corsJsonResponse(
@@ -255,6 +340,25 @@ async function assertMuscleResponseOk(
   throw new Error(
     `Git ${operation} failed with HTTP ${response.status}${suffix}`,
   );
+}
+
+async function assertPluginResultSuccess(
+  response: Response,
+  operation: "stage" | "unstage" | "commit",
+): Promise<void> {
+  const payload = (await response.clone().json()) as unknown;
+  if (!isPluginPayload(payload)) {
+    return;
+  }
+  if (payload.success) {
+    return;
+  }
+
+  const details =
+    typeof payload.error === "string" && payload.error.trim().length > 0
+      ? payload.error.trim()
+      : "unknown plugin error";
+  throw new Error(`Git ${operation} failed: ${details}`);
 }
 
 async function readErrorPreview(response: Response): Promise<string> {

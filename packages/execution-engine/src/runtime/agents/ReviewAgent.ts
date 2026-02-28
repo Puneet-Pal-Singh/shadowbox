@@ -14,7 +14,11 @@ import { PlanSchema } from "../planner/index.js";
 import { BaseAgent } from "./BaseAgent.js";
 import { UnsupportedTaskTypeError } from "./CodingAgent.js";
 import { validateSafePath, extractStructuredField } from "./validation.js";
-import { formatExecutionResult, formatTaskOutput } from "./ResultFormatter.js";
+import {
+  extractExecutionFailure,
+  formatExecutionResult,
+  formatTaskOutput,
+} from "./ResultFormatter.js";
 
 export class ReviewAgent extends BaseAgent {
   readonly type: AgentType = "review";
@@ -129,9 +133,18 @@ Rules:
       extractStructuredField(task.input, "path") ?? task.input.description;
     validateSafePath(path);
 
-    const result = await this.executionService.execute("filesystem", "read", {
+    const result = await this.executionService.execute("filesystem", "read_file", {
       path,
     });
+    const failure = extractExecutionFailure(result);
+    if (failure) {
+      return {
+        taskId: task.id,
+        status: "FAILED",
+        error: { message: failure },
+        completedAt: new Date(),
+      };
+    }
 
     const analysisResult = await this.llmGateway.generateText({
       context: {

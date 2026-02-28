@@ -4,6 +4,9 @@ import type { PlannedTask } from "../planner/PlanSchema.js";
 import type { RuntimeDurableObjectState, RuntimeStorage } from "../types.js";
 import type { Task } from "../task/index.js";
 import type { ILLMGateway } from "../llm/types.js";
+import { Run } from "../run/index.js";
+
+const TEST_RUN_ID = "f462a003-5c36-4c86-a95d-367b92bf46c9";
 
 describe("RunEngine", () => {
   it("preserves structured task input when creating runtime tasks from a plan", () => {
@@ -80,13 +83,43 @@ describe("RunEngine", () => {
         owner: "sourcegraph",
         repo: "shadowbox",
       }),
-    ).toContain("need the exact file path");
+    ).toBeNull();
     expect(
       privateApi.getActionClarificationMessage("check README.md", {
         owner: "sourcegraph",
         repo: "shadowbox",
       }),
     ).toBeNull();
+    expect(
+      privateApi.getActionClarificationMessage("check my repo?", {
+        owner: "sourcegraph",
+        repo: "shadowbox",
+      }),
+    ).toBeNull();
+  });
+
+  it("marks CREATED runs as FAILED when execution error handling runs", async () => {
+    const runEngine = createRunEngine();
+    const privateApi = runEngine as unknown as {
+      runRepo: {
+        create(run: Run): Promise<void>;
+        getById(runId: string): Promise<Run | null>;
+      };
+      handleExecutionError(runId: string, error: unknown): Promise<void>;
+    };
+
+    const run = new Run("run-created", "session-1", "CREATED", "coding", {
+      agentType: "coding",
+      prompt: "check repo",
+      sessionId: "session-1",
+    });
+    await privateApi.runRepo.create(run);
+
+    await privateApi.handleExecutionError("run-created", new Error("boom"));
+
+    const persisted = await privateApi.runRepo.getById("run-created");
+    expect(persisted?.status).toBe("FAILED");
+    expect(persisted?.metadata.error).toBe("boom");
   });
 
   it("builds conversational system prompt with direct-answer style guidance", () => {
@@ -212,7 +245,7 @@ function createRunEngine(
     {
       env: { NODE_ENV: "test" } as unknown,
       sessionId: "session-1",
-      runId: "run-1",
+      runId: TEST_RUN_ID,
     },
     undefined,
     undefined,

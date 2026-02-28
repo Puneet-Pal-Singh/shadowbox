@@ -219,7 +219,7 @@ export class TaskScheduler implements ITaskScheduler {
       },
     });
 
-    if (task.canRetry()) {
+    if (task.canRetry() && isRetryableTaskError(errorMessage)) {
       task.incrementRetry();
       task.transition("RETRYING");
       await this.taskRepo.update(task);
@@ -351,6 +351,21 @@ export class TaskScheduler implements ITaskScheduler {
         task.status === "RETRYING",
     );
   }
+}
+
+function isRetryableTaskError(message: string): boolean {
+  const nonRetryablePatterns = [
+    /command not allowed/i,
+    /unsafe shell token/i,
+    /path traversal detected/i,
+    /absolute paths are not allowed/i,
+    /missing '.*' field/i,
+    /invalid git action/i,
+    /is a directory/i,
+    /no such file or directory/i,
+  ];
+
+  return !nonRetryablePatterns.some((pattern) => pattern.test(message));
 }
 
 export class SchedulerError extends Error {

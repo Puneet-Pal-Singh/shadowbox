@@ -1,7 +1,7 @@
 import { useChat as useVercelChat, type Message } from "@ai-sdk/react";
 import { useCallback, useMemo, useState, type FormEvent } from "react";
 import { DEFAULT_PLATFORM_MODEL_ID } from "@repo/shared-types";
-import { chatStreamPath } from "../lib/platform-endpoints.js";
+import { chatStreamPath, getBrainHttpBase } from "../lib/platform-endpoints.js";
 import { useByokStore } from "./useByokStore.js";
 import type { ChatDebugEvent } from "../types/chat-debug.js";
 import { SessionStateService } from "../services/SessionStateService";
@@ -94,7 +94,7 @@ export function useChatCore(
     input,
     handleInputChange,
     isLoading,
-    stop,
+    stop: stopStream,
     setMessages,
     append,
   } = useVercelChat({
@@ -233,13 +233,22 @@ export function useChatCore(
   const handleSubmit = useCallback(
     (e?: FormEvent) => {
       e?.preventDefault();
+      const originalInput = input;
       const trimmedInput = input.trim();
       if (!trimmedInput || isLoading || !isModelConfigReady) return;
+      const clearedInputEvent = {
+        target: { value: "" },
+      } as React.ChangeEvent<HTMLTextAreaElement>;
+      handleInputChange(clearedInputEvent);
 
       const submitWithResolution = async (): Promise<void> => {
         try {
           await appendWithResolution({ role: "user", content: trimmedInput });
         } catch (error) {
+          const restoreInputEvent = {
+            target: { value: originalInput },
+          } as React.ChangeEvent<HTMLTextAreaElement>;
+          handleInputChange(restoreInputEvent);
           const message =
             error instanceof Error
               ? normalizeChatErrorMessage(error)
@@ -267,6 +276,7 @@ export function useChatCore(
     },
     [
       appendWithResolution,
+      handleInputChange,
       input,
       isLoading,
       isModelConfigReady,
@@ -274,6 +284,26 @@ export function useChatCore(
       pushDebugEvent,
     ],
   );
+
+  const stop = useCallback(() => {
+    stopStream();
+
+    const cancelRun = async (): Promise<void> => {
+      try {
+        await fetch(`${getBrainHttpBase()}/api/run/cancel`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ runId }),
+        });
+      } catch (error) {
+        console.warn("[chat/stop] Failed to cancel run", { runId, error });
+      }
+    };
+
+    void cancelRun();
+  }, [runId, stopStream]);
 
   return {
     messages,

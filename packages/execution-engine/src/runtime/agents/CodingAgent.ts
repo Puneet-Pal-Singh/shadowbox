@@ -14,7 +14,11 @@ import type { Plan, PlanContext } from "../planner/index.js";
 import { PlanSchema } from "../planner/index.js";
 import { BaseAgent } from "./BaseAgent.js";
 import { validateSafePath, extractStructuredField } from "./validation.js";
-import { formatExecutionResult, formatTaskOutput } from "./ResultFormatter.js";
+import {
+  extractExecutionFailure,
+  formatExecutionResult,
+  formatTaskOutput,
+} from "./ResultFormatter.js";
 
 export class CodingAgent extends BaseAgent {
   readonly type: AgentType = "coding";
@@ -148,6 +152,11 @@ GIT: MUST have the git action (commit, push, status, etc)
 { "type": "git", "description": "Commit changes", "input": { "action": "commit", "message": "feat: add new feature" } }
 ✗ WRONG: { "input": { "action": "commit changes" } }
 
+IMPORTANT TOOL ROUTING:
+- NEVER use shell tasks for git commands (git ...)
+- Use task type "git" for repository status/diff/branch/commit actions
+- Use analyze tasks for file inspection and directory listing
+
 REVIEW: Only LLM task, no input needed - just use description
 
 VALIDATION RULES:
@@ -157,26 +166,54 @@ VALIDATION RULES:
 4. TEST/SHELL: input.command must be an executable command (max 500 chars)
 5. GIT: input.action must be a git action like commit, push, pull, status
 6. NEVER use task description or placeholders in input fields
-7. Start with "analyze" tasks to understand codebase
-8. Follow with "edit" tasks to make changes
-9. End with "test" tasks to verify
-10. Keep tasks atomic and under 20 total`;
+7. If the user only asks to inspect/read/check, NEVER create edit tasks
+8. Only create edit tasks when the user explicitly asks to modify files
+9. Start with "analyze" tasks to understand codebase
+10. End with "test" tasks only when code changes were requested
+11. Keep tasks atomic and under 20 total`;
   }
 
   private async executeAnalyze(task: Task): Promise<TaskResult> {
-    const path =
+    const rawPath =
       extractStructuredField(task.input, "path") ?? task.input.description;
+    const path = normalizeTaskPath(rawPath);
     validateSafePath(path);
 
-    const result = await this.executionService.execute("filesystem", "read_file", {
-      path,
-    });
-    return this.buildSuccessResult(task.id, formatExecutionResult(result));
+    const readResult = await this.executionService.execute(
+      "filesystem",
+      "read_file",
+      {
+        path,
+      },
+    );
+    const readFailure = extractExecutionFailure(readResult);
+    if (!readFailure) {
+      return this.buildSuccessResult(task.id, formatExecutionResult(readResult));
+    }
+
+    if (looksLikeDirectoryError(readFailure)) {
+      const listResult = await this.executionService.execute(
+        "filesystem",
+        "list_files",
+        { path },
+      );
+      const listFailure = extractExecutionFailure(listResult);
+      if (!listFailure) {
+        const listed = formatExecutionResult(listResult);
+        return this.buildSuccessResult(
+          task.id,
+          `Requested path is a directory. Listing ${path}:\n${listed}`,
+        );
+      }
+    }
+
+    return this.buildFailureResult(task.id, readFailure);
   }
 
   private async executeEdit(task: Task): Promise<TaskResult> {
-    const path =
+    const rawPath =
       extractStructuredField(task.input, "path") ?? task.input.description;
+    const path = normalizeTaskPath(rawPath);
     validateSafePath(path);
 
     const content = extractStructuredField(task.input, "content");
@@ -184,10 +221,19 @@ VALIDATION RULES:
       throw new TaskInputError("edit", "Missing 'content' field in task input");
     }
 
-    const result = await this.executionService.execute("filesystem", "write_file", {
-      path,
-      content,
-    });
+    const result = await this.executionService.execute(
+      "filesystem",
+      "write_file",
+      {
+        path,
+        content,
+      },
+    );
+    const failure = extractExecutionFailure(result);
+    if (failure) {
+      return this.buildFailureResult(task.id, failure);
+    }
+
     return this.buildSuccessResult(task.id, formatExecutionResult(result));
   }
 
@@ -199,6 +245,11 @@ VALIDATION RULES:
     const result = await this.executionService.execute("node", "run", {
       command,
     });
+    const failure = extractExecutionFailure(result);
+    if (failure) {
+      return this.buildFailureResult(task.id, failure);
+    }
+
     return this.buildSuccessResult(task.id, formatExecutionResult(result));
   }
 
@@ -207,9 +258,36 @@ VALIDATION RULES:
       extractStructuredField(task.input, "command") ?? task.input.description;
     validateShellCommand(command);
 
+    const normalizedCommand = command.trim();
+    if (/^git(\s|$)/i.test(normalizedCommand)) {
+      return this.buildFailureResult(
+        task.id,
+        "Git shell commands are not allowed in shell tasks. Use a git task action instead.",
+      );
+    }
+
+    if (/^ls(\s|$)/i.test(normalizedCommand)) {
+      const path = extractDirectoryFromLsCommand(normalizedCommand);
+      const listResult = await this.executionService.execute(
+        "filesystem",
+        "list_files",
+        { path },
+      );
+      const failure = extractExecutionFailure(listResult);
+      if (failure) {
+        return this.buildFailureResult(task.id, failure);
+      }
+      return this.buildSuccessResult(task.id, formatExecutionResult(listResult));
+    }
+
     const result = await this.executionService.execute("node", "run", {
       command,
     });
+    const failure = extractExecutionFailure(result);
+    if (failure) {
+      return this.buildFailureResult(task.id, failure);
+    }
+
     return this.buildSuccessResult(task.id, formatExecutionResult(result));
   }
 
@@ -224,8 +302,13 @@ VALIDATION RULES:
     validateGitAction(action);
 
     const result = await this.executionService.execute("git", action, {
-      message: task.input.description,
+      message: extractStructuredField(task.input, "message") ?? task.input.description,
     });
+    const failure = extractExecutionFailure(result);
+    if (failure) {
+      return this.buildFailureResult(task.id, failure);
+    }
+
     return this.buildSuccessResult(task.id, formatExecutionResult(result));
   }
 
@@ -259,6 +342,15 @@ VALIDATION RULES:
       taskId,
       status: "DONE",
       output: { content },
+      completedAt: new Date(),
+    };
+  }
+
+  private buildFailureResult(taskId: string, message: string): TaskResult {
+    return {
+      taskId,
+      status: "FAILED",
+      error: { message },
       completedAt: new Date(),
     };
   }
@@ -300,6 +392,36 @@ function validateShellCommand(command: string): void {
   if (!command || command.trim().length === 0) {
     throw new TaskInputError("shell", "Empty shell command");
   }
+}
+
+function normalizeTaskPath(input: string): string {
+  const trimmed = input.trim().replace(/^['"`]+|['"`]+$/g, "");
+  const withoutMention = trimmed.startsWith("@") ? trimmed.slice(1) : trimmed;
+  const cleaned = withoutMention.replace(/[?!.,;:]+$/g, "");
+
+  const normalizedLower = cleaned.toLowerCase();
+  const aliases: Record<string, string> = {
+    readme: "README.md",
+    "readme.md": "README.md",
+  };
+
+  return aliases[normalizedLower] ?? cleaned;
+}
+
+function looksLikeDirectoryError(message: string): boolean {
+  return /is a directory/i.test(message);
+}
+
+function extractDirectoryFromLsCommand(command: string): string {
+  const segments = command.split(/\s+/).slice(1);
+  for (let i = segments.length - 1; i >= 0; i -= 1) {
+    const segment = segments[i];
+    if (!segment || segment.startsWith("-")) {
+      continue;
+    }
+    return segment;
+  }
+  return ".";
 }
 
 export class UnsupportedTaskTypeError extends Error {
