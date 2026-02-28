@@ -656,7 +656,7 @@ export class ProviderStore {
    */
   async applySessionSelection(
     request: SessionSelectionRequest
-  ): Promise<BYOKResolution> {
+  ): Promise<ProviderResolution> {
     this.setSelection(
       request.providerId,
       request.credentialId,
