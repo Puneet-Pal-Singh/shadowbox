@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import type { CoreMessage } from "ai";
 import { RunEngine, type RunEngineDependencies } from "./RunEngine.js";
 import type { PlannedTask } from "../planner/PlanSchema.js";
 import type { RuntimeDurableObjectState, RuntimeStorage } from "../types.js";
@@ -84,7 +83,7 @@ describe("RunEngine", () => {
         owner: "sourcegraph",
         repo: "shadowbox",
       }),
-    ).toContain("need the exact file path");
+    ).toBeNull();
     expect(
       privateApi.getActionClarificationMessage("check README.md", {
         owner: "sourcegraph",
@@ -96,33 +95,7 @@ describe("RunEngine", () => {
         owner: "sourcegraph",
         repo: "shadowbox",
       }),
-    ).toContain("What should I check in the repo");
-    expect(
-      privateApi.getActionClarificationMessage("check repo git status", {
-        owner: "sourcegraph",
-        repo: "shadowbox",
-      }),
     ).toBeNull();
-  });
-
-  it("completes clarification-only repo checks from CREATED state", async () => {
-    const runEngine = createRunEngine();
-    const messages: CoreMessage[] = [{ role: "user", content: "check my repo?" }];
-
-    await expect(
-      runEngine.execute(
-        {
-          agentType: "coding",
-          prompt: "check my repo?",
-          sessionId: "session-1",
-          repositoryContext: { owner: "sourcegraph", repo: "shadowbox" },
-        },
-        messages,
-        {},
-      ),
-    ).resolves.toBeInstanceOf(Response);
-
-    await expect(runEngine.getRunStatus(TEST_RUN_ID)).resolves.toBe("COMPLETED");
   });
 
   it("marks CREATED runs as FAILED when execution error handling runs", async () => {

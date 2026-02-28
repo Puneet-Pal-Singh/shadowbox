@@ -35,6 +35,64 @@ describe("CodingAgent task-phase model selection", () => {
       }),
     );
   });
+
+  it("returns FAILED when filesystem read returns plugin failure", async () => {
+    const llmGateway = createLLMGatewayMock();
+    const executionService = {
+      execute: vi.fn(async () => ({
+        success: false,
+        error: "cat: README.md: No such file or directory",
+      })),
+    } as unknown as RuntimeExecutionService;
+    const agent = new CodingAgent(llmGateway, executionService);
+
+    const task = {
+      id: "task-analyze-1",
+      runId: "run-1",
+      type: "analyze",
+      input: { description: "Check README", path: "README.md" },
+    } as unknown as Task;
+
+    const context: ExecutionContext = {
+      runId: "run-1",
+      sessionId: "session-1",
+      dependencies: [],
+    };
+
+    const result = await agent.executeTask(task, context);
+
+    expect(result.status).toBe("FAILED");
+    expect(result.error?.message).toContain("No such file or directory");
+  });
+
+  it("normalizes @readme path aliases before analyze execution", async () => {
+    const llmGateway = createLLMGatewayMock();
+    const execute = vi.fn(async () => ({ success: true, output: "ok" }));
+    const executionService = {
+      execute,
+    } as unknown as RuntimeExecutionService;
+    const agent = new CodingAgent(llmGateway, executionService);
+
+    const task = {
+      id: "task-analyze-2",
+      runId: "run-1",
+      type: "analyze",
+      input: { description: "check @readme", path: "@readme" },
+    } as unknown as Task;
+
+    const context: ExecutionContext = {
+      runId: "run-1",
+      sessionId: "session-1",
+      dependencies: [],
+    };
+
+    const result = await agent.executeTask(task, context);
+
+    expect(result.status).toBe("DONE");
+    expect(execute).toHaveBeenCalledWith("filesystem", "read_file", {
+      path: "README.md",
+    });
+  });
 });
 
 function createLLMGatewayMock(): ILLMGateway {

@@ -373,6 +373,7 @@ export class RunEngine implements IRunEngine {
       }
 
       const allTasks = await this.taskRepo.getByRun(runId);
+      const finalRunStatus = this.determineRunStatusFromTasks(allTasks);
       await this.safeMemoryOperation(() =>
         this.memoryCoordinator.createCheckpoint({
           runId,
@@ -408,7 +409,7 @@ export class RunEngine implements IRunEngine {
           runId,
           sequence: 3,
           phase: "synthesis",
-          runStatus: "COMPLETED",
+          runStatus: finalRunStatus,
           taskStatuses: {},
         }),
       );
@@ -422,7 +423,7 @@ export class RunEngine implements IRunEngine {
         ),
       );
 
-      this.transitionRunToCompleted(run, runId);
+      this.applyFinalRunStatus(run, runId, finalRunStatus, allTasks);
       run.output = { content: finalOutput };
       await this.runRepo.update(run);
 
@@ -584,13 +585,11 @@ export class RunEngine implements IRunEngine {
   ): Promise<string> {
     if (this.agent) {
       const tasks = await this.taskRepo.getByRun(run.id);
-      const completedTasks = tasks
-        .filter((task) => task.status === "DONE")
-        .map((task) => task.toJSON());
+      const taskSnapshots = tasks.map((task) => task.toJSON());
       return this.agent.synthesize({
         runId: run.id,
         sessionId: run.sessionId,
-        completedTasks,
+        completedTasks: taskSnapshots,
         originalPrompt,
         modelId: run.input.modelId,
         providerId: run.input.providerId,
@@ -637,12 +636,10 @@ export class RunEngine implements IRunEngine {
     memoryContext?: MemoryContext,
   ): Promise<string> {
     const tasks = await this.taskRepo.getByRun(run.id);
-    const completedTasks = tasks.filter((task) => task.status === "DONE");
-
-    const taskResults = completedTasks
+    const taskResults = tasks
       .map(
         (task) =>
-          `- ${task.type}: ${task.input.description}\n  Result: ${task.output?.content || "N/A"}`,
+          `- [${task.status}] ${task.type}: ${task.input.description}\n  Result: ${task.output?.content || task.error?.message || "N/A"}`,
       )
       .join("\n");
 
@@ -650,14 +647,15 @@ export class RunEngine implements IRunEngine {
       ? this.memoryCoordinator.formatContextForPrompt(memoryContext)
       : "";
 
-    const synthesisPrompt = `Based on the following completed tasks, provide a final summary:
+    const synthesisPrompt = `Based on the following task outcomes, provide a final summary:
 
 Original Request: ${originalPrompt}
 
 ${memorySection ? `Memory Context:\n${memorySection}\n\n` : ""}Completed Tasks:
 ${taskResults}
 
-Provide a concise summary of what was accomplished.`;
+Provide a concise summary of what actually happened.
+If any task failed or was cancelled, clearly say so and do not claim full completion.`;
 
     try {
       const result = await this.llmGateway.generateText({
@@ -670,7 +668,8 @@ Provide a concise summary of what was accomplished.`;
         messages: [
           {
             role: "system",
-            content: "You are a helpful assistant summarizing task results.",
+          content:
+            "You are a helpful assistant summarizing task execution results accurately.",
           },
           {
             role: "user",
@@ -689,10 +688,12 @@ Provide a concise summary of what was accomplished.`;
         error instanceof SessionBudgetExceededError
       ) {
         console.error(`[run/engine] Budget exceeded for run ${run.id}`);
-        return `## Summary\n\nBudget limit reached for this run.\n\nCompleted ${completedTasks.length} tasks for your request.\n\n${taskResults}`;
+        const completedTasks = tasks.filter((task) => task.status === "DONE").length;
+        return `## Summary\n\nBudget limit reached for this run.\n\nCompleted ${completedTasks}/${tasks.length} tasks for your request.\n\n${taskResults}`;
       }
       console.error("[run/engine] Synthesis failed:", error);
-      return `## Summary\n\nCompleted ${completedTasks.length} tasks for your request.\n\n${taskResults}`;
+      const completedTasks = tasks.filter((task) => task.status === "DONE").length;
+      return `## Summary\n\nCompleted ${completedTasks}/${tasks.length} tasks for your request.\n\n${taskResults}`;
     }
   }
 
@@ -786,53 +787,11 @@ Provide a concise summary of what was accomplished.`;
       /\b(file|files|document|doc|readme|code|repo|repository|branch)\b/.test(
         normalized,
       );
-    const asksToInspectFile =
-      /\b(read|check|view|open|analyze|inspect|review)\b/.test(normalized) &&
-      /\b(file|files|document|doc|readme|code)\b/.test(normalized);
-    const asksToInspectRepo =
-      /\b(read|check|view|open|analyze|inspect|review)\b/.test(normalized) &&
-      /\b(repo|repository)\b/.test(normalized);
 
     if (asksForRepoOrFileAction && !this.hasRepositorySelection(repositoryContext)) {
       return "Sure. I can help with that, but I need you to select a repository first. Then share the file path if you want file-level analysis.";
     }
-
-    if (asksToInspectRepo && !this.hasExplicitRepoCheckGoal(normalized)) {
-      return "Sure. What should I check in the repo: `git status`, recent commits, branch status, or a specific file/path?";
-    }
-
-    if (!asksToInspectFile) {
-      return null;
-    }
-
-    if (this.hasExplicitWorkspaceTarget(normalized)) {
-      return null;
-    }
-
-    return "Sure. I can check it, but I need the exact file path first (for example `README.md` or `src/app.ts`).";
-  }
-
-  private hasExplicitWorkspaceTarget(prompt: string): boolean {
-    const fileNamePattern = /\b[\w.-]+\.[a-z0-9]{1,10}\b/i;
-    const folderPathPattern = /\b(src|lib|docs|tests?|scripts)\/[^\s`"']+/i;
-    const knownRootFiles =
-      /\b(readme|readme\.md|package\.json|tsconfig\.json|dockerfile|components\.json)\b/i;
-
-    return (
-      fileNamePattern.test(prompt) ||
-      folderPathPattern.test(prompt) ||
-      knownRootFiles.test(prompt)
-    );
-  }
-
-  private hasExplicitRepoCheckGoal(prompt: string): boolean {
-    const goalPatterns = [
-      /\b(status|changes|diff|branch|branches|commit|commits|history|log)\b/i,
-      /\b(readme|package\.json|tsconfig\.json|dockerfile)\b/i,
-      /\b(src|lib|docs|tests?|scripts)\/[^\s`"']+/i,
-      /\b[\w.-]+\.[a-z0-9]{1,10}\b/i,
-    ];
-    return goalPatterns.some((pattern) => pattern.test(prompt));
+    return null;
   }
 
   private hasRepositorySelection(repositoryContext?: RepositoryContext): boolean {
@@ -969,15 +928,19 @@ Provide a concise summary of what was accomplished.`;
     return text
       .replace(
         /\/home\/sandbox\/runs\/(?:\[run\]|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/[^\s"']+/gi,
-        "[workspace-file]",
+        "the workspace file",
       )
       .replace(
         /\/home\/sandbox\/runs\/(?:\[run\]|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/gi,
-        "[workspace]",
+        "the workspace directory",
       )
       .replace(
-        /(?:error:\s*)?cat:\s*\[workspace-file\]\s*:?\s*no such file or directory/gi,
+        /(?:error:\s*)?cat:\s*(?:the workspace file|\[workspace-file\])\s*:?\s*no such file or directory/gi,
         "The requested file was not found in the current workspace.",
+      )
+      .replace(
+        /(?:error:\s*)?cat:\s*(?:the workspace file|\[workspace-file\])\s*:?\s*is a directory/gi,
+        "The requested path is a directory. Please provide a file path.",
       )
       .replace(/http:\/\/internal(?:\/[^\s"']*)?/gi, "[internal-url]");
   }
@@ -1045,6 +1008,47 @@ Provide a concise summary of what was accomplished.`;
     console.warn(
       `[run/engine] Unable to move run ${runId} to FAILED from status ${run.status}`,
     );
+  }
+
+  private determineRunStatusFromTasks(tasks: Task[]): RunStatus {
+    if (tasks.some((task) => task.status === "CANCELLED")) {
+      return "CANCELLED";
+    }
+    if (tasks.some((task) => task.status === "FAILED")) {
+      return "FAILED";
+    }
+    return "COMPLETED";
+  }
+
+  private applyFinalRunStatus(
+    run: Run,
+    runId: string,
+    finalRunStatus: RunStatus,
+    tasks: Task[],
+  ): void {
+    if (finalRunStatus === "COMPLETED") {
+      this.transitionRunToCompleted(run, runId);
+      return;
+    }
+
+    if (finalRunStatus === "FAILED") {
+      this.transitionRunToFailed(run, runId);
+      const failedTasks = tasks.filter((task) => task.status === "FAILED");
+      const summary = failedTasks
+        .map((task) => `${task.id}: ${task.error?.message ?? "Task failed"}`)
+        .join("; ");
+      run.metadata.error = summary || "One or more tasks failed";
+      return;
+    }
+
+    if (run.status === "FAILED" || run.status === "COMPLETED") {
+      return;
+    }
+
+    this.ensureRunReadyForTerminalTransition(run);
+    if (run.status === "RUNNING") {
+      run.transition("CANCELLED");
+    }
   }
 
   private ensureRunReadyForTerminalTransition(run: Run): void {
