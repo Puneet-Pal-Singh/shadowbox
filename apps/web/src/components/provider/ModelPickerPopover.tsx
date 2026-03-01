@@ -17,6 +17,14 @@ import { type ProviderRegistryEntry } from "@repo/shared-types";
 import { type ProviderModelOption } from "../../services/api/providerClient.js";
 
 /**
+ * Flattened model for keyboard navigation
+ */
+interface FlatModel {
+  providerId: string;
+  model: ProviderModelOption;
+}
+
+/**
  * Props for ModelPickerPopover
  */
 export interface ModelPickerPopoverProps {
@@ -57,8 +65,10 @@ export function ModelPickerPopover({
   const [isOpen, setIsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectingModelId, setSelectingModelId] = useState<string | null>(null);
+  const [focusedModelIndex, setFocusedModelIndex] = useState<number>(-1);
   const popoverRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const modelButtonsRef = useRef<Map<string, HTMLButtonElement>>(new Map());
 
   // Build provider groups from catalog and models
   const providerGroups = useMemo((): ProviderGroup[] => {
@@ -98,6 +108,17 @@ export function ModelPickerPopover({
       }))
       .filter((group) => group.models.length > 0);
   }, [providerGroups, searchQuery, visibleModelIds]);
+
+  // Flatten filtered models for keyboard navigation
+  const flatModels = useMemo((): FlatModel[] => {
+    const result: FlatModel[] = [];
+    for (const group of filteredGroups) {
+      for (const model of group.models) {
+        result.push({ providerId: group.providerId, model });
+      }
+    }
+    return result;
+  }, [filteredGroups]);
 
   // Get currently selected model label
   const selectedModelLabel = useMemo((): string => {
@@ -153,8 +174,86 @@ export function ModelPickerPopover({
   useEffect(() => {
     if (isOpen && searchInputRef.current) {
       searchInputRef.current.focus();
+      setFocusedModelIndex(-1);
     }
   }, [isOpen]);
+
+  // Handle keyboard navigation in search input
+  const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
+    switch (e.key) {
+      case "Escape":
+        e.preventDefault();
+        setIsOpen(false);
+        break;
+      case "ArrowDown":
+        e.preventDefault();
+        if (flatModels.length > 0) {
+          const nextIndex = focusedModelIndex < flatModels.length - 1 ? focusedModelIndex + 1 : 0;
+          const nextModel = flatModels[nextIndex];
+          if (nextModel) {
+            setFocusedModelIndex(nextIndex);
+            modelButtonsRef.current.get(nextModel.model.id)?.focus();
+          }
+        }
+        break;
+      case "ArrowUp":
+        e.preventDefault();
+        if (flatModels.length > 0) {
+          const nextIndex = focusedModelIndex > 0 ? focusedModelIndex - 1 : flatModels.length - 1;
+          const nextModel = flatModels[nextIndex];
+          if (nextModel) {
+            setFocusedModelIndex(nextIndex);
+            modelButtonsRef.current.get(nextModel.model.id)?.focus();
+          }
+        }
+        break;
+    }
+  };
+
+  // Handle keyboard navigation in model buttons
+  const handleModelKeyDown = (
+    e: React.KeyboardEvent<HTMLButtonElement>,
+    providerId: string,
+    modelId: string
+  ): void => {
+    switch (e.key) {
+      case "Enter":
+      case " ":
+        e.preventDefault();
+        void handleSelectModel(providerId, modelId);
+        break;
+      case "Escape":
+        e.preventDefault();
+        setIsOpen(false);
+        break;
+      case "ArrowDown":
+        e.preventDefault();
+        if (focusedModelIndex < flatModels.length - 1) {
+          const nextIndex = focusedModelIndex + 1;
+          const nextModel = flatModels[nextIndex];
+          if (nextModel) {
+            setFocusedModelIndex(nextIndex);
+            modelButtonsRef.current.get(nextModel.model.id)?.focus();
+          }
+        }
+        break;
+      case "ArrowUp":
+        e.preventDefault();
+        if (focusedModelIndex > 0) {
+          const nextIndex = focusedModelIndex - 1;
+          const nextModel = flatModels[nextIndex];
+          if (nextModel) {
+            setFocusedModelIndex(nextIndex);
+            modelButtonsRef.current.get(nextModel.model.id)?.focus();
+          }
+        } else {
+          // Go back to search input
+          setFocusedModelIndex(-1);
+          searchInputRef.current?.focus();
+        }
+        break;
+    }
+  };
 
   return (
     <div ref={popoverRef} className="relative">
@@ -202,12 +301,14 @@ export function ModelPickerPopover({
                 placeholder="Search models or providers..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyDown={handleSearchKeyDown}
                 className={`
                   w-full pl-9 pr-3 py-2 rounded-md
                   bg-neutral-800 border border-neutral-700
                   text-sm text-neutral-100 placeholder-neutral-500
                   focus:outline-none focus:ring-2 focus:ring-blue-500
                 `}
+                aria-label="Search models or providers"
               />
             </div>
           </div>
@@ -236,11 +337,16 @@ export function ModelPickerPopover({
                        <button
                          type="button"
                          key={model.id}
+                         ref={(el) => {
+                           if (el) modelButtonsRef.current.set(model.id, el);
+                           else modelButtonsRef.current.delete(model.id);
+                         }}
                          onClick={() => handleSelectModel(group.providerId, model.id)}
+                         onKeyDown={(e) => handleModelKeyDown(e, group.providerId, model.id)}
                          disabled={selectingModelId === model.id}
                          className={`
                            w-full px-3 py-2 text-left text-sm flex items-center gap-2
-                           transition-colors disabled:opacity-50
+                           transition-colors disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-blue-500
                            ${
                              selectedProviderId === group.providerId &&
                              selectedModelId === model.id
@@ -248,6 +354,7 @@ export function ModelPickerPopover({
                                : "text-neutral-300 hover:bg-neutral-800/50"
                            }
                          `}
+                         aria-selected={selectedProviderId === group.providerId && selectedModelId === model.id}
                        >
                         {/* Selection Indicator */}
                         <div
