@@ -128,6 +128,7 @@ export function ProviderDialog({
 
       setConnectSuccess("API key saved and provider connected.");
       setActiveTab("connected");
+      onClose();
     } catch (err) {
       setConnectError(
         err instanceof Error ? err.message : "Failed to connect credential"
@@ -204,10 +205,22 @@ export function ProviderDialog({
   const statusRecovery = getProviderRecoveryAdvice(error);
 
   const renderConnectProviderDialog = (handleClose: () => void): React.ReactElement => (
-    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-3">
-      <div className="bg-neutral-900 text-neutral-100 border border-neutral-700 rounded-xl shadow-2xl w-full max-w-2xl max-h-[82vh] overflow-hidden flex flex-col">
+    <div
+      data-testid="provider-dialog-overlay"
+      className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-3"
+      onClick={(event) => {
+        if (event.target === event.currentTarget) {
+          handleClose();
+        }
+      }}
+      role="presentation"
+    >
+      <div
+        className="bg-neutral-900 text-neutral-100 border border-neutral-700 rounded-xl shadow-2xl w-full max-w-2xl max-h-[82vh] overflow-hidden flex flex-col"
+        onClick={(event) => event.stopPropagation()}
+      >
         <div className="px-5 py-3.5 flex items-center justify-between">
-          <h2 className="text-xl font-semibold tracking-tight">Connect provider</h2>
+          <h2 className="text-lg font-semibold tracking-tight">Connect provider</h2>
           <button
             onClick={handleClose}
             className="text-neutral-500 hover:text-neutral-300"
@@ -243,7 +256,7 @@ export function ProviderDialog({
 
   if (variant === "manage-models-only") {
     if (manageOnlyView === "connect") {
-      return renderConnectProviderDialog(() => setManageOnlyView("manage"));
+      return renderConnectProviderDialog(onClose);
     }
 
     return (
@@ -264,8 +277,20 @@ export function ProviderDialog({
   }
 
   return (
-    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-3">
-      <div className="bg-neutral-900 text-neutral-100 border border-neutral-700 rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
+    <div
+      data-testid="provider-dialog-overlay"
+      className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-3"
+      onClick={(event) => {
+        if (event.target === event.currentTarget) {
+          onClose();
+        }
+      }}
+      role="presentation"
+    >
+      <div
+        className="bg-neutral-900 text-neutral-100 border border-neutral-700 rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col"
+        onClick={(event) => event.stopPropagation()}
+      >
         {/* Header */}
         <div className="border-b border-neutral-700 px-6 py-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold">Provider & Model Settings</h2>

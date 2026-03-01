@@ -127,11 +127,18 @@ export function ManageModelsDialog({
 
   return (
     <div
+      data-testid="manage-models-overlay"
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-3"
+      onClick={(event) => {
+        if (event.target === event.currentTarget) {
+          onClose();
+        }
+      }}
       role="presentation"
     >
       <div
         className="flex w-full max-w-2xl max-h-[82vh] flex-col overflow-hidden rounded-xl border border-neutral-700 bg-neutral-900 text-neutral-100 shadow-2xl"
+        onClick={(event) => event.stopPropagation()}
         role="dialog"
         aria-modal="true"
         aria-labelledby="manage-models-title"
@@ -139,7 +146,7 @@ export function ManageModelsDialog({
         {/* Header */}
         <div className="flex items-center justify-between gap-3 border-b border-neutral-700 px-6 py-4">
           <div className="space-y-1">
-            <h2 id="manage-models-title" className="text-lg font-semibold tracking-tight">
+            <h2 id="manage-models-title" className="text-base font-semibold tracking-tight">
               Manage models
             </h2>
             <p className="text-xs text-neutral-400">
@@ -207,10 +214,10 @@ export function ManageModelsDialog({
                   <div key={group.providerId} className="space-y-2.5">
                     {/* Provider Header */}
                     <div className="flex items-center justify-between">
-                      <h3 className="text-[1.1rem] font-medium text-neutral-300">
+                      <h3 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">
                         {group.displayName}
                       </h3>
-                      <span className="text-xs text-neutral-500">
+                      <span className="text-[11px] text-neutral-500">
                         {visibleSet.size} / {group.totalCount} visible
                       </span>
                     </div>
@@ -225,7 +232,7 @@ export function ManageModelsDialog({
                             className="flex cursor-pointer items-center justify-between rounded-md px-2 py-1.5 transition-colors hover:bg-neutral-800/60"
                           >
                             <div className="flex-1 text-left">
-                              <p className="text-sm font-medium text-neutral-100">
+                              <p className="text-xs font-medium text-neutral-300">
                                 {model.name}
                               </p>
                             </div>

@@ -247,9 +247,9 @@ export function ModelPickerPopover({
         onClick={handleToggle}
         disabled={isLoading}
         className={`
-          inline-flex h-9 max-w-[min(18rem,calc(100vw-6rem))] items-center gap-2 rounded-md
-          border border-neutral-700/70 bg-transparent px-3 text-sm font-medium text-neutral-300
-          transition-colors hover:bg-neutral-800/60 hover:text-neutral-100
+          inline-flex h-7 max-w-[min(16rem,calc(100vw-6rem))] items-center gap-1.5 rounded-md
+          bg-transparent px-2 text-xs font-medium text-neutral-400
+          transition-colors hover:bg-neutral-800/50 hover:text-neutral-200
           focus:outline-none focus:ring-2 focus:ring-blue-500
           disabled:cursor-not-allowed disabled:opacity-50
         `}
@@ -257,9 +257,9 @@ export function ModelPickerPopover({
         aria-expanded={isOpen}
         title={selectedModelLabel}
       >
-        <span className="truncate max-w-xs">{selectedModelLabel}</span>
+        <span className="truncate max-w-[13rem]">{selectedModelLabel}</span>
         <ChevronDown
-          size={16}
+          size={14}
           className={`shrink-0 transition-transform ${
             isOpen ? "rotate-180" : ""
           }`}
@@ -284,7 +284,7 @@ export function ModelPickerPopover({
           {/* Search + Actions */}
           <div className="flex items-center gap-2 border-b border-neutral-800 p-2">
             <div className="relative flex-1">
-              <Search size={16} className="absolute left-3 top-2.5 text-neutral-500" />
+              <Search size={14} className="absolute left-2.5 top-2.5 text-neutral-500" />
               <input
                 ref={searchInputRef}
                 type="text"
@@ -292,9 +292,9 @@ export function ModelPickerPopover({
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className={`
-                  h-9 w-full rounded-md
+                  h-8 w-full rounded-md
                   bg-neutral-800 border border-neutral-700
-                  pl-9 pr-3 text-sm text-neutral-100 placeholder-neutral-500
+                  pl-8 pr-3 text-xs text-neutral-100 placeholder-neutral-500
                   focus:outline-none focus:ring-2 focus:ring-blue-500
                 `}
               />
@@ -345,7 +345,7 @@ export function ModelPickerPopover({
                 >
                   {/* Provider Header */}
                   <div className="sticky top-0 bg-neutral-900/95 px-3 py-2">
-                    <h3 className="text-xs font-semibold text-neutral-400 uppercase tracking-wide">
+                    <h3 className="text-[10px] font-semibold text-neutral-500 uppercase tracking-wide">
                       {group.displayName}
                     </h3>
                   </div>
@@ -359,13 +359,13 @@ export function ModelPickerPopover({
                          onClick={() => handleSelectModel(group.providerId, model.id)}
                          disabled={selectingModelId === model.id}
                          className={`
-                           w-full px-3 py-2.5 text-left text-sm
+                           w-full px-3 py-2 text-left text-xs
                            transition-colors disabled:opacity-50
                            ${
                              selectedProviderId === group.providerId &&
                              selectedModelId === model.id
                                ? "bg-neutral-800 text-neutral-100"
-                               : "text-neutral-300 hover:bg-neutral-800/50"
+                               : "text-neutral-400 hover:bg-neutral-800/50"
                            }
                          `}
                          title={`${model.name} (${model.id})`}

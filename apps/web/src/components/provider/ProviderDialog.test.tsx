@@ -197,7 +197,8 @@ describe("ProviderDialog", () => {
     });
 
     it("calls connectCredential with form data", async () => {
-       render(<ProviderDialog isOpen={true} onClose={vi.fn()} />);
+       const onClose = vi.fn();
+       render(<ProviderDialog isOpen={true} onClose={onClose} />);
 
        const availableTab = screen.getByText("Available");
        fireEvent.click(availableTab);
@@ -221,6 +222,7 @@ describe("ProviderDialog", () => {
            secret: "sk-test123",
            label: undefined,
          });
+         expect(onClose).toHaveBeenCalled();
        });
      });
 
@@ -312,6 +314,15 @@ describe("ProviderDialog", () => {
 
       expect(onClose).toHaveBeenCalled();
     });
+
+    it("calls onClose when backdrop is clicked", () => {
+      const onClose = vi.fn();
+      render(<ProviderDialog isOpen={true} onClose={onClose} />);
+
+      fireEvent.click(screen.getByTestId("provider-dialog-overlay"));
+
+      expect(onClose).toHaveBeenCalled();
+    });
   });
 
   describe("connect-only variant", () => {
@@ -366,6 +377,20 @@ describe("ProviderDialog", () => {
       }
 
       expect(screen.getByRole("heading", { level: 2, name: /connect provider/i })).toBeInTheDocument();
+    });
+
+    it("closes when manage models backdrop is clicked", () => {
+      const onClose = vi.fn();
+      render(
+        <ProviderDialog
+          isOpen={true}
+          onClose={onClose}
+          variant="manage-models-only"
+        />
+      );
+
+      fireEvent.click(screen.getByTestId("manage-models-overlay"));
+      expect(onClose).toHaveBeenCalled();
     });
   });
 });
