@@ -368,6 +368,7 @@ function findCommon(arr1: string[], arr2: string[]): string[] {
 
 - **No God Objects**: If a function exceeds 50 lines, refactor it.
 - **Shared Types**: Define interfaces in `packages/shared-types` if used across apps.
+- **Refactor-on-touch rule**: When implementing a feature/fix in a large non-SOLID file, extract/split it into smaller SRP/DRY/KISS-compliant modules as part of the same work (scope to touched area, avoid unrelated rewrites).
 
 ### Compatibility and Fallback Policy
 
@@ -425,6 +426,22 @@ Use Linear as the operational source of truth for execution sequencing and multi
 5. Parallel agent work must be non-overlapping by ownership (files/modules), with one merge gate issue controlling sequencing.
 6. Keep acceptance criteria in Linear issue descriptions and update them as code reality changes.
 
+### OSS Issue Governance (Required)
+
+Use OSS-friendly issue structure so external contributors can understand work without internal plan context.
+
+Reference:
+
+- `local/Rules/OSS-ISSUE-GOVERNANCE-RULES.md`
+
+Rules:
+
+1. Do not include internal plan/priority IDs in issue titles (for example `49`, `P0`, `S1`, `SHA-*`).
+2. Use outcome-first issue titles in format: `<Area>: <Outcome>`.
+3. Keep priority and roadmap linkage in labels/fields/parent-child hierarchy, not title prefixes.
+4. Use hierarchy: Initiative/Epic -> Issue -> Sub-issue (PR-sized).
+5. Every issue description must include objective, scope, non-goals, acceptance criteria, and dependencies.
+
 ---
 
 ## 10. Critical Runtime Constraints (Must-Enforce)
@@ -453,6 +470,7 @@ Before declaring a task complete, the Agent must verify:
 5.  Is there a simpler way to achieve this (KISS)?
 6.  Did I add any fallback/backward-compat layer without explicit requirement? (If yes, remove it.)
 7.  Are the tests added actually necessary for behavior, policy, or regression risk? (If no, remove them.)
+8.  Did I apply refactor-on-touch in modified large files to improve SRP/DRY/KISS compliance?
 
 ---
 
