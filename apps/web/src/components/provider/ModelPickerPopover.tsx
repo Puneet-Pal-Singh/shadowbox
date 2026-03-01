@@ -22,10 +22,12 @@ import { type ProviderModelOption } from "../../services/api/providerClient.js";
 export interface ModelPickerPopoverProps {
   catalog: ProviderRegistryEntry[];
   providerModels: Record<string, ProviderModelOption[]>;
+  visibleModelIds: Record<string, Set<string>>;
   selectedProviderId: string | null;
   selectedModelId: string | null;
   onSelectModel: (providerId: string, modelId: string) => Promise<void>;
   onConnectProvider: () => void;
+  onManageModels: () => void;
   isLoading?: boolean;
 }
 
@@ -44,10 +46,12 @@ interface ProviderGroup {
 export function ModelPickerPopover({
   catalog,
   providerModels,
+  visibleModelIds,
   selectedProviderId,
   selectedModelId,
   onSelectModel,
   onConnectProvider,
+  onManageModels,
   isLoading = false,
 }: ModelPickerPopoverProps): React.ReactElement {
   const [isOpen, setIsOpen] = useState(false);
@@ -67,14 +71,22 @@ export function ModelPickerPopover({
       .filter((group) => group.models.length > 0);
   }, [catalog, providerModels]);
 
-  // Filter groups and models based on search
+  // Filter groups and models based on search and visibility
   const filteredGroups = useMemo((): ProviderGroup[] => {
-    if (!searchQuery.trim()) {
-      return providerGroups;
+    const query = searchQuery.toLowerCase();
+    const byVisibility = providerGroups.map((group) => {
+      const visibleSet = visibleModelIds[group.providerId] || new Set();
+      return {
+        ...group,
+        models: group.models.filter((model) => visibleSet.has(model.id)),
+      };
+    });
+
+    if (!query.trim()) {
+      return byVisibility.filter((group) => group.models.length > 0);
     }
 
-    const query = searchQuery.toLowerCase();
-    return providerGroups
+    return byVisibility
       .map((group) => ({
         ...group,
         models: group.models.filter(
@@ -85,7 +97,7 @@ export function ModelPickerPopover({
         ),
       }))
       .filter((group) => group.models.length > 0);
-  }, [providerGroups, searchQuery]);
+  }, [providerGroups, searchQuery, visibleModelIds]);
 
   // Get currently selected model label
   const selectedModelLabel = useMemo((): string => {
@@ -288,15 +300,14 @@ export function ModelPickerPopover({
               type="button"
               onClick={() => {
                 setIsOpen(false);
-                // TODO: PR-UI3 will implement ManageModelsDialog
+                onManageModels();
               }}
-              disabled
               className={`
                 flex items-center justify-center gap-2 px-3 py-2 rounded-md
                 text-xs font-medium transition-colors
-                bg-neutral-700 text-neutral-400 cursor-not-allowed
+                bg-neutral-700 text-neutral-200 hover:bg-neutral-600
               `}
-              title="Manage models (coming in PR-UI3)"
+              title="Manage model visibility"
             >
               <Settings size={14} />
             </button>
