@@ -118,7 +118,7 @@ describe("ConnectProviderChooser", () => {
 
       await waitFor(() => {
         expect(
-          screen.getByPlaceholderText(/api key for openai/i)
+          screen.getByPlaceholderText(/e\.g\., sk-/i)
         ).toBeInTheDocument();
       });
     });
@@ -271,7 +271,7 @@ describe("ConnectProviderChooser", () => {
       const openaiButton = screen.getByText("OpenAI").closest("button");
       fireEvent.click(openaiButton!);
 
-      const keyInput = await screen.findByPlaceholderText(/api key for openai/i);
+      const keyInput = await screen.findByPlaceholderText(/e\.g\., sk-/i);
       fireEvent.change(keyInput, { target: { value: "sk-test-key" } });
 
       const connectButton = screen.getByRole("button", {
@@ -291,7 +291,7 @@ describe("ConnectProviderChooser", () => {
       const openaiButton = screen.getByText("OpenAI").closest("button");
       fireEvent.click(openaiButton!);
 
-      const keyInput = await screen.findByPlaceholderText(/api key for openai/i);
+      const keyInput = await screen.findByPlaceholderText(/e\.g\., sk-/i);
       fireEvent.change(keyInput, { target: { value: "sk-test-key" } });
 
       const connectButton = screen.getByRole("button", {
@@ -319,7 +319,7 @@ describe("ConnectProviderChooser", () => {
       const openaiButton = screen.getByText("OpenAI").closest("button");
       fireEvent.click(openaiButton!);
 
-      const keyInput = await screen.findByPlaceholderText(/api key for openai/i);
+      const keyInput = await screen.findByPlaceholderText(/e\.g\., sk-/i);
       fireEvent.change(keyInput, { target: { value: "sk-test-key" } });
 
       const labelInput = screen.getByPlaceholderText(/e\.g\., 'personal'/i);
@@ -337,9 +337,9 @@ describe("ConnectProviderChooser", () => {
           "Work"
         );
       });
-    });
+      });
 
-    it("clears form fields after successful connect", async () => {
+      it("clears form fields after successful connect", async () => {
       render(
         <ConnectProviderChooser
           catalog={mockCatalog}
@@ -351,7 +351,7 @@ describe("ConnectProviderChooser", () => {
       fireEvent.click(openaiButton!);
 
       const keyInput = (await screen.findByPlaceholderText(
-        /api key for openai/i
+        /e\.g\., sk-/i
       )) as HTMLInputElement;
       fireEvent.change(keyInput, { target: { value: "sk-test-key" } });
 
@@ -414,7 +414,7 @@ describe("ConnectProviderChooser", () => {
       const openaiButton = screen.getByText("OpenAI").closest("button");
       fireEvent.click(openaiButton!);
 
-      const keyInput = await screen.findByPlaceholderText(/api key for openai/i);
+      const keyInput = await screen.findByPlaceholderText(/e\.g\., sk-/i);
       fireEvent.change(keyInput, { target: { value: "sk-new-key" } });
 
       await waitFor(() => {
@@ -441,16 +441,25 @@ describe("ConnectProviderChooser", () => {
 
   describe("Loading State", () => {
     it("disables connect button when connecting", async () => {
-      render(
+      const { rerender } = render(
         <ConnectProviderChooser
           catalog={mockCatalog}
-          isConnecting={true}
+          isConnecting={false}
           {...mockHandlers}
         />
       );
 
       const openaiButton = screen.getByText("OpenAI").closest("button");
       fireEvent.click(openaiButton!);
+
+      // Now re-render with isConnecting=true to trigger loading state
+      rerender(
+        <ConnectProviderChooser
+          catalog={mockCatalog}
+          isConnecting={true}
+          {...mockHandlers}
+        />
+      );
 
       const connectButton = await screen.findByRole("button", {
         name: /connecting/i,
@@ -459,16 +468,25 @@ describe("ConnectProviderChooser", () => {
     });
 
     it("shows connecting state text", async () => {
-      render(
+      const { rerender } = render(
         <ConnectProviderChooser
           catalog={mockCatalog}
-          isConnecting={true}
+          isConnecting={false}
           {...mockHandlers}
         />
       );
 
       const openaiButton = screen.getByText("OpenAI").closest("button");
       fireEvent.click(openaiButton!);
+
+      // Now re-render with isConnecting=true to trigger loading state
+      rerender(
+        <ConnectProviderChooser
+          catalog={mockCatalog}
+          isConnecting={true}
+          {...mockHandlers}
+        />
+      );
 
       await waitFor(() => {
         expect(screen.getByText(/connecting\.\.\./i)).toBeInTheDocument();

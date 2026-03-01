@@ -68,36 +68,32 @@ export function ProviderDialog({
 
   const [connectError, setConnectError] = useState<string | null>(null);
   const [connectSuccess, setConnectSuccess] = useState<string | null>(null);
-  const [connectSecret, setConnectSecret] = useState("");
-  const [connectProvider, setConnectProvider] = useState("");
-  const [connectLabel, setConnectLabel] = useState("");
 
   if (!isOpen) return null;
 
   /**
-   * Handle credential connection
+   * Core credential connection logic (extracted for reuse)
    */
-  const handleConnect = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const doConnect = async (
+    providerId: string,
+    secret: string,
+    labelValue: string
+  ): Promise<void> => {
     setConnectError(null);
     setConnectSuccess(null);
 
-    if (!connectProvider || !connectSecret) {
+    if (!providerId || !secret) {
       setConnectError("Provider and API key are required");
       return;
     }
 
     try {
       await connectCredential({
-        providerId: connectProvider,
-        secret: connectSecret,
-        label: connectLabel || undefined,
+        providerId,
+        secret,
+        label: labelValue || undefined,
       });
 
-      // Clear form
-      setConnectSecret("");
-      setConnectProvider("");
-      setConnectLabel("");
       setConnectSuccess("API key saved and provider connected.");
       setActiveTab("connected");
     } catch (err) {
@@ -244,15 +240,7 @@ export function ProviderDialog({
                 success={connectSuccess}
                 isConnecting={false}
                 onConnect={async (providerId, secret, label) => {
-                  // Simulate form submission
-                  const formEvent = new Event("submit") as any;
-                  formEvent.preventDefault = () => {};
-                  
-                  setConnectProvider(providerId);
-                  setConnectSecret(secret);
-                  setConnectLabel(label || "");
-                  
-                  await handleConnect(formEvent);
+                  await doConnect(providerId, secret, label || "");
                 }}
                 onErrorClear={() => setConnectError(null)}
               />

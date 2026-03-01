@@ -299,15 +299,17 @@ describe("ModelPickerPopover", () => {
 
       fireEvent.click(modelButton!);
 
-      // Reopen and check if search is cleared
-      fireEvent.click(triggerButton);
-
+      // Wait for async selection flow to close popover first
       await waitFor(() => {
-        const newSearchInput = screen.getByPlaceholderText(
-          /search models/i
-        ) as HTMLInputElement;
-        expect(newSearchInput.value).toBe("");
+        expect(screen.queryByPlaceholderText(/search models/i)).not.toBeInTheDocument();
       });
+
+      // Reopen and verify search is reset
+      fireEvent.click(screen.getByRole("button", { name: /open model picker/i }));
+      const newSearchInput = (await screen.findByPlaceholderText(
+        /search models/i
+      )) as HTMLInputElement;
+      expect(newSearchInput.value).toBe("");
     });
   });
 
