@@ -254,10 +254,16 @@ export class ProviderStore {
         selectedModelId: this.state.selectedModelId,
       });
 
+      const visibleModelIds = this.hydrateVisibleModelIds(
+        preferences,
+        catalog
+      );
+
       this.setState({
         catalog,
         credentials,
         preferences,
+        visibleModelIds,
         selectedProviderId: selection.selectedProviderId,
         selectedCredentialId: selection.selectedCredentialId,
         selectedModelId: selection.selectedModelId,
@@ -295,6 +301,41 @@ export class ProviderStore {
       this.log("[bootstrap] Error", { error: message });
       throw error;
     }
+  }
+
+  /**
+   * Hydrate visibility state from persisted preferences
+   * Falls back to showing all models if preference is not set
+   */
+  private hydrateVisibleModelIds(
+    preferences: ProviderPreference | null,
+    catalog: ProviderRegistryEntry[]
+  ): Record<string, Set<string>> {
+    const result: Record<string, Set<string>> = {};
+
+    if (!preferences?.visibleModelIds) {
+      // Default: show all models from catalog
+      for (const entry of catalog) {
+        result[entry.providerId] = new Set();
+      }
+      return result;
+    }
+
+    // Convert arrays from preference to Sets
+    for (const [providerId, modelIds] of Object.entries(
+      preferences.visibleModelIds
+    )) {
+      result[providerId] = new Set(modelIds);
+    }
+
+    // Add empty sets for any providers not in preferences
+    for (const entry of catalog) {
+      if (!result[entry.providerId]) {
+        result[entry.providerId] = new Set();
+      }
+    }
+
+    return result;
   }
 
   /**
@@ -793,7 +834,7 @@ export class ProviderStore {
   }
 
   /**
-   * Toggle model visibility for a provider
+   * Toggle model visibility for a provider and persist to backend
    */
   toggleModelVisibility(providerId: string, modelId: string): void {
     const current = this.state.visibleModelIds[providerId] || new Set();
@@ -803,23 +844,58 @@ export class ProviderStore {
     } else {
       next.add(modelId);
     }
+    const newVisibleModelIds = {
+      ...this.state.visibleModelIds,
+      [providerId]: next,
+    };
     this.setState({
-      visibleModelIds: {
-        ...this.state.visibleModelIds,
-        [providerId]: next,
-      },
+      visibleModelIds: newVisibleModelIds,
+    });
+    // Persist changes to backend (fire and forget with error logging)
+    this.persistVisibilityChanges(newVisibleModelIds).catch((error) => {
+      this.log("[toggleModelVisibility] Failed to persist changes", {
+        providerId,
+        modelId,
+        error: error instanceof Error ? error.message : String(error),
+      });
     });
   }
 
   /**
-   * Set visible models for a provider
+   * Set visible models for a provider and persist to backend
    */
   setProviderVisibleModels(providerId: string, modelIds: string[]): void {
+    const newVisibleModelIds = {
+      ...this.state.visibleModelIds,
+      [providerId]: new Set(modelIds),
+    };
     this.setState({
-      visibleModelIds: {
-        ...this.state.visibleModelIds,
-        [providerId]: new Set(modelIds),
-      },
+      visibleModelIds: newVisibleModelIds,
+    });
+    // Persist changes to backend (fire and forget with error logging)
+    this.persistVisibilityChanges(newVisibleModelIds).catch((error) => {
+      this.log("[setProviderVisibleModels] Failed to persist changes", {
+        providerId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+  }
+
+  /**
+   * Persist visibility changes to backend
+   * Converts Sets to arrays for API payload
+   */
+  private async persistVisibilityChanges(
+    visibleModelIds: Record<string, Set<string>>
+  ): Promise<void> {
+    // Convert Sets to arrays for API
+    const visibleModelIdsRecord: Record<string, string[]> = {};
+    for (const [providerId, modelSet] of Object.entries(visibleModelIds)) {
+      visibleModelIdsRecord[providerId] = Array.from(modelSet);
+    }
+
+    await this.updatePreferences({
+      visibleModelIds: visibleModelIdsRecord,
     });
   }
 
