@@ -30,6 +30,7 @@ export interface ProviderStoreState {
   credentials: ProviderCredential[];
   preferences: ProviderPreference | null;
   providerModels: Record<string, ProviderModelOption[]>;
+  visibleModelIds: Record<string, Set<string>>;
 
   // Current selection
   selectedProviderId: string | null;
@@ -129,6 +130,7 @@ export class ProviderStore {
       credentials: [],
       preferences: null,
       providerModels: {},
+      visibleModelIds: {},
       selectedProviderId: null,
       selectedCredentialId: null,
       selectedModelId: null,
@@ -177,10 +179,26 @@ export class ProviderStore {
   }
 
   /**
-   * Get current state
+   * Get current state with deep-copied visibleModelIds to prevent mutations
    */
   getState(): ProviderStoreState {
-    return { ...this.state };
+    return {
+      ...this.state,
+      visibleModelIds: this.copyVisibleModelIds(this.state.visibleModelIds),
+    };
+  }
+
+  /**
+   * Deep copy visibleModelIds to prevent external mutations
+   */
+  private copyVisibleModelIds(
+    visibleModelIds: Record<string, Set<string>>
+  ): Record<string, Set<string>> {
+    const copy: Record<string, Set<string>> = {};
+    for (const [providerId, modelSet] of Object.entries(visibleModelIds)) {
+      copy[providerId] = new Set(modelSet);
+    }
+    return copy;
   }
 
   /**
@@ -775,6 +793,37 @@ export class ProviderStore {
   }
 
   /**
+   * Toggle model visibility for a provider
+   */
+  toggleModelVisibility(providerId: string, modelId: string): void {
+    const current = this.state.visibleModelIds[providerId] || new Set();
+    const next = new Set(current);
+    if (next.has(modelId)) {
+      next.delete(modelId);
+    } else {
+      next.add(modelId);
+    }
+    this.setState({
+      visibleModelIds: {
+        ...this.state.visibleModelIds,
+        [providerId]: next,
+      },
+    });
+  }
+
+  /**
+   * Set visible models for a provider
+   */
+  setProviderVisibleModels(providerId: string, modelIds: string[]): void {
+    this.setState({
+      visibleModelIds: {
+        ...this.state.visibleModelIds,
+        [providerId]: new Set(modelIds),
+      },
+    });
+  }
+
+  /**
    * Clear error state
    */
   clearError(): void {
@@ -795,6 +844,7 @@ export class ProviderStore {
       credentials: [],
       preferences: null,
       providerModels: {},
+      visibleModelIds: {},
       selectedProviderId: null,
       selectedCredentialId: null,
       selectedModelId: null,

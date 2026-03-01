@@ -21,6 +21,7 @@ import {
 import { type ProviderModelOption } from "../../services/api/providerClient.js";
 import { getProviderRecoveryAdvice } from "../../lib/provider-recovery.js";
 import { ConnectProviderChooser } from "./ConnectProviderChooser.js";
+import { ManageModelsDialog } from "./ManageModelsDialog.js";
 
 /**
  * Provider Dialog Props
@@ -43,6 +44,7 @@ export function ProviderDialog({
     catalog,
     credentials,
     providerModels,
+    visibleModelIds,
     loadingModelsForProviderId,
     preferences,
     selectedProviderId,
@@ -56,6 +58,7 @@ export function ProviderDialog({
     loadProviderModels,
     updatePreferences,
     applySessionSelection,
+    toggleModelVisibility,
   } = useProviderStore();
 
   const [activeTab, setActiveTab] = useState<
@@ -68,6 +71,7 @@ export function ProviderDialog({
 
   const [connectError, setConnectError] = useState<string | null>(null);
   const [connectSuccess, setConnectSuccess] = useState<string | null>(null);
+  const [showManageModels, setShowManageModels] = useState(false);
 
   if (!isOpen) return null;
 
@@ -270,23 +274,41 @@ export function ProviderDialog({
         </div>
 
         {/* Footer */}
-        <div className="border-t px-6 py-3 flex justify-end gap-3">
+        <div className="border-t px-6 py-3 flex justify-between gap-3">
           <button
-            onClick={onClose}
-            className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded transition"
+            onClick={() => setShowManageModels(true)}
+            className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded transition"
           >
-            Close
+            Manage Models
           </button>
-          {mode === "composer" && (
+          <div className="flex gap-3">
             <button
               onClick={onClose}
-              className="px-4 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded transition"
+              className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded transition"
             >
-              Use Selected
+              Close
             </button>
-          )}
+            {mode === "composer" && (
+              <button
+                onClick={onClose}
+                className="px-4 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded transition"
+              >
+                Use Selected
+              </button>
+            )}
+          </div>
         </div>
       </div>
+
+      {/* Manage Models Dialog */}
+      <ManageModelsDialog
+        isOpen={showManageModels}
+        onClose={() => setShowManageModels(false)}
+        catalog={catalog}
+        providerModels={providerModels}
+        visibleModelIds={visibleModelIds}
+        onToggleModelVisibility={toggleModelVisibility}
+      />
     </div>
   );
 }

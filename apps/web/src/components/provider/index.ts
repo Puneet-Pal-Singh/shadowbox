@@ -6,3 +6,5 @@ export { ProviderDialog } from "./ProviderDialog.js";
 export type { ProviderDialogProps } from "./ProviderDialog.js";
 export { ModelPickerPopover } from "./ModelPickerPopover.js";
 export type { ModelPickerPopoverProps } from "./ModelPickerPopover.js";
+export { ManageModelsDialog } from "./ManageModelsDialog.js";
+export type { ManageModelsDialogProps } from "./ManageModelsDialog.js";

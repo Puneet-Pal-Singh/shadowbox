@@ -35,6 +35,7 @@ export function ChatInputBar({
     selectedModelId,
     lastResolvedConfig,
     providerModels,
+    visibleModelIds,
     applySessionSelection,
   } = useProviderStore();
 
@@ -119,6 +120,7 @@ export function ChatInputBar({
               <ModelPickerPopover
                 catalog={catalog}
                 providerModels={providerModels}
+                visibleModelIds={visibleModelIds}
                 selectedProviderId={selectedProviderId}
                 selectedModelId={selectedModelId}
                 onSelectModel={async (providerId, modelId) => {
@@ -129,6 +131,7 @@ export function ChatInputBar({
                   });
                 }}
                 onConnectProvider={() => setShowProviderDialog(true)}
+                onManageModels={() => setShowProviderDialog(true)}
                 isLoading={status === "loading"}
               />
             </div>

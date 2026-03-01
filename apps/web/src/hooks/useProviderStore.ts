@@ -55,6 +55,8 @@ type UseProviderStoreResult = ProviderStoreState & {
     request: SessionSelectionRequest,
   ) => Promise<ProviderResolution>;
   resolveForChat: () => Promise<ProviderResolution>;
+  toggleModelVisibility: (providerId: string, modelId: string) => void;
+  setProviderVisibleModels: (providerId: string, modelIds: string[]) => void;
   clearError: () => void;
   reset: () => void;
 };
@@ -125,6 +127,16 @@ export function useProviderStore(
     () => store.resolveForChat(),
     [store]
   );
+  const toggleModelVisibility = useCallback(
+    (providerId: string, modelId: string) =>
+      store.toggleModelVisibility(providerId, modelId),
+    [store]
+  );
+  const setProviderVisibleModels = useCallback(
+    (providerId: string, modelIds: string[]) =>
+      store.setProviderVisibleModels(providerId, modelIds),
+    [store]
+  );
   const clearError = useCallback(() => store.clearError(), [store]);
   const reset = useCallback(() => store.reset(), [store]);
 
@@ -139,6 +151,8 @@ export function useProviderStore(
     setSelection,
     applySessionSelection,
     resolveForChat,
+    toggleModelVisibility,
+    setProviderVisibleModels,
     clearError,
     reset,
   };

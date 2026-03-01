@@ -26,6 +26,7 @@ describe("ChatInput", () => {
       credentials: [],
       preferences: null,
       providerModels: {},
+      visibleModelIds: {},
       selectedProviderId: "openai",
       selectedCredentialId: credentialId,
       selectedModelId: "gpt-4",
@@ -79,9 +80,11 @@ describe("ChatInput", () => {
         resolvedAtTime: new Date().toISOString(),
         fallbackUsed: false,
       })),
+      toggleModelVisibility: vi.fn(),
+      setProviderVisibleModels: vi.fn(),
       clearError: vi.fn(),
       reset: vi.fn(),
-    };
+      };
 
     vi.spyOn(useProviderStoreModule, "useProviderStore").mockReturnValue(mockStore);
   });
