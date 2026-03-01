@@ -116,6 +116,49 @@ describe("ModelPickerPopover", () => {
         expect(screen.getByPlaceholderText(/search models/i)).toBeInTheDocument();
       });
     });
+
+    it("opens upward when there is not enough space below trigger", async () => {
+      const originalInnerHeight = window.innerHeight;
+      Object.defineProperty(window, "innerHeight", {
+        configurable: true,
+        value: 640,
+      });
+
+      render(
+        <ModelPickerPopover
+          {...defaultProps}
+          selectedProviderId={null}
+          selectedModelId={null}
+        />
+      );
+
+      const triggerButton = screen.getByRole("button", {
+        name: /open model picker/i,
+      });
+      vi.spyOn(triggerButton, "getBoundingClientRect").mockReturnValue({
+        x: 0,
+        y: 560,
+        width: 200,
+        height: 36,
+        top: 560,
+        right: 200,
+        bottom: 596,
+        left: 0,
+        toJSON: () => ({}),
+      });
+
+      fireEvent.click(triggerButton);
+
+      await waitFor(() => {
+        const popover = screen.getByTestId("model-picker-popover");
+        expect(popover.className).toContain("bottom-full");
+      });
+
+      Object.defineProperty(window, "innerHeight", {
+        configurable: true,
+        value: originalInnerHeight,
+      });
+    });
   });
 
   describe("Model Display", () => {

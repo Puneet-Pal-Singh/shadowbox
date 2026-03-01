@@ -16,6 +16,9 @@ import { ChevronDown, Search, Plus, Settings } from "lucide-react";
 import { type ProviderRegistryEntry } from "@repo/shared-types";
 import { type ProviderModelOption } from "../../services/api/providerClient.js";
 
+const POPOVER_GAP_PX = 8;
+const ESTIMATED_POPOVER_HEIGHT_PX = 420;
+
 /**
  * Props for ModelPickerPopover
  */
@@ -55,9 +58,11 @@ export function ModelPickerPopover({
   isLoading = false,
 }: ModelPickerPopoverProps): React.ReactElement {
   const [isOpen, setIsOpen] = useState(false);
+  const [placement, setPlacement] = useState<"up" | "down">("down");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectingModelId, setSelectingModelId] = useState<string | null>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
+  const triggerButtonRef = useRef<HTMLButtonElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   // Build provider groups from catalog and models
@@ -156,12 +161,39 @@ export function ModelPickerPopover({
     }
   }, [isOpen]);
 
+  const resolvePlacement = (): "up" | "down" => {
+    const triggerRect = triggerButtonRef.current?.getBoundingClientRect();
+    if (!triggerRect) {
+      return "down";
+    }
+
+    const spaceBelow = window.innerHeight - triggerRect.bottom;
+    const spaceAbove = triggerRect.top;
+    const requiredHeight = ESTIMATED_POPOVER_HEIGHT_PX + POPOVER_GAP_PX;
+
+    if (spaceBelow < requiredHeight && spaceAbove > spaceBelow) {
+      return "up";
+    }
+    return "down";
+  };
+
+  const handleToggle = (): void => {
+    if (isLoading) {
+      return;
+    }
+    if (!isOpen) {
+      setPlacement(resolvePlacement());
+    }
+    setIsOpen((current) => !current);
+  };
+
   return (
     <div ref={popoverRef} className="relative">
       {/* Trigger Button */}
       <button
+        ref={triggerButtonRef}
         type="button"
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={handleToggle}
         disabled={isLoading}
         className={`
           flex items-center gap-2 px-3 py-2 rounded-lg
@@ -186,8 +218,10 @@ export function ModelPickerPopover({
       {/* Popover Content */}
       {isOpen && (
         <div
+          data-testid="model-picker-popover"
           className={`
-            absolute top-full right-0 mt-2 w-96 max-h-96
+            absolute right-0 w-96 max-h-96
+            ${placement === "down" ? "top-full mt-2" : "bottom-full mb-2"}
             bg-neutral-900 border border-neutral-700 rounded-lg
             shadow-lg shadow-black/50 z-50 flex flex-col
           `}
