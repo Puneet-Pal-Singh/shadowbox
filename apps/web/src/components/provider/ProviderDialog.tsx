@@ -189,7 +189,7 @@ export function ProviderDialog({
         </div>
 
         {/* Tabs */}
-        <div className="border-b flex gap-1 px-6">
+        <div className="border-b flex gap-1 px-6" role="tablist">
           {[
             { id: "connected", label: "Connected" },
             { id: "available", label: "Available" },
@@ -198,7 +198,7 @@ export function ProviderDialog({
               id: "session",
               label: mode === "composer" ? "Active Session" : "Quick Select",
             },
-          ].map((tab) => (
+          ].map((tab, index) => (
             <button
               key={tab.id}
               onClick={() =>
@@ -206,7 +206,30 @@ export function ProviderDialog({
                   tab.id as "connected" | "available" | "preferences" | "session"
                 )
               }
-              className={`px-4 py-3 border-b-2 transition ${
+              onKeyDown={(e) => {
+                const tabIds: ("connected" | "available" | "preferences" | "session")[] = [
+                  "connected",
+                  "available",
+                  "preferences",
+                  "session",
+                ];
+                let nextIndex = index;
+                if (e.key === "ArrowRight") {
+                  e.preventDefault();
+                  nextIndex = (index + 1) % tabIds.length;
+                } else if (e.key === "ArrowLeft") {
+                  e.preventDefault();
+                  nextIndex = (index - 1 + tabIds.length) % tabIds.length;
+                }
+                const nextTabId = tabIds[nextIndex];
+                if (nextTabId) {
+                  setActiveTab(nextTabId);
+                }
+              }}
+              role="tab"
+              aria-selected={activeTab === tab.id}
+              tabIndex={activeTab === tab.id ? 0 : -1}
+              className={`px-4 py-3 border-b-2 transition focus:outline-none focus:ring-2 focus:ring-blue-500 ${
                 activeTab === tab.id
                   ? "border-blue-500 text-blue-600 font-medium"
                   : "border-transparent text-gray-600 hover:text-gray-900"
@@ -227,17 +250,19 @@ export function ProviderDialog({
           )}
 
           {activeTab === "connected" && (
-            <ConnectedTab
-              credentials={credentials}
-              onDisconnect={disconnectCredential}
-              onValidate={handleValidate}
-              validatingId={validatingCredentialId}
-              onOpenAvailableTab={() => setActiveTab("available")}
-            />
+            <div role="tabpanel">
+              <ConnectedTab
+                credentials={credentials}
+                onDisconnect={disconnectCredential}
+                onValidate={handleValidate}
+                validatingId={validatingCredentialId}
+                onOpenAvailableTab={() => setActiveTab("available")}
+              />
+            </div>
           )}
 
           {activeTab === "available" && (
-            <div className="p-6">
+            <div role="tabpanel" className="p-6">
               <ConnectProviderChooser
                 catalog={catalog}
                 error={connectError}
@@ -252,24 +277,28 @@ export function ProviderDialog({
           )}
 
           {activeTab === "preferences" && (
-            <PreferencesTab
-              preferences={preferences}
-              onUpdate={handleUpdatePreferences}
-            />
+            <div role="tabpanel">
+              <PreferencesTab
+                preferences={preferences}
+                onUpdate={handleUpdatePreferences}
+              />
+            </div>
           )}
 
           {activeTab === "session" && (
-            <SessionTab
-              catalog={catalog}
-              credentials={credentials}
-              selectedProviderId={selectedProviderId}
-              selectedCredentialId={selectedCredentialId}
-              selectedModelId={selectedModelId}
-              modelOptions={selectedProviderModelOptions}
-              isModelLoading={isSelectedProviderModelLoading}
-              onLoadModels={loadProviderModels}
-              onSelect={handleSessionSelect}
-            />
+            <div role="tabpanel">
+              <SessionTab
+                catalog={catalog}
+                credentials={credentials}
+                selectedProviderId={selectedProviderId}
+                selectedCredentialId={selectedCredentialId}
+                selectedModelId={selectedModelId}
+                modelOptions={selectedProviderModelOptions}
+                isModelLoading={isSelectedProviderModelLoading}
+                onLoadModels={loadProviderModels}
+                onSelect={handleSessionSelect}
+              />
+            </div>
           )}
         </div>
 
