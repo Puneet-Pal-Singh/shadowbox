@@ -346,20 +346,23 @@ describe("ModelPickerPopover", () => {
       });
     });
 
-    it("disables manage button (PR-UI3 placeholder)", async () => {
+    it("enables manage button and calls onManageModels", async () => {
+      const handleManageModels = vi.fn();
       render(
         <ModelPickerPopover
           {...defaultProps}
-          selectedProviderId={null}
-          selectedModelId={null}
+          onManageModels={handleManageModels}
         />
       );
 
       const triggerButton = screen.getByRole("button", { name: /open model picker/i });
       fireEvent.click(triggerButton);
 
-      const manageButton = await screen.findByRole("button", { name: /manage/i });
-      expect(manageButton).toBeDisabled();
+      const manageButton = await screen.findByRole("button", { name: /manage model visibility/i });
+      expect(manageButton).not.toBeDisabled();
+
+      fireEvent.click(manageButton);
+      expect(handleManageModels).toHaveBeenCalled();
     });
   });
 
