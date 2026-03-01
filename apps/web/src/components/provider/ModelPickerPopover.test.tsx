@@ -119,47 +119,88 @@ describe("ModelPickerPopover", () => {
 
     it("opens upward when there is not enough space below trigger", async () => {
       const originalInnerHeight = window.innerHeight;
-      try {
-        Object.defineProperty(window, "innerHeight", {
-          configurable: true,
-          value: 640,
-        });
+      Object.defineProperty(window, "innerHeight", {
+        configurable: true,
+        value: 640,
+      });
 
-        render(
-          <ModelPickerPopover
-            {...defaultProps}
-            selectedProviderId={null}
-            selectedModelId={null}
-          />
-        );
+      render(
+        <ModelPickerPopover
+          {...defaultProps}
+          selectedProviderId={null}
+          selectedModelId={null}
+        />
+      );
 
-        const triggerButton = screen.getByRole("button", {
-          name: /open model picker/i,
-        });
-        vi.spyOn(triggerButton, "getBoundingClientRect").mockReturnValue({
-          x: 0,
-          y: 560,
-          width: 200,
-          height: 36,
-          top: 560,
-          right: 200,
-          bottom: 596,
-          left: 0,
-          toJSON: () => ({}),
-        });
+      const triggerButton = screen.getByRole("button", {
+        name: /open model picker/i,
+      });
+      vi.spyOn(triggerButton, "getBoundingClientRect").mockReturnValue({
+        x: 0,
+        y: 560,
+        width: 200,
+        height: 36,
+        top: 560,
+        right: 200,
+        bottom: 596,
+        left: 0,
+        toJSON: () => ({}),
+      });
 
-        fireEvent.click(triggerButton);
+      fireEvent.click(triggerButton);
 
-        await waitFor(() => {
-          const popover = screen.getByTestId("model-picker-popover");
-          expect(popover.className).toContain("bottom-full");
-        });
-      } finally {
-        Object.defineProperty(window, "innerHeight", {
-          configurable: true,
-          value: originalInnerHeight,
-        });
-      }
+      await waitFor(() => {
+        const popover = screen.getByTestId("model-picker-popover");
+        expect(popover.className).toContain("bottom-full");
+      });
+
+      Object.defineProperty(window, "innerHeight", {
+        configurable: true,
+        value: originalInnerHeight,
+      });
+    });
+
+    it("uses right alignment when viewport is narrow on the right", async () => {
+      const originalInnerWidth = window.innerWidth;
+      Object.defineProperty(window, "innerWidth", {
+        configurable: true,
+        value: 700,
+      });
+
+      render(
+        <ModelPickerPopover
+          {...defaultProps}
+          selectedProviderId={null}
+          selectedModelId={null}
+        />
+      );
+
+      const triggerButton = screen.getByRole("button", {
+        name: /open model picker/i,
+      });
+      vi.spyOn(triggerButton, "getBoundingClientRect").mockReturnValue({
+        x: 560,
+        y: 200,
+        width: 120,
+        height: 36,
+        top: 200,
+        right: 680,
+        bottom: 236,
+        left: 560,
+        toJSON: () => ({}),
+      });
+
+      fireEvent.click(triggerButton);
+
+      await waitFor(() => {
+        const popover = screen.getByTestId("model-picker-popover");
+        expect(popover.className).toContain("right-0");
+      });
+
+      Object.defineProperty(window, "innerWidth", {
+        configurable: true,
+        value: originalInnerWidth,
+      });
     });
   });
 
@@ -198,7 +239,7 @@ describe("ModelPickerPopover", () => {
 
       await waitFor(() => {
         const gpt4Button = screen.getByText("GPT-4").closest("button");
-        expect(gpt4Button).toHaveClass("bg-blue-900/40");
+        expect(gpt4Button).toHaveClass("bg-neutral-800");
         expect(gpt4Button?.textContent).toContain("✓");
       });
     });
@@ -468,7 +509,7 @@ describe("ModelPickerPopover", () => {
 
       await waitFor(() => {
         expect(
-          screen.getByText(/no providers connected. click connect below/i)
+          screen.getByText(/no providers connected yet/i)
         ).toBeInTheDocument();
       });
     });

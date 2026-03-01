@@ -64,477 +64,137 @@ describe("ConnectProviderChooser", () => {
     vi.clearAllMocks();
   });
 
-  describe("Rendering", () => {
-    it("renders search input and provider list", () => {
-      render(
-        <ConnectProviderChooser
-          catalog={mockCatalog}
-          {...mockHandlers}
-        />
-      );
+  it("renders provider search and list", () => {
+    render(<ConnectProviderChooser catalog={mockCatalog} {...mockHandlers} />);
 
-      expect(screen.getByPlaceholderText(/search by provider/i)).toBeInTheDocument();
-      expect(screen.getByText("OpenAI")).toBeInTheDocument();
-      expect(screen.getByText("Anthropic")).toBeInTheDocument();
-      expect(screen.getByText("Groq")).toBeInTheDocument();
-    });
+    expect(screen.getByPlaceholderText(/search providers/i)).toBeInTheDocument();
+    expect(screen.getByText("OpenAI")).toBeInTheDocument();
+    expect(screen.getByText("Anthropic")).toBeInTheDocument();
+    expect(screen.getByText("Groq")).toBeInTheDocument();
+  });
 
-    it("shows provider count", () => {
-      render(
-        <ConnectProviderChooser
-          catalog={mockCatalog}
-          {...mockHandlers}
-        />
-      );
+  it("filters providers by query", () => {
+    render(<ConnectProviderChooser catalog={mockCatalog} {...mockHandlers} />);
 
-      expect(screen.getByText(/available providers \(3\)/i)).toBeInTheDocument();
-    });
+    const input = screen.getByPlaceholderText(/search providers/i);
+    fireEvent.change(input, { target: { value: "openai" } });
 
-    it("displays initial message when no provider selected", () => {
-      render(
-        <ConnectProviderChooser
-          catalog={mockCatalog}
-          {...mockHandlers}
-        />
-      );
+    expect(screen.getByText("OpenAI")).toBeInTheDocument();
+    expect(screen.queryByText("Anthropic")).not.toBeInTheDocument();
+  });
 
-      expect(
-        screen.getByText(/select a provider above to enter your api key/i)
-      ).toBeInTheDocument();
+  it("shows no matches state", () => {
+    render(<ConnectProviderChooser catalog={mockCatalog} {...mockHandlers} />);
+
+    const input = screen.getByPlaceholderText(/search providers/i);
+    fireEvent.change(input, { target: { value: "nonexistent" } });
+
+    expect(screen.getByText(/no providers match your search/i)).toBeInTheDocument();
+  });
+
+  it("moves to API key step after provider selection", async () => {
+    render(<ConnectProviderChooser catalog={mockCatalog} {...mockHandlers} />);
+
+    fireEvent.click(screen.getByText("OpenAI"));
+
+    await waitFor(() => {
+      expect(screen.getByText(/connect openai/i)).toBeInTheDocument();
+      expect(screen.getByPlaceholderText(/api key/i)).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /back to providers/i })).toBeInTheDocument();
     });
   });
 
-  describe("Provider Selection", () => {
-    it("shows API key form when provider is selected", async () => {
-      render(
-        <ConnectProviderChooser
-          catalog={mockCatalog}
-          {...mockHandlers}
-        />
-      );
+  it("returns to provider list on back", async () => {
+    render(<ConnectProviderChooser catalog={mockCatalog} {...mockHandlers} />);
 
-      const openaiButton = screen.getByText("OpenAI").closest("button");
-      fireEvent.click(openaiButton!);
-
-      await waitFor(() => {
-        expect(
-          screen.getByPlaceholderText(/e\.g\., sk-/i)
-        ).toBeInTheDocument();
-      });
+    fireEvent.click(screen.getByText("OpenAI"));
+    const backButton = await screen.findByRole("button", {
+      name: /back to providers/i,
     });
 
-    it("displays provider capabilities", async () => {
-      render(
-        <ConnectProviderChooser
-          catalog={mockCatalog}
-          {...mockHandlers}
-        />
-      );
+    fireEvent.click(backButton);
 
-      const openaiButton = screen.getByText("OpenAI").closest("button");
-      fireEvent.click(openaiButton!);
-
-      await waitFor(() => {
-        expect(screen.getByText(/streaming, tools, json/i)).toBeInTheDocument();
-      });
-    });
-
-    it("shows key format hint when available", async () => {
-      render(
-        <ConnectProviderChooser
-          catalog={mockCatalog}
-          {...mockHandlers}
-        />
-      );
-
-      const anthropicButton = screen.getByText("Anthropic").closest("button");
-      fireEvent.click(anthropicButton!);
-
-      await waitFor(() => {
-        expect(
-          screen.getByText(/anthropic api key \(starts with sk-ant-\)/i)
-        ).toBeInTheDocument();
-      });
-    });
-
-    it("highlights selected provider", async () => {
-      render(
-        <ConnectProviderChooser
-          catalog={mockCatalog}
-          {...mockHandlers}
-        />
-      );
-
-      const groqButton = screen.getByText("Groq").closest("button");
-      fireEvent.click(groqButton!);
-
-      await waitFor(() => {
-        expect(groqButton).toHaveClass("bg-blue-50");
-      });
-    });
-
-    it("supports arrow-key navigation in provider list", async () => {
-      render(
-        <ConnectProviderChooser
-          catalog={mockCatalog}
-          {...mockHandlers}
-        />
-      );
-
-      const openaiButton = screen.getByText("OpenAI").closest("button");
-      const anthropicButton = screen.getByText("Anthropic").closest("button");
-      expect(openaiButton).toBeTruthy();
-      expect(anthropicButton).toBeTruthy();
-
-      openaiButton?.focus();
-      fireEvent.keyDown(openaiButton!, { key: "ArrowDown" });
-
-      await waitFor(() => {
-        expect(anthropicButton).toHaveFocus();
-      });
-
-      fireEvent.keyDown(anthropicButton!, { key: "Enter" });
-
-      await waitFor(() => {
-        expect(
-          screen.getByPlaceholderText(/e\.g\., sk-ant-/i)
-        ).toBeInTheDocument();
-      });
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText(/search providers/i)).toBeInTheDocument();
     });
   });
 
-  describe("Search", () => {
-    it("filters providers by display name", () => {
-      render(
-        <ConnectProviderChooser
-          catalog={mockCatalog}
-          {...mockHandlers}
-        />
-      );
+  it("requires API key before submit", async () => {
+    render(<ConnectProviderChooser catalog={mockCatalog} {...mockHandlers} />);
 
-      const searchInput = screen.getByPlaceholderText(/search by provider/i);
-      fireEvent.change(searchInput, { target: { value: "openai" } });
+    fireEvent.click(screen.getByText("OpenAI"));
 
-      expect(screen.getByText("OpenAI")).toBeInTheDocument();
-      expect(screen.queryByText("Anthropic")).not.toBeInTheDocument();
-      expect(screen.queryByText("Groq")).not.toBeInTheDocument();
-    });
+    const submitButton = await screen.findByRole("button", { name: /submit/i });
+    expect(submitButton).toBeDisabled();
+  });
 
-    it("filters providers by provider ID", () => {
-      render(
-        <ConnectProviderChooser
-          catalog={mockCatalog}
-          {...mockHandlers}
-        />
-      );
+  it("submits provider ID and API key", async () => {
+    render(<ConnectProviderChooser catalog={mockCatalog} {...mockHandlers} />);
 
-      const searchInput = screen.getByPlaceholderText(/search by provider/i);
-      fireEvent.change(searchInput, { target: { value: "groq" } });
+    fireEvent.click(screen.getByText("OpenAI"));
 
-      expect(screen.getByText("Groq")).toBeInTheDocument();
-      expect(screen.queryByText("OpenAI")).not.toBeInTheDocument();
-    });
+    const keyInput = await screen.findByPlaceholderText(/api key/i);
+    fireEvent.change(keyInput, { target: { value: "sk-test-key" } });
 
-    it("shows no results message when no providers match", () => {
-      render(
-        <ConnectProviderChooser
-          catalog={mockCatalog}
-          {...mockHandlers}
-        />
-      );
+    const submitButton = screen.getByRole("button", { name: /submit/i });
+    fireEvent.click(submitButton);
 
-      const searchInput = screen.getByPlaceholderText(/search by provider/i);
-      fireEvent.change(searchInput, { target: { value: "nonexistent" } });
-
-      expect(
-        screen.getByText(/no providers match your search/i)
-      ).toBeInTheDocument();
-    });
-
-    it("clears search results when search is cleared", () => {
-      render(
-        <ConnectProviderChooser
-          catalog={mockCatalog}
-          {...mockHandlers}
-        />
-      );
-
-      const searchInput = screen.getByPlaceholderText(/search by provider/i) as HTMLInputElement;
-      fireEvent.change(searchInput, { target: { value: "openai" } });
-
-      expect(screen.queryByText("Anthropic")).not.toBeInTheDocument();
-
-      fireEvent.change(searchInput, { target: { value: "" } });
-
-      expect(screen.getByText("OpenAI")).toBeInTheDocument();
-      expect(screen.getByText("Anthropic")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(mockHandlers.onConnect).toHaveBeenCalledWith("openai", "sk-test-key");
     });
   });
 
-  describe("API Key Form", () => {
-    it("requires API key before allowing connect", async () => {
-      render(
-        <ConnectProviderChooser
-          catalog={mockCatalog}
-          {...mockHandlers}
-        />
-      );
+  it("shows submitting state", async () => {
+    const { rerender } = render(
+      <ConnectProviderChooser
+        catalog={mockCatalog}
+        isConnecting={false}
+        {...mockHandlers}
+      />
+    );
 
-      const openaiButton = screen.getByText("OpenAI").closest("button");
-      fireEvent.click(openaiButton!);
+    fireEvent.click(screen.getByText("OpenAI"));
 
-      const connectButton = await screen.findByRole("button", {
-        name: /connect provider/i,
-      });
-      expect(connectButton).toBeDisabled();
-    });
+    rerender(
+      <ConnectProviderChooser
+        catalog={mockCatalog}
+        isConnecting={true}
+        {...mockHandlers}
+      />
+    );
 
-    it("enables connect button when API key is entered", async () => {
-      render(
-        <ConnectProviderChooser
-          catalog={mockCatalog}
-          {...mockHandlers}
-        />
-      );
-
-      const openaiButton = screen.getByText("OpenAI").closest("button");
-      fireEvent.click(openaiButton!);
-
-      const keyInput = await screen.findByPlaceholderText(/e\.g\., sk-/i);
-      fireEvent.change(keyInput, { target: { value: "sk-test-key" } });
-
-      const connectButton = screen.getByRole("button", {
-        name: /connect provider/i,
-      });
-      expect(connectButton).not.toBeDisabled();
-    });
-
-    it("calls onConnect with provider ID and secret", async () => {
-      render(
-        <ConnectProviderChooser
-          catalog={mockCatalog}
-          {...mockHandlers}
-        />
-      );
-
-      const openaiButton = screen.getByText("OpenAI").closest("button");
-      fireEvent.click(openaiButton!);
-
-      const keyInput = await screen.findByPlaceholderText(/e\.g\., sk-/i);
-      fireEvent.change(keyInput, { target: { value: "sk-test-key" } });
-
-      const connectButton = screen.getByRole("button", {
-        name: /connect provider/i,
-      });
-      fireEvent.click(connectButton);
-
-      await waitFor(() => {
-        expect(mockHandlers.onConnect).toHaveBeenCalledWith(
-          "openai",
-          "sk-test-key",
-          undefined
-        );
-      });
-    });
-
-    it("calls onConnect with optional label", async () => {
-      render(
-        <ConnectProviderChooser
-          catalog={mockCatalog}
-          {...mockHandlers}
-        />
-      );
-
-      const openaiButton = screen.getByText("OpenAI").closest("button");
-      fireEvent.click(openaiButton!);
-
-      const keyInput = await screen.findByPlaceholderText(/e\.g\., sk-/i);
-      fireEvent.change(keyInput, { target: { value: "sk-test-key" } });
-
-      const labelInput = screen.getByPlaceholderText(/e\.g\., 'personal'/i);
-      fireEvent.change(labelInput, { target: { value: "Work" } });
-
-      const connectButton = screen.getByRole("button", {
-        name: /connect provider/i,
-      });
-      fireEvent.click(connectButton);
-
-      await waitFor(() => {
-        expect(mockHandlers.onConnect).toHaveBeenCalledWith(
-          "openai",
-          "sk-test-key",
-          "Work"
-        );
-      });
-      });
-
-      it("clears form fields after successful connect", async () => {
-      render(
-        <ConnectProviderChooser
-          catalog={mockCatalog}
-          {...mockHandlers}
-        />
-      );
-
-      const openaiButton = screen.getByText("OpenAI").closest("button");
-      fireEvent.click(openaiButton!);
-
-      const keyInput = (await screen.findByPlaceholderText(
-        /e\.g\., sk-/i
-      )) as HTMLInputElement;
-      fireEvent.change(keyInput, { target: { value: "sk-test-key" } });
-
-      const labelInput = screen.getByPlaceholderText(
-        /e\.g\., 'personal'/i
-      ) as HTMLInputElement;
-      fireEvent.change(labelInput, { target: { value: "Work" } });
-
-      const connectButton = screen.getByRole("button", {
-        name: /connect provider/i,
-      });
-      fireEvent.click(connectButton);
-
-      await waitFor(() => {
-        expect(keyInput.value).toBe("");
-        expect(labelInput.value).toBe("");
-      });
+    await waitFor(() => {
+      expect(screen.getByText(/submitting/i)).toBeInTheDocument();
     });
   });
 
-  describe("Error Handling", () => {
-    it("displays error message", () => {
-      render(
-        <ConnectProviderChooser
-          catalog={mockCatalog}
-          error="Invalid API key format"
-          {...mockHandlers}
-        />
-      );
+  it("shows error state", () => {
+    render(
+      <ConnectProviderChooser
+        catalog={mockCatalog}
+        error="Invalid API key format"
+        {...mockHandlers}
+      />
+    );
 
-      expect(screen.getByText(/invalid api key format/i)).toBeInTheDocument();
-    });
-
-    it("calls onErrorClear when provider is selected", async () => {
-      render(
-        <ConnectProviderChooser
-          catalog={mockCatalog}
-          error="Invalid API key"
-          {...mockHandlers}
-        />
-      );
-
-      const openaiButton = screen.getByText("OpenAI").closest("button");
-      fireEvent.click(openaiButton!);
-
-      await waitFor(() => {
-        expect(mockHandlers.onErrorClear).toHaveBeenCalled();
-      });
-    });
-
-    it("calls onErrorClear when API key is changed", async () => {
-      render(
-        <ConnectProviderChooser
-          catalog={mockCatalog}
-          error="Invalid API key"
-          {...mockHandlers}
-        />
-      );
-
-      const openaiButton = screen.getByText("OpenAI").closest("button");
-      fireEvent.click(openaiButton!);
-
-      const keyInput = await screen.findByPlaceholderText(/e\.g\., sk-/i);
-      fireEvent.change(keyInput, { target: { value: "sk-new-key" } });
-
-      await waitFor(() => {
-        expect(mockHandlers.onErrorClear).toHaveBeenCalledTimes(2); // Once on select, once on change
-      });
-    });
+    expect(screen.getByText(/invalid api key format/i)).toBeInTheDocument();
   });
 
-  describe("Success State", () => {
-    it("displays success message", () => {
-      render(
-        <ConnectProviderChooser
-          catalog={mockCatalog}
-          success="Provider connected successfully"
-          {...mockHandlers}
-        />
-      );
+  it("shows success state", () => {
+    render(
+      <ConnectProviderChooser
+        catalog={mockCatalog}
+        success="Provider connected successfully"
+        {...mockHandlers}
+      />
+    );
 
-      expect(
-        screen.getByText(/provider connected successfully/i)
-      ).toBeInTheDocument();
-    });
+    expect(screen.getByText(/provider connected successfully/i)).toBeInTheDocument();
   });
 
-  describe("Loading State", () => {
-    it("disables connect button when connecting", async () => {
-      const { rerender } = render(
-        <ConnectProviderChooser
-          catalog={mockCatalog}
-          isConnecting={false}
-          {...mockHandlers}
-        />
-      );
+  it("shows empty catalog message", () => {
+    render(<ConnectProviderChooser catalog={[]} {...mockHandlers} />);
 
-      const openaiButton = screen.getByText("OpenAI").closest("button");
-      fireEvent.click(openaiButton!);
-
-      // Now re-render with isConnecting=true to trigger loading state
-      rerender(
-        <ConnectProviderChooser
-          catalog={mockCatalog}
-          isConnecting={true}
-          {...mockHandlers}
-        />
-      );
-
-      const connectButton = await screen.findByRole("button", {
-        name: /connecting/i,
-      });
-      expect(connectButton).toBeDisabled();
-    });
-
-    it("shows connecting state text", async () => {
-      const { rerender } = render(
-        <ConnectProviderChooser
-          catalog={mockCatalog}
-          isConnecting={false}
-          {...mockHandlers}
-        />
-      );
-
-      const openaiButton = screen.getByText("OpenAI").closest("button");
-      fireEvent.click(openaiButton!);
-
-      // Now re-render with isConnecting=true to trigger loading state
-      rerender(
-        <ConnectProviderChooser
-          catalog={mockCatalog}
-          isConnecting={true}
-          {...mockHandlers}
-        />
-      );
-
-      await waitFor(() => {
-        expect(screen.getByText(/connecting\.\.\./i)).toBeInTheDocument();
-      });
-    });
-  });
-
-  describe("Empty Catalog", () => {
-    it("shows empty message when catalog is empty", () => {
-      render(
-        <ConnectProviderChooser
-          catalog={[]}
-          {...mockHandlers}
-        />
-      );
-
-      expect(
-        screen.getByText(/no providers available/i)
-      ).toBeInTheDocument();
-    });
+    expect(screen.getByText(/no providers available/i)).toBeInTheDocument();
   });
 });

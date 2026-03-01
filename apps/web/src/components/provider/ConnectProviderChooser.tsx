@@ -1,19 +1,12 @@
 /**
  * Connect Provider Chooser - Searchable Provider Selection
  *
- * Provides a search-first UX for discovering and selecting providers
- * before entering API key. Replaces dropdown-based provider selection.
- *
- * Features:
- * - Searchable provider catalog
- * - Provider details and capability display
- * - API key input with format hints
- * - Connect + validate feedback
- * - Error recovery with remediation advice
+ * Provides a search-first UX for discovering providers and a focused
+ * API-key step for connecting a selected provider.
  */
 
 import React, { useMemo, useState, useRef, useEffect } from "react";
-import { Search, AlertCircle, CheckCircle } from "lucide-react";
+import { Search, AlertCircle, CheckCircle, ArrowLeft } from "lucide-react";
 import { type ProviderRegistryEntry } from "@repo/shared-types";
 import { getProviderRecoveryAdvice } from "../../lib/provider-recovery.js";
 
@@ -27,6 +20,8 @@ export interface ConnectProviderChooserProps {
   error?: string | null;
   success?: string | null;
   onErrorClear?: () => void;
+  presentation?: "card" | "plain";
+  showTitle?: boolean;
 }
 
 /**
@@ -35,7 +30,6 @@ export interface ConnectProviderChooserProps {
 interface ProviderOption {
   entry: ProviderRegistryEntry;
   displayName: string;
-  description: string;
 }
 
 /**
@@ -48,24 +42,22 @@ export function ConnectProviderChooser({
   error = null,
   success = null,
   onErrorClear,
+  presentation = "card",
+  showTitle = true,
 }: ConnectProviderChooserProps): React.ReactElement {
+  const [view, setView] = useState<"providers" | "credentials">("providers");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedProviderId, setSelectedProviderId] = useState<string | null>(null);
   const [apiSecret, setApiSecret] = useState("");
-  const [label, setLabel] = useState("");
   const searchInputRef = useRef<HTMLInputElement>(null);
-  const providerButtonRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
 
-  // Build provider options from catalog
   const providerOptions = useMemo((): ProviderOption[] => {
     return catalog.map((entry) => ({
       entry,
       displayName: entry.displayName,
-      description: buildProviderDescription(entry),
     }));
   }, [catalog]);
 
-  // Filter providers by search
   const filteredProviders = useMemo((): ProviderOption[] => {
     if (!searchQuery.trim()) {
       return providerOptions;
@@ -75,74 +67,31 @@ export function ConnectProviderChooser({
     return providerOptions.filter(
       (option) =>
         option.displayName.toLowerCase().includes(query) ||
-        option.entry.providerId.toLowerCase().includes(query) ||
-        option.description.toLowerCase().includes(query)
+        option.entry.providerId.toLowerCase().includes(query)
     );
   }, [providerOptions, searchQuery]);
 
-  // Get selected provider entry
   const selectedProvider = selectedProviderId
-    ? catalog.find((p) => p.providerId === selectedProviderId)
+    ? catalog.find((provider) => provider.providerId === selectedProviderId)
     : null;
-
-  // Handle provider selection
-  const focusProviderByIndex = (index: number): void => {
-    const provider = filteredProviders[index];
-    if (!provider) {
-      return;
-    }
-    providerButtonRefs.current.get(provider.entry.providerId)?.focus();
-  };
 
   const handleSelectProvider = (providerId: string): void => {
     setSelectedProviderId(providerId);
-    // Clear any previous errors when selecting new provider
+    setView("credentials");
+    setApiSecret("");
     if (onErrorClear) {
       onErrorClear();
     }
   };
 
-  const handleProviderKeyDown = (
-    e: React.KeyboardEvent<HTMLButtonElement>,
-    index: number,
-    providerId: string
-  ): void => {
-    if (filteredProviders.length === 0) {
-      return;
-    }
-
-    switch (e.key) {
-      case "ArrowDown":
-        e.preventDefault();
-        focusProviderByIndex((index + 1) % filteredProviders.length);
-        break;
-      case "ArrowUp":
-        e.preventDefault();
-        focusProviderByIndex(
-          (index - 1 + filteredProviders.length) % filteredProviders.length
-        );
-        break;
-      case "Home":
-        e.preventDefault();
-        focusProviderByIndex(0);
-        break;
-      case "End":
-        e.preventDefault();
-        focusProviderByIndex(filteredProviders.length - 1);
-        break;
-      case "Enter":
-      case " ":
-        e.preventDefault();
-        handleSelectProvider(providerId);
-        break;
-      case "Escape":
-        e.preventDefault();
-        searchInputRef.current?.focus();
-        break;
+  const handleBackToProviders = (): void => {
+    setView("providers");
+    setApiSecret("");
+    if (onErrorClear) {
+      onErrorClear();
     }
   };
 
-  // Handle connect submission
   const handleSubmit = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault();
 
@@ -151,166 +100,154 @@ export function ConnectProviderChooser({
     }
 
     try {
-      await onConnect(selectedProviderId, apiSecret, label || undefined);
-      // Clear form on success
+      await onConnect(selectedProviderId, apiSecret);
       setApiSecret("");
-      setLabel("");
     } catch {
       // Error handled by parent and displayed
     }
   };
 
-  // Focus search on mount
   useEffect(() => {
-    if (searchInputRef.current) {
+    if (view === "providers" && searchInputRef.current) {
       searchInputRef.current.focus();
     }
-  }, []);
+  }, [view]);
 
-  // Build error recovery message
   const errorRecovery = error ? getProviderRecoveryAdvice(error) : null;
+  const searchLabelClassName =
+    presentation === "plain"
+      ? "mb-2 block text-xs font-medium text-neutral-400"
+      : "mb-2 block text-xs font-medium uppercase tracking-wide text-neutral-400";
+  const sectionLabelClassName =
+    presentation === "plain"
+      ? "mb-3 block text-sm font-medium text-neutral-400"
+      : "mb-3 block text-xs font-medium uppercase tracking-wide text-neutral-400";
+  const rootClassName =
+    presentation === "plain"
+      ? "space-y-5 text-neutral-100"
+      : "space-y-5 rounded-xl border border-neutral-700 bg-neutral-900 p-4 text-neutral-100";
+  const keyInputId = selectedProvider ? `${selectedProvider.providerId}-api-key` : "api-key";
 
   return (
-    <div className="space-y-6">
-      {/* Search Input */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">
-          Find Provider
-        </label>
-        <div className="relative">
-          <Search size={16} className="absolute left-3 top-3 text-gray-400" />
-          <input
-            ref={searchInputRef}
-            type="text"
-            placeholder="Search by provider name or ID..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className={`
-              w-full pl-9 pr-3 py-2 rounded-lg border
-              text-sm transition-colors
-              ${
-                error
-                  ? "border-red-300 bg-red-50 focus:ring-red-500"
-                  : "border-gray-300 bg-white focus:ring-blue-500"
-              }
-              focus:outline-none focus:ring-2
-            `}
-          />
+    <div className={rootClassName}>
+      {showTitle && (
+        <div className="flex items-center justify-between">
+          <h3 className="text-base font-semibold">Connect provider</h3>
         </div>
-      </div>
+      )}
 
-      {/* Error Message */}
       {error && errorRecovery && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-3 space-y-1">
+        <div className="rounded-lg border border-red-800 bg-red-950/30 p-3 space-y-1">
           <div className="flex items-start gap-2">
-            <AlertCircle size={16} className="text-red-600 shrink-0 mt-0.5" />
+            <AlertCircle size={16} className="text-red-400 shrink-0 mt-0.5" />
             <div className="text-sm">
-              <p className="text-red-700 font-medium">{errorRecovery.message}</p>
-              <p className="text-red-600 text-xs mt-1">{errorRecovery.remediation}</p>
+              <p className="font-medium text-red-200">{errorRecovery.message}</p>
+              <p className="mt-1 text-xs text-red-300">{errorRecovery.remediation}</p>
             </div>
           </div>
         </div>
       )}
 
-      {/* Success Message */}
       {success && (
-        <div className="bg-green-50 border border-green-200 rounded-lg p-3 flex items-start gap-2">
-          <CheckCircle size={16} className="text-green-600 shrink-0 mt-0.5" />
-          <p className="text-green-700 text-sm">{success}</p>
+        <div className="flex items-start gap-2 rounded-lg border border-green-900 bg-green-950/30 p-3">
+          <CheckCircle size={16} className="text-green-400 shrink-0 mt-0.5" />
+          <p className="text-sm text-green-200">{success}</p>
         </div>
       )}
 
-      {/* Provider List */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-3">
-          {filteredProviders.length > 0
-            ? `Available Providers (${filteredProviders.length})`
-            : "No providers found"}
-        </label>
-
-        {filteredProviders.length === 0 ? (
-          <div className="p-6 text-center border border-gray-200 rounded-lg bg-gray-50">
-            <p className="text-gray-600 text-sm">
-              {searchQuery
-                ? "No providers match your search"
-                : "No providers available"}
-            </p>
-          </div>
-        ) : (
-          <div
-            className="space-y-2 max-h-48 overflow-y-auto border border-gray-200 rounded-lg"
-            role="listbox"
-            aria-label="Available providers"
-          >
-            {filteredProviders.map((option, index) => (
-              <button
-                key={option.entry.providerId}
-                ref={(el) => {
-                  if (el) {
-                    providerButtonRefs.current.set(option.entry.providerId, el);
-                  } else {
-                    providerButtonRefs.current.delete(option.entry.providerId);
-                  }
-                }}
-                onClick={() => handleSelectProvider(option.entry.providerId)}
-                onKeyDown={(e) =>
-                  handleProviderKeyDown(e, index, option.entry.providerId)
-                }
-                type="button"
-                disabled={isConnecting}
-                role="option"
-                aria-selected={selectedProviderId === option.entry.providerId}
-                tabIndex={
-                  selectedProviderId === option.entry.providerId ||
-                  (!selectedProviderId && index === 0)
-                    ? 0
-                    : -1
-                }
+      {view === "providers" && (
+        <div className="space-y-4">
+          <div>
+            <label className={searchLabelClassName}>
+              Find Provider
+            </label>
+            <div className="relative">
+              <Search size={16} className="absolute left-3 top-3 text-neutral-500" />
+              <input
+                ref={searchInputRef}
+                type="text"
+                placeholder="Search providers"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
                 className={`
-                  w-full text-left px-4 py-3 border-b last:border-b-0
-                  transition-colors disabled:opacity-50 disabled:cursor-not-allowed
+                  w-full rounded-lg border border-neutral-700 bg-neutral-800/80 pl-9 pr-3 py-2
+                  text-sm transition-colors
                   ${
-                    selectedProviderId === option.entry.providerId
-                      ? "bg-blue-50 border-l-4 border-l-blue-600"
-                      : "hover:bg-gray-50"
+                    error
+                      ? "border-red-700 bg-red-950/20 focus:ring-red-500"
+                      : "focus:ring-blue-500"
                   }
+                  focus:outline-none focus:ring-2
                 `}
-              >
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <p className="font-medium text-sm text-gray-900">
+              />
+            </div>
+          </div>
+
+          <div>
+            <p className={sectionLabelClassName}>
+              {searchQuery.trim() ? "Matches" : "Popular"}
+            </p>
+
+            {filteredProviders.length === 0 ? (
+              <div className="px-1 py-6 text-center">
+                <p className="text-sm text-neutral-500">
+                  {searchQuery ? "No providers match your search" : "No providers available"}
+                </p>
+              </div>
+            ) : (
+              <div className="max-h-56 space-y-0.5 overflow-y-auto">
+                {filteredProviders.map((option) => (
+                  <button
+                    key={option.entry.providerId}
+                    onClick={() => handleSelectProvider(option.entry.providerId)}
+                    type="button"
+                    disabled={isConnecting}
+                    className="w-full rounded-md px-2.5 py-2 text-left transition-colors disabled:opacity-50 disabled:cursor-not-allowed hover:bg-neutral-800/60"
+                  >
+                    <p className="text-sm font-medium text-neutral-100">
                       {option.displayName}
                     </p>
-                    <p className="text-xs text-gray-500 mt-0.5">
-                      {option.description}
-                    </p>
-                  </div>
-                  {selectedProviderId === option.entry.providerId && (
-                    <div className="text-blue-600 ml-2">✓</div>
-                  )}
-                </div>
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* API Key Form */}
-      {selectedProvider && (
-        <form onSubmit={handleSubmit} className="space-y-4 pt-4 border-t">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              API Key for {selectedProvider.displayName}
-            </label>
-
-            {/* Key Format Hint */}
-            {selectedProvider.keyFormat?.description && (
-              <p className="text-xs text-gray-600 mb-2">
-                {selectedProvider.keyFormat.description}
-              </p>
+                  </button>
+                ))}
+              </div>
             )}
+          </div>
+        </div>
+      )}
 
+      {view === "credentials" && selectedProvider && (
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="flex items-center justify-between">
+            <button
+              type="button"
+              onClick={handleBackToProviders}
+              className="inline-flex items-center gap-2 text-sm text-neutral-400 hover:text-neutral-200"
+              aria-label="Back to providers"
+            >
+              <ArrowLeft size={14} />
+              Back
+            </button>
+          </div>
+
+          <div>
+            <h4 className="text-xl font-semibold text-neutral-100">
+              Connect {selectedProvider.displayName}
+            </h4>
+            <p className="mt-3 text-sm text-neutral-400">
+              {selectedProvider.keyFormat?.description ??
+                `Enter your ${selectedProvider.displayName} API key to connect this provider.`}
+            </p>
+          </div>
+
+          <div>
+            <label
+              htmlFor={keyInputId}
+              className="mb-2 block text-sm font-medium text-neutral-200"
+            >
+              {selectedProvider.displayName} API key
+            </label>
             <input
+              id={keyInputId}
               type="password"
               value={apiSecret}
               onChange={(e) => {
@@ -319,40 +256,13 @@ export function ConnectProviderChooser({
                   onErrorClear();
                 }
               }}
-              placeholder={
-                selectedProvider.keyFormat?.prefix
-                  ? `e.g., ${selectedProvider.keyFormat.prefix}...`
-                  : "Enter your API key"
-              }
+              placeholder="API key"
               required
               disabled={isConnecting}
               className={`
-                w-full px-3 py-2 rounded-lg border text-sm
+                w-full rounded-lg border border-neutral-700 bg-neutral-800/80 px-3 py-2 text-sm
                 transition-colors disabled:opacity-50 disabled:cursor-not-allowed
-                ${
-                  error
-                    ? "border-red-300 bg-red-50"
-                    : "border-gray-300 bg-white"
-                }
-                focus:outline-none focus:ring-2 focus:ring-blue-500
-              `}
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Label (optional)
-            </label>
-            <input
-              type="text"
-              value={label}
-              onChange={(e) => setLabel(e.target.value)}
-              placeholder="e.g., 'Personal', 'Work', 'Team'"
-              disabled={isConnecting}
-              className={`
-                w-full px-3 py-2 rounded-lg border text-sm
-                transition-colors disabled:opacity-50 disabled:cursor-not-allowed
-                border-gray-300 bg-white
+                ${error ? "border-red-700 bg-red-950/20" : ""}
                 focus:outline-none focus:ring-2 focus:ring-blue-500
               `}
             />
@@ -363,49 +273,20 @@ export function ConnectProviderChooser({
               type="submit"
               disabled={isConnecting || !apiSecret.trim()}
               className={`
-                flex-1 px-4 py-2 rounded-lg font-medium text-sm
+                inline-flex px-4 py-2 rounded-lg font-medium text-sm
                 transition-colors disabled:opacity-50 disabled:cursor-not-allowed
                 ${
                   isConnecting || !apiSecret.trim()
-                    ? "bg-gray-300 text-gray-600"
+                    ? "bg-neutral-700 text-neutral-400"
                     : "bg-blue-600 text-white hover:bg-blue-700"
                 }
               `}
             >
-              {isConnecting ? "Connecting..." : "Connect Provider"}
+              {isConnecting ? "Submitting..." : "Submit"}
             </button>
           </div>
         </form>
       )}
-
-      {/* No provider selected message */}
-      {!selectedProvider && (
-        <div className="p-4 text-center bg-blue-50 border border-blue-200 rounded-lg">
-          <p className="text-sm text-blue-800">
-            Select a provider above to enter your API key
-          </p>
-        </div>
-      )}
     </div>
   );
-}
-
-/**
- * Build provider description from entry
- */
-function buildProviderDescription(entry: ProviderRegistryEntry): string {
-  const capabilities = [];
-
-  if (entry.capabilities.streaming) {
-    capabilities.push("Streaming");
-  }
-  if (entry.capabilities.tools) {
-    capabilities.push("Tools");
-  }
-  if (entry.capabilities.jsonMode) {
-    capabilities.push("JSON");
-  }
-
-  const capabilityText = capabilities.length > 0 ? capabilities.join(", ") : "Basic";
-  return capabilityText;
 }

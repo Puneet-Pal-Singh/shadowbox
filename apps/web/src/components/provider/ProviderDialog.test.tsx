@@ -193,11 +193,12 @@ describe("ProviderDialog", () => {
       // ConnectProviderChooser shows "Find Provider" label
       expect(screen.getByText("Find Provider")).toBeInTheDocument();
       // And the search input
-      expect(screen.getByPlaceholderText(/search by provider/i)).toBeInTheDocument();
+      expect(screen.getByPlaceholderText(/search providers/i)).toBeInTheDocument();
     });
 
     it("calls connectCredential with form data", async () => {
-       render(<ProviderDialog isOpen={true} onClose={vi.fn()} />);
+       const onClose = vi.fn();
+       render(<ProviderDialog isOpen={true} onClose={onClose} />);
 
        const availableTab = screen.getByText("Available");
        fireEvent.click(availableTab);
@@ -207,11 +208,11 @@ describe("ProviderDialog", () => {
        fireEvent.click(openaiButton!);
 
        // Fill in API key
-       const secretInput = await screen.findByPlaceholderText(/e\.g\., sk-/i);
+       const secretInput = await screen.findByPlaceholderText(/api key/i);
        fireEvent.change(secretInput, { target: { value: "sk-test123" } });
 
        const connectButton = screen.getByRole("button", {
-         name: /connect provider/i,
+         name: /submit/i,
        });
        fireEvent.click(connectButton);
 
@@ -221,8 +222,21 @@ describe("ProviderDialog", () => {
            secret: "sk-test123",
            label: undefined,
          });
+         expect(onClose).toHaveBeenCalled();
        });
      });
+
+    it("opens Available tab when initialTab is provided", () => {
+      render(
+        <ProviderDialog
+          isOpen={true}
+          onClose={vi.fn()}
+          initialTab="available"
+        />
+      );
+
+      expect(screen.getByText("Find Provider")).toBeInTheDocument();
+    });
   });
 
   describe("Preferences tab", () => {
@@ -261,29 +275,18 @@ describe("ProviderDialog", () => {
       expect(screen.getByText("Active Session")).toBeInTheDocument();
     });
 
-    it("does not render no-op Use Selected button in composer mode", () => {
-      render(<ProviderDialog isOpen={true} onClose={vi.fn()} mode="composer" />);
-
-      expect(
-        screen.queryByRole("button", { name: /Use Selected/i })
-      ).not.toBeInTheDocument();
-    });
-
-    it("opens Manage Models dialog immediately when initialView is manage-models", async () => {
+    it("opens manage models dialog when initialView is manage-models", () => {
       render(
         <ProviderDialog
           isOpen={true}
           onClose={vi.fn()}
-          mode="composer"
           initialView="manage-models"
         />
       );
 
-      await waitFor(() => {
-        expect(
-          screen.getByRole("heading", { name: /Manage Models/i })
-        ).toBeInTheDocument();
-      });
+      expect(
+        screen.getByRole("heading", { name: /manage models/i })
+      ).toBeInTheDocument();
     });
   });
 
@@ -309,6 +312,148 @@ describe("ProviderDialog", () => {
         fireEvent.click(footerCloseButton);
       }
 
+      expect(onClose).toHaveBeenCalled();
+    });
+
+    it("calls onClose when backdrop is clicked", () => {
+      const onClose = vi.fn();
+      render(<ProviderDialog isOpen={true} onClose={onClose} />);
+
+      fireEvent.click(screen.getByTestId("provider-dialog-overlay"));
+
+      expect(onClose).toHaveBeenCalled();
+    });
+
+    it("calls onClose when escape is pressed", () => {
+      const onClose = vi.fn();
+      render(<ProviderDialog isOpen={true} onClose={onClose} />);
+
+      fireEvent.keyDown(window, { key: "Escape" });
+
+      expect(onClose).toHaveBeenCalled();
+    });
+
+    it("closes manage models overlay first on escape in full dialog", async () => {
+      const onClose = vi.fn();
+      render(
+        <ProviderDialog
+          isOpen={true}
+          onClose={onClose}
+          initialView="manage-models"
+        />
+      );
+
+      expect(
+        screen.getByRole("heading", { name: /manage models/i })
+      ).toBeInTheDocument();
+
+      fireEvent.keyDown(window, { key: "Escape" });
+
+      await waitFor(() => {
+        expect(
+          screen.queryByRole("heading", { name: /manage models/i })
+        ).not.toBeInTheDocument();
+      });
+      expect(onClose).not.toHaveBeenCalled();
+
+      fireEvent.keyDown(window, { key: "Escape" });
+      expect(onClose).toHaveBeenCalled();
+    });
+  });
+
+  describe("connect-only variant", () => {
+    it("shows connect provider modal without tab strip", () => {
+      render(
+        <ProviderDialog
+          isOpen={true}
+          onClose={vi.fn()}
+          variant="connect-only"
+        />
+      );
+
+      expect(
+        screen.getByRole("heading", { level: 2, name: "Connect provider" })
+      ).toBeInTheDocument();
+      expect(screen.queryByText("Connected")).not.toBeInTheDocument();
+      expect(screen.getByPlaceholderText(/search providers/i)).toBeInTheDocument();
+    });
+
+    it("closes on escape", () => {
+      const onClose = vi.fn();
+      render(
+        <ProviderDialog
+          isOpen={true}
+          onClose={onClose}
+          variant="connect-only"
+        />
+      );
+
+      fireEvent.keyDown(window, { key: "Escape" });
+      expect(onClose).toHaveBeenCalled();
+    });
+  });
+
+  describe("manage-models-only variant", () => {
+    it("shows manage models modal without provider settings shell", () => {
+      render(
+        <ProviderDialog
+          isOpen={true}
+          onClose={vi.fn()}
+          variant="manage-models-only"
+        />
+      );
+
+      expect(screen.getByRole("heading", { name: /manage models/i })).toBeInTheDocument();
+      expect(screen.queryByText("Provider & Model Settings")).not.toBeInTheDocument();
+      expect(
+        screen.getAllByRole("button", { name: /connect provider/i }).length
+      ).toBeGreaterThan(0);
+    });
+
+    it("opens connect provider helper flow from manage models only modal", () => {
+      render(
+        <ProviderDialog
+          isOpen={true}
+          onClose={vi.fn()}
+          variant="manage-models-only"
+        />
+      );
+
+      const connectButtons = screen.getAllByRole("button", { name: /connect provider/i });
+      const firstConnectButton = connectButtons[0];
+      expect(firstConnectButton).toBeDefined();
+      if (firstConnectButton) {
+        fireEvent.click(firstConnectButton);
+      }
+
+      expect(screen.getByRole("heading", { level: 2, name: /connect provider/i })).toBeInTheDocument();
+    });
+
+    it("closes when manage models backdrop is clicked", () => {
+      const onClose = vi.fn();
+      render(
+        <ProviderDialog
+          isOpen={true}
+          onClose={onClose}
+          variant="manage-models-only"
+        />
+      );
+
+      fireEvent.click(screen.getByTestId("manage-models-overlay"));
+      expect(onClose).toHaveBeenCalled();
+    });
+
+    it("closes on escape", () => {
+      const onClose = vi.fn();
+      render(
+        <ProviderDialog
+          isOpen={true}
+          onClose={onClose}
+          variant="manage-models-only"
+        />
+      );
+
+      fireEvent.keyDown(window, { key: "Escape" });
       expect(onClose).toHaveBeenCalled();
     });
   });

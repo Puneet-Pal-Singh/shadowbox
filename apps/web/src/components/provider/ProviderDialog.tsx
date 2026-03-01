@@ -11,7 +11,7 @@
  * - Session: Quick-switch for current chat session
  */
 
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState } from "react";
 import { useProviderStore } from "../../hooks/useProviderStore.js";
 import {
   BYOKCredential as ProviderCredential,
@@ -30,21 +30,10 @@ export interface ProviderDialogProps {
   isOpen: boolean;
   onClose: () => void;
   mode?: "settings" | "composer";
+  initialTab?: "connected" | "available" | "preferences" | "session";
   initialView?: "default" | "manage-models";
+  variant?: "full" | "connect-only" | "manage-models-only";
 }
-
-type ProviderDialogTabId =
-  | "connected"
-  | "available"
-  | "preferences"
-  | "session";
-
-const PROVIDER_DIALOG_TAB_ORDER: ProviderDialogTabId[] = [
-  "connected",
-  "available",
-  "preferences",
-  "session",
-];
 
 /**
  * ProviderDialog Component
@@ -53,7 +42,9 @@ export function ProviderDialog({
   isOpen,
   onClose,
   mode = "settings",
+  initialTab,
   initialView = "default",
+  variant = "full",
 }: ProviderDialogProps): React.ReactElement | null {
   const {
     catalog,
@@ -76,8 +67,10 @@ export function ProviderDialog({
     toggleModelVisibility,
   } = useProviderStore();
 
-  const [activeTab, setActiveTab] = useState<ProviderDialogTabId>(
-    mode === "composer" ? "session" : "connected"
+  const [activeTab, setActiveTab] = useState<
+    "connected" | "available" | "preferences" | "session"
+  >(
+    initialTab ?? (mode === "composer" ? "session" : "connected")
   );
 
   const [validatingCredentialId, setValidatingCredentialId] = useState<
@@ -88,42 +81,47 @@ export function ProviderDialog({
   const [connectSuccess, setConnectSuccess] = useState<string | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
   const [showManageModels, setShowManageModels] = useState(false);
-  const tabButtonRefs = useRef<Map<ProviderDialogTabId, HTMLButtonElement>>(
-    new Map()
+  const [manageOnlyView, setManageOnlyView] = useState<"manage" | "connect">(
+    "manage"
   );
 
   useEffect(() => {
-    if (!isOpen) {
-      setActiveTab(mode === "composer" ? "session" : "connected");
-      setConnectError(null);
-      setConnectSuccess(null);
-      setIsConnecting(false);
-      setShowManageModels(false);
-    }
-  }, [isOpen, mode]);
-
-  useEffect(() => {
-    if (!isOpen) {
-      return;
-    }
-    if (initialView === "manage-models") {
-      setShowManageModels(true);
-    }
-  }, [initialView, isOpen]);
-
-  useEffect(() => {
-    if (!isOpen) {
-      return;
-    }
-    const handleKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        onClose();
+    if (isOpen) {
+      setActiveTab(initialTab ?? (mode === "composer" ? "session" : "connected"));
+      if (initialView === "manage-models") {
+        setShowManageModels(true);
       }
+      return;
+    }
+    setShowManageModels(false);
+    setConnectError(null);
+    setConnectSuccess(null);
+    setIsConnecting(false);
+    setManageOnlyView("manage");
+  }, [initialTab, initialView, isOpen, mode]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    const handleEscape = (event: KeyboardEvent): void => {
+      if (event.key !== "Escape") {
+        return;
+      }
+      event.preventDefault();
+
+      if (variant === "full" && showManageModels) {
+        setShowManageModels(false);
+        return;
+      }
+
+      onClose();
     };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, onClose]);
+
+    window.addEventListener("keydown", handleEscape);
+    return () => window.removeEventListener("keydown", handleEscape);
+  }, [isOpen, onClose, showManageModels, variant]);
 
   if (!isOpen) return null;
 
@@ -144,7 +142,6 @@ export function ProviderDialog({
     }
 
     setIsConnecting(true);
-
     try {
       await connectCredential({
         providerId,
@@ -154,6 +151,7 @@ export function ProviderDialog({
 
       setConnectSuccess("API key saved and provider connected.");
       setActiveTab("connected");
+      onClose();
     } catch (err) {
       setConnectError(
         err instanceof Error ? err.message : "Failed to connect credential"
@@ -229,22 +227,112 @@ export function ProviderDialog({
     loadingModelsForProviderId === selectedProviderId;
   const statusRecovery = getProviderRecoveryAdvice(error);
 
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-2 sm:p-4">
+  const renderConnectProviderDialog = (handleClose: () => void): React.ReactElement => (
+    <div
+      data-testid="provider-dialog-overlay"
+      className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-3"
+      onClick={(event) => {
+        if (event.target === event.currentTarget) {
+          handleClose();
+        }
+      }}
+      role="presentation"
+    >
       <div
+        className="bg-neutral-900 text-neutral-100 border border-neutral-700 rounded-xl shadow-2xl w-full max-w-2xl max-h-[82vh] overflow-hidden flex flex-col"
+        onClick={(event) => event.stopPropagation()}
         role="dialog"
         aria-modal="true"
-        aria-labelledby="provider-dialog-title"
-        className="bg-white rounded-lg shadow-lg w-full max-w-2xl h-[95vh] sm:h-auto sm:max-h-[90vh] overflow-hidden flex flex-col"
+        aria-labelledby="connect-provider-dialog-title"
+      >
+        <div className="px-5 py-3.5 flex items-center justify-between">
+          <h2
+            id="connect-provider-dialog-title"
+            className="text-lg font-semibold tracking-tight"
+          >
+            Connect provider
+          </h2>
+          <button
+            onClick={handleClose}
+            className="text-neutral-500 hover:text-neutral-300"
+            aria-label="Close"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div className="px-5 pb-5 overflow-auto">
+          {status === "error" && error && (
+            <div className="mb-4 bg-red-950/40 border border-red-800 px-4 py-3 text-red-200 text-sm space-y-1 rounded-lg">
+              <p>{statusRecovery.message}</p>
+              <p className="text-xs text-red-300">{statusRecovery.remediation}</p>
+            </div>
+          )}
+          <ConnectProviderChooser
+            catalog={catalog}
+            error={connectError}
+            success={connectSuccess}
+            isConnecting={isConnecting}
+            presentation="plain"
+            showTitle={false}
+            onConnect={async (providerId, secret, label) => {
+              await doConnect(providerId, secret, label || "");
+            }}
+            onErrorClear={() => setConnectError(null)}
+          />
+        </div>
+      </div>
+    </div>
+  );
+
+  if (variant === "manage-models-only") {
+    if (manageOnlyView === "connect") {
+      return renderConnectProviderDialog(onClose);
+    }
+
+    return (
+      <ManageModelsDialog
+        isOpen={isOpen}
+        onClose={onClose}
+        catalog={catalog}
+        providerModels={providerModels}
+        visibleModelIds={visibleModelIds}
+        onToggleModelVisibility={toggleModelVisibility}
+        onConnectProvider={() => setManageOnlyView("connect")}
+      />
+    );
+  }
+
+  if (variant === "connect-only") {
+    return renderConnectProviderDialog(onClose);
+  }
+
+  return (
+    <div
+      data-testid="provider-dialog-overlay"
+      className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-3"
+      onClick={(event) => {
+        if (event.target === event.currentTarget) {
+          onClose();
+        }
+      }}
+      role="presentation"
+    >
+      <div
+        className="bg-neutral-900 text-neutral-100 border border-neutral-700 rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col"
+        onClick={(event) => event.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="provider-settings-dialog-title"
       >
         {/* Header */}
-        <div className="border-b px-4 sm:px-6 py-4 flex items-center justify-between">
-          <h2 id="provider-dialog-title" className="text-lg font-semibold">
+        <div className="border-b border-neutral-700 px-6 py-4 flex items-center justify-between">
+          <h2 id="provider-settings-dialog-title" className="text-lg font-semibold">
             Provider & Model Settings
           </h2>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-600"
+            className="text-neutral-500 hover:text-neutral-300"
             aria-label="Close"
           >
             ✕
@@ -252,91 +340,55 @@ export function ProviderDialog({
         </div>
 
         {/* Tabs */}
-        <div className="border-b flex gap-1 px-2 sm:px-6 overflow-x-auto" role="tablist">
-          {PROVIDER_DIALOG_TAB_ORDER.map((tabId, index) => {
-            const label =
-              tabId === "session"
-                ? mode === "composer"
-                  ? "Active Session"
-                  : "Quick Select"
-                : tabId.charAt(0).toUpperCase() + tabId.slice(1);
-            return (
+        <div className="border-b border-neutral-700 flex gap-1 px-6">
+          {[
+            { id: "connected", label: "Connected" },
+            { id: "available", label: "Available" },
+            { id: "preferences", label: "Preferences" },
+            {
+              id: "session",
+              label: mode === "composer" ? "Active Session" : "Quick Select",
+            },
+          ].map((tab) => (
             <button
-              key={tabId}
-              ref={(el) => {
-                if (el) {
-                  tabButtonRefs.current.set(tabId, el);
-                } else {
-                  tabButtonRefs.current.delete(tabId);
-                }
-              }}
-              id={`provider-tab-${tabId}`}
-              onClick={() => setActiveTab(tabId)}
-              onKeyDown={(e) => {
-                let nextIndex = index;
-                if (e.key === "ArrowRight") {
-                  e.preventDefault();
-                  nextIndex = (index + 1) % PROVIDER_DIALOG_TAB_ORDER.length;
-                } else if (e.key === "ArrowLeft") {
-                  e.preventDefault();
-                  nextIndex =
-                    (index - 1 + PROVIDER_DIALOG_TAB_ORDER.length) %
-                    PROVIDER_DIALOG_TAB_ORDER.length;
-                }
-                const nextTabId = PROVIDER_DIALOG_TAB_ORDER[nextIndex];
-                if (nextTabId) {
-                  setActiveTab(nextTabId);
-                  tabButtonRefs.current.get(nextTabId)?.focus();
-                }
-              }}
-              role="tab"
-              aria-selected={activeTab === tabId}
-              aria-controls={`provider-panel-${tabId}`}
-              tabIndex={activeTab === tabId ? 0 : -1}
-              className={`px-3 sm:px-4 py-3 border-b-2 transition focus:outline-none focus:ring-2 focus:ring-blue-500 whitespace-nowrap ${
-                activeTab === tabId
-                  ? "border-blue-500 text-blue-600 font-medium"
-                  : "border-transparent text-gray-600 hover:text-gray-900"
+              key={tab.id}
+              onClick={() =>
+                setActiveTab(
+                  tab.id as "connected" | "available" | "preferences" | "session"
+                )
+              }
+              className={`px-4 py-3 border-b-2 transition ${
+                activeTab === tab.id
+                  ? "border-blue-500 text-blue-400 font-medium"
+                  : "border-transparent text-neutral-400 hover:text-neutral-200"
               }`}
             >
-              {label}
+              {tab.label}
             </button>
-            );
-          })}
+          ))}
         </div>
 
         {/* Content */}
         <div className="flex-1 overflow-auto">
           {status === "error" && error && (
-            <div className="bg-red-50 border-b border-red-200 px-4 sm:px-6 py-3 text-red-700 text-sm space-y-1">
+            <div className="bg-red-950/40 border-b border-red-800 px-6 py-3 text-red-200 text-sm space-y-1">
               <p>{statusRecovery.message}</p>
-              <p className="text-xs text-red-600">{statusRecovery.remediation}</p>
+              <p className="text-xs text-red-300">{statusRecovery.remediation}</p>
             </div>
           )}
 
           {activeTab === "connected" && (
-            <div
-              role="tabpanel"
-              id="provider-panel-connected"
-              aria-labelledby="provider-tab-connected"
-            >
-              <ConnectedTab
-                credentials={credentials}
-                onDisconnect={disconnectCredential}
-                onValidate={handleValidate}
-                validatingId={validatingCredentialId}
-                onOpenAvailableTab={() => setActiveTab("available")}
-              />
-            </div>
+            <ConnectedTab
+              credentials={credentials}
+              onDisconnect={disconnectCredential}
+              onValidate={handleValidate}
+              validatingId={validatingCredentialId}
+              onOpenAvailableTab={() => setActiveTab("available")}
+            />
           )}
 
           {activeTab === "available" && (
-            <div
-              role="tabpanel"
-              id="provider-panel-available"
-              aria-labelledby="provider-tab-available"
-              className="p-4 sm:p-6"
-            >
+            <div className="p-6">
               <ConnectProviderChooser
                 catalog={catalog}
                 error={connectError}
@@ -351,54 +403,50 @@ export function ProviderDialog({
           )}
 
           {activeTab === "preferences" && (
-            <div
-              role="tabpanel"
-              id="provider-panel-preferences"
-              aria-labelledby="provider-tab-preferences"
-            >
-              <PreferencesTab
-                preferences={preferences}
-                onUpdate={handleUpdatePreferences}
-              />
-            </div>
+            <PreferencesTab
+              preferences={preferences}
+              onUpdate={handleUpdatePreferences}
+            />
           )}
 
           {activeTab === "session" && (
-            <div
-              role="tabpanel"
-              id="provider-panel-session"
-              aria-labelledby="provider-tab-session"
-            >
-              <SessionTab
-                catalog={catalog}
-                credentials={credentials}
-                selectedProviderId={selectedProviderId}
-                selectedCredentialId={selectedCredentialId}
-                selectedModelId={selectedModelId}
-                modelOptions={selectedProviderModelOptions}
-                isModelLoading={isSelectedProviderModelLoading}
-                onLoadModels={loadProviderModels}
-                onSelect={handleSessionSelect}
-              />
-            </div>
+            <SessionTab
+              catalog={catalog}
+              credentials={credentials}
+              selectedProviderId={selectedProviderId}
+              selectedCredentialId={selectedCredentialId}
+              selectedModelId={selectedModelId}
+              modelOptions={selectedProviderModelOptions}
+              isModelLoading={isSelectedProviderModelLoading}
+              onLoadModels={loadProviderModels}
+              onSelect={handleSessionSelect}
+            />
           )}
         </div>
 
         {/* Footer */}
-        <div className="border-t px-4 sm:px-6 py-3 flex justify-between gap-3">
+        <div className="border-t border-neutral-700 px-6 py-3 flex justify-between gap-3">
           <button
             onClick={() => setShowManageModels(true)}
-            className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded transition"
+            className="px-4 py-2 text-sm text-neutral-400 hover:text-neutral-100 hover:bg-neutral-800 rounded transition"
           >
             Manage Models
           </button>
           <div className="flex gap-3">
             <button
               onClick={onClose}
-              className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded transition"
+              className="px-4 py-2 text-neutral-300 hover:bg-neutral-800 rounded transition"
             >
               Close
             </button>
+            {mode === "composer" && (
+              <button
+                onClick={onClose}
+                className="px-4 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded transition"
+              >
+                Use Selected
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -411,7 +459,10 @@ export function ProviderDialog({
         providerModels={providerModels}
         visibleModelIds={visibleModelIds}
         onToggleModelVisibility={toggleModelVisibility}
-        isLoading={loadingModelsForProviderId !== null}
+        onConnectProvider={() => {
+          setShowManageModels(false);
+          setActiveTab("available");
+        }}
       />
     </div>
   );
@@ -437,7 +488,7 @@ function ConnectedTab({
     <div className="p-6">
       {credentials.length === 0 ? (
         <div className="text-center py-8 space-y-3">
-          <p className="text-gray-500">
+          <p className="text-neutral-400">
             No provider keys connected yet.
           </p>
           <button
@@ -453,18 +504,18 @@ function ConnectedTab({
           {credentials.map((cred) => (
             <div
               key={cred.credentialId}
-              className="border rounded-lg p-4 hover:bg-gray-50 transition"
+              className="border border-neutral-700 rounded-lg p-4 hover:bg-neutral-800/50 transition"
             >
               <div className="flex items-start justify-between">
                 <div>
                   <h3 className="font-medium">
                     {cred.label || `${cred.providerId} (default)`}
                   </h3>
-                  <p className="text-sm text-gray-600">
+                  <p className="text-sm text-neutral-400">
                     Provider: {cred.providerId}
                   </p>
                   {cred.keyFingerprint && (
-                    <p className="text-xs text-gray-500 mt-1">
+                    <p className="text-xs text-neutral-500 mt-1">
                       Fingerprint: {cred.keyFingerprint.slice(0, 16)}...
                     </p>
                   )}
@@ -485,7 +536,7 @@ function ConnectedTab({
                   <button
                     onClick={() => onValidate(cred.credentialId, "format")}
                     disabled={validatingId === cred.credentialId}
-                    className="text-sm px-3 py-1 border rounded hover:bg-gray-100 disabled:opacity-50 transition"
+                    className="text-sm px-3 py-1 border border-neutral-600 rounded hover:bg-neutral-800 disabled:opacity-50 transition"
                   >
                     {validatingId === cred.credentialId ? "Validating..." : "Test"}
                   </button>
@@ -535,7 +586,7 @@ function PreferencesTab({
               onChange={() => handleFallbackChange("strict")}
               className="w-4 h-4"
             />
-            <span className="text-sm">
+            <span className="text-sm text-neutral-300">
               <strong>Strict</strong> - Use selected provider only
             </span>
           </label>
@@ -546,7 +597,7 @@ function PreferencesTab({
               onChange={() => handleFallbackChange("allow_fallback")}
               className="w-4 h-4"
             />
-            <span className="text-sm">
+            <span className="text-sm text-neutral-300">
               <strong>Allow Fallback</strong> - Use platform default if
               selected provider fails
             </span>
@@ -554,7 +605,7 @@ function PreferencesTab({
         </div>
       </div>
 
-      <div className="bg-blue-50 border border-blue-200 rounded p-4 text-sm text-blue-900">
+      <div className="bg-blue-950/30 border border-blue-900 rounded p-4 text-sm text-blue-200">
         {fallbackMode === "strict"
           ? "Only your selected provider will be used. If it fails, chat requests will error."
           : "If your selected provider is unavailable, we'll fall back to the platform default provider automatically."}
@@ -590,16 +641,6 @@ function SessionTab({
   const availableProviders = catalog.filter((p) =>
     credentials.some((c) => c.providerId === p.providerId)
   );
-  const providerCredentials = selectedProviderId
-    ? credentials.filter((credential) => credential.providerId === selectedProviderId)
-    : [];
-  const canSelectModel = Boolean(selectedProviderId && selectedCredentialId);
-  const handleModelSelection = (modelId: string): void => {
-    if (!selectedProviderId || !selectedCredentialId) {
-      return;
-    }
-    onSelect(selectedProviderId, selectedCredentialId, modelId);
-  };
 
   useEffect(() => {
     if (!selectedProviderId) {
@@ -622,7 +663,7 @@ function SessionTab({
               void onLoadModels(provider);
             }
           }}
-          className="w-full border rounded px-3 py-2 text-sm"
+          className="w-full border border-neutral-700 bg-neutral-900 rounded px-3 py-2 text-sm"
         >
           <option value="">Select a provider...</option>
           {availableProviders.map((p) => (
@@ -646,9 +687,11 @@ function SessionTab({
                    onSelect(selectedProviderId, credId);
                  }
                }}
-               className="w-full border rounded px-3 py-2 text-sm"
+               className="w-full border border-neutral-700 bg-neutral-900 rounded px-3 py-2 text-sm"
               >
-               {providerCredentials.map((c) => (
+               {credentials
+                 .filter((c) => c.providerId === selectedProviderId)
+                 .map((c) => (
                    <option key={c.credentialId} value={c.credentialId}>
                      {c.label || "Default"}
                    </option>
@@ -661,9 +704,14 @@ function SessionTab({
             {modelOptions.length > 0 ? (
               <select
                 value={selectedModelId || ""}
-                onChange={(e) => handleModelSelection(e.target.value)}
-                className="w-full border rounded px-3 py-2 text-sm"
-                disabled={!canSelectModel}
+                onChange={(e) =>
+                  onSelect(
+                    selectedProviderId,
+                    selectedCredentialId || "",
+                    e.target.value
+                  )
+                }
+                className="w-full border border-neutral-700 bg-neutral-900 rounded px-3 py-2 text-sm"
               >
                 <option value="">Select a model...</option>
                 {modelOptions.map((model) => (
@@ -676,17 +724,20 @@ function SessionTab({
               <input
                 type="text"
                 value={selectedModelId || ""}
-                onChange={(e) => handleModelSelection(e.target.value)}
+                onChange={(e) =>
+                  onSelect(
+                    selectedProviderId,
+                    selectedCredentialId || "",
+                    e.target.value
+                  )
+                }
                 placeholder="e.g., gpt-4, claude-3-opus"
-                className="w-full border rounded px-3 py-2 text-sm"
-                disabled={!canSelectModel}
+                className="w-full border border-neutral-700 bg-neutral-900 rounded px-3 py-2 text-sm"
               />
             )}
             <div className="mt-1 flex items-center justify-between gap-2">
-              <p className="text-xs text-gray-500">
-                {!canSelectModel
-                  ? "Select a credential before choosing a model."
-                  : modelOptions.length > 0
+              <p className="text-xs text-neutral-500">
+                {modelOptions.length > 0
                   ? "Models fetched from provider."
                   : "No fetched models yet. You can type one manually or refresh."}
               </p>
@@ -697,8 +748,7 @@ function SessionTab({
                     void onLoadModels(selectedProviderId);
                   }
                 }}
-                disabled={isModelLoading}
-                className="text-xs text-blue-700 hover:text-blue-800 disabled:text-gray-400 disabled:cursor-not-allowed"
+                className="text-xs text-blue-700 hover:text-blue-800"
               >
                 {isModelLoading ? "Loading..." : "Refresh models"}
               </button>
