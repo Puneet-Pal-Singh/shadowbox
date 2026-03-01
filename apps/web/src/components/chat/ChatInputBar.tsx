@@ -34,6 +34,9 @@ export function ChatInputBar({
   const [providerDialogInitialView, setProviderDialogInitialView] = useState<
     "default" | "manage-models"
   >("default");
+  const [providerDialogVariant, setProviderDialogVariant] = useState<
+    "full" | "connect-only"
+  >("full");
   const {
     catalog,
     credentials,
@@ -137,6 +140,7 @@ export function ChatInputBar({
                   if (!credential) {
                     setProviderDialogInitialTab("available");
                     setProviderDialogInitialView("default");
+                    setProviderDialogVariant("connect-only");
                     setShowProviderDialog(true);
                     return;
                   }
@@ -149,11 +153,13 @@ export function ChatInputBar({
                 onConnectProvider={() => {
                   setProviderDialogInitialTab("available");
                   setProviderDialogInitialView("default");
+                  setProviderDialogVariant("connect-only");
                   setShowProviderDialog(true);
                 }}
                 onManageModels={() => {
                   setProviderDialogInitialTab("connected");
                   setProviderDialogInitialView("manage-models");
+                  setProviderDialogVariant("full");
                   setShowProviderDialog(true);
                 }}
                 isLoading={status === "loading"}
@@ -211,10 +217,12 @@ export function ChatInputBar({
           setShowProviderDialog(false);
           setProviderDialogInitialTab(undefined);
           setProviderDialogInitialView("default");
+          setProviderDialogVariant("full");
         }}
         mode="composer"
         initialTab={providerDialogInitialTab}
         initialView={providerDialogInitialView}
+        variant={providerDialogVariant}
       />
     </>
   );

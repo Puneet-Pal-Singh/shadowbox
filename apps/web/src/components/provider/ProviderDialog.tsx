@@ -32,6 +32,7 @@ export interface ProviderDialogProps {
   mode?: "settings" | "composer";
   initialTab?: "connected" | "available" | "preferences" | "session";
   initialView?: "default" | "manage-models";
+  variant?: "full" | "connect-only";
 }
 
 /**
@@ -43,6 +44,7 @@ export function ProviderDialog({
   mode = "settings",
   initialTab,
   initialView = "default",
+  variant = "full",
 }: ProviderDialogProps): React.ReactElement | null {
   const {
     catalog,
@@ -196,6 +198,46 @@ export function ProviderDialog({
     loadingModelsForProviderId !== null &&
     loadingModelsForProviderId === selectedProviderId;
   const statusRecovery = getProviderRecoveryAdvice(error);
+
+  if (variant === "connect-only") {
+    return (
+      <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-3">
+        <div className="bg-neutral-900 text-neutral-100 border border-neutral-700 rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
+          <div className="px-6 py-4 flex items-center justify-between">
+            <h2 className="text-3xl font-semibold tracking-tight">Connect provider</h2>
+            <button
+              onClick={onClose}
+              className="text-neutral-500 hover:text-neutral-300"
+              aria-label="Close"
+            >
+              ✕
+            </button>
+          </div>
+
+          <div className="p-6 overflow-auto">
+            {status === "error" && error && (
+              <div className="mb-4 bg-red-950/40 border border-red-800 px-4 py-3 text-red-200 text-sm space-y-1 rounded-lg">
+                <p>{statusRecovery.message}</p>
+                <p className="text-xs text-red-300">{statusRecovery.remediation}</p>
+              </div>
+            )}
+            <ConnectProviderChooser
+              catalog={catalog}
+              error={connectError}
+              success={connectSuccess}
+              isConnecting={isConnecting}
+              presentation="plain"
+              showTitle={false}
+              onConnect={async (providerId, secret, label) => {
+                await doConnect(providerId, secret, label || "");
+              }}
+              onErrorClear={() => setConnectError(null)}
+            />
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-3">

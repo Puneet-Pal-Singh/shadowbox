@@ -193,7 +193,7 @@ describe("ProviderDialog", () => {
       // ConnectProviderChooser shows "Find Provider" label
       expect(screen.getByText("Find Provider")).toBeInTheDocument();
       // And the search input
-      expect(screen.getByPlaceholderText(/search by provider/i)).toBeInTheDocument();
+      expect(screen.getByPlaceholderText(/search providers/i)).toBeInTheDocument();
     });
 
     it("calls connectCredential with form data", async () => {
@@ -207,11 +207,11 @@ describe("ProviderDialog", () => {
        fireEvent.click(openaiButton!);
 
        // Fill in API key
-       const secretInput = await screen.findByPlaceholderText(/e\.g\., sk-/i);
+       const secretInput = await screen.findByPlaceholderText(/api key/i);
        fireEvent.change(secretInput, { target: { value: "sk-test123" } });
 
        const connectButton = screen.getByRole("button", {
-         name: /connect provider/i,
+         name: /submit/i,
        });
        fireEvent.click(connectButton);
 
@@ -311,6 +311,24 @@ describe("ProviderDialog", () => {
       }
 
       expect(onClose).toHaveBeenCalled();
+    });
+  });
+
+  describe("connect-only variant", () => {
+    it("shows connect provider modal without tab strip", () => {
+      render(
+        <ProviderDialog
+          isOpen={true}
+          onClose={vi.fn()}
+          variant="connect-only"
+        />
+      );
+
+      expect(
+        screen.getByRole("heading", { level: 2, name: "Connect provider" })
+      ).toBeInTheDocument();
+      expect(screen.queryByText("Connected")).not.toBeInTheDocument();
+      expect(screen.getByPlaceholderText(/search providers/i)).toBeInTheDocument();
     });
   });
 });
