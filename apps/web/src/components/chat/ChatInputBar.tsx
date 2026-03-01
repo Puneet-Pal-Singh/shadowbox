@@ -1,9 +1,9 @@
 import { useRef, useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { Plus, Mic, ArrowUp, Paperclip, ChevronDown, Square } from "lucide-react";
+import { Plus, Mic, ArrowUp, Paperclip, Square } from "lucide-react";
 import type { ProviderId } from "../../types/provider";
 import { useProviderStore } from "../../hooks/useProviderStore.js";
-import { ProviderDialog } from "../provider/ProviderDialog.js";
+import { ProviderDialog, ModelPickerPopover } from "../provider/index.js";
 
 interface ChatInputBarProps {
   input: string;
@@ -29,11 +29,13 @@ export function ChatInputBar({
   const [isFocused, setIsFocused] = useState(false);
   const [showProviderDialog, setShowProviderDialog] = useState(false);
   const {
+    catalog,
     status,
     selectedProviderId,
     selectedModelId,
     lastResolvedConfig,
-    preferences,
+    providerModels,
+    applySessionSelection,
   } = useProviderStore();
 
   const hasInput = input.trim().length > 0;
@@ -67,18 +69,7 @@ export function ChatInputBar({
     }
   }, [lastResolvedConfig, onModelSelect]);
 
-  const providerLabel =
-    selectedProviderId ??
-    lastResolvedConfig?.providerId ??
-    preferences?.defaultProviderId ??
-    "provider";
-  const modelLabel =
-    selectedModelId ??
-    lastResolvedConfig?.modelId ??
-    preferences?.defaultModelId ??
-    "Select Model";
-  const availabilityLabel =
-    status === "ready" ? modelLabel : "Loading provider settings...";
+
 
   return (
     <>
@@ -111,7 +102,7 @@ export function ChatInputBar({
 
           {/* Toolbar */}
           <div className="flex items-center justify-between mt-2 pt-2">
-            {/* Left: Add button + Provider selector */}
+            {/* Left: Add button + Model picker */}
             <div className="flex items-center gap-1.5">
               <motion.button
                 type="button"
@@ -125,19 +116,25 @@ export function ChatInputBar({
 
               <div className="h-3.5 w-px bg-zinc-800" />
 
-              <button
-                type="button"
-                onClick={() => setShowProviderDialog(true)}
-                className="flex items-center gap-1 px-1.5 py-0.5 text-xs text-zinc-500 hover:text-zinc-300 transition-colors duration-150"
-                title={`Provider: ${providerLabel}`}
-                disabled={status === "loading"}
-              >
-                <span className="font-medium truncate max-w-[180px]">
-                  {availabilityLabel}
-                </span>
-                <span className="text-zinc-700">{providerLabel}</span>
-                <ChevronDown size={12} />
-              </button>
+              <ModelPickerPopover
+                catalog={catalog}
+                providerModels={providerModels}
+                selectedProviderId={selectedProviderId}
+                selectedModelId={selectedModelId}
+                onSelectModel={async (providerId, modelId) => {
+                  await applySessionSelection({
+                    providerId,
+                    credentialId: "", // Will be resolved by store
+                    modelId,
+                  });
+                }}
+                onConnectProvider={() => setShowProviderDialog(true)}
+                onManageModels={() => {
+                  // PR-UI3: Manage models dialog will be added in next PR
+                  console.log("[ChatInputBar] TODO: Open manage models dialog");
+                }}
+                isLoading={status === "loading"}
+              />
             </div>
 
             {/* Right: Attachment, Mic, Send */}
