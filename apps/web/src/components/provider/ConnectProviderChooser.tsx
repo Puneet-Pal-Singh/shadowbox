@@ -54,6 +54,7 @@ export function ConnectProviderChooser({
   const [apiSecret, setApiSecret] = useState("");
   const [label, setLabel] = useState("");
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const providerButtonRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
 
   // Build provider options from catalog
   const providerOptions = useMemo((): ProviderOption[] => {
@@ -85,11 +86,59 @@ export function ConnectProviderChooser({
     : null;
 
   // Handle provider selection
+  const focusProviderByIndex = (index: number): void => {
+    const provider = filteredProviders[index];
+    if (!provider) {
+      return;
+    }
+    providerButtonRefs.current.get(provider.entry.providerId)?.focus();
+  };
+
   const handleSelectProvider = (providerId: string): void => {
     setSelectedProviderId(providerId);
     // Clear any previous errors when selecting new provider
     if (onErrorClear) {
       onErrorClear();
+    }
+  };
+
+  const handleProviderKeyDown = (
+    e: React.KeyboardEvent<HTMLButtonElement>,
+    index: number,
+    providerId: string
+  ): void => {
+    if (filteredProviders.length === 0) {
+      return;
+    }
+
+    switch (e.key) {
+      case "ArrowDown":
+        e.preventDefault();
+        focusProviderByIndex((index + 1) % filteredProviders.length);
+        break;
+      case "ArrowUp":
+        e.preventDefault();
+        focusProviderByIndex(
+          (index - 1 + filteredProviders.length) % filteredProviders.length
+        );
+        break;
+      case "Home":
+        e.preventDefault();
+        focusProviderByIndex(0);
+        break;
+      case "End":
+        e.preventDefault();
+        focusProviderByIndex(filteredProviders.length - 1);
+        break;
+      case "Enter":
+      case " ":
+        e.preventDefault();
+        handleSelectProvider(providerId);
+        break;
+      case "Escape":
+        e.preventDefault();
+        searchInputRef.current?.focus();
+        break;
     }
   };
 
@@ -188,13 +237,35 @@ export function ConnectProviderChooser({
             </p>
           </div>
         ) : (
-          <div className="space-y-2 max-h-48 overflow-y-auto border border-gray-200 rounded-lg">
-            {filteredProviders.map((option) => (
+          <div
+            className="space-y-2 max-h-48 overflow-y-auto border border-gray-200 rounded-lg"
+            role="listbox"
+            aria-label="Available providers"
+          >
+            {filteredProviders.map((option, index) => (
               <button
                 key={option.entry.providerId}
+                ref={(el) => {
+                  if (el) {
+                    providerButtonRefs.current.set(option.entry.providerId, el);
+                  } else {
+                    providerButtonRefs.current.delete(option.entry.providerId);
+                  }
+                }}
                 onClick={() => handleSelectProvider(option.entry.providerId)}
+                onKeyDown={(e) =>
+                  handleProviderKeyDown(e, index, option.entry.providerId)
+                }
                 type="button"
                 disabled={isConnecting}
+                role="option"
+                aria-selected={selectedProviderId === option.entry.providerId}
+                tabIndex={
+                  selectedProviderId === option.entry.providerId ||
+                  (!selectedProviderId && index === 0)
+                    ? 0
+                    : -1
+                }
                 className={`
                   w-full text-left px-4 py-3 border-b last:border-b-0
                   transition-colors disabled:opacity-50 disabled:cursor-not-allowed

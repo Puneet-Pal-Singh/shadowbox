@@ -260,6 +260,31 @@ describe("ProviderDialog", () => {
       // Session tab should be active in composer mode
       expect(screen.getByText("Active Session")).toBeInTheDocument();
     });
+
+    it("does not render no-op Use Selected button in composer mode", () => {
+      render(<ProviderDialog isOpen={true} onClose={vi.fn()} mode="composer" />);
+
+      expect(
+        screen.queryByRole("button", { name: /Use Selected/i })
+      ).not.toBeInTheDocument();
+    });
+
+    it("opens Manage Models dialog immediately when initialView is manage-models", async () => {
+      render(
+        <ProviderDialog
+          isOpen={true}
+          onClose={vi.fn()}
+          mode="composer"
+          initialView="manage-models"
+        />
+      );
+
+      await waitFor(() => {
+        expect(
+          screen.getByRole("heading", { name: /Manage Models/i })
+        ).toBeInTheDocument();
+      });
+    });
   });
 
   describe("close button", () => {
