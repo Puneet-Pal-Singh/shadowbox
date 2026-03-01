@@ -21,6 +21,7 @@ import {
 import { type ProviderModelOption } from "../../services/api/providerClient.js";
 import { getProviderRecoveryAdvice } from "../../lib/provider-recovery.js";
 import { ConnectProviderChooser } from "./ConnectProviderChooser.js";
+import { ManageModelsDialog } from "./ManageModelsDialog.js";
 
 /**
  * Provider Dialog Props
@@ -43,6 +44,7 @@ export function ProviderDialog({
     catalog,
     credentials,
     providerModels,
+    visibleModelIds,
     loadingModelsForProviderId,
     preferences,
     selectedProviderId,
@@ -56,6 +58,7 @@ export function ProviderDialog({
     loadProviderModels,
     updatePreferences,
     applySessionSelection,
+    toggleModelVisibility,
   } = useProviderStore();
 
   const [activeTab, setActiveTab] = useState<
@@ -68,6 +71,7 @@ export function ProviderDialog({
 
   const [connectError, setConnectError] = useState<string | null>(null);
   const [connectSuccess, setConnectSuccess] = useState<string | null>(null);
+  const [showManageModels, setShowManageModels] = useState(false);
 
   if (!isOpen) return null;
 
@@ -287,6 +291,16 @@ export function ProviderDialog({
           )}
         </div>
       </div>
+
+      {/* Manage Models Dialog */}
+      <ManageModelsDialog
+        isOpen={showManageModels}
+        onClose={() => setShowManageModels(false)}
+        catalog={catalog}
+        providerModels={providerModels}
+        visibleModelIds={visibleModelIds}
+        onToggleModelVisibility={toggleModelVisibility}
+      />
     </div>
   );
 }
