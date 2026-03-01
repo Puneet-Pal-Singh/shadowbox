@@ -52,6 +52,21 @@ describe("ModelPickerPopover", () => {
   const mockHandlers = {
     onSelectModel: vi.fn(async () => {}),
     onConnectProvider: vi.fn(),
+    onManageModels: vi.fn(),
+  };
+
+  const mockVisibleModelIds: Record<string, Set<string>> = {
+    openai: new Set(["gpt-4", "gpt-4-turbo"]),
+    anthropic: new Set(["claude-3-opus", "claude-3-sonnet"]),
+  };
+
+  const defaultProps = {
+    catalog: mockCatalog,
+    providerModels: mockModels,
+    visibleModelIds: mockVisibleModelIds,
+    selectedProviderId: null as string | null,
+    selectedModelId: null as string | null,
+    ...mockHandlers,
   };
 
   beforeEach(() => {
@@ -62,11 +77,7 @@ describe("ModelPickerPopover", () => {
     it("renders trigger button with default label", () => {
       render(
         <ModelPickerPopover
-          catalog={mockCatalog}
-          providerModels={mockModels}
-          selectedProviderId={null}
-          selectedModelId={null}
-          {...mockHandlers}
+          {...defaultProps}
         />
       );
 
@@ -78,11 +89,9 @@ describe("ModelPickerPopover", () => {
     it("renders trigger button with selected model label", () => {
       render(
         <ModelPickerPopover
-          catalog={mockCatalog}
-          providerModels={mockModels}
+          {...defaultProps}
           selectedProviderId="openai"
           selectedModelId="gpt-4"
-          {...mockHandlers}
         />
       );
 
@@ -94,11 +103,9 @@ describe("ModelPickerPopover", () => {
     it("opens popover on button click", async () => {
       render(
         <ModelPickerPopover
-          catalog={mockCatalog}
-          providerModels={mockModels}
+          {...defaultProps}
           selectedProviderId={null}
           selectedModelId={null}
-          {...mockHandlers}
         />
       );
 
@@ -115,11 +122,9 @@ describe("ModelPickerPopover", () => {
     it("displays all providers and models when popover is open", async () => {
       render(
         <ModelPickerPopover
-          catalog={mockCatalog}
-          providerModels={mockModels}
+          {...defaultProps}
           selectedProviderId={null}
           selectedModelId={null}
-          {...mockHandlers}
         />
       );
 
@@ -137,11 +142,9 @@ describe("ModelPickerPopover", () => {
     it("shows checkmark for selected model", async () => {
       render(
         <ModelPickerPopover
-          catalog={mockCatalog}
-          providerModels={mockModels}
+          {...defaultProps}
           selectedProviderId="openai"
           selectedModelId="gpt-4"
-          {...mockHandlers}
         />
       );
 
@@ -160,11 +163,9 @@ describe("ModelPickerPopover", () => {
     it("filters models by search query", async () => {
       render(
         <ModelPickerPopover
-          catalog={mockCatalog}
-          providerModels={mockModels}
+          {...defaultProps}
           selectedProviderId={null}
           selectedModelId={null}
-          {...mockHandlers}
         />
       );
 
@@ -184,11 +185,9 @@ describe("ModelPickerPopover", () => {
     it("filters by provider name", async () => {
       render(
         <ModelPickerPopover
-          catalog={mockCatalog}
-          providerModels={mockModels}
+          {...defaultProps}
           selectedProviderId={null}
           selectedModelId={null}
-          {...mockHandlers}
         />
       );
 
@@ -207,11 +206,9 @@ describe("ModelPickerPopover", () => {
     it("shows empty message when no models match search", async () => {
       render(
         <ModelPickerPopover
-          catalog={mockCatalog}
-          providerModels={mockModels}
+          {...defaultProps}
           selectedProviderId={null}
           selectedModelId={null}
-          {...mockHandlers}
         />
       );
 
@@ -231,11 +228,9 @@ describe("ModelPickerPopover", () => {
     it("calls onSelectModel when model is clicked", async () => {
       render(
         <ModelPickerPopover
-          catalog={mockCatalog}
-          providerModels={mockModels}
+          {...defaultProps}
           selectedProviderId={null}
           selectedModelId={null}
-          {...mockHandlers}
         />
       );
 
@@ -255,11 +250,9 @@ describe("ModelPickerPopover", () => {
     it("closes popover after model selection", async () => {
       render(
         <ModelPickerPopover
-          catalog={mockCatalog}
-          providerModels={mockModels}
+          {...defaultProps}
           selectedProviderId={null}
           selectedModelId={null}
-          {...mockHandlers}
         />
       );
 
@@ -279,11 +272,9 @@ describe("ModelPickerPopover", () => {
     it("resets search query after selection", async () => {
       render(
         <ModelPickerPopover
-          catalog={mockCatalog}
-          providerModels={mockModels}
+          {...defaultProps}
           selectedProviderId={null}
           selectedModelId={null}
-          {...mockHandlers}
         />
       );
 
@@ -316,11 +307,9 @@ describe("ModelPickerPopover", () => {
     it("calls onConnectProvider when Connect button is clicked", async () => {
       render(
         <ModelPickerPopover
-          catalog={mockCatalog}
-          providerModels={mockModels}
+          {...defaultProps}
           selectedProviderId={null}
           selectedModelId={null}
-          {...mockHandlers}
         />
       );
 
@@ -338,11 +327,9 @@ describe("ModelPickerPopover", () => {
     it("closes popover when Connect button is clicked", async () => {
       render(
         <ModelPickerPopover
-          catalog={mockCatalog}
-          providerModels={mockModels}
+          {...defaultProps}
           selectedProviderId={null}
           selectedModelId={null}
-          {...mockHandlers}
         />
       );
 
@@ -362,11 +349,9 @@ describe("ModelPickerPopover", () => {
     it("disables manage button (PR-UI3 placeholder)", async () => {
       render(
         <ModelPickerPopover
-          catalog={mockCatalog}
-          providerModels={mockModels}
+          {...defaultProps}
           selectedProviderId={null}
           selectedModelId={null}
-          {...mockHandlers}
         />
       );
 
@@ -383,12 +368,10 @@ describe("ModelPickerPopover", () => {
       render(
         <div>
           <ModelPickerPopover
-            catalog={mockCatalog}
-            providerModels={mockModels}
-            selectedProviderId={null}
-            selectedModelId={null}
-            {...mockHandlers}
-          />
+          {...defaultProps}
+          selectedProviderId={null}
+          selectedModelId={null}
+        />
           <div data-testid="outside">Outside element</div>
         </div>
       );
@@ -413,11 +396,7 @@ describe("ModelPickerPopover", () => {
     it("disables trigger button when isLoading is true", () => {
       render(
         <ModelPickerPopover
-          catalog={mockCatalog}
-          providerModels={mockModels}
-          selectedProviderId={null}
-          selectedModelId={null}
-          {...mockHandlers}
+          {...defaultProps}
           isLoading={true}
         />
       );
@@ -431,11 +410,8 @@ describe("ModelPickerPopover", () => {
     it("shows empty message when no providers are connected", async () => {
       render(
         <ModelPickerPopover
-          catalog={mockCatalog}
+          {...defaultProps}
           providerModels={{}} // No models
-          selectedProviderId={null}
-          selectedModelId={null}
-          {...mockHandlers}
         />
       );
 
