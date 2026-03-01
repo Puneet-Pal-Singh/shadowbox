@@ -52,7 +52,6 @@ describe("ModelPickerPopover", () => {
   const mockHandlers = {
     onSelectModel: vi.fn(async () => {}),
     onConnectProvider: vi.fn(),
-    onManageModels: vi.fn(),
   };
 
   beforeEach(() => {
@@ -360,7 +359,7 @@ describe("ModelPickerPopover", () => {
       });
     });
 
-    it("calls onManageModels when manage button is clicked", async () => {
+    it("disables manage button (PR-UI3 placeholder)", async () => {
       render(
         <ModelPickerPopover
           catalog={mockCatalog}
@@ -375,9 +374,7 @@ describe("ModelPickerPopover", () => {
       fireEvent.click(triggerButton);
 
       const manageButton = await screen.findByRole("button", { name: /manage/i });
-      fireEvent.click(manageButton);
-
-      expect(mockHandlers.onManageModels).toHaveBeenCalled();
+      expect(manageButton).toBeDisabled();
     });
   });
 

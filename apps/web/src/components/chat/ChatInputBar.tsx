@@ -129,10 +129,6 @@ export function ChatInputBar({
                   });
                 }}
                 onConnectProvider={() => setShowProviderDialog(true)}
-                onManageModels={() => {
-                  // PR-UI3: Manage models dialog will be added in next PR
-                  console.log("[ChatInputBar] TODO: Open manage models dialog");
-                }}
                 isLoading={status === "loading"}
               />
             </div>
