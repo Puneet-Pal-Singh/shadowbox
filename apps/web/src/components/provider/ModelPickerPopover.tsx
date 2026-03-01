@@ -15,9 +15,10 @@ import React, { useMemo, useState, useRef, useEffect } from "react";
 import { ChevronDown, Search, Plus, Settings } from "lucide-react";
 import { type ProviderRegistryEntry } from "@repo/shared-types";
 import { type ProviderModelOption } from "../../services/api/providerClient.js";
+import { resolvePopoverPlacement } from "../../lib/popover-placement.js";
 
 const POPOVER_GAP_PX = 8;
-const ESTIMATED_POPOVER_HEIGHT_PX = 420;
+const ESTIMATED_POPOVER_HEIGHT_PX = 384;
 
 /**
  * Props for ModelPickerPopover
@@ -161,28 +162,19 @@ export function ModelPickerPopover({
     }
   }, [isOpen]);
 
-  const resolvePlacement = (): "up" | "down" => {
-    const triggerRect = triggerButtonRef.current?.getBoundingClientRect();
-    if (!triggerRect) {
-      return "down";
-    }
-
-    const spaceBelow = window.innerHeight - triggerRect.bottom;
-    const spaceAbove = triggerRect.top;
-    const requiredHeight = ESTIMATED_POPOVER_HEIGHT_PX + POPOVER_GAP_PX;
-
-    if (spaceBelow < requiredHeight && spaceAbove > spaceBelow) {
-      return "up";
-    }
-    return "down";
-  };
-
   const handleToggle = (): void => {
     if (isLoading) {
       return;
     }
     if (!isOpen) {
-      setPlacement(resolvePlacement());
+      setPlacement(
+        resolvePopoverPlacement({
+          triggerRect: triggerButtonRef.current?.getBoundingClientRect() ?? null,
+          viewportHeight: window.innerHeight,
+          estimatedPopoverHeightPx: ESTIMATED_POPOVER_HEIGHT_PX,
+          gapPx: POPOVER_GAP_PX,
+        })
+      );
     }
     setIsOpen((current) => !current);
   };
