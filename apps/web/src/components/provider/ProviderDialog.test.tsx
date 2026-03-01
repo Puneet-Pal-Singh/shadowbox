@@ -60,6 +60,7 @@ describe("ProviderDialog", () => {
           },
         ],
       },
+      visibleModelIds: {},
       preferences: {
         userId: "user-1",
         workspaceId: "ws-1",
@@ -111,9 +112,11 @@ describe("ProviderDialog", () => {
         resolvedAtTime: new Date().toISOString(),
         fallbackUsed: false,
       })),
+      toggleModelVisibility: vi.fn(),
+      setProviderVisibleModels: vi.fn(),
       clearError: vi.fn(),
       reset: vi.fn(),
-    };
+      };
 
     vi.spyOn(useProviderStoreModule, "useProviderStore").mockReturnValue(mockStore);
   });
