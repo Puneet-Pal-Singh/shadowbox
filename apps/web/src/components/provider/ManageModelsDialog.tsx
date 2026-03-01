@@ -42,8 +42,6 @@ export function ManageModelsDialog({
 }: ManageModelsDialogProps): React.ReactElement | null {
   const [searchQuery, setSearchQuery] = useState("");
 
-  if (!isOpen) return null;
-
   // Build provider groups with visibility state
   const providerGroups = useMemo(() => {
     return catalog
@@ -64,26 +62,27 @@ export function ManageModelsDialog({
   // Filter groups and models based on search
   const filteredGroups = useMemo(() => {
     if (!searchQuery.trim()) {
-      return providerGroups;
+      return providerGroups.map((group) => ({
+        ...group,
+        filteredModels: group.models,
+      }));
     }
 
     const query = searchQuery.toLowerCase();
     return providerGroups
-      .map((group) => {
-        const filteredModels = group.models.filter(
+      .map((group) => ({
+        ...group,
+        filteredModels: group.models.filter(
           (model) =>
             model.name.toLowerCase().includes(query) ||
             model.id.toLowerCase().includes(query) ||
             group.displayName.toLowerCase().includes(query)
-        );
-        return {
-          ...group,
-          models: group.models,
-          filteredModels,
-        };
-      })
-      .filter((group) => group.filteredModels && group.filteredModels.length > 0);
+        ),
+      }))
+      .filter((group) => group.filteredModels.length > 0);
   }, [providerGroups, searchQuery]);
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
@@ -123,8 +122,8 @@ export function ManageModelsDialog({
           ) : (
             <div className="space-y-6 p-6">
               {filteredGroups.map((group) => {
-                const visibleSet = visibleModelIds[group.providerId] || new Set();
-                const filteredModels = (group as any).filteredModels || group.models;
+                 const visibleSet = visibleModelIds[group.providerId] || new Set();
+                 const filteredModels = group.filteredModels;
 
                 return (
                   <div key={group.providerId} className="space-y-3">
