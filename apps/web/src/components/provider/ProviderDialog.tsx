@@ -81,6 +81,9 @@ export function ProviderDialog({
   const [connectSuccess, setConnectSuccess] = useState<string | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
   const [showManageModels, setShowManageModels] = useState(false);
+  const [manageOnlyView, setManageOnlyView] = useState<"manage" | "connect">(
+    "manage"
+  );
 
   useEffect(() => {
     if (isOpen) {
@@ -94,6 +97,7 @@ export function ProviderDialog({
     setConnectError(null);
     setConnectSuccess(null);
     setIsConnecting(false);
+    setManageOnlyView("manage");
   }, [initialTab, initialView, isOpen, mode]);
 
   if (!isOpen) return null;
@@ -199,7 +203,49 @@ export function ProviderDialog({
     loadingModelsForProviderId === selectedProviderId;
   const statusRecovery = getProviderRecoveryAdvice(error);
 
+  const renderConnectProviderDialog = (handleClose: () => void): React.ReactElement => (
+    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-3">
+      <div className="bg-neutral-900 text-neutral-100 border border-neutral-700 rounded-xl shadow-2xl w-full max-w-2xl max-h-[82vh] overflow-hidden flex flex-col">
+        <div className="px-5 py-3.5 flex items-center justify-between">
+          <h2 className="text-xl font-semibold tracking-tight">Connect provider</h2>
+          <button
+            onClick={handleClose}
+            className="text-neutral-500 hover:text-neutral-300"
+            aria-label="Close"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div className="px-5 pb-5 overflow-auto">
+          {status === "error" && error && (
+            <div className="mb-4 bg-red-950/40 border border-red-800 px-4 py-3 text-red-200 text-sm space-y-1 rounded-lg">
+              <p>{statusRecovery.message}</p>
+              <p className="text-xs text-red-300">{statusRecovery.remediation}</p>
+            </div>
+          )}
+          <ConnectProviderChooser
+            catalog={catalog}
+            error={connectError}
+            success={connectSuccess}
+            isConnecting={isConnecting}
+            presentation="plain"
+            showTitle={false}
+            onConnect={async (providerId, secret, label) => {
+              await doConnect(providerId, secret, label || "");
+            }}
+            onErrorClear={() => setConnectError(null)}
+          />
+        </div>
+      </div>
+    </div>
+  );
+
   if (variant === "manage-models-only") {
+    if (manageOnlyView === "connect") {
+      return renderConnectProviderDialog(() => setManageOnlyView("manage"));
+    }
+
     return (
       <ManageModelsDialog
         isOpen={isOpen}
@@ -208,48 +254,13 @@ export function ProviderDialog({
         providerModels={providerModels}
         visibleModelIds={visibleModelIds}
         onToggleModelVisibility={toggleModelVisibility}
+        onConnectProvider={() => setManageOnlyView("connect")}
       />
     );
   }
 
   if (variant === "connect-only") {
-    return (
-      <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-3">
-        <div className="bg-neutral-900 text-neutral-100 border border-neutral-700 rounded-xl shadow-2xl w-full max-w-2xl max-h-[82vh] overflow-hidden flex flex-col">
-          <div className="px-5 py-3.5 flex items-center justify-between">
-            <h2 className="text-2xl font-semibold tracking-tight">Connect provider</h2>
-            <button
-              onClick={onClose}
-              className="text-neutral-500 hover:text-neutral-300"
-              aria-label="Close"
-            >
-              ✕
-            </button>
-          </div>
-
-          <div className="px-5 pb-5 overflow-auto">
-            {status === "error" && error && (
-              <div className="mb-4 bg-red-950/40 border border-red-800 px-4 py-3 text-red-200 text-sm space-y-1 rounded-lg">
-                <p>{statusRecovery.message}</p>
-                <p className="text-xs text-red-300">{statusRecovery.remediation}</p>
-              </div>
-            )}
-            <ConnectProviderChooser
-              catalog={catalog}
-              error={connectError}
-              success={connectSuccess}
-              isConnecting={isConnecting}
-              presentation="plain"
-              showTitle={false}
-              onConnect={async (providerId, secret, label) => {
-                await doConnect(providerId, secret, label || "");
-              }}
-              onErrorClear={() => setConnectError(null)}
-            />
-          </div>
-        </div>
-      </div>
-    );
+    return renderConnectProviderDialog(onClose);
   }
 
   return (

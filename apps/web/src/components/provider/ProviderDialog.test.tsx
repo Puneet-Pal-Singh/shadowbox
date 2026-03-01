@@ -344,6 +344,28 @@ describe("ProviderDialog", () => {
 
       expect(screen.getByRole("heading", { name: /manage models/i })).toBeInTheDocument();
       expect(screen.queryByText("Provider & Model Settings")).not.toBeInTheDocument();
+      expect(
+        screen.getAllByRole("button", { name: /connect provider/i }).length
+      ).toBeGreaterThan(0);
+    });
+
+    it("opens connect provider helper flow from manage models only modal", () => {
+      render(
+        <ProviderDialog
+          isOpen={true}
+          onClose={vi.fn()}
+          variant="manage-models-only"
+        />
+      );
+
+      const connectButtons = screen.getAllByRole("button", { name: /connect provider/i });
+      const firstConnectButton = connectButtons[0];
+      expect(firstConnectButton).toBeDefined();
+      if (firstConnectButton) {
+        fireEvent.click(firstConnectButton);
+      }
+
+      expect(screen.getByRole("heading", { level: 2, name: /connect provider/i })).toBeInTheDocument();
     });
   });
 });

@@ -139,10 +139,10 @@ export function ManageModelsDialog({
         {/* Header */}
         <div className="flex items-center justify-between gap-3 border-b border-neutral-700 px-6 py-4">
           <div className="space-y-1">
-            <h2 id="manage-models-title" className="text-[1.65rem] font-semibold tracking-tight">
+            <h2 id="manage-models-title" className="text-lg font-semibold tracking-tight">
               Manage models
             </h2>
-            <p className="text-sm text-neutral-400">
+            <p className="text-xs text-neutral-400">
               Customize which models appear in the model selector.
             </p>
           </div>
@@ -150,10 +150,10 @@ export function ManageModelsDialog({
             {onConnectProvider && (
               <button
                 onClick={onConnectProvider}
-                className="inline-flex items-center gap-1.5 rounded-md border border-neutral-700 px-3 py-1.5 text-sm text-neutral-200 transition hover:bg-neutral-800"
+                className="inline-flex items-center gap-1 rounded-md border border-neutral-700 px-2.5 py-1.5 text-xs text-neutral-200 transition hover:bg-neutral-800"
                 type="button"
               >
-                <Plus size={14} />
+                <Plus size={12} />
                 Connect provider
               </button>
             )}
@@ -184,8 +184,18 @@ export function ManageModelsDialog({
         {/* Content */}
         <div className="flex-1 overflow-auto px-6 pb-4">
           {filteredGroups.length === 0 ? (
-            <div className="py-8 text-center text-neutral-500">
-              {searchQuery ? "No models match your search" : "No providers connected"}
+            <div className="py-8 text-center text-neutral-500 space-y-3">
+              <p>{searchQuery ? "No models match your search" : "No providers connected"}</p>
+              {!searchQuery && onConnectProvider && (
+                <button
+                  type="button"
+                  onClick={onConnectProvider}
+                  className="inline-flex items-center gap-1 rounded-md border border-neutral-700 px-2.5 py-1.5 text-xs text-neutral-200 transition hover:bg-neutral-800"
+                >
+                  <Plus size={12} />
+                  Connect provider
+                </button>
+              )}
             </div>
           ) : (
             <div className="space-y-5">
