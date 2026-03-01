@@ -80,15 +80,15 @@ export const PlannedTaskSchema = z
             !isVagueDescription(task.input.command)
           );
         case "git":
-          // Must have action field (commit, push, etc)
-          return (
-            typeof task.input.action === "string" &&
-            task.input.action.length > 0 &&
-            task.input.action.length < 50 &&
-            /^(commit|push|pull|status|diff|log|add|checkout|branch|merge|rebase|stash|clone|fetch|reset|tag)$/.test(
-              task.input.action
-            )
-          );
+           // Must have action field (git_commit, git_push, etc)
+           return (
+             typeof task.input.action === "string" &&
+             task.input.action.length > 0 &&
+             task.input.action.length < 50 &&
+             /^(status|diff|stage|unstage|commit|push|git_clone|git_diff|git_commit|git_push|git_pull|git_fetch|git_branch_create|git_branch_switch|git_branch_list|git_stage|git_status|git_config)$/.test(
+               task.input.action
+             )
+           );
         default:
           return false;
       }
