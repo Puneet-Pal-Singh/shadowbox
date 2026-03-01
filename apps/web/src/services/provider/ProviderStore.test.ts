@@ -69,6 +69,7 @@ describe("ProviderStore", () => {
       defaultModelId: "gpt-4",
       fallbackMode: "strict",
       fallbackChain: [],
+      visibleModelIds: {},
       updatedAt: new Date().toISOString(),
     };
 
@@ -359,6 +360,7 @@ describe("ProviderStore", () => {
         defaultModelId: "gpt-4",
         fallbackMode: "allow_fallback",
         fallbackChain: [],
+        visibleModelIds: {},
         updatedAt: new Date().toISOString(),
       });
       await store.updatePreferences({ fallbackMode: "allow_fallback" });
