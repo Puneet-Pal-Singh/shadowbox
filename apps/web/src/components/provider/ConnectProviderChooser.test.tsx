@@ -172,6 +172,35 @@ describe("ConnectProviderChooser", () => {
         expect(groqButton).toHaveClass("bg-blue-50");
       });
     });
+
+    it("supports arrow-key navigation in provider list", async () => {
+      render(
+        <ConnectProviderChooser
+          catalog={mockCatalog}
+          {...mockHandlers}
+        />
+      );
+
+      const openaiButton = screen.getByText("OpenAI").closest("button");
+      const anthropicButton = screen.getByText("Anthropic").closest("button");
+      expect(openaiButton).toBeTruthy();
+      expect(anthropicButton).toBeTruthy();
+
+      openaiButton?.focus();
+      fireEvent.keyDown(openaiButton!, { key: "ArrowDown" });
+
+      await waitFor(() => {
+        expect(anthropicButton).toHaveFocus();
+      });
+
+      fireEvent.keyDown(anthropicButton!, { key: "Enter" });
+
+      await waitFor(() => {
+        expect(
+          screen.getByPlaceholderText(/e\.g\., sk-ant-/i)
+        ).toBeInTheDocument();
+      });
+    });
   });
 
   describe("Search", () => {

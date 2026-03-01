@@ -11,7 +11,7 @@
  * - Deterministic run-scoped selection via ProviderStore
  */
 
-import React, { useMemo, useState, useRef, useEffect } from "react";
+import React, { useMemo, useState, useRef, useEffect, useId } from "react";
 import { ChevronDown, Search, Plus, Settings } from "lucide-react";
 import { type ProviderRegistryEntry } from "@repo/shared-types";
 import { type ProviderModelOption } from "../../services/api/providerClient.js";
@@ -19,6 +19,14 @@ import { resolvePopoverPlacement } from "../../lib/popover-placement.js";
 
 const POPOVER_GAP_PX = 8;
 const ESTIMATED_POPOVER_HEIGHT_PX = 384;
+
+/**
+ * Flattened model for keyboard navigation
+ */
+interface FlatModel {
+  providerId: string;
+  model: ProviderModelOption;
+}
 
 /**
  * Props for ModelPickerPopover
@@ -62,9 +70,23 @@ export function ModelPickerPopover({
   const [placement, setPlacement] = useState<"up" | "down">("down");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectingModelId, setSelectingModelId] = useState<string | null>(null);
+  const [focusedModelIndex, setFocusedModelIndex] = useState<number>(-1);
+  const listboxId = useId();
   const popoverRef = useRef<HTMLDivElement>(null);
   const triggerButtonRef = useRef<HTMLButtonElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const modelButtonsRef = useRef<Map<string, HTMLButtonElement>>(new Map());
+
+  const closePopover = (focusTrigger = false, resetSearch = false): void => {
+    setIsOpen(false);
+    setFocusedModelIndex(-1);
+    if (resetSearch) {
+      setSearchQuery("");
+    }
+    if (focusTrigger) {
+      triggerButtonRef.current?.focus();
+    }
+  };
 
   // Build provider groups from catalog and models
   const providerGroups = useMemo((): ProviderGroup[] => {
@@ -105,6 +127,38 @@ export function ModelPickerPopover({
       .filter((group) => group.models.length > 0);
   }, [providerGroups, searchQuery, visibleModelIds]);
 
+  // Flatten filtered models for keyboard navigation
+  const flatModels = useMemo((): FlatModel[] => {
+    const result: FlatModel[] = [];
+    for (const group of filteredGroups) {
+      for (const model of group.models) {
+        result.push({ providerId: group.providerId, model });
+      }
+    }
+    return result;
+  }, [filteredGroups]);
+
+  // Keep focused model index valid as model list changes.
+  useEffect(() => {
+    if (flatModels.length === 0) {
+      if (focusedModelIndex !== -1) {
+        setFocusedModelIndex(-1);
+      }
+      return;
+    }
+
+    if (focusedModelIndex < flatModels.length) {
+      return;
+    }
+
+    const clampedIndex = flatModels.length - 1;
+    const clampedModel = flatModels[clampedIndex];
+    setFocusedModelIndex(clampedIndex);
+    if (clampedModel) {
+      modelButtonsRef.current.get(clampedModel.model.id)?.focus();
+    }
+  }, [flatModels, focusedModelIndex]);
+
   // Get currently selected model label
   const selectedModelLabel = useMemo((): string => {
     if (!selectedProviderId || !selectedModelId) {
@@ -131,8 +185,7 @@ export function ModelPickerPopover({
     setSelectingModelId(modelId);
     try {
       await onSelectModel(providerId, modelId);
-      setIsOpen(false);
-      setSearchQuery("");
+      closePopover(true, true);
     } finally {
       setSelectingModelId(null);
     }
@@ -148,6 +201,7 @@ export function ModelPickerPopover({
         !popoverRef.current.contains(event.target as Node)
       ) {
         setIsOpen(false);
+        setFocusedModelIndex(-1);
       }
     };
 
@@ -159,6 +213,7 @@ export function ModelPickerPopover({
   useEffect(() => {
     if (isOpen && searchInputRef.current) {
       searchInputRef.current.focus();
+      setFocusedModelIndex(-1);
     }
   }, [isOpen]);
 
@@ -179,6 +234,83 @@ export function ModelPickerPopover({
     setIsOpen((current) => !current);
   };
 
+  // Handle keyboard navigation in search input
+  const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
+    switch (e.key) {
+      case "Escape":
+        e.preventDefault();
+        closePopover(true, true);
+        break;
+      case "ArrowDown":
+        e.preventDefault();
+        if (flatModels.length > 0) {
+          const nextIndex = focusedModelIndex < flatModels.length - 1 ? focusedModelIndex + 1 : 0;
+          const nextModel = flatModels[nextIndex];
+          if (nextModel) {
+            setFocusedModelIndex(nextIndex);
+            modelButtonsRef.current.get(nextModel.model.id)?.focus();
+          }
+        }
+        break;
+      case "ArrowUp":
+        e.preventDefault();
+        if (flatModels.length > 0) {
+          const nextIndex = focusedModelIndex > 0 ? focusedModelIndex - 1 : flatModels.length - 1;
+          const nextModel = flatModels[nextIndex];
+          if (nextModel) {
+            setFocusedModelIndex(nextIndex);
+            modelButtonsRef.current.get(nextModel.model.id)?.focus();
+          }
+        }
+        break;
+    }
+  };
+
+  // Handle keyboard navigation in model buttons
+  const handleModelKeyDown = (
+    e: React.KeyboardEvent<HTMLButtonElement>,
+    providerId: string,
+    modelId: string
+  ): void => {
+    switch (e.key) {
+      case "Enter":
+      case " ":
+        e.preventDefault();
+        void handleSelectModel(providerId, modelId);
+        break;
+      case "Escape":
+        e.preventDefault();
+        closePopover(true);
+        break;
+      case "ArrowDown":
+        e.preventDefault();
+        if (focusedModelIndex < flatModels.length - 1) {
+          const nextIndex = focusedModelIndex + 1;
+          const nextModel = flatModels[nextIndex];
+          if (nextModel) {
+            setFocusedModelIndex(nextIndex);
+            modelButtonsRef.current.get(nextModel.model.id)?.focus();
+          }
+        }
+        break;
+      case "ArrowUp":
+        e.preventDefault();
+        if (focusedModelIndex > 0) {
+          const nextIndex = focusedModelIndex - 1;
+          const nextModel = flatModels[nextIndex];
+          if (nextModel) {
+            setFocusedModelIndex(nextIndex);
+            modelButtonsRef.current.get(nextModel.model.id)?.focus();
+          }
+        } else {
+          // Go back to search input
+          setFocusedModelIndex(-1);
+          searchInputRef.current?.focus();
+        }
+        break;
+    }
+  };
+
   return (
     <div ref={popoverRef} className="relative">
       {/* Trigger Button */}
@@ -197,6 +329,9 @@ export function ModelPickerPopover({
           }
         `}
         aria-label="Open model picker"
+        aria-haspopup="dialog"
+        aria-expanded={isOpen}
+        aria-controls={isOpen ? listboxId : undefined}
       >
         <span className="truncate max-w-xs">{selectedModelLabel}</span>
         <ChevronDown
@@ -211,6 +346,9 @@ export function ModelPickerPopover({
       {isOpen && (
         <div
           data-testid="model-picker-popover"
+          id={listboxId}
+          role="dialog"
+          aria-label="Model picker"
           className={`
             absolute right-0 w-96 max-h-96
             ${placement === "down" ? "top-full mt-2" : "bottom-full mb-2"}
@@ -228,19 +366,31 @@ export function ModelPickerPopover({
                 placeholder="Search models or providers..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyDown={handleSearchKeyDown}
                 className={`
                   w-full pl-9 pr-3 py-2 rounded-md
                   bg-neutral-800 border border-neutral-700
                   text-sm text-neutral-100 placeholder-neutral-500
                   focus:outline-none focus:ring-2 focus:ring-blue-500
                 `}
+                aria-label="Search models or providers"
               />
             </div>
           </div>
 
           {/* Provider Groups */}
-          <div className="overflow-y-auto flex-1">
-            {filteredGroups.length === 0 ? (
+          <div
+            className="overflow-y-auto flex-1"
+            aria-busy={isLoading}
+            role="listbox"
+            aria-label="Available models"
+          >
+            {isLoading ? (
+              <div className="flex items-center justify-center h-32 gap-2">
+                <div className="w-4 h-4 bg-blue-500 rounded-full animate-bounce" />
+                <span className="text-sm text-neutral-400">Loading models...</span>
+              </div>
+            ) : filteredGroups.length === 0 ? (
               <div className="p-4 text-center text-neutral-400 text-sm">
                 {searchQuery
                   ? "No models match your search"
@@ -262,11 +412,16 @@ export function ModelPickerPopover({
                        <button
                          type="button"
                          key={model.id}
+                         ref={(el) => {
+                           if (el) modelButtonsRef.current.set(model.id, el);
+                           else modelButtonsRef.current.delete(model.id);
+                         }}
                          onClick={() => handleSelectModel(group.providerId, model.id)}
+                         onKeyDown={(e) => handleModelKeyDown(e, group.providerId, model.id)}
                          disabled={selectingModelId === model.id}
                          className={`
                            w-full px-3 py-2 text-left text-sm flex items-center gap-2
-                           transition-colors disabled:opacity-50
+                           transition-colors disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-blue-500
                            ${
                              selectedProviderId === group.providerId &&
                              selectedModelId === model.id
@@ -274,6 +429,8 @@ export function ModelPickerPopover({
                                : "text-neutral-300 hover:bg-neutral-800/50"
                            }
                          `}
+                         aria-selected={selectedProviderId === group.providerId && selectedModelId === model.id}
+                         role="option"
                        >
                         {/* Selection Indicator */}
                         <div
@@ -310,7 +467,7 @@ export function ModelPickerPopover({
             <button
               type="button"
               onClick={() => {
-                setIsOpen(false);
+                closePopover(true);
                 onConnectProvider();
               }}
               className={`
@@ -325,7 +482,7 @@ export function ModelPickerPopover({
             <button
               type="button"
               onClick={() => {
-                setIsOpen(false);
+                closePopover(true);
                 onManageModels();
               }}
               className={`

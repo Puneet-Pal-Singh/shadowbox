@@ -11,7 +11,7 @@
  * - Session: Quick-switch for current chat session
  */
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { useProviderStore } from "../../hooks/useProviderStore.js";
 import {
   BYOKCredential as ProviderCredential,
@@ -30,7 +30,21 @@ export interface ProviderDialogProps {
   isOpen: boolean;
   onClose: () => void;
   mode?: "settings" | "composer";
+  initialView?: "default" | "manage-models";
 }
+
+type ProviderDialogTabId =
+  | "connected"
+  | "available"
+  | "preferences"
+  | "session";
+
+const PROVIDER_DIALOG_TAB_ORDER: ProviderDialogTabId[] = [
+  "connected",
+  "available",
+  "preferences",
+  "session",
+];
 
 /**
  * ProviderDialog Component
@@ -39,6 +53,7 @@ export function ProviderDialog({
   isOpen,
   onClose,
   mode = "settings",
+  initialView = "default",
 }: ProviderDialogProps): React.ReactElement | null {
   const {
     catalog,
@@ -61,9 +76,9 @@ export function ProviderDialog({
     toggleModelVisibility,
   } = useProviderStore();
 
-  const [activeTab, setActiveTab] = useState<
-    "connected" | "available" | "preferences" | "session"
-  >(mode === "composer" ? "session" : "connected");
+  const [activeTab, setActiveTab] = useState<ProviderDialogTabId>(
+    mode === "composer" ? "session" : "connected"
+  );
 
   const [validatingCredentialId, setValidatingCredentialId] = useState<
     string | null
@@ -71,7 +86,44 @@ export function ProviderDialog({
 
   const [connectError, setConnectError] = useState<string | null>(null);
   const [connectSuccess, setConnectSuccess] = useState<string | null>(null);
+  const [isConnecting, setIsConnecting] = useState(false);
   const [showManageModels, setShowManageModels] = useState(false);
+  const tabButtonRefs = useRef<Map<ProviderDialogTabId, HTMLButtonElement>>(
+    new Map()
+  );
+
+  useEffect(() => {
+    if (!isOpen) {
+      setActiveTab(mode === "composer" ? "session" : "connected");
+      setConnectError(null);
+      setConnectSuccess(null);
+      setIsConnecting(false);
+      setShowManageModels(false);
+    }
+  }, [isOpen, mode]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+    if (initialView === "manage-models") {
+      setShowManageModels(true);
+    }
+  }, [initialView, isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
@@ -91,6 +143,8 @@ export function ProviderDialog({
       return;
     }
 
+    setIsConnecting(true);
+
     try {
       await connectCredential({
         providerId,
@@ -104,6 +158,8 @@ export function ProviderDialog({
       setConnectError(
         err instanceof Error ? err.message : "Failed to connect credential"
       );
+    } finally {
+      setIsConnecting(false);
     }
   };
 
@@ -174,11 +230,18 @@ export function ProviderDialog({
   const statusRecovery = getProviderRecoveryAdvice(error);
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-lg w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-2 sm:p-4">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="provider-dialog-title"
+        className="bg-white rounded-lg shadow-lg w-full max-w-2xl h-[95vh] sm:h-auto sm:max-h-[90vh] overflow-hidden flex flex-col"
+      >
         {/* Header */}
-        <div className="border-b px-6 py-4 flex items-center justify-between">
-          <h2 className="text-lg font-semibold">Provider & Model Settings</h2>
+        <div className="border-b px-4 sm:px-6 py-4 flex items-center justify-between">
+          <h2 id="provider-dialog-title" className="text-lg font-semibold">
+            Provider & Model Settings
+          </h2>
           <button
             onClick={onClose}
             className="text-gray-400 hover:text-gray-600"
@@ -189,60 +252,96 @@ export function ProviderDialog({
         </div>
 
         {/* Tabs */}
-        <div className="border-b flex gap-1 px-6">
-          {[
-            { id: "connected", label: "Connected" },
-            { id: "available", label: "Available" },
-            { id: "preferences", label: "Preferences" },
-            {
-              id: "session",
-              label: mode === "composer" ? "Active Session" : "Quick Select",
-            },
-          ].map((tab) => (
+        <div className="border-b flex gap-1 px-2 sm:px-6 overflow-x-auto" role="tablist">
+          {PROVIDER_DIALOG_TAB_ORDER.map((tabId, index) => {
+            const label =
+              tabId === "session"
+                ? mode === "composer"
+                  ? "Active Session"
+                  : "Quick Select"
+                : tabId.charAt(0).toUpperCase() + tabId.slice(1);
+            return (
             <button
-              key={tab.id}
-              onClick={() =>
-                setActiveTab(
-                  tab.id as "connected" | "available" | "preferences" | "session"
-                )
-              }
-              className={`px-4 py-3 border-b-2 transition ${
-                activeTab === tab.id
+              key={tabId}
+              ref={(el) => {
+                if (el) {
+                  tabButtonRefs.current.set(tabId, el);
+                } else {
+                  tabButtonRefs.current.delete(tabId);
+                }
+              }}
+              id={`provider-tab-${tabId}`}
+              onClick={() => setActiveTab(tabId)}
+              onKeyDown={(e) => {
+                let nextIndex = index;
+                if (e.key === "ArrowRight") {
+                  e.preventDefault();
+                  nextIndex = (index + 1) % PROVIDER_DIALOG_TAB_ORDER.length;
+                } else if (e.key === "ArrowLeft") {
+                  e.preventDefault();
+                  nextIndex =
+                    (index - 1 + PROVIDER_DIALOG_TAB_ORDER.length) %
+                    PROVIDER_DIALOG_TAB_ORDER.length;
+                }
+                const nextTabId = PROVIDER_DIALOG_TAB_ORDER[nextIndex];
+                if (nextTabId) {
+                  setActiveTab(nextTabId);
+                  tabButtonRefs.current.get(nextTabId)?.focus();
+                }
+              }}
+              role="tab"
+              aria-selected={activeTab === tabId}
+              aria-controls={`provider-panel-${tabId}`}
+              tabIndex={activeTab === tabId ? 0 : -1}
+              className={`px-3 sm:px-4 py-3 border-b-2 transition focus:outline-none focus:ring-2 focus:ring-blue-500 whitespace-nowrap ${
+                activeTab === tabId
                   ? "border-blue-500 text-blue-600 font-medium"
                   : "border-transparent text-gray-600 hover:text-gray-900"
               }`}
             >
-              {tab.label}
+              {label}
             </button>
-          ))}
+            );
+          })}
         </div>
 
         {/* Content */}
         <div className="flex-1 overflow-auto">
           {status === "error" && error && (
-            <div className="bg-red-50 border-b border-red-200 px-6 py-3 text-red-700 text-sm space-y-1">
+            <div className="bg-red-50 border-b border-red-200 px-4 sm:px-6 py-3 text-red-700 text-sm space-y-1">
               <p>{statusRecovery.message}</p>
               <p className="text-xs text-red-600">{statusRecovery.remediation}</p>
             </div>
           )}
 
           {activeTab === "connected" && (
-            <ConnectedTab
-              credentials={credentials}
-              onDisconnect={disconnectCredential}
-              onValidate={handleValidate}
-              validatingId={validatingCredentialId}
-              onOpenAvailableTab={() => setActiveTab("available")}
-            />
+            <div
+              role="tabpanel"
+              id="provider-panel-connected"
+              aria-labelledby="provider-tab-connected"
+            >
+              <ConnectedTab
+                credentials={credentials}
+                onDisconnect={disconnectCredential}
+                onValidate={handleValidate}
+                validatingId={validatingCredentialId}
+                onOpenAvailableTab={() => setActiveTab("available")}
+              />
+            </div>
           )}
 
           {activeTab === "available" && (
-            <div className="p-6">
+            <div
+              role="tabpanel"
+              id="provider-panel-available"
+              aria-labelledby="provider-tab-available"
+              className="p-4 sm:p-6"
+            >
               <ConnectProviderChooser
                 catalog={catalog}
                 error={connectError}
                 success={connectSuccess}
-                isConnecting={false}
+                isConnecting={isConnecting}
                 onConnect={async (providerId, secret, label) => {
                   await doConnect(providerId, secret, label || "");
                 }}
@@ -252,29 +351,41 @@ export function ProviderDialog({
           )}
 
           {activeTab === "preferences" && (
-            <PreferencesTab
-              preferences={preferences}
-              onUpdate={handleUpdatePreferences}
-            />
+            <div
+              role="tabpanel"
+              id="provider-panel-preferences"
+              aria-labelledby="provider-tab-preferences"
+            >
+              <PreferencesTab
+                preferences={preferences}
+                onUpdate={handleUpdatePreferences}
+              />
+            </div>
           )}
 
           {activeTab === "session" && (
-            <SessionTab
-              catalog={catalog}
-              credentials={credentials}
-              selectedProviderId={selectedProviderId}
-              selectedCredentialId={selectedCredentialId}
-              selectedModelId={selectedModelId}
-              modelOptions={selectedProviderModelOptions}
-              isModelLoading={isSelectedProviderModelLoading}
-              onLoadModels={loadProviderModels}
-              onSelect={handleSessionSelect}
-            />
+            <div
+              role="tabpanel"
+              id="provider-panel-session"
+              aria-labelledby="provider-tab-session"
+            >
+              <SessionTab
+                catalog={catalog}
+                credentials={credentials}
+                selectedProviderId={selectedProviderId}
+                selectedCredentialId={selectedCredentialId}
+                selectedModelId={selectedModelId}
+                modelOptions={selectedProviderModelOptions}
+                isModelLoading={isSelectedProviderModelLoading}
+                onLoadModels={loadProviderModels}
+                onSelect={handleSessionSelect}
+              />
+            </div>
           )}
         </div>
 
         {/* Footer */}
-        <div className="border-t px-6 py-3 flex justify-between gap-3">
+        <div className="border-t px-4 sm:px-6 py-3 flex justify-between gap-3">
           <button
             onClick={() => setShowManageModels(true)}
             className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded transition"
@@ -288,14 +399,6 @@ export function ProviderDialog({
             >
               Close
             </button>
-            {mode === "composer" && (
-              <button
-                onClick={onClose}
-                className="px-4 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded transition"
-              >
-                Use Selected
-              </button>
-            )}
           </div>
         </div>
       </div>
@@ -308,6 +411,7 @@ export function ProviderDialog({
         providerModels={providerModels}
         visibleModelIds={visibleModelIds}
         onToggleModelVisibility={toggleModelVisibility}
+        isLoading={loadingModelsForProviderId !== null}
       />
     </div>
   );
@@ -486,6 +590,16 @@ function SessionTab({
   const availableProviders = catalog.filter((p) =>
     credentials.some((c) => c.providerId === p.providerId)
   );
+  const providerCredentials = selectedProviderId
+    ? credentials.filter((credential) => credential.providerId === selectedProviderId)
+    : [];
+  const canSelectModel = Boolean(selectedProviderId && selectedCredentialId);
+  const handleModelSelection = (modelId: string): void => {
+    if (!selectedProviderId || !selectedCredentialId) {
+      return;
+    }
+    onSelect(selectedProviderId, selectedCredentialId, modelId);
+  };
 
   useEffect(() => {
     if (!selectedProviderId) {
@@ -534,9 +648,7 @@ function SessionTab({
                }}
                className="w-full border rounded px-3 py-2 text-sm"
               >
-               {credentials
-                 .filter((c) => c.providerId === selectedProviderId)
-                 .map((c) => (
+               {providerCredentials.map((c) => (
                    <option key={c.credentialId} value={c.credentialId}>
                      {c.label || "Default"}
                    </option>
@@ -549,14 +661,9 @@ function SessionTab({
             {modelOptions.length > 0 ? (
               <select
                 value={selectedModelId || ""}
-                onChange={(e) =>
-                  onSelect(
-                    selectedProviderId,
-                    selectedCredentialId || "",
-                    e.target.value
-                  )
-                }
+                onChange={(e) => handleModelSelection(e.target.value)}
                 className="w-full border rounded px-3 py-2 text-sm"
+                disabled={!canSelectModel}
               >
                 <option value="">Select a model...</option>
                 {modelOptions.map((model) => (
@@ -569,20 +676,17 @@ function SessionTab({
               <input
                 type="text"
                 value={selectedModelId || ""}
-                onChange={(e) =>
-                  onSelect(
-                    selectedProviderId,
-                    selectedCredentialId || "",
-                    e.target.value
-                  )
-                }
+                onChange={(e) => handleModelSelection(e.target.value)}
                 placeholder="e.g., gpt-4, claude-3-opus"
                 className="w-full border rounded px-3 py-2 text-sm"
+                disabled={!canSelectModel}
               />
             )}
             <div className="mt-1 flex items-center justify-between gap-2">
               <p className="text-xs text-gray-500">
-                {modelOptions.length > 0
+                {!canSelectModel
+                  ? "Select a credential before choosing a model."
+                  : modelOptions.length > 0
                   ? "Models fetched from provider."
                   : "No fetched models yet. You can type one manually or refresh."}
               </p>
@@ -593,7 +697,8 @@ function SessionTab({
                     void onLoadModels(selectedProviderId);
                   }
                 }}
-                className="text-xs text-blue-700 hover:text-blue-800"
+                disabled={isModelLoading}
+                className="text-xs text-blue-700 hover:text-blue-800 disabled:text-gray-400 disabled:cursor-not-allowed"
               >
                 {isModelLoading ? "Loading..." : "Refresh models"}
               </button>
