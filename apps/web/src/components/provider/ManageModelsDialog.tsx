@@ -12,7 +12,7 @@
  * - Preserve current selection validity
  */
 
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useEffect, useRef } from "react";
 import { Search, Eye, EyeOff } from "lucide-react";
 import { type ProviderRegistryEntry } from "@repo/shared-types";
 import { type ProviderModelOption } from "../../services/api/providerClient.js";
@@ -96,6 +96,7 @@ export interface ManageModelsDialogProps {
   providerModels: Record<string, ProviderModelOption[]>;
   visibleModelIds: Record<string, Set<string>>;
   onToggleModelVisibility: (providerId: string, modelId: string) => void;
+  isLoading?: boolean;
 }
 
 /**
@@ -108,8 +109,10 @@ export function ManageModelsDialog({
   providerModels,
   visibleModelIds,
   onToggleModelVisibility,
+  isLoading = false,
 }: ManageModelsDialogProps): React.ReactElement | null {
   const [searchQuery, setSearchQuery] = useState("");
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   // Build provider groups with visibility state
   const providerGroups = useMemo(() => {
@@ -121,6 +124,23 @@ export function ManageModelsDialog({
     return filterProviderGroups(providerGroups, searchQuery);
   }, [providerGroups, searchQuery]);
 
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    searchInputRef.current?.focus();
+
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   return (
@@ -129,7 +149,7 @@ export function ManageModelsDialog({
       role="presentation"
     >
       <div
-        className="bg-white rounded-lg shadow-lg w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col"
+        className="bg-white rounded-lg sm:rounded-lg shadow-lg w-full max-w-2xl h-[95vh] sm:h-auto sm:max-h-[90vh] overflow-hidden flex flex-col"
         role="dialog"
         aria-modal="true"
         aria-labelledby="manage-models-title"
@@ -153,6 +173,7 @@ export function ManageModelsDialog({
           <div className="relative">
             <Search size={16} className="absolute left-3 top-2.5 text-gray-400" />
             <input
+              ref={searchInputRef}
               type="text"
               placeholder="Search models or providers..."
               value={searchQuery}
@@ -164,9 +185,15 @@ export function ManageModelsDialog({
 
         {/* Content */}
         <div className="flex-1 overflow-auto">
-          {filteredGroups.length === 0 ? (
+          {isLoading ? (
+            <div className="p-6 text-center text-gray-500">Loading models...</div>
+          ) : providerGroups.length === 0 ? (
             <div className="p-6 text-center text-gray-500">
-              {searchQuery ? "No models match your search" : "No providers connected"}
+              No models available yet. Connect a provider and refresh models.
+            </div>
+          ) : filteredGroups.length === 0 ? (
+            <div className="p-6 text-center text-gray-500">
+              No models match your search
             </div>
           ) : (
             <div className="space-y-6 p-6">

@@ -28,14 +28,19 @@ export function ChatInputBar({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [isFocused, setIsFocused] = useState(false);
   const [showProviderDialog, setShowProviderDialog] = useState(false);
+  const [providerDialogInitialView, setProviderDialogInitialView] = useState<
+    "default" | "manage-models"
+  >("default");
   const {
     catalog,
+    credentials,
     status,
     selectedProviderId,
     selectedModelId,
     lastResolvedConfig,
     providerModels,
     visibleModelIds,
+    loadingModelsForProviderId,
     applySessionSelection,
   } = useProviderStore();
 
@@ -124,15 +129,33 @@ export function ChatInputBar({
                 selectedProviderId={selectedProviderId}
                 selectedModelId={selectedModelId}
                 onSelectModel={async (providerId, modelId) => {
+                  const credential = credentials.find(
+                    (item) => item.providerId === providerId
+                  );
+                  if (!credential) {
+                    setProviderDialogInitialView("default");
+                    setShowProviderDialog(true);
+                    return;
+                  }
                   await applySessionSelection({
                     providerId,
-                    credentialId: "", // Will be resolved by store
+                    credentialId: credential.credentialId,
                     modelId,
                   });
                 }}
-                onConnectProvider={() => setShowProviderDialog(true)}
-                onManageModels={() => setShowProviderDialog(true)}
-                isLoading={status === "loading"}
+                onConnectProvider={() => {
+                  setProviderDialogInitialView("default");
+                  setShowProviderDialog(true);
+                }}
+                onManageModels={() => {
+                  setProviderDialogInitialView("manage-models");
+                  setShowProviderDialog(true);
+                }}
+                isLoading={
+                  status === "loading" ||
+                  (selectedProviderId !== null &&
+                    loadingModelsForProviderId === selectedProviderId)
+                }
               />
             </div>
 
@@ -183,8 +206,12 @@ export function ChatInputBar({
       </form>
       <ProviderDialog
         isOpen={showProviderDialog}
-        onClose={() => setShowProviderDialog(false)}
+        onClose={() => {
+          setShowProviderDialog(false);
+          setProviderDialogInitialView("default");
+        }}
         mode="composer"
+        initialView={providerDialogInitialView}
       />
     </>
   );

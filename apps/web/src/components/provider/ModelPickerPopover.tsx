@@ -11,7 +11,7 @@
  * - Deterministic run-scoped selection via ProviderStore
  */
 
-import React, { useMemo, useState, useRef, useEffect } from "react";
+import React, { useMemo, useState, useRef, useEffect, useId } from "react";
 import { ChevronDown, Search, Plus, Settings } from "lucide-react";
 import { type ProviderRegistryEntry } from "@repo/shared-types";
 import { type ProviderModelOption } from "../../services/api/providerClient.js";
@@ -66,9 +66,22 @@ export function ModelPickerPopover({
   const [searchQuery, setSearchQuery] = useState("");
   const [selectingModelId, setSelectingModelId] = useState<string | null>(null);
   const [focusedModelIndex, setFocusedModelIndex] = useState<number>(-1);
+  const listboxId = useId();
   const popoverRef = useRef<HTMLDivElement>(null);
+  const triggerButtonRef = useRef<HTMLButtonElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const modelButtonsRef = useRef<Map<string, HTMLButtonElement>>(new Map());
+
+  const closePopover = (focusTrigger = false, resetSearch = false): void => {
+    setIsOpen(false);
+    setFocusedModelIndex(-1);
+    if (resetSearch) {
+      setSearchQuery("");
+    }
+    if (focusTrigger) {
+      triggerButtonRef.current?.focus();
+    }
+  };
 
   // Build provider groups from catalog and models
   const providerGroups = useMemo((): ProviderGroup[] => {
@@ -146,8 +159,7 @@ export function ModelPickerPopover({
     setSelectingModelId(modelId);
     try {
       await onSelectModel(providerId, modelId);
-      setIsOpen(false);
-      setSearchQuery("");
+      closePopover(true, true);
     } finally {
       setSelectingModelId(null);
     }
@@ -163,6 +175,7 @@ export function ModelPickerPopover({
         !popoverRef.current.contains(event.target as Node)
       ) {
         setIsOpen(false);
+        setFocusedModelIndex(-1);
       }
     };
 
@@ -183,7 +196,7 @@ export function ModelPickerPopover({
     switch (e.key) {
       case "Escape":
         e.preventDefault();
-        setIsOpen(false);
+        closePopover(true, true);
         break;
       case "ArrowDown":
         e.preventDefault();
@@ -224,7 +237,7 @@ export function ModelPickerPopover({
         break;
       case "Escape":
         e.preventDefault();
-        setIsOpen(false);
+        closePopover(true);
         break;
       case "ArrowDown":
         e.preventDefault();
@@ -259,6 +272,7 @@ export function ModelPickerPopover({
     <div ref={popoverRef} className="relative">
       {/* Trigger Button */}
       <button
+        ref={triggerButtonRef}
         type="button"
         onClick={() => setIsOpen(!isOpen)}
         disabled={isLoading}
@@ -272,6 +286,9 @@ export function ModelPickerPopover({
           }
         `}
         aria-label="Open model picker"
+        aria-haspopup="dialog"
+        aria-expanded={isOpen}
+        aria-controls={isOpen ? listboxId : undefined}
       >
         <span className="truncate max-w-xs">{selectedModelLabel}</span>
         <ChevronDown
@@ -285,6 +302,9 @@ export function ModelPickerPopover({
       {/* Popover Content */}
       {isOpen && (
         <div
+          id={listboxId}
+          role="dialog"
+          aria-label="Model picker"
           className={`
             absolute top-full right-0 mt-2 w-96 max-h-96
             bg-neutral-900 border border-neutral-700 rounded-lg
@@ -314,8 +334,18 @@ export function ModelPickerPopover({
           </div>
 
           {/* Provider Groups */}
-          <div className="overflow-y-auto flex-1">
-            {filteredGroups.length === 0 ? (
+          <div
+            className="overflow-y-auto flex-1"
+            aria-busy={isLoading}
+            role="listbox"
+            aria-label="Available models"
+          >
+            {isLoading ? (
+              <div className="flex items-center justify-center h-32 gap-2">
+                <div className="w-4 h-4 bg-blue-500 rounded-full animate-bounce" />
+                <span className="text-sm text-neutral-400">Loading models...</span>
+              </div>
+            ) : filteredGroups.length === 0 ? (
               <div className="p-4 text-center text-neutral-400 text-sm">
                 {searchQuery
                   ? "No models match your search"
@@ -355,6 +385,7 @@ export function ModelPickerPopover({
                            }
                          `}
                          aria-selected={selectedProviderId === group.providerId && selectedModelId === model.id}
+                         role="option"
                        >
                         {/* Selection Indicator */}
                         <div
@@ -391,7 +422,7 @@ export function ModelPickerPopover({
             <button
               type="button"
               onClick={() => {
-                setIsOpen(false);
+                closePopover(true);
                 onConnectProvider();
               }}
               className={`
@@ -406,7 +437,7 @@ export function ModelPickerPopover({
             <button
               type="button"
               onClick={() => {
-                setIsOpen(false);
+                closePopover(true);
                 onManageModels();
               }}
               className={`
