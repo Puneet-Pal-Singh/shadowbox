@@ -187,48 +187,38 @@ export function ConnectProviderChooser({
           </div>
 
           <div>
-            <label className={sectionLabelClassName}>
-              {filteredProviders.length > 0
-                ? `Available Providers (${filteredProviders.length})`
-                : "No providers found"}
-            </label>
+            <p className={sectionLabelClassName}>
+              {searchQuery.trim() ? "Matches" : "Popular"}
+            </p>
 
             {filteredProviders.length === 0 ? (
-              <div className="rounded-lg border border-neutral-700 bg-neutral-950/50 p-6 text-center">
-                <p className="text-sm text-neutral-400">
-                  {searchQuery
-                    ? "No providers match your search"
-                    : "No providers available"}
+              <div className="px-1 py-6 text-center">
+                <p className="text-sm text-neutral-500">
+                  {searchQuery ? "No providers match your search" : "No providers available"}
                 </p>
               </div>
             ) : (
-              <div className="max-h-56 space-y-1 overflow-y-auto rounded-lg border border-neutral-700 bg-neutral-950/40 p-1">
+              <div className="max-h-56 space-y-0.5 overflow-y-auto">
                 {filteredProviders.map((option) => (
                   <button
                     key={option.entry.providerId}
                     onClick={() => handleSelectProvider(option.entry.providerId)}
                     type="button"
                     disabled={isConnecting}
-                    className="w-full rounded-md px-3 py-2.5 text-left transition-colors disabled:opacity-50 disabled:cursor-not-allowed hover:bg-neutral-800/70"
+                    className="w-full rounded-md px-2.5 py-2 text-left transition-colors disabled:opacity-50 disabled:cursor-not-allowed hover:bg-neutral-800/60"
                   >
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <p className="text-sm font-medium text-neutral-100">
-                          {option.displayName}
-                        </p>
-                        <p className="mt-0.5 text-xs text-neutral-400">
-                          {option.description}
-                        </p>
-                      </div>
+                    <div className="flex items-baseline gap-2">
+                      <p className="shrink-0 text-sm font-medium text-neutral-100">
+                        {option.displayName}
+                      </p>
+                      <p className="truncate text-sm text-neutral-500">
+                        {option.description}
+                      </p>
                     </div>
                   </button>
                 ))}
               </div>
             )}
-          </div>
-
-          <div className="rounded-lg border border-blue-900 bg-blue-950/30 p-4 text-center">
-            <p className="text-sm text-blue-200">Pick a provider to continue</p>
           </div>
         </div>
       )}
