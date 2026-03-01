@@ -283,7 +283,7 @@ describe("ProviderDialog", () => {
       );
 
       expect(
-        screen.getByRole("heading", { name: "Manage Models" })
+        screen.getByRole("heading", { name: /manage models/i })
       ).toBeInTheDocument();
     });
   });
@@ -329,6 +329,21 @@ describe("ProviderDialog", () => {
       ).toBeInTheDocument();
       expect(screen.queryByText("Connected")).not.toBeInTheDocument();
       expect(screen.getByPlaceholderText(/search providers/i)).toBeInTheDocument();
+    });
+  });
+
+  describe("manage-models-only variant", () => {
+    it("shows manage models modal without provider settings shell", () => {
+      render(
+        <ProviderDialog
+          isOpen={true}
+          onClose={vi.fn()}
+          variant="manage-models-only"
+        />
+      );
+
+      expect(screen.getByRole("heading", { name: /manage models/i })).toBeInTheDocument();
+      expect(screen.queryByText("Provider & Model Settings")).not.toBeInTheDocument();
     });
   });
 });

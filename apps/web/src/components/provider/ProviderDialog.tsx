@@ -32,7 +32,7 @@ export interface ProviderDialogProps {
   mode?: "settings" | "composer";
   initialTab?: "connected" | "available" | "preferences" | "session";
   initialView?: "default" | "manage-models";
-  variant?: "full" | "connect-only";
+  variant?: "full" | "connect-only" | "manage-models-only";
 }
 
 /**
@@ -198,6 +198,19 @@ export function ProviderDialog({
     loadingModelsForProviderId !== null &&
     loadingModelsForProviderId === selectedProviderId;
   const statusRecovery = getProviderRecoveryAdvice(error);
+
+  if (variant === "manage-models-only") {
+    return (
+      <ManageModelsDialog
+        isOpen={isOpen}
+        onClose={onClose}
+        catalog={catalog}
+        providerModels={providerModels}
+        visibleModelIds={visibleModelIds}
+        onToggleModelVisibility={toggleModelVisibility}
+      />
+    );
+  }
 
   if (variant === "connect-only") {
     return (
@@ -374,6 +387,10 @@ export function ProviderDialog({
         providerModels={providerModels}
         visibleModelIds={visibleModelIds}
         onToggleModelVisibility={toggleModelVisibility}
+        onConnectProvider={() => {
+          setShowManageModels(false);
+          setActiveTab("available");
+        }}
       />
     </div>
   );

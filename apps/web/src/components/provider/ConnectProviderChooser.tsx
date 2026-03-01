@@ -30,7 +30,6 @@ export interface ConnectProviderChooserProps {
 interface ProviderOption {
   entry: ProviderRegistryEntry;
   displayName: string;
-  description: string;
 }
 
 /**
@@ -56,7 +55,6 @@ export function ConnectProviderChooser({
     return catalog.map((entry) => ({
       entry,
       displayName: entry.displayName,
-      description: buildProviderDescription(entry),
     }));
   }, [catalog]);
 
@@ -69,8 +67,7 @@ export function ConnectProviderChooser({
     return providerOptions.filter(
       (option) =>
         option.displayName.toLowerCase().includes(query) ||
-        option.entry.providerId.toLowerCase().includes(query) ||
-        option.description.toLowerCase().includes(query)
+        option.entry.providerId.toLowerCase().includes(query)
     );
   }, [providerOptions, searchQuery]);
 
@@ -207,14 +204,9 @@ export function ConnectProviderChooser({
                     disabled={isConnecting}
                     className="w-full rounded-md px-2.5 py-2 text-left transition-colors disabled:opacity-50 disabled:cursor-not-allowed hover:bg-neutral-800/60"
                   >
-                    <div className="flex items-baseline gap-2">
-                      <p className="shrink-0 text-sm font-medium text-neutral-100">
-                        {option.displayName}
-                      </p>
-                      <p className="truncate text-sm text-neutral-500">
-                        {option.description}
-                      </p>
-                    </div>
+                    <p className="text-sm font-medium text-neutral-100">
+                      {option.displayName}
+                    </p>
                   </button>
                 ))}
               </div>
@@ -297,24 +289,4 @@ export function ConnectProviderChooser({
       )}
     </div>
   );
-}
-
-/**
- * Build provider description from entry
- */
-function buildProviderDescription(entry: ProviderRegistryEntry): string {
-  const capabilities = [];
-
-  if (entry.capabilities.streaming) {
-    capabilities.push("Streaming");
-  }
-  if (entry.capabilities.tools) {
-    capabilities.push("Tools");
-  }
-  if (entry.capabilities.jsonMode) {
-    capabilities.push("JSON");
-  }
-
-  const capabilityText = capabilities.length > 0 ? capabilities.join(", ") : "Basic";
-  return capabilityText;
 }

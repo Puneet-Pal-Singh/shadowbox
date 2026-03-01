@@ -35,7 +35,7 @@ export function ChatInputBar({
     "default" | "manage-models"
   >("default");
   const [providerDialogVariant, setProviderDialogVariant] = useState<
-    "full" | "connect-only"
+    "full" | "connect-only" | "manage-models-only"
   >("full");
   const {
     catalog,
@@ -159,7 +159,7 @@ export function ChatInputBar({
                 onManageModels={() => {
                   setProviderDialogInitialTab("connected");
                   setProviderDialogInitialView("manage-models");
-                  setProviderDialogVariant("full");
+                  setProviderDialogVariant("manage-models-only");
                   setShowProviderDialog(true);
                 }}
                 isLoading={status === "loading"}
