@@ -28,6 +28,10 @@ describe("ProviderDialog", () => {
             structuredOutputs: true,
           },
           modelSource: "static",
+          keyFormat: {
+            prefix: "sk-",
+            description: "OpenAI API key (starts with sk-)",
+          },
         },
       ],
       credentials: [
@@ -182,37 +186,39 @@ describe("ProviderDialog", () => {
       const availableTab = screen.getByText("Available");
       fireEvent.click(availableTab);
 
-      expect(screen.getByText("Provider")).toBeInTheDocument();
-      expect(screen.getByText("API Key")).toBeInTheDocument();
+      // ConnectProviderChooser shows "Find Provider" label
+      expect(screen.getByText("Find Provider")).toBeInTheDocument();
+      // And the search input
+      expect(screen.getByPlaceholderText(/search by provider/i)).toBeInTheDocument();
     });
 
     it("calls connectCredential with form data", async () => {
-      render(<ProviderDialog isOpen={true} onClose={vi.fn()} />);
+       render(<ProviderDialog isOpen={true} onClose={vi.fn()} />);
 
-      const availableTab = screen.getByText("Available");
-      fireEvent.click(availableTab);
+       const availableTab = screen.getByText("Available");
+       fireEvent.click(availableTab);
 
-      const providerSelect = screen.getByDisplayValue(
-        "Select a provider..."
-      ) as HTMLSelectElement;
-      const secretInput = screen.getByPlaceholderText(
-        "sk-..."
-      ) as HTMLInputElement;
+       // Click provider in the list
+       const openaiButton = screen.getByText("OpenAI").closest("button");
+       fireEvent.click(openaiButton!);
 
-      fireEvent.change(providerSelect, { target: { value: "openai" } });
-      fireEvent.change(secretInput, { target: { value: "sk-test123" } });
+       // Fill in API key
+       const secretInput = await screen.findByPlaceholderText(/e\.g\., sk-/i);
+       fireEvent.change(secretInput, { target: { value: "sk-test123" } });
 
-      const connectButton = screen.getByText("Connect Provider");
-      fireEvent.click(connectButton);
+       const connectButton = screen.getByRole("button", {
+         name: /connect provider/i,
+       });
+       fireEvent.click(connectButton);
 
-      await waitFor(() => {
-        expect(mockStore.connectCredential).toHaveBeenCalledWith({
-          providerId: "openai",
-          secret: "sk-test123",
-          label: undefined,
-        });
-      });
-    });
+       await waitFor(() => {
+         expect(mockStore.connectCredential).toHaveBeenCalledWith({
+           providerId: "openai",
+           secret: "sk-test123",
+           label: undefined,
+         });
+       });
+     });
   });
 
   describe("Preferences tab", () => {

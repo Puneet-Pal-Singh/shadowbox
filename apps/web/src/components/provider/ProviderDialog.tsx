@@ -19,7 +19,8 @@ import {
   ProviderRegistryEntry,
 } from "@repo/shared-types";
 import { type ProviderModelOption } from "../../services/api/providerClient.js";
-import { getProviderRecoveryAdvice } from "../../lib/provider-recovery";
+import { getProviderRecoveryAdvice } from "../../lib/provider-recovery.js";
+import { ConnectProviderChooser } from "./ConnectProviderChooser.js";
 
 /**
  * Provider Dialog Props
@@ -67,36 +68,32 @@ export function ProviderDialog({
 
   const [connectError, setConnectError] = useState<string | null>(null);
   const [connectSuccess, setConnectSuccess] = useState<string | null>(null);
-  const [connectSecret, setConnectSecret] = useState("");
-  const [connectProvider, setConnectProvider] = useState("");
-  const [connectLabel, setConnectLabel] = useState("");
 
   if (!isOpen) return null;
 
   /**
-   * Handle credential connection
+   * Core credential connection logic (extracted for reuse)
    */
-  const handleConnect = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const doConnect = async (
+    providerId: string,
+    secret: string,
+    labelValue: string
+  ): Promise<void> => {
     setConnectError(null);
     setConnectSuccess(null);
 
-    if (!connectProvider || !connectSecret) {
+    if (!providerId || !secret) {
       setConnectError("Provider and API key are required");
       return;
     }
 
     try {
       await connectCredential({
-        providerId: connectProvider,
-        secret: connectSecret,
-        label: connectLabel || undefined,
+        providerId,
+        secret,
+        label: labelValue || undefined,
       });
 
-      // Clear form
-      setConnectSecret("");
-      setConnectProvider("");
-      setConnectLabel("");
       setConnectSuccess("API key saved and provider connected.");
       setActiveTab("connected");
     } catch (err) {
@@ -236,28 +233,18 @@ export function ProviderDialog({
           )}
 
           {activeTab === "available" && (
-            <AvailableTab
-              catalog={catalog}
-              error={connectError}
-              success={connectSuccess}
-              secret={connectSecret}
-              provider={connectProvider}
-              label={connectLabel}
-              onSecretChange={(value) => {
-                setConnectSecret(value);
-                if (connectSuccess) {
-                  setConnectSuccess(null);
-                }
-              }}
-              onProviderChange={(value) => {
-                setConnectProvider(value);
-                if (connectSuccess) {
-                  setConnectSuccess(null);
-                }
-              }}
-              onLabelChange={setConnectLabel}
-              onConnect={handleConnect}
-            />
+            <div className="p-6">
+              <ConnectProviderChooser
+                catalog={catalog}
+                error={connectError}
+                success={connectSuccess}
+                isConnecting={false}
+                onConnect={async (providerId, secret, label) => {
+                  await doConnect(providerId, secret, label || "");
+                }}
+                onErrorClear={() => setConnectError(null)}
+              />
+            </div>
           )}
 
           {activeTab === "preferences" && (
@@ -388,101 +375,6 @@ function ConnectedTab({
           ))}
         </div>
       )}
-    </div>
-  );
-}
-
-/**
- * Available Tab - Add new credentials
- */
-function AvailableTab({
-  catalog,
-  error,
-  success,
-  secret,
-  provider,
-  label,
-  onSecretChange,
-  onProviderChange,
-  onLabelChange,
-  onConnect,
-}: {
-  catalog: ProviderRegistryEntry[];
-  error: string | null;
-  success: string | null;
-  secret: string;
-  provider: string;
-  label: string;
-  onSecretChange: (v: string) => void;
-  onProviderChange: (v: string) => void;
-  onLabelChange: (v: string) => void;
-  onConnect: (e: React.FormEvent) => Promise<void>;
-}): React.ReactElement {
-  const connectErrorAdvice = getProviderRecoveryAdvice(error);
-
-  return (
-    <div className="p-6">
-      <form onSubmit={onConnect} className="space-y-4 max-w-md">
-        {error && (
-          <div className="bg-red-50 border border-red-200 rounded p-3 text-red-700 text-sm space-y-1">
-            <p>{connectErrorAdvice.message}</p>
-            <p className="text-xs text-red-600">{connectErrorAdvice.remediation}</p>
-          </div>
-        )}
-        {success && <div className="bg-green-50 border border-green-200 rounded p-3 text-green-700 text-sm">{success}</div>}
-
-        <div>
-          <label className="block text-sm font-medium mb-2">Provider</label>
-          <select
-            value={provider}
-            onChange={(e) => onProviderChange(e.target.value)}
-            className="w-full border rounded px-3 py-2 text-sm"
-            required
-          >
-            <option value="">Select a provider...</option>
-            {catalog.map((p) => (
-              <option key={p.providerId} value={p.providerId}>
-                {p.displayName} ({p.providerId})
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium mb-2">API Key</label>
-          <input
-            type="password"
-            value={secret}
-            onChange={(e) => onSecretChange(e.target.value)}
-            placeholder="sk-..."
-            className="w-full border rounded px-3 py-2 text-sm"
-            required
-          />
-          <p className="text-xs text-gray-500 mt-1">
-            Your key is encrypted server-side and never stored in plain text.
-          </p>
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium mb-2">
-            Label (optional)
-          </label>
-          <input
-            type="text"
-            value={label}
-            onChange={(e) => onLabelChange(e.target.value)}
-            placeholder="e.g., 'Production', 'Testing'"
-            className="w-full border rounded px-3 py-2 text-sm"
-          />
-        </div>
-
-        <button
-          type="submit"
-          className="w-full bg-blue-600 text-white hover:bg-blue-700 rounded px-4 py-2 font-medium transition"
-        >
-          Connect Provider
-        </button>
-      </form>
     </div>
   );
 }
