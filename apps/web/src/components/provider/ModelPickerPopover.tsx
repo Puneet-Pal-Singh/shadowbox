@@ -18,9 +18,9 @@ import { type ProviderModelOption } from "../../services/api/providerClient.js";
 
 const VIEWPORT_PADDING_PX = 12;
 const POPOVER_GAP_PX = 8;
-const ESTIMATED_POPOVER_HEIGHT_PX = 420;
-const PREFERRED_POPOVER_WIDTH_PX = 352;
-const MIN_POPOVER_WIDTH_PX = 280;
+const ESTIMATED_POPOVER_HEIGHT_PX = 360;
+const PREFERRED_POPOVER_WIDTH_PX = 304;
+const MIN_POPOVER_WIDTH_PX = 248;
 
 interface PopoverPlacement {
   vertical: "up" | "down";
@@ -271,7 +271,7 @@ export function ModelPickerPopover({
         <div
           data-testid="model-picker-popover"
           className={`
-            absolute z-50 flex max-h-[22rem] flex-col overflow-hidden rounded-xl
+            absolute z-50 flex max-h-[18rem] flex-col overflow-hidden rounded-xl
             border border-neutral-700/80 bg-neutral-900/95 shadow-2xl backdrop-blur
             ${placement.vertical === "down" ? "top-full mt-2" : "bottom-full mb-2"}
             ${placement.horizontal === "start" ? "left-0" : "right-0"}
@@ -282,7 +282,7 @@ export function ModelPickerPopover({
           }}
         >
           {/* Search + Actions */}
-          <div className="flex items-center gap-2 border-b border-neutral-800 p-2">
+          <div className="flex items-center gap-1.5 border-b border-neutral-800 p-1.5">
             <div className="relative flex-1">
               <Search size={14} className="absolute left-2.5 top-2.5 text-neutral-500" />
               <input
@@ -305,11 +305,11 @@ export function ModelPickerPopover({
                 setIsOpen(false);
                 onConnectProvider();
               }}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-neutral-700 text-neutral-300 transition-colors hover:bg-neutral-800 hover:text-neutral-100"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-neutral-700 text-neutral-300 transition-colors hover:bg-neutral-800 hover:text-neutral-100"
               aria-label="Connect provider"
               title="Connect provider"
             >
-              <Plus size={14} />
+              <Plus size={12} />
             </button>
             <button
               type="button"
@@ -317,11 +317,11 @@ export function ModelPickerPopover({
                 setIsOpen(false);
                 onManageModels();
               }}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-neutral-700 text-neutral-300 transition-colors hover:bg-neutral-800 hover:text-neutral-100"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-neutral-700 text-neutral-300 transition-colors hover:bg-neutral-800 hover:text-neutral-100"
               aria-label="Manage model visibility"
               title="Manage model visibility"
             >
-              <Settings size={14} />
+              <Settings size={12} />
             </button>
           </div>
 
