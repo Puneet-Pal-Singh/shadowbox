@@ -133,6 +133,27 @@ export function ModelPickerPopover({
     return result;
   }, [filteredGroups]);
 
+  // Keep focused model index valid as model list changes.
+  useEffect(() => {
+    if (flatModels.length === 0) {
+      if (focusedModelIndex !== -1) {
+        setFocusedModelIndex(-1);
+      }
+      return;
+    }
+
+    if (focusedModelIndex < flatModels.length) {
+      return;
+    }
+
+    const clampedIndex = flatModels.length - 1;
+    const clampedModel = flatModels[clampedIndex];
+    setFocusedModelIndex(clampedIndex);
+    if (clampedModel) {
+      modelButtonsRef.current.get(clampedModel.model.id)?.focus();
+    }
+  }, [flatModels, focusedModelIndex]);
+
   // Get currently selected model label
   const selectedModelLabel = useMemo((): string => {
     if (!selectedProviderId || !selectedModelId) {

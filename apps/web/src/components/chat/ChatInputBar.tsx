@@ -3,6 +3,7 @@ import { motion } from "framer-motion";
 import { Plus, Mic, ArrowUp, Paperclip, Square } from "lucide-react";
 import type { ProviderId } from "../../types/provider";
 import { useProviderStore } from "../../hooks/useProviderStore.js";
+import { findCredentialByProviderId } from "../../lib/provider-helpers.js";
 import { ProviderDialog, ModelPickerPopover } from "../provider/index.js";
 
 interface ChatInputBarProps {
@@ -129,8 +130,9 @@ export function ChatInputBar({
                 selectedProviderId={selectedProviderId}
                 selectedModelId={selectedModelId}
                 onSelectModel={async (providerId, modelId) => {
-                  const credential = credentials.find(
-                    (item) => item.providerId === providerId
+                  const credential = findCredentialByProviderId(
+                    credentials,
+                    providerId
                   );
                   if (!credential) {
                     setProviderDialogInitialView("default");

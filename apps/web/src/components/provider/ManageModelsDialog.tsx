@@ -130,16 +130,7 @@ export function ManageModelsDialog({
     }
 
     searchInputRef.current?.focus();
-
-    const handleKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        onClose();
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, onClose]);
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -153,6 +144,13 @@ export function ManageModelsDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby="manage-models-title"
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            event.stopPropagation();
+            onClose();
+          }
+        }}
       >
         {/* Header */}
         <div className="border-b px-6 py-4 flex items-center justify-between">

@@ -80,7 +80,7 @@ describe("ManageModelsDialog", () => {
       expect(searchInput).toHaveFocus();
     });
 
-    fireEvent.keyDown(window, { key: "Escape" });
+    fireEvent.keyDown(searchInput, { key: "Escape" });
     expect(onClose).toHaveBeenCalled();
   });
 });
