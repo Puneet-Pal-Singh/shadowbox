@@ -274,21 +274,29 @@ export function ProviderDialog({
         </div>
 
         {/* Footer */}
-        <div className="border-t px-6 py-3 flex justify-end gap-3">
+        <div className="border-t px-6 py-3 flex justify-between gap-3">
           <button
-            onClick={onClose}
-            className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded transition"
+            onClick={() => setShowManageModels(true)}
+            className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded transition"
           >
-            Close
+            Manage Models
           </button>
-          {mode === "composer" && (
+          <div className="flex gap-3">
             <button
               onClick={onClose}
-              className="px-4 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded transition"
+              className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded transition"
             >
-              Use Selected
+              Close
             </button>
-          )}
+            {mode === "composer" && (
+              <button
+                onClick={onClose}
+                className="px-4 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded transition"
+              >
+                Use Selected
+              </button>
+            )}
+          </div>
         </div>
       </div>
 

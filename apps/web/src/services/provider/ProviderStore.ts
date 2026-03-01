@@ -179,10 +179,26 @@ export class ProviderStore {
   }
 
   /**
-   * Get current state
+   * Get current state with deep-copied visibleModelIds to prevent mutations
    */
   getState(): ProviderStoreState {
-    return { ...this.state };
+    return {
+      ...this.state,
+      visibleModelIds: this.copyVisibleModelIds(this.state.visibleModelIds),
+    };
+  }
+
+  /**
+   * Deep copy visibleModelIds to prevent external mutations
+   */
+  private copyVisibleModelIds(
+    visibleModelIds: Record<string, Set<string>>
+  ): Record<string, Set<string>> {
+    const copy: Record<string, Set<string>> = {};
+    for (const [providerId, modelSet] of Object.entries(visibleModelIds)) {
+      copy[providerId] = new Set(modelSet);
+    }
+    return copy;
   }
 
   /**

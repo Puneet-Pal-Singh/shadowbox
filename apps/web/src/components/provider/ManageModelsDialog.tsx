@@ -18,6 +18,75 @@ import { type ProviderRegistryEntry } from "@repo/shared-types";
 import { type ProviderModelOption } from "../../services/api/providerClient.js";
 
 /**
+ * Provider group with visibility state
+ */
+interface ProviderGroup {
+  providerId: string;
+  displayName: string;
+  models: ProviderModelOption[];
+  visibleCount: number;
+  totalCount: number;
+}
+
+/**
+ * Provider group with filtered models
+ */
+interface FilteredProviderGroup extends ProviderGroup {
+  filteredModels: ProviderModelOption[];
+}
+
+/**
+ * Build provider groups from catalog, models, and visibility state
+ */
+function buildProviderGroups(
+  catalog: ProviderRegistryEntry[],
+  providerModels: Record<string, ProviderModelOption[]>,
+  visibleModelIds: Record<string, Set<string>>
+): ProviderGroup[] {
+  return catalog
+    .map((entry) => {
+      const models = providerModels[entry.providerId] || [];
+      const visibleSet = visibleModelIds[entry.providerId] || new Set();
+      return {
+        providerId: entry.providerId,
+        displayName: entry.displayName,
+        models,
+        visibleCount: visibleSet.size,
+        totalCount: models.length,
+      };
+    })
+    .filter((group) => group.models.length > 0);
+}
+
+/**
+ * Filter provider groups and models based on search query
+ */
+function filterProviderGroups(
+  providerGroups: ProviderGroup[],
+  searchQuery: string
+): FilteredProviderGroup[] {
+  if (!searchQuery.trim()) {
+    return providerGroups.map((group) => ({
+      ...group,
+      filteredModels: group.models,
+    }));
+  }
+
+  const query = searchQuery.toLowerCase();
+  return providerGroups
+    .map((group) => ({
+      ...group,
+      filteredModels: group.models.filter(
+        (model) =>
+          model.name.toLowerCase().includes(query) ||
+          model.id.toLowerCase().includes(query) ||
+          group.displayName.toLowerCase().includes(query)
+      ),
+    }))
+    .filter((group) => group.filteredModels.length > 0);
+}
+
+/**
  * Props for ManageModelsDialog
  */
 export interface ManageModelsDialogProps {
@@ -44,52 +113,32 @@ export function ManageModelsDialog({
 
   // Build provider groups with visibility state
   const providerGroups = useMemo(() => {
-    return catalog
-      .map((entry) => {
-        const models = providerModels[entry.providerId] || [];
-        const visibleSet = visibleModelIds[entry.providerId] || new Set();
-        return {
-          providerId: entry.providerId,
-          displayName: entry.displayName,
-          models,
-          visibleCount: visibleSet.size,
-          totalCount: models.length,
-        };
-      })
-      .filter((group) => group.models.length > 0);
+    return buildProviderGroups(catalog, providerModels, visibleModelIds);
   }, [catalog, providerModels, visibleModelIds]);
 
   // Filter groups and models based on search
   const filteredGroups = useMemo(() => {
-    if (!searchQuery.trim()) {
-      return providerGroups.map((group) => ({
-        ...group,
-        filteredModels: group.models,
-      }));
-    }
-
-    const query = searchQuery.toLowerCase();
-    return providerGroups
-      .map((group) => ({
-        ...group,
-        filteredModels: group.models.filter(
-          (model) =>
-            model.name.toLowerCase().includes(query) ||
-            model.id.toLowerCase().includes(query) ||
-            group.displayName.toLowerCase().includes(query)
-        ),
-      }))
-      .filter((group) => group.filteredModels.length > 0);
+    return filterProviderGroups(providerGroups, searchQuery);
   }, [providerGroups, searchQuery]);
 
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-lg w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
+    <div
+      className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+      role="presentation"
+    >
+      <div
+        className="bg-white rounded-lg shadow-lg w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="manage-models-title"
+      >
         {/* Header */}
         <div className="border-b px-6 py-4 flex items-center justify-between">
-          <h2 className="text-lg font-semibold">Manage Models</h2>
+          <h2 id="manage-models-title" className="text-lg font-semibold">
+            Manage Models
+          </h2>
           <button
             onClick={onClose}
             className="text-gray-400 hover:text-gray-600"
