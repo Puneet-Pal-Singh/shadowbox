@@ -35,6 +35,9 @@ interface FilteredProviderGroup extends ProviderGroup {
   filteredModels: ProviderModelOption[];
 }
 
+const CONNECT_PROVIDER_BUTTON_CLASS =
+  "inline-flex items-center gap-1 rounded-md border border-neutral-700 px-2.5 py-1.5 text-xs text-neutral-200 transition hover:bg-neutral-800";
+
 /**
  * Build provider groups from catalog, models, and visibility state
  */
@@ -84,6 +87,23 @@ function filterProviderGroups(
       ),
     }))
     .filter((group) => group.filteredModels.length > 0);
+}
+
+function ConnectProviderButton({
+  onConnectProvider,
+}: {
+  onConnectProvider: () => void;
+}): React.ReactElement {
+  return (
+    <button
+      onClick={onConnectProvider}
+      className={CONNECT_PROVIDER_BUTTON_CLASS}
+      type="button"
+    >
+      <Plus size={12} />
+      Connect provider
+    </button>
+  );
 }
 
 /**
@@ -155,14 +175,7 @@ export function ManageModelsDialog({
           </div>
           <div className="flex items-center gap-2">
             {onConnectProvider && (
-              <button
-                onClick={onConnectProvider}
-                className="inline-flex items-center gap-1 rounded-md border border-neutral-700 px-2.5 py-1.5 text-xs text-neutral-200 transition hover:bg-neutral-800"
-                type="button"
-              >
-                <Plus size={12} />
-                Connect provider
-              </button>
+              <ConnectProviderButton onConnectProvider={onConnectProvider} />
             )}
             <button
               onClick={onClose}
@@ -194,14 +207,7 @@ export function ManageModelsDialog({
             <div className="py-8 text-center text-neutral-500 space-y-3">
               <p>{searchQuery ? "No models match your search" : "No providers connected"}</p>
               {!searchQuery && onConnectProvider && (
-                <button
-                  type="button"
-                  onClick={onConnectProvider}
-                  className="inline-flex items-center gap-1 rounded-md border border-neutral-700 px-2.5 py-1.5 text-xs text-neutral-200 transition hover:bg-neutral-800"
-                >
-                  <Plus size={12} />
-                  Connect provider
-                </button>
+                <ConnectProviderButton onConnectProvider={onConnectProvider} />
               )}
             </div>
           ) : (
@@ -229,7 +235,7 @@ export function ManageModelsDialog({
                         return (
                           <div
                             key={model.id}
-                            className="flex cursor-pointer items-center justify-between rounded-md px-2 py-1.5 transition-colors hover:bg-neutral-800/60"
+                            className="flex items-center justify-between rounded-md px-2 py-1.5 transition-colors hover:bg-neutral-800/60"
                           >
                             <div className="flex-1 text-left">
                               <p className="text-xs font-medium text-neutral-300">

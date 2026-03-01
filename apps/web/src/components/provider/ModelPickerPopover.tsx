@@ -28,6 +28,17 @@ interface PopoverPlacement {
   widthPx: number;
 }
 
+function isSamePlacement(
+  first: PopoverPlacement,
+  second: PopoverPlacement
+): boolean {
+  return (
+    first.vertical === second.vertical &&
+    first.horizontal === second.horizontal &&
+    first.widthPx === second.widthPx
+  );
+}
+
 /**
  * Props for ModelPickerPopover
  */
@@ -226,7 +237,12 @@ export function ModelPickerPopover({
     }
 
     const handleViewportChange = (): void => {
-      setPlacement(resolvePlacement());
+      const nextPlacement = resolvePlacement();
+      setPlacement((currentPlacement) =>
+        isSamePlacement(currentPlacement, nextPlacement)
+          ? currentPlacement
+          : nextPlacement
+      );
     };
 
     window.addEventListener("resize", handleViewportChange);
