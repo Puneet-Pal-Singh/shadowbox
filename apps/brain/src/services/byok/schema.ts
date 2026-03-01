@@ -111,6 +111,18 @@ CREATE TABLE IF NOT EXISTS provider_registry_cache (
 `;
 
 /**
+ * D1 Migration: Add visible model IDs to preferences
+ *
+ * Adds column to persist per-provider model visibility curation.
+ * New column is nullable for backward compatibility.
+ * Default: empty JSON object for new preferences.
+ */
+export const ADD_VISIBLE_MODEL_IDS_TO_PREFERENCES_SCHEMA = `
+ALTER TABLE byok_preferences
+ADD COLUMN visible_model_ids_json TEXT DEFAULT '{}'
+`;
+
+/**
  * All migrations to run on D1 initialization
  */
 export const ALL_BYOK_MIGRATIONS = [
@@ -118,4 +130,5 @@ export const ALL_BYOK_MIGRATIONS = [
   BYOK_PREFERENCES_SCHEMA,
   BYOK_AUDIT_EVENTS_SCHEMA,
   PROVIDER_REGISTRY_CACHE_SCHEMA,
+  ADD_VISIBLE_MODEL_IDS_TO_PREFERENCES_SCHEMA,
 ];

@@ -66,6 +66,7 @@ describe("ProviderDialog", () => {
         workspaceId: "ws-1",
         fallbackMode: "strict",
         fallbackChain: [],
+        visibleModelIds: {},
         updatedAt: new Date().toISOString(),
       },
       selectedProviderId: "openai",

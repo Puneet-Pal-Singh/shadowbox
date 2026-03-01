@@ -71,13 +71,15 @@ const PreferencePatchV3Schema = z
     defaultModelId: z.string().min(1).optional(),
     fallbackMode: z.enum(["strict", "allow_fallback"]).optional(),
     fallbackChain: z.array(z.string()).optional(),
+    visibleModelIds: z.record(z.string(), z.array(z.string())).optional(),
   })
   .refine(
     (value) =>
       value.defaultProviderId !== undefined ||
       value.defaultModelId !== undefined ||
       value.fallbackMode !== undefined ||
-      value.fallbackChain !== undefined,
+      value.fallbackChain !== undefined ||
+      value.visibleModelIds !== undefined,
     { message: "At least one preference field is required" },
   );
 
@@ -423,12 +425,21 @@ export class ProviderController {
         });
       }
 
+      // Add visibleModelIds to patch if provided
+      const runtimePatchWithVisibility: typeof runtimePatch & {
+        visibleModelIds?: Record<string, string[]>;
+      } = { ...runtimePatch };
+      if (patch.visibleModelIds) {
+        runtimePatchWithVisibility.visibleModelIds = patch.visibleModelIds;
+      }
+
       let runtimePreference: {
         defaultProviderId?: string;
         defaultModelId?: string;
+        visibleModelIds?: Record<string, string[]>;
         updatedAt: string;
       };
-      if (Object.keys(runtimePatch).length === 0) {
+      if (Object.keys(runtimePatchWithVisibility).length === 0) {
         runtimePreference = await fetchRuntimePreferences(req, env, scope, correlationId);
       } else {
         const runtimeResponse = await proxyByokOperation(
@@ -438,7 +449,7 @@ export class ProviderController {
             scope,
             method: "PATCH",
             path: "/providers/preferences",
-            body: runtimePatch,
+            body: runtimePatchWithVisibility,
           },
           BYOKPreferencesSchema,
           correlationId,
@@ -456,6 +467,7 @@ export class ProviderController {
         defaultModelId: runtimePreference.defaultModelId,
         fallbackMode,
         fallbackChain,
+        visibleModelIds: runtimePreference.visibleModelIds ?? {},
         updatedAt: runtimePreference.updatedAt,
       };
       return withScopeJson(req, env, scope, preference);
@@ -970,6 +982,7 @@ async function fetchRuntimePreferences(
 ): Promise<{
   defaultProviderId?: string;
   defaultModelId?: string;
+  visibleModelIds?: Record<string, string[]>;
   updatedAt: string;
 }> {
   const response = await proxyByokOperation(
@@ -1091,6 +1104,7 @@ async function loadWorkspacePreference(
     defaultModelId: runtime.defaultModelId,
     fallbackMode: metadata.fallbackMode,
     fallbackChain: metadata.fallbackChain,
+    visibleModelIds: runtime.visibleModelIds ?? {},
     updatedAt: runtime.updatedAt,
   };
 }

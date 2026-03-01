@@ -35,6 +35,9 @@ export const BYOKPreferenceSchema = z.object({
   /** Ordered list of fallback provider IDs (when fallbackMode = 'allow_fallback') */
   fallbackChain: z.array(z.string()).default([]),
 
+  /** Model visibility curation: per-provider list of visible model IDs */
+  visibleModelIds: z.record(z.string(), z.array(z.string())).default({}),
+
   /** Last update timestamp */
   updatedAt: z.string().datetime(),
 });
@@ -50,6 +53,7 @@ export const BYOKPreferencePatchSchema = z.object({
   defaultModelId: z.string().optional(),
   fallbackMode: z.enum(["strict", "allow_fallback"]).optional(),
   fallbackChain: z.array(z.string()).optional(),
+  visibleModelIds: z.record(z.string(), z.array(z.string())).optional(),
 });
 
 export type BYOKPreferencePatch = z.infer<typeof BYOKPreferencePatchSchema>;

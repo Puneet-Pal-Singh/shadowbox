@@ -144,6 +144,7 @@ export type BYOKPreferencesPatch = z.infer<typeof BYOKPreferencesPatchSchema>;
 export const BYOKPreferencesSchema = z.object({
   defaultProviderId: ProviderIdSchema.optional(),
   defaultModelId: z.string().min(1).optional(),
+  visibleModelIds: z.record(z.string(), z.array(z.string())).optional(),
   updatedAt: z.string().datetime(),
 });
 export type BYOKPreferences = z.infer<typeof BYOKPreferencesSchema>;
