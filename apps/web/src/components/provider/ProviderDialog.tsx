@@ -100,6 +100,29 @@ export function ProviderDialog({
     setManageOnlyView("manage");
   }, [initialTab, initialView, isOpen, mode]);
 
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    const handleEscape = (event: KeyboardEvent): void => {
+      if (event.key !== "Escape") {
+        return;
+      }
+      event.preventDefault();
+
+      if (variant === "full" && showManageModels) {
+        setShowManageModels(false);
+        return;
+      }
+
+      onClose();
+    };
+
+    window.addEventListener("keydown", handleEscape);
+    return () => window.removeEventListener("keydown", handleEscape);
+  }, [isOpen, onClose, showManageModels, variant]);
+
   if (!isOpen) return null;
 
   /**

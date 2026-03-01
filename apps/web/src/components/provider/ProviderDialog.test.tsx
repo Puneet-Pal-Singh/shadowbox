@@ -323,6 +323,42 @@ describe("ProviderDialog", () => {
 
       expect(onClose).toHaveBeenCalled();
     });
+
+    it("calls onClose when escape is pressed", () => {
+      const onClose = vi.fn();
+      render(<ProviderDialog isOpen={true} onClose={onClose} />);
+
+      fireEvent.keyDown(window, { key: "Escape" });
+
+      expect(onClose).toHaveBeenCalled();
+    });
+
+    it("closes manage models overlay first on escape in full dialog", async () => {
+      const onClose = vi.fn();
+      render(
+        <ProviderDialog
+          isOpen={true}
+          onClose={onClose}
+          initialView="manage-models"
+        />
+      );
+
+      expect(
+        screen.getByRole("heading", { name: /manage models/i })
+      ).toBeInTheDocument();
+
+      fireEvent.keyDown(window, { key: "Escape" });
+
+      await waitFor(() => {
+        expect(
+          screen.queryByRole("heading", { name: /manage models/i })
+        ).not.toBeInTheDocument();
+      });
+      expect(onClose).not.toHaveBeenCalled();
+
+      fireEvent.keyDown(window, { key: "Escape" });
+      expect(onClose).toHaveBeenCalled();
+    });
   });
 
   describe("connect-only variant", () => {
@@ -340,6 +376,20 @@ describe("ProviderDialog", () => {
       ).toBeInTheDocument();
       expect(screen.queryByText("Connected")).not.toBeInTheDocument();
       expect(screen.getByPlaceholderText(/search providers/i)).toBeInTheDocument();
+    });
+
+    it("closes on escape", () => {
+      const onClose = vi.fn();
+      render(
+        <ProviderDialog
+          isOpen={true}
+          onClose={onClose}
+          variant="connect-only"
+        />
+      );
+
+      fireEvent.keyDown(window, { key: "Escape" });
+      expect(onClose).toHaveBeenCalled();
     });
   });
 
@@ -390,6 +440,20 @@ describe("ProviderDialog", () => {
       );
 
       fireEvent.click(screen.getByTestId("manage-models-overlay"));
+      expect(onClose).toHaveBeenCalled();
+    });
+
+    it("closes on escape", () => {
+      const onClose = vi.fn();
+      render(
+        <ProviderDialog
+          isOpen={true}
+          onClose={onClose}
+          variant="manage-models-only"
+        />
+      );
+
+      fireEvent.keyDown(window, { key: "Escape" });
       expect(onClose).toHaveBeenCalled();
     });
   });
