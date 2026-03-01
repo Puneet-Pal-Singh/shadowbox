@@ -26,7 +26,6 @@ export interface ModelPickerPopoverProps {
   selectedModelId: string | null;
   onSelectModel: (providerId: string, modelId: string) => Promise<void>;
   onConnectProvider: () => void;
-  onManageModels: () => void;
   isLoading?: boolean;
 }
 
@@ -49,7 +48,6 @@ export function ModelPickerPopover({
   selectedModelId,
   onSelectModel,
   onConnectProvider,
-  onManageModels,
   isLoading = false,
 }: ModelPickerPopoverProps): React.ReactElement {
   const [isOpen, setIsOpen] = useState(false);
@@ -150,6 +148,7 @@ export function ModelPickerPopover({
     <div ref={popoverRef} className="relative">
       {/* Trigger Button */}
       <button
+        type="button"
         onClick={() => setIsOpen(!isOpen)}
         disabled={isLoading}
         className={`
@@ -222,21 +221,22 @@ export function ModelPickerPopover({
                   {/* Models */}
                   <div className="py-1">
                     {group.models.map((model) => (
-                      <button
-                        key={model.id}
-                        onClick={() => handleSelectModel(group.providerId, model.id)}
-                        disabled={selectingModelId === model.id}
-                        className={`
-                          w-full px-3 py-2 text-left text-sm flex items-center gap-2
-                          transition-colors disabled:opacity-50
-                          ${
-                            selectedProviderId === group.providerId &&
-                            selectedModelId === model.id
-                              ? "bg-blue-900/40 text-blue-100"
-                              : "text-neutral-300 hover:bg-neutral-800/50"
-                          }
-                        `}
-                      >
+                       <button
+                         type="button"
+                         key={model.id}
+                         onClick={() => handleSelectModel(group.providerId, model.id)}
+                         disabled={selectingModelId === model.id}
+                         className={`
+                           w-full px-3 py-2 text-left text-sm flex items-center gap-2
+                           transition-colors disabled:opacity-50
+                           ${
+                             selectedProviderId === group.providerId &&
+                             selectedModelId === model.id
+                               ? "bg-blue-900/40 text-blue-100"
+                               : "text-neutral-300 hover:bg-neutral-800/50"
+                           }
+                         `}
+                       >
                         {/* Selection Indicator */}
                         <div
                           className={`
@@ -270,6 +270,7 @@ export function ModelPickerPopover({
           {/* Footer Actions */}
           <div className="border-t border-neutral-700 p-2 bg-neutral-900/50 flex gap-2">
             <button
+              type="button"
               onClick={() => {
                 setIsOpen(false);
                 onConnectProvider();
@@ -284,16 +285,18 @@ export function ModelPickerPopover({
               Connect Provider
             </button>
             <button
+              type="button"
               onClick={() => {
                 setIsOpen(false);
-                onManageModels();
+                // TODO: PR-UI3 will implement ManageModelsDialog
               }}
+              disabled
               className={`
                 flex items-center justify-center gap-2 px-3 py-2 rounded-md
                 text-xs font-medium transition-colors
-                bg-neutral-700 text-neutral-100 hover:bg-neutral-600
+                bg-neutral-700 text-neutral-400 cursor-not-allowed
               `}
-              title="Manage which models appear in this picker"
+              title="Manage models (coming in PR-UI3)"
             >
               <Settings size={14} />
             </button>
