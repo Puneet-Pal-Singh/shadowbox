@@ -159,6 +159,49 @@ describe("ModelPickerPopover", () => {
         value: originalInnerHeight,
       });
     });
+
+    it("uses right alignment when viewport is narrow on the right", async () => {
+      const originalInnerWidth = window.innerWidth;
+      Object.defineProperty(window, "innerWidth", {
+        configurable: true,
+        value: 700,
+      });
+
+      render(
+        <ModelPickerPopover
+          {...defaultProps}
+          selectedProviderId={null}
+          selectedModelId={null}
+        />
+      );
+
+      const triggerButton = screen.getByRole("button", {
+        name: /open model picker/i,
+      });
+      vi.spyOn(triggerButton, "getBoundingClientRect").mockReturnValue({
+        x: 560,
+        y: 200,
+        width: 120,
+        height: 36,
+        top: 200,
+        right: 680,
+        bottom: 236,
+        left: 560,
+        toJSON: () => ({}),
+      });
+
+      fireEvent.click(triggerButton);
+
+      await waitFor(() => {
+        const popover = screen.getByTestId("model-picker-popover");
+        expect(popover.className).toContain("right-0");
+      });
+
+      Object.defineProperty(window, "innerWidth", {
+        configurable: true,
+        value: originalInnerWidth,
+      });
+    });
   });
 
   describe("Model Display", () => {
@@ -196,7 +239,7 @@ describe("ModelPickerPopover", () => {
 
       await waitFor(() => {
         const gpt4Button = screen.getByText("GPT-4").closest("button");
-        expect(gpt4Button).toHaveClass("bg-blue-900/40");
+        expect(gpt4Button).toHaveClass("bg-neutral-800");
         expect(gpt4Button?.textContent).toContain("✓");
       });
     });
@@ -466,7 +509,7 @@ describe("ModelPickerPopover", () => {
 
       await waitFor(() => {
         expect(
-          screen.getByText(/no providers connected. click connect below/i)
+          screen.getByText(/no providers connected yet/i)
         ).toBeInTheDocument();
       });
     });

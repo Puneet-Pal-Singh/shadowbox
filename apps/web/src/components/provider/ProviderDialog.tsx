@@ -30,6 +30,8 @@ export interface ProviderDialogProps {
   isOpen: boolean;
   onClose: () => void;
   mode?: "settings" | "composer";
+  initialTab?: "connected" | "available" | "preferences" | "session";
+  initialView?: "default" | "manage-models";
 }
 
 /**
@@ -39,6 +41,8 @@ export function ProviderDialog({
   isOpen,
   onClose,
   mode = "settings",
+  initialTab,
+  initialView = "default",
 }: ProviderDialogProps): React.ReactElement | null {
   const {
     catalog,
@@ -63,7 +67,9 @@ export function ProviderDialog({
 
   const [activeTab, setActiveTab] = useState<
     "connected" | "available" | "preferences" | "session"
-  >(mode === "composer" ? "session" : "connected");
+  >(
+    initialTab ?? (mode === "composer" ? "session" : "connected")
+  );
 
   const [validatingCredentialId, setValidatingCredentialId] = useState<
     string | null
@@ -71,7 +77,22 @@ export function ProviderDialog({
 
   const [connectError, setConnectError] = useState<string | null>(null);
   const [connectSuccess, setConnectSuccess] = useState<string | null>(null);
+  const [isConnecting, setIsConnecting] = useState(false);
   const [showManageModels, setShowManageModels] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      setActiveTab(initialTab ?? (mode === "composer" ? "session" : "connected"));
+      if (initialView === "manage-models") {
+        setShowManageModels(true);
+      }
+      return;
+    }
+    setShowManageModels(false);
+    setConnectError(null);
+    setConnectSuccess(null);
+    setIsConnecting(false);
+  }, [initialTab, initialView, isOpen, mode]);
 
   if (!isOpen) return null;
 
@@ -91,6 +112,7 @@ export function ProviderDialog({
       return;
     }
 
+    setIsConnecting(true);
     try {
       await connectCredential({
         providerId,
@@ -104,6 +126,8 @@ export function ProviderDialog({
       setConnectError(
         err instanceof Error ? err.message : "Failed to connect credential"
       );
+    } finally {
+      setIsConnecting(false);
     }
   };
 
@@ -174,14 +198,14 @@ export function ProviderDialog({
   const statusRecovery = getProviderRecoveryAdvice(error);
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-lg w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
+    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-3">
+      <div className="bg-neutral-900 text-neutral-100 border border-neutral-700 rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
         {/* Header */}
-        <div className="border-b px-6 py-4 flex items-center justify-between">
+        <div className="border-b border-neutral-700 px-6 py-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold">Provider & Model Settings</h2>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-600"
+            className="text-neutral-500 hover:text-neutral-300"
             aria-label="Close"
           >
             ✕
@@ -189,7 +213,7 @@ export function ProviderDialog({
         </div>
 
         {/* Tabs */}
-        <div className="border-b flex gap-1 px-6">
+        <div className="border-b border-neutral-700 flex gap-1 px-6">
           {[
             { id: "connected", label: "Connected" },
             { id: "available", label: "Available" },
@@ -208,8 +232,8 @@ export function ProviderDialog({
               }
               className={`px-4 py-3 border-b-2 transition ${
                 activeTab === tab.id
-                  ? "border-blue-500 text-blue-600 font-medium"
-                  : "border-transparent text-gray-600 hover:text-gray-900"
+                  ? "border-blue-500 text-blue-400 font-medium"
+                  : "border-transparent text-neutral-400 hover:text-neutral-200"
               }`}
             >
               {tab.label}
@@ -220,9 +244,9 @@ export function ProviderDialog({
         {/* Content */}
         <div className="flex-1 overflow-auto">
           {status === "error" && error && (
-            <div className="bg-red-50 border-b border-red-200 px-6 py-3 text-red-700 text-sm space-y-1">
+            <div className="bg-red-950/40 border-b border-red-800 px-6 py-3 text-red-200 text-sm space-y-1">
               <p>{statusRecovery.message}</p>
-              <p className="text-xs text-red-600">{statusRecovery.remediation}</p>
+              <p className="text-xs text-red-300">{statusRecovery.remediation}</p>
             </div>
           )}
 
@@ -242,7 +266,7 @@ export function ProviderDialog({
                 catalog={catalog}
                 error={connectError}
                 success={connectSuccess}
-                isConnecting={false}
+                isConnecting={isConnecting}
                 onConnect={async (providerId, secret, label) => {
                   await doConnect(providerId, secret, label || "");
                 }}
@@ -274,17 +298,17 @@ export function ProviderDialog({
         </div>
 
         {/* Footer */}
-        <div className="border-t px-6 py-3 flex justify-between gap-3">
+        <div className="border-t border-neutral-700 px-6 py-3 flex justify-between gap-3">
           <button
             onClick={() => setShowManageModels(true)}
-            className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded transition"
+            className="px-4 py-2 text-sm text-neutral-400 hover:text-neutral-100 hover:bg-neutral-800 rounded transition"
           >
             Manage Models
           </button>
           <div className="flex gap-3">
             <button
               onClick={onClose}
-              className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded transition"
+              className="px-4 py-2 text-neutral-300 hover:bg-neutral-800 rounded transition"
             >
               Close
             </button>
@@ -333,7 +357,7 @@ function ConnectedTab({
     <div className="p-6">
       {credentials.length === 0 ? (
         <div className="text-center py-8 space-y-3">
-          <p className="text-gray-500">
+          <p className="text-neutral-400">
             No provider keys connected yet.
           </p>
           <button
@@ -349,18 +373,18 @@ function ConnectedTab({
           {credentials.map((cred) => (
             <div
               key={cred.credentialId}
-              className="border rounded-lg p-4 hover:bg-gray-50 transition"
+              className="border border-neutral-700 rounded-lg p-4 hover:bg-neutral-800/50 transition"
             >
               <div className="flex items-start justify-between">
                 <div>
                   <h3 className="font-medium">
                     {cred.label || `${cred.providerId} (default)`}
                   </h3>
-                  <p className="text-sm text-gray-600">
+                  <p className="text-sm text-neutral-400">
                     Provider: {cred.providerId}
                   </p>
                   {cred.keyFingerprint && (
-                    <p className="text-xs text-gray-500 mt-1">
+                    <p className="text-xs text-neutral-500 mt-1">
                       Fingerprint: {cred.keyFingerprint.slice(0, 16)}...
                     </p>
                   )}
@@ -381,7 +405,7 @@ function ConnectedTab({
                   <button
                     onClick={() => onValidate(cred.credentialId, "format")}
                     disabled={validatingId === cred.credentialId}
-                    className="text-sm px-3 py-1 border rounded hover:bg-gray-100 disabled:opacity-50 transition"
+                    className="text-sm px-3 py-1 border border-neutral-600 rounded hover:bg-neutral-800 disabled:opacity-50 transition"
                   >
                     {validatingId === cred.credentialId ? "Validating..." : "Test"}
                   </button>
@@ -431,7 +455,7 @@ function PreferencesTab({
               onChange={() => handleFallbackChange("strict")}
               className="w-4 h-4"
             />
-            <span className="text-sm">
+            <span className="text-sm text-neutral-300">
               <strong>Strict</strong> - Use selected provider only
             </span>
           </label>
@@ -442,7 +466,7 @@ function PreferencesTab({
               onChange={() => handleFallbackChange("allow_fallback")}
               className="w-4 h-4"
             />
-            <span className="text-sm">
+            <span className="text-sm text-neutral-300">
               <strong>Allow Fallback</strong> - Use platform default if
               selected provider fails
             </span>
@@ -450,7 +474,7 @@ function PreferencesTab({
         </div>
       </div>
 
-      <div className="bg-blue-50 border border-blue-200 rounded p-4 text-sm text-blue-900">
+      <div className="bg-blue-950/30 border border-blue-900 rounded p-4 text-sm text-blue-200">
         {fallbackMode === "strict"
           ? "Only your selected provider will be used. If it fails, chat requests will error."
           : "If your selected provider is unavailable, we'll fall back to the platform default provider automatically."}
@@ -508,7 +532,7 @@ function SessionTab({
               void onLoadModels(provider);
             }
           }}
-          className="w-full border rounded px-3 py-2 text-sm"
+          className="w-full border border-neutral-700 bg-neutral-900 rounded px-3 py-2 text-sm"
         >
           <option value="">Select a provider...</option>
           {availableProviders.map((p) => (
@@ -532,7 +556,7 @@ function SessionTab({
                    onSelect(selectedProviderId, credId);
                  }
                }}
-               className="w-full border rounded px-3 py-2 text-sm"
+               className="w-full border border-neutral-700 bg-neutral-900 rounded px-3 py-2 text-sm"
               >
                {credentials
                  .filter((c) => c.providerId === selectedProviderId)
@@ -556,7 +580,7 @@ function SessionTab({
                     e.target.value
                   )
                 }
-                className="w-full border rounded px-3 py-2 text-sm"
+                className="w-full border border-neutral-700 bg-neutral-900 rounded px-3 py-2 text-sm"
               >
                 <option value="">Select a model...</option>
                 {modelOptions.map((model) => (
@@ -577,11 +601,11 @@ function SessionTab({
                   )
                 }
                 placeholder="e.g., gpt-4, claude-3-opus"
-                className="w-full border rounded px-3 py-2 text-sm"
+                className="w-full border border-neutral-700 bg-neutral-900 rounded px-3 py-2 text-sm"
               />
             )}
             <div className="mt-1 flex items-center justify-between gap-2">
-              <p className="text-xs text-gray-500">
+              <p className="text-xs text-neutral-500">
                 {modelOptions.length > 0
                   ? "Models fetched from provider."
                   : "No fetched models yet. You can type one manually or refresh."}

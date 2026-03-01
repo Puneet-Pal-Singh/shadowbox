@@ -223,6 +223,18 @@ describe("ProviderDialog", () => {
          });
        });
      });
+
+    it("opens Available tab when initialTab is provided", () => {
+      render(
+        <ProviderDialog
+          isOpen={true}
+          onClose={vi.fn()}
+          initialTab="available"
+        />
+      );
+
+      expect(screen.getByText("Find Provider")).toBeInTheDocument();
+    });
   });
 
   describe("Preferences tab", () => {
@@ -259,6 +271,20 @@ describe("ProviderDialog", () => {
 
       // Session tab should be active in composer mode
       expect(screen.getByText("Active Session")).toBeInTheDocument();
+    });
+
+    it("opens manage models dialog when initialView is manage-models", () => {
+      render(
+        <ProviderDialog
+          isOpen={true}
+          onClose={vi.fn()}
+          initialView="manage-models"
+        />
+      );
+
+      expect(
+        screen.getByRole("heading", { name: "Manage Models" })
+      ).toBeInTheDocument();
     });
   });
 

@@ -122,14 +122,18 @@ export function ConnectProviderChooser({
   const errorRecovery = error ? getProviderRecoveryAdvice(error) : null;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5 rounded-xl border border-neutral-700 bg-neutral-900 p-4 text-neutral-100">
+      <div className="flex items-center justify-between">
+        <h3 className="text-base font-semibold">Connect provider</h3>
+      </div>
+
       {/* Search Input */}
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">
+        <label className="mb-2 block text-xs font-medium uppercase tracking-wide text-neutral-400">
           Find Provider
         </label>
         <div className="relative">
-          <Search size={16} className="absolute left-3 top-3 text-gray-400" />
+          <Search size={16} className="absolute left-3 top-3 text-neutral-500" />
           <input
             ref={searchInputRef}
             type="text"
@@ -137,12 +141,12 @@ export function ConnectProviderChooser({
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className={`
-              w-full pl-9 pr-3 py-2 rounded-lg border
+              w-full rounded-lg border border-neutral-700 bg-neutral-800/80 pl-9 pr-3 py-2
               text-sm transition-colors
               ${
                 error
-                  ? "border-red-300 bg-red-50 focus:ring-red-500"
-                  : "border-gray-300 bg-white focus:ring-blue-500"
+                  ? "border-red-700 bg-red-950/20 focus:ring-red-500"
+                  : "focus:ring-blue-500"
               }
               focus:outline-none focus:ring-2
             `}
@@ -152,12 +156,12 @@ export function ConnectProviderChooser({
 
       {/* Error Message */}
       {error && errorRecovery && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-3 space-y-1">
+        <div className="rounded-lg border border-red-800 bg-red-950/30 p-3 space-y-1">
           <div className="flex items-start gap-2">
-            <AlertCircle size={16} className="text-red-600 shrink-0 mt-0.5" />
+            <AlertCircle size={16} className="text-red-400 shrink-0 mt-0.5" />
             <div className="text-sm">
-              <p className="text-red-700 font-medium">{errorRecovery.message}</p>
-              <p className="text-red-600 text-xs mt-1">{errorRecovery.remediation}</p>
+              <p className="font-medium text-red-200">{errorRecovery.message}</p>
+              <p className="mt-1 text-xs text-red-300">{errorRecovery.remediation}</p>
             </div>
           </div>
         </div>
@@ -165,30 +169,30 @@ export function ConnectProviderChooser({
 
       {/* Success Message */}
       {success && (
-        <div className="bg-green-50 border border-green-200 rounded-lg p-3 flex items-start gap-2">
-          <CheckCircle size={16} className="text-green-600 shrink-0 mt-0.5" />
-          <p className="text-green-700 text-sm">{success}</p>
+        <div className="flex items-start gap-2 rounded-lg border border-green-900 bg-green-950/30 p-3">
+          <CheckCircle size={16} className="text-green-400 shrink-0 mt-0.5" />
+          <p className="text-sm text-green-200">{success}</p>
         </div>
       )}
 
       {/* Provider List */}
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-3">
+        <label className="mb-3 block text-xs font-medium uppercase tracking-wide text-neutral-400">
           {filteredProviders.length > 0
             ? `Available Providers (${filteredProviders.length})`
             : "No providers found"}
         </label>
 
         {filteredProviders.length === 0 ? (
-          <div className="p-6 text-center border border-gray-200 rounded-lg bg-gray-50">
-            <p className="text-gray-600 text-sm">
+          <div className="rounded-lg border border-neutral-700 bg-neutral-950/50 p-6 text-center">
+            <p className="text-sm text-neutral-400">
               {searchQuery
                 ? "No providers match your search"
                 : "No providers available"}
             </p>
           </div>
         ) : (
-          <div className="space-y-2 max-h-48 overflow-y-auto border border-gray-200 rounded-lg">
+          <div className="max-h-56 space-y-1 overflow-y-auto rounded-lg border border-neutral-700 bg-neutral-950/40 p-1">
             {filteredProviders.map((option) => (
               <button
                 key={option.entry.providerId}
@@ -196,26 +200,26 @@ export function ConnectProviderChooser({
                 type="button"
                 disabled={isConnecting}
                 className={`
-                  w-full text-left px-4 py-3 border-b last:border-b-0
+                  w-full rounded-md px-3 py-2.5 text-left
                   transition-colors disabled:opacity-50 disabled:cursor-not-allowed
                   ${
                     selectedProviderId === option.entry.providerId
-                      ? "bg-blue-50 border-l-4 border-l-blue-600"
-                      : "hover:bg-gray-50"
+                      ? "bg-neutral-800 ring-1 ring-blue-500/60"
+                      : "hover:bg-neutral-800/70"
                   }
                 `}
               >
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
-                    <p className="font-medium text-sm text-gray-900">
+                    <p className="text-sm font-medium text-neutral-100">
                       {option.displayName}
                     </p>
-                    <p className="text-xs text-gray-500 mt-0.5">
+                    <p className="mt-0.5 text-xs text-neutral-400">
                       {option.description}
                     </p>
                   </div>
                   {selectedProviderId === option.entry.providerId && (
-                    <div className="text-blue-600 ml-2">✓</div>
+                    <div className="ml-2 text-blue-400">✓</div>
                   )}
                 </div>
               </button>
@@ -226,15 +230,18 @@ export function ConnectProviderChooser({
 
       {/* API Key Form */}
       {selectedProvider && (
-        <form onSubmit={handleSubmit} className="space-y-4 pt-4 border-t">
+        <form
+          onSubmit={handleSubmit}
+          className="space-y-4 border-t border-neutral-700 pt-4"
+        >
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="mb-2 block text-sm font-medium text-neutral-200">
               API Key for {selectedProvider.displayName}
             </label>
 
             {/* Key Format Hint */}
             {selectedProvider.keyFormat?.description && (
-              <p className="text-xs text-gray-600 mb-2">
+              <p className="mb-2 text-xs text-neutral-400">
                 {selectedProvider.keyFormat.description}
               </p>
             )}
@@ -256,12 +263,12 @@ export function ConnectProviderChooser({
               required
               disabled={isConnecting}
               className={`
-                w-full px-3 py-2 rounded-lg border text-sm
+                w-full rounded-lg border border-neutral-700 bg-neutral-800/80 px-3 py-2 text-sm
                 transition-colors disabled:opacity-50 disabled:cursor-not-allowed
                 ${
                   error
-                    ? "border-red-300 bg-red-50"
-                    : "border-gray-300 bg-white"
+                    ? "border-red-700 bg-red-950/20"
+                    : ""
                 }
                 focus:outline-none focus:ring-2 focus:ring-blue-500
               `}
@@ -269,7 +276,7 @@ export function ConnectProviderChooser({
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="mb-2 block text-sm font-medium text-neutral-200">
               Label (optional)
             </label>
             <input
@@ -279,9 +286,8 @@ export function ConnectProviderChooser({
               placeholder="e.g., 'Personal', 'Work', 'Team'"
               disabled={isConnecting}
               className={`
-                w-full px-3 py-2 rounded-lg border text-sm
+                w-full rounded-lg border border-neutral-700 bg-neutral-800/80 px-3 py-2 text-sm
                 transition-colors disabled:opacity-50 disabled:cursor-not-allowed
-                border-gray-300 bg-white
                 focus:outline-none focus:ring-2 focus:ring-blue-500
               `}
             />
@@ -296,7 +302,7 @@ export function ConnectProviderChooser({
                 transition-colors disabled:opacity-50 disabled:cursor-not-allowed
                 ${
                   isConnecting || !apiSecret.trim()
-                    ? "bg-gray-300 text-gray-600"
+                    ? "bg-neutral-700 text-neutral-400"
                     : "bg-blue-600 text-white hover:bg-blue-700"
                 }
               `}
@@ -309,8 +315,8 @@ export function ConnectProviderChooser({
 
       {/* No provider selected message */}
       {!selectedProvider && (
-        <div className="p-4 text-center bg-blue-50 border border-blue-200 rounded-lg">
-          <p className="text-sm text-blue-800">
+        <div className="rounded-lg border border-blue-900 bg-blue-950/30 p-4 text-center">
+          <p className="text-sm text-blue-200">
             Select a provider above to enter your API key
           </p>
         </div>

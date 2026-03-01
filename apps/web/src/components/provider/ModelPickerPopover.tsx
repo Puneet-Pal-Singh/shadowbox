@@ -7,7 +7,7 @@
  * Features:
  * - Provider-grouped model list with search
  * - Selected model indicator (checkmark)
- * - Quick action footer (Connect, Manage Models)
+ * - Compact quick actions beside search (Connect, Manage Models)
  * - Deterministic run-scoped selection via ProviderStore
  */
 
@@ -16,8 +16,17 @@ import { ChevronDown, Search, Plus, Settings } from "lucide-react";
 import { type ProviderRegistryEntry } from "@repo/shared-types";
 import { type ProviderModelOption } from "../../services/api/providerClient.js";
 
+const VIEWPORT_PADDING_PX = 12;
 const POPOVER_GAP_PX = 8;
 const ESTIMATED_POPOVER_HEIGHT_PX = 420;
+const PREFERRED_POPOVER_WIDTH_PX = 352;
+const MIN_POPOVER_WIDTH_PX = 280;
+
+interface PopoverPlacement {
+  vertical: "up" | "down";
+  horizontal: "start" | "end";
+  widthPx: number;
+}
 
 /**
  * Props for ModelPickerPopover
@@ -58,7 +67,11 @@ export function ModelPickerPopover({
   isLoading = false,
 }: ModelPickerPopoverProps): React.ReactElement {
   const [isOpen, setIsOpen] = useState(false);
-  const [placement, setPlacement] = useState<"up" | "down">("down");
+  const [placement, setPlacement] = useState<PopoverPlacement>({
+    vertical: "down",
+    horizontal: "start",
+    widthPx: PREFERRED_POPOVER_WIDTH_PX,
+  });
   const [searchQuery, setSearchQuery] = useState("");
   const [selectingModelId, setSelectingModelId] = useState<string | null>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
@@ -161,20 +174,40 @@ export function ModelPickerPopover({
     }
   }, [isOpen]);
 
-  const resolvePlacement = (): "up" | "down" => {
+  const resolvePlacement = (): PopoverPlacement => {
     const triggerRect = triggerButtonRef.current?.getBoundingClientRect();
     if (!triggerRect) {
-      return "down";
+      return {
+        vertical: "down",
+        horizontal: "start",
+        widthPx: PREFERRED_POPOVER_WIDTH_PX,
+      };
     }
 
     const spaceBelow = window.innerHeight - triggerRect.bottom;
     const spaceAbove = triggerRect.top;
     const requiredHeight = ESTIMATED_POPOVER_HEIGHT_PX + POPOVER_GAP_PX;
+    const vertical: "up" | "down" =
+      spaceBelow < requiredHeight && spaceAbove > spaceBelow ? "up" : "down";
 
-    if (spaceBelow < requiredHeight && spaceAbove > spaceBelow) {
-      return "up";
-    }
-    return "down";
+    const spaceRight = window.innerWidth - triggerRect.left - VIEWPORT_PADDING_PX;
+    const spaceLeft = triggerRect.right - VIEWPORT_PADDING_PX;
+    const horizontal: "start" | "end" =
+      spaceRight < PREFERRED_POPOVER_WIDTH_PX && spaceLeft > spaceRight
+        ? "end"
+        : "start";
+
+    const availableWidth = horizontal === "start" ? spaceRight : spaceLeft;
+    const widthPx = Math.max(
+      MIN_POPOVER_WIDTH_PX,
+      Math.min(PREFERRED_POPOVER_WIDTH_PX, Math.floor(availableWidth))
+    );
+
+    return {
+      vertical,
+      horizontal,
+      widthPx,
+    };
   };
 
   const handleToggle = (): void => {
@@ -187,6 +220,24 @@ export function ModelPickerPopover({
     setIsOpen((current) => !current);
   };
 
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    const handleViewportChange = (): void => {
+      setPlacement(resolvePlacement());
+    };
+
+    window.addEventListener("resize", handleViewportChange);
+    window.addEventListener("scroll", handleViewportChange, true);
+
+    return () => {
+      window.removeEventListener("resize", handleViewportChange);
+      window.removeEventListener("scroll", handleViewportChange, true);
+    };
+  }, [isOpen]);
+
   return (
     <div ref={popoverRef} className="relative">
       {/* Trigger Button */}
@@ -196,15 +247,15 @@ export function ModelPickerPopover({
         onClick={handleToggle}
         disabled={isLoading}
         className={`
-          flex items-center gap-2 px-3 py-2 rounded-lg
-          text-sm font-medium transition-colors
-          ${
-            isLoading
-              ? "bg-neutral-700 text-neutral-400 cursor-not-allowed"
-              : "bg-neutral-800 text-neutral-200 hover:bg-neutral-700"
-          }
+          inline-flex h-9 max-w-[min(18rem,calc(100vw-6rem))] items-center gap-2 rounded-md
+          border border-neutral-700/70 bg-transparent px-3 text-sm font-medium text-neutral-300
+          transition-colors hover:bg-neutral-800/60 hover:text-neutral-100
+          focus:outline-none focus:ring-2 focus:ring-blue-500
+          disabled:cursor-not-allowed disabled:opacity-50
         `}
         aria-label="Open model picker"
+        aria-expanded={isOpen}
+        title={selectedModelLabel}
       >
         <span className="truncate max-w-xs">{selectedModelLabel}</span>
         <ChevronDown
@@ -220,15 +271,19 @@ export function ModelPickerPopover({
         <div
           data-testid="model-picker-popover"
           className={`
-            absolute right-0 w-96 max-h-96
-            ${placement === "down" ? "top-full mt-2" : "bottom-full mb-2"}
-            bg-neutral-900 border border-neutral-700 rounded-lg
-            shadow-lg shadow-black/50 z-50 flex flex-col
+            absolute z-50 flex max-h-[22rem] flex-col overflow-hidden rounded-xl
+            border border-neutral-700/80 bg-neutral-900/95 shadow-2xl backdrop-blur
+            ${placement.vertical === "down" ? "top-full mt-2" : "bottom-full mb-2"}
+            ${placement.horizontal === "start" ? "left-0" : "right-0"}
           `}
+          style={{
+            width: `${placement.widthPx}px`,
+            maxWidth: `calc(100vw - ${VIEWPORT_PADDING_PX * 2}px)`,
+          }}
         >
-          {/* Search Input */}
-          <div className="p-3 border-b border-neutral-700">
-            <div className="relative">
+          {/* Search + Actions */}
+          <div className="flex items-center gap-2 border-b border-neutral-800 p-2">
+            <div className="relative flex-1">
               <Search size={16} className="absolute left-3 top-2.5 text-neutral-500" />
               <input
                 ref={searchInputRef}
@@ -237,28 +292,59 @@ export function ModelPickerPopover({
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className={`
-                  w-full pl-9 pr-3 py-2 rounded-md
+                  h-9 w-full rounded-md
                   bg-neutral-800 border border-neutral-700
-                  text-sm text-neutral-100 placeholder-neutral-500
+                  pl-9 pr-3 text-sm text-neutral-100 placeholder-neutral-500
                   focus:outline-none focus:ring-2 focus:ring-blue-500
                 `}
               />
             </div>
+            <button
+              type="button"
+              onClick={() => {
+                setIsOpen(false);
+                onConnectProvider();
+              }}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-neutral-700 text-neutral-300 transition-colors hover:bg-neutral-800 hover:text-neutral-100"
+              aria-label="Connect provider"
+              title="Connect provider"
+            >
+              <Plus size={14} />
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setIsOpen(false);
+                onManageModels();
+              }}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-neutral-700 text-neutral-300 transition-colors hover:bg-neutral-800 hover:text-neutral-100"
+              aria-label="Manage model visibility"
+              title="Manage model visibility"
+            >
+              <Settings size={14} />
+            </button>
           </div>
 
           {/* Provider Groups */}
           <div className="overflow-y-auto flex-1">
-            {filteredGroups.length === 0 ? (
-              <div className="p-4 text-center text-neutral-400 text-sm">
+            {isLoading ? (
+              <div className="p-6 text-center text-neutral-400 text-sm">
+                Loading models...
+              </div>
+            ) : filteredGroups.length === 0 ? (
+              <div className="p-6 text-center text-neutral-400 text-sm">
                 {searchQuery
                   ? "No models match your search"
-                  : "No providers connected. Click Connect below."}
+                  : "No providers connected yet."}
               </div>
             ) : (
               filteredGroups.map((group) => (
-                <div key={group.providerId} className="border-b border-neutral-800 last:border-b-0">
+                <div
+                  key={group.providerId}
+                  className="border-b border-neutral-800/80 last:border-b-0"
+                >
                   {/* Provider Header */}
-                  <div className="px-3 py-2 bg-neutral-800/50 sticky top-0">
+                  <div className="sticky top-0 bg-neutral-900/95 px-3 py-2">
                     <h3 className="text-xs font-semibold text-neutral-400 uppercase tracking-wide">
                       {group.displayName}
                     </h3>
@@ -273,37 +359,23 @@ export function ModelPickerPopover({
                          onClick={() => handleSelectModel(group.providerId, model.id)}
                          disabled={selectingModelId === model.id}
                          className={`
-                           w-full px-3 py-2 text-left text-sm flex items-center gap-2
+                           w-full px-3 py-2.5 text-left text-sm
                            transition-colors disabled:opacity-50
                            ${
                              selectedProviderId === group.providerId &&
                              selectedModelId === model.id
-                               ? "bg-blue-900/40 text-blue-100"
+                               ? "bg-neutral-800 text-neutral-100"
                                : "text-neutral-300 hover:bg-neutral-800/50"
                            }
                          `}
+                         title={`${model.name} (${model.id})`}
                        >
-                        {/* Selection Indicator */}
-                        <div
-                          className={`
-                            w-4 h-4 rounded border flex items-center justify-center shrink-0
-                            ${
-                              selectedProviderId === group.providerId &&
-                              selectedModelId === model.id
-                                ? "bg-blue-600 border-blue-600"
-                                : "border-neutral-600"
-                            }
-                          `}
-                        >
+                        <div className="flex min-w-0 items-center gap-2">
+                          <p className="truncate font-medium">{model.name}</p>
                           {selectedProviderId === group.providerId &&
                             selectedModelId === model.id && (
-                              <span className="text-white text-xs">✓</span>
+                              <span className="ml-auto text-neutral-200">✓</span>
                             )}
-                        </div>
-
-                        {/* Model Info */}
-                        <div className="flex-1 min-w-0">
-                          <p className="truncate font-medium">{model.name}</p>
                         </div>
                       </button>
                     ))}
@@ -311,40 +383,6 @@ export function ModelPickerPopover({
                 </div>
               ))
             )}
-          </div>
-
-          {/* Footer Actions */}
-          <div className="border-t border-neutral-700 p-2 bg-neutral-900/50 flex gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                setIsOpen(false);
-                onConnectProvider();
-              }}
-              className={`
-                flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-md
-                text-xs font-medium transition-colors
-                bg-blue-600 text-white hover:bg-blue-700
-              `}
-            >
-              <Plus size={14} />
-              Connect Provider
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setIsOpen(false);
-                onManageModels();
-              }}
-              className={`
-                flex items-center justify-center gap-2 px-3 py-2 rounded-md
-                text-xs font-medium transition-colors
-                bg-neutral-700 text-neutral-200 hover:bg-neutral-600
-              `}
-              title="Manage model visibility"
-            >
-              <Settings size={14} />
-            </button>
           </div>
         </div>
       )}

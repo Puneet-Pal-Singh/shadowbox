@@ -169,7 +169,7 @@ describe("ConnectProviderChooser", () => {
       fireEvent.click(groqButton!);
 
       await waitFor(() => {
-        expect(groqButton).toHaveClass("bg-blue-50");
+        expect(groqButton).toHaveClass("bg-neutral-800");
       });
     });
   });
