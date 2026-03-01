@@ -15,6 +15,10 @@ import React, { useMemo, useState, useRef, useEffect, useId } from "react";
 import { ChevronDown, Search, Plus, Settings } from "lucide-react";
 import { type ProviderRegistryEntry } from "@repo/shared-types";
 import { type ProviderModelOption } from "../../services/api/providerClient.js";
+import { resolvePopoverPlacement } from "../../lib/popover-placement.js";
+
+const POPOVER_GAP_PX = 8;
+const ESTIMATED_POPOVER_HEIGHT_PX = 384;
 
 /**
  * Flattened model for keyboard navigation
@@ -63,6 +67,7 @@ export function ModelPickerPopover({
   isLoading = false,
 }: ModelPickerPopoverProps): React.ReactElement {
   const [isOpen, setIsOpen] = useState(false);
+  const [placement, setPlacement] = useState<"up" | "down">("down");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectingModelId, setSelectingModelId] = useState<string | null>(null);
   const [focusedModelIndex, setFocusedModelIndex] = useState<number>(-1);
@@ -212,6 +217,23 @@ export function ModelPickerPopover({
     }
   }, [isOpen]);
 
+  const handleToggle = (): void => {
+    if (isLoading) {
+      return;
+    }
+    if (!isOpen) {
+      setPlacement(
+        resolvePopoverPlacement({
+          triggerRect: triggerButtonRef.current?.getBoundingClientRect() ?? null,
+          viewportHeight: window.innerHeight,
+          estimatedPopoverHeightPx: ESTIMATED_POPOVER_HEIGHT_PX,
+          gapPx: POPOVER_GAP_PX,
+        })
+      );
+    }
+    setIsOpen((current) => !current);
+  };
+
   // Handle keyboard navigation in search input
   const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
     switch (e.key) {
@@ -295,7 +317,7 @@ export function ModelPickerPopover({
       <button
         ref={triggerButtonRef}
         type="button"
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={handleToggle}
         disabled={isLoading}
         className={`
           flex items-center gap-2 px-3 py-2 rounded-lg
@@ -323,11 +345,13 @@ export function ModelPickerPopover({
       {/* Popover Content */}
       {isOpen && (
         <div
+          data-testid="model-picker-popover"
           id={listboxId}
           role="dialog"
           aria-label="Model picker"
           className={`
-            absolute top-full right-0 mt-2 w-96 max-h-96
+            absolute right-0 w-96 max-h-96
+            ${placement === "down" ? "top-full mt-2" : "bottom-full mb-2"}
             bg-neutral-900 border border-neutral-700 rounded-lg
             shadow-lg shadow-black/50 z-50 flex flex-col
           `}
