@@ -31,3 +31,9 @@ export {
   type IRunRecovery,
   type ReplayContext,
 } from "./RunRecovery.js";
+
+export {
+  classifyRetryability,
+  type RetryClassification,
+  type RetryReasonCode,
+} from "./RetryClassifier.js";

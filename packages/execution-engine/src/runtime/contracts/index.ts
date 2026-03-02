@@ -6,3 +6,11 @@ export {
   type PluginActionContract,
   type ContractMapping,
 } from "./PluginContractAdapter.js";
+export {
+  VALID_GIT_ACTIONS,
+  hasValidTaskInput,
+  isConcretePathInput,
+  isConcreteCommandInput,
+  isValidGitActionInput,
+  isVagueTaskInput,
+} from "./TaskInputContract.js";

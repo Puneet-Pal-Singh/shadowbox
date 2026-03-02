@@ -15,6 +15,12 @@ import { PlanSchema } from "../planner/index.js";
 import { BaseAgent } from "./BaseAgent.js";
 import { validateSafePath, extractStructuredField } from "./validation.js";
 import {
+  isConcreteCommandInput,
+  isConcretePathInput,
+  isValidGitActionInput,
+  VALID_GIT_ACTIONS,
+} from "../contracts/index.js";
+import {
   extractExecutionFailure,
   formatExecutionResult,
   formatTaskOutput,
@@ -175,9 +181,12 @@ VALIDATION RULES:
   }
 
   private async executeAnalyze(task: Task): Promise<TaskResult> {
-    const rawPath =
-      extractStructuredField(task.input, "path") ?? task.input.description;
+    const rawPath = extractStructuredField(task.input, "path");
+    if (!rawPath) {
+      throw new TaskInputError("analyze", "Missing 'path' field in task input");
+    }
     const path = normalizeTaskPath(rawPath);
+    validateTaskPath(path);
     validateSafePath(path);
 
     const readResult = await this.executionService.execute(
@@ -212,9 +221,12 @@ VALIDATION RULES:
   }
 
   private async executeEdit(task: Task): Promise<TaskResult> {
-    const rawPath =
-      extractStructuredField(task.input, "path") ?? task.input.description;
+    const rawPath = extractStructuredField(task.input, "path");
+    if (!rawPath) {
+      throw new TaskInputError("edit", "Missing 'path' field in task input");
+    }
     const path = normalizeTaskPath(rawPath);
+    validateTaskPath(path);
     validateSafePath(path);
 
     const content = extractStructuredField(task.input, "content");
@@ -239,8 +251,10 @@ VALIDATION RULES:
   }
 
   private async executeTest(task: Task): Promise<TaskResult> {
-    const command =
-      extractStructuredField(task.input, "command") ?? task.input.description;
+    const command = extractStructuredField(task.input, "command");
+    if (!command) {
+      throw new TaskInputError("test", "Missing 'command' field in task input");
+    }
     validateShellCommand(command);
 
     const result = await this.executionService.execute("node", "run", {
@@ -255,8 +269,10 @@ VALIDATION RULES:
   }
 
   private async executeShell(task: Task): Promise<TaskResult> {
-    const command =
-      extractStructuredField(task.input, "command") ?? task.input.description;
+    const command = extractStructuredField(task.input, "command");
+    if (!command) {
+      throw new TaskInputError("shell", "Missing 'command' field in task input");
+    }
     validateShellCommand(command);
 
     const normalizedCommand = command.trim();
@@ -357,43 +373,21 @@ VALIDATION RULES:
   }
 }
 
-const ALLOWED_GIT_ACTIONS = [
-  "status",
-  "diff",
-  "stage",
-  "unstage",
-  "commit",
-  "push",
-  "git_clone",
-  "git_diff",
-  "git_commit",
-  "git_push",
-  "git_pull",
-  "git_fetch",
-  "git_branch_create",
-  "git_branch_switch",
-  "git_branch_list",
-  "git_stage",
-  "git_status",
-  "git_config",
-] as const;
-
 function validateGitAction(action: string): void {
-  if (
-    !ALLOWED_GIT_ACTIONS.includes(
-      action as (typeof ALLOWED_GIT_ACTIONS)[number],
-    )
-  ) {
+  if (!isValidGitActionInput(action)) {
     throw new TaskInputError(
       "git",
-      `Invalid git action: "${action}". Allowed: ${ALLOWED_GIT_ACTIONS.join(", ")}`,
+      `Invalid git action: "${action}". Allowed: ${VALID_GIT_ACTIONS.join(", ")}`,
     );
   }
 }
 
 function validateShellCommand(command: string): void {
-  if (!command || command.trim().length === 0) {
-    throw new TaskInputError("shell", "Empty shell command");
+  if (!isConcreteCommandInput(command)) {
+    throw new TaskInputError(
+      "shell",
+      "Shell command must be a concrete non-empty command",
+    );
   }
 }
 
@@ -409,6 +403,15 @@ function normalizeTaskPath(input: string): string {
   };
 
   return aliases[normalizedLower] ?? cleaned;
+}
+
+function validateTaskPath(path: string): void {
+  if (!isConcretePathInput(path)) {
+    throw new TaskInputError(
+      "path",
+      "Task path must be a concrete non-empty file path",
+    );
+  }
 }
 
 function looksLikeDirectoryError(message: string): boolean {

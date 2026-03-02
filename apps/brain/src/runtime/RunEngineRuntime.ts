@@ -8,7 +8,6 @@ import { RunRepository } from "@shadowbox/execution-engine/runtime/run";
 import { TaskRepository } from "@shadowbox/execution-engine/runtime/task";
 import type { Env } from "../types/ai";
 import { parseExecuteRunRequest } from "./parsing/RunEngineRequestParser";
-import { validateProviderModelOverride } from "./policies/ProviderModelOverridePolicy";
 import { buildRuntimeDependencies } from "./factories/ExecutionGatewayFactory";
 import type { ExecuteRunPayload } from "./parsing/ExecuteRunPayloadSchema";
 import { errorResponse, jsonResponse } from "../http/response";
@@ -200,9 +199,6 @@ export class RunEngineRuntime extends DurableObject {
     try {
       // Parse and validate request payload
       payload = await parseExecuteRunRequest(request);
-
-      // Validate provider/model override pairing
-      validateProviderModelOverride(payload);
     } catch (error: unknown) {
       if (isDomainError(error)) {
         const { status, message } = mapDomainErrorToHttp(error);

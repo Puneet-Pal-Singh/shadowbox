@@ -2,6 +2,7 @@
 // Phase 3B: Zod schemas for plan validation
 
 import { z } from "zod";
+import { hasValidTaskInput } from "../contracts/index.js";
 
 /**
  * PlannedTask represents a single unit of work
@@ -9,11 +10,11 @@ import { z } from "zod";
  */
 export const PlannedTaskSchema = z
   .object({
-    id: z.string().min(1).max(50),
+    id: z.string().trim().min(1).max(50),
     type: z.enum(["analyze", "edit", "test", "review", "git", "shell"]),
-    description: z.string().min(1).max(1000),
+    description: z.string().trim().min(1).max(1000),
     dependsOn: z.array(z.string()).default([]),
-    expectedOutput: z.string().optional(),
+    expectedOutput: z.string().trim().min(1).optional(),
     input: z.record(z.string(), z.unknown()).optional(),
   })
   .transform((task) => ({
@@ -22,76 +23,7 @@ export const PlannedTaskSchema = z
   }))
   .refine(
     (task) => {
-      // review tasks don't require structured input
-      if (task.type === "review") {
-        return true;
-      }
-
-      // All other task types MUST have structured input object
-      if (!task.input || typeof task.input !== "object") {
-        return false;
-      }
-
-      // Helper: detect if a string looks like a task description (vague) vs concrete value
-      function isVagueDescription(str: string): boolean {
-        // Descriptive phrases with gerunds or modal verbs
-        const vaguePatterns = [
-          /^(analyze|analyze the|check|check if|look at|examine|read the)/i,
-          /^(if |when |make |ensure |install )/i,
-          /^(find |search |locate |discover )/i,
-        ];
-        return vaguePatterns.some((p) => p.test(str));
-      }
-
-      // Validate required fields for each task type
-      switch (task.type) {
-        case "analyze":
-          // Must have path field and it must look like a path, not a description
-          return (
-            typeof task.input.path === "string" &&
-            task.input.path.length > 0 &&
-            task.input.path.length < 500 &&
-            !isVagueDescription(task.input.path)
-          );
-        case "edit":
-          // Must have both path and content
-          return (
-            typeof task.input.path === "string" &&
-            task.input.path.length > 0 &&
-            task.input.path.length < 500 &&
-            !isVagueDescription(task.input.path) &&
-            typeof task.input.content === "string" &&
-            task.input.content.length > 0
-          );
-        case "test":
-          // Must have command field and it must look like a command, not a description
-          return (
-            typeof task.input.command === "string" &&
-            task.input.command.length > 0 &&
-            task.input.command.length < 500 &&
-            !isVagueDescription(task.input.command)
-          );
-        case "shell":
-          // Must have command field and it must look like a command, not a description
-          return (
-            typeof task.input.command === "string" &&
-            task.input.command.length > 0 &&
-            task.input.command.length < 500 &&
-            !isVagueDescription(task.input.command)
-          );
-        case "git":
-           // Must have action field (git_commit, git_push, etc)
-           return (
-             typeof task.input.action === "string" &&
-             task.input.action.length > 0 &&
-             task.input.action.length < 50 &&
-             /^(status|diff|stage|unstage|commit|push|git_clone|git_diff|git_commit|git_push|git_pull|git_fetch|git_branch_create|git_branch_switch|git_branch_list|git_stage|git_status|git_config)$/.test(
-               task.input.action
-             )
-           );
-        default:
-          return false;
-      }
+      return hasValidTaskInput(task.type, task.input);
     },
     {
       message:
