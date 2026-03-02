@@ -4,7 +4,7 @@ description: Create, review, and merge Pull Requests following Shadowbox quality
 license: MIT
 metadata:
   author: Shadowbox Team
-  version: "1.1"
+  version: "1.2"
 ---
 
 # PR Workflow Skill
@@ -40,6 +40,8 @@ When this skill is used in the Shadowbox repo, these rules are mandatory:
 - Use the required PR description structure from `AGENTS.md` Section 18.
 - On shared/reviewed branches, sync with `git pull --ff-only` by default.
 - Rebase is allowed only on private in-progress branches before first PR.
+- Follow `local/Rules/GIT-RULES.md` as mandatory workflow policy.
+- Follow `local/Rules/pr-strategy-checklist.md` for PR split/merge order.
 - **CRITICAL**: Never create task completion reports, summaries, or documentation files unless explicitly requested by user.
   - ❌ Do NOT create `PR-4-COMPLETION-REPORT.md`, `SUMMARY.md`, auto-generated docs
   - ✅ DO put all details in PR description itself
@@ -67,6 +69,20 @@ Rules:
 - Rebase only on private pre-PR branches.
 - Keep PRs small and boundary-scoped to reduce overlap conflicts.
 - Never use blanket conflict strategies (`-X ours`/`-X theirs`) for runtime/business logic.
+
+## PR Train Mode (Preferred for 3+ related PRs)
+
+Use PR train when a milestone has multiple tightly-related PRs:
+
+1. Create train branch: `codex/train-<milestone>`.
+2. Open checkpoint PRs to train branch.
+3. Keep checkpoint branches non-overlapping by ownership.
+4. Merge one final train -> `main` PR after train checks are green.
+
+Do not:
+
+1. merge sibling checkpoint branches into each other,
+2. retarget checkpoint PRs repeatedly between siblings and main.
 
 ## Naming Standards (Shadowbox)
 
