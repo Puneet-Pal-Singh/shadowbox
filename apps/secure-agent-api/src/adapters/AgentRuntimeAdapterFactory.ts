@@ -7,7 +7,7 @@
  * Aligned to Plan 59 (Decompose/Decouple) and PORTABILITY-BOUNDARY-DECOUPLING-PLAN.
  */
 
-import { DurableObjectState } from "cloudflare:workers";
+import type { DurableObjectState } from "@cloudflare/workers-types";
 import { Sandbox } from "@cloudflare/sandbox";
 import {
   SandboxExecutionPort,

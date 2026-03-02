@@ -122,10 +122,16 @@ export class CloudflareSandboxExecutionAdapter implements SandboxExecutionPort {
         status = "timeout";
       }
 
+      const normalizedError = {
+        code: error.code || "EXECUTION_ERROR",
+        message: error.message || "Unknown error",
+        details: error.details,
+      };
+
       return {
         taskId: input.taskId,
         status,
-        error,
+        error: normalizedError,
         metrics: { duration },
       };
     } finally {
@@ -193,7 +199,7 @@ export class CloudflareSandboxExecutionAdapter implements SandboxExecutionPort {
   private getTaskActionMapping(action: string): TaskActionMapping | null {
     // Standard action patterns: "plugin.method"
     const parts = action.split(".");
-    if (parts.length === 2) {
+    if (parts.length === 2 && parts[0] && parts[1]) {
       return {
         pluginName: parts[0],
         method: parts[1],
@@ -223,8 +229,9 @@ export class CloudflareSandboxExecutionAdapter implements SandboxExecutionPort {
     details?: unknown;
   } {
     if (err instanceof Error) {
+      const code = (err as any).code || "EXECUTION_ERROR";
       return {
-        code: (err as any).code ?? "EXECUTION_ERROR",
+        code: typeof code === "string" ? code : "EXECUTION_ERROR",
         message: err.message,
         details: (err as any).stack,
       };

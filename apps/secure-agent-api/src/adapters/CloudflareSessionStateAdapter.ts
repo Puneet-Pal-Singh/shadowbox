@@ -7,7 +7,7 @@
  * Canonical alignment: RunStorePort (Charter 46)
  */
 
-import { DurableObjectState } from "cloudflare:workers";
+import type { DurableObjectState } from "@cloudflare/workers-types";
 import {
   SessionStatePort,
   SessionState,

@@ -10,13 +10,33 @@
 
 import { describe, expect, it, beforeEach } from "vitest";
 import { CloudflareSandboxExecutionAdapter } from "./CloudflareSandboxExecutionAdapter";
-import { IPlugin } from "../interfaces/types";
+import type { IPlugin, ToolDefinition } from "../interfaces/types";
 
 // Mock plugin for testing
 class MockPlugin implements IPlugin {
   readonly name = "MockPlugin";
+  readonly tools: ToolDefinition[] = [];
 
-  async execute(
+  async setup(): Promise<void> {
+    // No-op for testing
+  }
+
+  // This matches the actual IPlugin.execute signature
+  async execute(sandbox: any, payload: any): Promise<{ success: boolean; output?: string }> {
+    const params = payload as Record<string, unknown>;
+    if (params.delay) {
+      await new Promise((resolve) =>
+        setTimeout(resolve, (params.delay as number) ?? 100),
+      );
+    }
+    if (params.shouldFail) {
+      throw new Error("Mock failure");
+    }
+    return { success: true, output: JSON.stringify({ success: true, params }) };
+  }
+
+  // Custom method for adapter testing (adapter doesn't call the standard execute)
+  async executeMock(
     sessionId: string,
     params: Record<string, unknown>,
     options?: { signal?: AbortSignal },
@@ -126,6 +146,15 @@ describe("CloudflareSandboxExecutionAdapter", () => {
       // Mock FileSystemPlugin
       class FileSystemPlugin implements IPlugin {
         readonly name = "FileSystem";
+        readonly tools: ToolDefinition[] = [];
+
+        async setup(): Promise<void> {
+          // No-op
+        }
+
+        async execute(): Promise<{ success: boolean; output: string }> {
+          return { success: true, output: "file content" };
+        }
 
         async readFile(): Promise<string> {
           return "file content";

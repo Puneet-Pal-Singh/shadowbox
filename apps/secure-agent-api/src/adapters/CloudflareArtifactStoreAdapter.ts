@@ -17,14 +17,6 @@ import {
  * Cloudflare R2 bucket interface.
  * Assumed to be available via environment binding.
  */
-interface R2Bucket {
-  head(key: string): Promise<R2Object | null>;
-  get(key: string): Promise<R2Object | null>;
-  put(key: string, value: ReadableStream | ArrayBuffer | string): Promise<R2Object>;
-  delete(keys: string | string[]): Promise<void>;
-  list(options?: { prefix?: string }): Promise<R2Objects>;
-}
-
 interface R2Object {
   key: string;
   version: string;
@@ -33,6 +25,7 @@ interface R2Object {
   uploaded: Date;
   httpMetadata?: Record<string, string>;
   customMetadata?: Record<string, string>;
+  arrayBuffer(): Promise<ArrayBuffer>;
 }
 
 interface R2Objects {
@@ -42,6 +35,18 @@ interface R2Objects {
   cursor?: string;
 }
 
+interface R2Bucket {
+  head(key: string): Promise<R2Object | null>;
+  get(key: string): Promise<R2Object | null>;
+  put(
+    key: string,
+    value: ReadableStream | ArrayBuffer | Uint8Array | string,
+    options?: { httpMetadata?: Record<string, string> },
+  ): Promise<R2Object>;
+  delete(keys: string | string[]): Promise<void>;
+  list(options?: { prefix?: string }): Promise<R2Objects>;
+}
+
 /**
  * Generates a unique artifact key for storage.
  * Uses session ID and timestamp to ensure uniqueness and session isolation.
@@ -49,9 +54,16 @@ interface R2Objects {
 function generateArtifactKey(sessionId: string, contentType: string): string {
   const timestamp = Date.now();
   const randomId = Math.random().toString(36).substring(2, 11);
-  const extension = contentType.includes("/") 
-    ? contentType.split("/")[1].split("+")[0]
-    : "bin";
+  
+  let extension = "bin";
+  if (contentType.includes("/")) {
+    const parts = contentType.split("/");
+    const subtype = parts[1];
+    if (subtype) {
+      const basetype = subtype.split("+")[0];
+      extension = basetype || "bin";
+    }
+  }
   
   return `artifacts/${sessionId}/${timestamp}-${randomId}.${extension}`;
 }
@@ -62,7 +74,7 @@ function generateArtifactKey(sessionId: string, contentType: string): string {
  */
 function parseArtifactKey(key: string): { sessionId: string; name: string } | null {
   const match = key.match(/^artifacts\/([^/]+)\/(.+)$/);
-  if (!match) return null;
+  if (!match || !match[1] || !match[2]) return null;
   return { sessionId: match[1], name: match[2] };
 }
 
@@ -142,7 +154,9 @@ export class CloudflareArtifactStoreAdapter implements ArtifactStorePort {
     }
 
     // Extract content type from metadata if available
-    const contentType = r2Object.httpMetadata?.["content-type"] ?? "application/octet-stream";
+    const contentType =
+      (r2Object.httpMetadata && r2Object.httpMetadata["content-type"]) ||
+      "application/octet-stream";
 
     return {
       id,
@@ -165,7 +179,8 @@ export class CloudflareArtifactStoreAdapter implements ArtifactStorePort {
       id: obj.key,
       sessionId,
       contentType:
-        obj.httpMetadata?.["content-type"] ?? "application/octet-stream",
+        (obj.httpMetadata && obj.httpMetadata["content-type"]) ||
+        "application/octet-stream",
       size: obj.size,
       createdAt: obj.uploaded.getTime(),
     }));

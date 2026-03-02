@@ -42,13 +42,14 @@ class MockR2Bucket {
     const obj = this.objects.get(key);
     if (!obj) return null;
 
+    const data = obj.data;
     return {
       key,
       version: "v1",
       size: obj.data.length,
       etag: "etag",
       uploaded: obj.uploaded,
-      arrayBuffer: async () => obj.data.buffer,
+      arrayBuffer: async () => data.buffer,
       httpMetadata: { "content-type": obj.contentType },
     };
   }
@@ -174,7 +175,11 @@ describe("CloudflareArtifactStoreAdapter", () => {
 
       const downloaded = await adapter.download(uploadMeta.id, "session-4");
 
-      expect(downloaded).toEqual(originalData);
+      if (downloaded) {
+        expect(Array.from(downloaded)).toEqual(Array.from(originalData));
+      } else {
+        expect(downloaded).not.toBeNull();
+      }
     });
 
     it("should prevent cross-session access", async () => {
@@ -354,12 +359,14 @@ describe("CloudflareArtifactStoreAdapter", () => {
       // Session A can only see its own
       const listA = await adapter.list("session-a");
       expect(listA).toHaveLength(1);
-      expect(listA[0].id).toBe(metaA.id);
+      expect(listA[0]).toBeDefined();
+      expect(listA[0]?.id).toBe(metaA.id);
 
       // Session B can only see its own
       const listB = await adapter.list("session-b");
       expect(listB).toHaveLength(1);
-      expect(listB[0].id).toBe(metaB.id);
+      expect(listB[0]).toBeDefined();
+      expect(listB[0]?.id).toBe(metaB.id);
 
       // Cross-session operations fail
       expect(await adapter.download(metaA.id, "session-b")).toBeNull();
