@@ -71,8 +71,17 @@ export interface RunOutput {
   finalSummary?: string;
 }
 
+export interface RunManifest {
+  mode: "agentic";
+  providerId: string | null;
+  modelId: string | null;
+  harness: "cloudflare-sandbox";
+  orchestratorBackend: "execution-engine-v1";
+}
+
 export interface RunMetadata {
   prompt: string;
+  manifest?: RunManifest;
   planId?: string;
   completedAt?: string;
   error?: string;
