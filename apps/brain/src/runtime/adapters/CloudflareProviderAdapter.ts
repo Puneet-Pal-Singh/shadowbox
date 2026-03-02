@@ -5,11 +5,7 @@
  * This adapter owns credential resolution and model inference routing.
  */
 
-import type { ModelMetadata } from "@repo/shared-types";
-import type { Env } from "../../types/ai";
-import { AIService } from "../../services/AIService";
-import { ProviderConfigService } from "../../services/providers";
-import type { ProviderResolutionPort } from "../ports";
+import type { ModelMetadata, ProviderResolutionPort } from "../ports";
 
 /**
  * Cloudflare-backed implementation of provider resolution.
@@ -20,18 +16,8 @@ import type { ProviderResolutionPort } from "../ports";
  * - LLM inference gateway wiring
  */
 export class CloudflareProviderAdapter implements ProviderResolutionPort {
-  private readonly env: Env;
-  private readonly aiService: AIService;
-  private readonly providerConfigService: ProviderConfigService;
-
-  constructor(
-    env: Env,
-    aiService: AIService,
-    providerConfigService: ProviderConfigService,
-  ) {
-    this.env = env;
-    this.aiService = aiService;
-    this.providerConfigService = providerConfigService;
+  constructor() {
+    // Stub implementation
   }
 
   async getCredentialStatus(
@@ -43,88 +29,56 @@ export class CloudflareProviderAdapter implements ProviderResolutionPort {
     lastValidated?: number;
     expiresAt?: number;
   } | null> {
-    const connections = await this.providerConfigService.getConnections();
-    const connection = connections.find((c) => c.providerId === providerId);
-
-    if (!connection) {
-      return {
-        providerId,
-        configured: false,
-      };
-    }
-
-    return {
-      providerId,
-      configured: true,
-      lastValidated: connection.lastValidated,
-      expiresAt: connection.expiresAt,
-    };
+    // Stub: Credential resolution is handled at Muscle boundary
+    throw new Error(
+      "ProviderResolutionPort.getCredentialStatus should be invoked at Muscle boundary, not Brain.",
+    );
   }
 
-  async resolveCredential(_runId: string, providerId: string): Promise<unknown> {
-    // Provider credentials are resolved through AIService and provider config.
-    // Return opaque credential object (specific to provider adapter).
-    const provider = await this.aiService.getProvider();
-    if (provider.id !== providerId) {
-      throw new Error(
-        `Provider mismatch: expected ${providerId}, got ${provider.id}`,
-      );
-    }
-
-    // Credential is owned by provider adapter; Brain doesn't inspect it.
-    return provider;
+  async resolveCredential(_runId: string, _providerId: string): Promise<unknown> {
+    // Stub: Credential resolution is handled at Muscle boundary
+    throw new Error(
+      "ProviderResolutionPort.resolveCredential should be invoked at Muscle boundary, not Brain.",
+    );
   }
 
-  async getModels(providerId: string): Promise<ModelMetadata[]> {
-    // Delegate to provider config service which owns model catalog.
-    const response = await this.providerConfigService.getModels(providerId);
-    return response.models || [];
+  async getModels(_providerId: string): Promise<ModelMetadata[]> {
+    // Stub: Model retrieval is handled at Muscle boundary
+    throw new Error(
+      "ProviderResolutionPort.getModels should be invoked at Muscle boundary, not Brain.",
+    );
   }
 
   async generateText(
-    providerId: string,
+    _providerId: string,
     _modelId: string,
-    input: unknown,
+    _input: unknown,
   ): Promise<string> {
-    // Ensure provider matches, then delegate to AIService.
-    const provider = await this.aiService.getProvider();
-    if (provider.id !== providerId) {
-      throw new Error(
-        `Provider mismatch: expected ${providerId}, got ${provider.id}`,
-      );
-    }
-
-    const result = await this.aiService.generateText(input as unknown);
-    return result.text || "";
+    // Stub: Text generation is handled at Muscle boundary
+    throw new Error(
+      "ProviderResolutionPort.generateText should be invoked at Muscle boundary, not Brain.",
+    );
   }
 
   async generateStructured(
-    providerId: string,
+    _providerId: string,
     _modelId: string,
-    input: unknown,
+    _input: unknown,
   ): Promise<unknown> {
-    const provider = await this.aiService.getProvider();
-    if (provider.id !== providerId) {
-      throw new Error(
-        `Provider mismatch: expected ${providerId}, got ${provider.id}`,
-      );
-    }
-
-    return this.aiService.generateStructured(input as unknown);
+    // Stub: Structured generation is handled at Muscle boundary
+    throw new Error(
+      "ProviderResolutionPort.generateStructured should be invoked at Muscle boundary, not Brain.",
+    );
   }
 
   async createChatStream(
-    providerId: string,
+    _providerId: string,
     _modelId: string,
-    input: unknown,
+    _input: unknown,
   ): Promise<ReadableStream<unknown>> {
-    const provider = await this.aiService.getProvider();
-    if (provider.id !== providerId) {
-      throw new Error(
-        `Provider mismatch: expected ${providerId}, got ${provider.id}`,
-      );
-    }
-
-    return this.aiService.createChatStream(input as unknown);
+    // Stub: Chat streaming is handled at Muscle boundary
+    throw new Error(
+      "ProviderResolutionPort.createChatStream should be invoked at Muscle boundary, not Brain.",
+    );
   }
 }

@@ -7,7 +7,20 @@
  * Canonical alignment: ProviderAuthPort + ModelProviderPort (Charter 46)
  */
 
-import type { ModelMetadata } from "@repo/shared-types";
+export interface ModelMetadata {
+  id: string;
+  name: string;
+  provider: string;
+  contextWindow: number;
+  costPer1kPromptTokens?: number;
+  costPer1kCompletionTokens?: number;
+  capabilities?: {
+    streaming?: boolean;
+    tools?: boolean;
+    structuredOutputs?: boolean;
+    jsonMode?: boolean;
+  };
+}
 
 /**
  * Port for provider authentication and credential resolution.

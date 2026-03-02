@@ -8,7 +8,30 @@
  * Canonical alignment: ExecutionSandboxPort + RunOrchestratorPort (Charter 46)
  */
 
-import type { ExecuteTaskInput, TaskResult } from "@shadowbox/execution-engine/runtime";
+// NOTE: TaskInput/TaskResult types are defined in secure-agent-api
+// and should be imported from there for Brain -> Muscle integration
+export interface TaskInput {
+  taskId: string;
+  action: string;
+  params: Record<string, unknown>;
+  timeout?: number;
+  retryable?: boolean;
+}
+
+export interface TaskResult {
+  taskId: string;
+  status: "success" | "failure" | "timeout" | "cancelled";
+  output?: string;
+  error?: {
+    code: string;
+    message: string;
+    details?: unknown;
+  };
+  metrics?: {
+    duration: number;
+    memoryUsed?: number;
+  };
+}
 
 /**
  * Port for executing tasks in a sandbox environment.
@@ -22,7 +45,7 @@ export interface ExecutionSandboxPort {
    * @param input - Task input with action, parameters, and context
    * @returns Task result with status, output, or error
    */
-  executeTask(runId: string, input: ExecuteTaskInput): Promise<TaskResult>;
+  executeTask(runId: string, input: TaskInput): Promise<TaskResult>;
 
   /**
    * Cancel an ongoing task execution.
@@ -69,7 +92,7 @@ export interface RunOrchestratorPort {
    * @param runId - Unique run identifier
    * @returns Next task to execute or null if none pending
    */
-  scheduleNext(runId: string): Promise<{ taskId: string; input: ExecuteTaskInput } | null>;
+  scheduleNext(runId: string): Promise<{ taskId: string; input: TaskInput } | null>;
 }
 
 /**

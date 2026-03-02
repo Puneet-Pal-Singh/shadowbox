@@ -70,16 +70,16 @@ export class CloudflareEventStreamAdapter implements RealtimeEventPort {
   }
 
   getStream(runId: string): ReadableStream<Uint8Array> {
-    return new ReadableStream<Uint8Array>((controller) => {
-      this.controller.set(runId, controller);
-
-      // Flush any pending events
-      this.flushToStream(runId);
-
-      // On cancel, clean up
-      controller.signal?.addEventListener("abort", () => {
+    return new ReadableStream<Uint8Array>({
+      start: (controller: ReadableStreamDefaultController<Uint8Array>) => {
+        this.controller.set(runId, controller);
+        // Flush any pending events
+        this.flushToStream(runId);
+      },
+      cancel: () => {
+        // Clean up on cancel
         this.controller.delete(runId);
-      });
+      },
     });
   }
 

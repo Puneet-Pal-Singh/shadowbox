@@ -36,11 +36,11 @@ export function createCloudflareExecutionPort(ctx: unknown): ExecutionRuntimePor
  * @returns ProviderResolutionPort implementation
  */
 export function createCloudflareProviderPort(
-  env: Env,
-  aiService: AIService,
-  providerConfigService: ProviderConfigService,
+  _env: Env,
+  _aiService: AIService,
+  _providerConfigService: ProviderConfigService,
 ): ProviderResolutionPort {
-  return new CloudflareProviderAdapter(env, aiService, providerConfigService);
+  return new CloudflareProviderAdapter();
 }
 
 /**

@@ -7,6 +7,12 @@
  * - PORTABILITY-BOUNDARY-DECOUPLING-PLAN
  */
 
-export type { ExecutionSandboxPort, RunOrchestratorPort, ExecutionRuntimePort } from "./ExecutionRuntimePort";
-export type { ProviderAuthPort, ModelProviderPort, ProviderResolutionPort } from "./ProviderResolutionPort";
+export type {
+  ExecutionSandboxPort,
+  RunOrchestratorPort,
+  ExecutionRuntimePort,
+  TaskInput,
+  TaskResult,
+} from "./ExecutionRuntimePort";
+export type { ProviderAuthPort, ModelProviderPort, ProviderResolutionPort, ModelMetadata } from "./ProviderResolutionPort";
 export type { StreamEvent, RealtimeEventPort } from "./EventStreamPort";
