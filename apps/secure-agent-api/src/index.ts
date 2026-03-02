@@ -141,8 +141,9 @@ import {
   validateRequestBody,
   errorResponse,
 } from "./schemas/http-api";
+import { composeRuntime } from "./factories/RuntimeCompositionFactory";
 
-export { Sandbox, AgentRuntime };
+export { Sandbox, AgentRuntime, composeRuntime };
 
 /**
  * SRP: Separate Environment definition
