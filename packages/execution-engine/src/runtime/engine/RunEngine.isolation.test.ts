@@ -8,17 +8,18 @@ describe("RunEngine runId isolation", () => {
     const state = new MockRuntimeState();
     const runAId = "11111111-1111-4111-8111-111111111111";
     const runBId = "22222222-2222-4222-8222-222222222222";
-    const engineA = createEngine(state, runAId, "session-a");
-    const engineB = createEngine(state, runBId, "session-b");
+    const sharedSessionId = "session-shared";
+    const engineA = createEngine(state, runAId, sharedSessionId);
+    const engineB = createEngine(state, runBId, sharedSessionId);
 
     await Promise.all([
       engineA.execute(
-        { agentType: "coding", prompt: "hey", sessionId: "session-a" },
+        { agentType: "coding", prompt: "hey", sessionId: sharedSessionId },
         [{ role: "user", content: "hey" }],
         {},
       ),
       engineB.execute(
-        { agentType: "coding", prompt: "hey", sessionId: "session-b" },
+        { agentType: "coding", prompt: "hey", sessionId: sharedSessionId },
         [{ role: "user", content: "hey" }],
         {},
       ),
@@ -29,8 +30,8 @@ describe("RunEngine runId isolation", () => {
 
     expect(runA?.id).toBe(runAId);
     expect(runB?.id).toBe(runBId);
-    expect(runA?.sessionId).toBe("session-a");
-    expect(runB?.sessionId).toBe("session-b");
+    expect(runA?.sessionId).toBe(sharedSessionId);
+    expect(runB?.sessionId).toBe(sharedSessionId);
     expect(runA?.metadata.manifest).toBeDefined();
     expect(runB?.metadata.manifest).toBeDefined();
   });
