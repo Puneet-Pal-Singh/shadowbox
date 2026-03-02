@@ -27,11 +27,14 @@ interface ChatRequestBody {
   runId: string;
   providerId?: string;
   modelId?: string;
+  harnessId?: "cloudflare-sandbox" | "local-sandbox";
   repositoryOwner?: string;
   repositoryName?: string;
   repositoryBranch?: string;
   repositoryBaseUrl?: string;
 }
+
+const DEFAULT_RUNTIME_HARNESS: "cloudflare-sandbox" = "cloudflare-sandbox";
 
 /**
  * useChatCore
@@ -184,6 +187,7 @@ export function useChatCore(
       const requestBody: ChatRequestBody = {
         sessionId,
         runId,
+        harnessId: DEFAULT_RUNTIME_HARNESS,
         ...loadRepositoryContextFields(sessionId),
       };
       if (includeOverride) {

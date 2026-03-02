@@ -37,6 +37,7 @@ describe("HandleChatRequest", () => {
         messages,
         providerId: "openai",
         modelId: "gpt-4",
+        harnessId: "cloudflare-sandbox",
         repositoryOwner: "sourcegraph",
         repositoryName: "shadowbox",
         repositoryBranch: "dev",
@@ -49,6 +50,7 @@ describe("HandleChatRequest", () => {
     expect(result.executionPayload.input.agentType).toBe("coding");
     expect(result.executionPayload.input.providerId).toBe("openai");
     expect(result.executionPayload.input.modelId).toBe("gpt-4");
+    expect(result.executionPayload.input.harnessId).toBe("cloudflare-sandbox");
     expect(result.executionPayload.input.repositoryContext).toEqual({
       owner: "sourcegraph",
       repo: "shadowbox",

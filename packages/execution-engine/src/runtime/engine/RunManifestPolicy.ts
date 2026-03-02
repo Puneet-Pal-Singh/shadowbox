@@ -1,11 +1,11 @@
-import type { RunInput, RunManifest } from "../types.js";
+import type { RunInput, RunManifest, RuntimeHarnessId } from "../types.js";
 
 export function createRunManifest(input: RunInput): RunManifest {
   return {
     mode: "agentic",
     providerId: normalizeOptionalSelection(input.providerId),
     modelId: normalizeOptionalSelection(input.modelId),
-    harness: "cloudflare-sandbox",
+    harness: normalizeHarnessSelection(input.harnessId),
     orchestratorBackend: "execution-engine-v1",
   };
 }
@@ -31,6 +31,12 @@ export function ensureManifestMatch(
 function normalizeOptionalSelection(value: string | undefined): string | null {
   const normalized = value?.trim();
   return normalized && normalized.length > 0 ? normalized : null;
+}
+
+function normalizeHarnessSelection(
+  harnessId?: RuntimeHarnessId,
+): RuntimeHarnessId {
+  return harnessId ?? "cloudflare-sandbox";
 }
 
 export class RunManifestMismatchError extends Error {
