@@ -24,6 +24,18 @@ import { CloudflareArtifactStoreAdapter } from "../adapters/CloudflareArtifactSt
 import type { Env } from "../index";
 
 /**
+ * Type-compatible R2Bucket interface for adapter instantiation.
+ * Matches the internal definition in CloudflareArtifactStoreAdapter.
+ */
+interface R2BucketCompat {
+  head(key: string): Promise<{ key: string; version: string; size: number; etag: string; uploaded: Date; httpMetadata?: Record<string, string>; customMetadata?: Record<string, string>; arrayBuffer(): Promise<ArrayBuffer> } | null>;
+  get(key: string): Promise<{ key: string; version: string; size: number; etag: string; uploaded: Date; httpMetadata?: Record<string, string>; customMetadata?: Record<string, string>; arrayBuffer(): Promise<ArrayBuffer> } | null>;
+  put(key: string, value: any, options?: { httpMetadata?: Record<string, string> }): Promise<{ key: string; version: string; size: number; etag: string; uploaded: Date; httpMetadata?: Record<string, string>; customMetadata?: Record<string, string>; arrayBuffer(): Promise<ArrayBuffer> }>;
+  delete(keys: string | string[]): Promise<void>;
+  list(options?: { prefix?: string }): Promise<{ objects: any[]; delimitedPrefixes?: string[]; isTruncated: boolean; cursor?: string }>;
+}
+
+/**
  * Composed runtime dependencies.
  * All dependencies are port abstractions, not concrete implementations.
  */
@@ -70,7 +82,7 @@ export function composeRuntime(
   // Session and artifact adapters are complete and can be instantiated
   const sessionAdapter = new CloudflareSessionStateAdapter(durableObjectState);
   const artifactAdapter = new CloudflareArtifactStoreAdapter(
-    env.ARTIFACTS as unknown as R2Bucket,
+    env.ARTIFACTS as unknown as R2BucketCompat,
   );
 
   // Execution adapter requires Sandbox and plugin registry from AgentRuntime
