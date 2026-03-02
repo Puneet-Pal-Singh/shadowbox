@@ -4,6 +4,10 @@
 import type { TaskRepository } from "../task/index.js";
 import { Task, TaskState } from "../task/index.js";
 import type { TaskResult } from "../types.js";
+import {
+  classifyRetryability,
+  type RetryClassification,
+} from "./RetryClassifier.js";
 
 export interface ITaskScheduler {
   execute(runId: string, hooks?: SchedulerHooks): Promise<void>;
@@ -22,6 +26,10 @@ export interface SchedulerHooks {
   beforeTask?: (task: Task) => Promise<void>;
   afterTask?: (task: Task, result: TaskResult) => Promise<void>;
   onTaskError?: (task: Task, error: unknown) => Promise<void>;
+  onRetryDecision?: (
+    task: Task,
+    classification: RetryClassification,
+  ) => Promise<void>;
 }
 
 /**
@@ -219,7 +227,16 @@ export class TaskScheduler implements ITaskScheduler {
       },
     });
 
-    if (task.canRetry() && isRetryableTaskError(errorMessage)) {
+    const retryClassification = classifyRetryability(errorMessage);
+    console.log(
+      `[task/scheduler] Retry classification task=${task.id} retryable=${retryClassification.retryable} reason=${retryClassification.reasonCode}`,
+    );
+
+    if (hooks?.onRetryDecision) {
+      await hooks.onRetryDecision(task, retryClassification);
+    }
+
+    if (task.canRetry() && retryClassification.retryable) {
       task.incrementRetry();
       task.transition("RETRYING");
       await this.taskRepo.update(task);
@@ -351,21 +368,6 @@ export class TaskScheduler implements ITaskScheduler {
         task.status === "RETRYING",
     );
   }
-}
-
-function isRetryableTaskError(message: string): boolean {
-  const nonRetryablePatterns = [
-    /command not allowed/i,
-    /unsafe shell token/i,
-    /path traversal detected/i,
-    /absolute paths are not allowed/i,
-    /missing '.*' field/i,
-    /invalid git action/i,
-    /is a directory/i,
-    /no such file or directory/i,
-  ];
-
-  return !nonRetryablePatterns.some((pattern) => pattern.test(message));
 }
 
 export class SchedulerError extends Error {

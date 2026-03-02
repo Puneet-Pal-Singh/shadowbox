@@ -69,6 +69,37 @@ describe("TaskScheduler", () => {
     expect(persisted?.status).toBe("DONE");
     expect(persisted?.output?.content).toBe("v20.0.0");
   });
+
+  it("does not retry deterministic failures and emits retry reason code", async () => {
+    const ctx = new MockRuntimeState();
+    const taskRepo = new TaskRepository(ctx);
+    const task = new Task("3", "run-3", "shell", "READY", [], {
+      description: "Read missing file",
+      command: "cat missing-file.txt",
+    });
+    await taskRepo.create(task);
+
+    const executor = {
+      execute: vi.fn(
+        async (): Promise<TaskResult> => {
+          throw new Error("No such file or directory");
+        },
+      ),
+    };
+
+    const onRetryDecision = vi.fn(async () => {});
+    const scheduler = new TaskScheduler(taskRepo, executor);
+    await scheduler.execute("run-3", { onRetryDecision });
+
+    expect(executor.execute).toHaveBeenCalledTimes(1);
+    expect(onRetryDecision).toHaveBeenCalledTimes(1);
+    const [, classification] = onRetryDecision.mock.calls[0] as [
+      Task,
+      { retryable: boolean; reasonCode: string },
+    ];
+    expect(classification.retryable).toBe(false);
+    expect(classification.reasonCode).toBe("DETERMINISTIC_INVALID_TARGET");
+  });
 });
 
 class InMemoryStorage implements RuntimeStorage {
