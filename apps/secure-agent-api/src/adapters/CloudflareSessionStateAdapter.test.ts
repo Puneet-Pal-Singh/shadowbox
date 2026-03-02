@@ -8,35 +8,44 @@
  * 4. Data isolation and immutability
  */
 
+import { describe, expect, it, beforeEach } from "vitest";
 import { CloudflareSessionStateAdapter } from "./CloudflareSessionStateAdapter";
 import { SessionState, SessionSnapshot } from "../ports";
 
-// Mock Durable Object state
-class MockDurableObjectState {
-  private storage = new Map<string, string>();
+// Mock storage interface
+class MockStorageType {
+  private data = new Map<string, string>();
 
   async get(key: string): Promise<string | undefined> {
-    return this.storage.get(key);
+    return this.data.get(key);
   }
 
   async put(key: string, value: string): Promise<void> {
-    this.storage.set(key, value);
+    this.data.set(key, value);
   }
 
   async delete(keys: string[]): Promise<void> {
-    keys.forEach((key) => this.storage.delete(key));
+    keys.forEach((key) => this.data.delete(key));
   }
 
   async list(options?: any): Promise<string[]> {
     const prefix = options?.prefix;
-    return Array.from(this.storage.keys()).filter(
+    return Array.from(this.data.keys()).filter(
       (key) => !prefix || key.startsWith(prefix),
     );
   }
 
-  // Expose storage for test verification
   getStorage(): Map<string, string> {
-    return this.storage;
+    return this.data;
+  }
+}
+
+// Mock Durable Object state
+class MockDurableObjectState {
+  storage: MockStorageType = new MockStorageType();
+
+  getStorage(): Map<string, string> {
+    return this.storage.getStorage();
   }
 }
 

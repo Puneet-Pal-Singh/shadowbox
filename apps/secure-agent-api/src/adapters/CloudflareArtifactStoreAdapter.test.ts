@@ -8,6 +8,7 @@
  * 4. Metadata handling and artifact lifecycle
  */
 
+import { describe, expect, it, beforeEach } from "vitest";
 import { CloudflareArtifactStoreAdapter } from "./CloudflareArtifactStoreAdapter";
 import { ArtifactMetadata } from "../ports";
 
@@ -15,7 +16,12 @@ import { ArtifactMetadata } from "../ports";
 class MockR2Bucket {
   private objects = new Map<
     string,
-    { data: Uint8Array; metadata: Record<string, string>; uploaded: Date }
+    {
+      data: Uint8Array;
+      metadata: Record<string, string>;
+      uploaded: Date;
+      contentType: string;
+    }
   >();
 
   async head(key: string) {
@@ -28,7 +34,7 @@ class MockR2Bucket {
       size: obj.data.length,
       etag: "etag",
       uploaded: obj.uploaded,
-      httpMetadata: { "content-type": "application/octet-stream" },
+      httpMetadata: { "content-type": obj.contentType },
     };
   }
 
@@ -43,16 +49,22 @@ class MockR2Bucket {
       etag: "etag",
       uploaded: obj.uploaded,
       arrayBuffer: async () => obj.data.buffer,
-      httpMetadata: { "content-type": "application/octet-stream" },
+      httpMetadata: { "content-type": obj.contentType },
     };
   }
 
-  async put(key: string, value: Uint8Array) {
+  async put(
+    key: string,
+    value: Uint8Array,
+    options?: { httpMetadata?: Record<string, string> },
+  ) {
     const data = value instanceof Uint8Array ? value : new Uint8Array(value);
+    const contentType = options?.httpMetadata?.["content-type"] ?? "application/octet-stream";
     this.objects.set(key, {
       data,
       metadata: {},
       uploaded: new Date(),
+      contentType,
     });
 
     return {

@@ -83,7 +83,11 @@ export class CloudflareArtifactStoreAdapter implements ArtifactStorePort {
       ...input.metadata,
     };
 
-    const r2Object = await this.r2Bucket.put(key, input.data);
+    const httpMetadata = {
+      "content-type": input.contentType,
+    };
+
+    const r2Object = await this.r2Bucket.put(key, input.data, { httpMetadata });
 
     return {
       id: key,
