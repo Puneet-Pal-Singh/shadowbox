@@ -52,7 +52,11 @@ Before push or merge actions, run:
 ```bash
 git fetch origin
 git status -sb
-git rev-list --left-right --count @{upstream}...HEAD
+if git rev-parse --abbrev-ref --symbolic-full-name @{upstream} >/dev/null 2>&1; then
+  git rev-list --left-right --count @{upstream}...HEAD
+else
+  echo "No upstream tracking branch yet; skipping divergence count."
+fi
 git diff --name-only origin/main...HEAD
 ```
 
@@ -696,8 +700,14 @@ git merge --continue
 # git rebase --continue
 
 # 6. If stuck, abort and retry with explicit strategy
-git rebase --abort
-git merge main
+if git rev-parse -q --verify MERGE_HEAD >/dev/null; then
+  git merge --abort
+elif [ -d .git/rebase-merge ] || [ -d .git/rebase-apply ]; then
+  git rebase --abort
+fi
+# Then retry integration with explicit strategy:
+# shared/reviewed branch: git merge main
+# private pre-PR branch: git rebase main
 ```
 
 ---

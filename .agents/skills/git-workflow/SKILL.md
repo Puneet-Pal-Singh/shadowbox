@@ -69,7 +69,11 @@ Run this protocol before commit/push/PR:
    ```bash
    git fetch origin
    git status -sb
-   git rev-list --left-right --count @{upstream}...HEAD
+   if git rev-parse --abbrev-ref --symbolic-full-name @{upstream} >/dev/null 2>&1; then
+     git rev-list --left-right --count @{upstream}...HEAD
+   else
+     echo "No upstream tracking branch yet; skipping divergence count."
+   fi
    ```
 
 2. **Divergence rule**:
