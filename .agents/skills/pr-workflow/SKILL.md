@@ -4,7 +4,7 @@ description: Create, review, and merge Pull Requests following Shadowbox quality
 license: MIT
 metadata:
   author: Shadowbox Team
-  version: "1.0"
+  version: "1.1"
 ---
 
 # PR Workflow Skill
@@ -38,10 +38,31 @@ When this skill is used in the Shadowbox repo, these rules are mandatory:
 - Never use `git add -A` or `git add .`.
 - Prefer non-interactive git flows in automated sessions.
 - Use the required PR description structure from `AGENTS.md` Section 18.
+- On shared/reviewed branches, sync with `git pull --ff-only` by default.
+- Rebase is allowed only on private in-progress branches before first PR.
 - **CRITICAL**: Never create task completion reports, summaries, or documentation files unless explicitly requested by user.
   - ❌ Do NOT create `PR-4-COMPLETION-REPORT.md`, `SUMMARY.md`, auto-generated docs
   - ✅ DO put all details in PR description itself
   - See `AGENTS.md` Section 18 "Documentation Files: STRICT RULE"
+
+## Conflict Prevention Gate (MANDATORY)
+
+Before push or merge actions, run:
+
+```bash
+git fetch origin
+git status -sb
+git rev-list --left-right --count @{upstream}...HEAD
+git diff --name-only origin/main...HEAD
+```
+
+Rules:
+
+- If branch is shared/reviewed: integrate with `git pull --ff-only` or explicit merge from `origin/main`.
+- If `--ff-only` fails: stop and do explicit merge conflict resolution.
+- Rebase only on private pre-PR branches.
+- Keep PRs small and boundary-scoped to reduce overlap conflicts.
+- Never use blanket conflict strategies (`-X ours`/`-X theirs`) for runtime/business logic.
 
 ## Naming Standards (Shadowbox)
 
@@ -212,9 +233,13 @@ npm run lint
 
 # 4. Update with latest main
 git fetch origin
-git rebase origin/main
-# OR if you prefer merge:
-# git merge origin/main
+git checkout main
+git pull --ff-only origin main
+git checkout <branch-name>
+# Shared/reviewed branch:
+git merge origin/main
+# Private pre-PR branch only:
+# git rebase origin/main
 ```
 
 ### Commit Quality
@@ -556,13 +581,16 @@ Always check the **latest file** (most recent by timestamp) for current findings
 ```bash
 # 1. Get latest from main
 git checkout main
-git pull --rebase origin main
+git pull --ff-only origin main
 
 # 2. Switch to PR branch
 git checkout <branch-name>
 
-# 3. Rebase onto latest main
-git rebase main
+# 3. Integrate latest main
+# Shared/reviewed branch:
+git merge main
+# Private pre-PR branch only:
+# git rebase main
 
 # 4. Run full test suite
 npm ci
@@ -571,17 +599,19 @@ npm test
 npm run typecheck
 npm run lint
 
-# 5. Force push if rebased
-git push --force-with-lease
+# 5. Push safely
+git push
+# Only if private branch was rebased:
+# git push --force-with-lease
 ```
 
 ### Merge Strategy
 
-**Prefer rebase** when commits are clean and tell a clear story:
+**Prefer merge commit or squash** for reviewed/shared branches:
 
 ```bash
-# Rebase merge (clean history)
-gh pr merge <PR_NUMBER> --rebase --admin
+# Merge commit (preserves traceability)
+gh pr merge <PR_NUMBER> --merge --admin
 ```
 
 **Squash** when history is messy or commits don't stand alone:
@@ -589,6 +619,12 @@ gh pr merge <PR_NUMBER> --rebase --admin
 ```bash
 # Squash merge (single commit)
 gh pr merge <PR_NUMBER> --squash --admin
+```
+
+**Use rebase merge only when explicitly requested**:
+
+```bash
+gh pr merge <PR_NUMBER> --rebase --admin
 ```
 
 **Always add PR author as co-contributor**:
@@ -613,7 +649,7 @@ git branch -d <branch-name>
 git push origin --delete <branch-name>
 
 # 4. Leave PR comment explaining merge
-gh pr comment <PR_NUMBER> --body "Merged via rebase/squash. SHA: <commit-hash>"
+gh pr comment <PR_NUMBER> --body "Merged via merge/squash. SHA: <commit-hash>"
 ```
 
 ---
@@ -632,7 +668,7 @@ When multiple agents work on PRs:
 ### DO
 
 - Scope commits to your changes only
-- Pull with rebase to integrate latest changes: `git pull --rebase`
+- Pull with fast-forward only on shared/reviewed branches: `git pull --ff-only`
 - Alert user if local changes or unpushed commits exist before reviewing
 - Focus reports on your edits
 
@@ -653,10 +689,13 @@ git diff --name-only --diff-filter=U
 # 4. Mark as resolved
 git add <resolved-files>
 
-# 5. Continue rebase
-git rebase --continue
+# 5a. Continue merge (shared/reviewed branches)
+git merge --continue
 
-# 6. If stuck, abort and try merge instead
+# 5b. Continue rebase (private pre-PR branches only)
+# git rebase --continue
+
+# 6. If stuck, abort and retry with explicit strategy
 git rebase --abort
 git merge main
 ```
@@ -734,16 +773,22 @@ git branch -vv
 git fetch origin
 
 # 2. Rebase onto main
-git rebase origin/main
+git merge origin/main
+# Private pre-PR branch only:
+# git rebase origin/main
 
 # 3. Resolve conflicts (edit files)
 
-# 4. Continue rebase (stage only intended files)
+# 4. Continue merge/rebase (stage only intended files)
 git add <resolved-file-1> <resolved-file-2>
-git rebase --continue
+git merge --continue
+# or (private pre-PR only):
+# git rebase --continue
 
-# 5. Force push
-git push --force-with-lease
+# 5. Push
+git push
+# if rebased on private branch:
+# git push --force-with-lease
 ```
 
 ### Scenario 2: PR Needs Updates After Review
