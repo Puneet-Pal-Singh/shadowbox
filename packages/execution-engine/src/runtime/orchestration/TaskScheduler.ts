@@ -228,15 +228,27 @@ export class TaskScheduler implements ITaskScheduler {
     });
 
     const retryClassification = classifyRetryability(errorMessage);
+    const shouldRetry = task.canRetry() && retryClassification.retryable;
+    const retryDecision: RetryClassification = {
+      ...retryClassification,
+      retryable: shouldRetry,
+    };
     console.log(
-      `[task/scheduler] Retry classification task=${task.id} retryable=${retryClassification.retryable} reason=${retryClassification.reasonCode}`,
+      `[task/scheduler] Retry decision task=${task.id} retryable=${retryDecision.retryable} reason=${retryDecision.reasonCode}`,
     );
 
     if (hooks?.onRetryDecision) {
-      await hooks.onRetryDecision(task, retryClassification);
+      try {
+        await hooks.onRetryDecision(task, retryDecision);
+      } catch (hookError) {
+        console.error(
+          `[task/scheduler] onRetryDecision hook failed for task ${task.id}:`,
+          hookError instanceof Error ? hookError.message : String(hookError),
+        );
+      }
     }
 
-    if (task.canRetry() && retryClassification.retryable) {
+    if (retryDecision.retryable) {
       task.incrementRetry();
       task.transition("RETRYING");
       await this.taskRepo.update(task);

@@ -19,4 +19,10 @@ describe("TaskInputContract", () => {
     expect(hasValidTaskInput("analyze", { path: "read the file" })).toBe(false);
     expect(hasValidTaskInput("shell", { command: "if tests fail, fix them" })).toBe(false);
   });
+
+  it("allows concrete shell commands and 500-char boundary inputs", () => {
+    expect(isConcreteCommandInput("find src -name '*.ts'")).toBe(true);
+    expect(isConcretePathInput("a".repeat(500))).toBe(true);
+    expect(isConcreteCommandInput("b".repeat(500))).toBe(true);
+  });
 });
