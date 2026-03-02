@@ -16,5 +16,5 @@ export function sanitizeUserFacingOutput(text: string): string {
       /(?:error:\s*)?cat:\s*(?:the workspace file|\[workspace-file\])\s*:?\s*is a directory/gi,
       "The requested path is a directory. Please provide a file path.",
     )
-    .replace(/http:\/\/internal(?:\/[^\s"']*)?/gi, "[internal-url]");
+    .replace(/https?:\/\/internal(?:\/[^\s"']*)?/gi, "[internal-url]");
 }

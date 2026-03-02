@@ -91,6 +91,17 @@ export const ExecuteRunPayloadSchema = z.object({
             "input.providerId and input.modelId must be provided together or both omitted",
         });
       }
+
+      const hasOwner = typeof input.repositoryContext?.owner === "string";
+      const hasRepo = typeof input.repositoryContext?.repo === "string";
+      if (hasProviderId && hasModelId && (!hasOwner || !hasRepo)) {
+        refinementCtx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["repositoryContext"],
+          message:
+            "repositoryContext.owner and repositoryContext.repo are required when input.providerId and input.modelId are provided",
+        });
+      }
     }),
   messages: z.array(CoreMessageSchema).min(1),
 });

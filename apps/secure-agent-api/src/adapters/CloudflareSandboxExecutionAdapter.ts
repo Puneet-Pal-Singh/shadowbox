@@ -100,6 +100,7 @@ export class CloudflareSandboxExecutionAdapter implements SandboxExecutionPort {
       const output = await this.invokePlugin(
         plugin,
         mapping,
+        input.action,
         sessionId,
         input.params,
         abortController.signal,
@@ -228,14 +229,22 @@ export class CloudflareSandboxExecutionAdapter implements SandboxExecutionPort {
   private async invokePlugin(
     plugin: IPlugin,
     mapping: TaskActionMapping,
+    action: string,
     sessionId: string,
     params: Record<string, unknown>,
     signal: AbortSignal,
   ): Promise<unknown> {
     if (mapping.method === "execute") {
-      const payload = { ...params };
-      if (!("runId" in payload)) {
-        payload.runId = sessionId;
+      const payload: Record<string, unknown> & { action: string } = {
+        ...params,
+        action,
+      };
+      const runId = payload.runId;
+      if (typeof runId !== "string" || runId.length === 0) {
+        throw {
+          code: "INVALID_INPUT",
+          message: "runId is required for plugin execution",
+        };
       }
       const result = await plugin.execute(this.sandbox, payload);
       if (!result.success) {
