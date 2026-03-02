@@ -9,6 +9,9 @@ export function determineRunStatusFromTasks(tasks: Task[]): RunStatus {
   if (tasks.some((task) => task.status === "FAILED")) {
     return "FAILED";
   }
+  if (tasks.some((task) => task.status !== "DONE")) {
+    return "RUNNING";
+  }
   return "COMPLETED";
 }
 
@@ -18,6 +21,10 @@ export function applyFinalRunStatus(
   finalRunStatus: RunStatus,
   tasks: Task[],
 ): void {
+  if (finalRunStatus === "RUNNING") {
+    return;
+  }
+
   if (finalRunStatus === "COMPLETED") {
     transitionRunToCompleted(run, runId);
     return;
