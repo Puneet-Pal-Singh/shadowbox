@@ -119,6 +119,7 @@ describe("RoutingDetector - Unified routing logic", () => {
       expect(decision).toHaveProperty("intent");
       expect(decision).toHaveProperty("bypass");
       expect(decision).toHaveProperty("reason");
+      expect(decision).toHaveProperty("reasonCode");
       expect(typeof decision.reason).toBe("string");
     });
 
@@ -153,6 +154,19 @@ describe("RoutingDetector - Unified routing logic", () => {
 
       const single = RoutingDetector.analyze("?");
       expect(single.intent).toBeTruthy();
+    });
+
+    it("marks vague read/check requests as discovery-required action intents", () => {
+      const decision = RoutingDetector.analyze("check this file in the repo");
+      expect(decision.intent).toBe("action");
+      expect(decision.bypass).toBe(false);
+      expect(decision.reasonCode).toBe("ACTION_AMBIGUOUS_TARGET");
+      expect(RoutingDetector.requiresDiscoveryBeforeRead("check this file in the repo")).toBe(
+        true,
+      );
+      expect(RoutingDetector.requiresDiscoveryBeforeRead("check README.md")).toBe(
+        false,
+      );
     });
   });
 

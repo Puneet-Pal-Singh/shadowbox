@@ -25,6 +25,7 @@ export type RunStatus =
   | "CANCELLED";
 
 export type AgentType = "coding" | "review" | "ci" | (string & {});
+export type RuntimeHarnessId = "cloudflare-sandbox" | "local-sandbox";
 
 export interface RepositoryContext {
   owner?: string;
@@ -61,6 +62,7 @@ export interface RunInput {
   sessionId: string;
   providerId?: string;
   modelId?: string;
+  harnessId?: RuntimeHarnessId;
   metadata?: Record<string, unknown>;
   // Phase 4: Repository context for workspace-aware operations
   repositoryContext?: RepositoryContext;
@@ -71,8 +73,17 @@ export interface RunOutput {
   finalSummary?: string;
 }
 
+export interface RunManifest {
+  mode: "agentic";
+  providerId: string | null;
+  modelId: string | null;
+  harness: RuntimeHarnessId;
+  orchestratorBackend: "execution-engine-v1";
+}
+
 export interface RunMetadata {
   prompt: string;
+  manifest?: RunManifest;
   planId?: string;
   completedAt?: string;
   error?: string;

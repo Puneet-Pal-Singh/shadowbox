@@ -235,6 +235,7 @@ export class GitPlugin implements IPlugin {
       branch,
       hasStaged: files.some((file) => file.isStaged),
       hasUnstaged: files.some((file) => !file.isStaged),
+      gitAvailable: true,
     };
   }
 

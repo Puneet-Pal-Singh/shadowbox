@@ -7,11 +7,18 @@
  */
 
 export type RoutingIntent = "conversational" | "action" | "unknown";
+export type RoutingReasonCode =
+  | "ACTION_DETECTED"
+  | "ACTION_AMBIGUOUS_TARGET"
+  | "CONVERSATIONAL_PATTERN"
+  | "CONVERSATIONAL_SHORT_UTTERANCE"
+  | "DEFAULT_CONVERSATIONAL";
 
 export interface RoutingDecision {
   intent: RoutingIntent;
   bypass: boolean;
   reason: string;
+  reasonCode: RoutingReasonCode;
 }
 
 export class RoutingDetector {
@@ -27,10 +34,19 @@ export class RoutingDetector {
     // Action patterns (explicit file/code/workspace operations)
     // Action takes precedence over conversational tone.
     if (this.isAction(normalized)) {
+      if (this.requiresDiscoveryBeforeRead(normalized)) {
+        return {
+          intent: "action",
+          bypass: false,
+          reason: "detected ambiguous read/check target requiring discovery",
+          reasonCode: "ACTION_AMBIGUOUS_TARGET",
+        };
+      }
       return {
         intent: "action",
         bypass: false,
         reason: "detected action pattern",
+        reasonCode: "ACTION_DETECTED",
       };
     }
 
@@ -40,6 +56,7 @@ export class RoutingDetector {
         intent: "conversational",
         bypass: true,
         reason: "detected conversational pattern",
+        reasonCode: "CONVERSATIONAL_PATTERN",
       };
     }
 
@@ -51,6 +68,7 @@ export class RoutingDetector {
         intent: "conversational",
         bypass: true,
         reason: "short utterance without action keywords",
+        reasonCode: "CONVERSATIONAL_SHORT_UTTERANCE",
       };
     }
 
@@ -60,11 +78,39 @@ export class RoutingDetector {
       intent: "conversational",
       bypass: true,
       reason: "no explicit action pattern detected",
+      reasonCode: "DEFAULT_CONVERSATIONAL",
     };
   }
 
   static shouldBypassPlanning(prompt: string): boolean {
     return this.analyze(prompt).bypass;
+  }
+
+  static requiresDiscoveryBeforeRead(prompt: string): boolean {
+    const normalized = prompt.toLowerCase().trim();
+    const readVerbDetected =
+      /\b(read|check|view|open|inspect|examine|analyze)\b/i.test(normalized);
+    if (!readVerbDetected) {
+      return false;
+    }
+
+    const hasConcreteTarget =
+      /\b(readme(?:\.md)?|package\.json|tsconfig(?:\.json)?|dockerfile)\b/i.test(
+        normalized,
+      ) ||
+      /\b[a-z0-9_\-./]+\.[a-z0-9]{1,8}\b/i.test(normalized) ||
+      /\b(src|apps|packages|docs|tests|scripts)\/[a-z0-9_\-./]+\b/i.test(
+        normalized,
+      );
+    if (hasConcreteTarget) {
+      return false;
+    }
+
+    const vagueTargetDetected =
+      /\b(file|files|code|repo|repository|project|folder|directory|this)\b/i.test(
+        normalized,
+      );
+    return vagueTargetDetected;
   }
 
   private static stripConversationalLeadIns(normalized: string): string {

@@ -48,14 +48,29 @@ export interface CommitPayload {
   files?: string[];
 }
 
-export interface GitStatusResponse {
+export interface GitStatusReady {
   files: FileStatus[];
   ahead: number;
   behind: number;
   branch: string;
   hasStaged: boolean;
   hasUnstaged: boolean;
+  gitAvailable: true;
+  recoverableCode?: undefined;
 }
+
+export interface GitStatusNotRepository {
+  files: [];
+  ahead: 0;
+  behind: 0;
+  branch: "";
+  hasStaged: false;
+  hasUnstaged: false;
+  gitAvailable: false;
+  recoverableCode: "NOT_A_GIT_REPOSITORY";
+}
+
+export type GitStatusResponse = GitStatusReady | GitStatusNotRepository;
 
 export interface GitDiffRequest {
   path?: string;

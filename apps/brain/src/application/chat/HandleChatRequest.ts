@@ -22,6 +22,8 @@ import type {
   RepositoryContext,
 } from "@shadowbox/execution-engine/runtime";
 
+type RuntimeHarnessId = "cloudflare-sandbox" | "local-sandbox";
+
 export interface HandleChatRequestInput {
   sessionId: string;
   runId: string;
@@ -33,6 +35,7 @@ export interface HandleChatRequestInput {
   messages: CoreMessage[];
   providerId?: string;
   modelId?: string;
+  harnessId?: RuntimeHarnessId;
   // Phase 4: Repository context for workspace-aware operations
   repositoryOwner?: string;
   repositoryName?: string;
@@ -58,6 +61,7 @@ export interface HandleChatRequestOutput {
       sessionId: string;
       providerId?: string;
       modelId?: string;
+      harnessId?: RuntimeHarnessId;
       repositoryContext?: RepositoryContext;
     };
     messages: CoreMessage[];
@@ -150,6 +154,7 @@ export class HandleChatRequest {
           sessionId,
           providerId: input.providerId,
           modelId: input.modelId,
+          harnessId: input.harnessId,
           // Phase 4: Include repository context for workspace-aware operations
           repositoryContext:
             repositoryOwner || repositoryName
