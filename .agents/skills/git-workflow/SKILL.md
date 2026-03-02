@@ -4,7 +4,7 @@ description: Execute safe git operations including branching, committing, and st
 license: MIT
 metadata:
   author: Shadowbox Team
-  version: "1.0"
+  version: "1.1"
 ---
 
 # Git Workflow Skill
@@ -56,8 +56,45 @@ Use this skill when:
    - Do NOT create/apply/drop `git stash` unless explicitly requested
    - Do NOT switch branches unless explicitly requested
    - Do NOT create/remove/modify `git worktree` checkouts unless explicitly requested
-   - When user says "push", you may `git pull --rebase` to integrate latest changes
+   - On shared/reviewed branches, sync with `git pull --ff-only` (default)
+   - Rebase is allowed only on private in-progress branches before first PR
    - When user says "commit", scope to your changes only
+
+## Conflict Prevention Protocol (MANDATORY)
+
+Run this protocol before commit/push/PR:
+
+1. **Fresh base check**:
+
+   ```bash
+   git fetch origin
+   git status -sb
+   if git rev-parse --abbrev-ref --symbolic-full-name @{upstream} >/dev/null 2>&1; then
+     git rev-list --left-right --count @{upstream}...HEAD
+   else
+     echo "No upstream tracking branch yet; skipping divergence count."
+   fi
+   ```
+
+2. **Divergence rule**:
+   - If ahead/behind on a shared/reviewed branch, sync using `git pull --ff-only`.
+   - If `--ff-only` fails, stop and use an explicit merge flow (do not auto-rebase shared history).
+
+3. **Overlap risk check**:
+
+   ```bash
+   git diff --name-only origin/main...HEAD
+   ```
+
+   - If high-conflict files are shared across active PRs (runtime/core/router/policy), coordinate and sequence merges instead of parallel edits.
+
+4. **PR size rule**:
+   - Keep PR scope narrow (single boundary/topic).
+   - Do not combine rename/moves with behavior changes in the same PR.
+
+5. **No silent conflict resolution**:
+   - Never use blanket `-X ours`/`-X theirs` for runtime/business logic files.
+   - Resolve per file and re-run tests.
 
 ## Branch Operations
 
@@ -69,7 +106,7 @@ git status
 
 # Pull latest from main
 git checkout main
-git pull --rebase origin main
+git pull --ff-only origin main
 
 # Create and switch to feature branch
 git checkout -b feat/descriptive-name
@@ -235,7 +272,7 @@ git status
 
 # Update main
 git checkout main
-git pull --rebase origin main
+git pull --ff-only origin main
 
 # Create feature branch
 git checkout -b feat/my-feature
@@ -271,7 +308,7 @@ TODO:
 
 ### Merge Conflicts
 
-If `git pull` or `git merge` fails:
+If `git pull --ff-only` or `git merge` fails:
 
 ```bash
 # Check status
@@ -282,9 +319,9 @@ git diff --name-only --diff-filter=U
 
 # After manual resolution, mark as resolved
 git add resolved-file.ts
-git rebase --continue
-# or
 git merge --continue
+# If conflict happened during rebase on a private branch:
+# git rebase --continue
 ```
 
 ### Failed Operations
