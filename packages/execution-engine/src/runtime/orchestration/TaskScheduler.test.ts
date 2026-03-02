@@ -100,6 +100,78 @@ describe("TaskScheduler", () => {
     expect(classification.retryable).toBe(false);
     expect(classification.reasonCode).toBe("DETERMINISTIC_INVALID_TARGET");
   });
+
+  it("emits non-retryable decision when retry budget is exhausted", async () => {
+    const ctx = new MockRuntimeState();
+    const taskRepo = new TaskRepository(ctx);
+    const task = new Task(
+      "4",
+      "run-4",
+      "shell",
+      "READY",
+      [],
+      {
+        description: "Call service",
+        command: "curl https://example.com",
+      },
+      undefined,
+      undefined,
+      0,
+      0,
+    );
+    await taskRepo.create(task);
+
+    const executor = {
+      execute: vi.fn(
+        async (): Promise<TaskResult> => {
+          throw new Error("upstream timeout");
+        },
+      ),
+    };
+
+    const onRetryDecision = vi.fn(async () => {});
+    const scheduler = new TaskScheduler(taskRepo, executor);
+    await scheduler.execute("run-4", { onRetryDecision });
+
+    expect(executor.execute).toHaveBeenCalledTimes(1);
+    expect(onRetryDecision).toHaveBeenCalledTimes(1);
+    const [, classification] = onRetryDecision.mock.calls[0] as [
+      Task,
+      { retryable: boolean; reasonCode: string },
+    ];
+    expect(classification.retryable).toBe(false);
+    expect(classification.reasonCode).toBe("TRANSIENT_OR_UNKNOWN");
+  });
+
+  it("continues scheduler flow when onRetryDecision hook throws", async () => {
+    const ctx = new MockRuntimeState();
+    const taskRepo = new TaskRepository(ctx);
+    const task = new Task("5", "run-5", "shell", "READY", [], {
+      description: "Read missing file",
+      command: "cat missing-file.txt",
+    });
+    await taskRepo.create(task);
+
+    const executor = {
+      execute: vi.fn(
+        async (): Promise<TaskResult> => {
+          throw new Error("No such file or directory");
+        },
+      ),
+    };
+
+    const scheduler = new TaskScheduler(taskRepo, executor);
+    await expect(
+      scheduler.execute("run-5", {
+        onRetryDecision: vi.fn(async () => {
+          throw new Error("telemetry unavailable");
+        }),
+      }),
+    ).resolves.toBeUndefined();
+
+    const persisted = await taskRepo.getById("5", "run-5");
+    expect(persisted?.status).toBe("FAILED");
+  });
 });
 
 class InMemoryStorage implements RuntimeStorage {

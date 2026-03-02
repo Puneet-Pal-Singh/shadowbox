@@ -6,6 +6,8 @@ export type {
   DiffHunk,
   DiffContent,
   CommitPayload,
+  GitStatusReady,
+  GitStatusNotRepository,
   GitStatusResponse,
   GitDiffRequest,
   StageFilesRequest,

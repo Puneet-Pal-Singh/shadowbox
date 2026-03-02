@@ -176,7 +176,13 @@ class MockR2Bucket {
     if (typeof value === "string") {
       return new TextEncoder().encode(value);
     }
-    return new Uint8Array(0);
+    const typeName =
+      value && typeof value === "object" && value.constructor
+        ? value.constructor.name
+        : typeof value;
+    throw new TypeError(
+      `MockR2Bucket.toUint8Array does not support input type: ${typeName}`,
+    );
   }
 }
 
@@ -306,7 +312,7 @@ describe("Portability Conformance", () => {
       const result = await runtime.executionPort.executeTask("session-1", {
         taskId: "task-1",
         action: "MockPlugin.execute",
-        params: { command: "echo hi" },
+        params: { command: "echo hi", runId: "run-1" },
       });
 
       expect(result.taskId).toBe("task-1");

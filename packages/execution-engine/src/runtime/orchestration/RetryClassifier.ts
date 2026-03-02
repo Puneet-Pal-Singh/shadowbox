@@ -23,11 +23,13 @@ const DETERMINISTIC_RULES: Array<{
     reasonCode: "DETERMINISTIC_PATH_VALIDATION",
   },
   {
-    pattern: /missing '.*' field|must be a concrete non-empty|invalid git action|invalid payload|schema/i,
+    pattern:
+      /\bmissing '[^']+' field\b|\bmust be a concrete non-empty\b|\binvalid git action\b|\binvalid payload\b|\bschema validation\b/i,
     reasonCode: "DETERMINISTIC_INPUT_VALIDATION",
   },
   {
-    pattern: /is a directory|no such file or directory|file does not exist|not found/i,
+    pattern:
+      /\bis a directory\b|\bno such file or directory\b|\bfile does not exist\b|\bpath .* not found\b/i,
     reasonCode: "DETERMINISTIC_INVALID_TARGET",
   },
 ];
