@@ -35,6 +35,7 @@ vi.mock("../../hooks/useRunContext", () => ({
 vi.mock("../../hooks/useGitStatus", () => ({
   useGitStatus: () => ({
     status: mockGitStatusState.status,
+    gitAvailable: true,
     loading: mockGitStatusState.loading,
     error: mockGitStatusState.error,
     refetch: mockRefetch,

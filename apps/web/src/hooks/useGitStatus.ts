@@ -5,6 +5,7 @@ import { getBrainHttpBase } from "../lib/platform-endpoints.js";
 
 interface UseGitStatusResult {
   status: GitStatusResponse | null;
+  gitAvailable: boolean;
   loading: boolean;
   error: string | null;
   refetch: () => Promise<void>;
@@ -26,6 +27,7 @@ export function useGitStatus(
   const sessionId = explicitSessionId ?? contextSessionId;
   const cacheKey = runId && sessionId ? `${sessionId}:${runId}` : null;
   const [status, setStatus] = useState<GitStatusResponse | null>(null);
+  const [gitAvailable, setGitAvailable] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -33,6 +35,7 @@ export function useGitStatus(
     if (!runId || !sessionId || !cacheKey) {
       setLoading(false);
       setStatus(null);
+      setGitAvailable(true);
       setError(!runId ? null : "No session context available");
       return;
     }
@@ -62,10 +65,12 @@ export function useGitStatus(
       statusCacheByRunId.set(cacheKey, data);
       retryAfterByRunId.delete(cacheKey);
       setStatus(data);
+      setGitAvailable(data.gitAvailable !== false);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error";
       retryAfterByRunId.set(cacheKey, Date.now() + RETRY_DELAY_MS);
       setStatus(null);
+      setGitAvailable(true);
       setError(message);
       if (lastLoggedErrorByRunId.get(cacheKey) !== message) {
         console.error("[useGitStatus] Error:", err);
@@ -80,7 +85,7 @@ export function useGitStatus(
     void fetchStatus();
   }, [fetchStatus]);
 
-  return { status, loading, error, refetch: fetchStatus };
+  return { status, gitAvailable, loading, error, refetch: fetchStatus };
 }
 
 async function createGitStatusRequest(
@@ -148,6 +153,12 @@ function normalizeGitStatusResponse(payload: unknown): GitStatusResponse {
       typeof candidate.hasStaged === "boolean" ? candidate.hasStaged : false,
     hasUnstaged:
       typeof candidate.hasUnstaged === "boolean" ? candidate.hasUnstaged : false,
+    gitAvailable:
+      typeof candidate.gitAvailable === "boolean" ? candidate.gitAvailable : true,
+    recoverableCode:
+      candidate.recoverableCode === "NOT_A_GIT_REPOSITORY"
+        ? "NOT_A_GIT_REPOSITORY"
+        : undefined,
   };
 }
 
@@ -171,5 +182,7 @@ function getEmptyGitStatus(): GitStatusResponse {
     branch: "",
     hasStaged: false,
     hasUnstaged: false,
+    gitAvailable: false,
+    recoverableCode: "NOT_A_GIT_REPOSITORY",
   };
 }

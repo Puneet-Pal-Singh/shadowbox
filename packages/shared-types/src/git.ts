@@ -55,6 +55,8 @@ export interface GitStatusResponse {
   branch: string;
   hasStaged: boolean;
   hasUnstaged: boolean;
+  gitAvailable?: boolean;
+  recoverableCode?: "NOT_A_GIT_REPOSITORY";
 }
 
 export interface GitDiffRequest {
