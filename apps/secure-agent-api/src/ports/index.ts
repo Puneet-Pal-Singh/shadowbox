@@ -7,6 +7,7 @@
  * - PORTABILITY-BOUNDARY-DECOUPLING-PLAN
  */
 
+// Port type exports
 export type { SandboxExecutionPort, TaskExecutionInput, TaskExecutionResult } from "./SandboxExecutionPort";
 export type {
   SessionStatePort,
@@ -18,3 +19,11 @@ export type {
   ArtifactMetadata,
   ArtifactUploadInput,
 } from "./ArtifactStorePort";
+
+// Adapter convenience exports (for single-import composition)
+export { 
+  CloudflareSandboxExecutionAdapter,
+  CloudflareSessionStateAdapter,
+  CloudflareArtifactStoreAdapter,
+  AgentRuntimeAdapterFactory,
+} from "../adapters";
