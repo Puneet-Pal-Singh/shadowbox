@@ -97,11 +97,12 @@ export class CloudflareSandboxExecutionAdapter implements SandboxExecutionPort {
         };
       }
 
-      // Execute plugin method with session context
-      const output = await (plugin as any)[mapping.method](
+      const output = await this.invokePlugin(
+        plugin,
+        mapping,
         sessionId,
         input.params,
-        { signal: abortController.signal },
+        abortController.signal,
       );
 
       const duration = Date.now() - startTime;
@@ -208,16 +209,61 @@ export class CloudflareSandboxExecutionAdapter implements SandboxExecutionPort {
 
     // Legacy mappings for backward compatibility
     const legacyMappings: Record<string, TaskActionMapping> = {
-      "read_file": { pluginName: "FileSystem", method: "readFile" },
-      "write_file": { pluginName: "FileSystem", method: "writeFile" },
-      "git_status": { pluginName: "Git", method: "status" },
-      "git_diff": { pluginName: "Git", method: "diff" },
-      "execute_python": { pluginName: "Python", method: "execute" },
-      "execute_node": { pluginName: "Node", method: "execute" },
-      "execute_rust": { pluginName: "Rust", method: "execute" },
+      "read_file": { pluginName: "filesystem", method: "execute" },
+      "write_file": { pluginName: "filesystem", method: "execute" },
+      "list_files": { pluginName: "filesystem", method: "execute" },
+      "make_dir": { pluginName: "filesystem", method: "execute" },
+      "git_status": { pluginName: "git", method: "execute" },
+      "git_diff": { pluginName: "git", method: "execute" },
+      "git_commit": { pluginName: "git", method: "execute" },
+      "git_push": { pluginName: "git", method: "execute" },
+      "execute_python": { pluginName: "python", method: "execute" },
+      "execute_node": { pluginName: "node", method: "execute" },
+      "execute_rust": { pluginName: "rust", method: "execute" },
     };
 
     return legacyMappings[action] ?? null;
+  }
+
+  private async invokePlugin(
+    plugin: IPlugin,
+    mapping: TaskActionMapping,
+    sessionId: string,
+    params: Record<string, unknown>,
+    signal: AbortSignal,
+  ): Promise<unknown> {
+    if (mapping.method === "execute") {
+      const payload = { ...params };
+      if (!("runId" in payload)) {
+        payload.runId = sessionId;
+      }
+      const result = await plugin.execute(this.sandbox, payload);
+      if (!result.success) {
+        throw {
+          code: "PLUGIN_EXECUTION_FAILED",
+          message: result.error ?? `Plugin ${mapping.pluginName} execution failed`,
+          details: result.logs,
+        };
+      }
+      return result.output ?? "";
+    }
+
+    const methodValue = (plugin as unknown as Record<string, unknown>)[
+      mapping.method
+    ];
+    if (typeof methodValue !== "function") {
+      throw {
+        code: "METHOD_NOT_FOUND",
+        message: `Method ${mapping.method} not found on plugin ${mapping.pluginName}`,
+      };
+    }
+
+    const invoker = methodValue as (
+      sessionIdArg: string,
+      paramsArg: Record<string, unknown>,
+      options?: { signal?: AbortSignal },
+    ) => Promise<unknown>;
+    return invoker.call(plugin, sessionId, params, { signal });
   }
 
   /**
@@ -229,11 +275,15 @@ export class CloudflareSandboxExecutionAdapter implements SandboxExecutionPort {
     details?: unknown;
   } {
     if (err instanceof Error) {
-      const code = (err as any).code || "EXECUTION_ERROR";
+      const errorLike = err as Error & { code?: unknown; details?: unknown };
+      const code =
+        typeof errorLike.code === "string"
+          ? errorLike.code
+          : "EXECUTION_ERROR";
       return {
-        code: typeof code === "string" ? code : "EXECUTION_ERROR",
+        code,
         message: err.message,
-        details: (err as any).stack,
+        details: errorLike.details ?? err.stack,
       };
     }
 
@@ -244,10 +294,35 @@ export class CloudflareSandboxExecutionAdapter implements SandboxExecutionPort {
       };
     }
 
+    if (isErrorShape(err)) {
+      return {
+        code: err.code,
+        message: err.message,
+        details: err.details,
+      };
+    }
+
     return {
       code: "EXECUTION_ERROR",
       message: "Unknown error during task execution",
       details: err,
     };
   }
+}
+
+function isErrorShape(
+  value: unknown,
+): value is { code: string; message: string; details?: unknown } {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const candidate = value as {
+    code?: unknown;
+    message?: unknown;
+    details?: unknown;
+  };
+  return (
+    typeof candidate.code === "string" &&
+    typeof candidate.message === "string"
+  );
 }

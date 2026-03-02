@@ -13,25 +13,30 @@
  * - SHA-24: End-to-End Wiring & Conformance Gate
  */
 
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import type { DurableObjectState } from "@cloudflare/workers-types";
+import type { Sandbox } from "@cloudflare/sandbox";
+import { beforeEach, describe, expect, it } from "vitest";
+import type { IPlugin, PluginResult, ToolDefinition } from "../interfaces/types";
 import { composeRuntime } from "../factories/RuntimeCompositionFactory";
 import type {
+  ArtifactStorePort,
   SandboxExecutionPort,
   SessionStatePort,
-  ArtifactStorePort,
 } from "../ports";
-import type { Env } from "../index";
-import type { DurableObjectState } from "@cloudflare/workers-types";
 
-/**
- * Mock DurableObjectState for testing.
- * This is a simplified mock - in production use, ensure type compatibility.
- */
-class MockDurableObjectState {
-  private store = new Map<string, unknown>();
+interface DurableObjectStorageLike {
+  get<T>(key: string): Promise<T | undefined>;
+  put(key: string, value: unknown): Promise<void>;
+  delete(keys: string | string[]): Promise<void>;
+  list<T>(options?: { prefix?: string }): Promise<Map<string, T>>;
+}
 
-  async get(key: string): Promise<unknown | null> {
-    return this.store.get(key) ?? null;
+class MockDurableObjectStorage implements DurableObjectStorageLike {
+  private readonly store = new Map<string, unknown>();
+
+  async get<T>(key: string): Promise<T | undefined> {
+    const value = this.store.get(key);
+    return value as T | undefined;
   }
 
   async put(key: string, value: unknown): Promise<void> {
@@ -40,101 +45,192 @@ class MockDurableObjectState {
 
   async delete(keys: string | string[]): Promise<void> {
     const keyArray = Array.isArray(keys) ? keys : [keys];
-    keyArray.forEach((key) => this.store.delete(key));
+    for (const key of keyArray) {
+      this.store.delete(key);
+    }
   }
 
-  async list(options?: {
-    prefix?: string;
-  }): Promise<Map<string, unknown>> {
-    const result = new Map<string, unknown>();
+  async list<T>(options?: { prefix?: string }): Promise<Map<string, T>> {
+    const result = new Map<string, T>();
     const prefix = options?.prefix;
-    for (const [key, value] of this.store) {
+    for (const [key, value] of this.store.entries()) {
       if (!prefix || key.startsWith(prefix)) {
-        result.set(key, value);
+        result.set(key, value as T);
       }
     }
     return result;
   }
-
-  // Mock additional DurableObjectState methods needed for full compatibility
-  id = { toString: () => "test-id" };
-  env = {};
-  waitUntil = (promise: Promise<unknown>) => {};
-  passThroughOnException = () => {};
 }
 
-/**
- * Mock R2 bucket for testing.
- */
+class MockDurableObjectState {
+  storage: DurableObjectStorageLike = new MockDurableObjectStorage();
+}
+
+interface R2ObjectMock {
+  key: string;
+  version: string;
+  size: number;
+  etag: string;
+  uploaded: Date;
+  httpMetadata?: Record<string, string>;
+  customMetadata?: Record<string, string>;
+  arrayBuffer(): Promise<ArrayBuffer>;
+}
+
+interface R2ObjectsMock {
+  objects: R2ObjectMock[];
+  delimitedPrefixes?: string[];
+  isTruncated: boolean;
+  cursor?: string;
+}
+
 class MockR2Bucket {
-  private objects = new Map<string, Uint8Array>();
+  private readonly objects = new Map<
+    string,
+    {
+      data: Uint8Array;
+      uploaded: Date;
+      contentType: string;
+    }
+  >();
 
-  async put(key: string, value: Uint8Array): Promise<void> {
-    this.objects.set(key, value);
+  async head(key: string): Promise<R2ObjectMock | null> {
+    const obj = this.objects.get(key);
+    if (!obj) {
+      return null;
+    }
+    return this.toR2Object(key, obj);
   }
 
-  async get(key: string): Promise<Uint8Array | null> {
-    return this.objects.get(key) ?? null;
+  async get(key: string): Promise<R2ObjectMock | null> {
+    const obj = this.objects.get(key);
+    if (!obj) {
+      return null;
+    }
+    return this.toR2Object(key, obj);
   }
 
-  async delete(key: string): Promise<void> {
-    this.objects.delete(key);
+  async put(
+    key: string,
+    value: ReadableStream | ArrayBuffer | Uint8Array | string,
+    options?: { httpMetadata?: Record<string, string> },
+  ): Promise<R2ObjectMock> {
+    const contentType =
+      options?.httpMetadata?.["content-type"] ?? "application/octet-stream";
+    const uploaded = new Date();
+    const data = this.toUint8Array(value);
+    const record = { data, uploaded, contentType };
+    this.objects.set(key, record);
+    return this.toR2Object(key, record);
   }
 
-  async list(): Promise<string[]> {
-    return Array.from(this.objects.keys());
+  async delete(keys: string | string[]): Promise<void> {
+    const keyArray = Array.isArray(keys) ? keys : [keys];
+    for (const key of keyArray) {
+      this.objects.delete(key);
+    }
+  }
+
+  async list(options?: { prefix?: string }): Promise<R2ObjectsMock> {
+    const prefix = options?.prefix;
+    const objects: R2ObjectMock[] = [];
+
+    for (const [key, value] of this.objects.entries()) {
+      if (!prefix || key.startsWith(prefix)) {
+        objects.push(this.toR2Object(key, value));
+      }
+    }
+
+    return {
+      objects,
+      delimitedPrefixes: [],
+      isTruncated: false,
+    };
+  }
+
+  private toR2Object(
+    key: string,
+    value: { data: Uint8Array; uploaded: Date; contentType: string },
+  ): R2ObjectMock {
+    return {
+      key,
+      version: "v1",
+      size: value.data.length,
+      etag: "etag",
+      uploaded: value.uploaded,
+      httpMetadata: { "content-type": value.contentType },
+      customMetadata: {},
+      arrayBuffer: async () => value.data.buffer as ArrayBuffer,
+    };
+  }
+
+  private toUint8Array(
+    value: ReadableStream | ArrayBuffer | Uint8Array | string,
+  ): Uint8Array {
+    if (value instanceof Uint8Array) {
+      return value;
+    }
+    if (value instanceof ArrayBuffer) {
+      return new Uint8Array(value);
+    }
+    if (typeof value === "string") {
+      return new TextEncoder().encode(value);
+    }
+    return new Uint8Array(0);
   }
 }
 
-/**
- * Mock Env for testing.
- */
-const mockEnv = {
-  ARTIFACTS: new MockR2Bucket() as unknown as R2Bucket,
-};
+class MockPlugin implements IPlugin {
+  readonly name = "MockPlugin";
+  readonly tools: ToolDefinition[] = [];
+
+  async execute(
+    _sandbox: Sandbox,
+    payload: unknown,
+  ): Promise<PluginResult> {
+    return {
+      success: true,
+      output: JSON.stringify(payload),
+    };
+  }
+}
 
 describe("Portability Conformance", () => {
   let durableObjectState: MockDurableObjectState;
   let runtime: ReturnType<typeof composeRuntime>;
+  let r2Bucket: MockR2Bucket;
 
   beforeEach(() => {
     durableObjectState = new MockDurableObjectState();
-    // Use as unknown as casts for mocked state in tests
-    // In production, pass real DurableObjectState from Cloudflare runtime
-    runtime = composeRuntime(
-      durableObjectState as unknown as DurableObjectState,
-      mockEnv as unknown as Env,
-    );
+    r2Bucket = new MockR2Bucket();
+    runtime = composeRuntime({
+      durableObjectState: durableObjectState as unknown as DurableObjectState,
+      sandbox: {} as Sandbox,
+      plugins: new Map<string, IPlugin>([["MockPlugin", new MockPlugin()]]),
+      r2Bucket,
+    });
   });
 
   describe("Port Contracts", () => {
-    it("should return port abstractions, not concrete implementations", () => {
-      // All returned values should be port abstractions
+    it("should return canonical port abstractions", () => {
       expect(runtime.executionPort).toBeDefined();
       expect(runtime.sessionPort).toBeDefined();
       expect(runtime.artifactPort).toBeDefined();
-
-      // Ports should have required methods
       expect(typeof runtime.executionPort.executeTask).toBe("function");
       expect(typeof runtime.sessionPort.createSession).toBe("function");
       expect(typeof runtime.artifactPort.upload).toBe("function");
     });
 
-    it("should implement ExecutionRuntimePort contract", async () => {
+    it("should implement SandboxExecutionPort contract", () => {
       const port = runtime.executionPort;
-
-      // Port must have these methods
       expect(port).toHaveProperty("executeTask");
       expect(port).toHaveProperty("cancelTask");
-      expect(port).toHaveProperty("getRunState");
-      expect(port).toHaveProperty("transitionRun");
-      expect(port).toHaveProperty("scheduleNext");
+      expect(port).toHaveProperty("getHealth");
+      expect(port).toHaveProperty("cleanup");
     });
 
-    it("should implement SessionStatePort contract", async () => {
+    it("should implement SessionStatePort contract", () => {
       const port = runtime.sessionPort;
-
-      // Port must have these methods
       expect(port).toHaveProperty("createSession");
       expect(port).toHaveProperty("getSession");
       expect(port).toHaveProperty("updateSession");
@@ -143,10 +239,8 @@ describe("Portability Conformance", () => {
       expect(port).toHaveProperty("deleteSession");
     });
 
-    it("should implement ArtifactStorePort contract", async () => {
+    it("should implement ArtifactStorePort contract", () => {
       const port = runtime.artifactPort;
-
-      // Port must have these methods
       expect(port).toHaveProperty("upload");
       expect(port).toHaveProperty("download");
       expect(port).toHaveProperty("getMetadata");
@@ -157,148 +251,117 @@ describe("Portability Conformance", () => {
   });
 
   describe("Boundary Isolation", () => {
-    it("should not expose Cloudflare types in port interfaces", () => {
-      // This is a type-level test - it passes if TypeScript compilation succeeds
-      // The port interfaces should not reference DurableObjectState, R2Bucket, etc.
+    it("should not expose platform types in core contracts", () => {
       const executionPort: SandboxExecutionPort = runtime.executionPort;
       const sessionPort: SessionStatePort = runtime.sessionPort;
       const artifactPort: ArtifactStorePort = runtime.artifactPort;
 
-      // If we can assign to port abstractions without type errors,
-      // the implementations satisfy the port contracts
       expect(executionPort).toBeDefined();
       expect(sessionPort).toBeDefined();
       expect(artifactPort).toBeDefined();
     });
 
-    it("should handle session lifecycle without leaking storage details", async () => {
+    it("should handle session lifecycle via SessionStatePort only", async () => {
       const sessionPort = runtime.sessionPort;
 
-      // Create session
       const session = await sessionPort.createSession(
         "test-session-id",
         "test-run-id",
       );
-
-      expect(session).toHaveProperty("sessionId");
-      expect(session).toHaveProperty("status");
       expect(session.sessionId).toBe("test-session-id");
       expect(session.status).toBe("active");
 
-      // Retrieve session
       const retrieved = await sessionPort.getSession("test-session-id");
-      expect(retrieved).toBeDefined();
       expect(retrieved?.sessionId).toBe("test-session-id");
 
-      // Delete session
       await sessionPort.deleteSession("test-session-id");
       const deleted = await sessionPort.getSession("test-session-id");
       expect(deleted).toBeNull();
     });
 
-    it("should handle artifact lifecycle without leaking storage details", async () => {
+    it("should handle artifact lifecycle via ArtifactStorePort only", async () => {
       const artifactPort = runtime.artifactPort;
-
-      // Upload artifact
       const data = new Uint8Array([1, 2, 3, 4, 5]);
+
       const metadata = await artifactPort.upload({
         sessionId: "test-session",
         contentType: "application/octet-stream",
         data,
       });
 
-      expect(metadata).toHaveProperty("id");
-      expect(metadata).toHaveProperty("sessionId");
       expect(metadata.sessionId).toBe("test-session");
       expect(metadata.size).toBe(5);
 
-      // Download artifact
-      const downloaded = await artifactPort.download(
-        metadata.id,
-        "test-session",
-      );
-      expect(downloaded).toBeDefined();
+      const downloaded = await artifactPort.download(metadata.id, "test-session");
       expect(downloaded).toEqual(data);
 
-      // Delete artifact
       const deleted = await artifactPort.delete(metadata.id, "test-session");
       expect(deleted).toBe(true);
+      expect(await artifactPort.download(metadata.id, "test-session")).toBeNull();
+    });
+  });
 
-      // Verify deleted
-      const redownload = await artifactPort.download(metadata.id, "test-session");
-      expect(redownload).toBeNull();
+  describe("Execution Contract", () => {
+    it("should route plugin execution through sandbox execution port", async () => {
+      const result = await runtime.executionPort.executeTask("session-1", {
+        taskId: "task-1",
+        action: "MockPlugin.execute",
+        params: { command: "echo hi" },
+      });
+
+      expect(result.taskId).toBe("task-1");
+      expect(result.status).toBe("success");
+      expect(result.output).toContain("echo hi");
+    });
+
+    it("should classify unknown actions as deterministic failures", async () => {
+      const result = await runtime.executionPort.executeTask("session-1", {
+        taskId: "task-2",
+        action: "MissingPlugin.execute",
+        params: {},
+      });
+
+      expect(result.status).toBe("failure");
+      expect(result.error?.code).toBe("PLUGIN_NOT_FOUND");
     });
   });
 
   describe("Error Handling", () => {
-    it("should propagate session errors without leaking storage exceptions", async () => {
-      const sessionPort = runtime.sessionPort;
-
-      // Try to get non-existent session
-      const result = await sessionPort.getSession("non-existent-session");
+    it("should return null for missing sessions without leaking storage details", async () => {
+      const result = await runtime.sessionPort.getSession("non-existent-session");
       expect(result).toBeNull();
-
-      // Error should be graceful, not expose storage details
-      expect(result).not.toThrow;
     });
 
-    it("should handle cross-session artifact access correctly", async () => {
-      const artifactPort = runtime.artifactPort;
-
-      // Upload artifact in session A
-      const data = new Uint8Array([1, 2, 3]);
-      const metadata = await artifactPort.upload({
+    it("should enforce cross-session artifact access isolation", async () => {
+      const metadata = await runtime.artifactPort.upload({
         sessionId: "session-a",
         contentType: "application/octet-stream",
-        data,
+        data: new Uint8Array([1, 2, 3]),
       });
 
-      // Try to download from session B (should fail)
-      const result = await artifactPort.download(
-        metadata.id,
-        "session-b",
-      );
-      expect(result).toBeNull(); // Access denied
-    });
-  });
-
-  describe("Type Safety", () => {
-    it("should maintain type safety across port boundary", () => {
-      // This test verifies at compile-time (TS) that port abstractions
-      // are used, not concrete implementations.
-
-      // Accessing as ports should work
-      const _exec: SandboxExecutionPort = runtime.executionPort;
-      const _sess: SessionStatePort = runtime.sessionPort;
-      const _artifact: ArtifactStorePort = runtime.artifactPort;
-
-      // All assignments should succeed
-      expect(_exec).toBeDefined();
-      expect(_sess).toBeDefined();
-      expect(_artifact).toBeDefined();
+      const result = await runtime.artifactPort.download(metadata.id, "session-b");
+      expect(result).toBeNull();
     });
   });
 
   describe("Composition Correctness", () => {
     it("should compose all ports from a single call", () => {
-      // Verify composition factory creates all ports correctly
       expect(runtime).toHaveProperty("executionPort");
       expect(runtime).toHaveProperty("sessionPort");
       expect(runtime).toHaveProperty("artifactPort");
-
-      // All should be non-null
       expect(runtime.executionPort).not.toBeNull();
       expect(runtime.sessionPort).not.toBeNull();
       expect(runtime.artifactPort).not.toBeNull();
     });
 
     it("should create independent adapter instances per call", () => {
-      const runtime2 = composeRuntime(
-        durableObjectState as unknown as DurableObjectState,
-        mockEnv as unknown as Env,
-      );
+      const runtime2 = composeRuntime({
+        durableObjectState: durableObjectState as unknown as DurableObjectState,
+        sandbox: {} as Sandbox,
+        plugins: new Map<string, IPlugin>([["MockPlugin", new MockPlugin()]]),
+        r2Bucket,
+      });
 
-      // Different calls should create different instances
       expect(runtime.executionPort).not.toBe(runtime2.executionPort);
       expect(runtime.sessionPort).not.toBe(runtime2.sessionPort);
       expect(runtime.artifactPort).not.toBe(runtime2.artifactPort);

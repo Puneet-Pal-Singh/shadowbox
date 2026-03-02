@@ -145,7 +145,7 @@ describe("CloudflareSandboxExecutionAdapter", () => {
     it("should support legacy action mappings", async () => {
       // Mock FileSystemPlugin
       class FileSystemPlugin implements IPlugin {
-        readonly name = "FileSystem";
+        readonly name = "filesystem";
         readonly tools: ToolDefinition[] = [];
 
         async setup(): Promise<void> {
@@ -162,7 +162,7 @@ describe("CloudflareSandboxExecutionAdapter", () => {
       }
 
       const fsPlugin = new FileSystemPlugin();
-      pluginMap.set("FileSystem", fsPlugin);
+      pluginMap.set("filesystem", fsPlugin);
 
       const input = {
         taskId: "task-6",
