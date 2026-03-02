@@ -89,7 +89,7 @@ Move logic to adapters instead.`,
         const fullPath = path.join(process.cwd(), filePath);
 
         if (!fs.existsSync(fullPath)) {
-          return;
+          continue;
         }
 
         const content = fs.readFileSync(fullPath, "utf-8");
@@ -99,7 +99,7 @@ Move logic to adapters instead.`,
 
         if (isAdapterFile) {
           // Adapters may import from Cloudflare
-          return;
+          continue;
         }
 
         // Core files must not import Cloudflare primitives directly
@@ -149,7 +149,7 @@ Core runtime should depend on ports, not platform primitives.`,
         const fullPath = path.join(process.cwd(), filePath);
 
         if (!fs.existsSync(fullPath)) {
-          return;
+          continue;
         }
 
         const content = fs.readFileSync(fullPath, "utf-8");

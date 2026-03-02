@@ -48,6 +48,9 @@ export class CloudflareEventStreamAdapter implements RealtimeEventPort {
     if (controller) {
       controller.close();
     }
+    // Clean up per-run state to prevent memory accumulation in long-lived workers
+    this.controller.delete(runId);
+    this.events.delete(runId);
   }
 
   error(
