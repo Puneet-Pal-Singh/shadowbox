@@ -42,28 +42,57 @@ const CoreMessageSchema = z.union([
  * - messages: conversation history (required, array of CoreMessage)
  */
 export const ExecuteRunPayloadSchema = z.object({
-  runId: z.string().min(1),
-  userId: z.string().min(1).optional(),
-  workspaceId: z.string().min(1).optional(),
-  sessionId: z.string().min(1),
-  correlationId: z.string().min(1),
-  requestOrigin: z.string().optional(),
-  input: z.object({
-    agentType: z.enum(["coding", "review", "ci"]),
-    prompt: z.string().min(1),
-    sessionId: z.string().min(1),
-    providerId: z.string().min(1).optional(),
-    modelId: z.string().min(1).optional(),
-    repositoryContext: z
-      .object({
-        owner: z.string().min(1).optional(),
-        repo: z.string().min(1).optional(),
-        branch: z.string().min(1).optional(),
-        baseUrl: z.string().min(1).optional(),
-      })
-      .optional(),
-  }),
-  messages: z.array(CoreMessageSchema),
+  runId: z.string().trim().min(1),
+  userId: z.string().trim().min(1).optional(),
+  workspaceId: z.string().trim().min(1).optional(),
+  sessionId: z.string().trim().min(1),
+  correlationId: z.string().trim().min(1),
+  requestOrigin: z.string().trim().min(1).optional(),
+  input: z
+    .object({
+      agentType: z.enum(["coding", "review", "ci"]),
+      prompt: z.string().trim().min(1),
+      sessionId: z.string().trim().min(1),
+      providerId: z.string().trim().min(1).optional(),
+      modelId: z.string().trim().min(1).optional(),
+      repositoryContext: z
+        .object({
+          owner: z.string().trim().min(1).optional(),
+          repo: z.string().trim().min(1).optional(),
+          branch: z.string().trim().min(1).optional(),
+          baseUrl: z.string().trim().min(1).optional(),
+        })
+        .optional()
+        .superRefine((context, refinementCtx) => {
+          if (!context) {
+            return;
+          }
+
+          const hasOwner = typeof context.owner === "string";
+          const hasRepo = typeof context.repo === "string";
+          if (hasOwner !== hasRepo) {
+            refinementCtx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: hasOwner ? ["repo"] : ["owner"],
+              message:
+                "repositoryContext.owner and repositoryContext.repo must be provided together",
+            });
+          }
+        }),
+    })
+    .superRefine((input, refinementCtx) => {
+      const hasProviderId = typeof input.providerId === "string";
+      const hasModelId = typeof input.modelId === "string";
+      if (hasProviderId !== hasModelId) {
+        refinementCtx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: hasProviderId ? ["modelId"] : ["providerId"],
+          message:
+            "input.providerId and input.modelId must be provided together or both omitted",
+        });
+      }
+    }),
+  messages: z.array(CoreMessageSchema).min(1),
 });
 
 /**
