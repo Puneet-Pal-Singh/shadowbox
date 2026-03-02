@@ -51,8 +51,9 @@ describe("runtime adapter boundary guard", () => {
         }
       }
 
+      const normalizedPath = filePath.replaceAll("\\", "/");
       const isCoreRuntimeFile = CORE_RUNTIME_SEGMENTS.some((segment) =>
-        filePath.includes(segment),
+        normalizedPath.includes(segment),
       );
       if (isCoreRuntimeFile) {
         for (const pattern of FORBIDDEN_BRANCH_PATTERNS) {

@@ -1,6 +1,13 @@
 import { RoutingDetector } from "../lib/RoutingDetector.js";
 import type { RepositoryContext } from "../types.js";
 
+const ACTION_VERB_RE =
+  /\b(read|check|view|open|analyze|inspect|review|edit|update|fix|search|find)\b/;
+const REPO_FILE_NOUN_RE =
+  /\b(file|files|document|doc|readme|code|repo|repository|branch)\b/;
+const FILE_PATH_HINT_RE =
+  /\b(?:\.{0,2}\/)?[\w.-]+(?:\/[\w.-]+)*\.[a-z0-9]{1,10}\b/;
+
 export function shouldBypassPlanning(prompt: string): boolean {
   const decision = RoutingDetector.analyze(prompt);
   console.log(
@@ -49,12 +56,8 @@ export function getActionClarificationMessage(
   }
 
   const asksForRepoOrFileAction =
-    /\b(read|check|view|open|analyze|inspect|review|edit|update|fix|search|find)\b/.test(
-      normalized,
-    ) &&
-    /\b(file|files|document|doc|readme|code|repo|repository|branch)\b/.test(
-      normalized,
-    );
+    ACTION_VERB_RE.test(normalized) &&
+    (REPO_FILE_NOUN_RE.test(normalized) || FILE_PATH_HINT_RE.test(normalized));
 
   if (asksForRepoOrFileAction && !hasRepositorySelection(repositoryContext)) {
     return "Sure. I can help with that, but I need you to select a repository first. Then share the file path if you want file-level analysis.";

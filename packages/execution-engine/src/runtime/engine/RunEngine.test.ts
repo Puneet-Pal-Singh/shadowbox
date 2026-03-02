@@ -71,7 +71,7 @@ describe("RunEngine", () => {
 
   it("sanitizes internal runtime paths in user-facing output", () => {
     const leaked =
-      'cat: /home/sandbox/runs/5212f17b-eb1f-463f-a41f-2c4c6b9d4ba6/README.md: No such file or directory';
+      'cat: /home/sandbox/runs/5212f17b-eb1f-463f-a41f-2c4c6b9d4ba6/README.md: No such file or directory\nSee https://internal/debug';
     const sanitized = sanitizeUserFacingOutput(leaked);
 
     expect(sanitized).not.toContain(
@@ -80,6 +80,7 @@ describe("RunEngine", () => {
     expect(sanitized).toContain(
       "The requested file was not found in the current workspace.",
     );
+    expect(sanitized).toContain("[internal-url]");
   });
 
   it("asks for clarification on vague file-check prompts", () => {
