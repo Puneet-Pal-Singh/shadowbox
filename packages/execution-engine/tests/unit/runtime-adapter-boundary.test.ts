@@ -2,11 +2,28 @@ import { describe, it, expect } from "vitest";
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 
-const FORBIDDEN_ADAPTER_TOKENS = ["OpenAIAdapter", "LocalMockAdapter"];
+const FORBIDDEN_ADAPTER_TOKENS = [
+  "OpenAIAdapter",
+  "LocalMockAdapter",
+  "@cloudflare/sandbox",
+  "cloudflare:workers",
+];
 const FORBIDDEN_IMPORT_PATTERNS = [
   /from\s+["'][^"']*\/adapters\/OpenAIAdapter(\.js)?["']/,
   /from\s+["'][^"']*\/adapters\/LocalMockAdapter(\.js)?["']/,
+  /from\s+["']@cloudflare\/sandbox["']/,
+  /from\s+["']cloudflare:workers["']/,
 ];
+
+const FORBIDDEN_BRANCH_PATTERNS = [
+  /if\s*\(\s*providerId\s*===\s*["']openai["']\s*\)/,
+  /if\s*\(\s*providerId\s*===\s*["']groq["']\s*\)/,
+  /if\s*\(\s*providerId\s*===\s*["']openrouter["']\s*\)/,
+  /switch\s*\(\s*providerId\s*\)/,
+  /if\s*\(\s*harness[a-zA-Z0-9_]*\s*===\s*["']/,
+  /switch\s*\(\s*harness[a-zA-Z0-9_]*\s*\)/,
+];
+const CORE_RUNTIME_SEGMENTS = ["/runtime/engine/", "/runtime/orchestration/"];
 
 describe("runtime adapter boundary guard", () => {
   it("prevents provider-specific adapter usage inside runtime modules", () => {
@@ -31,6 +48,20 @@ describe("runtime adapter boundary guard", () => {
           violations.push(
             `${relativePath}: matches forbidden adapter import pattern ${pattern.source}`,
           );
+        }
+      }
+
+      const normalizedPath = filePath.replaceAll("\\", "/");
+      const isCoreRuntimeFile = CORE_RUNTIME_SEGMENTS.some((segment) =>
+        normalizedPath.includes(segment),
+      );
+      if (isCoreRuntimeFile) {
+        for (const pattern of FORBIDDEN_BRANCH_PATTERNS) {
+          if (pattern.test(content)) {
+            violations.push(
+              `${relativePath}: matches forbidden provider/harness branching pattern ${pattern.source}`,
+            );
+          }
         }
       }
     }

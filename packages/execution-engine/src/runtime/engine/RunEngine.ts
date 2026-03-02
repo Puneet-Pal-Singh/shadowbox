@@ -41,7 +41,6 @@ import {
   type MemoryCoordinatorDependencies,
   type MemoryContext,
 } from "../memory/index.js";
-import { RoutingDetector } from "../lib/RoutingDetector.js";
 import { PermissionApprovalStore } from "./PermissionApprovalStore.js";
 import {
   detectCrossRepoTarget,
@@ -53,6 +52,24 @@ import {
   isDestructiveActionPrompt,
   parsePermissionApprovalDirective,
 } from "./RepositoryPermissionPolicy.js";
+import {
+  createRunManifest,
+  ensureManifestMatch,
+} from "./RunManifestPolicy.js";
+import {
+  buildConversationalSystemPrompt,
+  getActionClarificationMessage,
+  getDeterministicConversationalReply,
+  hasRepositorySelection,
+  shouldBypassPlanning,
+} from "./ConversationPolicy.js";
+import { sanitizeUserFacingOutput } from "./RunOutputSanitizer.js";
+import {
+  applyFinalRunStatus,
+  determineRunStatusFromTasks,
+  transitionRunToCompleted,
+  transitionRunToFailed,
+} from "./RunStatusPolicy.js";
 
 export interface IRunEngine {
   execute(
@@ -258,9 +275,9 @@ export class RunEngine implements IRunEngine {
         );
       }
 
-      const bypassPlanning = this.shouldBypassPlanning(input.prompt);
+      const bypassPlanning = shouldBypassPlanning(input.prompt);
       if (bypassPlanning) {
-        const deterministicReply = this.getDeterministicConversationalReply(
+        const deterministicReply = getDeterministicConversationalReply(
           input.prompt,
         );
         if (deterministicReply) {
@@ -276,7 +293,7 @@ export class RunEngine implements IRunEngine {
         return await this.executeConversationalTurn(run, input, messages);
       }
 
-      const clarificationMessage = this.getActionClarificationMessage(
+      const clarificationMessage = getActionClarificationMessage(
         input.prompt,
         input.repositoryContext,
       );
@@ -334,7 +351,7 @@ export class RunEngine implements IRunEngine {
           }),
         );
       } catch (planError) {
-        this.transitionRunToFailed(run, runId);
+        transitionRunToFailed(run, runId);
         run.metadata.error =
           planError instanceof Error
             ? planError.message
@@ -385,7 +402,7 @@ export class RunEngine implements IRunEngine {
       }
 
       const allTasks = await this.taskRepo.getByRun(runId);
-      const finalRunStatus = this.determineRunStatusFromTasks(allTasks);
+      const finalRunStatus = determineRunStatusFromTasks(allTasks);
       await this.safeMemoryOperation(() =>
         this.memoryCoordinator.createCheckpoint({
           runId,
@@ -404,7 +421,7 @@ export class RunEngine implements IRunEngine {
         input.prompt,
         this.currentMemoryContext,
       );
-      const finalOutput = this.sanitizeUserFacingOutput(finalOutputRaw);
+      const finalOutput = sanitizeUserFacingOutput(finalOutputRaw);
 
       await this.safeMemoryOperation(() =>
         this.memoryCoordinator.extractAndPersist({
@@ -435,7 +452,7 @@ export class RunEngine implements IRunEngine {
         ),
       );
 
-      this.applyFinalRunStatus(run, runId, finalRunStatus, allTasks);
+      applyFinalRunStatus(run, runId, finalRunStatus, allTasks);
       run.output = { content: finalOutput };
       await this.runRepo.update(run);
 
@@ -502,6 +519,7 @@ export class RunEngine implements IRunEngine {
     runId: string,
     sessionId: string,
   ): Promise<Run> {
+    const requestedManifest = createRunManifest(input);
     const existing = await this.runRepo.getById(runId);
     if (existing) {
       if (existing.sessionId !== sessionId) {
@@ -509,6 +527,8 @@ export class RunEngine implements IRunEngine {
           `runId ${runId} is already associated with a different session`,
         );
       }
+
+      ensureManifestMatch(existing.metadata.manifest, requestedManifest);
 
       if (this.isTerminalRun(existing.status)) {
         await this.taskRepo.deleteByRun(runId);
@@ -536,6 +556,7 @@ export class RunEngine implements IRunEngine {
     sessionId: string,
     input: RunInput,
   ): Run {
+    const manifest = createRunManifest(input);
     return new Run(
       runId,
       sessionId,
@@ -543,7 +564,7 @@ export class RunEngine implements IRunEngine {
       input.agentType,
       input,
       undefined,
-      { prompt: input.prompt },
+      { prompt: input.prompt, manifest },
     );
   }
 
@@ -626,32 +647,12 @@ export class RunEngine implements IRunEngine {
         phase: "synthesis",
       },
       messages,
-      system: this.buildConversationalSystemPrompt(),
+      system: buildConversationalSystemPrompt(),
       model: input.modelId,
       providerId: input.providerId,
       temperature: 0.7,
     });
     return this.completeRunWithAssistantMessage(run, result.text);
-  }
-
-  private shouldBypassPlanning(prompt: string): boolean {
-    const decision = RoutingDetector.analyze(prompt);
-    console.log(
-      `[run/engine] Routing decision: bypass=${decision.bypass}, intent=${decision.intent}, reason="${decision.reason}"`,
-    );
-    return decision.bypass;
-  }
-
-  private getDeterministicConversationalReply(prompt: string): string | null {
-    const normalized = this.normalizeConversationalPrompt(prompt);
-    if (/^(hey|hi|hello|howdy|greetings)[!.?]*$/.test(normalized)) {
-      return "Hey! I'm ready to help with this repo. Tell me what you want to inspect or change.";
-    }
-    return null;
-  }
-
-  private normalizeConversationalPrompt(prompt: string): string {
-    return prompt.toLowerCase().replace(/\s+/g, " ").trim();
   }
 
   private async synthesizeResult(
@@ -722,7 +723,7 @@ If any task failed or was cancelled, clearly say so and do not claim full comple
   }
 
   private createStreamResponse(content: string): Response {
-    const safeContent = this.sanitizeUserFacingOutput(content);
+    const safeContent = sanitizeUserFacingOutput(content);
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
       start(controller) {
@@ -739,28 +740,11 @@ If any task failed or was cancelled, clearly say so and do not claim full comple
     });
   }
 
-  private buildConversationalSystemPrompt(): string {
-    const nowIso = new Date().toISOString();
-    return [
-      "You are Shadowbox assistant in conversational chat mode.",
-      "Answer the user directly in the first sentence, then add brief helpful details.",
-      "Use a natural, friendly tone. Avoid robotic report phrasing.",
-      'Do not start with phrases like "Based on the analysis", "The system", or "Based on completed tasks".',
-      "Treat casual prompts as normal conversation.",
-      "If asked about capabilities, answer in plain language about what you can help with.",
-      "Do not fabricate tool execution, file access, command output, or repository inspection.",
-      "Do not claim you analyzed files unless the user explicitly asked for file/repo operations in this turn.",
-      "Do not mention internal run IDs, internal URLs, filesystem paths, or debug traces.",
-      `Current runtime timestamp (UTC): ${nowIso}. If asked for date/time, use this timestamp as reference.`,
-      "If the user asks about capabilities, describe what you can help with conversationally and ask for explicit permission/request before operational actions.",
-    ].join("\n");
-  }
-
   private async completeRunWithAssistantMessage(
     run: Run,
     text: string,
   ): Promise<Response> {
-    const sanitizedText = this.sanitizeUserFacingOutput(text);
+    const sanitizedText = sanitizeUserFacingOutput(text);
 
     await this.safeMemoryOperation(() =>
       this.memoryCoordinator.extractAndPersist({
@@ -791,37 +775,12 @@ If any task failed or was cancelled, clearly say so and do not claim full comple
       }),
     );
 
-    this.transitionRunToCompleted(run, run.id);
+    transitionRunToCompleted(run, run.id);
     run.output = { content: sanitizedText };
     await this.runRepo.update(run);
     console.log(`[run/engine] Completed conversational run ${run.id}`);
 
     return this.createStreamResponse(sanitizedText);
-  }
-
-  private getActionClarificationMessage(
-    prompt: string,
-    repositoryContext?: RepositoryContext,
-  ): string | null {
-    const normalized = prompt.toLowerCase().trim();
-    const asksForRepoOrFileAction =
-      /\b(read|check|view|open|analyze|inspect|review|edit|update|fix|search|find)\b/.test(
-        normalized,
-      ) &&
-      /\b(file|files|document|doc|readme|code|repo|repository|branch)\b/.test(
-        normalized,
-      );
-
-    if (asksForRepoOrFileAction && !this.hasRepositorySelection(repositoryContext)) {
-      return "Sure. I can help with that, but I need you to select a repository first. Then share the file path if you want file-level analysis.";
-    }
-    return null;
-  }
-
-  private hasRepositorySelection(repositoryContext?: RepositoryContext): boolean {
-    return Boolean(
-      repositoryContext?.owner?.trim() && repositoryContext.repo?.trim(),
-    );
   }
 
   private async processPermissionDirectives(prompt: string): Promise<string | null> {
@@ -894,7 +853,7 @@ If any task failed or was cancelled, clearly say so and do not claim full comple
       return null;
     }
 
-    if (!this.hasRepositorySelection(repositoryContext)) {
+    if (!hasRepositorySelection(repositoryContext)) {
       return "I need a valid repository selection before I can run repository actions. Please reselect the repository and try again.";
     }
 
@@ -948,27 +907,6 @@ If any task failed or was cancelled, clearly say so and do not claim full comple
     return branch ? `${owner}/${repo}@${branch}` : `${owner}/${repo}`;
   }
 
-  private sanitizeUserFacingOutput(text: string): string {
-    return text
-      .replace(
-        /\/home\/sandbox\/runs\/(?:\[run\]|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/[^\s"']+/gi,
-        "the workspace file",
-      )
-      .replace(
-        /\/home\/sandbox\/runs\/(?:\[run\]|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/gi,
-        "the workspace directory",
-      )
-      .replace(
-        /(?:error:\s*)?cat:\s*(?:the workspace file|\[workspace-file\])\s*:?\s*no such file or directory/gi,
-        "The requested file was not found in the current workspace.",
-      )
-      .replace(
-        /(?:error:\s*)?cat:\s*(?:the workspace file|\[workspace-file\])\s*:?\s*is a directory/gi,
-        "The requested path is a directory. Please provide a file path.",
-      )
-      .replace(/http:\/\/internal(?:\/[^\s"']*)?/gi, "[internal-url]");
-  }
-
   private async handleExecutionError(
     runId: string,
     error: unknown,
@@ -979,7 +917,7 @@ If any task failed or was cancelled, clearly say so and do not claim full comple
     try {
       const run = await this.runRepo.getById(runId);
       if (run) {
-        this.transitionRunToFailed(run, runId);
+        transitionRunToFailed(run, runId);
         run.metadata.error = errorMessage;
         await this.runRepo.update(run);
       }
@@ -991,98 +929,6 @@ If any task failed or was cancelled, clearly say so and do not claim full comple
     }
 
     console.error(`[run/engine] Run ${runId} failed:`, errorMessage);
-  }
-
-  private transitionRunToCompleted(run: Run, runId: string): void {
-    if (run.status === "COMPLETED") {
-      return;
-    }
-
-    if (run.status === "FAILED" || run.status === "CANCELLED") {
-      console.warn(
-        `[run/engine] Skipping COMPLETED transition for run ${runId}; current status is ${run.status}`,
-      );
-      return;
-    }
-
-    this.ensureRunReadyForTerminalTransition(run);
-    if (run.status === "RUNNING") {
-      run.transition("COMPLETED");
-    }
-  }
-
-  private transitionRunToFailed(run: Run, runId: string): void {
-    if (run.status === "FAILED" || run.status === "CANCELLED") {
-      return;
-    }
-
-    if (run.status === "COMPLETED") {
-      console.warn(
-        `[run/engine] Preserving COMPLETED state for run ${runId} after post-completion error`,
-      );
-      return;
-    }
-
-    this.ensureRunReadyForTerminalTransition(run);
-    if (run.status === "RUNNING") {
-      run.transition("FAILED");
-      return;
-    }
-
-    console.warn(
-      `[run/engine] Unable to move run ${runId} to FAILED from status ${run.status}`,
-    );
-  }
-
-  private determineRunStatusFromTasks(tasks: Task[]): RunStatus {
-    if (tasks.some((task) => task.status === "CANCELLED")) {
-      return "CANCELLED";
-    }
-    if (tasks.some((task) => task.status === "FAILED")) {
-      return "FAILED";
-    }
-    return "COMPLETED";
-  }
-
-  private applyFinalRunStatus(
-    run: Run,
-    runId: string,
-    finalRunStatus: RunStatus,
-    tasks: Task[],
-  ): void {
-    if (finalRunStatus === "COMPLETED") {
-      this.transitionRunToCompleted(run, runId);
-      return;
-    }
-
-    if (finalRunStatus === "FAILED") {
-      this.transitionRunToFailed(run, runId);
-      const failedTasks = tasks.filter((task) => task.status === "FAILED");
-      const summary = failedTasks
-        .map((task) => `${task.id}: ${task.error?.message ?? "Task failed"}`)
-        .join("; ");
-      run.metadata.error = summary || "One or more tasks failed";
-      return;
-    }
-
-    if (run.status === "FAILED" || run.status === "COMPLETED") {
-      return;
-    }
-
-    this.ensureRunReadyForTerminalTransition(run);
-    if (run.status === "RUNNING") {
-      run.transition("CANCELLED");
-    }
-  }
-
-  private ensureRunReadyForTerminalTransition(run: Run): void {
-    if (
-      run.status === "CREATED" ||
-      run.status === "PLANNING" ||
-      run.status === "PAUSED"
-    ) {
-      run.transition("RUNNING");
-    }
   }
 
   private async safeMemoryOperation<T>(

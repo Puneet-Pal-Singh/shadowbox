@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { RunEngine, type RunEngineDependencies } from "./RunEngine.js";
+import {
+  buildConversationalSystemPrompt,
+  getActionClarificationMessage,
+  shouldBypassPlanning,
+} from "./ConversationPolicy.js";
+import { sanitizeUserFacingOutput } from "./RunOutputSanitizer.js";
 import type { PlannedTask } from "../planner/PlanSchema.js";
 import type { RuntimeDurableObjectState, RuntimeStorage } from "../types.js";
 import type { Task } from "../task/index.js";
@@ -32,19 +38,14 @@ describe("RunEngine", () => {
   });
 
   it("bypasses planning for conversational prompts with filler lead-ins", () => {
-    const runEngine = createRunEngine();
-    const privateApi = runEngine as unknown as {
-      shouldBypassPlanning(prompt: string): boolean;
-    };
-
-    expect(privateApi.shouldBypassPlanning("so? what is your name?")).toBe(true);
-    expect(privateApi.shouldBypassPlanning("what can you do?")).toBe(true);
-    expect(privateApi.shouldBypassPlanning("how?")).toBe(true);
-    expect(privateApi.shouldBypassPlanning("great")).toBe(true);
-    expect(privateApi.shouldBypassPlanning("sounds good")).toBe(true);
-    expect(privateApi.shouldBypassPlanning("check README file")).toBe(false);
-    expect(privateApi.shouldBypassPlanning("read this readme")).toBe(false);
-    expect(privateApi.shouldBypassPlanning("fix this")).toBe(false);
+    expect(shouldBypassPlanning("so? what is your name?")).toBe(true);
+    expect(shouldBypassPlanning("what can you do?")).toBe(true);
+    expect(shouldBypassPlanning("how?")).toBe(true);
+    expect(shouldBypassPlanning("great")).toBe(true);
+    expect(shouldBypassPlanning("sounds good")).toBe(true);
+    expect(shouldBypassPlanning("check README file")).toBe(false);
+    expect(shouldBypassPlanning("read this readme")).toBe(false);
+    expect(shouldBypassPlanning("fix this")).toBe(false);
   });
 
   it("returns deterministic greeting response without invoking LLM", async () => {
@@ -69,14 +70,9 @@ describe("RunEngine", () => {
   });
 
   it("sanitizes internal runtime paths in user-facing output", () => {
-    const runEngine = createRunEngine();
-    const privateApi = runEngine as unknown as {
-      sanitizeUserFacingOutput(text: string): string;
-    };
-
     const leaked =
-      'cat: /home/sandbox/runs/5212f17b-eb1f-463f-a41f-2c4c6b9d4ba6/README.md: No such file or directory';
-    const sanitized = privateApi.sanitizeUserFacingOutput(leaked);
+      'cat: /home/sandbox/runs/5212f17b-eb1f-463f-a41f-2c4c6b9d4ba6/README.md: No such file or directory\nSee https://internal/debug';
+    const sanitized = sanitizeUserFacingOutput(leaked);
 
     expect(sanitized).not.toContain(
       "/home/sandbox/runs/5212f17b-eb1f-463f-a41f-2c4c6b9d4ba6/",
@@ -84,40 +80,37 @@ describe("RunEngine", () => {
     expect(sanitized).toContain(
       "The requested file was not found in the current workspace.",
     );
+    expect(sanitized).toContain("[internal-url]");
   });
 
   it("asks for clarification on vague file-check prompts", () => {
-    const runEngine = createRunEngine();
-    const privateApi = runEngine as unknown as {
-      getActionClarificationMessage(
-        prompt: string,
-        repositoryContext?: { owner?: string; repo?: string },
-      ): string | null;
-    };
-
-    expect(
-      privateApi.getActionClarificationMessage("can you check my file?"),
-    ).toContain(
+    expect(getActionClarificationMessage("can you check my file?")).toContain(
       "select a repository first",
     );
     expect(
-      privateApi.getActionClarificationMessage("can you check my file?", {
+      getActionClarificationMessage("can you check my file?", {
+        owner: "sourcegraph",
+        repo: "shadowbox",
+      }),
+    ).toContain("discovery step");
+    expect(
+      getActionClarificationMessage("check README.md", {
         owner: "sourcegraph",
         repo: "shadowbox",
       }),
     ).toBeNull();
     expect(
-      privateApi.getActionClarificationMessage("check README.md", {
+      getActionClarificationMessage("check this file", {
         owner: "sourcegraph",
         repo: "shadowbox",
       }),
-    ).toBeNull();
+    ).toContain("discovery step");
     expect(
-      privateApi.getActionClarificationMessage("check my repo?", {
+      getActionClarificationMessage("check my repo?", {
         owner: "sourcegraph",
         repo: "shadowbox",
       }),
-    ).toBeNull();
+    ).toContain("discovery step");
   });
 
   it("marks CREATED runs as FAILED when execution error handling runs", async () => {
@@ -144,13 +137,51 @@ describe("RunEngine", () => {
     expect(persisted?.metadata.error).toBe("boom");
   });
 
-  it("builds conversational system prompt with direct-answer style guidance", () => {
+  it("enforces immutable run manifest for active runs", async () => {
     const runEngine = createRunEngine();
     const privateApi = runEngine as unknown as {
-      buildConversationalSystemPrompt(): string;
+      getOrCreateRun(
+        input: {
+          agentType: "coding";
+          prompt: string;
+          sessionId: string;
+          providerId?: string;
+          modelId?: string;
+        },
+        runId: string,
+        sessionId: string,
+      ): Promise<Run>;
     };
 
-    const prompt = privateApi.buildConversationalSystemPrompt();
+    await privateApi.getOrCreateRun(
+      {
+        agentType: "coding",
+        prompt: "run once",
+        sessionId: "session-1",
+        providerId: "openai",
+        modelId: "gpt-4o",
+      },
+      TEST_RUN_ID,
+      "session-1",
+    );
+
+    await expect(
+      privateApi.getOrCreateRun(
+        {
+          agentType: "coding",
+          prompt: "same run id, different provider",
+          sessionId: "session-1",
+          providerId: "groq",
+          modelId: "llama-3.3-70b-versatile",
+        },
+        TEST_RUN_ID,
+        "session-1",
+      ),
+    ).rejects.toThrow("Immutable run manifest mismatch");
+  });
+
+  it("builds conversational system prompt with direct-answer style guidance", () => {
+    const prompt = buildConversationalSystemPrompt();
     expect(prompt).toContain("Answer the user directly in the first sentence");
     expect(prompt).toContain("Avoid robotic report phrasing");
     expect(prompt).toContain("Do not fabricate tool execution");
