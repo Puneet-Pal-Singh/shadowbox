@@ -15,7 +15,7 @@ NC='\033[0m'
 echo -e "${YELLOW}[runtime-conformance-gate] Starting checks...${NC}"
 
 echo -e "${YELLOW}[runtime-conformance-gate] Type checking execution-engine and brain...${NC}"
-pnpm check-types > /dev/null
+pnpm check-types
 echo -e "${GREEN}[runtime-conformance-gate] ✓ Type checks passed${NC}"
 
 echo -e "${YELLOW}[runtime-conformance-gate] Running boundary and parity tests...${NC}"
