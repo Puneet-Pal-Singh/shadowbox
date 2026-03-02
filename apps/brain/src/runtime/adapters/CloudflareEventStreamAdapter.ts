@@ -5,7 +5,6 @@
  * Bridges Cloudflare Workers streaming to port contracts.
  */
 
-import { TransformStream } from "web-streams-polyfill";
 import type { StreamEvent, RealtimeEventPort } from "../ports";
 
 /**
