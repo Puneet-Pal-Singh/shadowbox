@@ -15,6 +15,8 @@ import {
 import { extractSessionToken } from "../services/AuthService";
 import { resolveAuthorizedProviderScope } from "./provider/ProviderAuthScopeService";
 
+type RuntimeHarnessId = "cloudflare-sandbox" | "local-sandbox";
+
 export interface ExecutionScope {
   userId?: string;
   workspaceId?: string;
@@ -33,6 +35,7 @@ export interface RunEngineExecutionPayload {
     sessionId: string;
     providerId?: string;
     modelId?: string;
+    harnessId?: RuntimeHarnessId;
     repositoryContext?: RepositoryContext;
   };
   messages: CoreMessage[];

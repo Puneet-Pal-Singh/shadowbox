@@ -1,0 +1,98 @@
+import { describe, expect, it } from "vitest";
+import { RoutingDetector } from "../lib/RoutingDetector.js";
+import {
+  RunManifestMismatchError,
+  createRunManifest,
+  ensureManifestMatch,
+} from "./RunManifestPolicy.js";
+import type { RuntimeHarnessId } from "../types.js";
+
+const PROVIDERS = ["openai", "groq"] as const;
+const HARNESSES = ["cloudflare-sandbox", "local-sandbox"] as const satisfies RuntimeHarnessId[];
+
+describe("RunManifestPolicy matrix conformance", () => {
+  it("creates deterministic run manifests across provider/harness matrix", () => {
+    for (const providerId of PROVIDERS) {
+      for (const harnessId of HARNESSES) {
+        const manifest = createRunManifest({
+          agentType: "coding",
+          prompt: "check readme",
+          sessionId: "session-1",
+          providerId,
+          modelId: `${providerId}-model`,
+          harnessId,
+        });
+
+        expect(manifest.providerId).toBe(providerId);
+        expect(manifest.modelId).toBe(`${providerId}-model`);
+        expect(manifest.harness).toBe(harnessId);
+        expect(manifest.orchestratorBackend).toBe("execution-engine-v1");
+      }
+    }
+  });
+
+  it("rejects active-run manifest drift when harness or provider changes", () => {
+    const existing = createRunManifest({
+      agentType: "coding",
+      prompt: "run once",
+      sessionId: "session-1",
+      providerId: "openai",
+      modelId: "gpt-4o",
+      harnessId: "cloudflare-sandbox",
+    });
+
+    const changedHarness = createRunManifest({
+      agentType: "coding",
+      prompt: "same run",
+      sessionId: "session-1",
+      providerId: "openai",
+      modelId: "gpt-4o",
+      harnessId: "local-sandbox",
+    });
+
+    const changedProvider = createRunManifest({
+      agentType: "coding",
+      prompt: "same run",
+      sessionId: "session-1",
+      providerId: "groq",
+      modelId: "llama-3.3-70b-versatile",
+      harnessId: "cloudflare-sandbox",
+    });
+
+    expect(() => ensureManifestMatch(existing, changedHarness)).toThrow(
+      RunManifestMismatchError,
+    );
+    expect(() => ensureManifestMatch(existing, changedProvider)).toThrow(
+      RunManifestMismatchError,
+    );
+  });
+
+  it("keeps behavior class parity stable across provider/harness matrix", () => {
+    const prompts = [
+      { prompt: "hey", expectedBypass: true },
+      { prompt: "check README.md", expectedBypass: false },
+      { prompt: "what can you do?", expectedBypass: true },
+      { prompt: "fix this", expectedBypass: false },
+    ] as const;
+
+    for (const providerId of PROVIDERS) {
+      for (const harnessId of HARNESSES) {
+        for (const fixture of prompts) {
+          const manifest = createRunManifest({
+            agentType: "coding",
+            prompt: fixture.prompt,
+            sessionId: "session-1",
+            providerId,
+            modelId: `${providerId}-model`,
+            harnessId,
+          });
+          const decision = RoutingDetector.analyze(fixture.prompt);
+          expect(decision.bypass).toBe(fixture.expectedBypass);
+          expect(decision.reasonCode.length).toBeGreaterThan(0);
+          expect(manifest.providerId).toBe(providerId);
+          expect(manifest.harness).toBe(harnessId);
+        }
+      }
+    }
+  });
+});
