@@ -19,11 +19,3 @@ export type {
   ArtifactMetadata,
   ArtifactUploadInput,
 } from "./ArtifactStorePort";
-
-// Adapter convenience exports (for single-import composition)
-export { 
-  CloudflareSandboxExecutionAdapter,
-  CloudflareSessionStateAdapter,
-  CloudflareArtifactStoreAdapter,
-  AgentRuntimeAdapterFactory,
-} from "../adapters";

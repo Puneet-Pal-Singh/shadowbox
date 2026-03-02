@@ -12,8 +12,32 @@ import { describe, expect, it, beforeEach } from "vitest";
 import { CloudflareArtifactStoreAdapter } from "./CloudflareArtifactStoreAdapter";
 import { ArtifactMetadata } from "../ports";
 
-// Mock R2 bucket
-class MockR2Bucket {
+// Local R2 types for test
+interface R2Object {
+  key: string;
+  version: string;
+  size: number;
+  etag: string;
+  uploaded: Date;
+  httpMetadata?: Record<string, string>;
+  customMetadata?: Record<string, string>;
+  arrayBuffer(): Promise<ArrayBuffer>;
+}
+
+interface R2Bucket {
+  head(key: string): Promise<R2Object | null>;
+  get(key: string): Promise<R2Object | null>;
+  put(
+    key: string,
+    value: ReadableStream | ArrayBuffer | Uint8Array | string,
+    options?: { httpMetadata?: Record<string, string> },
+  ): Promise<R2Object>;
+  delete(keys: string | string[]): Promise<void>;
+  list(options?: { prefix?: string }): Promise<{ objects: R2Object[] }>;
+}
+
+// Mock R2 bucket implementing R2Bucket interface
+class MockR2Bucket implements R2Bucket {
   private objects = new Map<
     string,
     {
@@ -24,7 +48,7 @@ class MockR2Bucket {
     }
   >();
 
-  async head(key: string) {
+  async head(key: string): Promise<R2Object | null> {
     const obj = this.objects.get(key);
     if (!obj) return null;
 
@@ -38,7 +62,7 @@ class MockR2Bucket {
     };
   }
 
-  async get(key: string) {
+  async get(key: string): Promise<R2Object | null> {
     const obj = this.objects.get(key);
     if (!obj) return null;
 
@@ -56,10 +80,10 @@ class MockR2Bucket {
 
   async put(
     key: string,
-    value: Uint8Array,
+    value: ReadableStream | ArrayBuffer | Uint8Array | string,
     options?: { httpMetadata?: Record<string, string> },
-  ) {
-    const data = value instanceof Uint8Array ? value : new Uint8Array(value);
+  ): Promise<R2Object> {
+    const data = value instanceof Uint8Array ? value : new Uint8Array(Buffer.from(value as string));
     const contentType = options?.httpMetadata?.["content-type"] ?? "application/octet-stream";
     this.objects.set(key, {
       data,
@@ -77,12 +101,12 @@ class MockR2Bucket {
     };
   }
 
-  async delete(keys: string | string[]) {
+  async delete(keys: string | string[]): Promise<void> {
     const keyArray = Array.isArray(keys) ? keys : [keys];
     keyArray.forEach((key) => this.objects.delete(key));
   }
 
-  async list(options?: { prefix?: string }) {
+  async list(options?: { prefix?: string }): Promise<{ objects: R2Object[] }> {
     const prefix = options?.prefix;
     const objects = Array.from(this.objects.entries())
       .filter(([key]) => !prefix || key.startsWith(prefix))
@@ -94,11 +118,7 @@ class MockR2Bucket {
         uploaded: obj.uploaded,
       }));
 
-    return {
-      objects,
-      delimitedPrefixes: [],
-      isTruncated: false,
-    };
+    return { objects };
   }
 
   getObjects() {
@@ -112,7 +132,7 @@ describe("CloudflareArtifactStoreAdapter", () => {
 
   beforeEach(() => {
     mockBucket = new MockR2Bucket();
-    adapter = new CloudflareArtifactStoreAdapter(mockBucket as any);
+    adapter = new CloudflareArtifactStoreAdapter(mockBucket);
   });
 
   describe("upload", () => {
@@ -133,14 +153,18 @@ describe("CloudflareArtifactStoreAdapter", () => {
 
     it("should include custom metadata", async () => {
       const data = new Uint8Array([1, 2, 3]);
-      await adapter.upload({
+      const uploadedMetadata = await adapter.upload({
         sessionId: "session-2",
         contentType: "text/plain",
         data,
         metadata: { author: "test", version: "1" },
       });
 
+      // Verify object was stored
       expect(mockBucket.getObjects().size).toBe(1);
+
+      // Verify metadata was preserved in the returned object
+      expect(uploadedMetadata.metadata).toEqual({ author: "test", version: "1" });
     });
 
     it("should generate unique IDs for different uploads", async () => {
