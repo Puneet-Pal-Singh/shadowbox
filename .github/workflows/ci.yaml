@@ -109,6 +109,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
 
+      - name: Build workspace packages
+        run: pnpm build
+
       - name: Run runtime conformance gate
         run: pnpm gate:runtime-conformance
 
@@ -193,6 +196,9 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
+
+      - name: Build workspace packages
+        run: pnpm build
 
       - name: Run boundary checks (strict)
         run: |
