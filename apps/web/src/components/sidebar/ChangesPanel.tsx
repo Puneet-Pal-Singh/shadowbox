@@ -21,7 +21,13 @@ export function ChangesPanel({
   onFileSelect 
 }: ChangesPanelProps) {
   const { runId, sessionId } = useRunContext();
-  const { status, loading: statusLoading, error: statusError, refetch } = useGitStatus();
+  const {
+    status,
+    gitAvailable,
+    loading: statusLoading,
+    error: statusError,
+    refetch,
+  } = useGitStatus();
   const { diff, loading: diffLoading, fetch: fetchDiff } = useGitDiff();
   const { committing, error: commitError, commit } = useGitCommit();
 
@@ -101,6 +107,15 @@ export function ChangesPanel({
     return (
       <div className={`p-4 text-red-400 text-sm bg-black ${className}`}>
         Error: {statusError}
+      </div>
+    );
+  }
+
+  if (!gitAvailable) {
+    return (
+      <div className={`p-4 text-zinc-400 text-sm bg-black ${className}`}>
+        Git is not available for this workspace yet. Connect or initialize a
+        repository to use source control actions.
       </div>
     );
   }

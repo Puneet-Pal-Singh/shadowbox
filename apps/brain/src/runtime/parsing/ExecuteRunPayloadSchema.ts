@@ -39,6 +39,7 @@ const CoreMessageSchema = z.union([
  *   - sessionId: user session (required)
  *   - providerId: provider override (optional, must pair with modelId)
  *   - modelId: model override (optional, must pair with providerId)
+ *   - harnessId: execution harness override (optional)
  * - messages: conversation history (required, array of CoreMessage)
  */
 export const ExecuteRunPayloadSchema = z.object({
@@ -55,6 +56,7 @@ export const ExecuteRunPayloadSchema = z.object({
       sessionId: z.string().trim().min(1),
       providerId: z.string().trim().min(1).optional(),
       modelId: z.string().trim().min(1).optional(),
+      harnessId: z.enum(["cloudflare-sandbox", "local-sandbox"]).optional(),
       repositoryContext: z
         .object({
           owner: z.string().trim().min(1).optional(),

@@ -72,6 +72,12 @@ export class GitController {
 
       return corsJsonResponse(req, env, data);
     } catch (error) {
+      if (
+        error instanceof Error &&
+        isNotGitRepositoryMessage(error.message)
+      ) {
+        return corsJsonResponse(req, env, getRecoverableNotGitStatus());
+      }
       console.error("[GitController:getStatus] Error:", error);
       return errorResponse(
         req,
@@ -271,6 +277,9 @@ function parseGitPayload<T>(
         typeof payload.error === "string" && payload.error.trim().length > 0
           ? payload.error.trim()
           : "unknown plugin error";
+      if (operation === "status" && isNotGitRepositoryMessage(details)) {
+        return getRecoverableNotGitStatus() as unknown as T;
+      }
       throw new Error(`Git ${operation} failed: ${details}`);
     }
 
@@ -282,6 +291,23 @@ function parseGitPayload<T>(
   }
 
   return payload as T;
+}
+
+function isNotGitRepositoryMessage(message: string): boolean {
+  return /not a git repository/i.test(message);
+}
+
+function getRecoverableNotGitStatus(): GitStatusResponse {
+  return {
+    files: [],
+    ahead: 0,
+    behind: 0,
+    branch: "",
+    hasStaged: false,
+    hasUnstaged: false,
+    gitAvailable: false,
+    recoverableCode: "NOT_A_GIT_REPOSITORY",
+  };
 }
 
 function parseGitOutput<T>(
