@@ -20,9 +20,12 @@ import type {
   SessionStatePort,
   ArtifactStorePort,
 } from "../ports";
+import type { Env } from "../index";
+import type { DurableObjectState } from "@cloudflare/workers-types";
 
 /**
  * Mock DurableObjectState for testing.
+ * This is a simplified mock - in production use, ensure type compatibility.
  */
 class MockDurableObjectState {
   private store = new Map<string, unknown>();
@@ -52,6 +55,12 @@ class MockDurableObjectState {
     }
     return result;
   }
+
+  // Mock additional DurableObjectState methods needed for full compatibility
+  id = { toString: () => "test-id" };
+  env = {};
+  waitUntil = (promise: Promise<unknown>) => {};
+  passThroughOnException = () => {};
 }
 
 /**
@@ -90,6 +99,8 @@ describe("Portability Conformance", () => {
 
   beforeEach(() => {
     durableObjectState = new MockDurableObjectState();
+    // Use as unknown as casts for mocked state in tests
+    // In production, pass real DurableObjectState from Cloudflare runtime
     runtime = composeRuntime(
       durableObjectState as unknown as DurableObjectState,
       mockEnv as unknown as Env,

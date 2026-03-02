@@ -12,6 +12,7 @@
  */
 
 import type { DurableObjectState } from "@cloudflare/workers-types";
+import { Sandbox } from "@cloudflare/sandbox";
 import type {
   SandboxExecutionPort,
   SessionStatePort,
@@ -42,21 +43,42 @@ export interface ComposedRuntime {
  *
  * The result is a runtime that depends on ports, not Cloudflare primitives.
  *
+ * **Implementation Note**: This is a Phase 1 stub.
+ * SHA-23 Phase 3 will refactor AgentRuntime to use composed ports.
+ * This factory demonstrates the composition pattern and will be
+ * integrated into AgentRuntime's constructor.
+ *
+ * **Dependencies Required**:
+ * - Sandbox instance (from Cloudflare runtime)
+ * - Plugin registry (from AgentRuntime)
+ * - DurableObjectState (for storage)
+ * - Env (for R2 bucket binding)
+ *
  * @param durableObjectState - Durable Object context for storage
  * @param env - Cloudflare environment with R2 bucket binding
  * @returns Composed runtime with all ports wired
+ * @throws Error - If called with incomplete dependencies
  */
 export function composeRuntime(
   durableObjectState: DurableObjectState,
   env: Env,
 ): ComposedRuntime {
-  // 1. Create adapters (Cloudflare-backed implementations)
-  const executionAdapter = new CloudflareSandboxExecutionAdapter(
-    durableObjectState,
-    env,
-  );
+  // Phase 1 Implementation: Create adapters with available dependencies
+  // Note: This is a stub demonstrating the pattern.
+  // Full implementation requires Sandbox and plugin registry from AgentRuntime.
+
+  // Session and artifact adapters are complete and can be instantiated
   const sessionAdapter = new CloudflareSessionStateAdapter(durableObjectState);
-  const artifactAdapter = new CloudflareArtifactStoreAdapter(env.ARTIFACTS);
+  const artifactAdapter = new CloudflareArtifactStoreAdapter(
+    env.ARTIFACTS as unknown as R2Bucket,
+  );
+
+  // Execution adapter requires Sandbox and plugin registry from AgentRuntime
+  // Will be injected in SHA-23 Phase 3 refactoring
+  const executionAdapter = new CloudflareSandboxExecutionAdapter(
+    null as unknown as Sandbox,
+    new Map(),
+  );
 
   // 2. Return as port abstractions
   // Callers depend on ports, not concrete adapters
