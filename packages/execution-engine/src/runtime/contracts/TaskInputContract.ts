@@ -21,14 +21,30 @@ export const VALID_GIT_ACTIONS = [
   "git_config",
 ] as const;
 
-const VAGUE_INPUT_PATTERNS = [
+const VAGUE_PATH_INPUT_PATTERNS = [
   /^(analyze|analyze the|check|check if|look at|examine|read the)/i,
   /^(if |when |make |ensure |install )/i,
   /^(find |search |locate |discover )/i,
 ];
 
+const VAGUE_COMMAND_INPUT_PATTERNS = [
+  /^(if |when )/i,
+  /^(check if|make sure|ensure)\b/i,
+  /^(find|search|locate|discover)\s+(the|for)\b/i,
+];
+
+const MAX_TASK_INPUT_LENGTH = 500;
+
 export function isVagueTaskInput(value: string): boolean {
-  return VAGUE_INPUT_PATTERNS.some((pattern) => pattern.test(value.trim()));
+  return VAGUE_PATH_INPUT_PATTERNS.some((pattern) =>
+    pattern.test(value.trim()),
+  );
+}
+
+function isVagueCommandInput(value: string): boolean {
+  return VAGUE_COMMAND_INPUT_PATTERNS.some((pattern) =>
+    pattern.test(value.trim()),
+  );
 }
 
 export function isConcretePathInput(value: unknown): value is string {
@@ -38,7 +54,7 @@ export function isConcretePathInput(value: unknown): value is string {
   const normalized = value.trim();
   return (
     normalized.length > 0 &&
-    normalized.length < 500 &&
+    normalized.length <= MAX_TASK_INPUT_LENGTH &&
     !isVagueTaskInput(normalized)
   );
 }
@@ -50,8 +66,8 @@ export function isConcreteCommandInput(value: unknown): value is string {
   const normalized = value.trim();
   return (
     normalized.length > 0 &&
-    normalized.length < 500 &&
-    !isVagueTaskInput(normalized)
+    normalized.length <= MAX_TASK_INPUT_LENGTH &&
+    !isVagueCommandInput(normalized)
   );
 }
 

@@ -181,8 +181,10 @@ VALIDATION RULES:
   }
 
   private async executeAnalyze(task: Task): Promise<TaskResult> {
-    const rawPath =
-      extractStructuredField(task.input, "path") ?? task.input.description;
+    const rawPath = extractStructuredField(task.input, "path");
+    if (!rawPath) {
+      throw new TaskInputError("analyze", "Missing 'path' field in task input");
+    }
     const path = normalizeTaskPath(rawPath);
     validateTaskPath(path);
     validateSafePath(path);
@@ -219,8 +221,10 @@ VALIDATION RULES:
   }
 
   private async executeEdit(task: Task): Promise<TaskResult> {
-    const rawPath =
-      extractStructuredField(task.input, "path") ?? task.input.description;
+    const rawPath = extractStructuredField(task.input, "path");
+    if (!rawPath) {
+      throw new TaskInputError("edit", "Missing 'path' field in task input");
+    }
     const path = normalizeTaskPath(rawPath);
     validateTaskPath(path);
     validateSafePath(path);
@@ -247,8 +251,10 @@ VALIDATION RULES:
   }
 
   private async executeTest(task: Task): Promise<TaskResult> {
-    const command =
-      extractStructuredField(task.input, "command") ?? task.input.description;
+    const command = extractStructuredField(task.input, "command");
+    if (!command) {
+      throw new TaskInputError("test", "Missing 'command' field in task input");
+    }
     validateShellCommand(command);
 
     const result = await this.executionService.execute("node", "run", {
@@ -263,8 +269,10 @@ VALIDATION RULES:
   }
 
   private async executeShell(task: Task): Promise<TaskResult> {
-    const command =
-      extractStructuredField(task.input, "command") ?? task.input.description;
+    const command = extractStructuredField(task.input, "command");
+    if (!command) {
+      throw new TaskInputError("shell", "Missing 'command' field in task input");
+    }
     validateShellCommand(command);
 
     const normalizedCommand = command.trim();
