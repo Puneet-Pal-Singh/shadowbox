@@ -27,14 +27,18 @@ interface ChatRequestBody {
   runId: string;
   providerId?: string;
   modelId?: string;
-  harnessId?: "cloudflare-sandbox" | "local-sandbox";
+  harnessId?: RuntimeHarnessId;
   repositoryOwner?: string;
   repositoryName?: string;
   repositoryBranch?: string;
   repositoryBaseUrl?: string;
 }
 
-const DEFAULT_RUNTIME_HARNESS: "cloudflare-sandbox" = "cloudflare-sandbox";
+type RuntimeHarnessId = "cloudflare-sandbox" | "local-sandbox";
+
+const DEFAULT_RUNTIME_HARNESS: RuntimeHarnessId = "cloudflare-sandbox";
+const RUNTIME_HARNESS_QUERY_PARAM = "harness";
+const RUNTIME_HARNESS_SESSION_KEY_PREFIX = "shadowbox:runtime-harness:";
 
 /**
  * useChatCore
@@ -184,10 +188,11 @@ export function useChatCore(
       const includeOverride = Boolean(
         hasConnectedCredential && credentialId && providerId && modelId,
       );
+      const resolvedHarnessId = resolveRuntimeHarnessId(sessionId);
       const requestBody: ChatRequestBody = {
         sessionId,
         runId,
-        harnessId: DEFAULT_RUNTIME_HARNESS,
+        harnessId: resolvedHarnessId,
         ...loadRepositoryContextFields(sessionId),
       };
       if (includeOverride) {
@@ -393,6 +398,41 @@ function containsOpenRouterKeyLimitError(message: string): boolean {
 
 function containsToolChoiceUnsupportedError(message: string): boolean {
   return message.includes("support the provided 'tool_choice' value");
+}
+
+function resolveRuntimeHarnessId(sessionId: string): RuntimeHarnessId {
+  return (
+    loadRuntimeHarnessFromSession(sessionId) ??
+    loadRuntimeHarnessFromQuery() ??
+    DEFAULT_RUNTIME_HARNESS
+  );
+}
+
+function loadRuntimeHarnessFromSession(
+  sessionId: string,
+): RuntimeHarnessId | undefined {
+  try {
+    const storedHarness = sessionStorage.getItem(
+      `${RUNTIME_HARNESS_SESSION_KEY_PREFIX}${sessionId}`,
+    );
+    return isRuntimeHarnessId(storedHarness) ? storedHarness : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function loadRuntimeHarnessFromQuery(): RuntimeHarnessId | undefined {
+  if (typeof window === "undefined") {
+    return undefined;
+  }
+  const queryHarness = new URLSearchParams(window.location.search).get(
+    RUNTIME_HARNESS_QUERY_PARAM,
+  );
+  return isRuntimeHarnessId(queryHarness) ? queryHarness : undefined;
+}
+
+function isRuntimeHarnessId(value: unknown): value is RuntimeHarnessId {
+  return value === "cloudflare-sandbox" || value === "local-sandbox";
 }
 
 function loadRepositoryContextFields(
