@@ -139,7 +139,7 @@ export class ProviderResolutionService {
       return createBYOKError(
         "CREDENTIAL_NOT_FOUND",
         "Requested credential is missing or not connected",
-        { credentialId: request.credentialId ?? "" },
+        { correlationId: request.credentialId },
       );
     }
 
@@ -181,7 +181,7 @@ export class ProviderResolutionService {
       return createBYOKError(
         "CREDENTIAL_NOT_FOUND",
         "Workspace default credential is missing or not connected",
-        { credentialId: preferences.defaultCredentialId ?? "" },
+        { correlationId: preferences.defaultCredentialId },
       );
     }
 
