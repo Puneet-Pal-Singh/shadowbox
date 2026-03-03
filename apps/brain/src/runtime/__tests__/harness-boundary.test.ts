@@ -9,16 +9,13 @@ import * as path from "path";
  * Core runtime must depend ONLY on HarnessAdapterPort, not harness implementations.
  *
  * Blocking list: Files that should NEVER import harness-specific modules.
- * - RunEngine
- * - RunEngineRuntime
- * - Execution orchestration core
- * - Provider/model policy enforcement
+ * - RunEngineRuntime (orchestration)
+ * - SessionMemoryRuntime (session management)
  */
 describe("HarnessAdapterPort Boundary", () => {
   const coreModules = [
-    "./engine/RunEngine.ts",
-    "./engine/RunManifestPolicy.ts",
-    "./provider/ProviderConfiguration.ts",
+    "./RunEngineRuntime.ts",
+    "./SessionMemoryRuntime.ts",
   ];
 
   const forbiddenImports = [
