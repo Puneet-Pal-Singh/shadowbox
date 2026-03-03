@@ -1,9 +1,14 @@
 import { describe, it, expect } from "vitest";
 import { HarnessAdapterRegistryImpl } from "../HarnessAdapterRegistryImpl.js";
-import type { HarnessAdapter, HarnessId } from "../../ports/HarnessAdapterPort.js";
+import type {
+  HarnessAdapter,
+  HarnessCapabilities,
+  HarnessId,
+} from "../../ports/HarnessAdapterPort.js";
 
 /**
  * Mock harness adapter for testing.
+ * Implements all methods with exact port signatures.
  */
 class MockHarnessAdapter implements HarnessAdapter {
   constructor(private id: HarnessId) {}
@@ -12,7 +17,7 @@ class MockHarnessAdapter implements HarnessAdapter {
     return this.id;
   }
 
-  getCapabilities() {
+  getCapabilities(): HarnessCapabilities {
     return {
       supportsStreaming: true,
       supportsRealtime: true,
@@ -21,15 +26,15 @@ class MockHarnessAdapter implements HarnessAdapter {
     };
   }
 
-  async initialize(): Promise<void> {
+  async initialize(_runId: string): Promise<void> {
     // Mock implementation
   }
 
-  async cleanup(): Promise<void> {
+  async cleanup(_runId: string): Promise<void> {
     // Mock implementation
   }
 
-  validateConfiguration(): boolean {
+  validateConfiguration(_config: Record<string, unknown>): boolean {
     return true;
   }
 }

@@ -35,7 +35,7 @@ describe("RunManifestPolicy", () => {
     it("should normalize provider and model IDs", () => {
       const input = createInput({
         providerId: "  openai  ",
-        modelId: "gpt-4",
+        modelId: "  gpt-4  ",
       });
       const manifest = createRunManifest(input);
 

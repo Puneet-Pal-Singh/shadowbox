@@ -9,16 +9,13 @@ import * as path from "path";
  * Core runtime must depend ONLY on HarnessAdapterPort, not harness implementations.
  *
  * Blocking list: Files that should NEVER import harness-specific modules.
- * - RunEngine
- * - RunEngineRuntime
- * - Execution orchestration core
- * - Provider/model policy enforcement
+ * - RunEngineRuntime (orchestration)
+ * - SessionMemoryRuntime (session management)
  */
 describe("HarnessAdapterPort Boundary", () => {
   const coreModules = [
-    "./engine/RunEngine.ts",
-    "./engine/RunManifestPolicy.ts",
-    "./provider/ProviderConfiguration.ts",
+    "./RunEngineRuntime.ts",
+    "./SessionMemoryRuntime.ts",
   ];
 
   const forbiddenImports = [
@@ -30,28 +27,35 @@ describe("HarnessAdapterPort Boundary", () => {
 
   it("should prevent harness-specific imports in core runtime modules", () => {
     const runtimePath = path.join(__dirname, "..");
+    let testedModuleCount = 0;
 
     for (const modulePath of coreModules) {
       const fullPath = path.join(runtimePath, modulePath);
 
       if (!fs.existsSync(fullPath)) {
-        console.warn(`Module not found for boundary test: ${fullPath}`);
+        // Module doesn't exist yet (in-progress implementation), skip silently
         continue;
       }
 
+      testedModuleCount++;
       const content = fs.readFileSync(fullPath, "utf-8");
 
       for (const forbiddenImport of forbiddenImports) {
-        expect(content).not.toContain(
-          `from "${forbiddenImport}"`,
-          `Core module ${modulePath} imports forbidden harness module: ${forbiddenImport}`,
+        // Match: from "module", from 'module', require("module"), require('module')
+        // with flexible whitespace
+        const pattern = new RegExp(
+          String.raw`(?:from|require)\s*\(?\s*['"]${forbiddenImport}['"]`,
         );
-        expect(content).not.toContain(
-          `require("${forbiddenImport}")`,
-          `Core module ${modulePath} requires forbidden harness module: ${forbiddenImport}`,
+
+        expect(content).not.toMatch(
+          pattern,
+          `Core module ${modulePath} imports forbidden harness module: ${forbiddenImport}`,
         );
       }
     }
+
+    // Ensure at least the implemented modules are tested
+    expect(testedModuleCount).toBeGreaterThan(0);
   });
 
   it("should export HarnessAdapterPort from ports index", () => {
