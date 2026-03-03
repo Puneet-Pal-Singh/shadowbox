@@ -289,178 +289,73 @@ git log --oneline main..HEAD
 # Push branch to remote
 git push -u origin <branch-name>
 
-# Create PR with gh CLI
+# Create PR with gh CLI (use repo template body file)
+PR_TITLE="fix(runtime): enforce runId isolation in harness adapter"
+cp .github/pull_request_template.md /tmp/pr-body.md
+${EDITOR:-vi} /tmp/pr-body.md
+
 gh pr create \
-  --title "feat: descriptive title" \
-  --body "$(cat <<'EOF'
-## Summary
-Brief description of changes
-
-## Changes
-- Change 1
-- Change 2
-
-## Testing
-- [ ] Unit tests pass
-- [ ] Integration tests pass
-- [ ] Manual testing performed
-
-## Checklist
-- [ ] Code follows style guide
-- [ ] Self-review completed
-- [ ] Documentation updated
-- [ ] No breaking changes (or documented)
-EOF
-)"
+  --base main \
+  --head <branch-name> \
+  --title "$PR_TITLE" \
+  --body-file /tmp/pr-body.md
 ```
 
-### PR Title Format
+### PR Title Rules (Required)
 
-Follow conventional commits:
+Use conventional-commit type in title:
 
 ```bash
-feat: add model provider abstraction (OpenAI and LocalMock adapters)
-fix: resolve race condition in cache invalidation
-chore: update dependencies
-refactor: simplify error handling
-docs: update API documentation
+# Required:
+<type>(<scope>): <imperative summary>
+
+# Good:
+fix(runtime): enforce runId isolation in harness adapter
+feat(web): add composer model picker popover
+refactor(brain): extract run lifecycle collaborators
+
+# Avoid:
+runtime: enforce runId isolation
+fix: misc changes
+update PR
 ```
 
-### PR Body Template
+Type selection guide:
 
-**REQUIRED**: Always include an executive summary box with:
+- `feat`: adds new externally visible behavior/capability.
+- `fix`: corrects incorrect behavior, bug, or regression.
+- `refactor`: internal structure change only, no behavior/contract change.
+- If PR mixes refactor + behavior change, choose `feat` or `fix` by user-visible outcome.
+
+### PR Body Template (Required)
+
+Use this exact section order:
 
 ```markdown
 ## Summary
 
-One-paragraph explanation of the change.
+## What was accomplished
 
-## What's Included
+## Why this change
 
-- **Component 1** (X lines) — Purpose
-- **Component 2** (Y lines) — Purpose
-- **Tests** (Z lines, coverage %) — Test scope
-
-## Key Features
-
-✅ Feature 1  
-✅ Feature 2  
-✅ Feature 3
+## Changes
 
 ## Verification
 
-✅ TypeScript strict: `pnpm typecheck`  
-✅ Builds: `pnpm build`  
-✅ Tests pass: `pnpm test`  
-✅ Zero `any` types
-
-## Motivation
-
-Why is this change needed? What problem does it solve?
-
-## Changes
-
-- Specific change 1
-- Specific change 2
-- Specific change 3
-
 ## Testing
 
-Describe how you tested these changes:
-
-- Unit tests: `npm test -- src/feature.test.ts`
-- Integration tests: `npm run test:integration`
-- Manual testing steps
-
-## Screenshots (if UI changes)
-
-[Include relevant screenshots]
-
-## Breaking Changes
-
-List any breaking changes and migration steps.
-
-## Related Issues
-
-Fixes #123
-Relates to #456
-
-## Checklist
-
-- [ ] My code follows the project's style guidelines
-- [ ] I have performed a self-review
-- [ ] I have commented my code, particularly in hard-to-understand areas
-- [ ] I have made corresponding documentation changes
-- [ ] My changes generate no new warnings
-- [ ] I have added tests that prove my fix is effective
-- [ ] New and existing unit tests pass locally
-- [ ] Any dependent changes have been merged and published
+## Related
 ```
 
-### PR Description Requirements
+### PR Content Safety (Mandatory)
 
-**MANDATORY** for all PRs:
-
-**Title + Summary format (simple, concise, PR-ready):**
-
-```markdown
-## Title
-feat: add model provider abstraction (OpenAI and LocalMock adapters)
-
-## Summary
-
-✅ Model adapters and tool integration complete
-
-**Branch**: feat/execution-engine-model-provider-abstraction
-
-### What Was Built
-
-5 Atomic Commits (1,445 lines of code + 496 lines of tests):
-
-**ModelProvider Abstraction** (418 lines)
-- ModelProvider.ts — Interface + schemas (Zod)
-- OpenAIAdapter.ts — Production OpenAI implementation
-- LocalMockAdapter.ts — Deterministic testing mock
-- Full type safety, zero `any` types
-
-**Output Validation** (103 lines)
-- OutputValidator.ts — JSON extraction, tool call parsing
-- Schema validation with Zod
-- Markdown code block handling
-
-**Tool Framework** (428 lines)
-- Tool.ts — Base abstraction
-- ToolValidator.ts — Path/command/arg validation
-- ToolRegistry.ts — Tool registration & lookup
-- ToolExecutor.ts — Safe execution with timeout & retry
-
-**Main API Export** (27 lines)
-- All new modules exported from `src/index.ts`
-- Resolved name conflicts between adapters & tools
-
-**Comprehensive Tests** (496 lines, 70%+ coverage)
-- model-adapter.test.ts — Integration tests
-- adapters.test.ts — Unit tests for validation
-- tools.test.ts — Registry & executor tests
-
-### Key Features
-
-✅ Model Abstraction: Swap OpenAI/Anthropic/local without changing engine
-✅ Output Safety: Zod validation + markdown parsing
-✅ Tool Safety: File path validation, command sanitization, timeout enforcement
-✅ Determinism: LocalMock adapter for reproducible testing
-✅ No extra runtime dependencies: only Zod
-
-### Verification
-
-✅ TypeScript strict: `pnpm --filter=@shadowbox/execution-engine type-check`
-✅ Builds: `pnpm --filter=@shadowbox/execution-engine build`
-✅ Zero `any` types
-✅ 5 atomic commits (conventional format)
-✅ All specific paths in `git add` (no `-A`)
-
-**Ready for PR review and merge.**
-```
+- Never include internal references in PR body (`SHA-*`, internal plan IDs, internal Linear-only IDs).
+- Never include internal/local file paths or filenames from ignored/private files (for example content under `plans/`, `local/`, or any `.gitignore`d path).
+- Do not add a `References` section containing private planning links.
+- `## Related` is only for public GitHub links:
+  - Related PRs: `https://github.com/<org>/<repo>/pull/<n>`
+  - Public issues: `https://github.com/<org>/<repo>/issues/<n>`
+  - If none, write `N/A`.
 
 ---
 
