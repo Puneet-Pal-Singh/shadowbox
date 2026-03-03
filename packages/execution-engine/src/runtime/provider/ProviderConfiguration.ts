@@ -1,9 +1,12 @@
 // packages/execution-engine/src/runtime/provider/ProviderConfiguration.ts
-// Phase 5: Unified provider/model configuration with fallbacks
+// RCP3: Unified provider/model configuration WITHOUT fallback chains
 
 /**
  * Single source of truth for provider/model defaults across all layers.
- * Prevents selection mismatches and allowlist conflicts.
+ * Prevents selection mismatches and enforces explicit provider/model selection.
+ *
+ * RCP3 CHANGE: Removed fallback model selection logic.
+ * Configuration must be explicit: no silent fallback to alternative models.
  */
 export class ProviderConfiguration {
   /**
@@ -13,20 +16,11 @@ export class ProviderConfiguration {
   static readonly DEFAULT_PROVIDER = "openrouter" as const;
 
   /**
-   * Default free model on the default provider
+   * Default model on the default provider
    * Used when no explicit model selection is provided
+   * This is the ONLY model used when configuration selection is missing
    */
   static readonly DEFAULT_MODEL = "arcee-ai/trinity-large-preview:free" as const;
-
-  /**
-   * Fallback models if primary default is unavailable
-   * Models known to work reliably on platform provider
-   */
-  static readonly FALLBACK_MODELS = [
-    "llama-3.3-70b-versatile",
-    "mistral-large",
-    "grok-2",
-  ] as const;
 
   /**
    * Well-known open router models that are stable
@@ -74,16 +68,17 @@ export class ProviderConfiguration {
   }
 
   /**
-   * Get a safe fallback model for a provider
+   * DEPRECATED: getFallbackModel has been removed (RCP3).
+   * Use DEFAULT_MODEL instead for explicit, non-fallback selection.
+   * 
+   * If called, throws error to prevent silent fallback behavior.
    */
-  static getFallbackModel(
-    provider: string,
-  ): string {
-    if (provider === "openrouter") {
-      return this.FALLBACK_MODELS[0];
-    }
-    // For BYOK/custom providers, no fallback - let caller decide
-    return this.DEFAULT_MODEL;
+  static getFallbackModel(_provider: string): never {
+    throw new Error(
+      "[provider/config] getFallbackModel is deprecated (RCP3). " +
+      "Use DEFAULT_MODEL for explicit non-fallback selection. " +
+      "Fallback model chains are no longer supported.",
+    );
   }
 
   /**

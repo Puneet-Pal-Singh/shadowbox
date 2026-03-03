@@ -2,13 +2,15 @@
  * Provider Resolution Service
  *
  * Resolves the effective provider configuration for a request.
- * Implements the resolution pipeline:
- * 1. Request override
- * 2. Session preference
- * 3. Workspace preference
- * 4. Platform fallback
+ * Implements the resolution pipeline with EXPLICIT STRICT MODE (no silent fallbacks):
+ * 1. Request override - explicit provider/model or error
+ * 2. Session preference - explicit provider/model or error
+ * 3. Workspace preference - explicit provider/model or error
+ * 4. Platform standard defaults - only if all steps yield no preference
  *
- * Also handles fallback chain (strict vs allow_fallback mode).
+ * KEY CHANGE (RCP3): Removed allow_fallback mode and fallback chains.
+ * All invalid/missing selections now fail fast with typed errors.
+ * Silent provider/model switching is NO LONGER SUPPORTED.
  */
 
 import {
@@ -37,16 +39,15 @@ export interface PlatformDefaults {
 }
 
 /**
- * Workspace preferences (Phase 2 placeholder)
+ * Workspace preferences
  *
- * Defines user/workspace-level provider preferences and fallback behavior.
+ * Defines user/workspace-level provider preferences.
+ * NO FALLBACK CHAINS: Selections are explicit or invalid.
  */
 export interface WorkspacePreferences {
   defaultProviderId?: string;
   defaultCredentialId?: string;
   defaultModelId?: string;
-  fallbackMode?: "strict" | "allow_fallback";
-  fallbackChain?: string[];
 }
 
 /**
@@ -96,7 +97,7 @@ export class ProviderResolutionService {
 
       // Step 3: Use platform defaults (no fallback chains in RCP3)
       // If we reach here, no explicit selection was made
-      return this.resolvePlatformFallback();
+      return this.resolvePlatformDefaults();
     } catch (error) {
       return createBYOKError(
         "RESOLUTION_FAILED",
@@ -125,7 +126,6 @@ export class ProviderResolutionService {
       return createBYOKError(
         "VALIDATION_ERROR",
         "providerId, credentialId, and modelId must be provided together",
-        { correlationId: request.credentialId },
       );
     }
 
@@ -198,36 +198,20 @@ export class ProviderResolutionService {
   /**
    * Step 4: Platform fallback
    */
-  private resolvePlatformFallback(): BYOKResolution {
+  /**
+   * Step 3: Resolve to platform defaults.
+   * RCP3 CHANGE: No fallback chains. Explicit selection or platform defaults only.
+   * Marks resolution source as "platform_defaults" (not "fallback").
+   */
+  private resolvePlatformDefaults(): BYOKResolution {
     return {
       providerId: this.platformDefaults.providerId,
       credentialId: "", // No credential for platform default
       modelId: this.platformDefaults.modelId,
-      resolvedAt: "platform_fallback",
+      resolvedAt: "platform_defaults",
       resolvedAtTime: new Date().toISOString(),
-      fallbackUsed: true,
+      fallbackUsed: false, // Explicit defaults, not fallback
     };
-  }
-
-  /**
-   * Step 3: Try fallback chain in order
-   */
-  private async tryFallbackChain(
-    preferences: WorkspacePreferences,
-    context: ResolutionContext,
-  ): Promise<Omit<BYOKResolution, "fallbackUsed"> | null> {
-    const fallbackChain = preferences?.fallbackChain || [];
-
-    for (const providerId of fallbackChain) {
-      // In Phase 2, would:
-      // 1. Get credentials for this provider
-      // 2. Try to validate
-      // 3. Return first working one
-
-      // Placeholder: skip implementation until Phase 2
-    }
-
-    return null; // No fallback available
   }
 
   /**
