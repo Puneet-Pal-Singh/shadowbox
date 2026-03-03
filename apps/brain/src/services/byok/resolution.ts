@@ -96,7 +96,7 @@ export class ProviderResolutionService {
 
       // Step 3: Use platform defaults (no fallback chains in RCP3)
       // If we reach here, no explicit selection was made
-      return this.resolvePlatformDefaults();
+      return this.resolvePlatformFallback();
     } catch (error) {
       return createBYOKError(
         "RESOLUTION_FAILED",
@@ -123,7 +123,7 @@ export class ProviderResolutionService {
     // RCP3 STRICT: Partial selections are errors, not soft failures
     if (hasAnyOverride && !hasCompleteOverride) {
       return createBYOKError(
-        "INVALID_REQUEST_OVERRIDE",
+        "VALIDATION_ERROR",
         "providerId, credentialId, and modelId must be provided together",
         { correlationId: request.credentialId },
       );
@@ -134,19 +134,19 @@ export class ProviderResolutionService {
     }
 
     // Validate credential exists and is connected
-    const credential = await this.repository.retrieve(request.credentialId);
+    const credential = await this.repository.retrieve(request.credentialId ?? "");
     if (!credential || credential.status !== "connected") {
       return createBYOKError(
-        "INVALID_REQUEST_OVERRIDE",
+        "CREDENTIAL_NOT_FOUND",
         "Requested credential is missing or not connected",
-        { credentialId: request.credentialId, correlationId: request.credentialId },
+        { credentialId: request.credentialId ?? "" },
       );
     }
 
     return {
-      providerId: request.providerId,
-      credentialId: request.credentialId,
-      modelId: request.modelId,
+      providerId: request.providerId ?? "",
+      credentialId: request.credentialId ?? "",
+      modelId: request.modelId ?? "",
       resolvedAt: "request_override",
       resolvedAtTime: new Date().toISOString(),
       fallbackUsed: false,
@@ -179,12 +179,9 @@ export class ProviderResolutionService {
 
     if (!credential || credential.status !== "connected") {
       return createBYOKError(
-        "INVALID_WORKSPACE_PREFERENCE",
+        "CREDENTIAL_NOT_FOUND",
         "Workspace default credential is missing or not connected",
-        {
-          credentialId: preferences.defaultCredentialId,
-          correlationId: preferences.defaultCredentialId,
-        },
+        { credentialId: preferences.defaultCredentialId ?? "" },
       );
     }
 
