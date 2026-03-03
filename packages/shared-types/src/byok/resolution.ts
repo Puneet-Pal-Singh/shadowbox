@@ -34,6 +34,7 @@ export const BYOKResolutionSchema = z.object({
     "session_preference",
     "workspace_preference",
     "platform_fallback",
+    "platform_defaults",
   ]),
 
   /** Timestamp of resolution */
