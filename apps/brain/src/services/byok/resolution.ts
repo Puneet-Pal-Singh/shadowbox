@@ -72,10 +72,14 @@ export class ProviderResolutionService {
     context: ResolutionContext,
   ): Promise<BYOKResolution | BYOKError> {
     try {
-      // Step 1: Check request overrides
+      // Step 1: Check request overrides (RCP3 STRICT: errors don't fall through)
       const requestOverride = await this.resolveFromRequestOverride(request);
-      if (requestOverride) {
-        return requestOverride;
+      if (requestOverride && "code" in requestOverride) {
+        // Error from request override validation (RCP3 STRICT)
+        return requestOverride as BYOKError;
+      }
+      if (requestOverride && "providerId" in requestOverride) {
+        return requestOverride as BYOKResolution;
       }
 
       // Step 2: Check workspace preferences
@@ -83,26 +87,15 @@ export class ProviderResolutionService {
       const workspaceResolution = await this.resolveFromWorkspacePreference(
         preferences,
       );
-      if (workspaceResolution) {
-        return workspaceResolution;
+      if (workspaceResolution && "code" in workspaceResolution) {
+        return workspaceResolution as BYOKError;
+      }
+      if (workspaceResolution && "providerId" in workspaceResolution) {
+        return workspaceResolution as BYOKResolution;
       }
 
-      // Step 3: Try fallback chain if enabled
-      if (preferences?.fallbackMode === "allow_fallback") {
-        const fallbackResult = await this.tryFallbackChain(
-          preferences,
-          context,
-        );
-
-        if (fallbackResult) {
-          return {
-            ...fallbackResult,
-            fallbackUsed: true,
-          };
-        }
-      }
-
-      // Step 4: Platform fallback
+      // Step 3: Use platform defaults (no fallback chains in RCP3)
+      // If we reach here, no explicit selection was made
       return this.resolvePlatformFallback();
     } catch (error) {
       return createBYOKError(
@@ -115,24 +108,45 @@ export class ProviderResolutionService {
 
   /**
    * Step 1: Resolve from request overrides with credential validation
+   * RCP3 STRICT MODE: Partial selections error immediately, don't fall through
    */
   private async resolveFromRequestOverride(
     request: BYOKResolveRequest,
-  ): Promise<BYOKResolution | null> {
-    if (!request.providerId || !request.credentialId || !request.modelId) {
-      return null;
+  ): Promise<BYOKResolution | BYOKError | null> {
+    const hasAnyOverride = Boolean(
+      request.providerId || request.credentialId || request.modelId,
+    );
+    const hasCompleteOverride = Boolean(
+      request.providerId && request.credentialId && request.modelId,
+    );
+
+    // RCP3 STRICT: Partial selections are errors, not soft failures
+    if (hasAnyOverride && !hasCompleteOverride) {
+      return createBYOKError(
+        "VALIDATION_ERROR",
+        "providerId, credentialId, and modelId must be provided together",
+        { correlationId: request.credentialId },
+      );
+    }
+
+    if (!hasCompleteOverride) {
+      return null; // No override provided, check next step
     }
 
     // Validate credential exists and is connected
-    const credential = await this.repository.retrieve(request.credentialId);
+    const credential = await this.repository.retrieve(request.credentialId ?? "");
     if (!credential || credential.status !== "connected") {
-      return null; // Fall through to next step
+      return createBYOKError(
+        "CREDENTIAL_NOT_FOUND",
+        "Requested credential is missing or not connected",
+        { correlationId: request.credentialId },
+      );
     }
 
     return {
-      providerId: request.providerId,
-      credentialId: request.credentialId,
-      modelId: request.modelId,
+      providerId: request.providerId ?? "",
+      credentialId: request.credentialId ?? "",
+      modelId: request.modelId ?? "",
       resolvedAt: "request_override",
       resolvedAtTime: new Date().toISOString(),
       fallbackUsed: false,
@@ -141,16 +155,21 @@ export class ProviderResolutionService {
 
   /**
    * Step 2: Resolve from workspace preferences
+   * RCP3 STRICT MODE: Invalid workspace preferences error immediately
    */
   private async resolveFromWorkspacePreference(
     preferences: WorkspacePreferences | null,
-  ): Promise<BYOKResolution | null> {
+  ): Promise<BYOKResolution | BYOKError | null> {
+    if (!preferences) {
+      return null;
+    }
+
     if (
-      !preferences?.defaultProviderId ||
+      !preferences.defaultProviderId ||
       !preferences.defaultCredentialId ||
       !preferences.defaultModelId
     ) {
-      return null;
+      return null; // Preferences not fully set, check next step
     }
 
     // Validate credential exists and is active
@@ -159,7 +178,11 @@ export class ProviderResolutionService {
     );
 
     if (!credential || credential.status !== "connected") {
-      return null;
+      return createBYOKError(
+        "CREDENTIAL_NOT_FOUND",
+        "Workspace default credential is missing or not connected",
+        { correlationId: preferences.defaultCredentialId },
+      );
     }
 
     return {
