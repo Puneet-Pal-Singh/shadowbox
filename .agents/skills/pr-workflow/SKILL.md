@@ -4,7 +4,7 @@ description: Create, review, and merge Pull Requests following Shadowbox quality
 license: MIT
 metadata:
   author: Shadowbox Team
-  version: "1.1"
+  version: "1.3"
 ---
 
 # PR Workflow Skill
@@ -37,13 +37,21 @@ When this skill is used in the Shadowbox repo, these rules are mandatory:
 - Use atomic commits and stage files with explicit paths only.
 - Never use `git add -A` or `git add .`.
 - Prefer non-interactive git flows in automated sessions.
-- Use the required PR description structure from `AGENTS.md` Section 18.
+- Use one canonical PR body source: `.github/pull_request_template.md`.
 - On shared/reviewed branches, sync with `git pull --ff-only` by default.
 - Rebase is allowed only on private in-progress branches before first PR.
+- Follow `local/Rules/GIT-RULES.md` as mandatory workflow policy.
+- Follow `local/Rules/pr-strategy-checklist.md` for PR split/merge order.
 - **CRITICAL**: Never create task completion reports, summaries, or documentation files unless explicitly requested by user.
   - ❌ Do NOT create `PR-4-COMPLETION-REPORT.md`, `SUMMARY.md`, auto-generated docs
   - ✅ DO put all details in PR description itself
   - See `AGENTS.md` Section 18 "Documentation Files: STRICT RULE"
+
+PR template policy:
+
+- Keep structure in `.github/pull_request_template.md` only.
+- Do not duplicate full template content inside this skill.
+- If template file is missing, stop and create/restore it before opening PRs.
 
 ## Conflict Prevention Gate (MANDATORY)
 
@@ -67,6 +75,20 @@ Rules:
 - Rebase only on private pre-PR branches.
 - Keep PRs small and boundary-scoped to reduce overlap conflicts.
 - Never use blanket conflict strategies (`-X ours`/`-X theirs`) for runtime/business logic.
+
+## PR Train Mode (Preferred for 3+ related PRs)
+
+Use PR train when a milestone has multiple tightly-related PRs:
+
+1. Create train branch: `codex/train-<milestone>`.
+2. Open checkpoint PRs to train branch.
+3. Keep checkpoint branches non-overlapping by ownership.
+4. Merge one final train -> `main` PR after train checks are green.
+
+Do not:
+
+1. merge sibling checkpoint branches into each other,
+2. retarget checkpoint PRs repeatedly between siblings and main.
 
 ## Naming Standards (Shadowbox)
 
@@ -273,178 +295,77 @@ git log --oneline main..HEAD
 # Push branch to remote
 git push -u origin <branch-name>
 
-# Create PR with gh CLI
+# Create PR with gh CLI (use a body file, not inline markdown)
+PR_TITLE="fix(runtime): enforce runId isolation in harness adapter"
+cp .github/pull_request_template.md /tmp/pr-body.md
+${EDITOR:-vi} /tmp/pr-body.md
+
 gh pr create \
-  --title "feat: descriptive title" \
-  --body "$(cat <<'EOF'
-## Summary
-Brief description of changes
-
-## Changes
-- Change 1
-- Change 2
-
-## Testing
-- [ ] Unit tests pass
-- [ ] Integration tests pass
-- [ ] Manual testing performed
-
-## Checklist
-- [ ] Code follows style guide
-- [ ] Self-review completed
-- [ ] Documentation updated
-- [ ] No breaking changes (or documented)
-EOF
-)"
+  --base main \
+  --head <branch-name> \
+  --title "$PR_TITLE" \
+  --body-file /tmp/pr-body.md
 ```
 
-### PR Title Format
-
-Follow conventional commits:
+### PR Title Rules (Required)
 
 ```bash
-feat: add model provider abstraction (OpenAI and LocalMock adapters)
-fix: resolve race condition in cache invalidation
-chore: update dependencies
-refactor: simplify error handling
-docs: update API documentation
+# Required format:
+<type>(<scope>): <imperative summary>
+
+# Good:
+fix(runtime): enforce runId isolation in harness adapter
+feat(brain): add deterministic retry classifier for runtime errors
+refactor(web): isolate runtime status mapping from view components
+
+# Avoid:
+runtime: enforce runId isolation
+fix: misc changes
+update PR
 ```
 
-### PR Body Template
+Rules:
 
-**REQUIRED**: Always include an executive summary box with:
+- Keep titles short, explicit, and reviewer-oriented (target 8-14 words after prefix).
+- Scope should be an owned area/module (`runtime`, `brain`, `secure-agent-api`, `web`, `ci`).
+- Use imperative verb and concrete behavior; avoid vague terms like "misc" or "update".
+- Do not include internal tracking IDs in titles (`SHA-*`, plan IDs, phase numbers).
+- No emojis or celebratory language in titles.
+- Always follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) semantics for PR titles.
 
-```markdown
-## Summary
+Type selection (`feat` vs `fix` vs `refactor`) when conventional prefix is used:
 
-One-paragraph explanation of the change.
+- `feat`: introduces new externally visible behavior/capability.
+- `fix`: corrects incorrect behavior, bug, or regression.
+- `refactor`: code structure change only; behavior and contracts remain the same.
+- If the PR includes both refactor and behavior change, choose `feat` or `fix` based on the user-visible outcome.
 
-## What's Included
+### OSS-Informed Description Principles
 
-- **Component 1** (X lines) — Purpose
-- **Component 2** (Y lines) — Purpose
-- **Tests** (Z lines, coverage %) — Test scope
+Adopt patterns used by major OSS repos:
 
-## Key Features
+- Keep a concise summary and explicit testing section ([React](https://github.com/facebook/react/blob/main/.github/PULL_REQUEST_TEMPLATE.md)).
+- State PR type, why it is needed, linked issue, and reviewer notes ([Kubernetes](https://github.com/kubernetes/kubernetes/blob/master/.github/PULL_REQUEST_TEMPLATE.md)).
+- Use a checklist for tests/docs and call out breaking changes ([Angular](https://github.com/angular/angular/blob/main/.github/PULL_REQUEST_TEMPLATE.md)).
+- Keep motivation/background plus one logical change per PR ([Rails](https://github.com/rails/rails/blob/main/.github/pull_request_template.md)).
+- Include "why" and "what changed" upfront for reviewers ([GitHub Docs](https://github.com/github/docs/blob/main/.github/PULL_REQUEST_TEMPLATE.md)).
 
-✅ Feature 1  
-✅ Feature 2  
-✅ Feature 3
+### PR Body Requirements
 
-## Verification
+Use `.github/pull_request_template.md` as the required structure.
 
-✅ TypeScript strict: `pnpm typecheck`  
-✅ Builds: `pnpm build`  
-✅ Tests pass: `pnpm test`  
-✅ Zero `any` types
+Minimum required sections in every PR body:
 
-## Motivation
-
-Why is this change needed? What problem does it solve?
-
-## Changes
-
-- Specific change 1
-- Specific change 2
-- Specific change 3
-
-## Testing
-
-Describe how you tested these changes:
-
-- Unit tests: `npm test -- src/feature.test.ts`
-- Integration tests: `npm run test:integration`
-- Manual testing steps
-
-## Screenshots (if UI changes)
-
-[Include relevant screenshots]
-
-## Breaking Changes
-
-List any breaking changes and migration steps.
-
-## Related Issues
-
-Fixes #123
-Relates to #456
-
-## Checklist
-
-- [ ] My code follows the project's style guidelines
-- [ ] I have performed a self-review
-- [ ] I have commented my code, particularly in hard-to-understand areas
-- [ ] I have made corresponding documentation changes
-- [ ] My changes generate no new warnings
-- [ ] I have added tests that prove my fix is effective
-- [ ] New and existing unit tests pass locally
-- [ ] Any dependent changes have been merged and published
-```
-
-### PR Description Requirements
-
-**MANDATORY** for all PRs:
-
-**Title + Summary format (simple, concise, PR-ready):**
-
-```markdown
-## Title
-feat: add model provider abstraction (OpenAI and LocalMock adapters)
-
-## Summary
-
-✅ Model adapters and tool integration complete
-
-**Branch**: feat/execution-engine-model-provider-abstraction
-
-### What Was Built
-
-5 Atomic Commits (1,445 lines of code + 496 lines of tests):
-
-**ModelProvider Abstraction** (418 lines)
-- ModelProvider.ts — Interface + schemas (Zod)
-- OpenAIAdapter.ts — Production OpenAI implementation
-- LocalMockAdapter.ts — Deterministic testing mock
-- Full type safety, zero `any` types
-
-**Output Validation** (103 lines)
-- OutputValidator.ts — JSON extraction, tool call parsing
-- Schema validation with Zod
-- Markdown code block handling
-
-**Tool Framework** (428 lines)
-- Tool.ts — Base abstraction
-- ToolValidator.ts — Path/command/arg validation
-- ToolRegistry.ts — Tool registration & lookup
-- ToolExecutor.ts — Safe execution with timeout & retry
-
-**Main API Export** (27 lines)
-- All new modules exported from `src/index.ts`
-- Resolved name conflicts between adapters & tools
-
-**Comprehensive Tests** (496 lines, 70%+ coverage)
-- model-adapter.test.ts — Integration tests
-- adapters.test.ts — Unit tests for validation
-- tools.test.ts — Registry & executor tests
-
-### Key Features
-
-✅ Model Abstraction: Swap OpenAI/Anthropic/local without changing engine
-✅ Output Safety: Zod validation + markdown parsing
-✅ Tool Safety: File path validation, command sanitization, timeout enforcement
-✅ Determinism: LocalMock adapter for reproducible testing
-✅ No extra runtime dependencies: only Zod
-
-### Verification
-
-✅ TypeScript strict: `pnpm --filter=@shadowbox/execution-engine type-check`
-✅ Builds: `pnpm --filter=@shadowbox/execution-engine build`
-✅ Zero `any` types
-✅ 5 atomic commits (conventional format)
-✅ All specific paths in `git add` (no `-A`)
-
-**Ready for PR review and merge.**
-```
+1. Summary
+2. What was accomplished
+3. Why this change
+4. Scope (in/out)
+5. Linked issues
+6. Changes
+7. Risk & rollout
+8. Validation (commands + manual checks)
+9. Breaking changes
+10. Reviewer focus
 
 ---
 
@@ -615,28 +536,27 @@ git push
 
 ```bash
 # Merge commit (preserves traceability)
-gh pr merge <PR_NUMBER> --merge --admin
+gh pr merge <PR_NUMBER> --merge
 ```
 
 **Squash** when history is messy or commits don't stand alone:
 
 ```bash
 # Squash merge (single commit)
-gh pr merge <PR_NUMBER> --squash --admin
+gh pr merge <PR_NUMBER> --squash
 ```
 
-**Use rebase merge only when explicitly requested**:
+**Use rebase merge only when explicitly requested (private/unshared history cases only)**:
 
 ```bash
-gh pr merge <PR_NUMBER> --rebase --admin
+gh pr merge <PR_NUMBER> --rebase
 ```
 
-**Always add PR author as co-contributor**:
+**Authorship policy**:
 
-```bash
-# When squashing, preserve authorship
-git commit --amend --author="Original Author <email@example.com>"
-```
+- Do not rewrite commit author after merge.
+- Preserve authorship through normal GitHub merge metadata.
+- If manual attribution is needed pre-merge, use commit trailers (`Co-authored-by`) in the commit message.
 
 ### Post-Merge
 
@@ -739,6 +659,7 @@ gh pr review <number> --approve --body "LGTM!"
 gh pr review <number> --request-changes --body "Needs work..."
 
 # Merge PR
+# Rebase merge is exceptional: use only when explicitly requested.
 gh pr merge <number> --rebase
 gh pr merge <number> --squash
 gh pr merge <number> --merge

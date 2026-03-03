@@ -4,7 +4,7 @@ description: Execute safe git operations including branching, committing, and st
 license: MIT
 metadata:
   author: Shadowbox Team
-  version: "1.1"
+  version: "1.2"
 ---
 
 # Git Workflow Skill
@@ -60,6 +60,10 @@ Use this skill when:
    - Rebase is allowed only on private in-progress branches before first PR
    - When user says "commit", scope to your changes only
 
+6. **Rule documents are mandatory**:
+   - Follow `local/Rules/GIT-RULES.md`
+   - Follow `local/Rules/pr-strategy-checklist.md`
+
 ## Conflict Prevention Protocol (MANDATORY)
 
 Run this protocol before commit/push/PR:
@@ -95,6 +99,20 @@ Run this protocol before commit/push/PR:
 5. **No silent conflict resolution**:
    - Never use blanket `-X ours`/`-X theirs` for runtime/business logic files.
    - Resolve per file and re-run tests.
+
+## PR Train Mode (for multi-PR milestones)
+
+When a milestone has multiple tightly-coupled PRs, use train mode:
+
+1. Create train branch: `codex/train-<milestone>`.
+2. Create checkpoint branches from train branch.
+3. Open checkpoint PRs to train branch only.
+4. Open one final PR from train branch to `main`.
+
+Hard rules:
+
+1. Do not merge sibling checkpoint branches into each other.
+2. Sync only from train branch or explicit `main` cut-point.
 
 ## Branch Operations
 
