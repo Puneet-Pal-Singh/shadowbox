@@ -32,9 +32,11 @@ export class ProviderValidationService {
    * Validate provider configuration for the given environment
    * Returns structured errors that can be presented to users
    *
-   * Note: With BYOK support, provider API keys are now optional.
-   * Chat will fallback to OpenRouter defaults when keys are missing.
-   * Only truly critical configuration (security, encryption) blocks startup.
+   * RCP3 CHANGE: Strict validation with no silent fallback behavior.
+   * - Provider API keys are optional (with warnings)
+   * - Unknown/invalid providers are errors, not warnings
+   * - Only truly critical configuration (security, encryption) blocks startup
+   * - Provider selection must be explicit or use platform defaults
    */
   static validate(env: Env): ProviderValidationResult {
     const errors: ValidationError[] = [];
@@ -43,11 +45,10 @@ export class ProviderValidationService {
     // Validate critical security configuration (always required)
     this.validateCriticalSecurity(env, errors);
 
-    // Provider API keys are now optional (warnings instead of errors)
-    // Chat can fallback to OpenRouter defaults
+    // Provider validation: unknown providers now error
     const provider = env.LLM_PROVIDER ?? "litellm";
 
-    // Check optional provider configuration
+    // Check provider configuration
     switch (provider) {
       case "litellm":
         this.validateLiteLLMOptional(env, errors, warnings);
@@ -59,12 +60,12 @@ export class ProviderValidationService {
         this.validateAnthropicOptional(env, errors, warnings);
         break;
       default:
-        // Unknown provider is just a warning; fallback to OpenRouter will handle it
-        warnings.push({
+        // Unknown provider is now an error (not silent fallback)
+        errors.push({
           code: "UNKNOWN_PROVIDER",
-          message: `Unknown LLM_PROVIDER: ${provider}. Will use OpenRouter defaults.`,
-          severity: "warning",
-          hint: `Set LLM_PROVIDER to one of: litellm, openai, anthropic, or leave unset`,
+          message: `Unknown or unsupported LLM_PROVIDER: ${provider}`,
+          severity: "error",
+          hint: `Set LLM_PROVIDER to one of: litellm, openai, anthropic`,
         });
     }
 

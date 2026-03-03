@@ -1,12 +1,26 @@
 import type { RunInput, RunManifest, RuntimeHarnessId } from "../types.js";
 
-export function createRunManifest(input: RunInput): RunManifest {
+/**
+ * Creates a run manifest with deterministic configuration.
+ * 
+ * Backend selection follows explicit precedence:
+ * 1. If runtime context specifies cloudflare_agents, use cloudflare_agents
+ * 2. Otherwise default to execution-engine-v1 (current standard)
+ * 
+ * This ensures portable, explicit backend selection without implicit fallbacks.
+ */
+export function createRunManifest(
+  input: RunInput,
+  options?: { preferredBackend?: "execution-engine-v1" | "cloudflare_agents" },
+): RunManifest {
+  const orchestratorBackend = options?.preferredBackend ?? "execution-engine-v1";
+  
   return {
     mode: "agentic",
     providerId: normalizeOptionalSelection(input.providerId),
     modelId: normalizeOptionalSelection(input.modelId),
     harness: normalizeHarnessSelection(input.harnessId),
-    orchestratorBackend: "execution-engine-v1",
+    orchestratorBackend,
   };
 }
 

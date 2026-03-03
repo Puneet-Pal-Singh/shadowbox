@@ -55,15 +55,17 @@ describe("ProviderConfiguration - Phase 5: Unified Provider/Model Routing", () =
     });
   });
 
-  describe("getFallbackModel", () => {
-    it("should return valid fallback for openrouter", () => {
-      const fallback = ProviderConfiguration.getFallbackModel("openrouter");
-      expect(fallback).toBe("llama-3.3-70b-versatile");
+  describe("getFallbackModel (RCP3 Deprecation)", () => {
+    it("should throw error when getFallbackModel is called (deprecated in RCP3)", () => {
+      expect(() => {
+        ProviderConfiguration.getFallbackModel("openrouter");
+      }).toThrow("RCP3");
     });
 
-    it("should return default for unknown provider", () => {
-      const fallback = ProviderConfiguration.getFallbackModel("custom");
-      expect(fallback).toBeDefined();
+    it("should throw for any provider (no fallback support in RCP3)", () => {
+      expect(() => {
+        ProviderConfiguration.getFallbackModel("custom");
+      }).toThrow();
     });
   });
 

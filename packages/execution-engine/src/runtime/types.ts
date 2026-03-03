@@ -25,6 +25,12 @@ export type RunStatus =
   | "CANCELLED";
 
 export type AgentType = "coding" | "review" | "ci" | (string & {});
+
+/**
+ * Canonical orchestrator backend identifier.
+ * Centralized to avoid drift across runtime modules.
+ */
+export type OrchestratorBackend = "execution-engine-v1" | "cloudflare_agents";
 export type RuntimeHarnessId = "cloudflare-sandbox" | "local-sandbox";
 
 export interface RepositoryContext {
@@ -73,12 +79,25 @@ export interface RunOutput {
   finalSummary?: string;
 }
 
+/**
+ * RunManifest - Immutable run configuration determined at creation.
+ *
+ * This manifest is frozen at run creation and enforced to remain immutable
+ * throughout the run lifecycle. Mid-run changes to any field are invalid.
+ * 
+ * Backend selection follows deterministic precedence:
+ * 1. Explicit orchestratorBackend from run creation input
+ * 2. Platform default (execution-engine-v1)
+ * 
+ * Once set, backend cannot change. Mismatch errors fail fast with typed errors.
+ */
 export interface RunManifest {
   mode: "agentic";
   providerId: string | null;
   modelId: string | null;
   harness: RuntimeHarnessId;
-  orchestratorBackend: "execution-engine-v1";
+  /** Orchestrator backend identifier - determines which executor handles this run. */
+  orchestratorBackend: OrchestratorBackend;
 }
 
 export interface RunMetadata {
