@@ -35,20 +35,21 @@ describe("HarnessAdapterPort Boundary", () => {
       const fullPath = path.join(runtimePath, modulePath);
 
       if (!fs.existsSync(fullPath)) {
-        console.warn(`Module not found for boundary test: ${fullPath}`);
-        continue;
+        throw new Error(`Boundary test module not found: ${fullPath}`);
       }
 
       const content = fs.readFileSync(fullPath, "utf-8");
 
       for (const forbiddenImport of forbiddenImports) {
-        expect(content).not.toContain(
-          `from "${forbiddenImport}"`,
-          `Core module ${modulePath} imports forbidden harness module: ${forbiddenImport}`,
+        // Match: from "module", from 'module', require("module"), require('module')
+        // with flexible whitespace
+        const pattern = new RegExp(
+          String.raw`(?:from|require)\s*\(?\s*['"]${forbiddenImport}['"]`,
         );
-        expect(content).not.toContain(
-          `require("${forbiddenImport}")`,
-          `Core module ${modulePath} requires forbidden harness module: ${forbiddenImport}`,
+
+        expect(content).not.toMatch(
+          pattern,
+          `Core module ${modulePath} imports forbidden harness module: ${forbiddenImport}`,
         );
       }
     }
