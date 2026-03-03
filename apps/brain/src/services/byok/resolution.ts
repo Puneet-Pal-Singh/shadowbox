@@ -97,7 +97,7 @@ export class ProviderResolutionService {
 
       // Step 3: Use platform defaults (no fallback chains in RCP3)
       // If we reach here, no explicit selection was made
-      return this.resolvePlatformFallback();
+      return this.resolvePlatformDefaults();
     } catch (error) {
       return createBYOKError(
         "RESOLUTION_FAILED",
@@ -126,7 +126,6 @@ export class ProviderResolutionService {
       return createBYOKError(
         "VALIDATION_ERROR",
         "providerId, credentialId, and modelId must be provided together",
-        { correlationId: request.credentialId },
       );
     }
 
@@ -140,7 +139,7 @@ export class ProviderResolutionService {
       return createBYOKError(
         "CREDENTIAL_NOT_FOUND",
         "Requested credential is missing or not connected",
-        { credentialId: request.credentialId ?? "" },
+        { correlationId: request.credentialId },
       );
     }
 
@@ -182,7 +181,7 @@ export class ProviderResolutionService {
       return createBYOKError(
         "CREDENTIAL_NOT_FOUND",
         "Workspace default credential is missing or not connected",
-        { credentialId: preferences.defaultCredentialId ?? "" },
+        { correlationId: preferences.defaultCredentialId },
       );
     }
 
