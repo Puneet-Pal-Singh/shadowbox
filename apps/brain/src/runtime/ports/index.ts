@@ -16,3 +16,9 @@ export type {
 } from "./ExecutionRuntimePort";
 export type { ProviderAuthPort, ModelProviderPort, ProviderResolutionPort, ModelMetadata } from "./ProviderResolutionPort";
 export type { StreamEvent, RealtimeEventPort } from "./EventStreamPort";
+export type {
+  HarnessId,
+  HarnessCapabilities,
+  HarnessAdapter,
+  HarnessAdapterRegistry,
+} from "./HarnessAdapterPort";
