@@ -22,6 +22,7 @@ import { TaskScheduler } from "../orchestration/index.js";
 import { DefaultTaskExecutor, AgentTaskExecutor } from "./TaskExecutor.js";
 import type {
   RunInput,
+  RunManifest,
   RunStatus,
   IAgent,
   RuntimeDurableObjectState,
@@ -332,6 +333,7 @@ export class RunEngine implements IRunEngine {
       console.log(`[run/engine] Planning phase for run ${runId}`);
       try {
         run.transition("PLANNING");
+        this.recordPhaseSelectionSnapshot(run, "planning");
         await this.runRepo.update(run);
 
         const plan = await this.generatePlan(
@@ -362,6 +364,7 @@ export class RunEngine implements IRunEngine {
 
       console.log(`[run/engine] Execution phase for run ${runId}`);
       run.transition("RUNNING");
+      this.recordPhaseSelectionSnapshot(run, "execution");
       await this.runRepo.update(run);
 
       const taskResults: Array<{ taskId: string; content: string }> = [];
@@ -416,6 +419,7 @@ export class RunEngine implements IRunEngine {
       );
 
       console.log(`[run/engine] Synthesis phase for run ${runId}`);
+      this.recordPhaseSelectionSnapshot(run, "synthesis");
       const finalOutputRaw = await this.generateSynthesis(
         run,
         input.prompt,
@@ -776,11 +780,40 @@ If any task failed or was cancelled, clearly say so and do not claim full comple
     );
 
     transitionRunToCompleted(run, run.id);
+    this.recordPhaseSelectionSnapshot(run, "synthesis");
     run.output = { content: sanitizedText };
     await this.runRepo.update(run);
     console.log(`[run/engine] Completed conversational run ${run.id}`);
 
     return this.createStreamResponse(sanitizedText);
+  }
+
+  private recordPhaseSelectionSnapshot(
+    run: Run,
+    phase: "planning" | "execution" | "synthesis",
+  ): void {
+    const manifest = run.metadata.manifest;
+    if (!manifest) {
+      throw new RunEngineError(
+        `Missing run manifest before recording ${phase} phase snapshot`,
+      );
+    }
+
+    const existingSnapshots = run.metadata.phaseSelectionSnapshots ?? {};
+    run.metadata.phaseSelectionSnapshots = {
+      ...existingSnapshots,
+      [phase]: this.cloneManifest(manifest),
+    };
+  }
+
+  private cloneManifest(manifest: RunManifest): RunManifest {
+    return {
+      mode: manifest.mode,
+      providerId: manifest.providerId,
+      modelId: manifest.modelId,
+      harness: manifest.harness,
+      orchestratorBackend: manifest.orchestratorBackend,
+    };
   }
 
   private async processPermissionDirectives(prompt: string): Promise<string | null> {
