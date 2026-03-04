@@ -11,9 +11,19 @@ import {
   type ProviderRegistryEntry,
   type BYOKCredential,
   type BYOKPreference,
-  ModelDescriptorSchema,
   BYOKResolveRequestSchema,
+  BYOKCredentialConnectRequestSchema,
+  BYOKCredentialUpdateRequestSchema,
+  BYOKCredentialValidateRequestSchema,
+  BYOKProviderModelsResponseSchema,
+  BYOKPreferencesUpdateRequestSchema,
   type BYOKResolution,
+  type BYOKResolveRequest,
+  type BYOKCredentialConnectRequest,
+  type BYOKCredentialUpdateRequest,
+  type BYOKCredentialValidateRequest,
+  type BYOKProviderModelsResponse,
+  type BYOKPreferencesUpdateRequest,
   BYOKConnectRequestSchema,
   BYOKConnectResponseSchema,
   BYOKDisconnectRequestSchema,
@@ -26,6 +36,7 @@ import {
   type ProviderCatalogResponse,
   type ProviderConnection,
   ProviderConnectionsResponseSchema,
+  ProviderErrorEnvelopeSchema,
   type ProviderConnectionsResponse,
   DEFAULT_PLATFORM_MODEL_ID,
 } from "@repo/shared-types";
@@ -51,56 +62,12 @@ import {
   type AuthorizedProviderScope,
 } from "./provider/ProviderAuthScopeService";
 
-const CredentialConnectRequestSchema = z.object({
-  providerId: z.string().min(1).max(64),
-  secret: z.string().min(1).max(4096),
-  label: z.string().min(1).max(256).optional(),
-});
-
-const CredentialUpdateRequestSchema = z.object({
-  label: z.string().min(1).max(256).optional(),
-});
-
-const CredentialValidateRequestSchema = z.object({
-  mode: z.enum(["format", "live"]).default("format"),
-});
-
-const PreferencePatchV3Schema = z
-  .object({
-    defaultProviderId: z.string().min(1).max(64).optional(),
-    defaultModelId: z.string().min(1).optional(),
-    fallbackMode: z.enum(["strict", "allow_fallback"]).optional(),
-    fallbackChain: z.array(z.string()).optional(),
-    visibleModelIds: z.record(z.string(), z.array(z.string())).optional(),
-  })
-  .refine(
-    (value) =>
-      value.defaultProviderId !== undefined ||
-      value.defaultModelId !== undefined ||
-      value.fallbackMode !== undefined ||
-      value.fallbackChain !== undefined ||
-      value.visibleModelIds !== undefined,
-    { message: "At least one preference field is required" },
-  );
-
-const ProviderModelsResponseSchema = z.object({
-  providerId: z.string().min(1).max(64),
-  models: z.array(ModelDescriptorSchema),
-  lastFetchedAt: z.string().datetime(),
-});
-
 const WorkspaceByokMetadataSchema = z.object({
   credentialLabels: z.record(z.string(), z.string()).default({}),
   fallbackMode: z.enum(["strict", "allow_fallback"]).default("strict"),
   fallbackChain: z.array(z.string()).default([]),
 });
 const BYOK_WORKSPACE_METADATA_PREFIX = "byok:workspace-meta:";
-type CredentialConnectRequest = z.infer<typeof CredentialConnectRequestSchema>;
-type CredentialUpdateRequest = z.infer<typeof CredentialUpdateRequestSchema>;
-type CredentialValidateRequest = z.infer<typeof CredentialValidateRequestSchema>;
-type PreferencePatchV3 = z.infer<typeof PreferencePatchV3Schema>;
-type BYOKResolveRequest = z.infer<typeof BYOKResolveRequestSchema>;
-type ProviderModelsResponse = z.infer<typeof ProviderModelsResponseSchema>;
 type WorkspaceByokMetadata = z.infer<typeof WorkspaceByokMetadataSchema>;
 
 /**
@@ -123,10 +90,10 @@ export class ProviderController {
           method: "GET",
           path: `/providers/models?providerId=${encodeURIComponent(providerId)}`,
         },
-        ProviderModelsResponseSchema,
+        BYOKProviderModelsResponseSchema,
         correlationId,
       );
-      const payload = await readResponseJson<ProviderModelsResponse>(
+      const payload = await readResponseJson<BYOKProviderModelsResponse>(
         response,
         correlationId,
       );
@@ -177,9 +144,9 @@ export class ProviderController {
     try {
       const scope = await resolveAuthorizedProviderScope(req, env, correlationId);
       const body = await parseRequestBody(req, correlationId);
-      const request = validateWithSchema<CredentialConnectRequest>(
+      const request = validateWithSchema<BYOKCredentialConnectRequest>(
         body,
-        CredentialConnectRequestSchema,
+        BYOKCredentialConnectRequestSchema,
         correlationId,
       );
 
@@ -240,9 +207,9 @@ export class ProviderController {
       const scope = await resolveAuthorizedProviderScope(req, env, correlationId);
       const credentialId = extractCredentialIdFromPath(req.url, false, correlationId);
       const body = await parseRequestBody(req, correlationId);
-      const patch = validateWithSchema<CredentialUpdateRequest>(
+      const patch = validateWithSchema<BYOKCredentialUpdateRequest>(
         body,
-        CredentialUpdateRequestSchema,
+        BYOKCredentialUpdateRequestSchema,
         correlationId,
       );
 
@@ -328,9 +295,9 @@ export class ProviderController {
       const scope = await resolveAuthorizedProviderScope(req, env, correlationId);
       const credentialId = extractCredentialIdFromPath(req.url, true, correlationId);
       const body = await parseRequestBody(req, correlationId);
-      const request = validateWithSchema<CredentialValidateRequest>(
+      const request = validateWithSchema<BYOKCredentialValidateRequest>(
         body,
-        CredentialValidateRequestSchema,
+        BYOKCredentialValidateRequestSchema,
         correlationId,
       );
       const credentials = await loadConnectedCredentials(
@@ -398,9 +365,9 @@ export class ProviderController {
     try {
       const scope = await resolveAuthorizedProviderScope(req, env, correlationId);
       const body = await parseRequestBody(req, correlationId);
-      const patch = validateWithSchema<PreferencePatchV3>(
+      const patch = validateWithSchema<BYOKPreferencesUpdateRequest>(
         body,
-        PreferencePatchV3Schema,
+        BYOKPreferencesUpdateRequestSchema,
         correlationId,
       );
 
@@ -809,14 +776,16 @@ async function normalizeByokRuntimeError(
   );
 
   const normalized = new Response(
-    JSON.stringify({
+    JSON.stringify(
+      ProviderErrorEnvelopeSchema.parse({
       error: {
         code,
         message,
         retryable,
         correlationId,
       },
-    }),
+      }),
+    ),
     {
       status: response.status,
       headers: {
@@ -893,17 +862,18 @@ function buildByokErrorResponse(
 ): Response {
   const code = normalizeProviderErrorCode(input.code, input.status);
   const retryable = input.retryable || input.status >= 500 || code === "RATE_LIMITED";
+  const envelope = ProviderErrorEnvelopeSchema.parse({
+    error: {
+      code,
+      message: input.message,
+      retryable,
+      correlationId: input.correlationId,
+    },
+  });
   return jsonResponse(
     req,
     env,
-    {
-      error: {
-        code,
-        message: input.message,
-        retryable,
-        correlationId: input.correlationId,
-      },
-    },
+    envelope,
     { status: input.status },
   );
 }
