@@ -646,46 +646,7 @@ See `.agents/skills/README.md` for the template and guidelines.
 
 **Every PR must include this structure** (no exceptions, minimal variations):
 
-1. **Celebratory Header** (one line)
-   ```
-   🎉 PR{N}: {TITLE} - COMPLETE & READY FOR MERGE
-   ```
-
-2. **Status & Metadata** (2-3 lines)
-   ```
-   **Status**: ✅ COMPLETE
-   **Branch**: {branch-name}
-   **Commits**: {N} commits
-   **Tests**: {X}/{Y} passing
-   ```
-
-3. **What Was Accomplished** (bullet list)
-   - Feature/component with LOC and test count
-   - Key achievements with checkmarks
-   - Documentation added
-
-4. **Test Results** (code block)
-   ```
-   ✓ test-file.test.ts ({N} tests)
-   ───────────────────────
-   Total: {X}/{Y} tests PASSING ✅
-   ```
-
-5. **Code Quality Metrics** (simple table)
-   - TypeScript strict, zero `any`, Zod validation, etc.
-
-6. **Files Changed** (if significant)
-   - New files with line counts
-   - Modified files with line deltas
-
-7. **Pre-Merge Checklist** (checkboxes)
-   - All code, tests, docs complete
-   - No blockers
-
-8. **Celebratory Closing** (one sentence)
-   ```
-   🎉 PR{N} is ready for production code review and merge.
-   ```
+Note - Check [Pr Workflow](.agents/skills/pr-workflow) skill for this Structure
 
 ### Documentation Files: STRICT RULE
 
