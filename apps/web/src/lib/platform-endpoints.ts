@@ -178,65 +178,6 @@ export function terminalCommandPath(sessionId: string): string {
 }
 
 /**
- * Build provider API endpoints
- * All provider operations are routed through Brain service
- */
-export function providerConnectPath(): string {
-  return `${getBrainHttpBase()}/api/byok/providers/connect`;
-}
-
-export function providerDisconnectPath(): string {
-  return `${getBrainHttpBase()}/api/byok/providers/disconnect`;
-}
-
-export function providerConnectionsPath(): string {
-  return `${getBrainHttpBase()}/api/byok/providers/connections`;
-}
-
-export function providerCatalogPath(): string {
-  return `${getBrainHttpBase()}/api/byok/providers/catalog`;
-}
-
-export function providerValidatePath(): string {
-  return `${getBrainHttpBase()}/api/byok/providers/validate`;
-}
-
-export function providerPreferencesPath(): string {
-  return `${getBrainHttpBase()}/api/byok/preferences`;
-}
-
-/**
- * Generic endpoint resolver
- * Maps endpoint keys to their full URLs
- */
-export function getEndpoint(
-  endpointKey:
-    | "PROVIDER_CONNECT"
-    | "PROVIDER_DISCONNECT"
-    | "PROVIDER_CONNECTIONS"
-    | "PROVIDER_CATALOG"
-    | "PROVIDER_VALIDATE"
-    | "PROVIDER_PREFERENCES",
-): string {
-  switch (endpointKey) {
-    case "PROVIDER_CONNECT":
-      return providerConnectPath();
-    case "PROVIDER_DISCONNECT":
-      return providerDisconnectPath();
-    case "PROVIDER_CONNECTIONS":
-      return providerConnectionsPath();
-    case "PROVIDER_CATALOG":
-      return providerCatalogPath();
-    case "PROVIDER_VALIDATE":
-      return providerValidatePath();
-    case "PROVIDER_PREFERENCES":
-      return providerPreferencesPath();
-    default:
-      throw new Error(`Unknown endpoint: ${endpointKey}`);
-  }
-}
-
-/**
  * Validate all required environment variables at startup
  * Logs warnings for missing env vars (safe to run with defaults in dev)
  */

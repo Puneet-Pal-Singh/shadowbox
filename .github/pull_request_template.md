@@ -27,7 +27,15 @@ Safety:
 
 ## Verification
 
-## Testing
+## **Test Results** (code block)
+   ```
+   ✓ test-file.test.ts ({N} tests)
+   ───────────────────────
+   Total: {X}/{Y} tests PASSING ✅
+   ``` 
+
+## **Code Quality Metrics** (simple table)
+   - TypeScript strict, zero `any`, Zod validation, etc.
 
 ## Related
 <!-- Public GitHub PRs/issues only. If none, write N/A. -->
