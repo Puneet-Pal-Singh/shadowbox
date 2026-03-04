@@ -7,7 +7,9 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import type {
   BYOKCredential,
+  BYOKCredentialValidateResponse,
   BYOKPreference,
+  BYOKPreferencesUpdateRequest,
   BYOKResolution,
   ProviderRegistryEntry,
 } from "@repo/shared-types";
@@ -121,13 +123,21 @@ describe("ProviderStore", () => {
         return undefined;
       }),
       validateCredential: vi.fn(
-        async (credentialId: string, req: { mode: "format" | "live" }) => {
+        async (
+          credentialId: string,
+          req: { mode: "format" | "live" }
+        ): Promise<BYOKCredentialValidateResponse> => {
           void credentialId;
           void req;
-          return { valid: true };
+          return {
+            credentialId: credential1Id,
+            valid: true,
+            validatedAt: new Date().toISOString(),
+          };
         }
       ),
-      updatePreferences: vi.fn(async (partial: Partial<BYOKPreference>) => {
+      updatePreferences: vi.fn(
+        async (partial: BYOKPreferencesUpdateRequest) => {
         void partial;
         return {
           ...preferences,

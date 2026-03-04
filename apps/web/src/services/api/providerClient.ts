@@ -11,46 +11,37 @@
  */
 
 import {
+  BYOKResolutionSchema,
+  BYOKResolveRequestSchema,
+  BYOKCredentialSchema,
+  BYOKPreferenceSchema,
+  ProviderRegistryEntrySchema,
+  ModelDescriptorSchema,
+  BYOKCredentialConnectRequestSchema,
+  BYOKCredentialUpdateRequestSchema,
+  BYOKCredentialValidateRequestSchema,
+  BYOKCredentialValidateResponseSchema,
+  BYOKProviderModelsResponseSchema,
+  BYOKPreferencesUpdateRequestSchema,
+  ProviderErrorEnvelopeSchema,
   BYOKResolution as ProviderResolution,
   BYOKResolveRequest as ProviderResolveRequest,
   BYOKCredential as ProviderCredential,
   BYOKPreference as ProviderPreference,
-  type ModelDescriptor,
-  ProviderRegistryEntry,
+  type BYOKCredentialConnectRequest,
+  type BYOKCredentialUpdateRequest,
+  type BYOKCredentialValidateRequest,
+  type BYOKCredentialValidateResponse,
+  type BYOKPreferencesUpdateRequest,
+  type ProviderRegistryEntry,
 } from "@repo/shared-types";
 import { getBrainHttpBase } from "../../lib/platform-endpoints.js";
 import { SessionStateService } from "../SessionStateService";
 
-/**
- * Connect credential request
- */
-export interface ConnectCredentialRequest {
-  providerId: string;
-  secret: string;
-  label?: string;
-}
-
-/**
- * Update credential request
- */
-export interface UpdateCredentialRequest {
-  label?: string;
-}
-
-/**
- * Validate credential request
- */
-export interface ValidateCredentialRequest {
-  mode: "format" | "live";
-}
-
-/**
- * Validate credential response
- */
-export interface ValidationResult {
-  valid: boolean;
-  error?: string;
-}
+export type ConnectCredentialRequest = BYOKCredentialConnectRequest;
+export type UpdateCredentialRequest = BYOKCredentialUpdateRequest;
+export type ValidateCredentialRequest = BYOKCredentialValidateRequest;
+export type ValidationResult = BYOKCredentialValidateResponse;
 
 export interface ProviderModelOption {
   id: string;
@@ -106,15 +97,30 @@ export class ProviderApiClient {
    * GET /api/byok/providers (catalog)
    */
   async getCatalog(): Promise<ProviderRegistryEntry[]> {
-    return this.get<ProviderRegistryEntry[]>("/providers");
+    const payload = await this.get<unknown>("/providers");
+    return this.parseResponseContract(
+      payload,
+      ProviderRegistryEntrySchema.array(),
+      "provider catalog",
+    );
   }
 
   /**
    * GET /api/byok/providers/:providerId/models
    */
   async getProviderModels(providerId: string): Promise<ProviderModelOption[]> {
-    const models = await this.get<ModelDescriptor[]>(
+    const payload = await this.get<unknown>(
       `/providers/${encodeURIComponent(providerId)}/models`
+    );
+    const response = this.parseResponseContract(
+      payload,
+      BYOKProviderModelsResponseSchema,
+      "provider models",
+    );
+    const models = this.parseResponseContract(
+      response.models,
+      ModelDescriptorSchema.array(),
+      "provider models list",
     );
     return models.map((model) => ({
       id: model.id,
@@ -127,7 +133,12 @@ export class ProviderApiClient {
    * GET /api/byok/credentials
    */
   async getCredentials(): Promise<ProviderCredential[]> {
-    return this.get<ProviderCredential[]>("/credentials");
+    const payload = await this.get<unknown>("/credentials");
+    return this.parseResponseContract(
+      payload,
+      BYOKCredentialSchema.array(),
+      "credentials",
+    );
   }
 
   /**
@@ -136,7 +147,13 @@ export class ProviderApiClient {
   async connectCredential(
     req: ConnectCredentialRequest
   ): Promise<ProviderCredential> {
-    return this.post<ProviderCredential>("/credentials", req);
+    const request = this.parseRequestContract(
+      req,
+      BYOKCredentialConnectRequestSchema,
+      "connect credential",
+    );
+    const payload = await this.post<unknown>("/credentials", request);
+    return this.parseResponseContract(payload, BYOKCredentialSchema, "credential");
   }
 
   /**
@@ -146,10 +163,16 @@ export class ProviderApiClient {
     credentialId: string,
     req: UpdateCredentialRequest
   ): Promise<ProviderCredential> {
-    return this.patch<ProviderCredential>(
-      `/credentials/${credentialId}`,
-      req
+    const request = this.parseRequestContract(
+      req,
+      BYOKCredentialUpdateRequestSchema,
+      "update credential",
     );
+    const payload = await this.patch<unknown>(
+      `/credentials/${credentialId}`,
+      request
+    );
+    return this.parseResponseContract(payload, BYOKCredentialSchema, "credential");
   }
 
   /**
@@ -166,9 +189,19 @@ export class ProviderApiClient {
     credentialId: string,
     req: ValidateCredentialRequest
   ): Promise<ValidationResult> {
-    return this.post<ValidationResult>(
+    const request = this.parseRequestContract(
+      req,
+      BYOKCredentialValidateRequestSchema,
+      "validate credential",
+    );
+    const payload = await this.post<unknown>(
       `/credentials/${credentialId}/validate`,
-      req
+      request
+    );
+    return this.parseResponseContract(
+      payload,
+      BYOKCredentialValidateResponseSchema,
+      "credential validation",
     );
   }
 
@@ -176,23 +209,48 @@ export class ProviderApiClient {
    * GET /api/byok/preferences
    */
   async getPreferences(): Promise<ProviderPreference> {
-    return this.get<ProviderPreference>("/preferences");
+    const payload = await this.get<unknown>("/preferences");
+    return this.parseResponseContract(
+      payload,
+      BYOKPreferenceSchema,
+      "preferences",
+    );
   }
 
   /**
    * PATCH /api/byok/preferences
    */
   async updatePreferences(
-    req: Partial<ProviderPreference>
+    req: BYOKPreferencesUpdateRequest
   ): Promise<ProviderPreference> {
-    return this.patch<ProviderPreference>("/preferences", req);
+    const request = this.parseRequestContract(
+      req,
+      BYOKPreferencesUpdateRequestSchema,
+      "update preferences",
+    );
+    const payload = await this.patch<unknown>("/preferences", request);
+    return this.parseResponseContract(
+      payload,
+      BYOKPreferenceSchema,
+      "preferences",
+    );
   }
 
   /**
    * POST /api/byok/resolve (resolve for chat)
    */
   async resolveForChat(req: ResolveChatRequest): Promise<ProviderResolution> {
-    return this.post<ProviderResolution>("/resolve", req);
+    const request = this.parseRequestContract(
+      req,
+      BYOKResolveRequestSchema,
+      "resolve chat request",
+    );
+    const payload = await this.post<unknown>("/resolve", request);
+    return this.parseResponseContract(
+      payload,
+      BYOKResolutionSchema,
+      "resolution",
+    );
   }
 
   /**
@@ -328,6 +386,38 @@ export class ProviderApiClient {
     }
   }
 
+  private parseRequestContract<T>(
+    payload: unknown,
+    schema: { safeParse: (data: unknown) => { success: true; data: T } | { success: false } },
+    context: string
+  ): T {
+    const parsed = schema.safeParse(payload);
+    if (!parsed.success) {
+      throw new ProviderApiError(
+        400,
+        "INVALID_REQUEST_CONTRACT",
+        `Invalid ${context} contract`,
+      );
+    }
+    return parsed.data;
+  }
+
+  private parseResponseContract<T>(
+    payload: unknown,
+    schema: { safeParse: (data: unknown) => { success: true; data: T } | { success: false } },
+    context: string
+  ): T {
+    const parsed = schema.safeParse(payload);
+    if (!parsed.success) {
+      throw new ProviderApiError(
+        502,
+        "INVALID_RESPONSE_CONTRACT",
+        `Invalid ${context} response contract`,
+      );
+    }
+    return parsed.data;
+  }
+
   private createHeaders(): HeadersInit {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
@@ -354,7 +444,6 @@ export class ProviderApiClient {
    * Handle error responses with provider error envelope
    */
   private async handleErrorResponse(response: Response): Promise<never> {
-    let errorData: Record<string, unknown> = {};
     let message = `HTTP ${response.status}`;
     let code = "API_ERROR";
     let correlationId: string | undefined;
@@ -362,11 +451,18 @@ export class ProviderApiClient {
     try {
       const contentType = response.headers.get("content-type");
       if (contentType?.includes("application/json")) {
-        errorData = await response.json();
-        const error = (errorData.error || {}) as Record<string, unknown>;
-        message = (error.message as string) || message;
-        code = (error.code as string) || code;
-        correlationId = error.correlationId as string | undefined;
+        const errorData = await response.json();
+        const parsed = ProviderErrorEnvelopeSchema.safeParse(errorData);
+        if (parsed.success) {
+          message = parsed.data.error.message;
+          code = parsed.data.error.code;
+          correlationId = parsed.data.error.correlationId;
+        } else {
+          const fallback = extractErrorFields(errorData);
+          message = fallback.message ?? message;
+          code = fallback.code ?? code;
+          correlationId = fallback.correlationId;
+        }
       } else {
         const preview = await this.readResponsePreview(response);
         if (preview) {
@@ -396,6 +492,47 @@ export class ProviderApiClient {
       return "";
     }
   }
+}
+
+function extractErrorFields(payload: unknown): {
+  code?: string;
+  message?: string;
+  correlationId?: string;
+} {
+  if (!payload || typeof payload !== "object") {
+    return {};
+  }
+
+  const raw = payload as Record<string, unknown>;
+  const nestedError =
+    raw.error && typeof raw.error === "object"
+      ? (raw.error as Record<string, unknown>)
+      : undefined;
+
+  const message =
+    typeof raw.error === "string"
+      ? raw.error
+      : typeof raw.message === "string"
+      ? raw.message
+      : typeof nestedError?.message === "string"
+      ? nestedError.message
+      : undefined;
+
+  const code =
+    typeof raw.code === "string"
+      ? raw.code
+      : typeof nestedError?.code === "string"
+      ? nestedError.code
+      : undefined;
+
+  const correlationId =
+    typeof raw.correlationId === "string"
+      ? raw.correlationId
+      : typeof nestedError?.correlationId === "string"
+      ? nestedError.correlationId
+      : undefined;
+
+  return { code, message, correlationId };
 }
 
 class DefaultRunIdResolver implements RunIdResolver {

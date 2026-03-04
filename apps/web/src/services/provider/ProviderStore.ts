@@ -14,6 +14,11 @@ import {
   BYOKResolution as ProviderResolution,
   BYOKCredential as ProviderCredential,
   BYOKPreference as ProviderPreference,
+  type BYOKCredentialConnectRequest,
+  type BYOKCredentialValidateRequest,
+  type BYOKCredentialValidateResponse,
+  type BYOKPreferencesUpdateRequest,
+  type BYOKResolveRequest,
   ProviderRegistryEntry,
 } from "@repo/shared-types";
 import {
@@ -53,21 +58,8 @@ interface ProviderSelectionSnapshot {
   selectedModelId: string | null;
 }
 
-/**
- * Connect credential request
- */
-export interface ConnectCredentialRequest {
-  providerId: string;
-  secret: string;
-  label?: string;
-}
-
-/**
- * Validate credential request
- */
-export interface ValidateCredentialRequest {
-  mode: "format" | "live";
-}
+export type ConnectCredentialRequest = BYOKCredentialConnectRequest;
+export type ValidateCredentialRequest = BYOKCredentialValidateRequest;
 
 /**
  * API client contract for store operations.
@@ -83,13 +75,9 @@ export interface ProviderApiClientContract {
   validateCredential(
     credentialId: string,
     req: ValidateCredentialRequest
-  ): Promise<{ valid: boolean; error?: string }>;
-  updatePreferences(req: Partial<ProviderPreference>): Promise<ProviderPreference>;
-  resolveForChat(req: {
-    providerId?: string;
-    credentialId?: string;
-    modelId?: string;
-  }): Promise<ProviderResolution>;
+  ): Promise<BYOKCredentialValidateResponse>;
+  updatePreferences(req: BYOKPreferencesUpdateRequest): Promise<ProviderPreference>;
+  resolveForChat(req: BYOKResolveRequest): Promise<ProviderResolution>;
 }
 
 export interface SessionSelectionRequest {
@@ -579,7 +567,7 @@ export class ProviderStore {
    * Update workspace preferences
    */
   async updatePreferences(
-    partial: Partial<ProviderPreference>
+    partial: BYOKPreferencesUpdateRequest
   ): Promise<void> {
     const key = "preferences";
 
@@ -652,7 +640,7 @@ export class ProviderStore {
    * Internal preferences update implementation
    */
   private async executeUpdatePreferences(
-    partial: Partial<ProviderPreference>
+    partial: BYOKPreferencesUpdateRequest
   ): Promise<void> {
     this.log("[updatePreferences] Starting", partial);
     const epoch = this.epoch;
