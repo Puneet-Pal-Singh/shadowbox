@@ -391,6 +391,24 @@ function findCommon(arr1: string[], arr2: string[]): string[] {
 ### Commit Standards
 
 - **Conventional Commits**: Use prefixes: `feat:`, `fix:`, `chore:`, `refactor:`.
+- **Commit Rules (Required)**:
+
+Use conventional-commit type in title:
+
+```bash
+# Required:
+<type>(<scope>): <imperative summary>
+
+# Good:
+fix(runtime): enforce runId isolation in harness adapter
+feat(web): add composer model picker popover
+refactor(brain): extract run lifecycle collaborators
+
+# Avoid:
+runtime: enforce runId isolation
+fix: misc changes
+update PR
+```
 - **Atomic Commits**: One logical change per commit. Do not bundle a UI fix with a backend refactor.
 - **Don't commit plans/ folder**: Keep plans/ out of git commits.
 - **NEVER use `git add -A`**: Always add specific files/paths. Pattern: `git add path/to/file` or `git add path/to/dir/`. This ensures intentional, auditable commits.
