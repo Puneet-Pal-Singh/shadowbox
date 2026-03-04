@@ -22,7 +22,7 @@ import {
   SessionSelectionRequest,
 } from "../services/provider/ProviderStore.js";
 import {
-  BYOKPreference as ProviderPreference,
+  type BYOKPreferencesUpdateRequest,
   BYOKResolution as ProviderResolution,
 } from "@repo/shared-types";
 import type { ProviderModelOption } from "../services/api/providerClient.js";
@@ -44,7 +44,7 @@ type UseProviderStoreResult = ProviderStoreState & {
   ) => Promise<void>;
   loadProviderModels: (providerId: string) => Promise<ProviderModelOption[]>;
   updatePreferences: (
-    partial: Partial<ProviderPreference>
+    partial: BYOKPreferencesUpdateRequest
   ) => Promise<void>;
   setSelection: (
     providerId: string,
@@ -111,7 +111,7 @@ export function useProviderStore(
     [store]
   );
   const updatePreferences = useCallback(
-    (partial: Partial<ProviderPreference>) => store.updatePreferences(partial),
+    (partial: BYOKPreferencesUpdateRequest) => store.updatePreferences(partial),
     [store]
   );
   const setSelection = useCallback(

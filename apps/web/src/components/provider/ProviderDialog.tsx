@@ -16,6 +16,7 @@ import { useProviderStore } from "../../hooks/useProviderStore.js";
 import {
   BYOKCredential as ProviderCredential,
   BYOKPreference as ProviderPreference,
+  type BYOKPreferencesUpdateRequest,
   ProviderRegistryEntry,
 } from "@repo/shared-types";
 import { type ProviderModelOption } from "../../services/api/providerClient.js";
@@ -183,7 +184,7 @@ export function ProviderDialog({
    * Handle preference update
    */
   const handleUpdatePreferences = async (
-    partial: Partial<ProviderPreference>
+    partial: BYOKPreferencesUpdateRequest
   ) => {
     try {
       await updatePreferences(partial);
@@ -564,7 +565,7 @@ function PreferencesTab({
   onUpdate,
 }: {
   preferences: ProviderPreference | null;
-  onUpdate: (partial: Partial<ProviderPreference>) => Promise<void>;
+  onUpdate: (partial: BYOKPreferencesUpdateRequest) => Promise<void>;
 }): React.ReactElement {
   const fallbackMode = preferences?.fallbackMode || "strict";
 

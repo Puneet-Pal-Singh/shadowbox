@@ -100,9 +100,12 @@ export interface RunManifest {
   orchestratorBackend: OrchestratorBackend;
 }
 
+export type RunPhase = "planning" | "execution" | "synthesis";
+
 export interface RunMetadata {
   prompt: string;
   manifest?: RunManifest;
+  phaseSelectionSnapshots?: Partial<Record<RunPhase, RunManifest>>;
   planId?: string;
   completedAt?: string;
   error?: string;

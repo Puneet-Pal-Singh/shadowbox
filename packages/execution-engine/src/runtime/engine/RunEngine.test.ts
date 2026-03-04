@@ -180,6 +180,41 @@ describe("RunEngine", () => {
     ).rejects.toThrow("Immutable run manifest mismatch");
   });
 
+  it("records immutable selection snapshots across planning, execution, and synthesis metadata", async () => {
+    const runEngine = createRunEngine({
+      llmGateway: createPlanningLLMGateway(),
+    });
+
+    const response = await runEngine.execute(
+      {
+        agentType: "coding",
+        prompt: "implement a tiny command task",
+        sessionId: "session-1",
+        providerId: "openai",
+        modelId: "gpt-4o",
+        harnessId: "local-sandbox",
+      },
+      [{ role: "user", content: "implement a tiny command task" }],
+      {},
+    );
+
+    expect(response.status).toBe(200);
+
+    const persisted = await (runEngine as unknown as {
+      getRun(runId: string): Promise<Run | null>;
+    }).getRun(TEST_RUN_ID);
+
+    const manifest = persisted?.metadata.manifest;
+    const snapshots = persisted?.metadata.phaseSelectionSnapshots;
+
+    expect(manifest).toBeDefined();
+    expect(snapshots).toBeDefined();
+    expect(snapshots?.planning).toEqual(manifest);
+    expect(snapshots?.execution).toEqual(manifest);
+    expect(snapshots?.synthesis).toEqual(manifest);
+    expect(snapshots?.planning).not.toBe(manifest);
+  });
+
   it("builds conversational system prompt with direct-answer style guidance", () => {
     const prompt = buildConversationalSystemPrompt();
     expect(prompt).toContain("Answer the user directly in the first sentence");
@@ -350,6 +385,48 @@ function createExplodingLLMGateway(): ILLMGateway {
         promptTokens: 1,
         completionTokens: 1,
         totalTokens: 2,
+      },
+    }),
+    generateStream: async () =>
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.close();
+        },
+      }),
+  };
+}
+
+function createPlanningLLMGateway(): ILLMGateway {
+  return {
+    generateText: async () => ({
+      text: "Execution complete",
+      usage: {
+        provider: "mock",
+        model: "mock-model",
+        promptTokens: 5,
+        completionTokens: 5,
+        totalTokens: 10,
+      },
+    }),
+    generateStructured: async () => ({
+      object: {
+        tasks: [
+          {
+            id: "task-1",
+            type: "shell",
+            description: "Echo a deterministic marker",
+            dependsOn: [],
+            input: { command: "echo done" },
+          },
+        ],
+        metadata: { estimatedSteps: 1 },
+      },
+      usage: {
+        provider: "mock",
+        model: "mock-model",
+        promptTokens: 5,
+        completionTokens: 5,
+        totalTokens: 10,
       },
     }),
     generateStream: async () =>

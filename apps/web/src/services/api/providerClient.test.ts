@@ -7,6 +7,25 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import { ProviderApiClient, ProviderApiError } from "./providerClient.js";
 
+function createCredentialFixture(overrides?: { credentialId?: string }) {
+  return {
+    credentialId:
+      overrides?.credentialId ?? "550e8400-e29b-41d4-a716-446655440000",
+    userId: "user-1",
+    workspaceId: "workspace-1",
+    providerId: "openai",
+    label: "Primary",
+    keyFingerprint: "sk-****1234",
+    encryptedSecretJson: "{}",
+    keyVersion: "v1",
+    status: "connected" as const,
+    lastValidatedAt: null,
+    createdAt: "2026-03-04T00:00:00.000Z",
+    updatedAt: "2026-03-04T00:00:00.000Z",
+    deletedAt: null,
+  };
+}
+
 describe("ProviderApiClient", () => {
   const providerApiBaseUrl = "http://localhost:8788/api/byok";
   const testRunId = "run-123";
@@ -34,6 +53,13 @@ describe("ProviderApiClient", () => {
           providerId: "openai",
           displayName: "OpenAI",
           authModes: ["api_key"],
+          capabilities: {
+            streaming: true,
+            tools: true,
+            jsonMode: true,
+            structuredOutputs: true,
+          },
+          modelSource: "static",
         },
       ];
 
@@ -66,7 +92,11 @@ describe("ProviderApiClient", () => {
       fetchSpy.mockResolvedValueOnce({
         ok: true,
         headers: new Headers({ "content-type": "application/json" }),
-        json: vi.fn().mockResolvedValueOnce(mockModels),
+        json: vi.fn().mockResolvedValueOnce({
+          providerId: "openrouter",
+          models: mockModels,
+          lastFetchedAt: "2026-03-04T00:00:00.000Z",
+        }),
       });
 
       const models = await client.getProviderModels("openrouter");
@@ -90,11 +120,7 @@ describe("ProviderApiClient", () => {
   describe("getCredentials", () => {
     it("fetches credentials", async () => {
       const mockCredentials = [
-        {
-          id: "cred-1",
-          providerId: "openai",
-          status: "connected",
-        },
+        createCredentialFixture(),
       ];
 
       fetchSpy.mockResolvedValueOnce({
@@ -120,11 +146,7 @@ describe("ProviderApiClient", () => {
 
   describe("connectCredential", () => {
     it("connects a new credential", async () => {
-      const mockCredential = {
-        id: "cred-1",
-        providerId: "openai",
-        status: "connected",
-      };
+      const mockCredential = createCredentialFixture();
 
       fetchSpy.mockResolvedValueOnce({
         ok: true,
@@ -177,17 +199,22 @@ describe("ProviderApiClient", () => {
 
   describe("validateCredential", () => {
     it("validates credential with format mode", async () => {
+      const responseBody = {
+        credentialId: "550e8400-e29b-41d4-a716-446655440000",
+        valid: true,
+        validatedAt: "2026-03-04T00:00:00.000Z",
+      };
       fetchSpy.mockResolvedValueOnce({
         ok: true,
         headers: new Headers({ "content-type": "application/json" }),
-        json: vi.fn().mockResolvedValueOnce({ valid: true }),
+        json: vi.fn().mockResolvedValueOnce(responseBody),
       });
 
       const result = await client.validateCredential("cred-1", {
         mode: "format",
       });
 
-      expect(result).toEqual({ valid: true });
+      expect(result).toEqual(responseBody);
       expect(fetchSpy).toHaveBeenCalledWith(
         `${providerApiBaseUrl}/credentials/cred-1/validate`,
         expect.objectContaining({
@@ -198,17 +225,22 @@ describe("ProviderApiClient", () => {
     });
 
     it("validates credential with live mode", async () => {
+      const responseBody = {
+        credentialId: "550e8400-e29b-41d4-a716-446655440000",
+        valid: true,
+        validatedAt: "2026-03-04T00:00:00.000Z",
+      };
       fetchSpy.mockResolvedValueOnce({
         ok: true,
         headers: new Headers({ "content-type": "application/json" }),
-        json: vi.fn().mockResolvedValueOnce({ valid: true }),
+        json: vi.fn().mockResolvedValueOnce(responseBody),
       });
 
       const result = await client.validateCredential("cred-1", {
         mode: "live",
       });
 
-      expect(result).toEqual({ valid: true });
+      expect(result).toEqual(responseBody);
     });
   });
 
@@ -240,7 +272,7 @@ describe("ProviderApiClient", () => {
       fetchSpy.mockResolvedValueOnce({
         ok: false,
         status: 500,
-        headers: new Headers({}),
+        headers: new Headers({ "content-type": "application/json" }),
         json: vi.fn().mockResolvedValueOnce({
           error: { code: "INTERNAL_ERROR", message: "Internal server error" },
         }),
@@ -257,7 +289,7 @@ describe("ProviderApiClient", () => {
       fetchSpy.mockResolvedValueOnce({
         ok: false,
         status: 429,
-        headers: new Headers({}),
+        headers: new Headers({ "content-type": "application/json" }),
         json: vi.fn().mockResolvedValueOnce({
           error: { code: "RATE_LIMIT", message: "Too many requests" },
         }),
@@ -338,6 +370,22 @@ describe("ProviderApiClient", () => {
 
       await expect(client.getCatalog()).rejects.toMatchObject({
         code: "INVALID_RESPONSE_FORMAT",
+        statusCode: 502,
+      });
+    });
+
+    it("fails when JSON payload violates shared response contract", async () => {
+      fetchSpy.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        headers: new Headers({ "content-type": "application/json" }),
+        json: vi.fn().mockResolvedValueOnce([
+          { providerId: "openai", displayName: "OpenAI" },
+        ]),
+      });
+
+      await expect(client.getCatalog()).rejects.toMatchObject({
+        code: "INVALID_RESPONSE_CONTRACT",
         statusCode: 502,
       });
     });

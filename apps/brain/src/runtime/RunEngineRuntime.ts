@@ -16,6 +16,7 @@ import {
   isDomainError,
   mapDomainErrorToHttp,
 } from "../domain/errors";
+import { mapRunExecutionErrorToDomain } from "./RunExecutionErrorMapper";
 import { parseRequestBody, validateWithSchema } from "../http/validation";
 import {
   BYOKConnectRequestSchema,
@@ -251,8 +252,12 @@ export class RunEngineRuntime extends DurableObject {
         );
       });
     } catch (error: unknown) {
-      if (isDomainError(error)) {
-        const { status, code, message } = mapDomainErrorToHttp(error);
+      const domainError = mapRunExecutionErrorToDomain(
+        error,
+        payload.correlationId,
+      );
+      if (domainError) {
+        const { status, code, message } = mapDomainErrorToHttp(domainError);
         return errorResponse(request, this.env as Env, message, status, code);
       }
       const message =
