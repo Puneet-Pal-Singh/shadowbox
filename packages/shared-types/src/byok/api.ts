@@ -1,16 +1,105 @@
+import { z } from "zod";
+import {
+  BYOKConnectRequestSchema,
+  BYOKConnectResponseSchema,
+  BYOKValidateRequestSchema,
+  BYOKValidateResponseSchema,
+  ModelDescriptorSchema,
+} from "../provider.js";
+
 /**
  * BYOK API request/response contracts.
  *
- * Canonical source is `../provider.ts` to prevent contract drift between
- * provider runtime boundaries and BYOK module imports.
+ * Canonical source for runtime provider endpoints remains `../provider.ts`.
+ * This module also owns credential/preference DTOs used by `/api/byok/*`
+ * controller + web client boundaries to avoid app-local drift.
  */
 export {
   BYOKConnectRequestSchema,
   BYOKConnectResponseSchema,
   BYOKValidateRequestSchema,
   BYOKValidateResponseSchema,
-  type BYOKConnectRequest,
-  type BYOKConnectResponse,
-  type BYOKValidateRequest,
-  type BYOKValidateResponse,
+};
+export type {
+  BYOKConnectRequest,
+  BYOKConnectResponse,
+  BYOKValidateRequest,
+  BYOKValidateResponse,
 } from "../provider.js";
+
+/**
+ * POST /api/byok/credentials
+ */
+export const BYOKCredentialConnectRequestSchema = z.object({
+  providerId: z.string().min(1).max(64),
+  secret: z.string().min(1).max(4096),
+  label: z.string().min(1).max(256).optional(),
+});
+export type BYOKCredentialConnectRequest = z.infer<
+  typeof BYOKCredentialConnectRequestSchema
+>;
+
+/**
+ * PATCH /api/byok/credentials/:credentialId
+ */
+export const BYOKCredentialUpdateRequestSchema = z.object({
+  label: z.string().min(1).max(256).optional(),
+});
+export type BYOKCredentialUpdateRequest = z.infer<
+  typeof BYOKCredentialUpdateRequestSchema
+>;
+
+/**
+ * POST /api/byok/credentials/:credentialId/validate
+ */
+export const BYOKCredentialValidateRequestSchema = z.object({
+  mode: z.enum(["format", "live"]).default("format"),
+});
+export type BYOKCredentialValidateRequest = z.infer<
+  typeof BYOKCredentialValidateRequestSchema
+>;
+
+export const BYOKCredentialValidateResponseSchema = z.object({
+  credentialId: z.string().uuid(),
+  valid: z.boolean(),
+  validatedAt: z.string().datetime(),
+});
+export type BYOKCredentialValidateResponse = z.infer<
+  typeof BYOKCredentialValidateResponseSchema
+>;
+
+/**
+ * GET /api/byok/providers/:providerId/models
+ */
+export const BYOKProviderModelsResponseSchema = z.object({
+  providerId: z.string().min(1).max(64),
+  models: z.array(ModelDescriptorSchema),
+  lastFetchedAt: z.string().datetime(),
+});
+export type BYOKProviderModelsResponse = z.infer<
+  typeof BYOKProviderModelsResponseSchema
+>;
+
+/**
+ * PATCH /api/byok/preferences
+ */
+export const BYOKPreferencesUpdateRequestSchema = z
+  .object({
+    defaultProviderId: z.string().min(1).max(64).optional(),
+    defaultModelId: z.string().min(1).optional(),
+    fallbackMode: z.enum(["strict", "allow_fallback"]).optional(),
+    fallbackChain: z.array(z.string()).optional(),
+    visibleModelIds: z.record(z.string(), z.array(z.string())).optional(),
+  })
+  .refine(
+    (value) =>
+      value.defaultProviderId !== undefined ||
+      value.defaultModelId !== undefined ||
+      value.fallbackMode !== undefined ||
+      value.fallbackChain !== undefined ||
+      value.visibleModelIds !== undefined,
+    { message: "At least one preference field is required" },
+  );
+export type BYOKPreferencesUpdateRequest = z.infer<
+  typeof BYOKPreferencesUpdateRequestSchema
+>;
