@@ -593,6 +593,21 @@ describe("ProviderController", () => {
       expect(data.error.code).toBe("VALIDATION_ERROR");
     });
 
+    it("rejects malformed percent-encoded provider slug", async () => {
+      const env = createMockEnv();
+      const response = await ProviderController.byokProviderModels(
+        new Request("http://localhost/api/byok/providers/%E0%A4%A/models", {
+          method: "GET",
+          headers: await withByokHeaders(env),
+        }),
+        env,
+      );
+      const data = await response.json();
+
+      expect(response.status).toBe(400);
+      expect(data.error.code).toBe("VALIDATION_ERROR");
+    });
+
     it("returns provider registry entries", async () => {
       const env = createMockEnv();
       const response = await ProviderController.byokProviders(

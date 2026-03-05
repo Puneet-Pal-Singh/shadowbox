@@ -744,7 +744,7 @@ function extractProviderIdFromModelsPath(
       correlationId,
     );
   }
-  return parseProviderSlug(decodeURIComponent(providerId), correlationId);
+  return parseProviderSlug(decodeProviderSlug(providerId, correlationId), correlationId);
 }
 
 function buildDiscoveryQueryParams(urlValue: string): {
@@ -826,7 +826,7 @@ function extractProviderIdFromModelsRefreshPath(
       correlationId,
     );
   }
-  return parseProviderSlug(decodeURIComponent(providerId), correlationId);
+  return parseProviderSlug(decodeProviderSlug(providerId, correlationId), correlationId);
 }
 
 function parseProviderSlug(providerId: string, correlationId: string): string {
@@ -839,6 +839,18 @@ function parseProviderSlug(providerId: string, correlationId: string): string {
     "VALIDATION_ERROR",
     correlationId,
   );
+}
+
+function decodeProviderSlug(providerId: string, correlationId: string): string {
+  try {
+    return decodeURIComponent(providerId);
+  } catch {
+    throw new ValidationError(
+      "Invalid providerId in request path.",
+      "VALIDATION_ERROR",
+      correlationId,
+    );
+  }
 }
 
 async function proxyProviderOperation(
