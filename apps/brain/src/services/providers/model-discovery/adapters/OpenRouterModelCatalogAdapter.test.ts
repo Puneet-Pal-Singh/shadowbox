@@ -71,7 +71,7 @@ describe("OpenRouterModelCatalogAdapter", () => {
   });
 
   it("rejects invalid pagination cursor values", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(
         JSON.stringify({
           data: [{ id: "openai/gpt-4o" }],
@@ -93,5 +93,6 @@ describe("OpenRouterModelCatalogAdapter", () => {
         cursor: "bad-cursor",
       }),
     ).rejects.toThrow("Invalid OpenRouter pagination cursor");
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

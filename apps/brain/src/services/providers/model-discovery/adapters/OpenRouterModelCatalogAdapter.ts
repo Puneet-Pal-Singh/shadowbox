@@ -58,8 +58,8 @@ export class OpenRouterModelCatalogAdapter implements ProviderModelCatalogPort {
   }
 
   async fetchPage(input: ProviderModelFetchPageInput): Promise<ProviderModelPageFetchResult> {
-    const models = await this.fetchAll(input.providerId, input.credentialContext);
     const offset = parseCursor(input.cursor);
+    const models = await this.fetchAll(input.providerId, input.credentialContext);
     const nextOffset = offset + input.limit;
     const page = models.slice(offset, nextOffset);
     return {

@@ -48,8 +48,8 @@ export class GoogleModelCatalogAdapter implements ProviderModelCatalogPort {
   }
 
   async fetchPage(input: ProviderModelFetchPageInput): Promise<ProviderModelPageFetchResult> {
-    const models = await this.fetchAll(input.providerId, input.credentialContext);
     const offset = parseCursor(input.cursor);
+    const models = await this.fetchAll(input.providerId, input.credentialContext);
     const nextOffset = offset + input.limit;
     return {
       providerId: input.providerId,

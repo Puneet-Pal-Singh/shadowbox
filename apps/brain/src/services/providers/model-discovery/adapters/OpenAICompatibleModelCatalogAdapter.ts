@@ -18,6 +18,7 @@ const OpenAICompatibleModelsSchema = z.object({
     }),
   ),
 });
+const OPENAI_COMPATIBLE_FETCH_TIMEOUT_MS = 15_000;
 
 export class OpenAICompatibleModelCatalogAdapter implements ProviderModelCatalogPort {
   constructor(
@@ -49,8 +50,8 @@ export class OpenAICompatibleModelCatalogAdapter implements ProviderModelCatalog
   }
 
   async fetchPage(input: ProviderModelFetchPageInput): Promise<ProviderModelPageFetchResult> {
-    const models = await this.fetchAll(input.providerId, input.credentialContext);
     const offset = parseCursor(input.cursor);
+    const models = await this.fetchAll(input.providerId, input.credentialContext);
     const nextOffset = offset + input.limit;
     return {
       providerId: input.providerId,
@@ -82,6 +83,11 @@ async function requestOpenAICompatibleModels(
   apiKey: string,
 ): Promise<Response> {
   const endpoint = `${baseUrl.replace(/\/$/, "")}/models`;
+  const abortController = new AbortController();
+  const timeoutId = setTimeout(
+    () => abortController.abort(),
+    OPENAI_COMPATIBLE_FETCH_TIMEOUT_MS,
+  );
   let response: Response;
   try {
     response = await fetch(endpoint, {
@@ -89,12 +95,21 @@ async function requestOpenAICompatibleModels(
       headers: {
         Authorization: `Bearer ${apiKey}`,
       },
+      signal: abortController.signal,
     });
   } catch (error) {
+    if (isAbortError(error)) {
+      throw new ProviderModelDiscoveryApiError(
+        `${providerId} models request timed out.`,
+        { status: 504, retryable: true },
+      );
+    }
     throw new ProviderModelDiscoveryApiError(
       `${providerId} models request failed due to network error: ${toErrorMessage(error)}`,
       { retryable: true },
     );
+  } finally {
+    clearTimeout(timeoutId);
   }
 
   if (!response.ok) {
@@ -134,4 +149,11 @@ function toErrorMessage(error: unknown): string {
     return error.message;
   }
   return "unknown_error";
+}
+
+function isAbortError(error: unknown): boolean {
+  if (error instanceof DOMException && error.name === "AbortError") {
+    return true;
+  }
+  return error instanceof Error && error.name === "AbortError";
 }

@@ -51,7 +51,7 @@ describe("OpenAICompatibleModelCatalogAdapter", () => {
   });
 
   it("rejects invalid pagination cursors", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(JSON.stringify({ data: [{ id: "gpt-4o" }] }), { status: 200 }),
     );
 
@@ -71,5 +71,6 @@ describe("OpenAICompatibleModelCatalogAdapter", () => {
         cursor: "-1",
       }),
     ).rejects.toThrow("Invalid pagination cursor");
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

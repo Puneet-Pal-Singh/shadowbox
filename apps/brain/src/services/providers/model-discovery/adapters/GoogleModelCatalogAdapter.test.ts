@@ -49,7 +49,7 @@ describe("GoogleModelCatalogAdapter", () => {
   });
 
   it("fails fast on malformed cursors", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(
         JSON.stringify({
           models: [{ name: "models/gemini-1.5-pro" }],
@@ -71,5 +71,6 @@ describe("GoogleModelCatalogAdapter", () => {
         cursor: "abc",
       }),
     ).rejects.toThrow("Invalid Google pagination cursor");
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });
