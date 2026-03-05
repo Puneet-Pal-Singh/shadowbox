@@ -18,3 +18,9 @@ export {
   ProviderModelNormalizationError,
   ProviderModelCacheError,
 } from "./errors";
+export { ProviderModelDiscoveryService } from "./ProviderModelDiscoveryService";
+export { OpenRouterModelCatalogAdapter } from "./adapters/OpenRouterModelCatalogAdapter";
+export { GoogleModelCatalogAdapter } from "./adapters/GoogleModelCatalogAdapter";
+export { OpenAICompatibleModelCatalogAdapter } from "./adapters/OpenAICompatibleModelCatalogAdapter";
+export { ProviderModelRankingService } from "./ProviderModelRankingService";
+export { ProviderModelDiscoveryObservability } from "./ProviderModelDiscoveryObservability";

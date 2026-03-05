@@ -14,6 +14,9 @@ import type { Env } from "../../types/ai";
 import type {
   BYOKConnectRequest,
   BYOKConnectResponse,
+  BYOKDiscoveredProviderModelsQuery,
+  BYOKDiscoveredProviderModelsRefreshResponse,
+  BYOKDiscoveredProviderModelsResponse,
   BYOKDisconnectRequest,
   BYOKPreferences,
   BYOKPreferencesPatch,
@@ -33,6 +36,7 @@ import { ProviderCredentialService } from "./ProviderCredentialService";
 import { ProviderCatalogService } from "./ProviderCatalogService";
 import { ProviderConnectionService } from "./ProviderConnectionService";
 import { ProviderAuditService } from "./ProviderAuditService";
+import { ProviderModelDiscoveryService } from "./model-discovery";
 
 /**
  * ProviderConfigService - Facade delegating to focused services
@@ -41,6 +45,7 @@ export class ProviderConfigService {
   private durableStore: DurableProviderStore;
   private credentialService: ProviderCredentialService;
   private catalogService: ProviderCatalogService;
+  private modelDiscoveryService: ProviderModelDiscoveryService;
   private connectionService: ProviderConnectionService;
   private auditService: ProviderAuditService;
 
@@ -49,6 +54,10 @@ export class ProviderConfigService {
     const credentialVault = new CloudCredentialVault(durableStore);
     this.credentialService = new ProviderCredentialService(_env, credentialVault);
     this.catalogService = new ProviderCatalogService();
+    this.modelDiscoveryService = new ProviderModelDiscoveryService(
+      this.durableStore,
+      this.credentialService,
+    );
     this.connectionService = new ProviderConnectionService(
       this.credentialService,
     );
@@ -180,7 +189,45 @@ export class ProviderConfigService {
    * Delegates to ProviderCatalogService
    */
   async getModels(providerId: ProviderId): Promise<ModelsListResponse> {
-    return this.catalogService.getModels(providerId);
+    const discovered = await this.modelDiscoveryService.getDiscoveredModels(
+      providerId,
+      {
+        view: "all",
+        limit: 1000,
+      },
+    );
+    return {
+      providerId,
+      models: discovered.models.map((model) => ({
+        id: model.id,
+        name: model.name,
+        provider: providerId,
+      })),
+      lastFetchedAt: discovered.metadata.fetchedAt,
+    };
+  }
+
+  async getDiscoveredModels(
+    providerId: ProviderId,
+    query: BYOKDiscoveredProviderModelsQuery,
+  ): Promise<BYOKDiscoveredProviderModelsResponse> {
+    return this.modelDiscoveryService.getDiscoveredModels(providerId, query);
+  }
+
+  async refreshDiscoveredModels(
+    providerId: ProviderId,
+  ): Promise<BYOKDiscoveredProviderModelsRefreshResponse> {
+    return this.modelDiscoveryService.refreshDiscoveredModels(providerId);
+  }
+
+  async getOpenRouterDiscoveredModels(
+    query: BYOKDiscoveredProviderModelsQuery,
+  ): Promise<BYOKDiscoveredProviderModelsResponse> {
+    return this.getDiscoveredModels("openrouter", query);
+  }
+
+  async refreshOpenRouterDiscoveredModels(): Promise<BYOKDiscoveredProviderModelsRefreshResponse> {
+    return this.refreshDiscoveredModels("openrouter");
   }
 
   /**

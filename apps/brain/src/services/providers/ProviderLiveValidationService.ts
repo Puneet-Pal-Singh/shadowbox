@@ -105,6 +105,8 @@ function resolveValidationEndpoint(providerId: ProviderId): ProviderValidationEn
       };
     case "groq":
       return { url: "https://api.groq.com/openai/v1/models" };
+    case "google":
+      return { url: "https://generativelanguage.googleapis.com/v1beta/models" };
   }
 }
 

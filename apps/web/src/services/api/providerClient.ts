@@ -16,22 +16,26 @@ import {
   BYOKCredentialSchema,
   BYOKPreferenceSchema,
   ProviderRegistryEntrySchema,
-  ModelDescriptorSchema,
   BYOKCredentialConnectRequestSchema,
   BYOKCredentialUpdateRequestSchema,
   BYOKCredentialValidateRequestSchema,
   BYOKCredentialValidateResponseSchema,
-  BYOKProviderModelsResponseSchema,
+  BYOKDiscoveredProviderModelsQuerySchema,
+  BYOKDiscoveredProviderModelsResponseSchema,
+  BYOKDiscoveredProviderModelsRefreshResponseSchema,
   BYOKPreferencesUpdateRequestSchema,
   ProviderErrorEnvelopeSchema,
   BYOKResolution as ProviderResolution,
   BYOKResolveRequest as ProviderResolveRequest,
   BYOKCredential as ProviderCredential,
   BYOKPreference as ProviderPreference,
+  type BYOKModelDiscoverySource,
   type BYOKCredentialConnectRequest,
   type BYOKCredentialUpdateRequest,
   type BYOKCredentialValidateRequest,
   type BYOKCredentialValidateResponse,
+  type BYOKDiscoveredProviderModelsQuery,
+  type BYOKDiscoveredProviderModelsRefreshResponse,
   type BYOKPreferencesUpdateRequest,
   type ProviderRegistryEntry,
 } from "@repo/shared-types";
@@ -47,6 +51,36 @@ export interface ProviderModelOption {
   id: string;
   name: string;
   provider?: string;
+}
+
+export type ProviderModelDiscoveryView = BYOKDiscoveredProviderModelsQuery["view"];
+
+export interface ProviderModelsQuery {
+  view?: ProviderModelDiscoveryView;
+  limit?: number;
+  cursor?: string;
+}
+
+export interface ProviderModelsPageInfo {
+  limit: number;
+  cursor?: string;
+  nextCursor?: string;
+  hasMore: boolean;
+}
+
+export interface ProviderModelsMetadata {
+  fetchedAt: string;
+  stale: boolean;
+  source: BYOKModelDiscoverySource;
+  staleReason?: string;
+}
+
+export interface ProviderModelsPageResult {
+  providerId: string;
+  view: ProviderModelDiscoveryView;
+  models: ProviderModelOption[];
+  page: ProviderModelsPageInfo;
+  metadata: ProviderModelsMetadata;
 }
 
 export interface RunIdResolver {
@@ -108,25 +142,58 @@ export class ProviderApiClient {
   /**
    * GET /api/byok/providers/:providerId/models
    */
-  async getProviderModels(providerId: string): Promise<ProviderModelOption[]> {
+  async getProviderModels(
+    providerId: string,
+    query: ProviderModelsQuery = {},
+  ): Promise<ProviderModelsPageResult> {
+    const validatedQuery = this.parseRequestContract(
+      query,
+      BYOKDiscoveredProviderModelsQuerySchema,
+      "provider model discovery query",
+    );
+    const params = new URLSearchParams({
+      view: validatedQuery.view,
+      limit: String(validatedQuery.limit),
+    });
+    if (validatedQuery.cursor) {
+      params.set("cursor", validatedQuery.cursor);
+    }
     const payload = await this.get<unknown>(
-      `/providers/${encodeURIComponent(providerId)}/models`
+      `/providers/${encodeURIComponent(providerId)}/models?${params.toString()}`,
     );
     const response = this.parseResponseContract(
       payload,
-      BYOKProviderModelsResponseSchema,
-      "provider models",
+      BYOKDiscoveredProviderModelsResponseSchema,
+      "provider model discovery",
     );
-    const models = this.parseResponseContract(
-      response.models,
-      ModelDescriptorSchema.array(),
-      "provider models list",
+    return {
+      providerId: response.providerId,
+      view: response.view,
+      models: response.models.map((model) => ({
+        id: model.id,
+        name: model.name,
+        provider: model.providerId,
+      })),
+      page: response.page,
+      metadata: response.metadata,
+    };
+  }
+
+  /**
+   * POST /api/byok/providers/:providerId/models/refresh
+   */
+  async refreshProviderModels(
+    providerId: string,
+  ): Promise<BYOKDiscoveredProviderModelsRefreshResponse> {
+    const payload = await this.post<unknown>(
+      `/providers/${encodeURIComponent(providerId)}/models/refresh`,
+      {},
     );
-    return models.map((model) => ({
-      id: model.id,
-      name: model.name,
-      provider: model.provider,
-    }));
+    return this.parseResponseContract(
+      payload,
+      BYOKDiscoveredProviderModelsRefreshResponseSchema,
+      "provider models refresh",
+    );
   }
 
   /**
