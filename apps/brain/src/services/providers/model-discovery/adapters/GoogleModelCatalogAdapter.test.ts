@@ -7,7 +7,7 @@ describe("GoogleModelCatalogAdapter", () => {
   });
 
   it("filters for llm-capable models and normalizes payload", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(
         JSON.stringify({
           models: [
@@ -38,5 +38,38 @@ describe("GoogleModelCatalogAdapter", () => {
     expect(models).toHaveLength(1);
     expect(models[0].id).toBe("gemini-1.5-pro");
     expect(models[0].providerId).toBe("google");
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "https://generativelanguage.googleapis.com/v1beta/models",
+      expect.objectContaining({
+        headers: {
+          "x-goog-api-key": "AIza-test",
+        },
+      }),
+    );
+  });
+
+  it("fails fast on malformed cursors", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          models: [{ name: "models/gemini-1.5-pro" }],
+        }),
+        { status: 200 },
+      ),
+    );
+
+    const adapter = new GoogleModelCatalogAdapter();
+    await expect(
+      adapter.fetchPage({
+        providerId: "google",
+        credentialContext: {
+          userId: "user-1",
+          workspaceId: "ws-1",
+          apiKey: "AIza-test",
+        },
+        limit: 10,
+        cursor: "abc",
+      }),
+    ).rejects.toThrow("Invalid Google pagination cursor");
   });
 });

@@ -14,6 +14,7 @@ import {
 } from "../errors";
 
 const OPENROUTER_MODELS_ENDPOINT = "https://openrouter.ai/api/v1/models";
+const OPENROUTER_FETCH_TIMEOUT_MS = 30_000;
 
 const OpenRouterModelsEnvelopeSchema = z.object({
   data: z.array(
@@ -51,27 +52,9 @@ export class OpenRouterModelCatalogAdapter implements ProviderModelCatalogPort {
       );
     }
 
-    const response = await fetch(OPENROUTER_MODELS_ENDPOINT, {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${credentialContext.apiKey}`,
-      },
-    });
-    if (!response.ok) {
-      throw new ProviderModelDiscoveryApiError(
-        `OpenRouter models request failed with status ${response.status}.`,
-        { status: response.status, retryable: response.status >= 500 },
-      );
-    }
-
-    const payload = await response.json() as unknown;
-    const parsed = OpenRouterModelsEnvelopeSchema.safeParse(payload);
-    if (!parsed.success) {
-      throw new ProviderModelNormalizationError(
-        "OpenRouter models response failed schema validation.",
-      );
-    }
-    return parsed.data.data.map((entry) => toDiscoveredModel(entry));
+    const response = await requestOpenRouterModels(credentialContext.apiKey);
+    const payload = await parseOpenRouterModels(response);
+    return payload.data.map((entry) => toDiscoveredModel(entry));
   }
 
   async fetchPage(input: ProviderModelFetchPageInput): Promise<ProviderModelPageFetchResult> {
@@ -157,7 +140,83 @@ function parseCursor(cursor: string | undefined): number {
   }
   const parsed = Number(cursor);
   if (!Number.isInteger(parsed) || parsed < 0) {
-    return 0;
+    throw new ProviderModelDiscoveryApiError(
+      `Invalid OpenRouter pagination cursor "${cursor}".`,
+      { status: 400, retryable: false },
+    );
   }
   return parsed;
+}
+
+async function requestOpenRouterModels(apiKey: string): Promise<Response> {
+  const abortController = new AbortController();
+  const timeoutId = setTimeout(() => abortController.abort(), OPENROUTER_FETCH_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(OPENROUTER_MODELS_ENDPOINT, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+      },
+      signal: abortController.signal,
+    });
+    if (!response.ok) {
+      throw new ProviderModelDiscoveryApiError(
+        `OpenRouter models request failed with status ${response.status}.`,
+        { status: response.status, retryable: response.status >= 500 },
+      );
+    }
+    return response;
+  } catch (error) {
+    if (error instanceof ProviderModelDiscoveryApiError) {
+      throw error;
+    }
+    if (isAbortError(error)) {
+      throw new ProviderModelDiscoveryApiError(
+        "OpenRouter models request timed out.",
+        { status: 504, retryable: true },
+      );
+    }
+    throw new ProviderModelDiscoveryApiError(
+      `OpenRouter models request failed due to network error: ${toErrorMessage(error)}`,
+      { retryable: true },
+    );
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+async function parseOpenRouterModels(
+  response: Response,
+): Promise<z.infer<typeof OpenRouterModelsEnvelopeSchema>> {
+  let payload: unknown;
+  try {
+    payload = await response.json();
+  } catch (error) {
+    throw new ProviderModelDiscoveryApiError(
+      `OpenRouter models response body was not valid JSON: ${toErrorMessage(error)}`,
+      { retryable: false },
+    );
+  }
+  const parsed = OpenRouterModelsEnvelopeSchema.safeParse(payload);
+  if (!parsed.success) {
+    throw new ProviderModelNormalizationError(
+      "OpenRouter models response failed schema validation.",
+    );
+  }
+  return parsed.data;
+}
+
+function toErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return "unknown_error";
+}
+
+function isAbortError(error: unknown): boolean {
+  if (error instanceof DOMException && error.name === "AbortError") {
+    return true;
+  }
+  return error instanceof Error && error.name === "AbortError";
 }

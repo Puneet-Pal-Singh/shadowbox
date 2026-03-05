@@ -35,27 +35,13 @@ export class OpenAICompatibleModelCatalogAdapter implements ProviderModelCatalog
         { status: 400, retryable: false },
       );
     }
-    const endpoint = `${this.baseUrl.replace(/\/$/, "")}/models`;
-    const response = await fetch(endpoint, {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${credentialContext.apiKey}`,
-      },
-    });
-    if (!response.ok) {
-      throw new ProviderModelDiscoveryApiError(
-        `${this.providerId} models request failed with status ${response.status}.`,
-        { status: response.status, retryable: response.status >= 500 },
-      );
-    }
-    const payload = await response.json() as unknown;
-    const parsed = OpenAICompatibleModelsSchema.safeParse(payload);
-    if (!parsed.success) {
-      throw new ProviderModelNormalizationError(
-        `${this.providerId} models response failed schema validation.`,
-      );
-    }
-    return parsed.data.data.map((item) => ({
+    const response = await requestOpenAICompatibleModels(
+      this.providerId,
+      this.baseUrl,
+      credentialContext.apiKey,
+    );
+    const payload = await parseOpenAICompatibleModels(response, this.providerId);
+    return payload.data.map((item) => ({
       id: item.id,
       name: item.id,
       providerId: this.providerId,
@@ -82,7 +68,70 @@ function parseCursor(cursor: string | undefined): number {
   }
   const parsed = Number(cursor);
   if (!Number.isInteger(parsed) || parsed < 0) {
-    return 0;
+    throw new ProviderModelDiscoveryApiError(
+      `Invalid pagination cursor "${cursor}".`,
+      { status: 400, retryable: false },
+    );
   }
   return parsed;
+}
+
+async function requestOpenAICompatibleModels(
+  providerId: "openai" | "groq",
+  baseUrl: string,
+  apiKey: string,
+): Promise<Response> {
+  const endpoint = `${baseUrl.replace(/\/$/, "")}/models`;
+  let response: Response;
+  try {
+    response = await fetch(endpoint, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+      },
+    });
+  } catch (error) {
+    throw new ProviderModelDiscoveryApiError(
+      `${providerId} models request failed due to network error: ${toErrorMessage(error)}`,
+      { retryable: true },
+    );
+  }
+
+  if (!response.ok) {
+    throw new ProviderModelDiscoveryApiError(
+      `${providerId} models request failed with status ${response.status}.`,
+      { status: response.status, retryable: response.status >= 500 },
+    );
+  }
+  return response;
+}
+
+async function parseOpenAICompatibleModels(
+  response: Response,
+  providerId: "openai" | "groq",
+): Promise<z.infer<typeof OpenAICompatibleModelsSchema>> {
+  let payload: unknown;
+  try {
+    payload = await response.json();
+  } catch (error) {
+    throw new ProviderModelDiscoveryApiError(
+      `${providerId} models response body was not valid JSON: ${toErrorMessage(error)}`,
+      { retryable: false },
+    );
+  }
+
+  const parsed = OpenAICompatibleModelsSchema.safeParse(payload);
+  if (!parsed.success) {
+    throw new ProviderModelNormalizationError(
+      `${providerId} models response failed schema validation.`,
+    );
+  }
+  return parsed.data;
+}
+
+function toErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return "unknown_error";
 }
