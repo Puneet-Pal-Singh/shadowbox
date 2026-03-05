@@ -16,6 +16,7 @@ const PROVIDER_DISPLAY_NAMES: Record<ProviderId, string> = {
   openrouter: "OpenRouter",
   openai: "OpenAI",
   groq: "Groq",
+  google: "Google",
 };
 
 /**

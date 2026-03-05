@@ -20,3 +20,5 @@ export {
 } from "./errors";
 export { ProviderModelDiscoveryService } from "./ProviderModelDiscoveryService";
 export { OpenRouterModelCatalogAdapter } from "./adapters/OpenRouterModelCatalogAdapter";
+export { GoogleModelCatalogAdapter } from "./adapters/GoogleModelCatalogAdapter";
+export { ProviderModelRankingService } from "./ProviderModelRankingService";

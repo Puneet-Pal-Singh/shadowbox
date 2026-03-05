@@ -41,7 +41,7 @@ describe("ProviderModelDiscoveryService", () => {
     const service = new ProviderModelDiscoveryService(
       store as unknown as DurableProviderStore,
       credentialService,
-      adapter,
+      { openrouter: adapter },
     );
 
     const first = await service.getOpenRouterModels({ view: "all", limit: 50 });
@@ -76,7 +76,7 @@ describe("ProviderModelDiscoveryService", () => {
     const service = new ProviderModelDiscoveryService(
       store as unknown as DurableProviderStore,
       credentialService,
-      adapter,
+      { openrouter: adapter },
     );
     const result = await service.getOpenRouterModels({ view: "all", limit: 50 });
     expect(result.metadata.stale).toBe(true);

@@ -21,6 +21,8 @@ export {
   ProviderModelCacheError,
   ProviderModelDiscoveryService,
   OpenRouterModelCatalogAdapter,
+  GoogleModelCatalogAdapter,
+  ProviderModelRankingService,
   type ProviderModelCatalogPort,
   type ProviderModelCachePort,
   type ProviderModelRankingPort,

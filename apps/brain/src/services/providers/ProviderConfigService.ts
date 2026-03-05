@@ -189,17 +189,20 @@ export class ProviderConfigService {
    * Delegates to ProviderCatalogService
    */
   async getModels(providerId: ProviderId): Promise<ModelsListResponse> {
-    if (providerId === "openrouter") {
-      const discovered = await this.modelDiscoveryService.getOpenRouterModels({
+    if (providerId === "openrouter" || providerId === "google") {
+      const discovered = await this.modelDiscoveryService.getDiscoveredModels(
+        providerId,
+        {
         view: "all",
         limit: 1000,
-      });
+        },
+      );
       return {
         providerId,
         models: discovered.models.map((model) => ({
           id: model.id,
           name: model.name,
-          provider: "openrouter",
+          provider: providerId,
         })),
         lastFetchedAt: discovered.metadata.fetchedAt,
       };
@@ -207,14 +210,27 @@ export class ProviderConfigService {
     return this.catalogService.getModels(providerId);
   }
 
+  async getDiscoveredModels(
+    providerId: "openrouter" | "google",
+    query: BYOKDiscoveredProviderModelsQuery,
+  ): Promise<BYOKDiscoveredProviderModelsResponse> {
+    return this.modelDiscoveryService.getDiscoveredModels(providerId, query);
+  }
+
+  async refreshDiscoveredModels(
+    providerId: "openrouter" | "google",
+  ): Promise<BYOKDiscoveredProviderModelsRefreshResponse> {
+    return this.modelDiscoveryService.refreshDiscoveredModels(providerId);
+  }
+
   async getOpenRouterDiscoveredModels(
     query: BYOKDiscoveredProviderModelsQuery,
   ): Promise<BYOKDiscoveredProviderModelsResponse> {
-    return this.modelDiscoveryService.getOpenRouterModels(query);
+    return this.getDiscoveredModels("openrouter", query);
   }
 
   async refreshOpenRouterDiscoveredModels(): Promise<BYOKDiscoveredProviderModelsRefreshResponse> {
-    return this.modelDiscoveryService.refreshOpenRouterModels();
+    return this.refreshDiscoveredModels("openrouter");
   }
 
   /**

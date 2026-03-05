@@ -16,30 +16,52 @@ import {
 } from "./errors";
 import type { ProviderModelCatalogPort } from "./ProviderModelCatalogPort";
 import { OpenRouterModelCatalogAdapter } from "./adapters/OpenRouterModelCatalogAdapter";
+import { GoogleModelCatalogAdapter } from "./adapters/GoogleModelCatalogAdapter";
+import { ProviderModelRankingService } from "./ProviderModelRankingService";
 
 const MODEL_CACHE_TTL_MS = 5 * 60 * 1000;
 
+type SupportedDiscoveryProvider = "openrouter" | "google";
+
 export class ProviderModelDiscoveryService {
-  private readonly openRouterAdapter: ProviderModelCatalogPort;
+  private readonly adapters: Record<SupportedDiscoveryProvider, ProviderModelCatalogPort>;
+  private readonly rankingService: ProviderModelRankingService;
 
   constructor(
     private readonly store: DurableProviderStore,
     private readonly credentialService: ProviderCredentialService,
-    openRouterAdapter?: ProviderModelCatalogPort,
+    adapters?: Partial<Record<SupportedDiscoveryProvider, ProviderModelCatalogPort>>,
+    rankingService?: ProviderModelRankingService,
   ) {
-    this.openRouterAdapter = openRouterAdapter ?? new OpenRouterModelCatalogAdapter();
+    this.adapters = {
+      openrouter: adapters?.openrouter ?? new OpenRouterModelCatalogAdapter(),
+      google: adapters?.google ?? new GoogleModelCatalogAdapter(),
+    };
+    this.rankingService = rankingService ?? new ProviderModelRankingService();
   }
 
   async getOpenRouterModels(
     query: BYOKDiscoveredProviderModelsQuery,
   ): Promise<BYOKDiscoveredProviderModelsResponse> {
-    const fullList = await this.getOpenRouterCatalogWithCache();
-    const page = toPage(fullList.models, query.cursor, query.limit);
-    const models = query.view === "popular" ? page.models.slice(0, 50) : page.models;
+    return this.getDiscoveredModels("openrouter", query);
+  }
+
+  async refreshOpenRouterModels(): Promise<BYOKDiscoveredProviderModelsRefreshResponse> {
+    return this.refreshDiscoveredModels("openrouter");
+  }
+
+  async getDiscoveredModels(
+    providerId: SupportedDiscoveryProvider,
+    query: BYOKDiscoveredProviderModelsQuery,
+  ): Promise<BYOKDiscoveredProviderModelsResponse> {
+    const fullList = await this.getCatalogWithCache(providerId);
+    const ranked = await this.rankModels(providerId, query.view, fullList.models);
+    const page = toPage(ranked, query.cursor, query.limit);
+
     return {
-      providerId: "openrouter",
+      providerId,
       view: query.view,
-      models,
+      models: page.models,
       page: {
         limit: query.limit,
         cursor: query.cursor,
@@ -55,11 +77,13 @@ export class ProviderModelDiscoveryService {
     };
   }
 
-  async refreshOpenRouterModels(): Promise<BYOKDiscoveredProviderModelsRefreshResponse> {
-    await this.store.invalidateModelCache("openrouter");
-    const fresh = await this.fetchAndCacheOpenRouterModels();
+  async refreshDiscoveredModels(
+    providerId: SupportedDiscoveryProvider,
+  ): Promise<BYOKDiscoveredProviderModelsRefreshResponse> {
+    await this.store.invalidateModelCache(providerId);
+    const fresh = await this.fetchAndCacheModels(providerId);
     return {
-      providerId: "openrouter",
+      providerId,
       refreshedAt: fresh.fetchedAt,
       source: "provider_api",
       cacheInvalidated: true,
@@ -67,16 +91,34 @@ export class ProviderModelDiscoveryService {
     };
   }
 
-  private async getOpenRouterCatalogWithCache(): Promise<
-    ProviderModelCacheRecord & { staleReason?: string }
-  > {
-    const cached = await this.readCache("openrouter");
+  private async rankModels(
+    providerId: SupportedDiscoveryProvider,
+    view: BYOKDiscoveredProviderModelsQuery["view"],
+    models: ProviderModelCacheRecord["models"],
+  ) {
+    if (view !== "popular") {
+      return models;
+    }
+    const signals = buildDefaultSignals(models.map((model) => model.id));
+    const ranked = await this.rankingService.computePopular({
+      providerId,
+      models,
+      signals,
+      limit: 50,
+    });
+    return ranked.models;
+  }
+
+  private async getCatalogWithCache(
+    providerId: SupportedDiscoveryProvider,
+  ): Promise<ProviderModelCacheRecord & { staleReason?: string }> {
+    const cached = await this.readCache(providerId);
     if (cached && !isExpired(cached.expiresAt)) {
       return cached;
     }
 
     try {
-      return await this.fetchAndCacheOpenRouterModels();
+      return await this.fetchAndCacheModels(providerId);
     } catch (error) {
       if (cached) {
         return {
@@ -89,15 +131,18 @@ export class ProviderModelDiscoveryService {
     }
   }
 
-  private async fetchAndCacheOpenRouterModels(): Promise<ProviderModelCacheRecord> {
-    const apiKey = await this.credentialService.getApiKey("openrouter" as ProviderId);
+  private async fetchAndCacheModels(
+    providerId: SupportedDiscoveryProvider,
+  ): Promise<ProviderModelCacheRecord> {
+    const apiKey = await this.credentialService.getApiKey(providerId as ProviderId);
     if (!apiKey) {
       throw new ProviderModelDiscoveryAuthError(
-        "OpenRouter credentials are not connected for model discovery.",
+        `${providerId} credentials are not connected for model discovery.`,
       );
     }
     const scope = this.store.getScopeSnapshot();
-    const models = await this.openRouterAdapter.fetchAll("openrouter", {
+    const adapter = this.adapters[providerId];
+    const models = await adapter.fetchAll(providerId, {
       userId: scope.userId,
       workspaceId: scope.workspaceId,
       apiKey,
@@ -105,7 +150,7 @@ export class ProviderModelDiscoveryService {
     const fetchedAt = new Date().toISOString();
     const expiresAt = new Date(Date.now() + MODEL_CACHE_TTL_MS).toISOString();
     const record: ProviderModelCacheRecord = {
-      providerId: "openrouter",
+      providerId,
       models,
       fetchedAt,
       expiresAt,
@@ -124,6 +169,20 @@ export class ProviderModelDiscoveryService {
       );
     }
   }
+}
+
+function buildDefaultSignals(modelIds: string[]) {
+  const signalMap: Record<string, number> = {};
+  for (const modelId of modelIds) {
+    signalMap[modelId] = 0;
+  }
+  return {
+    modelSelectionFrequency: { ...signalMap },
+    successfulRunFrequency: { ...signalMap },
+    providerDeclaredBoost: { ...signalMap },
+    capabilityFit: { ...signalMap },
+    costEfficiency: { ...signalMap },
+  };
 }
 
 function toPage(

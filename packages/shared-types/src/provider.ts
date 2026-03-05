@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const PROVIDER_IDS = ["openrouter", "openai", "groq"] as const;
+export const PROVIDER_IDS = ["openrouter", "openai", "groq", "google"] as const;
 
 export const ProviderIdSchema = z.enum(PROVIDER_IDS);
 export type ProviderId = z.infer<typeof ProviderIdSchema>;
