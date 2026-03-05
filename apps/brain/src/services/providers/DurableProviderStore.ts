@@ -22,6 +22,7 @@ import {
   type BYOKDiscoveredProviderModel,
   BYOKDiscoveredProviderModelSchema,
   BYOKModelDiscoverySourceSchema,
+  BYOKProviderSlugSchema,
   type BYOKModelDiscoverySource,
   ProviderIdSchema,
   type BYOKValidationMode,
@@ -75,14 +76,26 @@ const PROVIDER_MODEL_CACHE_PREFIX = "provider:model-cache:v1:";
 const PROVIDER_PREFERENCES_SUFFIX = "_preferences";
 const PROVIDER_AUDIT_PREFIX = "provider:audit:v1:";
 
-const ProviderModelCacheRecordV1Schema = z.object({
-  version: z.literal("v1"),
-  providerId: z.string().min(1),
-  models: z.array(BYOKDiscoveredProviderModelSchema),
-  fetchedAt: z.string().datetime(),
-  expiresAt: z.string().datetime(),
-  source: BYOKModelDiscoverySourceSchema,
-});
+const ProviderModelCacheRecordV1Schema = z
+  .object({
+    version: z.literal("v1"),
+    providerId: BYOKProviderSlugSchema,
+    models: z.array(BYOKDiscoveredProviderModelSchema),
+    fetchedAt: z.string().datetime(),
+    expiresAt: z.string().datetime(),
+    source: BYOKModelDiscoverySourceSchema,
+  })
+  .superRefine((record, ctx) => {
+    for (const [index, model] of record.models.entries()) {
+      if (model.providerId !== record.providerId) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["models", index, "providerId"],
+          message: "Model providerId must match cache providerId.",
+        });
+      }
+    }
+  });
 
 type ProviderModelCacheRecordV1 = z.infer<typeof ProviderModelCacheRecordV1Schema>;
 

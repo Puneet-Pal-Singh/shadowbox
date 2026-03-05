@@ -262,6 +262,31 @@ describe("DurableProviderStore", () => {
     expect(storage.has(cacheKey)).toBe(false);
   });
 
+  it("evicts model cache when payload providerId does not match requested provider", async () => {
+    const { state, storage } = createMockDurableState();
+    const store = new DurableProviderStore(
+      state,
+      { runId: "run-cache", userId: "user-1", workspaceId: "workspace-1" },
+      "test-encryption-key",
+    );
+
+    const cacheKey = "provider:model-cache:v1:user-1:workspace-1:openai";
+    storage.set(
+      cacheKey,
+      JSON.stringify({
+        version: "v1",
+        providerId: "google",
+        models: [{ id: "gemini-1.5-pro", name: "Gemini 1.5 Pro", providerId: "google" }],
+        fetchedAt: "2026-03-05T00:00:00.000Z",
+        expiresAt: "2026-03-05T01:00:00.000Z",
+        source: "provider_api",
+      }),
+    );
+
+    await expect(store.getModelCache("openai")).resolves.toBeNull();
+    expect(storage.has(cacheKey)).toBe(false);
+  });
+
 });
 
 function createMockDurableState(): {
