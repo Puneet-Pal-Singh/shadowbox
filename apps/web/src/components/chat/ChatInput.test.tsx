@@ -39,7 +39,6 @@ describe("ChatInput", () => {
         modelId: "gpt-4",
         resolvedAt: "workspace_preference",
         resolvedAtTime: new Date().toISOString(),
-        fallbackUsed: false,
       },
       status: "ready",
       error: null,
@@ -84,7 +83,6 @@ describe("ChatInput", () => {
         modelId: "gpt-4",
         resolvedAt: "workspace_preference" as const,
         resolvedAtTime: new Date().toISOString(),
-        fallbackUsed: false,
       })),
       resolveForChat: vi.fn(async () => ({
         providerId: "openai",
@@ -92,7 +90,6 @@ describe("ChatInput", () => {
         modelId: "gpt-4",
         resolvedAt: "workspace_preference" as const,
         resolvedAtTime: new Date().toISOString(),
-        fallbackUsed: false,
       })),
       toggleModelVisibility: vi.fn(),
       setProviderVisibleModels: vi.fn(),
