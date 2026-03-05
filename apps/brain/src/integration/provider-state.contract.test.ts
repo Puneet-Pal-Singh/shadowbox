@@ -223,25 +223,37 @@ describe("Provider State Contract: Controller/Runtime Shared Ownership", () => {
     );
   });
 
-  it("enforces strict-mode provider/model mismatch with explicit typed errors", () => {
+  it("enforces strict-mode typed errors for invalid provider selections", () => {
     setCompatModeOverride(false);
 
-    expectDomainError(() =>
-      resolveModelSelection(
-        "openai",
-        "llama-3.3-70b-versatile",
-        "litellm",
-        "llama-3.3-70b-versatile",
-        mapProviderIdToRuntimeProvider,
-        getRuntimeProviderFromAdapter,
-      ),
-      "MODEL_NOT_ALLOWED",
+    const selection = resolveModelSelection(
+      "openai",
+      "llama-3.3-70b-versatile",
+      "litellm",
+      "llama-3.3-70b-versatile",
+      mapProviderIdToRuntimeProvider,
+      getRuntimeProviderFromAdapter,
     );
+    expect(selection.provider).toBe("openai");
+    expect(selection.model).toBe("llama-3.3-70b-versatile");
+    expect(selection.fallback).toBe(false);
 
     expectDomainError(() =>
       resolveModelSelection(
         "invalid-provider",
         "gpt-4o",
+        "litellm",
+        "llama-3.3-70b-versatile",
+        mapProviderIdToRuntimeProvider,
+        getRuntimeProviderFromAdapter,
+      ),
+      "INVALID_PROVIDER_SELECTION",
+    );
+
+    expectDomainError(() =>
+      resolveModelSelection(
+        "openai",
+        undefined,
         "litellm",
         "llama-3.3-70b-versatile",
         mapProviderIdToRuntimeProvider,

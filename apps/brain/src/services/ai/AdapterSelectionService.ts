@@ -23,14 +23,14 @@ import {
 import {
   createOpenAIAdapter,
   createAnthropicAdapter,
-  createOpenRouterAdapter,
-  createGroqAdapter,
   createLiteLLMAdapter,
 } from "./ProviderAdapterFactory";
 import type { Env } from "../../types/ai";
 import {
   ProviderNotConnectedError,
+  ValidationError,
 } from "../../domain/errors";
+import { ProviderRegistryService } from "../providers";
 
 /**
  * Get the appropriate adapter for a model selection.
@@ -59,8 +59,12 @@ export async function selectAdapter(
   correlationId?: string,
 ): Promise<ProviderAdapter> {
   // If fallback mode or same as default, use default
+  if (selection.fallback) {
+    return defaultAdapter;
+  }
+
   if (
-    selection.fallback ||
+    !selection.providerId &&
     selection.runtimeProvider ===
       getRuntimeProviderFromAdapter(defaultAdapter.provider)
   ) {
@@ -87,6 +91,7 @@ export async function selectAdapter(
 
   // Create adapter with override key
   return createAdapterForProvider(
+    selection.providerId,
     selection.runtimeProvider,
     env,
     overrideApiKey,
@@ -101,21 +106,52 @@ export async function selectAdapter(
  * @returns Configured ProviderAdapter
  */
 function createAdapterForProvider(
+  providerId: string | undefined,
   provider: RuntimeProvider,
   env: Env,
   overrideApiKey: string,
 ): ProviderAdapter {
-  switch (provider) {
-    case "openai":
-      return createOpenAIAdapter(env, overrideApiKey);
-    case "anthropic":
-      return createAnthropicAdapter(env, overrideApiKey);
-    case "openrouter":
-      return createOpenRouterAdapter(overrideApiKey);
-    case "groq":
-      return createGroqAdapter(overrideApiKey);
-    case "litellm":
-    default:
-      return createLiteLLMAdapter(env, overrideApiKey);
+  const familyFactory = ADAPTER_FAMILY_FACTORIES[provider];
+  if (!familyFactory) {
+    throw new ValidationError(
+      `Adapter family "${provider}" is not configured for runtime dispatch.`,
+      "UNKNOWN_PROVIDER",
+    );
   }
+  return familyFactory(providerId, env, overrideApiKey);
 }
+
+const providerRegistryService = new ProviderRegistryService();
+
+const ADAPTER_FAMILY_FACTORIES: Record<
+  RuntimeProvider,
+  (providerId: string | undefined, env: Env, overrideApiKey: string) => ProviderAdapter
+> = {
+  "anthropic-native": (_providerId, env, overrideApiKey) =>
+    createAnthropicAdapter(env, overrideApiKey),
+  "openai-compatible": (providerId, env, overrideApiKey) => {
+    if (!providerId) {
+      return createLiteLLMAdapter(env, overrideApiKey);
+    }
+    const providerEntry = providerRegistryService.getProvider(providerId);
+    if (!providerEntry) {
+      throw new ValidationError(
+        `Provider "${providerId}" is not registered for adapter dispatch.`,
+        "INVALID_PROVIDER_SELECTION",
+      );
+    }
+    return createOpenAIAdapter(env, overrideApiKey, providerEntry.baseUrl);
+  },
+  "google-native": () => {
+    throw new ValidationError(
+      "Google-native adapter family is not wired for runtime inference yet.",
+      "UNKNOWN_PROVIDER",
+    );
+  },
+  "custom-http": () => {
+    throw new ValidationError(
+      "Custom-http adapter family is not wired for runtime inference yet.",
+      "UNKNOWN_PROVIDER",
+    );
+  },
+};

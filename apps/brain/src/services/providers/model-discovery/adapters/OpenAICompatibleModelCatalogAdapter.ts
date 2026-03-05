@@ -22,8 +22,8 @@ const OPENAI_COMPATIBLE_FETCH_TIMEOUT_MS = 15_000;
 
 export class OpenAICompatibleModelCatalogAdapter implements ProviderModelCatalogPort {
   constructor(
-    private readonly providerId: "openai" | "groq",
-    private readonly baseUrl: string,
+    private readonly providerId: string,
+    private readonly modelsEndpoint: string,
   ) {}
 
   async fetchAll(
@@ -38,7 +38,7 @@ export class OpenAICompatibleModelCatalogAdapter implements ProviderModelCatalog
     }
     const response = await requestOpenAICompatibleModels(
       this.providerId,
-      this.baseUrl,
+      this.modelsEndpoint,
       credentialContext.apiKey,
     );
     const payload = await parseOpenAICompatibleModels(response, this.providerId);
@@ -78,11 +78,10 @@ function parseCursor(cursor: string | undefined): number {
 }
 
 async function requestOpenAICompatibleModels(
-  providerId: "openai" | "groq",
-  baseUrl: string,
+  providerId: string,
+  modelsEndpoint: string,
   apiKey: string,
 ): Promise<Response> {
-  const endpoint = `${baseUrl.replace(/\/$/, "")}/models`;
   const abortController = new AbortController();
   const timeoutId = setTimeout(
     () => abortController.abort(),
@@ -90,7 +89,7 @@ async function requestOpenAICompatibleModels(
   );
   let response: Response;
   try {
-    response = await fetch(endpoint, {
+    response = await fetch(modelsEndpoint, {
       method: "GET",
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -123,7 +122,7 @@ async function requestOpenAICompatibleModels(
 
 async function parseOpenAICompatibleModels(
   response: Response,
-  providerId: "openai" | "groq",
+  providerId: string,
 ): Promise<z.infer<typeof OpenAICompatibleModelsSchema>> {
   let payload: unknown;
   try {

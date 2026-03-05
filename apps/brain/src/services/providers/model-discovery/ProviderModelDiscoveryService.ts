@@ -2,13 +2,14 @@ import type {
   BYOKDiscoveredProviderModelsQuery,
   BYOKDiscoveredProviderModelsRefreshResponse,
   BYOKDiscoveredProviderModelsResponse,
-  ProviderId,
+  ProviderRegistryEntry,
 } from "@repo/shared-types";
 import type {
   DurableProviderStore,
   ProviderModelCacheRecord,
 } from "../DurableProviderStore";
 import type { ProviderCredentialService } from "../ProviderCredentialService";
+import { ProviderRegistryService } from "../ProviderRegistryService";
 import {
   ProviderModelCacheError,
   ProviderModelDiscoveryAuthError,
@@ -23,32 +24,36 @@ import { ProviderModelDiscoveryObservability } from "./ProviderModelDiscoveryObs
 
 const MODEL_CACHE_TTL_MS = 5 * 60 * 1000;
 
-type SupportedDiscoveryProvider = ProviderId;
-
 export class ProviderModelDiscoveryService {
-  private readonly adapters: Record<SupportedDiscoveryProvider, ProviderModelCatalogPort>;
+  private readonly adapters: Map<string, ProviderModelCatalogPort>;
   private readonly rankingService: ProviderModelRankingService;
   private readonly observability: ProviderModelDiscoveryObservability;
+  private readonly registryService: ProviderRegistryService;
 
   constructor(
     private readonly store: DurableProviderStore,
     private readonly credentialService: ProviderCredentialService,
-    adapters?: Partial<Record<SupportedDiscoveryProvider, ProviderModelCatalogPort>>,
-    rankingService?: ProviderModelRankingService,
-    observability?: ProviderModelDiscoveryObservability,
+    registryOrAdapters?: ProviderRegistryService | Partial<Record<string, ProviderModelCatalogPort>>,
+    adaptersOrRanking?: Partial<Record<string, ProviderModelCatalogPort>> | ProviderModelRankingService,
+    rankingOrObservability?: ProviderModelRankingService | ProviderModelDiscoveryObservability,
+    maybeObservability?: ProviderModelDiscoveryObservability,
   ) {
-    this.adapters = {
-      openrouter: adapters?.openrouter ?? new OpenRouterModelCatalogAdapter(),
-      openai:
-        adapters?.openai ??
-        new OpenAICompatibleModelCatalogAdapter("openai", "https://api.openai.com/v1"),
-      groq:
-        adapters?.groq ??
-        new OpenAICompatibleModelCatalogAdapter("groq", "https://api.groq.com/openai/v1"),
-      google: adapters?.google ?? new GoogleModelCatalogAdapter(),
-    };
-    this.rankingService = rankingService ?? new ProviderModelRankingService();
-    this.observability = observability ?? new ProviderModelDiscoveryObservability();
+    const {
+      registryService,
+      adapters,
+      rankingService,
+      observability,
+    } = resolveConstructorArgs(
+      registryOrAdapters,
+      adaptersOrRanking,
+      rankingOrObservability,
+      maybeObservability,
+    );
+
+    this.registryService = registryService;
+    this.adapters = buildAdapterRegistry(this.registryService, adapters);
+    this.rankingService = rankingService;
+    this.observability = observability;
   }
 
   async getOpenRouterModels(
@@ -62,7 +67,7 @@ export class ProviderModelDiscoveryService {
   }
 
   async getDiscoveredModels(
-    providerId: SupportedDiscoveryProvider,
+    providerId: string,
     query: BYOKDiscoveredProviderModelsQuery,
   ): Promise<BYOKDiscoveredProviderModelsResponse> {
     const startedAt = Date.now();
@@ -109,7 +114,7 @@ export class ProviderModelDiscoveryService {
   }
 
   async refreshDiscoveredModels(
-    providerId: SupportedDiscoveryProvider,
+    providerId: string,
   ): Promise<BYOKDiscoveredProviderModelsRefreshResponse> {
     await this.store.invalidateModelCache(providerId);
     const fresh = await this.fetchAndCacheModels(providerId);
@@ -131,7 +136,7 @@ export class ProviderModelDiscoveryService {
   }
 
   private async rankModels(
-    providerId: SupportedDiscoveryProvider,
+    providerId: string,
     view: BYOKDiscoveredProviderModelsQuery["view"],
     models: ProviderModelCacheRecord["models"],
   ) {
@@ -149,7 +154,7 @@ export class ProviderModelDiscoveryService {
   }
 
   private async getCatalogWithCache(
-    providerId: SupportedDiscoveryProvider,
+    providerId: string,
   ): Promise<ProviderModelCacheRecord & { staleReason?: string }> {
     const cached = await this.readCache(providerId);
     if (cached && !isExpired(cached.expiresAt)) {
@@ -173,8 +178,15 @@ export class ProviderModelDiscoveryService {
   }
 
   private async fetchAndCacheModels(
-    providerId: SupportedDiscoveryProvider,
+    providerId: string,
   ): Promise<ProviderModelCacheRecord> {
+    const adapter = this.adapters.get(providerId);
+    if (!adapter) {
+      throw new ProviderModelCacheError(
+        `No discovery adapter is registered for provider "${providerId}".`,
+      );
+    }
+
     const apiKey = await this.credentialService.getApiKey(providerId);
     if (!apiKey) {
       throw new ProviderModelDiscoveryAuthError(
@@ -182,7 +194,6 @@ export class ProviderModelDiscoveryService {
       );
     }
     const scope = this.store.getScopeSnapshot();
-    const adapter = this.adapters[providerId];
     const models = await adapter.fetchAll(providerId, {
       userId: scope.userId,
       workspaceId: scope.workspaceId,
@@ -210,6 +221,106 @@ export class ProviderModelDiscoveryService {
       );
     }
   }
+}
+
+function resolveConstructorArgs(
+  registryOrAdapters:
+    | ProviderRegistryService
+    | Partial<Record<string, ProviderModelCatalogPort>>
+    | undefined,
+  adaptersOrRanking:
+    | Partial<Record<string, ProviderModelCatalogPort>>
+    | ProviderModelRankingService
+    | undefined,
+  rankingOrObservability:
+    | ProviderModelRankingService
+    | ProviderModelDiscoveryObservability
+    | undefined,
+  maybeObservability: ProviderModelDiscoveryObservability | undefined,
+): {
+  registryService: ProviderRegistryService;
+  adapters: Partial<Record<string, ProviderModelCatalogPort>>;
+  rankingService: ProviderModelRankingService;
+  observability: ProviderModelDiscoveryObservability;
+} {
+  const defaultRegistry = new ProviderRegistryService();
+  const defaultRanking = new ProviderModelRankingService();
+  const defaultObservability = new ProviderModelDiscoveryObservability();
+
+  if (registryOrAdapters instanceof ProviderRegistryService) {
+    return {
+      registryService: registryOrAdapters,
+      adapters:
+        !adaptersOrRanking || adaptersOrRanking instanceof ProviderModelRankingService
+          ? {}
+          : adaptersOrRanking,
+      rankingService:
+        adaptersOrRanking instanceof ProviderModelRankingService
+          ? adaptersOrRanking
+          : rankingOrObservability instanceof ProviderModelRankingService
+            ? rankingOrObservability
+            : defaultRanking,
+      observability:
+        rankingOrObservability instanceof ProviderModelDiscoveryObservability
+          ? rankingOrObservability
+          : maybeObservability ?? defaultObservability,
+    };
+  }
+
+  return {
+    registryService: defaultRegistry,
+    adapters: registryOrAdapters ?? {},
+    rankingService:
+      adaptersOrRanking instanceof ProviderModelRankingService
+        ? adaptersOrRanking
+        : rankingOrObservability instanceof ProviderModelRankingService
+          ? rankingOrObservability
+          : defaultRanking,
+    observability:
+      rankingOrObservability instanceof ProviderModelDiscoveryObservability
+        ? rankingOrObservability
+        : maybeObservability ?? defaultObservability,
+  };
+}
+
+function buildAdapterRegistry(
+  registryService: ProviderRegistryService,
+  provided: Partial<Record<string, ProviderModelCatalogPort>>,
+): Map<string, ProviderModelCatalogPort> {
+  const adapters = new Map<string, ProviderModelCatalogPort>();
+  for (const provider of registryService.listProviders()) {
+    const adapter =
+      provided[provider.providerId] ?? createAdapterForProvider(provider);
+    if (!adapter) {
+      continue;
+    }
+    adapters.set(provider.providerId, adapter);
+  }
+  return adapters;
+}
+
+function createAdapterForProvider(
+  provider: ProviderRegistryEntry,
+): ProviderModelCatalogPort | undefined {
+  if (provider.providerId === "openrouter") {
+    return new OpenRouterModelCatalogAdapter();
+  }
+
+  if (provider.adapterFamily === "google-native") {
+    return new GoogleModelCatalogAdapter();
+  }
+
+  if (provider.adapterFamily === "openai-compatible") {
+    const endpoint =
+      provider.modelsEndpoint ??
+      (provider.baseUrl ? `${provider.baseUrl.replace(/\/$/, "")}/models` : undefined);
+    if (!endpoint) {
+      return undefined;
+    }
+    return new OpenAICompatibleModelCatalogAdapter(provider.providerId, endpoint);
+  }
+
+  return undefined;
 }
 
 function buildDefaultSignals(modelIds: string[]) {

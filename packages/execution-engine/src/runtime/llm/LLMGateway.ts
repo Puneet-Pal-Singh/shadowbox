@@ -278,7 +278,11 @@ export class LLMGateway implements ILLMGateway {
     req: LLMTextRequest | LLMStructuredRequest<unknown>,
   ): void {
     if (!req.providerId || !req.model) {
-      return;
+      throw new ProviderCapabilityError(
+        "INVALID_PROVIDER_SELECTION",
+        req.providerId ?? "unset",
+        req.model ?? "unset",
+      );
     }
 
     const resolver = this.deps.providerCapabilityResolver;
@@ -351,7 +355,9 @@ export class ProviderCapabilityError extends Error {
     providerId: string,
     modelId: string,
   ) {
-    super(`[llm/gateway] ${code} for provider=${providerId} model=${modelId}`);
+    super(
+      `[llm/gateway] ${code} for provider=${providerId} model=${modelId}. Explicit providerId and model are required.`,
+    );
     this.name = "ProviderCapabilityError";
   }
 }

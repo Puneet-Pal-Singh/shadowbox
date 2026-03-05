@@ -35,16 +35,13 @@ export class AnthropicAdapter implements ProviderAdapter {
       apiKey: config.apiKey,
     });
     this.defaultModel = config.defaultModel ?? "claude-3-sonnet-20240229";
-
-    this.supportedModels = [
-      "claude-3-opus-20240229",
-      "claude-3-sonnet-20240229",
-      "claude-3-haiku-20240307",
-      "claude-3-5-sonnet-20241022",
-    ];
+    this.supportedModels = [];
   }
 
   supportsModel(model: string): boolean {
+    if (this.supportedModels.length === 0) {
+      return true;
+    }
     return this.supportedModels.includes(model);
   }
 

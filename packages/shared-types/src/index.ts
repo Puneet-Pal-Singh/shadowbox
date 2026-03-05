@@ -13,12 +13,6 @@ export type {
   StageFilesRequest,
 } from "./git.js";
 
-// Platform defaults
-export {
-  DEFAULT_PLATFORM_PROVIDER_ID,
-  DEFAULT_PLATFORM_MODEL_ID,
-} from "./defaults.js";
-
 // Credential vault contracts
 export {
   CredentialVaultSurfaceSchema,
@@ -247,6 +241,8 @@ export {
   isAuthError,
   createBYOKError,
   createBYOKErrorInternal,
+  ProviderAdapterFamilySchema,
+  ProviderValidationAuthModeSchema,
   ProviderRegistryEntrySchema,
   ProviderRegistrySchema,
   BUILTIN_PROVIDERS,
@@ -267,6 +263,8 @@ export {
   type BYOKErrorEnvelope,
   type BYOKValidationErrorDetail,
   type BYOKValidationErrorResponse,
+  type ProviderAdapterFamily,
+  type ProviderValidationAuthMode,
   type BYOKCredentialConnectRequest,
   type BYOKCredentialUpdateRequest,
   type BYOKCredentialValidateRequest,

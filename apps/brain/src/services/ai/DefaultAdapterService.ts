@@ -41,7 +41,7 @@ class MissingProviderConfigAdapter implements ProviderAdapter {
   constructor(env: Env) {
     this.provider = env.LLM_PROVIDER ?? "litellm";
     this.configurationError = new ValidationError(
-      "No default provider key is configured. Connect a BYOK provider in Settings or configure OPENROUTER_API_KEY, GROQ_API_KEY, or OPENAI_API_KEY.",
+      "No default provider key is configured. Connect a BYOK provider in Settings or configure explicit runtime provider credentials.",
       "INFERENCE_PROVIDER_NOT_CONFIGURED",
     );
   }

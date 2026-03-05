@@ -14,16 +14,6 @@ interface OpenAIConfig {
   defaultModel?: string;
 }
 
-const DEFAULT_MODELS = [
-  "gpt-4o",
-  "gpt-4o-mini",
-  "gpt-4-turbo",
-  "gpt-4-turbo-preview",
-  "gpt-4",
-  "gpt-3.5-turbo",
-  "gpt-3.5-turbo-0125",
-];
-
 export class OpenAIAdapter extends OpenAICompatibleAdapter {
   readonly provider = "openai";
   readonly supportedModels: string[];
@@ -33,10 +23,10 @@ export class OpenAIAdapter extends OpenAICompatibleAdapter {
       apiKey: config.apiKey,
       baseURL: config.baseURL,
       defaultModel: config.defaultModel ?? "gpt-4o-mini",
-      supportedModels: DEFAULT_MODELS,
+      supportedModels: [],
     };
     super(adapterConfig);
-    this.supportedModels = DEFAULT_MODELS;
+    this.supportedModels = [];
   }
 
   protected standardizeUsage(

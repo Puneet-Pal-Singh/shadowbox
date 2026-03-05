@@ -1,6 +1,7 @@
 import type { ProviderId } from "@repo/shared-types";
 import { ProviderError, ValidationError } from "../../domain/errors";
 import type { Env } from "../../types/ai";
+import { ProviderRegistryService } from "./ProviderRegistryService";
 
 interface ProviderLiveValidationConfig {
   enabled: boolean;
@@ -12,7 +13,7 @@ type ProviderFetch = typeof fetch;
 interface ProviderValidationEndpoint {
   url: string;
   headers?: Record<string, string>;
-  authMode?: "bearer" | "googleApiKey";
+  authMode?: "bearer" | "googleApiKey" | "none";
 }
 
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -20,6 +21,7 @@ const DEFAULT_TIMEOUT_MS = 10_000;
 export class ProviderLiveValidationService {
   constructor(
     private readonly config: ProviderLiveValidationConfig,
+    private readonly registryService: ProviderRegistryService,
     private readonly providerFetch: ProviderFetch = fetch,
   ) {}
 
@@ -32,6 +34,7 @@ export class ProviderLiveValidationService {
         enabled: env.BYOK_VALIDATE_LIVE_ENABLED === "true",
         timeoutMs: parseTimeoutMs(env.BYOK_VALIDATE_LIVE_TIMEOUT_MS),
       },
+      new ProviderRegistryService(),
       providerFetch,
     );
   }
@@ -48,12 +51,27 @@ export class ProviderLiveValidationService {
   }
 
   async validate(providerId: ProviderId, apiKey: string): Promise<void> {
-    const endpoint = resolveValidationEndpoint(providerId);
+    const endpoint = this.resolveValidationEndpoint(providerId);
     const response = await this.fetchWithTimeout(endpoint, apiKey);
     if (response.ok) {
       return;
     }
     throw mapProviderErrorFromResponse(providerId, response.status);
+  }
+
+  private resolveValidationEndpoint(providerId: ProviderId): ProviderValidationEndpoint {
+    const validationConfig = this.registryService.getValidationConfig(providerId);
+    if (!validationConfig) {
+      throw new ValidationError(
+        `Provider "${providerId}" does not declare a live validation endpoint.`,
+        "INVALID_PROVIDER_SELECTION",
+      );
+    }
+    return {
+      url: validationConfig.endpoint,
+      authMode: validationConfig.authMode,
+      headers: validationConfig.headers,
+    };
   }
 
   private async fetchWithTimeout(
@@ -92,33 +110,13 @@ export class ProviderLiveValidationService {
   }
 }
 
-function resolveValidationEndpoint(providerId: ProviderId): ProviderValidationEndpoint {
-  switch (providerId) {
-    case "openai":
-      return { url: "https://api.openai.com/v1/models", authMode: "bearer" };
-    case "openrouter":
-      return {
-        url: "https://openrouter.ai/api/v1/key",
-        authMode: "bearer",
-        headers: {
-          "HTTP-Referer": "https://shadowbox.dev",
-          "X-Title": "Shadowbox BYOK Live Validate",
-        },
-      };
-    case "groq":
-      return { url: "https://api.groq.com/openai/v1/models", authMode: "bearer" };
-    case "google":
-      return {
-        url: "https://generativelanguage.googleapis.com/v1beta/models",
-        authMode: "googleApiKey",
-      };
-  }
-}
-
 function buildValidationAuthHeaders(
   authMode: ProviderValidationEndpoint["authMode"] | undefined,
   apiKey: string,
 ): Record<string, string> {
+  if (authMode === "none") {
+    return {};
+  }
   if (authMode === "googleApiKey") {
     return { "x-goog-api-key": apiKey };
   }
