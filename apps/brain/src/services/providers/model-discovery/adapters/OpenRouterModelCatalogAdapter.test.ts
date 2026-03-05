@@ -56,4 +56,43 @@ describe("OpenRouterModelCatalogAdapter", () => {
       }),
     ).rejects.toThrow("OpenRouter models request failed");
   });
+
+  it("wraps network errors as typed discovery errors", async () => {
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("network down"));
+    const adapter = new OpenRouterModelCatalogAdapter();
+
+    await expect(
+      adapter.fetchAll("openrouter", {
+        userId: "user-1",
+        workspaceId: "ws-1",
+        apiKey: "sk-or-test",
+      }),
+    ).rejects.toThrow("network error");
+  });
+
+  it("rejects invalid pagination cursor values", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: [{ id: "openai/gpt-4o" }],
+        }),
+        { status: 200 },
+      ),
+    );
+    const adapter = new OpenRouterModelCatalogAdapter();
+
+    await expect(
+      adapter.fetchPage({
+        providerId: "openrouter",
+        credentialContext: {
+          userId: "user-1",
+          workspaceId: "ws-1",
+          apiKey: "sk-or-test",
+        },
+        limit: 10,
+        cursor: "bad-cursor",
+      }),
+    ).rejects.toThrow("Invalid OpenRouter pagination cursor");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
 });

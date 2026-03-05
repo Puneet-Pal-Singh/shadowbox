@@ -22,8 +22,12 @@ const GoogleModelsEnvelopeSchema = z.object({
     }),
   ),
 });
+const GOOGLE_MODELS_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models";
+const GOOGLE_FETCH_TIMEOUT_MS = 10_000;
 
 export class GoogleModelCatalogAdapter implements ProviderModelCatalogPort {
+  constructor(private readonly fetchFn: typeof fetch = fetch) {}
+
   async fetchAll(
     providerId: string,
     credentialContext: ProviderModelCredentialContext,
@@ -34,24 +38,9 @@ export class GoogleModelCatalogAdapter implements ProviderModelCatalogPort {
         { status: 400, retryable: false },
       );
     }
-    const endpoint = new URL("https://generativelanguage.googleapis.com/v1beta/models");
-    endpoint.searchParams.set("key", credentialContext.apiKey);
-
-    const response = await fetch(endpoint.toString(), { method: "GET" });
-    if (!response.ok) {
-      throw new ProviderModelDiscoveryApiError(
-        `Google models request failed with status ${response.status}.`,
-        { status: response.status, retryable: response.status >= 500 },
-      );
-    }
-    const payload = await response.json() as unknown;
-    const parsed = GoogleModelsEnvelopeSchema.safeParse(payload);
-    if (!parsed.success) {
-      throw new ProviderModelNormalizationError(
-        "Google models response failed schema validation.",
-      );
-    }
-    return parsed.data.models
+    const response = await requestGoogleModels(this.fetchFn, credentialContext.apiKey);
+    const payload = await parseGoogleModelsEnvelope(response);
+    return payload.models
       .filter((model) => isLlmCapable(model.supportedGenerationMethods))
       .map((model) => ({
         id: stripModelsPrefix(model.name),
@@ -63,8 +52,8 @@ export class GoogleModelCatalogAdapter implements ProviderModelCatalogPort {
   }
 
   async fetchPage(input: ProviderModelFetchPageInput): Promise<ProviderModelPageFetchResult> {
-    const models = await this.fetchAll(input.providerId, input.credentialContext);
     const offset = parseCursor(input.cursor);
+    const models = await this.fetchAll(input.providerId, input.credentialContext);
     const nextOffset = offset + input.limit;
     return {
       providerId: input.providerId,
@@ -93,7 +82,88 @@ function parseCursor(cursor: string | undefined): number {
   }
   const parsed = Number(cursor);
   if (!Number.isInteger(parsed) || parsed < 0) {
-    return 0;
+    throw new ProviderModelDiscoveryApiError(
+      `Invalid Google pagination cursor "${cursor}".`,
+      { status: 400, retryable: false },
+    );
   }
   return parsed;
+}
+
+async function requestGoogleModels(
+  fetchFn: typeof fetch,
+  apiKey: string,
+): Promise<Response> {
+  const abortController = new AbortController();
+  const timeoutId = setTimeout(
+    () => abortController.abort(),
+    GOOGLE_FETCH_TIMEOUT_MS,
+  );
+  let response: Response;
+  try {
+    response = await fetchFn(GOOGLE_MODELS_ENDPOINT, {
+      method: "GET",
+      headers: {
+        "x-goog-api-key": apiKey,
+      },
+      signal: abortController.signal,
+    });
+  } catch (error) {
+    if (isAbortError(error)) {
+      throw new ProviderModelDiscoveryApiError(
+        `Google models request timed out after ${GOOGLE_FETCH_TIMEOUT_MS}ms.`,
+        { status: 504, retryable: true },
+      );
+    }
+    throw new ProviderModelDiscoveryApiError(
+      `Google models request failed due to network error: ${toErrorMessage(error)}`,
+      { retryable: true },
+    );
+  } finally {
+    clearTimeout(timeoutId);
+  }
+
+  if (!response.ok) {
+    throw new ProviderModelDiscoveryApiError(
+      `Google models request failed with status ${response.status}.`,
+      { status: response.status, retryable: response.status >= 500 },
+    );
+  }
+  return response;
+}
+
+async function parseGoogleModelsEnvelope(
+  response: Response,
+): Promise<z.infer<typeof GoogleModelsEnvelopeSchema>> {
+  let payload: unknown;
+  try {
+    payload = await response.json();
+  } catch (error) {
+    throw new ProviderModelDiscoveryApiError(
+      `Google models response body was not valid JSON: ${toErrorMessage(error)}`,
+      { retryable: false },
+    );
+  }
+
+  const parsed = GoogleModelsEnvelopeSchema.safeParse(payload);
+  if (!parsed.success) {
+    throw new ProviderModelNormalizationError(
+      "Google models response failed schema validation.",
+    );
+  }
+  return parsed.data;
+}
+
+function toErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return "unknown_error";
+}
+
+function isAbortError(error: unknown): boolean {
+  if (error instanceof DOMException && error.name === "AbortError") {
+    return true;
+  }
+  return error instanceof Error && error.name === "AbortError";
 }

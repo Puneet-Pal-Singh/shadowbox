@@ -33,4 +33,44 @@ describe("OpenAICompatibleModelCatalogAdapter", () => {
     expect(models[0].providerId).toBe("openai");
     expect(models[0].id).toBe("gpt-4o");
   });
+
+  it("wraps network failures into typed discovery errors", async () => {
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("network down"));
+
+    const adapter = new OpenAICompatibleModelCatalogAdapter(
+      "openai",
+      "https://api.openai.com/v1",
+    );
+    await expect(
+      adapter.fetchAll("openai", {
+        userId: "user-1",
+        workspaceId: "ws-1",
+        apiKey: "sk-test",
+      }),
+    ).rejects.toThrow("network error");
+  });
+
+  it("rejects invalid pagination cursors", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ data: [{ id: "gpt-4o" }] }), { status: 200 }),
+    );
+
+    const adapter = new OpenAICompatibleModelCatalogAdapter(
+      "openai",
+      "https://api.openai.com/v1",
+    );
+    await expect(
+      adapter.fetchPage({
+        providerId: "openai",
+        credentialContext: {
+          userId: "user-1",
+          workspaceId: "ws-1",
+          apiKey: "sk-test",
+        },
+        limit: 10,
+        cursor: "-1",
+      }),
+    ).rejects.toThrow("Invalid pagination cursor");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
 });

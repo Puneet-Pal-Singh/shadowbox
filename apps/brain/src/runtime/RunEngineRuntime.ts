@@ -381,12 +381,12 @@ export class RunEngineRuntime extends DurableObject {
         const response = await configService.refreshDiscoveredModels(
           refreshRequest.providerId,
         );
-        validateWithSchema(
+        const validatedResponse = validateWithSchema(
           response,
           BYOKDiscoveredProviderModelsRefreshResponseSchema,
           correlationId,
         );
-        return jsonResponse(request, env, response);
+        return jsonResponse(request, env, validatedResponse);
       }
 
       if (url.pathname === "/providers/catalog") {

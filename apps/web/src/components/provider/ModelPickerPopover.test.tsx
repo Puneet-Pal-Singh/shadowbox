@@ -521,6 +521,56 @@ describe("ModelPickerPopover", () => {
         ).toHaveBeenCalledWith("openai");
       });
     });
+
+    it("disables or hides discovery controls when callbacks are not provided", async () => {
+      render(
+        <ModelPickerPopover
+          {...defaultProps}
+          selectedProviderId="openai"
+          selectedModelId="gpt-4"
+          hasMoreSelectedProviderModels={true}
+          onSelectModelView={undefined}
+          onRefreshSelectedProviderModels={undefined}
+          onLoadMoreSelectedProviderModels={undefined}
+        />
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: /open model picker/i }));
+      expect(await screen.findByRole("button", { name: "All" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "Popular" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: /refresh/i })).toBeDisabled();
+      expect(screen.queryByRole("button", { name: /load more/i })).not.toBeInTheDocument();
+    });
+
+    it("logs async handler errors instead of leaking unhandled rejections", async () => {
+      const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const onRefreshSelectedProviderModels = vi.fn(async () => {
+        throw new Error("refresh failed");
+      });
+
+      try {
+        render(
+          <ModelPickerPopover
+            {...defaultProps}
+            selectedProviderId="openai"
+            selectedModelId="gpt-4"
+            onRefreshSelectedProviderModels={onRefreshSelectedProviderModels}
+          />
+        );
+
+        fireEvent.click(screen.getByRole("button", { name: /open model picker/i }));
+        fireEvent.click(await screen.findByRole("button", { name: /refresh/i }));
+
+        await waitFor(() => {
+          expect(consoleErrorSpy).toHaveBeenCalledWith(
+            "[model-picker/refresh] Failed to refresh models:",
+            expect.any(Error)
+          );
+        });
+      } finally {
+        consoleErrorSpy.mockRestore();
+      }
+    });
   });
 
   describe("Outside Click", () => {

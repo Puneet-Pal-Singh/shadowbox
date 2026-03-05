@@ -193,6 +193,8 @@ export function ModelPickerPopover({
     setIsSwitchingView(true);
     try {
       await onSelectModelView(nextView);
+    } catch (error) {
+      console.error("[model-picker/view-change] Failed to switch model view:", error);
     } finally {
       setIsSwitchingView(false);
     }
@@ -202,15 +204,27 @@ export function ModelPickerPopover({
     if (!selectedProviderId || !onLoadMoreSelectedProviderModels) {
       return;
     }
-    await onLoadMoreSelectedProviderModels(selectedProviderId);
+    try {
+      await onLoadMoreSelectedProviderModels(selectedProviderId);
+    } catch (error) {
+      console.error("[model-picker/load-more] Failed to load more models:", error);
+    }
   };
 
   const handleRefresh = async (): Promise<void> => {
     if (!selectedProviderId || !onRefreshSelectedProviderModels) {
       return;
     }
-    await onRefreshSelectedProviderModels(selectedProviderId);
+    try {
+      await onRefreshSelectedProviderModels(selectedProviderId);
+    } catch (error) {
+      console.error("[model-picker/refresh] Failed to refresh models:", error);
+    }
   };
+
+  const canSelectModelView = Boolean(onSelectModelView);
+  const canRefreshSelectedProviderModels = Boolean(onRefreshSelectedProviderModels);
+  const canLoadMoreSelectedProviderModels = Boolean(onLoadMoreSelectedProviderModels);
 
   // Close on outside click
   useEffect(() => {
@@ -401,7 +415,7 @@ export function ModelPickerPopover({
                   onClick={() => {
                     void handleModelViewChange(view);
                   }}
-                  disabled={isSwitchingView || isLoading}
+                  disabled={!canSelectModelView || isSwitchingView || isLoading}
                   className={`rounded px-2 py-1 text-[11px] font-medium transition ${
                     selectedModelView === view
                       ? "bg-neutral-200 text-neutral-900"
@@ -430,6 +444,7 @@ export function ModelPickerPopover({
                   void handleRefresh();
                 }}
                 disabled={
+                  !canRefreshSelectedProviderModels ||
                   !selectedProviderId ||
                   isRefreshingSelectedProviderModels ||
                   isLoading
@@ -505,7 +520,7 @@ export function ModelPickerPopover({
               ))
             )}
             </div>
-            {hasMoreSelectedProviderModels && (
+            {hasMoreSelectedProviderModels && canLoadMoreSelectedProviderModels && (
               <div className="border-t border-neutral-800 p-2">
                 <button
                   type="button"
