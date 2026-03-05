@@ -96,6 +96,11 @@ function createRouter(): Router {
     "GET",
   );
   router.add(
+    /^\/api\/byok\/providers\/[^/]+\/models\/refresh$/,
+    ProviderController.byokRefreshProviderModels,
+    "POST",
+  );
+  router.add(
     /^\/api\/byok\/providers$/,
     ProviderController.byokProviders,
     "GET",

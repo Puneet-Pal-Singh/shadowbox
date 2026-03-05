@@ -92,4 +92,20 @@ export const PROVIDER_CATALOG: Record<ProviderId, ModelDescriptor[]> = {
       description: "Small, fast, and cost-effective",
     },
   ],
+  google: [
+    {
+      id: "gemini-1.5-pro",
+      name: "Gemini 1.5 Pro",
+      provider: "google",
+      contextWindow: 1048576,
+      description: "Google Gemini flagship model",
+    },
+    {
+      id: "gemini-1.5-flash",
+      name: "Gemini 1.5 Flash",
+      provider: "google",
+      contextWindow: 1048576,
+      description: "Faster and lower-cost Gemini model",
+    },
+  ],
 };

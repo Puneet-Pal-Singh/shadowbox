@@ -15,6 +15,8 @@ import {
   BYOKCredentialConnectRequestSchema,
   BYOKCredentialUpdateRequestSchema,
   BYOKCredentialValidateRequestSchema,
+  BYOKDiscoveredProviderModelsResponseSchema,
+  BYOKDiscoveredProviderModelsRefreshResponseSchema,
   BYOKProviderModelsResponseSchema,
   BYOKPreferencesUpdateRequestSchema,
   type BYOKResolution,
@@ -22,6 +24,8 @@ import {
   type BYOKCredentialConnectRequest,
   type BYOKCredentialUpdateRequest,
   type BYOKCredentialValidateRequest,
+  type BYOKDiscoveredProviderModelsResponse,
+  type BYOKDiscoveredProviderModelsRefreshResponse,
   type BYOKProviderModelsResponse,
   type BYOKPreferencesUpdateRequest,
   BYOKConnectRequestSchema,
@@ -81,6 +85,27 @@ export class ProviderController {
     try {
       const scope = await resolveAuthorizedProviderScope(req, env, correlationId);
       const providerId = extractProviderIdFromModelsPath(req.url, correlationId);
+      const queryParams = buildDiscoveryQueryParams(req.url);
+      const runtimePath = buildRuntimeModelsPath(providerId, queryParams);
+
+      if (hasDiscoveryQuery(queryParams)) {
+        const response = await proxyByokOperation(
+          req,
+          env,
+          {
+            scope,
+            method: "GET",
+            path: runtimePath,
+          },
+          BYOKDiscoveredProviderModelsResponseSchema,
+          correlationId,
+        );
+        const payload = await readResponseJson<BYOKDiscoveredProviderModelsResponse>(
+          response,
+          correlationId,
+        );
+        return withScopeJson(req, env, scope, payload);
+      }
 
       const response = await proxyByokOperation(
         req,
@@ -88,7 +113,7 @@ export class ProviderController {
         {
           scope,
           method: "GET",
-          path: `/providers/models?providerId=${encodeURIComponent(providerId)}`,
+          path: runtimePath,
         },
         BYOKProviderModelsResponseSchema,
         correlationId,
@@ -97,13 +122,49 @@ export class ProviderController {
         response,
         correlationId,
       );
+      return withScopeJson(
+        req,
+        env,
+        scope,
+        payload.models.map((model) => ({
+          id: model.id,
+          name: model.name,
+          provider: model.provider,
+        })),
+      );
+    } catch (error) {
+      return handleByokError(req, env, error, correlationId);
+    }
+  }
 
-      const models = payload.models.map((model) => ({
-        id: model.id,
-        name: model.name,
-        provider: model.provider,
-      }));
-      return withScopeJson(req, env, scope, models);
+  static async byokRefreshProviderModels(
+    req: Request,
+    env: Env,
+  ): Promise<Response> {
+    const correlationId = Math.random().toString(36).substring(7);
+    try {
+      const scope = await resolveAuthorizedProviderScope(req, env, correlationId);
+      const providerId = extractProviderIdFromModelsRefreshPath(
+        req.url,
+        correlationId,
+      );
+      const response = await proxyByokOperation(
+        req,
+        env,
+        {
+          scope,
+          method: "POST",
+          path: "/providers/models/refresh",
+          body: { providerId },
+        },
+        BYOKDiscoveredProviderModelsRefreshResponseSchema,
+        correlationId,
+      );
+      const payload = await readResponseJson<BYOKDiscoveredProviderModelsRefreshResponse>(
+        response,
+        correlationId,
+      );
+      return withScopeJson(req, env, scope, payload);
     } catch (error) {
       return handleByokError(req, env, error, correlationId);
     }
@@ -670,6 +731,69 @@ function extractProviderIdFromModelsPath(
   if (!providerId) {
     throw new ValidationError(
       "Missing providerId in models request path.",
+      "MISSING_PROVIDER_ID",
+      correlationId,
+    );
+  }
+  return decodeURIComponent(providerId);
+}
+
+function buildDiscoveryQueryParams(urlValue: string): {
+  view?: string;
+  limit?: string;
+  cursor?: string;
+} {
+  const url = new URL(urlValue);
+  return {
+    view: url.searchParams.get("view") ?? undefined,
+    limit: url.searchParams.get("limit") ?? undefined,
+    cursor: url.searchParams.get("cursor") ?? undefined,
+  };
+}
+
+function hasDiscoveryQuery(query: {
+  view?: string;
+  limit?: string;
+  cursor?: string;
+}): boolean {
+  return Boolean(query.view || query.limit || query.cursor);
+}
+
+function buildRuntimeModelsPath(
+  providerId: string,
+  query: {
+    view?: string;
+    limit?: string;
+    cursor?: string;
+  },
+): string {
+  const params = new URLSearchParams({
+    providerId,
+  });
+  if (query.view) {
+    params.set("view", query.view);
+  }
+  if (query.limit) {
+    params.set("limit", query.limit);
+  }
+  if (query.cursor) {
+    params.set("cursor", query.cursor);
+  }
+  return `/providers/models?${params.toString()}`;
+}
+
+function extractProviderIdFromModelsRefreshPath(
+  urlValue: string,
+  correlationId: string,
+): string {
+  const url = new URL(urlValue);
+  const match = url.pathname.match(
+    /^\/api\/byok\/providers\/([^/]+)\/models\/refresh$/,
+  );
+  const providerId = match?.[1];
+  if (!providerId) {
+    throw new ValidationError(
+      "Missing providerId in models refresh request path.",
       "MISSING_PROVIDER_ID",
       correlationId,
     );

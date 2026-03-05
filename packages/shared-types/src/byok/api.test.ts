@@ -5,6 +5,8 @@ import {
   BYOKCredentialConnectRequestSchema,
   BYOKCredentialValidateRequestSchema,
   BYOKCredentialValidateResponseSchema,
+  BYOKDiscoveredProviderModelsQuerySchema,
+  BYOKDiscoveredProviderModelsResponseSchema,
   BYOKPreferencesUpdateRequestSchema,
   BYOKValidateRequestSchema,
   BYOKValidateResponseSchema,
@@ -84,6 +86,38 @@ describe("BYOK API Contracts", () => {
     );
     expect(
       BYOKCredentialValidateResponseSchema.safeParse(response).success,
+    ).toBe(true);
+  });
+
+  it("validates discovered provider model query/response shape", () => {
+    const query = { view: "all" as const, limit: 100, cursor: "cursor-1" };
+    const response = {
+      providerId: "openrouter",
+      view: "all" as const,
+      models: [
+        {
+          id: "openai/gpt-4o",
+          name: "GPT-4o",
+          providerId: "openrouter",
+        },
+      ],
+      page: {
+        limit: 100,
+        cursor: "cursor-1",
+        hasMore: false,
+      },
+      metadata: {
+        fetchedAt: new Date().toISOString(),
+        stale: false,
+        source: "cache" as const,
+      },
+    };
+
+    expect(BYOKDiscoveredProviderModelsQuerySchema.safeParse(query).success).toBe(
+      true,
+    );
+    expect(
+      BYOKDiscoveredProviderModelsResponseSchema.safeParse(response).success,
     ).toBe(true);
   });
 

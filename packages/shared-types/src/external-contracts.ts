@@ -13,6 +13,11 @@ import {
   ProviderIdSchema,
 } from "./provider.js";
 import {
+  BYOKDiscoveredProviderModelsQuerySchema,
+  BYOKDiscoveredProviderModelsRefreshResponseSchema,
+  BYOKDiscoveredProviderModelsResponseSchema,
+} from "./byok/api.js";
+import {
   CHAT_RESPONSE_PROTOCOL_VERSION,
   ChatResponseEventSchema,
   FinalPayloadSchema,
@@ -52,7 +57,7 @@ export const EXTERNAL_CONTRACT_MANIFEST = {
     },
   },
   provider: {
-    providerIdEnum: ["openrouter", "openai", "groq"],
+    providerIdEnum: ["openrouter", "openai", "groq", "google"],
     connectRequestFields: ["providerId", "apiKey"],
     connectResponseFields: [
       "status",
@@ -68,6 +73,21 @@ export const EXTERNAL_CONTRACT_MANIFEST = {
     preferencesFields: ["defaultProviderId", "defaultModelId", "updatedAt"],
     connectionsResponseFields: ["connections"],
     catalogResponseFields: ["providers", "generatedAt"],
+    discoveryModelsQueryFields: ["view", "limit", "cursor"],
+    discoveryModelsResponseFields: [
+      "providerId",
+      "view",
+      "models",
+      "page",
+      "metadata",
+    ],
+    discoveryModelsRefreshResponseFields: [
+      "providerId",
+      "refreshedAt",
+      "source",
+      "cacheInvalidated",
+      "modelsCount",
+    ],
     errorEnvelopeFields: ["error"],
   },
 } as const;
@@ -98,6 +118,10 @@ export const EXTERNAL_PROVIDER_CONTRACT = {
   validateResponseSchema: BYOKValidateResponseSchema,
   preferencesPatchSchema: BYOKPreferencesPatchSchema,
   preferencesSchema: BYOKPreferencesSchema,
+  discoveredProviderModelsQuerySchema: BYOKDiscoveredProviderModelsQuerySchema,
+  discoveredProviderModelsResponseSchema: BYOKDiscoveredProviderModelsResponseSchema,
+  discoveredProviderModelsRefreshResponseSchema:
+    BYOKDiscoveredProviderModelsRefreshResponseSchema,
   errorEnvelopeSchema: ProviderErrorEnvelopeSchema,
 } as const;
 

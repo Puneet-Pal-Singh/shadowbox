@@ -97,6 +97,25 @@ describe("external contract freeze", () => {
             "status",
             "providerId",
           ],
+          "discoveryModelsQueryFields": [
+            "view",
+            "limit",
+            "cursor",
+          ],
+          "discoveryModelsRefreshResponseFields": [
+            "providerId",
+            "refreshedAt",
+            "source",
+            "cacheInvalidated",
+            "modelsCount",
+          ],
+          "discoveryModelsResponseFields": [
+            "providerId",
+            "view",
+            "models",
+            "page",
+            "metadata",
+          ],
           "errorEnvelopeFields": [
             "error",
           ],
@@ -113,6 +132,7 @@ describe("external contract freeze", () => {
             "openrouter",
             "openai",
             "groq",
+            "google",
           ],
           "validateRequestFields": [
             "providerId",

@@ -15,6 +15,29 @@ export { ProviderLiveValidationService } from "./ProviderLiveValidationService";
 export { ProviderAuditService } from "./ProviderAuditService";
 export type { ProviderAuditEvent } from "./DurableProviderStore";
 export {
+  ProviderModelDiscoveryAuthError,
+  ProviderModelDiscoveryApiError,
+  ProviderModelNormalizationError,
+  ProviderModelCacheError,
+  ProviderModelDiscoveryService,
+  OpenRouterModelCatalogAdapter,
+  GoogleModelCatalogAdapter,
+  OpenAICompatibleModelCatalogAdapter,
+  ProviderModelRankingService,
+  type ProviderModelCatalogPort,
+  type ProviderModelCachePort,
+  type ProviderModelRankingPort,
+  type ProviderModelCredentialContext,
+  type ProviderModelFetchPageInput,
+  type ProviderModelPageFetchResult,
+  type ProviderModelCacheGetInput,
+  type ProviderModelCacheSetInput,
+  type ProviderModelCacheEntry,
+  type ProviderModelRankingSignals,
+  type ProviderModelRankingInput,
+  type ProviderModelRankingResult,
+} from "./model-discovery";
+export {
   PROVIDER_CAPABILITY_MATRIX,
   isModelAllowedByCapabilityMatrix,
   getProviderCapabilityFlags,

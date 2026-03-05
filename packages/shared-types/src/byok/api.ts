@@ -6,6 +6,20 @@ import {
   BYOKValidateResponseSchema,
   ModelDescriptorSchema,
 } from "../provider.js";
+import {
+  BYOKDiscoveredProviderModelSchema,
+  BYOKDiscoveredProviderModelsMetadataSchema,
+  BYOKDiscoveredProviderModelsPageSchema,
+  BYOKDiscoveredProviderModelsQuerySchema,
+  BYOKDiscoveredProviderModelsRefreshResponseSchema,
+  BYOKDiscoveredProviderModelsResponseSchema,
+  BYOKModelDiscoverySourceSchema,
+  BYOKModelDiscoveryViewSchema,
+  BYOKModelPopularityScoreSchema,
+  BYOKModelPopularitySignalsSchema,
+  BYOKModelPricingSchema,
+  BYOKProviderSlugSchema,
+} from "./model-discovery.js";
 
 /**
  * BYOK API request/response contracts.
@@ -79,6 +93,39 @@ export const BYOKProviderModelsResponseSchema = z.object({
 export type BYOKProviderModelsResponse = z.infer<
   typeof BYOKProviderModelsResponseSchema
 >;
+
+/**
+ * Dynamic provider model discovery contracts (CP62-1).
+ * These schemas freeze the backend-authoritative paginated discovery shape.
+ */
+export {
+  BYOKProviderSlugSchema,
+  BYOKModelDiscoveryViewSchema,
+  BYOKModelDiscoverySourceSchema,
+  BYOKModelPricingSchema,
+  BYOKModelPopularitySignalsSchema,
+  BYOKModelPopularityScoreSchema,
+  BYOKDiscoveredProviderModelSchema,
+  BYOKDiscoveredProviderModelsPageSchema,
+  BYOKDiscoveredProviderModelsMetadataSchema,
+  BYOKDiscoveredProviderModelsQuerySchema,
+  BYOKDiscoveredProviderModelsResponseSchema,
+  BYOKDiscoveredProviderModelsRefreshResponseSchema,
+};
+export type {
+  BYOKProviderSlug,
+  BYOKModelDiscoveryView,
+  BYOKModelDiscoverySource,
+  BYOKModelPricing,
+  BYOKModelPopularitySignals,
+  BYOKModelPopularityScore,
+  BYOKDiscoveredProviderModel,
+  BYOKDiscoveredProviderModelsPage,
+  BYOKDiscoveredProviderModelsMetadata,
+  BYOKDiscoveredProviderModelsQuery,
+  BYOKDiscoveredProviderModelsResponse,
+  BYOKDiscoveredProviderModelsRefreshResponse,
+} from "./model-discovery.js";
 
 /**
  * PATCH /api/byok/preferences
