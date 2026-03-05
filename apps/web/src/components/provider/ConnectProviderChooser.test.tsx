@@ -19,7 +19,6 @@ describe("ConnectProviderChooser", () => {
         jsonMode: true,
         structuredOutputs: true,
       },
-      adapterFamily: "openai-compatible",
       modelSource: "static",
       keyFormat: {
         prefix: "sk-",
@@ -36,7 +35,6 @@ describe("ConnectProviderChooser", () => {
         jsonMode: false,
         structuredOutputs: false,
       },
-      adapterFamily: "anthropic-native",
       modelSource: "static",
       keyFormat: {
         prefix: "sk-ant-",
@@ -53,7 +51,6 @@ describe("ConnectProviderChooser", () => {
         jsonMode: false,
         structuredOutputs: false,
       },
-      adapterFamily: "openai-compatible",
       modelSource: "remote",
     },
   ];

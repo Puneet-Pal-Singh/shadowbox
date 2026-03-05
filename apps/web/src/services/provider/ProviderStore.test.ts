@@ -35,16 +35,15 @@ describe("ProviderStore", () => {
         providerId: "openai",
         displayName: "OpenAI",
         authModes: ["api_key"],
-      capabilities: {
-        streaming: true,
-        tools: true,
-        jsonMode: true,
-        structuredOutputs: true,
+        capabilities: {
+          streaming: true,
+          tools: true,
+          jsonMode: true,
+          structuredOutputs: true,
+        },
+        modelSource: "static",
       },
-      adapterFamily: "openai-compatible",
-      modelSource: "static",
-    },
-  ];
+    ];
 
     const credentials: BYOKCredential[] = [
       {

@@ -15,6 +15,13 @@ interface ProviderCapabilities {
   flags: ProviderCapabilityFlags;
 }
 
+const DEFAULT_PROVIDER_CAPABILITY_FLAGS: ProviderCapabilityFlags = {
+  streaming: false,
+  tools: false,
+  structuredOutputs: false,
+  jsonMode: false,
+};
+
 const PROVIDER_CAPABILITY_FLAGS: Record<ProviderId, ProviderCapabilityFlags> = {
   openrouter: {
     streaming: true,
@@ -48,7 +55,9 @@ function buildCapabilityMatrix(): Record<ProviderId, ProviderCapabilities> {
     const models = PROVIDER_CATALOG[providerId] ?? [];
     matrix[providerId] = {
       allowedModelIds: new Set(models.map((model) => model.id)),
-      flags: PROVIDER_CAPABILITY_FLAGS[providerId],
+      flags:
+        PROVIDER_CAPABILITY_FLAGS[providerId] ??
+        DEFAULT_PROVIDER_CAPABILITY_FLAGS,
     };
   }
 
@@ -70,10 +79,8 @@ export function isModelAllowedByCapabilityMatrix(
 export function getProviderCapabilityFlags(
   providerId: ProviderId,
 ): ProviderCapabilityFlags {
-  return PROVIDER_CAPABILITY_MATRIX[providerId]?.flags ?? {
-    streaming: false,
-    tools: false,
-    structuredOutputs: false,
-    jsonMode: false,
-  };
+  return (
+    PROVIDER_CAPABILITY_MATRIX[providerId]?.flags ??
+    DEFAULT_PROVIDER_CAPABILITY_FLAGS
+  );
 }

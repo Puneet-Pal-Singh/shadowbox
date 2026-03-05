@@ -112,6 +112,11 @@ function resolveValidationEndpoint(providerId: ProviderId): ProviderValidationEn
         url: "https://generativelanguage.googleapis.com/v1beta/models",
         authMode: "googleApiKey",
       };
+    default:
+      throw new ValidationError(
+        `Live validation is not configured for provider "${providerId}".`,
+        "INVALID_PROVIDER_SELECTION",
+      );
   }
 }
 

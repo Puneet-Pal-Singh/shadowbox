@@ -1454,7 +1454,7 @@ async function ensureDefaultPreferenceConfigured(
   }
 
   const catalog = await fetchRuntimeCatalog(req, env, scope, correlationId);
-  const defaultModel = resolveDefaultModel(providerId, catalog, env);
+  const defaultModel = resolveDefaultModel(providerId, catalog, correlationId);
   await proxyByokOperation(
     req,
     env,

@@ -23,7 +23,10 @@ export function isProviderApiKeyFormatValid(
   providerId: ProviderId,
   apiKey: string,
 ): boolean {
-  const prefixes = PROVIDER_REGISTRY[providerId].apiKeyPrefixes;
+  const prefixes = PROVIDER_REGISTRY[providerId]?.apiKeyPrefixes;
+  if (!prefixes) {
+    return false;
+  }
   return prefixes.some((prefix) => apiKey.startsWith(prefix));
 }
 

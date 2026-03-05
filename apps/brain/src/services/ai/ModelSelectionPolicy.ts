@@ -150,10 +150,15 @@ export function resolveModelSelection(
 export function mapProviderIdToRuntimeProvider(
   providerId: ProviderId,
 ): RuntimeProvider {
-  if (providerId === "google") {
-    return "litellm";
+  switch (providerId) {
+    case "openai":
+    case "anthropic":
+    case "openrouter":
+    case "groq":
+      return providerId;
+    default:
+      return "litellm";
   }
-  return providerId;
 }
 
 /**

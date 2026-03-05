@@ -27,7 +27,6 @@ describe("ProviderDialog", () => {
             jsonMode: true,
             structuredOutputs: true,
           },
-          adapterFamily: "openai-compatible",
           modelSource: "static",
           keyFormat: {
             prefix: "sk-",

@@ -183,6 +183,11 @@ export class ProviderModelDiscoveryService {
     }
     const scope = this.store.getScopeSnapshot();
     const adapter = this.adapters[providerId];
+    if (!adapter) {
+      throw new ProviderModelDiscoveryApiError(
+        `Provider "${providerId}" does not have a discovery adapter configured.`,
+      );
+    }
     const models = await adapter.fetchAll(providerId, {
       userId: scope.userId,
       workspaceId: scope.workspaceId,

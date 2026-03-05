@@ -5,7 +5,6 @@ import type { ProviderId } from "../../types/provider";
 import { useProviderStore } from "../../hooks/useProviderStore.js";
 import { findCredentialByProviderId } from "../../lib/provider-helpers.js";
 import { ProviderDialog, ModelPickerPopover } from "../provider/index.js";
-import type { ProviderId } from "../../types/provider";
 
 interface ChatInputBarProps {
   input: string;

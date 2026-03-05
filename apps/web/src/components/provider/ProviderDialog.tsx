@@ -16,7 +16,6 @@ import { useProviderStore } from "../../hooks/useProviderStore.js";
 import {
   BYOKCredential as ProviderCredential,
   BYOKPreference as ProviderPreference,
-  type BYOKPreferencesUpdateRequest,
   ProviderRegistryEntry,
 } from "@repo/shared-types";
 import { type ProviderModelOption } from "../../services/api/providerClient.js";
@@ -63,7 +62,6 @@ export function ProviderDialog({
     disconnectCredential,
     validateCredential,
     loadProviderModels,
-    updatePreferences,
     applySessionSelection,
     toggleModelVisibility,
   } = useProviderStore();
@@ -177,19 +175,6 @@ export function ProviderDialog({
       // Error handled by store
     } finally {
       setValidatingCredentialId(null);
-    }
-  };
-
-  /**
-   * Handle preference update
-   */
-  const handleUpdatePreferences = async (
-    partial: BYOKPreferencesUpdateRequest
-  ) => {
-    try {
-      await updatePreferences(partial);
-    } catch {
-      // Error handled by store
     }
   };
 
@@ -406,7 +391,6 @@ export function ProviderDialog({
           {activeTab === "preferences" && (
             <PreferencesTab
               preferences={preferences}
-              onUpdate={handleUpdatePreferences}
             />
           )}
 
@@ -558,58 +542,26 @@ function ConnectedTab({
 }
 
 /**
- * Preferences Tab - Default selection + fallback policy
+ * Preferences Tab - Explicit selection policy.
  */
 function PreferencesTab({
   preferences,
-  onUpdate,
 }: {
   preferences: ProviderPreference | null;
-  onUpdate: (partial: BYOKPreferencesUpdateRequest) => Promise<void>;
 }): React.ReactElement {
-  const fallbackMode = preferences?.fallbackMode || "strict";
-
-  const handleFallbackChange = async (
-    mode: "strict" | "allow_fallback"
-  ) => {
-    await onUpdate({ fallbackMode: mode });
-  };
+  const defaultSelection = preferences?.defaultProviderId
+    ? `${preferences.defaultProviderId} / ${preferences.defaultModelId ?? "unset"}`
+    : "not configured";
 
   return (
     <div className="p-6 space-y-6">
-      <div>
-        <h3 className="font-medium mb-3">Fallback Policy</h3>
-        <div className="space-y-2">
-          <label className="flex items-center gap-3 cursor-pointer">
-            <input
-              type="radio"
-              checked={fallbackMode === "strict"}
-              onChange={() => handleFallbackChange("strict")}
-              className="w-4 h-4"
-            />
-            <span className="text-sm text-neutral-300">
-              <strong>Strict</strong> - Use selected provider only
-            </span>
-          </label>
-          <label className="flex items-center gap-3 cursor-pointer">
-            <input
-              type="radio"
-              checked={fallbackMode === "allow_fallback"}
-              onChange={() => handleFallbackChange("allow_fallback")}
-              className="w-4 h-4"
-            />
-            <span className="text-sm text-neutral-300">
-              <strong>Allow Fallback</strong> - Use platform default if
-              selected provider fails
-            </span>
-          </label>
-        </div>
-      </div>
-
-      <div className="bg-blue-950/30 border border-blue-900 rounded p-4 text-sm text-blue-200">
-        {fallbackMode === "strict"
-          ? "Only your selected provider will be used. If it fails, chat requests will error."
-          : "If your selected provider is unavailable, we'll fall back to the platform default provider automatically."}
+      <div className="bg-blue-950/30 border border-blue-900 rounded p-4 text-sm text-blue-200 space-y-2">
+        <p className="font-medium text-blue-100">Explicit Selection Policy</p>
+        <p>
+          Runtime execution requires an explicit provider and model resolution.
+          No hidden provider fallback is applied.
+        </p>
+        <p>Current defaults: {defaultSelection}</p>
       </div>
     </div>
   );
