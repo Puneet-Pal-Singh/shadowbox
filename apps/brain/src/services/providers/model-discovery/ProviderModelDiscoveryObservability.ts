@@ -1,6 +1,6 @@
 import type { BYOKModelDiscoverySource } from "@repo/shared-types";
 
-interface ProviderModelDiscoveryMetrics {
+export interface ProviderModelDiscoveryMetrics {
   model_discovery_requests_total: Record<string, number>;
   model_discovery_fetch_latency_ms: number[];
   model_discovery_cache_hits_total: Record<string, number>;
