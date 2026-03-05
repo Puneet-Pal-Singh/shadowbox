@@ -19,6 +19,8 @@ import {
 import { mapRunExecutionErrorToDomain } from "./RunExecutionErrorMapper";
 import { parseRequestBody, validateWithSchema } from "../http/validation";
 import {
+  type BYOKDiscoveredProviderModelsQuery,
+  BYOKDiscoveredProviderModelsQuerySchema,
   BYOKDiscoveredProviderModelsRefreshResponseSchema,
   BYOKConnectRequestSchema,
   BYOKDisconnectRequestSchema,
@@ -342,6 +344,33 @@ export class RunEngineRuntime extends DurableObject {
           ProviderIdSchema,
           correlationId,
         );
+        const isDiscoveryQuery =
+          url.searchParams.has("view") ||
+          url.searchParams.has("limit") ||
+          url.searchParams.has("cursor");
+        if (isDiscoveryQuery) {
+          if (providerId !== "openrouter" && providerId !== "google") {
+            throw new ValidationError(
+              `Discovery query is not supported for provider "${providerId}".`,
+              "UNSUPPORTED_DISCOVERY_PROVIDER",
+              correlationId,
+            );
+          }
+          const discoveryQuery = validateWithSchema<BYOKDiscoveredProviderModelsQuery>(
+            {
+              view: url.searchParams.get("view") ?? undefined,
+              limit: url.searchParams.get("limit") ?? undefined,
+              cursor: url.searchParams.get("cursor") ?? undefined,
+            },
+            BYOKDiscoveredProviderModelsQuerySchema,
+            correlationId,
+          );
+          const discovered = await configService.getDiscoveredModels(
+            providerId,
+            discoveryQuery,
+          );
+          return jsonResponse(request, env, discovered);
+        }
         const response = await configService.getModels(providerId);
         return jsonResponse(request, env, response);
       }
@@ -356,14 +385,19 @@ export class RunEngineRuntime extends DurableObject {
           RefreshModelsRequestSchema,
           correlationId,
         );
-        if (refreshRequest.providerId !== "openrouter") {
+        if (
+          refreshRequest.providerId !== "openrouter" &&
+          refreshRequest.providerId !== "google"
+        ) {
           throw new ValidationError(
             `Model refresh is not supported for provider "${refreshRequest.providerId}".`,
             "UNSUPPORTED_PROVIDER_REFRESH",
             correlationId,
           );
         }
-        const response = await configService.refreshOpenRouterDiscoveredModels();
+        const response = await configService.refreshDiscoveredModels(
+          refreshRequest.providerId,
+        );
         validateWithSchema(
           response,
           BYOKDiscoveredProviderModelsRefreshResponseSchema,

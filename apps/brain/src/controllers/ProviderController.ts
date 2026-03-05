@@ -15,6 +15,7 @@ import {
   BYOKCredentialConnectRequestSchema,
   BYOKCredentialUpdateRequestSchema,
   BYOKCredentialValidateRequestSchema,
+  BYOKDiscoveredProviderModelsResponseSchema,
   BYOKDiscoveredProviderModelsRefreshResponseSchema,
   BYOKProviderModelsResponseSchema,
   BYOKPreferencesUpdateRequestSchema,
@@ -23,6 +24,7 @@ import {
   type BYOKCredentialConnectRequest,
   type BYOKCredentialUpdateRequest,
   type BYOKCredentialValidateRequest,
+  type BYOKDiscoveredProviderModelsResponse,
   type BYOKDiscoveredProviderModelsRefreshResponse,
   type BYOKProviderModelsResponse,
   type BYOKPreferencesUpdateRequest,
@@ -83,6 +85,27 @@ export class ProviderController {
     try {
       const scope = await resolveAuthorizedProviderScope(req, env, correlationId);
       const providerId = extractProviderIdFromModelsPath(req.url, correlationId);
+      const queryParams = buildDiscoveryQueryParams(req.url);
+      const runtimePath = buildRuntimeModelsPath(providerId, queryParams);
+
+      if (hasDiscoveryQuery(queryParams)) {
+        const response = await proxyByokOperation(
+          req,
+          env,
+          {
+            scope,
+            method: "GET",
+            path: runtimePath,
+          },
+          BYOKDiscoveredProviderModelsResponseSchema,
+          correlationId,
+        );
+        const payload = await readResponseJson<BYOKDiscoveredProviderModelsResponse>(
+          response,
+          correlationId,
+        );
+        return withScopeJson(req, env, scope, payload);
+      }
 
       const response = await proxyByokOperation(
         req,
@@ -90,7 +113,7 @@ export class ProviderController {
         {
           scope,
           method: "GET",
-          path: `/providers/models?providerId=${encodeURIComponent(providerId)}`,
+          path: runtimePath,
         },
         BYOKProviderModelsResponseSchema,
         correlationId,
@@ -99,13 +122,16 @@ export class ProviderController {
         response,
         correlationId,
       );
-
-      const models = payload.models.map((model) => ({
-        id: model.id,
-        name: model.name,
-        provider: model.provider,
-      }));
-      return withScopeJson(req, env, scope, models);
+      return withScopeJson(
+        req,
+        env,
+        scope,
+        payload.models.map((model) => ({
+          id: model.id,
+          name: model.name,
+          provider: model.provider,
+        })),
+      );
     } catch (error) {
       return handleByokError(req, env, error, correlationId);
     }
@@ -710,6 +736,50 @@ function extractProviderIdFromModelsPath(
     );
   }
   return decodeURIComponent(providerId);
+}
+
+function buildDiscoveryQueryParams(urlValue: string): {
+  view?: string;
+  limit?: string;
+  cursor?: string;
+} {
+  const url = new URL(urlValue);
+  return {
+    view: url.searchParams.get("view") ?? undefined,
+    limit: url.searchParams.get("limit") ?? undefined,
+    cursor: url.searchParams.get("cursor") ?? undefined,
+  };
+}
+
+function hasDiscoveryQuery(query: {
+  view?: string;
+  limit?: string;
+  cursor?: string;
+}): boolean {
+  return Boolean(query.view || query.limit || query.cursor);
+}
+
+function buildRuntimeModelsPath(
+  providerId: string,
+  query: {
+    view?: string;
+    limit?: string;
+    cursor?: string;
+  },
+): string {
+  const params = new URLSearchParams({
+    providerId,
+  });
+  if (query.view) {
+    params.set("view", query.view);
+  }
+  if (query.limit) {
+    params.set("limit", query.limit);
+  }
+  if (query.cursor) {
+    params.set("cursor", query.cursor);
+  }
+  return `/providers/models?${params.toString()}`;
 }
 
 function extractProviderIdFromModelsRefreshPath(

@@ -104,6 +104,29 @@ function createMockEnv(): Env {
           if (!providerId || !(providerId in catalog)) {
             return jsonError("Missing or invalid providerId", 400, "MISSING_PROVIDER_ID");
           }
+          const view = url.searchParams.get("view");
+          if (view) {
+            const models = catalog[providerId].map((model) => ({
+              id: model.id,
+              name: model.name,
+              providerId: providerId,
+            }));
+            return jsonOk({
+              providerId,
+              view,
+              models,
+              page: {
+                limit: Number(url.searchParams.get("limit") ?? "50"),
+                cursor: url.searchParams.get("cursor") ?? undefined,
+                hasMore: false,
+              },
+              metadata: {
+                fetchedAt: new Date().toISOString(),
+                stale: false,
+                source: "provider_api",
+              },
+            });
+          }
           return jsonOk({
             providerId,
             models: catalog[providerId].map((model) => ({
@@ -514,6 +537,27 @@ describe("ProviderController", () => {
       expect(response.status).toBe(200);
       expect(Array.isArray(data)).toBe(true);
       expect(data[0].id).toBe("openrouter/auto");
+    });
+
+    it("returns discovered provider model envelope for view queries", async () => {
+      const env = createMockEnv();
+      const response = await ProviderController.byokProviderModels(
+        new Request(
+          "http://localhost/api/byok/providers/openrouter/models?view=popular&limit=10",
+          {
+            method: "GET",
+            headers: await withByokHeaders(env),
+          },
+        ),
+        env,
+      );
+      const data = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(data.providerId).toBe("openrouter");
+      expect(data.view).toBe("popular");
+      expect(Array.isArray(data.models)).toBe(true);
+      expect(data.metadata.source).toBe("provider_api");
     });
 
     it("returns provider registry entries", async () => {
