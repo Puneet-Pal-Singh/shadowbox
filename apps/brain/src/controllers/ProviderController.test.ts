@@ -578,6 +578,24 @@ describe("ProviderController", () => {
       expect(data.error.code).toBe("VALIDATION_ERROR");
     });
 
+    it("rejects empty discovery query params before proxying", async () => {
+      const env = createMockEnv();
+      const response = await ProviderController.byokProviderModels(
+        new Request(
+          "http://localhost/api/byok/providers/openrouter/models?view=",
+          {
+            method: "GET",
+            headers: await withByokHeaders(env),
+          },
+        ),
+        env,
+      );
+      const data = await response.json();
+
+      expect(response.status).toBe(400);
+      expect(data.error.code).toBe("VALIDATION_ERROR");
+    });
+
     it("rejects invalid provider slug in path before proxying", async () => {
       const env = createMockEnv();
       const response = await ProviderController.byokProviderModels(

@@ -765,7 +765,11 @@ function hasDiscoveryQuery(query: {
   limit?: string;
   cursor?: string;
 }): boolean {
-  return Boolean(query.view || query.limit || query.cursor);
+  return (
+    query.view !== undefined ||
+    query.limit !== undefined ||
+    query.cursor !== undefined
+  );
 }
 
 function validateDiscoveryQuery(
