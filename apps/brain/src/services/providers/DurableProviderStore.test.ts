@@ -230,11 +230,15 @@ describe("DurableProviderStore", () => {
       expiresAt: "2026-03-05T01:00:00.000Z",
       source: "provider_api",
     });
+    const cacheKeys = Array.from(storage.keys()).filter((key) =>
+      key.startsWith("provider:model-cache:v1:user-1:workspace-1:"),
+    );
+    expect(cacheKeys).toHaveLength(1);
+    const cacheKey = cacheKeys[0]!;
+    expect(storage.has(cacheKey)).toBe(true);
 
     await store.clearAll();
-    expect(
-      storage.has("provider:model-cache:v1:user-1:workspace-1:openai"),
-    ).toBe(false);
+    expect(storage.has(cacheKey)).toBe(false);
   });
 
   it("drops malformed model cache payloads", async () => {
