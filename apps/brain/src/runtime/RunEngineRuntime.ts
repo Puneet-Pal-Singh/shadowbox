@@ -19,6 +19,7 @@ import {
 import { mapRunExecutionErrorToDomain } from "./RunExecutionErrorMapper";
 import { parseRequestBody, validateWithSchema } from "../http/validation";
 import {
+  BYOKDiscoveredProviderModelsRefreshResponseSchema,
   BYOKConnectRequestSchema,
   BYOKDisconnectRequestSchema,
   BYOKPreferencesPatchSchema,
@@ -51,6 +52,9 @@ const ScopeIdSchema = z
   .min(1)
   .max(MAX_SCOPE_IDENTIFIER_LENGTH)
   .regex(SAFE_SCOPE_IDENTIFIER_REGEX);
+const RefreshModelsRequestSchema = z.object({
+  providerId: ProviderIdSchema,
+});
 
 export class RunEngineRuntime extends DurableObject {
   private executionQueue: Promise<void> = Promise.resolve();
@@ -339,6 +343,32 @@ export class RunEngineRuntime extends DurableObject {
           correlationId,
         );
         const response = await configService.getModels(providerId);
+        return jsonResponse(request, env, response);
+      }
+
+      if (url.pathname === "/providers/models/refresh") {
+        if (request.method !== "POST") {
+          return errorResponse(request, env, "Method Not Allowed", 405);
+        }
+        const body = await parseRequestBody(request, correlationId);
+        const refreshRequest = validateWithSchema<{ providerId: ProviderId }>(
+          body,
+          RefreshModelsRequestSchema,
+          correlationId,
+        );
+        if (refreshRequest.providerId !== "openrouter") {
+          throw new ValidationError(
+            `Model refresh is not supported for provider "${refreshRequest.providerId}".`,
+            "UNSUPPORTED_PROVIDER_REFRESH",
+            correlationId,
+          );
+        }
+        const response = await configService.refreshOpenRouterDiscoveredModels();
+        validateWithSchema(
+          response,
+          BYOKDiscoveredProviderModelsRefreshResponseSchema,
+          correlationId,
+        );
         return jsonResponse(request, env, response);
       }
 

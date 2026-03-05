@@ -115,6 +115,20 @@ function createMockEnv(): Env {
         }
 
         if (
+          url.pathname === "/providers/models/refresh" &&
+          request.method === "POST"
+        ) {
+          const body = (await request.json()) as { providerId: ProviderId };
+          return jsonOk({
+            providerId: body.providerId,
+            refreshedAt: new Date().toISOString(),
+            source: "provider_api",
+            cacheInvalidated: true,
+            modelsCount: catalog[body.providerId]?.length ?? 0,
+          });
+        }
+
+        if (
           url.pathname === "/providers/connections" &&
           request.method === "GET"
         ) {
@@ -517,6 +531,26 @@ describe("ProviderController", () => {
       expect(Array.isArray(data)).toBe(true);
       expect(data[0].providerId).toBeDefined();
       expect(data[0].authModes).toContain("api_key");
+    });
+
+    it("refreshes models for a provider", async () => {
+      const env = createMockEnv();
+      const response = await ProviderController.byokRefreshProviderModels(
+        new Request(
+          "http://localhost/api/byok/providers/openrouter/models/refresh",
+          {
+            method: "POST",
+            headers: await withByokHeaders(env),
+          },
+        ),
+        env,
+      );
+      const data = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(data.providerId).toBe("openrouter");
+      expect(data.source).toBe("provider_api");
+      expect(data.cacheInvalidated).toBe(true);
     });
 
     it("connects credential and resolves selection", async () => {

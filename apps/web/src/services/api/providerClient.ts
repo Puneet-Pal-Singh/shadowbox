@@ -21,6 +21,7 @@ import {
   BYOKCredentialUpdateRequestSchema,
   BYOKCredentialValidateRequestSchema,
   BYOKCredentialValidateResponseSchema,
+  BYOKDiscoveredProviderModelsRefreshResponseSchema,
   BYOKProviderModelsResponseSchema,
   BYOKPreferencesUpdateRequestSchema,
   ProviderErrorEnvelopeSchema,
@@ -32,6 +33,7 @@ import {
   type BYOKCredentialUpdateRequest,
   type BYOKCredentialValidateRequest,
   type BYOKCredentialValidateResponse,
+  type BYOKDiscoveredProviderModelsRefreshResponse,
   type BYOKPreferencesUpdateRequest,
   type ProviderRegistryEntry,
 } from "@repo/shared-types";
@@ -127,6 +129,23 @@ export class ProviderApiClient {
       name: model.name,
       provider: model.provider,
     }));
+  }
+
+  /**
+   * POST /api/byok/providers/:providerId/models/refresh
+   */
+  async refreshProviderModels(
+    providerId: string,
+  ): Promise<BYOKDiscoveredProviderModelsRefreshResponse> {
+    const payload = await this.post<unknown>(
+      `/providers/${encodeURIComponent(providerId)}/models/refresh`,
+      {},
+    );
+    return this.parseResponseContract(
+      payload,
+      BYOKDiscoveredProviderModelsRefreshResponseSchema,
+      "provider models refresh",
+    );
   }
 
   /**

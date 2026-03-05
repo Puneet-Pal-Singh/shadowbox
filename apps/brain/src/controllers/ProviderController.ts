@@ -15,6 +15,7 @@ import {
   BYOKCredentialConnectRequestSchema,
   BYOKCredentialUpdateRequestSchema,
   BYOKCredentialValidateRequestSchema,
+  BYOKDiscoveredProviderModelsRefreshResponseSchema,
   BYOKProviderModelsResponseSchema,
   BYOKPreferencesUpdateRequestSchema,
   type BYOKResolution,
@@ -22,6 +23,7 @@ import {
   type BYOKCredentialConnectRequest,
   type BYOKCredentialUpdateRequest,
   type BYOKCredentialValidateRequest,
+  type BYOKDiscoveredProviderModelsRefreshResponse,
   type BYOKProviderModelsResponse,
   type BYOKPreferencesUpdateRequest,
   BYOKConnectRequestSchema,
@@ -104,6 +106,39 @@ export class ProviderController {
         provider: model.provider,
       }));
       return withScopeJson(req, env, scope, models);
+    } catch (error) {
+      return handleByokError(req, env, error, correlationId);
+    }
+  }
+
+  static async byokRefreshProviderModels(
+    req: Request,
+    env: Env,
+  ): Promise<Response> {
+    const correlationId = Math.random().toString(36).substring(7);
+    try {
+      const scope = await resolveAuthorizedProviderScope(req, env, correlationId);
+      const providerId = extractProviderIdFromModelsRefreshPath(
+        req.url,
+        correlationId,
+      );
+      const response = await proxyByokOperation(
+        req,
+        env,
+        {
+          scope,
+          method: "POST",
+          path: "/providers/models/refresh",
+          body: { providerId },
+        },
+        BYOKDiscoveredProviderModelsRefreshResponseSchema,
+        correlationId,
+      );
+      const payload = await readResponseJson<BYOKDiscoveredProviderModelsRefreshResponse>(
+        response,
+        correlationId,
+      );
+      return withScopeJson(req, env, scope, payload);
     } catch (error) {
       return handleByokError(req, env, error, correlationId);
     }
@@ -670,6 +705,25 @@ function extractProviderIdFromModelsPath(
   if (!providerId) {
     throw new ValidationError(
       "Missing providerId in models request path.",
+      "MISSING_PROVIDER_ID",
+      correlationId,
+    );
+  }
+  return decodeURIComponent(providerId);
+}
+
+function extractProviderIdFromModelsRefreshPath(
+  urlValue: string,
+  correlationId: string,
+): string {
+  const url = new URL(urlValue);
+  const match = url.pathname.match(
+    /^\/api\/byok\/providers\/([^/]+)\/models\/refresh$/,
+  );
+  const providerId = match?.[1];
+  if (!providerId) {
+    throw new ValidationError(
+      "Missing providerId in models refresh request path.",
       "MISSING_PROVIDER_ID",
       correlationId,
     );
