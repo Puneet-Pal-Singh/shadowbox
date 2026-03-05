@@ -14,6 +14,7 @@ describe("BYOK Error Taxonomy", () => {
     const validCodes: Array<string> = [
       "CREDENTIAL_NOT_FOUND",
       "PROVIDER_NOT_CONNECTED",
+      "MODEL_DISCOVERY_CACHE_FAILED",
       "RATE_LIMIT_EXCEEDED",
       "INTERNAL_ERROR",
     ];
@@ -42,6 +43,12 @@ describe("BYOK Error Taxonomy", () => {
 
     expect(isAuthError("CREDENTIAL_REVOKED")).toBe(true);
     expect(authError.code).toBe("CREDENTIAL_REVOKED");
+    expect(isAuthError("MODEL_DISCOVERY_AUTH_FAILED")).toBe(true);
+  });
+
+  it("marks discovery dependency errors as retryable", () => {
+    expect(isRetryableError("MODEL_DISCOVERY_PROVIDER_API_FAILED")).toBe(true);
+    expect(isRetryableError("MODEL_DISCOVERY_CACHE_FAILED")).toBe(true);
   });
 
   it("validates error with correlation ID", () => {
