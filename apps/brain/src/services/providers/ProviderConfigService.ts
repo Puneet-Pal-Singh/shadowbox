@@ -189,36 +189,33 @@ export class ProviderConfigService {
    * Delegates to ProviderCatalogService
    */
   async getModels(providerId: ProviderId): Promise<ModelsListResponse> {
-    if (providerId === "openrouter" || providerId === "google") {
-      const discovered = await this.modelDiscoveryService.getDiscoveredModels(
-        providerId,
-        {
+    const discovered = await this.modelDiscoveryService.getDiscoveredModels(
+      providerId,
+      {
         view: "all",
         limit: 1000,
-        },
-      );
-      return {
-        providerId,
-        models: discovered.models.map((model) => ({
-          id: model.id,
-          name: model.name,
-          provider: providerId,
-        })),
-        lastFetchedAt: discovered.metadata.fetchedAt,
-      };
-    }
-    return this.catalogService.getModels(providerId);
+      },
+    );
+    return {
+      providerId,
+      models: discovered.models.map((model) => ({
+        id: model.id,
+        name: model.name,
+        provider: providerId,
+      })),
+      lastFetchedAt: discovered.metadata.fetchedAt,
+    };
   }
 
   async getDiscoveredModels(
-    providerId: "openrouter" | "google",
+    providerId: ProviderId,
     query: BYOKDiscoveredProviderModelsQuery,
   ): Promise<BYOKDiscoveredProviderModelsResponse> {
     return this.modelDiscoveryService.getDiscoveredModels(providerId, query);
   }
 
   async refreshDiscoveredModels(
-    providerId: "openrouter" | "google",
+    providerId: ProviderId,
   ): Promise<BYOKDiscoveredProviderModelsRefreshResponse> {
     return this.modelDiscoveryService.refreshDiscoveredModels(providerId);
   }

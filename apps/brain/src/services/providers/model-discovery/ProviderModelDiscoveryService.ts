@@ -17,11 +17,12 @@ import {
 import type { ProviderModelCatalogPort } from "./ProviderModelCatalogPort";
 import { OpenRouterModelCatalogAdapter } from "./adapters/OpenRouterModelCatalogAdapter";
 import { GoogleModelCatalogAdapter } from "./adapters/GoogleModelCatalogAdapter";
+import { OpenAICompatibleModelCatalogAdapter } from "./adapters/OpenAICompatibleModelCatalogAdapter";
 import { ProviderModelRankingService } from "./ProviderModelRankingService";
 
 const MODEL_CACHE_TTL_MS = 5 * 60 * 1000;
 
-type SupportedDiscoveryProvider = "openrouter" | "google";
+type SupportedDiscoveryProvider = ProviderId;
 
 export class ProviderModelDiscoveryService {
   private readonly adapters: Record<SupportedDiscoveryProvider, ProviderModelCatalogPort>;
@@ -35,6 +36,12 @@ export class ProviderModelDiscoveryService {
   ) {
     this.adapters = {
       openrouter: adapters?.openrouter ?? new OpenRouterModelCatalogAdapter(),
+      openai:
+        adapters?.openai ??
+        new OpenAICompatibleModelCatalogAdapter("openai", "https://api.openai.com/v1"),
+      groq:
+        adapters?.groq ??
+        new OpenAICompatibleModelCatalogAdapter("groq", "https://api.groq.com/openai/v1"),
       google: adapters?.google ?? new GoogleModelCatalogAdapter(),
     };
     this.rankingService = rankingService ?? new ProviderModelRankingService();
@@ -134,7 +141,7 @@ export class ProviderModelDiscoveryService {
   private async fetchAndCacheModels(
     providerId: SupportedDiscoveryProvider,
   ): Promise<ProviderModelCacheRecord> {
-    const apiKey = await this.credentialService.getApiKey(providerId as ProviderId);
+    const apiKey = await this.credentialService.getApiKey(providerId);
     if (!apiKey) {
       throw new ProviderModelDiscoveryAuthError(
         `${providerId} credentials are not connected for model discovery.`,
