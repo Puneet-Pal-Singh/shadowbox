@@ -52,6 +52,7 @@ describe("ProviderApiClient", () => {
         {
           providerId: "openai",
           displayName: "OpenAI",
+          adapterFamily: "openai-compatible",
           authModes: ["api_key"],
           capabilities: {
             streaming: true,
