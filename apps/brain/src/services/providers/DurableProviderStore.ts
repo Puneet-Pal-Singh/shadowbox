@@ -12,6 +12,7 @@
  */
 
 import type { DurableObjectState } from "@cloudflare/workers-types";
+import { z } from "zod";
 import {
   decryptToken,
   encryptToken,
@@ -19,6 +20,8 @@ import {
 } from "@shadowbox/github-bridge";
 import {
   type BYOKDiscoveredProviderModel,
+  BYOKDiscoveredProviderModelSchema,
+  BYOKModelDiscoverySourceSchema,
   type BYOKModelDiscoverySource,
   ProviderIdSchema,
   type BYOKValidationMode,
@@ -72,14 +75,16 @@ const PROVIDER_MODEL_CACHE_PREFIX = "provider:model-cache:v1:";
 const PROVIDER_PREFERENCES_SUFFIX = "_preferences";
 const PROVIDER_AUDIT_PREFIX = "provider:audit:v1:";
 
-interface ProviderModelCacheRecordV1 {
-  version: "v1";
-  providerId: string;
-  models: BYOKDiscoveredProviderModel[];
-  fetchedAt: string;
-  expiresAt: string;
-  source: BYOKModelDiscoverySource;
-}
+const ProviderModelCacheRecordV1Schema = z.object({
+  version: z.literal("v1"),
+  providerId: z.string().min(1),
+  models: z.array(BYOKDiscoveredProviderModelSchema),
+  fetchedAt: z.string().datetime(),
+  expiresAt: z.string().datetime(),
+  source: BYOKModelDiscoverySourceSchema,
+});
+
+type ProviderModelCacheRecordV1 = z.infer<typeof ProviderModelCacheRecordV1Schema>;
 
 export interface ProviderModelCacheRecord {
   providerId: string;
@@ -261,19 +266,25 @@ export class DurableProviderStore {
       return null;
     }
     try {
-      const parsed = JSON.parse(raw) as ProviderModelCacheRecordV1;
+      const parsedPayload = JSON.parse(raw) as unknown;
+      const parsed = ProviderModelCacheRecordV1Schema.safeParse(parsedPayload);
+      if (!parsed.success || parsed.data.providerId !== providerId) {
+        await this.state.storage?.delete(this.getModelCacheKey(providerId));
+        return null;
+      }
       return {
-        providerId: parsed.providerId,
-        models: parsed.models,
-        fetchedAt: parsed.fetchedAt,
-        expiresAt: parsed.expiresAt,
-        source: parsed.source,
+        providerId: parsed.data.providerId,
+        models: parsed.data.models,
+        fetchedAt: parsed.data.fetchedAt,
+        expiresAt: parsed.data.expiresAt,
+        source: parsed.data.source,
       };
     } catch (error) {
       console.error(
         `[provider/durable] Failed to parse model cache for ${providerId}:`,
         error,
       );
+      await this.state.storage?.delete(this.getModelCacheKey(providerId));
       return null;
     }
   }
@@ -310,6 +321,7 @@ export class DurableProviderStore {
 
     await this.deleteEntriesByPrefix(this.getScopedPrefix());
     await this.deleteEntriesByPrefix(this.getAuditPrefix());
+    await this.deleteEntriesByPrefix(this.getModelCachePrefix());
 
     console.log("[provider/durable] Cleared all credentials (test only)");
   }
@@ -445,10 +457,13 @@ export class DurableProviderStore {
   }
 
   private getModelCacheKey(providerId: string): string {
+    return `${this.getModelCachePrefix()}${sanitizeScopeSegment(providerId)}`;
+  }
+
+  private getModelCachePrefix(): string {
     const user = sanitizeScopeSegment(this.scope.userId);
     const workspace = sanitizeScopeSegment(this.scope.workspaceId);
-    const provider = sanitizeScopeSegment(providerId);
-    return `${PROVIDER_MODEL_CACHE_PREFIX}${user}:${workspace}:${provider}`;
+    return `${PROVIDER_MODEL_CACHE_PREFIX}${user}:${workspace}:`;
   }
 
   private getAuditEventKey(): string {

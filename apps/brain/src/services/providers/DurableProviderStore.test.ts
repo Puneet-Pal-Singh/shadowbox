@@ -215,6 +215,53 @@ describe("DurableProviderStore", () => {
     expect(parsed.keyVersion).toBe("v2");
   });
 
+  it("clears provider cache records during clearAll()", async () => {
+    const { state, storage } = createMockDurableState();
+    const store = new DurableProviderStore(
+      state,
+      { runId: "run-clear", userId: "user-1", workspaceId: "workspace-1" },
+      "test-encryption-key",
+    );
+
+    await store.setModelCache({
+      providerId: "openai",
+      models: [{ id: "gpt-4o", name: "GPT-4o", providerId: "openai" }],
+      fetchedAt: "2026-03-05T00:00:00.000Z",
+      expiresAt: "2026-03-05T01:00:00.000Z",
+      source: "provider_api",
+    });
+
+    await store.clearAll();
+    expect(
+      storage.has("provider:model-cache:v1:user-1:workspace-1:openai"),
+    ).toBe(false);
+  });
+
+  it("drops malformed model cache payloads", async () => {
+    const { state, storage } = createMockDurableState();
+    const store = new DurableProviderStore(
+      state,
+      { runId: "run-cache", userId: "user-1", workspaceId: "workspace-1" },
+      "test-encryption-key",
+    );
+
+    const cacheKey = "provider:model-cache:v1:user-1:workspace-1:openai";
+    storage.set(
+      cacheKey,
+      JSON.stringify({
+        version: "v1",
+        providerId: "openai",
+        models: "not-an-array",
+        fetchedAt: "bad-date",
+        expiresAt: "bad-date",
+        source: "provider_api",
+      }),
+    );
+
+    await expect(store.getModelCache("openai")).resolves.toBeNull();
+    expect(storage.has(cacheKey)).toBe(false);
+  });
+
 });
 
 function createMockDurableState(): {
