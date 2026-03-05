@@ -21,6 +21,34 @@ describe("ProviderLiveValidationService", () => {
 
     await expect(service.validate("openai", "test-key-12345")).resolves.toBeUndefined();
     expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.openai.com/v1/models",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: "Bearer test-key-12345",
+        }),
+      }),
+    );
+  });
+
+  it("uses x-goog-api-key auth for google validation", async () => {
+    const fetchMock = createFetchMock(new Response("{}", { status: 200 }));
+    const service = ProviderLiveValidationService.fromEnv(
+      createEnv({ BYOK_VALIDATE_LIVE_ENABLED: "true" }),
+      fetchMock,
+    );
+
+    await expect(
+      service.validate("google", "google-key-12345"),
+    ).resolves.toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://generativelanguage.googleapis.com/v1beta/models",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          "x-goog-api-key": "google-key-12345",
+        }),
+      }),
+    );
   });
 
   it("maps 401 responses to AUTH_FAILED", async () => {

@@ -12,6 +12,7 @@ type ProviderFetch = typeof fetch;
 interface ProviderValidationEndpoint {
   url: string;
   headers?: Record<string, string>;
+  authMode?: "bearer" | "googleApiKey";
 }
 
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -65,7 +66,7 @@ export class ProviderLiveValidationService {
       return await this.providerFetch(endpoint.url, {
         method: "GET",
         headers: {
-          Authorization: `Bearer ${apiKey}`,
+          ...buildValidationAuthHeaders(endpoint.authMode, apiKey),
           ...endpoint.headers,
         },
         signal: controller.signal,
@@ -94,20 +95,34 @@ export class ProviderLiveValidationService {
 function resolveValidationEndpoint(providerId: ProviderId): ProviderValidationEndpoint {
   switch (providerId) {
     case "openai":
-      return { url: "https://api.openai.com/v1/models" };
+      return { url: "https://api.openai.com/v1/models", authMode: "bearer" };
     case "openrouter":
       return {
         url: "https://openrouter.ai/api/v1/key",
+        authMode: "bearer",
         headers: {
           "HTTP-Referer": "https://shadowbox.dev",
           "X-Title": "Shadowbox BYOK Live Validate",
         },
       };
     case "groq":
-      return { url: "https://api.groq.com/openai/v1/models" };
+      return { url: "https://api.groq.com/openai/v1/models", authMode: "bearer" };
     case "google":
-      return { url: "https://generativelanguage.googleapis.com/v1beta/models" };
+      return {
+        url: "https://generativelanguage.googleapis.com/v1beta/models",
+        authMode: "googleApiKey",
+      };
   }
+}
+
+function buildValidationAuthHeaders(
+  authMode: ProviderValidationEndpoint["authMode"] | undefined,
+  apiKey: string,
+): Record<string, string> {
+  if (authMode === "googleApiKey") {
+    return { "x-goog-api-key": apiKey };
+  }
+  return { Authorization: `Bearer ${apiKey}` };
 }
 
 function mapProviderErrorFromResponse(

@@ -119,7 +119,10 @@ export class ProviderModelDiscoveryObservability {
     const sortedLatency = [...this.metrics.model_discovery_fetch_latency_ms].sort(
       (first, second) => first - second,
     );
-    const p95Index = Math.max(0, Math.floor(sortedLatency.length * 0.95) - 1);
+    const p95Index = Math.max(
+      0,
+      Math.min(sortedLatency.length - 1, Math.ceil(sortedLatency.length * 0.95) - 1),
+    );
     const p95LatencyMs = sortedLatency[p95Index] ?? 0;
     const adapterFailureTotal = Object.values(
       this.metrics.model_discovery_adapter_failures_total,
@@ -128,6 +131,9 @@ export class ProviderModelDiscoveryObservability {
   }
 
   private pushLatencySample(latencyMs: number): void {
+    if (!Number.isFinite(latencyMs) || latencyMs < 0) {
+      return;
+    }
     this.metrics.model_discovery_fetch_latency_ms.push(latencyMs);
     if (
       this.metrics.model_discovery_fetch_latency_ms.length >
