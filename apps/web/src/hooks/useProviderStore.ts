@@ -19,13 +19,17 @@ import {
   ProviderStore,
   ProviderStoreState,
   ConnectCredentialRequest,
+  LoadProviderModelsOptions,
   SessionSelectionRequest,
 } from "../services/provider/ProviderStore.js";
 import {
   type BYOKPreferencesUpdateRequest,
   BYOKResolution as ProviderResolution,
 } from "@repo/shared-types";
-import type { ProviderModelOption } from "../services/api/providerClient.js";
+import type {
+  ProviderModelDiscoveryView,
+  ProviderModelOption,
+} from "../services/api/providerClient.js";
 import { useRunContext } from "./useRunContext";
 
 /**
@@ -42,7 +46,13 @@ type UseProviderStoreResult = ProviderStoreState & {
     credentialId: string,
     mode: "format" | "live"
   ) => Promise<void>;
-  loadProviderModels: (providerId: string) => Promise<ProviderModelOption[]>;
+  loadProviderModels: (
+    providerId: string,
+    options?: LoadProviderModelsOptions
+  ) => Promise<ProviderModelOption[]>;
+  loadMoreProviderModels: (providerId: string) => Promise<ProviderModelOption[]>;
+  refreshProviderModels: (providerId: string) => Promise<void>;
+  setModelView: (view: ProviderModelDiscoveryView) => Promise<void>;
   updatePreferences: (
     partial: BYOKPreferencesUpdateRequest
   ) => Promise<void>;
@@ -107,7 +117,20 @@ export function useProviderStore(
     [store]
   );
   const loadProviderModels = useCallback(
-    (providerId: string) => store.loadProviderModels(providerId),
+    (providerId: string, options?: LoadProviderModelsOptions) =>
+      store.loadProviderModels(providerId, options),
+    [store]
+  );
+  const loadMoreProviderModels = useCallback(
+    (providerId: string) => store.loadMoreProviderModels(providerId),
+    [store]
+  );
+  const refreshProviderModels = useCallback(
+    (providerId: string) => store.refreshProviderModels(providerId),
+    [store]
+  );
+  const setModelView = useCallback(
+    (view: ProviderModelDiscoveryView) => store.setModelView(view),
     [store]
   );
   const updatePreferences = useCallback(
@@ -147,6 +170,9 @@ export function useProviderStore(
     disconnectCredential,
     validateCredential,
     loadProviderModels,
+    loadMoreProviderModels,
+    refreshProviderModels,
+    setModelView,
     updatePreferences,
     setSelection,
     applySessionSelection,

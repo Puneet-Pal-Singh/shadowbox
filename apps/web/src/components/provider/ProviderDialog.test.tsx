@@ -60,6 +60,20 @@ describe("ProviderDialog", () => {
           },
         ],
       },
+      providerModelsMetadata: {
+        openai: {
+          fetchedAt: new Date().toISOString(),
+          stale: false,
+          source: "provider_api",
+        },
+      },
+      providerModelsPage: {
+        openai: {
+          view: "popular",
+          nextCursor: null,
+          hasMore: false,
+        },
+      },
       visibleModelIds: {},
       preferences: {
         userId: "user-1",
@@ -72,10 +86,12 @@ describe("ProviderDialog", () => {
       selectedProviderId: "openai",
       selectedCredentialId: credentialId,
       selectedModelId: "gpt-4",
+      selectedModelView: "popular",
       status: "ready",
       error: null,
       isValidating: false,
       loadingModelsForProviderId: null,
+      refreshingModelsForProviderId: null,
       lastResolvedConfig: {
         providerId: "openai",
         credentialId,
@@ -95,6 +111,9 @@ describe("ProviderDialog", () => {
           provider: "openai",
         },
       ]),
+      loadMoreProviderModels: vi.fn(async () => []),
+      refreshProviderModels: vi.fn(async () => undefined),
+      setModelView: vi.fn(async () => undefined),
       updatePreferences: vi.fn(async () => undefined),
       setSelection: vi.fn(),
       applySessionSelection: vi.fn(async () => ({
