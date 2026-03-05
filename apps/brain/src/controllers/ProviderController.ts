@@ -43,7 +43,6 @@ import {
   ProviderConnectionsResponseSchema,
   ProviderErrorEnvelopeSchema,
   type ProviderConnectionsResponse,
-  DEFAULT_PLATFORM_MODEL_ID,
   type BYOKDiscoveredProviderModelsQuery,
   BYOKProviderSlugSchema,
 } from "@repo/shared-types";
@@ -71,8 +70,6 @@ import {
 
 const WorkspaceByokMetadataSchema = z.object({
   credentialLabels: z.record(z.string(), z.string()).default({}),
-  fallbackMode: z.enum(["strict", "allow_fallback"]).default("strict"),
-  fallbackChain: z.array(z.string()).default([]),
 });
 const BYOK_WORKSPACE_METADATA_PREFIX = "byok:workspace-meta:";
 type WorkspaceByokMetadata = z.infer<typeof WorkspaceByokMetadataSchema>;
@@ -448,19 +445,6 @@ export class ProviderController {
       if (patch.defaultModelId) {
         runtimePatch.defaultModelId = patch.defaultModelId;
       }
-      const metadata = await loadWorkspaceByokMetadata(env, scope);
-      const fallbackMode = patch.fallbackMode ?? metadata.fallbackMode;
-      const fallbackChain = patch.fallbackChain ?? metadata.fallbackChain;
-      if (
-        patch.fallbackMode !== undefined ||
-        patch.fallbackChain !== undefined
-      ) {
-        await saveWorkspaceByokMetadata(env, scope, {
-          ...metadata,
-          fallbackMode,
-          fallbackChain,
-        });
-      }
 
       // Add visibleModelIds to patch if provided
       const runtimePatchWithVisibility: typeof runtimePatch & {
@@ -502,8 +486,6 @@ export class ProviderController {
           ? buildVirtualCredentialId(runtimePreference.defaultProviderId)
           : undefined,
         defaultModelId: runtimePreference.defaultModelId,
-        fallbackMode,
-        fallbackChain,
         visibleModelIds: runtimePreference.visibleModelIds ?? {},
         updatedAt: runtimePreference.updatedAt,
       };
@@ -543,7 +525,6 @@ export class ProviderController {
         credentials,
         preference,
         catalog,
-        env,
         correlationId,
       );
 
@@ -1243,7 +1224,6 @@ async function loadWorkspacePreference(
   correlationId: string,
 ): Promise<BYOKPreference> {
   const runtime = await fetchRuntimePreferences(req, env, scope, correlationId);
-  const metadata = await loadWorkspaceByokMetadata(env, scope);
   return {
     userId: scope.userId,
     workspaceId: scope.workspaceId,
@@ -1252,8 +1232,6 @@ async function loadWorkspacePreference(
       ? buildVirtualCredentialId(runtime.defaultProviderId)
       : undefined,
     defaultModelId: runtime.defaultModelId,
-    fallbackMode: metadata.fallbackMode,
-    fallbackChain: metadata.fallbackChain,
     visibleModelIds: runtime.visibleModelIds ?? {},
     updatedAt: runtime.updatedAt,
   };
@@ -1262,19 +1240,16 @@ async function loadWorkspacePreference(
 /**
  * Resolve provider/model for chat execution.
  *
- * Fallback chain:
+ * Resolution chain:
  * 1. Request override (providerId/credentialId/modelId)
  * 2. Workspace preference (defaultProviderId/defaultModelId)
- * 3. OpenRouter default fallback (DEFAULT_PLATFORM_MODEL_ID)
- *
- * When no BYOK credential is connected, falls back to OpenRouter default.
+ * 3. Connected provider selection (first connected provider)
  */
 function resolveSelection(
   request: BYOKResolveRequest,
   credentials: BYOKCredential[],
   preference: BYOKPreference,
   catalog: ProviderCatalogResponse,
-  env: Env,
   correlationId: string,
 ): BYOKResolution {
   const selection = resolveCredentialSelection(
@@ -1286,21 +1261,11 @@ function resolveSelection(
   const { selectedCredential } = selection;
   const resolvedAt = selection.resolvedAt;
 
-  // Fallback to OpenRouter default when no BYOK credential is connected
   if (!selectedCredential) {
-    console.log(
-      `[provider/resolve] No BYOK credential connected. Using OpenRouter defaults.`,
+    throw new ProviderNotConnectedError(
+      request.providerId ?? preference.defaultProviderId ?? "provider",
+      correlationId,
     );
-    const modelId = resolvePlatformFallbackModel(request, preference, env);
-
-    return {
-      providerId: "openrouter",
-      credentialId: "", // No credential for default OpenRouter
-      modelId,
-      resolvedAt: "platform_fallback",
-      resolvedAtTime: new Date().toISOString(),
-      fallbackUsed: true,
-    };
   }
 
   const modelId = resolveModelForSelectedProvider(
@@ -1308,7 +1273,7 @@ function resolveSelection(
     preference,
     selectedCredential.providerId,
     catalog,
-    env,
+    correlationId,
   );
 
   return {
@@ -1317,7 +1282,6 @@ function resolveSelection(
     modelId,
     resolvedAt,
     resolvedAtTime: new Date().toISOString(),
-    fallbackUsed: false,
   };
 }
 
@@ -1381,7 +1345,7 @@ function resolveCredentialSelection(
 
   return {
     selectedCredential: undefined,
-    resolvedAt: "platform_fallback",
+    resolvedAt: "workspace_preference",
   };
 }
 
@@ -1421,7 +1385,7 @@ function resolveModelForSelectedProvider(
   preference: BYOKPreference,
   selectedProviderId: string,
   catalog: ProviderCatalogResponse,
-  env: Env,
+  correlationId: string,
 ): string {
   if (request.modelId) {
     return request.modelId;
@@ -1432,33 +1396,24 @@ function resolveModelForSelectedProvider(
   ) {
     return preference.defaultModelId;
   }
-  return resolveDefaultModel(selectedProviderId, catalog, env);
-}
-
-function resolvePlatformFallbackModel(
-  request: BYOKResolveRequest,
-  preference: BYOKPreference,
-  env: Env,
-): string {
-  if (request.modelId) {
-    return request.modelId;
-  }
-  if (
-    preference.defaultProviderId === "openrouter" &&
-    preference.defaultModelId
-  ) {
-    return preference.defaultModelId;
-  }
-  return env.DEFAULT_MODEL ?? DEFAULT_PLATFORM_MODEL_ID;
+  return resolveDefaultModel(selectedProviderId, catalog, correlationId);
 }
 
 function resolveDefaultModel(
   providerId: string,
   catalog: ProviderCatalogResponse,
-  env: Env,
+  correlationId: string,
 ): string {
   const provider = catalog.providers.find((entry) => entry.providerId === providerId);
-  return provider?.models[0]?.id ?? env.DEFAULT_MODEL ?? "unknown-model";
+  const modelId = provider?.models[0]?.id;
+  if (modelId) {
+    return modelId;
+  }
+  throw new ValidationError(
+    `Provider "${providerId}" has no discoverable models available for selection.`,
+    "MODEL_NOT_ALLOWED",
+    correlationId,
+  );
 }
 
 function extractCredentialIdFromPath(
@@ -1558,8 +1513,6 @@ async function loadWorkspaceByokMetadata(
   if (!raw) {
     return {
       credentialLabels: {},
-      fallbackMode: "strict",
-      fallbackChain: [],
     };
   }
 
@@ -1569,16 +1522,12 @@ async function loadWorkspaceByokMetadata(
     if (!result.success) {
       return {
         credentialLabels: {},
-        fallbackMode: "strict",
-        fallbackChain: [],
       };
     }
     return result.data;
   } catch {
     return {
       credentialLabels: {},
-      fallbackMode: "strict",
-      fallbackChain: [],
     };
   }
 }

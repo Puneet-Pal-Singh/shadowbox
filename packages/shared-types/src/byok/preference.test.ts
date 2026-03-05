@@ -13,26 +13,23 @@ describe("BYOK Preference Entity", () => {
 
     const result = BYOKPreferenceSchema.safeParse(preference);
     expect(result.success).toBe(true);
-    if (result.success) {
-      expect(result.data.fallbackMode).toBe("strict");
-      expect(result.data.fallbackChain).toEqual([]);
-    }
   });
 
-  it("validates preference with fallback chain", () => {
+  it("validates preference with visible model overrides", () => {
     const preference = {
       userId: "user123",
       workspaceId: "workspace456",
       defaultProviderId: "openai",
-      fallbackMode: "allow_fallback" as const,
-      fallbackChain: ["groq", "openrouter"],
+      visibleModelIds: {
+        openai: ["gpt-4o"],
+      },
       updatedAt: "2025-02-23T10:00:00Z",
     };
 
     const result = BYOKPreferenceSchema.safeParse(preference);
     expect(result.success).toBe(true);
     if (result.success) {
-      expect(result.data.fallbackChain).toEqual(["groq", "openrouter"]);
+      expect(result.data.visibleModelIds.openai).toEqual(["gpt-4o"]);
     }
   });
 });

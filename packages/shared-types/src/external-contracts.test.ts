@@ -128,12 +128,7 @@ describe("external contract freeze", () => {
             "defaultProviderId",
             "defaultModelId",
           ],
-          "providerIdEnum": [
-            "openrouter",
-            "openai",
-            "groq",
-            "google",
-          ],
+          "providerIdPattern": "^[a-z0-9-]+$",
           "validateRequestFields": [
             "providerId",
             "mode",

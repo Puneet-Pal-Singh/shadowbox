@@ -57,7 +57,7 @@ export const EXTERNAL_CONTRACT_MANIFEST = {
     },
   },
   provider: {
-    providerIdEnum: ["openrouter", "openai", "groq", "google"],
+    providerIdPattern: "^[a-z0-9-]+$",
     connectRequestFields: ["providerId", "apiKey"],
     connectResponseFields: [
       "status",

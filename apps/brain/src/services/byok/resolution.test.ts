@@ -1,7 +1,7 @@
 /**
  * Provider Resolution Service Tests
  *
- * Tests for the resolution pipeline and fallback behavior.
+ * Tests for the strict resolution pipeline and explicit defaults behavior.
  */
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
@@ -47,7 +47,7 @@ describe("ProviderResolutionService", () => {
 
       const result = await service.resolve(request, context);
 
-      if ("error" in result) {
+      if ("code" in result) {
         throw new Error("Should not error");
       }
 
@@ -55,22 +55,20 @@ describe("ProviderResolutionService", () => {
       expect(result.credentialId).toBe("cred-123");
       expect(result.modelId).toBe("gpt-4-turbo");
       expect(result.resolvedAt).toBe("request_override");
-      expect(result.fallbackUsed).toBe(false);
     });
 
-    it("falls back to platform default when no override", async () => {
+    it("resolves platform defaults when no override", async () => {
       const request = {};
 
       const result = await service.resolve(request, context);
 
-      if ("error" in result) {
+      if ("code" in result) {
         throw new Error("Should not error");
       }
 
       expect(result.providerId).toBe("litellm");
       expect(result.modelId).toBe("gpt-4-turbo");
-      expect(result.resolvedAt).toBe("platform_fallback");
-      expect(result.fallbackUsed).toBe(true);
+      expect(result.resolvedAt).toBe("platform_defaults");
     });
 
     it("includes sessionId in error correlation", async () => {
@@ -90,8 +88,8 @@ describe("ProviderResolutionService", () => {
       const result = await service.resolve(request, context);
 
       // Should either error or fall back
-      if ("error" in result) {
-        expect(result.error).toBeDefined();
+      if ("code" in result) {
+        expect(result.message.length).toBeGreaterThan(0);
         expect(result.correlationId).toBe(context.sessionId);
       }
     });
@@ -112,14 +110,14 @@ describe("ProviderResolutionService", () => {
 
       const result = await service.resolve(requestOverride, context);
 
-      if ("error" in result) {
+      if ("code" in result) {
         throw new Error("Should not error");
       }
 
       expect(result.resolvedAt).toBe("request_override");
     });
 
-    it("handles partial request overrides by falling back", async () => {
+    it("rejects partial request overrides in strict mode", async () => {
       const partialOverride = {
         providerId: "openai",
         // Missing credentialId and modelId
@@ -127,12 +125,10 @@ describe("ProviderResolutionService", () => {
 
       const result = await service.resolve(partialOverride, context);
 
-      if ("error" in result) {
-        throw new Error("Should not error");
+      expect("code" in result).toBe(true);
+      if ("code" in result) {
+        expect(result.code).toBe("VALIDATION_ERROR");
       }
-
-      // Should fall through to platform default
-      expect(result.resolvedAt).toBe("platform_fallback");
     });
   });
 
@@ -158,8 +154,8 @@ describe("ProviderResolutionService", () => {
       const result = await service.resolve(request, context);
 
       // The request override validation should trigger the error
-      if ("error" in result) {
-        expect(result.error).toContain("Database connection failed");
+      if ("code" in result) {
+        expect(result.message).toContain("Database connection failed");
         expect(result.correlationId).toBe(context.sessionId);
       }
     });

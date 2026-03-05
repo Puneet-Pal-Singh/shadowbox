@@ -1,8 +1,18 @@
 import { z } from "zod";
 
+const PROVIDER_ID_REGEX = /^[a-z0-9-]+$/;
+
+/**
+ * Seed providers for bootstrap/fixtures.
+ * These are not contract authority; runtime accepts any slug-matching provider id.
+ */
 export const PROVIDER_IDS = ["openrouter", "openai", "groq", "google"] as const;
 
-export const ProviderIdSchema = z.enum(PROVIDER_IDS);
+export const ProviderIdSchema = z
+  .string()
+  .min(1)
+  .max(64)
+  .regex(PROVIDER_ID_REGEX);
 export type ProviderId = z.infer<typeof ProviderIdSchema>;
 
 export const ProviderCapabilityFlagsSchema = z.object({

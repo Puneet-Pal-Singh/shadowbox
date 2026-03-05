@@ -149,7 +149,6 @@ export class ProviderResolutionService {
       modelId: request.modelId ?? "",
       resolvedAt: "request_override",
       resolvedAtTime: new Date().toISOString(),
-      fallbackUsed: false,
     };
   }
 
@@ -191,7 +190,6 @@ export class ProviderResolutionService {
       modelId: preferences.defaultModelId,
       resolvedAt: "workspace_preference",
       resolvedAtTime: new Date().toISOString(),
-      fallbackUsed: false,
     };
   }
 
@@ -210,7 +208,6 @@ export class ProviderResolutionService {
       modelId: this.platformDefaults.modelId,
       resolvedAt: "platform_defaults",
       resolvedAtTime: new Date().toISOString(),
-      fallbackUsed: false, // Explicit defaults, not fallback
     };
   }
 

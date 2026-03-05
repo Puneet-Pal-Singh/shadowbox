@@ -134,16 +134,12 @@ export const BYOKPreferencesUpdateRequestSchema = z
   .object({
     defaultProviderId: z.string().min(1).max(64).optional(),
     defaultModelId: z.string().min(1).optional(),
-    fallbackMode: z.enum(["strict", "allow_fallback"]).optional(),
-    fallbackChain: z.array(z.string()).optional(),
     visibleModelIds: z.record(z.string(), z.array(z.string())).optional(),
   })
   .refine(
     (value) =>
       value.defaultProviderId !== undefined ||
       value.defaultModelId !== undefined ||
-      value.fallbackMode !== undefined ||
-      value.fallbackChain !== undefined ||
       value.visibleModelIds !== undefined,
     { message: "At least one preference field is required" },
   );
