@@ -19,6 +19,8 @@ export {
   ProviderModelDiscoveryApiError,
   ProviderModelNormalizationError,
   ProviderModelCacheError,
+  ProviderModelDiscoveryService,
+  OpenRouterModelCatalogAdapter,
   type ProviderModelCatalogPort,
   type ProviderModelCachePort,
   type ProviderModelRankingPort,

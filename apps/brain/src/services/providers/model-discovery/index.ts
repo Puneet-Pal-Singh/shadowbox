@@ -18,3 +18,5 @@ export {
   ProviderModelNormalizationError,
   ProviderModelCacheError,
 } from "./errors";
+export { ProviderModelDiscoveryService } from "./ProviderModelDiscoveryService";
+export { OpenRouterModelCatalogAdapter } from "./adapters/OpenRouterModelCatalogAdapter";
