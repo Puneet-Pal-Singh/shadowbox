@@ -19,6 +19,7 @@ import { OpenRouterModelCatalogAdapter } from "./adapters/OpenRouterModelCatalog
 import { GoogleModelCatalogAdapter } from "./adapters/GoogleModelCatalogAdapter";
 import { OpenAICompatibleModelCatalogAdapter } from "./adapters/OpenAICompatibleModelCatalogAdapter";
 import { ProviderModelRankingService } from "./ProviderModelRankingService";
+import { ProviderModelDiscoveryObservability } from "./ProviderModelDiscoveryObservability";
 
 const MODEL_CACHE_TTL_MS = 5 * 60 * 1000;
 
@@ -27,12 +28,14 @@ type SupportedDiscoveryProvider = ProviderId;
 export class ProviderModelDiscoveryService {
   private readonly adapters: Record<SupportedDiscoveryProvider, ProviderModelCatalogPort>;
   private readonly rankingService: ProviderModelRankingService;
+  private readonly observability: ProviderModelDiscoveryObservability;
 
   constructor(
     private readonly store: DurableProviderStore,
     private readonly credentialService: ProviderCredentialService,
     adapters?: Partial<Record<SupportedDiscoveryProvider, ProviderModelCatalogPort>>,
     rankingService?: ProviderModelRankingService,
+    observability?: ProviderModelDiscoveryObservability,
   ) {
     this.adapters = {
       openrouter: adapters?.openrouter ?? new OpenRouterModelCatalogAdapter(),
@@ -45,6 +48,7 @@ export class ProviderModelDiscoveryService {
       google: adapters?.google ?? new GoogleModelCatalogAdapter(),
     };
     this.rankingService = rankingService ?? new ProviderModelRankingService();
+    this.observability = observability ?? new ProviderModelDiscoveryObservability();
   }
 
   async getOpenRouterModels(
@@ -61,27 +65,47 @@ export class ProviderModelDiscoveryService {
     providerId: SupportedDiscoveryProvider,
     query: BYOKDiscoveredProviderModelsQuery,
   ): Promise<BYOKDiscoveredProviderModelsResponse> {
-    const fullList = await this.getCatalogWithCache(providerId);
-    const ranked = await this.rankModels(providerId, query.view, fullList.models);
-    const page = toPage(ranked, query.cursor, query.limit);
-
-    return {
-      providerId,
-      view: query.view,
-      models: page.models,
-      page: {
-        limit: query.limit,
-        cursor: query.cursor,
-        nextCursor: page.nextCursor,
-        hasMore: page.nextCursor !== undefined,
-      },
-      metadata: {
-        fetchedAt: fullList.fetchedAt,
-        stale: fullList.source === "cache" && isExpired(fullList.expiresAt),
-        source: fullList.source,
-        staleReason: fullList.staleReason,
-      },
-    };
+    const startedAt = Date.now();
+    try {
+      const fullList = await this.getCatalogWithCache(providerId);
+      const ranked = await this.rankModels(providerId, query.view, fullList.models);
+      const page = toPage(ranked, query.cursor, query.limit);
+      const stale = fullList.source === "cache" && isExpired(fullList.expiresAt);
+      const response: BYOKDiscoveredProviderModelsResponse = {
+        providerId,
+        view: query.view,
+        models: page.models,
+        page: {
+          limit: query.limit,
+          cursor: query.cursor,
+          nextCursor: page.nextCursor,
+          hasMore: page.nextCursor !== undefined,
+        },
+        metadata: {
+          fetchedAt: fullList.fetchedAt,
+          stale,
+          source: fullList.source,
+          staleReason: fullList.staleReason,
+        },
+      };
+      this.observability.recordRequest({
+        providerId,
+        source: response.metadata.source,
+        stale: response.metadata.stale,
+        success: true,
+        latencyMs: Date.now() - startedAt,
+      });
+      return response;
+    } catch (error) {
+      this.observability.recordRequest({
+        providerId,
+        source: "provider_api",
+        stale: false,
+        success: false,
+        latencyMs: Date.now() - startedAt,
+      });
+      throw error;
+    }
   }
 
   async refreshDiscoveredModels(
@@ -96,6 +120,14 @@ export class ProviderModelDiscoveryService {
       cacheInvalidated: true,
       modelsCount: fresh.models.length,
     };
+  }
+
+  getObservabilityMetrics() {
+    return this.observability.getMetrics();
+  }
+
+  getObservabilityAlerts() {
+    return this.observability.getAlerts();
   }
 
   private async rankModels(
@@ -121,12 +153,14 @@ export class ProviderModelDiscoveryService {
   ): Promise<ProviderModelCacheRecord & { staleReason?: string }> {
     const cached = await this.readCache(providerId);
     if (cached && !isExpired(cached.expiresAt)) {
+      this.observability.recordCacheHit(providerId);
       return cached;
     }
 
     try {
       return await this.fetchAndCacheModels(providerId);
     } catch (error) {
+      this.observability.recordAdapterFailure(providerId, toDiscoveryErrorCode(error));
       if (cached) {
         return {
           ...cached,
@@ -228,4 +262,16 @@ function toErrorMessage(error: unknown, fallback: string): string {
     return error.message;
   }
   return fallback;
+}
+
+function toDiscoveryErrorCode(error: unknown): string {
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    typeof (error as { code: unknown }).code === "string"
+  ) {
+    return (error as { code: string }).code;
+  }
+  return "UNKNOWN";
 }

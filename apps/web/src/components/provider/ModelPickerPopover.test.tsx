@@ -51,6 +51,9 @@ describe("ModelPickerPopover", () => {
 
   const mockHandlers = {
     onSelectModel: vi.fn(async () => {}),
+    onSelectModelView: vi.fn(async () => {}),
+    onLoadMoreSelectedProviderModels: vi.fn(async () => []),
+    onRefreshSelectedProviderModels: vi.fn(async () => {}),
     onConnectProvider: vi.fn(),
     onManageModels: vi.fn(),
   };
@@ -66,6 +69,7 @@ describe("ModelPickerPopover", () => {
     visibleModelIds: mockVisibleModelIds,
     selectedProviderId: null as string | null,
     selectedModelId: null as string | null,
+    selectedModelView: "popular" as const,
     ...mockHandlers,
   };
 
@@ -449,6 +453,73 @@ describe("ModelPickerPopover", () => {
 
       fireEvent.click(manageButton);
       expect(handleManageModels).toHaveBeenCalled();
+    });
+
+    it("switches model view to all and calls callback", async () => {
+      render(
+        <ModelPickerPopover
+          {...defaultProps}
+          selectedProviderId="openai"
+          selectedModelId="gpt-4"
+        />
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: /open model picker/i }));
+      const allButton = await screen.findByRole("button", { name: "All" });
+      fireEvent.click(allButton);
+
+      await waitFor(() => {
+        expect(mockHandlers.onSelectModelView).toHaveBeenCalledWith("all");
+      });
+    });
+
+    it("shows stale badge and refreshes selected provider models", async () => {
+      render(
+        <ModelPickerPopover
+          {...defaultProps}
+          selectedProviderId="openai"
+          selectedModelId="gpt-4"
+          selectedProviderMetadata={{
+            fetchedAt: new Date().toISOString(),
+            stale: true,
+            source: "cache",
+            staleReason: "provider_api_unavailable",
+          }}
+        />
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: /open model picker/i }));
+      expect(await screen.findByText("Stale")).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole("button", { name: /refresh/i }));
+      await waitFor(() => {
+        expect(mockHandlers.onRefreshSelectedProviderModels).toHaveBeenCalledWith(
+          "openai"
+        );
+      });
+    });
+
+    it("loads more models when pagination is available", async () => {
+      render(
+        <ModelPickerPopover
+          {...defaultProps}
+          selectedProviderId="openai"
+          selectedModelId="gpt-4"
+          hasMoreSelectedProviderModels={true}
+        />
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: /open model picker/i }));
+      const loadMoreButton = await screen.findByRole("button", {
+        name: /load more/i,
+      });
+      fireEvent.click(loadMoreButton);
+
+      await waitFor(() => {
+        expect(
+          mockHandlers.onLoadMoreSelectedProviderModels
+        ).toHaveBeenCalledWith("openai");
+      });
     });
   });
 

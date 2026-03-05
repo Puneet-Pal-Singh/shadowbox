@@ -102,16 +102,36 @@ describe("ProviderStore", () => {
 
     mockApiClient = {
       getCatalog: vi.fn(async () => catalog),
-      getProviderModels: vi.fn(async (providerId: string) => {
-        void providerId;
-        return [
-          {
-            id: "openrouter/auto",
-            name: "Auto",
-            provider: "openrouter",
+      getProviderModels: vi.fn(async (providerId: string, query?: unknown) => {
+        void query;
+        return {
+          providerId,
+          view: "popular" as const,
+          models: [
+            {
+              id: "openrouter/auto",
+              name: "Auto",
+              provider: "openrouter",
+            },
+          ],
+          page: {
+            limit: 50,
+            hasMore: false,
           },
-        ];
+          metadata: {
+            fetchedAt: new Date().toISOString(),
+            stale: false,
+            source: "provider_api" as const,
+          },
+        };
       }),
+      refreshProviderModels: vi.fn(async (providerId: string) => ({
+        providerId,
+        refreshedAt: new Date().toISOString(),
+        source: "provider_api" as const,
+        cacheInvalidated: true,
+        modelsCount: 1,
+      })),
       getCredentials: vi.fn(async () => credentials),
       getPreferences: vi.fn(async () => preferences),
       connectCredential: vi.fn(async (req: ConnectCredentialRequest) => {
@@ -166,6 +186,8 @@ describe("ProviderStore", () => {
       expect(state.catalog).toEqual([]);
       expect(state.credentials).toEqual([]);
       expect(state.providerModels).toEqual({});
+      expect(state.providerModelsMetadata).toEqual({});
+      expect(state.providerModelsPage).toEqual({});
     });
 
     it("uses singleton pattern", () => {
@@ -187,8 +209,98 @@ describe("ProviderStore", () => {
     it("loads provider models on demand", async () => {
       const models = await store.loadProviderModels("openrouter");
       expect(models).toHaveLength(1);
-      expect(mockApiClient.getProviderModels).toHaveBeenCalledWith("openrouter");
+      expect(mockApiClient.getProviderModels).toHaveBeenCalledWith(
+        "openrouter",
+        expect.objectContaining({
+          view: "popular",
+          limit: 50,
+        })
+      );
       expect(store.getState().providerModels.openrouter).toHaveLength(1);
+      expect(store.getState().providerModelsPage.openrouter?.view).toBe("popular");
+    });
+
+    it("switches model view and reloads selected provider models", async () => {
+      await store.bootstrap();
+      await store.loadProviderModels("openai");
+
+      vi.mocked(mockApiClient.getProviderModels).mockResolvedValueOnce({
+        providerId: "openai",
+        view: "all" as const,
+        models: [
+          { id: "openai/gpt-4.1", name: "GPT-4.1", provider: "openai" },
+          { id: "openai/gpt-4.1-mini", name: "GPT-4.1 Mini", provider: "openai" },
+        ],
+        page: {
+          limit: 50,
+          hasMore: false,
+        },
+        metadata: {
+          fetchedAt: new Date().toISOString(),
+          stale: false,
+          source: "provider_api" as const,
+        },
+      });
+
+      await store.setModelView("all");
+
+      expect(mockApiClient.getProviderModels).toHaveBeenLastCalledWith(
+        "openai",
+        expect.objectContaining({ view: "all" })
+      );
+      expect(store.getState().selectedModelView).toBe("all");
+    });
+
+    it("loads additional pages and merges unique models", async () => {
+      await store.loadProviderModels("openai", { view: "all" });
+
+      vi.mocked(mockApiClient.getProviderModels).mockResolvedValueOnce({
+        providerId: "openai",
+        view: "all" as const,
+        models: [
+          { id: "openai/gpt-4.1", name: "GPT-4.1", provider: "openai" },
+          { id: "openrouter/auto", name: "Auto", provider: "openrouter" },
+        ],
+        page: {
+          limit: 50,
+          cursor: "1",
+          hasMore: false,
+        },
+        metadata: {
+          fetchedAt: new Date().toISOString(),
+          stale: true,
+          source: "cache" as const,
+          staleReason: "provider_api_unavailable",
+        },
+      });
+
+      // Simulate existing pagination metadata before loading more.
+      await store.loadProviderModels("openai", {
+        view: "all",
+        cursor: "1",
+        append: true,
+      });
+
+      const state = store.getState();
+      expect(state.providerModels.openai?.map((model) => model.id)).toEqual([
+        "openrouter/auto",
+        "openai/gpt-4.1",
+      ]);
+      expect(state.providerModelsMetadata.openai?.stale).toBe(true);
+    });
+
+    it("refreshes models and reloads active view", async () => {
+      await store.loadProviderModels("openai", { view: "popular" });
+      await store.refreshProviderModels("openai");
+
+      expect(mockApiClient.refreshProviderModels).toHaveBeenCalledWith("openai");
+      expect(mockApiClient.getProviderModels).toHaveBeenLastCalledWith(
+        "openai",
+        expect.objectContaining({
+          view: "popular",
+          limit: 50,
+        }),
+      );
     });
 
     it("sets status to ready on success", async () => {
