@@ -117,7 +117,7 @@ function createMockEnv(): Env {
               models,
               page: {
                 limit: Number(url.searchParams.get("limit") ?? "50"),
-                cursor: url.searchParams.get("cursor") ?? undefined,
+                nextCursor: url.searchParams.get("cursor") ?? undefined,
                 hasMore: false,
               },
               metadata: {
@@ -558,6 +558,39 @@ describe("ProviderController", () => {
       expect(data.view).toBe("popular");
       expect(Array.isArray(data.models)).toBe(true);
       expect(data.metadata.source).toBe("provider_api");
+    });
+
+    it("rejects invalid discovery query params before proxying", async () => {
+      const env = createMockEnv();
+      const response = await ProviderController.byokProviderModels(
+        new Request(
+          "http://localhost/api/byok/providers/openrouter/models?view=invalid&limit=-1",
+          {
+            method: "GET",
+            headers: await withByokHeaders(env),
+          },
+        ),
+        env,
+      );
+      const data = await response.json();
+
+      expect(response.status).toBe(400);
+      expect(data.error.code).toBe("VALIDATION_ERROR");
+    });
+
+    it("rejects invalid provider slug in path before proxying", async () => {
+      const env = createMockEnv();
+      const response = await ProviderController.byokProviderModels(
+        new Request("http://localhost/api/byok/providers/OpenAI/models", {
+          method: "GET",
+          headers: await withByokHeaders(env),
+        }),
+        env,
+      );
+      const data = await response.json();
+
+      expect(response.status).toBe(400);
+      expect(data.error.code).toBe("VALIDATION_ERROR");
     });
 
     it("returns provider registry entries", async () => {

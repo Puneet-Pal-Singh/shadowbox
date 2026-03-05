@@ -16,6 +16,7 @@ import {
   BYOKCredentialUpdateRequestSchema,
   BYOKCredentialValidateRequestSchema,
   BYOKDiscoveredProviderModelsResponseSchema,
+  BYOKDiscoveredProviderModelsQuerySchema,
   BYOKDiscoveredProviderModelsRefreshResponseSchema,
   BYOKProviderModelsResponseSchema,
   BYOKPreferencesUpdateRequestSchema,
@@ -43,6 +44,8 @@ import {
   ProviderErrorEnvelopeSchema,
   type ProviderConnectionsResponse,
   DEFAULT_PLATFORM_MODEL_ID,
+  type BYOKDiscoveredProviderModelsQuery,
+  BYOKProviderSlugSchema,
 } from "@repo/shared-types";
 import type { Env } from "../types/ai";
 import {
@@ -85,10 +88,16 @@ export class ProviderController {
     try {
       const scope = await resolveAuthorizedProviderScope(req, env, correlationId);
       const providerId = extractProviderIdFromModelsPath(req.url, correlationId);
-      const queryParams = buildDiscoveryQueryParams(req.url);
-      const runtimePath = buildRuntimeModelsPath(providerId, queryParams);
+      const discoveryQuery = buildDiscoveryQueryParams(req.url);
+      const hasDiscoveryParams = hasDiscoveryQuery(discoveryQuery);
+      const runtimePath = buildRuntimeModelsPath(
+        providerId,
+        hasDiscoveryParams
+          ? validateDiscoveryQuery(discoveryQuery, correlationId)
+          : discoveryQuery,
+      );
 
-      if (hasDiscoveryQuery(queryParams)) {
+      if (hasDiscoveryParams) {
         const response = await proxyByokOperation(
           req,
           env,
@@ -735,7 +744,7 @@ function extractProviderIdFromModelsPath(
       correlationId,
     );
   }
-  return decodeURIComponent(providerId);
+  return parseProviderSlug(decodeURIComponent(providerId), correlationId);
 }
 
 function buildDiscoveryQueryParams(urlValue: string): {
@@ -759,11 +768,30 @@ function hasDiscoveryQuery(query: {
   return Boolean(query.view || query.limit || query.cursor);
 }
 
+function validateDiscoveryQuery(
+  query: {
+    view?: string;
+    limit?: string;
+    cursor?: string;
+  },
+  correlationId: string,
+): BYOKDiscoveredProviderModelsQuery {
+  const parsed = BYOKDiscoveredProviderModelsQuerySchema.safeParse(query);
+  if (parsed.success) {
+    return parsed.data;
+  }
+  throw new ValidationError(
+    "Invalid provider model discovery query.",
+    "VALIDATION_ERROR",
+    correlationId,
+  );
+}
+
 function buildRuntimeModelsPath(
   providerId: string,
   query: {
     view?: string;
-    limit?: string;
+    limit?: string | number;
     cursor?: string;
   },
 ): string {
@@ -774,7 +802,7 @@ function buildRuntimeModelsPath(
     params.set("view", query.view);
   }
   if (query.limit) {
-    params.set("limit", query.limit);
+    params.set("limit", String(query.limit));
   }
   if (query.cursor) {
     params.set("cursor", query.cursor);
@@ -798,7 +826,19 @@ function extractProviderIdFromModelsRefreshPath(
       correlationId,
     );
   }
-  return decodeURIComponent(providerId);
+  return parseProviderSlug(decodeURIComponent(providerId), correlationId);
+}
+
+function parseProviderSlug(providerId: string, correlationId: string): string {
+  const parsed = BYOKProviderSlugSchema.safeParse(providerId);
+  if (parsed.success) {
+    return parsed.data;
+  }
+  throw new ValidationError(
+    "Invalid providerId in request path.",
+    "VALIDATION_ERROR",
+    correlationId,
+  );
 }
 
 async function proxyProviderOperation(
