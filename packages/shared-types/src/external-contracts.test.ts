@@ -132,6 +132,7 @@ describe("external contract freeze", () => {
             "openrouter",
             "openai",
             "groq",
+            "google",
           ],
           "validateRequestFields": [
             "providerId",

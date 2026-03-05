@@ -44,9 +44,18 @@ export function ChatInputBar({
     status,
     selectedProviderId,
     selectedModelId,
+    selectedModelView,
     lastResolvedConfig,
     providerModels,
+    providerModelsMetadata,
+    providerModelsPage,
     visibleModelIds,
+    loadingModelsForProviderId,
+    refreshingModelsForProviderId,
+    loadProviderModels,
+    loadMoreProviderModels,
+    refreshProviderModels,
+    setModelView,
     applySessionSelection,
   } = useProviderStore();
 
@@ -80,6 +89,21 @@ export function ChatInputBar({
       onModelSelect(lastResolvedConfig.providerId, lastResolvedConfig.modelId);
     }
   }, [lastResolvedConfig, onModelSelect]);
+
+  useEffect(() => {
+    if (!selectedProviderId || providerModels[selectedProviderId]) {
+      return;
+    }
+    void loadProviderModels(selectedProviderId, {
+      view: selectedModelView,
+      append: false,
+    });
+  }, [
+    loadProviderModels,
+    providerModels,
+    selectedModelView,
+    selectedProviderId,
+  ]);
 
 
 
@@ -134,6 +158,25 @@ export function ChatInputBar({
                 visibleModelIds={visibleModelIds}
                 selectedProviderId={selectedProviderId}
                 selectedModelId={selectedModelId}
+                selectedModelView={selectedModelView}
+                selectedProviderMetadata={
+                  selectedProviderId
+                    ? providerModelsMetadata[selectedProviderId] ?? null
+                    : null
+                }
+                hasMoreSelectedProviderModels={
+                  selectedProviderId
+                    ? providerModelsPage[selectedProviderId]?.hasMore ?? false
+                    : false
+                }
+                isLoadingMoreSelectedProviderModels={
+                  selectedProviderId !== null &&
+                  loadingModelsForProviderId === selectedProviderId
+                }
+                isRefreshingSelectedProviderModels={
+                  selectedProviderId !== null &&
+                  refreshingModelsForProviderId === selectedProviderId
+                }
                 onSelectModel={async (providerId, modelId) => {
                   const credential = findCredentialByProviderId(
                     credentials,
@@ -152,6 +195,9 @@ export function ChatInputBar({
                     modelId,
                   });
                 }}
+                onSelectModelView={setModelView}
+                onLoadMoreSelectedProviderModels={loadMoreProviderModels}
+                onRefreshSelectedProviderModels={refreshProviderModels}
                 onConnectProvider={() => {
                   setProviderDialogInitialTab("available");
                   setProviderDialogInitialView("default");

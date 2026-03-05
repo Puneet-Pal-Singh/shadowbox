@@ -34,6 +34,12 @@ const PROVIDER_CAPABILITY_FLAGS: Record<ProviderId, ProviderCapabilityFlags> = {
     structuredOutputs: true,
     jsonMode: true,
   },
+  google: {
+    streaming: true,
+    tools: true,
+    structuredOutputs: true,
+    jsonMode: false,
+  },
 };
 
 function buildCapabilityMatrix(): Record<ProviderId, ProviderCapabilities> {

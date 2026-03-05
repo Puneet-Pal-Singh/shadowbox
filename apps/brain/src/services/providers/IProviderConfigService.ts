@@ -40,6 +40,13 @@ export interface IProviderConfigService {
   updatePreferences(patch: BYOKPreferencesPatch): Promise<BYOKPreferences>;
   getStatus(): Promise<ProviderConnection[]>;
   getModels(providerId: ProviderId): Promise<ModelsListResponse>;
+  getDiscoveredModels(
+    providerId: ProviderId,
+    query: BYOKDiscoveredProviderModelsQuery,
+  ): Promise<BYOKDiscoveredProviderModelsResponse>;
+  refreshDiscoveredModels(
+    providerId: ProviderId,
+  ): Promise<BYOKDiscoveredProviderModelsRefreshResponse>;
   getOpenRouterDiscoveredModels(
     query: BYOKDiscoveredProviderModelsQuery,
   ): Promise<BYOKDiscoveredProviderModelsResponse>;
