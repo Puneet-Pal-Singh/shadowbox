@@ -85,24 +85,36 @@ describe("ProviderApiClient", () => {
   });
 
   describe("getProviderModels", () => {
-    it("fetches model options for provider", async () => {
+    it("fetches paginated model discovery response for provider", async () => {
       const mockModels = [
-        { id: "openai/gpt-4o-mini", name: "GPT-4o Mini", provider: "openai" },
+        { id: "openai/gpt-4o-mini", name: "GPT-4o Mini", providerId: "openrouter" },
       ];
       fetchSpy.mockResolvedValueOnce({
         ok: true,
         headers: new Headers({ "content-type": "application/json" }),
         json: vi.fn().mockResolvedValueOnce({
           providerId: "openrouter",
+          view: "popular",
           models: mockModels,
-          lastFetchedAt: "2026-03-04T00:00:00.000Z",
+          page: {
+            limit: 20,
+            hasMore: false,
+          },
+          metadata: {
+            fetchedAt: "2026-03-04T00:00:00.000Z",
+            stale: false,
+            source: "provider_api",
+          },
         }),
       });
 
-      const models = await client.getProviderModels("openrouter");
+      const models = await client.getProviderModels("openrouter", {
+        view: "popular",
+        limit: 20,
+      });
 
       expect(fetchSpy).toHaveBeenCalledWith(
-        `${providerApiBaseUrl}/providers/openrouter/models`,
+        `${providerApiBaseUrl}/providers/openrouter/models?view=popular&limit=20`,
         {
           method: "GET",
           credentials: "include",
@@ -113,7 +125,41 @@ describe("ProviderApiClient", () => {
           signal: undefined,
         }
       );
-      expect(models).toEqual(mockModels);
+      expect(models.providerId).toBe("openrouter");
+      expect(models.view).toBe("popular");
+      expect(models.models).toEqual([
+        { id: "openai/gpt-4o-mini", name: "GPT-4o Mini", provider: "openrouter" },
+      ]);
+      expect(models.page.hasMore).toBe(false);
+      expect(models.metadata.stale).toBe(false);
+    });
+
+    it("uses shared query defaults when options are omitted", async () => {
+      fetchSpy.mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ "content-type": "application/json" }),
+        json: vi.fn().mockResolvedValueOnce({
+          providerId: "openrouter",
+          view: "popular",
+          models: [],
+          page: {
+            limit: 50,
+            hasMore: false,
+          },
+          metadata: {
+            fetchedAt: "2026-03-04T00:00:00.000Z",
+            stale: false,
+            source: "provider_api",
+          },
+        }),
+      });
+
+      await client.getProviderModels("openrouter");
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        `${providerApiBaseUrl}/providers/openrouter/models?view=popular&limit=50`,
+        expect.objectContaining({ method: "GET" }),
+      );
     });
   });
 

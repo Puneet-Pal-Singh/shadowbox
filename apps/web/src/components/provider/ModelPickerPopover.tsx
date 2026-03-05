@@ -12,9 +12,13 @@
  */
 
 import React, { useMemo, useState, useRef, useEffect } from "react";
-import { ChevronDown, Search, Plus, Settings } from "lucide-react";
+import { ChevronDown, Search, Plus, Settings, RefreshCw } from "lucide-react";
 import { type ProviderRegistryEntry } from "@repo/shared-types";
-import { type ProviderModelOption } from "../../services/api/providerClient.js";
+import {
+  type ProviderModelDiscoveryView,
+  type ProviderModelOption,
+  type ProviderModelsMetadata,
+} from "../../services/api/providerClient.js";
 
 const VIEWPORT_PADDING_PX = 12;
 const POPOVER_GAP_PX = 8;
@@ -48,7 +52,17 @@ export interface ModelPickerPopoverProps {
   visibleModelIds: Record<string, Set<string>>;
   selectedProviderId: string | null;
   selectedModelId: string | null;
+  selectedModelView?: ProviderModelDiscoveryView;
+  selectedProviderMetadata?: ProviderModelsMetadata | null;
+  hasMoreSelectedProviderModels?: boolean;
+  isLoadingMoreSelectedProviderModels?: boolean;
+  isRefreshingSelectedProviderModels?: boolean;
   onSelectModel: (providerId: string, modelId: string) => Promise<void>;
+  onSelectModelView?: (view: ProviderModelDiscoveryView) => Promise<void>;
+  onLoadMoreSelectedProviderModels?: (
+    providerId: string
+  ) => Promise<ProviderModelOption[]>;
+  onRefreshSelectedProviderModels?: (providerId: string) => Promise<void>;
   onConnectProvider: () => void;
   onManageModels: () => void;
   isLoading?: boolean;
@@ -72,7 +86,15 @@ export function ModelPickerPopover({
   visibleModelIds,
   selectedProviderId,
   selectedModelId,
+  selectedModelView = "popular",
+  selectedProviderMetadata = null,
+  hasMoreSelectedProviderModels = false,
+  isLoadingMoreSelectedProviderModels = false,
+  isRefreshingSelectedProviderModels = false,
   onSelectModel,
+  onSelectModelView,
+  onLoadMoreSelectedProviderModels,
+  onRefreshSelectedProviderModels,
   onConnectProvider,
   onManageModels,
   isLoading = false,
@@ -85,6 +107,7 @@ export function ModelPickerPopover({
   });
   const [searchQuery, setSearchQuery] = useState("");
   const [selectingModelId, setSelectingModelId] = useState<string | null>(null);
+  const [isSwitchingView, setIsSwitchingView] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
   const triggerButtonRef = useRef<HTMLButtonElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -159,6 +182,34 @@ export function ModelPickerPopover({
     } finally {
       setSelectingModelId(null);
     }
+  };
+
+  const handleModelViewChange = async (
+    nextView: ProviderModelDiscoveryView
+  ): Promise<void> => {
+    if (!onSelectModelView || nextView === selectedModelView || isSwitchingView) {
+      return;
+    }
+    setIsSwitchingView(true);
+    try {
+      await onSelectModelView(nextView);
+    } finally {
+      setIsSwitchingView(false);
+    }
+  };
+
+  const handleLoadMore = async (): Promise<void> => {
+    if (!selectedProviderId || !onLoadMoreSelectedProviderModels) {
+      return;
+    }
+    await onLoadMoreSelectedProviderModels(selectedProviderId);
+  };
+
+  const handleRefresh = async (): Promise<void> => {
+    if (!selectedProviderId || !onRefreshSelectedProviderModels) {
+      return;
+    }
+    await onRefreshSelectedProviderModels(selectedProviderId);
   };
 
   // Close on outside click
@@ -341,8 +392,62 @@ export function ModelPickerPopover({
             </button>
           </div>
 
+          <div className="flex items-center justify-between gap-2 border-b border-neutral-800 px-2 py-1.5">
+            <div className="inline-flex rounded-md border border-neutral-700 p-0.5">
+              {(["popular", "all"] as const).map((view) => (
+                <button
+                  key={view}
+                  type="button"
+                  onClick={() => {
+                    void handleModelViewChange(view);
+                  }}
+                  disabled={isSwitchingView || isLoading}
+                  className={`rounded px-2 py-1 text-[11px] font-medium transition ${
+                    selectedModelView === view
+                      ? "bg-neutral-200 text-neutral-900"
+                      : "text-neutral-300 hover:bg-neutral-800"
+                  }`}
+                >
+                  {view === "popular" ? "Popular" : "All"}
+                </button>
+              ))}
+            </div>
+            <div className="flex items-center gap-2">
+              {selectedProviderMetadata?.stale && (
+                <span
+                  className="rounded border border-amber-700/60 bg-amber-900/30 px-1.5 py-0.5 text-[10px] text-amber-200"
+                  title={
+                    selectedProviderMetadata.staleReason ??
+                    "Using stale model data from cache"
+                  }
+                >
+                  Stale
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  void handleRefresh();
+                }}
+                disabled={
+                  !selectedProviderId ||
+                  isRefreshingSelectedProviderModels ||
+                  isLoading
+                }
+                className="inline-flex h-7 items-center gap-1 rounded-md border border-neutral-700 px-2 text-[11px] text-neutral-300 transition-colors hover:bg-neutral-800 disabled:opacity-50"
+              >
+                <RefreshCw
+                  size={11}
+                  className={isRefreshingSelectedProviderModels ? "animate-spin" : ""}
+                />
+                Refresh
+              </button>
+            </div>
+          </div>
+
           {/* Provider Groups */}
-          <div className="overflow-y-auto flex-1">
+          <div className="flex flex-1 flex-col overflow-hidden">
+            <div className="overflow-y-auto flex-1">
             {isLoading ? (
               <div className="p-6 text-center text-neutral-400 text-sm">
                 Loading models...
@@ -398,6 +503,21 @@ export function ModelPickerPopover({
                   </div>
                 </div>
               ))
+            )}
+            </div>
+            {hasMoreSelectedProviderModels && (
+              <div className="border-t border-neutral-800 p-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    void handleLoadMore();
+                  }}
+                  disabled={isLoadingMoreSelectedProviderModels || isLoading}
+                  className="w-full rounded-md border border-neutral-700 px-2 py-1.5 text-xs text-neutral-300 transition-colors hover:bg-neutral-800 disabled:opacity-50"
+                >
+                  {isLoadingMoreSelectedProviderModels ? "Loading..." : "Load more"}
+                </button>
+              </div>
             )}
           </div>
         </div>

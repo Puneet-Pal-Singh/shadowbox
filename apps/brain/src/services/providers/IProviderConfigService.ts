@@ -41,11 +41,11 @@ export interface IProviderConfigService {
   getStatus(): Promise<ProviderConnection[]>;
   getModels(providerId: ProviderId): Promise<ModelsListResponse>;
   getDiscoveredModels(
-    providerId: "openrouter" | "google",
+    providerId: ProviderId,
     query: BYOKDiscoveredProviderModelsQuery,
   ): Promise<BYOKDiscoveredProviderModelsResponse>;
   refreshDiscoveredModels(
-    providerId: "openrouter" | "google",
+    providerId: ProviderId,
   ): Promise<BYOKDiscoveredProviderModelsRefreshResponse>;
   getOpenRouterDiscoveredModels(
     query: BYOKDiscoveredProviderModelsQuery,

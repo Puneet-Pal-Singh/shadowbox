@@ -22,6 +22,7 @@ export {
   ProviderModelDiscoveryService,
   OpenRouterModelCatalogAdapter,
   GoogleModelCatalogAdapter,
+  OpenAICompatibleModelCatalogAdapter,
   ProviderModelRankingService,
   type ProviderModelCatalogPort,
   type ProviderModelCachePort,

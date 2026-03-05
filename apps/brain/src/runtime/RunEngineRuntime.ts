@@ -349,13 +349,6 @@ export class RunEngineRuntime extends DurableObject {
           url.searchParams.has("limit") ||
           url.searchParams.has("cursor");
         if (isDiscoveryQuery) {
-          if (providerId !== "openrouter" && providerId !== "google") {
-            throw new ValidationError(
-              `Discovery query is not supported for provider "${providerId}".`,
-              "UNSUPPORTED_DISCOVERY_PROVIDER",
-              correlationId,
-            );
-          }
           const discoveryQuery = validateWithSchema<BYOKDiscoveredProviderModelsQuery>(
             {
               view: url.searchParams.get("view") ?? undefined,
@@ -385,16 +378,6 @@ export class RunEngineRuntime extends DurableObject {
           RefreshModelsRequestSchema,
           correlationId,
         );
-        if (
-          refreshRequest.providerId !== "openrouter" &&
-          refreshRequest.providerId !== "google"
-        ) {
-          throw new ValidationError(
-            `Model refresh is not supported for provider "${refreshRequest.providerId}".`,
-            "UNSUPPORTED_PROVIDER_REFRESH",
-            correlationId,
-          );
-        }
         const response = await configService.refreshDiscoveredModels(
           refreshRequest.providerId,
         );
