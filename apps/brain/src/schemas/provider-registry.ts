@@ -16,6 +16,7 @@ export const PROVIDER_REGISTRY: Record<ProviderId, ProviderRegistryEntry> =
     openrouter: { apiKeyPrefixes: ["sk-or-"] },
     openai: { apiKeyPrefixes: ["sk-"] },
     groq: { apiKeyPrefixes: ["gsk_"] },
+    google: { apiKeyPrefixes: ["AIza"] },
   };
 
 export function isProviderApiKeyFormatValid(

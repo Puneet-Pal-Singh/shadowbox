@@ -26,10 +26,13 @@ describe("ChatInput", () => {
       credentials: [],
       preferences: null,
       providerModels: {},
+      providerModelsMetadata: {},
+      providerModelsPage: {},
       visibleModelIds: {},
       selectedProviderId: "openai",
       selectedCredentialId: credentialId,
       selectedModelId: "gpt-4",
+      selectedModelView: "popular",
       lastResolvedConfig: {
         providerId: "openai",
         credentialId,
@@ -42,6 +45,7 @@ describe("ChatInput", () => {
       error: null,
       isValidating: false,
       loadingModelsForProviderId: null,
+      refreshingModelsForProviderId: null,
       bootstrap: vi.fn(async () => undefined),
       connectCredential: vi.fn(async () => undefined),
       disconnectCredential: vi.fn(async (credentialId: string) => {
@@ -62,6 +66,16 @@ describe("ChatInput", () => {
       loadProviderModels: vi.fn(async (providerId: string) => {
         void providerId;
         return [];
+      }),
+      loadMoreProviderModels: vi.fn(async (providerId: string) => {
+        void providerId;
+        return [];
+      }),
+      refreshProviderModels: vi.fn(async (providerId: string) => {
+        void providerId;
+      }),
+      setModelView: vi.fn(async (view: "all" | "popular") => {
+        void view;
       }),
       setSelection: vi.fn(),
       applySessionSelection: vi.fn(async () => ({

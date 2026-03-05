@@ -18,6 +18,8 @@ import {
   type EncryptedToken,
 } from "@shadowbox/github-bridge";
 import {
+  type BYOKDiscoveredProviderModel,
+  type BYOKModelDiscoverySource,
   ProviderIdSchema,
   type BYOKValidationMode,
   type BYOKPreferences,
@@ -66,8 +68,26 @@ interface ProviderPreferencesRecordV1 {
 }
 
 const PROVIDER_STORE_V2_PREFIX = "provider:v2:";
+const PROVIDER_MODEL_CACHE_PREFIX = "provider:model-cache:v1:";
 const PROVIDER_PREFERENCES_SUFFIX = "_preferences";
 const PROVIDER_AUDIT_PREFIX = "provider:audit:v1:";
+
+interface ProviderModelCacheRecordV1 {
+  version: "v1";
+  providerId: string;
+  models: BYOKDiscoveredProviderModel[];
+  fetchedAt: string;
+  expiresAt: string;
+  source: BYOKModelDiscoverySource;
+}
+
+export interface ProviderModelCacheRecord {
+  providerId: string;
+  models: BYOKDiscoveredProviderModel[];
+  fetchedAt: string;
+  expiresAt: string;
+  source: BYOKModelDiscoverySource;
+}
 
 export interface ProviderAuditEvent {
   eventType: string;
@@ -228,6 +248,55 @@ export class DurableProviderStore {
     await this.state.storage?.put(key, JSON.stringify(record));
   }
 
+  getScopeSnapshot(): { userId: string; workspaceId: string } {
+    return {
+      userId: this.scope.userId,
+      workspaceId: this.scope.workspaceId,
+    };
+  }
+
+  async getModelCache(providerId: string): Promise<ProviderModelCacheRecord | null> {
+    const raw = await this.state.storage?.get(this.getModelCacheKey(providerId));
+    if (typeof raw !== "string") {
+      return null;
+    }
+    try {
+      const parsed = JSON.parse(raw) as ProviderModelCacheRecordV1;
+      return {
+        providerId: parsed.providerId,
+        models: parsed.models,
+        fetchedAt: parsed.fetchedAt,
+        expiresAt: parsed.expiresAt,
+        source: parsed.source,
+      };
+    } catch (error) {
+      console.error(
+        `[provider/durable] Failed to parse model cache for ${providerId}:`,
+        error,
+      );
+      return null;
+    }
+  }
+
+  async setModelCache(record: ProviderModelCacheRecord): Promise<void> {
+    const payload: ProviderModelCacheRecordV1 = {
+      version: "v1",
+      providerId: record.providerId,
+      models: record.models,
+      fetchedAt: record.fetchedAt,
+      expiresAt: record.expiresAt,
+      source: record.source,
+    };
+    await this.state.storage?.put(
+      this.getModelCacheKey(record.providerId),
+      JSON.stringify(payload),
+    );
+  }
+
+  async invalidateModelCache(providerId: string): Promise<void> {
+    await this.state.storage?.delete(this.getModelCacheKey(providerId));
+  }
+
   /**
    * Clear all provider credentials
    * ⚠️ DANGEROUS: Only use in testing
@@ -373,6 +442,13 @@ export class DurableProviderStore {
     const user = sanitizeScopeSegment(this.scope.userId);
     const workspace = sanitizeScopeSegment(this.scope.workspaceId);
     return `${PROVIDER_AUDIT_PREFIX}${user}:${workspace}:`;
+  }
+
+  private getModelCacheKey(providerId: string): string {
+    const user = sanitizeScopeSegment(this.scope.userId);
+    const workspace = sanitizeScopeSegment(this.scope.workspaceId);
+    const provider = sanitizeScopeSegment(providerId);
+    return `${PROVIDER_MODEL_CACHE_PREFIX}${user}:${workspace}:${provider}`;
   }
 
   private getAuditEventKey(): string {

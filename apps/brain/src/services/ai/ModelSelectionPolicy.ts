@@ -150,6 +150,9 @@ export function resolveModelSelection(
 export function mapProviderIdToRuntimeProvider(
   providerId: ProviderId,
 ): RuntimeProvider {
+  if (providerId === "google") {
+    return "litellm";
+  }
   return providerId;
 }
 

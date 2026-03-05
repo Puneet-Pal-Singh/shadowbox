@@ -19,6 +19,9 @@ import {
 import { mapRunExecutionErrorToDomain } from "./RunExecutionErrorMapper";
 import { parseRequestBody, validateWithSchema } from "../http/validation";
 import {
+  type BYOKDiscoveredProviderModelsQuery,
+  BYOKDiscoveredProviderModelsQuerySchema,
+  BYOKDiscoveredProviderModelsRefreshResponseSchema,
   BYOKConnectRequestSchema,
   BYOKDisconnectRequestSchema,
   BYOKPreferencesPatchSchema,
@@ -51,6 +54,9 @@ const ScopeIdSchema = z
   .min(1)
   .max(MAX_SCOPE_IDENTIFIER_LENGTH)
   .regex(SAFE_SCOPE_IDENTIFIER_REGEX);
+const RefreshModelsRequestSchema = z.object({
+  providerId: ProviderIdSchema,
+});
 
 export class RunEngineRuntime extends DurableObject {
   private executionQueue: Promise<void> = Promise.resolve();
@@ -338,7 +344,48 @@ export class RunEngineRuntime extends DurableObject {
           ProviderIdSchema,
           correlationId,
         );
+        const isDiscoveryQuery =
+          url.searchParams.has("view") ||
+          url.searchParams.has("limit") ||
+          url.searchParams.has("cursor");
+        if (isDiscoveryQuery) {
+          const discoveryQuery = validateWithSchema<BYOKDiscoveredProviderModelsQuery>(
+            {
+              view: url.searchParams.get("view") ?? undefined,
+              limit: url.searchParams.get("limit") ?? undefined,
+              cursor: url.searchParams.get("cursor") ?? undefined,
+            },
+            BYOKDiscoveredProviderModelsQuerySchema,
+            correlationId,
+          );
+          const discovered = await configService.getDiscoveredModels(
+            providerId,
+            discoveryQuery,
+          );
+          return jsonResponse(request, env, discovered);
+        }
         const response = await configService.getModels(providerId);
+        return jsonResponse(request, env, response);
+      }
+
+      if (url.pathname === "/providers/models/refresh") {
+        if (request.method !== "POST") {
+          return errorResponse(request, env, "Method Not Allowed", 405);
+        }
+        const body = await parseRequestBody(request, correlationId);
+        const refreshRequest = validateWithSchema<{ providerId: ProviderId }>(
+          body,
+          RefreshModelsRequestSchema,
+          correlationId,
+        );
+        const response = await configService.refreshDiscoveredModels(
+          refreshRequest.providerId,
+        );
+        validateWithSchema(
+          response,
+          BYOKDiscoveredProviderModelsRefreshResponseSchema,
+          correlationId,
+        );
         return jsonResponse(request, env, response);
       }
 

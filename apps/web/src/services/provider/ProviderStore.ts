@@ -17,14 +17,31 @@ import {
   type BYOKCredentialConnectRequest,
   type BYOKCredentialValidateRequest,
   type BYOKCredentialValidateResponse,
+  type BYOKDiscoveredProviderModelsRefreshResponse,
   type BYOKPreferencesUpdateRequest,
   type BYOKResolveRequest,
   ProviderRegistryEntry,
 } from "@repo/shared-types";
 import {
   ProviderApiClient,
+  type ProviderModelDiscoveryView,
   type ProviderModelOption,
+  type ProviderModelsPageResult,
+  type ProviderModelsQuery,
 } from "../api/providerClient.js";
+
+export interface ProviderModelsMetadataState {
+  fetchedAt: string;
+  stale: boolean;
+  source: "provider_api" | "cache";
+  staleReason?: string;
+}
+
+export interface ProviderModelsPageState {
+  view: ProviderModelDiscoveryView;
+  nextCursor: string | null;
+  hasMore: boolean;
+}
 
 /**
  * Store state shape
@@ -35,6 +52,8 @@ export interface ProviderStoreState {
   credentials: ProviderCredential[];
   preferences: ProviderPreference | null;
   providerModels: Record<string, ProviderModelOption[]>;
+  providerModelsMetadata: Record<string, ProviderModelsMetadataState>;
+  providerModelsPage: Record<string, ProviderModelsPageState>;
   visibleModelIds: Record<string, Set<string>>;
 
   // Current selection
@@ -50,6 +69,8 @@ export interface ProviderStoreState {
   error: string | null;
   isValidating: boolean;
   loadingModelsForProviderId: string | null;
+  selectedModelView: ProviderModelDiscoveryView;
+  refreshingModelsForProviderId: string | null;
 }
 
 interface ProviderSelectionSnapshot {
@@ -67,7 +88,13 @@ export type ValidateCredentialRequest = BYOKCredentialValidateRequest;
  */
 export interface ProviderApiClientContract {
   getCatalog(): Promise<ProviderRegistryEntry[]>;
-  getProviderModels(providerId: string): Promise<ProviderModelOption[]>;
+  getProviderModels(
+    providerId: string,
+    query?: ProviderModelsQuery
+  ): Promise<ProviderModelsPageResult>;
+  refreshProviderModels(
+    providerId: string
+  ): Promise<BYOKDiscoveredProviderModelsRefreshResponse>;
   getCredentials(): Promise<ProviderCredential[]>;
   getPreferences(): Promise<ProviderPreference>;
   connectCredential(req: ConnectCredentialRequest): Promise<ProviderCredential>;
@@ -84,6 +111,20 @@ export interface SessionSelectionRequest {
   providerId: string;
   credentialId: string;
   modelId?: string;
+}
+
+export interface LoadProviderModelsOptions {
+  view?: ProviderModelDiscoveryView;
+  cursor?: string;
+  limit?: number;
+  append?: boolean;
+}
+
+interface ResolvedLoadProviderModelsOptions {
+  view: ProviderModelDiscoveryView;
+  cursor?: string;
+  limit: number;
+  append: boolean;
 }
 
 /**
@@ -118,6 +159,8 @@ export class ProviderStore {
       credentials: [],
       preferences: null,
       providerModels: {},
+      providerModelsMetadata: {},
+      providerModelsPage: {},
       visibleModelIds: {},
       selectedProviderId: null,
       selectedCredentialId: null,
@@ -127,6 +170,8 @@ export class ProviderStore {
       error: null,
       isValidating: false,
       loadingModelsForProviderId: null,
+      selectedModelView: "popular",
+      refreshingModelsForProviderId: null,
     };
   }
 
@@ -587,16 +632,34 @@ export class ProviderStore {
     }
   }
 
-  async loadProviderModels(providerId: string): Promise<ProviderModelOption[]> {
-    const key = `models:${providerId}`;
+  async loadProviderModels(
+    providerId: string,
+    options: LoadProviderModelsOptions = {}
+  ): Promise<ProviderModelOption[]> {
+    const resolvedOptions = this.resolveLoadOptions(providerId, options);
+    const key = [
+      "models",
+      providerId,
+      resolvedOptions.view,
+      resolvedOptions.cursor ?? "start",
+      resolvedOptions.append ? "append" : "replace",
+      resolvedOptions.limit,
+    ].join(":");
 
     if (this.inflight.has(key)) {
-      this.log("[loadProviderModels] Request already in flight", { providerId });
+      this.log("[loadProviderModels] Request already in flight", {
+        providerId,
+        ...resolvedOptions,
+      });
       return (await this.inflight.get(key)) as ProviderModelOption[];
     }
 
     this.setState({ loadingModelsForProviderId: providerId });
-    const promise = this.executeLoadProviderModels(providerId, this.epoch);
+    const promise = this.executeLoadProviderModels(
+      providerId,
+      resolvedOptions,
+      this.epoch,
+    );
     this.inflight.set(key, promise);
 
     try {
@@ -609,31 +672,118 @@ export class ProviderStore {
     }
   }
 
+  async loadMoreProviderModels(providerId: string): Promise<ProviderModelOption[]> {
+    const pageState = this.state.providerModelsPage[providerId];
+    if (!pageState?.hasMore || !pageState.nextCursor) {
+      return this.state.providerModels[providerId] ?? [];
+    }
+    return this.loadProviderModels(providerId, {
+      view: pageState.view,
+      cursor: pageState.nextCursor,
+      append: true,
+    });
+  }
+
+  async refreshProviderModels(providerId: string): Promise<void> {
+    const key = `refresh-models:${providerId}`;
+    if (this.inflight.has(key)) {
+      await this.inflight.get(key);
+      return;
+    }
+
+    this.setState({ refreshingModelsForProviderId: providerId });
+    const promise = this.executeRefreshProviderModels(providerId, this.epoch);
+    this.inflight.set(key, promise);
+    try {
+      await promise;
+    } finally {
+      this.inflight.delete(key);
+      if (this.state.refreshingModelsForProviderId === providerId) {
+        this.setState({ refreshingModelsForProviderId: null });
+      }
+    }
+  }
+
+  async setModelView(view: ProviderModelDiscoveryView): Promise<void> {
+    if (this.state.selectedModelView === view) {
+      return;
+    }
+    this.setState({ selectedModelView: view });
+    if (!this.state.selectedProviderId) {
+      return;
+    }
+    await this.loadProviderModels(this.state.selectedProviderId, {
+      view,
+      append: false,
+    });
+  }
+
   private async executeLoadProviderModels(
     providerId: string,
+    options: ResolvedLoadProviderModelsOptions,
     epoch: number
   ): Promise<ProviderModelOption[]> {
-    this.log("[loadProviderModels] Starting", { providerId });
-    const models = await this.apiClient.getProviderModels(providerId);
+    this.log("[loadProviderModels] Starting", { providerId, ...options });
+    const result = await this.apiClient.getProviderModels(providerId, {
+      view: options.view,
+      limit: options.limit,
+      cursor: options.cursor,
+    });
     if (this.isStaleEpoch("loadProviderModels", epoch)) {
-      return models;
+      return result.models;
     }
+
+    const currentModels = this.state.providerModels[providerId] ?? [];
+    const mergedModels = options.append
+      ? mergeModelsById(currentModels, result.models)
+      : result.models;
 
     this.setState({
       providerModels: {
         ...this.state.providerModels,
-        [providerId]: models,
+        [providerId]: mergedModels,
       },
+      providerModelsPage: {
+        ...this.state.providerModelsPage,
+        [providerId]: {
+          view: result.view,
+          hasMore: result.page.hasMore,
+          nextCursor: result.page.nextCursor ?? null,
+        },
+      },
+      providerModelsMetadata: {
+        ...this.state.providerModelsMetadata,
+        [providerId]: result.metadata,
+      },
+      selectedModelView: result.view,
       selectedModelId:
         this.state.selectedProviderId === providerId
-          ? this.state.selectedModelId ?? models[0]?.id ?? null
+          ? this.resolveSelectedModelId(this.state.selectedModelId, mergedModels)
           : this.state.selectedModelId,
     });
     this.log("[loadProviderModels] Success", {
       providerId,
-      modelCount: models.length,
+      modelCount: mergedModels.length,
+      view: result.view,
+      hasMore: result.page.hasMore,
+      stale: result.metadata.stale,
     });
-    return models;
+    return mergedModels;
+  }
+
+  private async executeRefreshProviderModels(
+    providerId: string,
+    epoch: number
+  ): Promise<void> {
+    this.log("[refreshProviderModels] Starting", { providerId });
+    await this.apiClient.refreshProviderModels(providerId);
+    if (this.isStaleEpoch("refreshProviderModels", epoch)) {
+      return;
+    }
+    await this.loadProviderModels(providerId, {
+      view: this.state.selectedModelView,
+      append: false,
+    });
   }
 
   /**
@@ -908,6 +1058,8 @@ export class ProviderStore {
       credentials: [],
       preferences: null,
       providerModels: {},
+      providerModelsMetadata: {},
+      providerModelsPage: {},
       visibleModelIds: {},
       selectedProviderId: null,
       selectedCredentialId: null,
@@ -917,6 +1069,8 @@ export class ProviderStore {
       error: null,
       isValidating: false,
       loadingModelsForProviderId: null,
+      selectedModelView: "popular",
+      refreshingModelsForProviderId: null,
     };
     this.emit();
   }
@@ -960,6 +1114,8 @@ export class ProviderStore {
       partial.credentials !== undefined ||
       partial.preferences !== undefined ||
       partial.providerModels !== undefined ||
+      partial.providerModelsMetadata !== undefined ||
+      partial.providerModelsPage !== undefined ||
       partial.selectedProviderId !== undefined ||
       partial.selectedCredentialId !== undefined ||
       partial.selectedModelId !== undefined
@@ -972,6 +1128,31 @@ export class ProviderStore {
       selection.selectedCredentialId ?? "none",
       selection.selectedModelId ?? "none",
     ].join("|");
+  }
+
+  private resolveLoadOptions(
+    providerId: string,
+    options: LoadProviderModelsOptions
+  ): ResolvedLoadProviderModelsOptions {
+    const pageState = this.state.providerModelsPage[providerId];
+    return {
+      view: options.view ?? pageState?.view ?? this.state.selectedModelView,
+      cursor: options.cursor ?? undefined,
+      limit: options.limit ?? 50,
+      append: options.append ?? false,
+    };
+  }
+
+  private resolveSelectedModelId(
+    currentModelId: string | null,
+    models: ProviderModelOption[]
+  ): string | null {
+    if (!currentModelId) {
+      return models[0]?.id ?? null;
+    }
+    return models.some((model) => model.id === currentModelId)
+      ? currentModelId
+      : models[0]?.id ?? null;
   }
 
   private deriveSelectionSnapshot(input: {
@@ -1059,4 +1240,23 @@ export class ProviderStore {
     });
     return true;
   }
+}
+
+function mergeModelsById(
+  existingModels: ProviderModelOption[],
+  nextModels: ProviderModelOption[]
+): ProviderModelOption[] {
+  if (existingModels.length === 0) {
+    return [...nextModels];
+  }
+  const merged = [...existingModels];
+  const knownIds = new Set(existingModels.map((model) => model.id));
+  for (const model of nextModels) {
+    if (knownIds.has(model.id)) {
+      continue;
+    }
+    knownIds.add(model.id);
+    merged.push(model);
+  }
+  return merged;
 }
