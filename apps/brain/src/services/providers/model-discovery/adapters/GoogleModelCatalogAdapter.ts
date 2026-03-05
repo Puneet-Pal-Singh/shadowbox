@@ -22,8 +22,12 @@ const GoogleModelsEnvelopeSchema = z.object({
     }),
   ),
 });
+const GOOGLE_MODELS_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models";
+const GOOGLE_FETCH_TIMEOUT_MS = 10_000;
 
 export class GoogleModelCatalogAdapter implements ProviderModelCatalogPort {
+  constructor(private readonly fetchFn: typeof fetch = fetch) {}
+
   async fetchAll(
     providerId: string,
     credentialContext: ProviderModelCredentialContext,
@@ -34,7 +38,7 @@ export class GoogleModelCatalogAdapter implements ProviderModelCatalogPort {
         { status: 400, retryable: false },
       );
     }
-    const response = await requestGoogleModels(credentialContext.apiKey);
+    const response = await requestGoogleModels(this.fetchFn, credentialContext.apiKey);
     const payload = await parseGoogleModelsEnvelope(response);
     return payload.models
       .filter((model) => isLlmCapable(model.supportedGenerationMethods))
@@ -86,21 +90,37 @@ function parseCursor(cursor: string | undefined): number {
   return parsed;
 }
 
-async function requestGoogleModels(apiKey: string): Promise<Response> {
-  const endpoint = "https://generativelanguage.googleapis.com/v1beta/models";
+async function requestGoogleModels(
+  fetchFn: typeof fetch,
+  apiKey: string,
+): Promise<Response> {
+  const abortController = new AbortController();
+  const timeoutId = setTimeout(
+    () => abortController.abort(),
+    GOOGLE_FETCH_TIMEOUT_MS,
+  );
   let response: Response;
   try {
-    response = await fetch(endpoint, {
+    response = await fetchFn(GOOGLE_MODELS_ENDPOINT, {
       method: "GET",
       headers: {
         "x-goog-api-key": apiKey,
       },
+      signal: abortController.signal,
     });
   } catch (error) {
+    if (isAbortError(error)) {
+      throw new ProviderModelDiscoveryApiError(
+        `Google models request timed out after ${GOOGLE_FETCH_TIMEOUT_MS}ms.`,
+        { status: 504, retryable: true },
+      );
+    }
     throw new ProviderModelDiscoveryApiError(
       `Google models request failed due to network error: ${toErrorMessage(error)}`,
       { retryable: true },
     );
+  } finally {
+    clearTimeout(timeoutId);
   }
 
   if (!response.ok) {
@@ -139,4 +159,11 @@ function toErrorMessage(error: unknown): string {
     return error.message;
   }
   return "unknown_error";
+}
+
+function isAbortError(error: unknown): boolean {
+  if (error instanceof DOMException && error.name === "AbortError") {
+    return true;
+  }
+  return error instanceof Error && error.name === "AbortError";
 }
