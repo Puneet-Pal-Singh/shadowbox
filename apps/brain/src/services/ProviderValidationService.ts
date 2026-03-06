@@ -12,6 +12,7 @@
  */
 
 import type { Env } from "../types/ai";
+import { SUPPORTED_DEFAULT_PROVIDERS } from "./ai/ProviderAdapterFactory";
 
 export interface ValidationError {
   code: string;
@@ -58,21 +59,12 @@ export class ProviderValidationService {
         this.validateAnthropicOptional(env, errors, warnings);
         break;
       default:
-        // Custom/new providers accepted with warning — no code edit needed to add providers
-        warnings.push({
-          code: "CUSTOM_PROVIDER",
-          message: `LLM_PROVIDER "${provider}" is not a built-in provider family`,
-          severity: "warning",
-          hint: `Built-in providers: litellm, openai, anthropic. Custom providers work via BYOK configuration.`,
+        errors.push({
+          code: "UNKNOWN_PROVIDER",
+          message: `Unknown LLM_PROVIDER "${provider}"`,
+          severity: "error",
+          hint: `Supported providers: ${SUPPORTED_DEFAULT_PROVIDERS.join(", ")}. For other providers, use BYOK configuration.`,
         });
-        if (!env.DEFAULT_MODEL) {
-          warnings.push({
-            code: "NO_DEFAULT_MODEL",
-            message: "DEFAULT_MODEL not set for custom provider",
-            severity: "warning",
-            hint: "Set DEFAULT_MODEL for explicit model selection.",
-          });
-        }
         break;
     }
 

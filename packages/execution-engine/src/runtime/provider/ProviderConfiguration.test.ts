@@ -31,6 +31,15 @@ describe("ProviderConfiguration - Provider-Agnostic Validation", () => {
     it("should reject empty model ID", () => {
       expect(ProviderConfiguration.isValidModelId("")).toBe(false);
     });
+
+    it("should reject whitespace-only model ID", () => {
+      expect(ProviderConfiguration.isValidModelId("   ")).toBe(false);
+      expect(ProviderConfiguration.isValidModelId("\t")).toBe(false);
+    });
+
+    it("should reject model-unset sentinel", () => {
+      expect(ProviderConfiguration.isValidModelId("model-unset")).toBe(false);
+    });
   });
 
   describe("validateConfig", () => {

@@ -23,7 +23,8 @@ export class ProviderConfiguration {
    * Validate a model ID is non-empty.
    */
   static isValidModelId(modelId: string): boolean {
-    return modelId.length > 0;
+    const trimmed = modelId.trim();
+    return trimmed.length > 0 && trimmed !== "model-unset";
   }
 
   /**

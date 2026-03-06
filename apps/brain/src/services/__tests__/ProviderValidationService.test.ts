@@ -18,8 +18,8 @@ describe("ProviderValidationService - Extensible Provider Validation", () => {
     LLM_PROVIDER: "litellm",
   });
 
-  describe("Custom Provider Handling", () => {
-    it("should accept unknown provider with warning (BYOK/custom)", () => {
+  describe("Unknown Provider Handling", () => {
+    it("should reject unknown provider with error", () => {
       const env = {
         ...createValidEnv(),
         LLM_PROVIDER: "unknown-provider",
@@ -28,38 +28,26 @@ describe("ProviderValidationService - Extensible Provider Validation", () => {
 
       const result = ProviderValidationService.validate(env);
 
-      // Should be valid — custom providers don't block startup
-      expect(result.valid).toBe(true);
-      expect(result.errors.filter((e) => e.code === "CUSTOM_PROVIDER")).toHaveLength(0);
+      expect(result.valid).toBe(false);
 
-      const customProviderWarning = result.warnings.find(
-        (w) => w.code === "CUSTOM_PROVIDER",
+      const unknownError = result.errors.find(
+        (e) => e.code === "UNKNOWN_PROVIDER",
       );
-      expect(customProviderWarning).toBeDefined();
-      expect(customProviderWarning?.severity).toBe("warning");
-      expect(customProviderWarning?.message).toContain("not a built-in provider family");
+      expect(unknownError).toBeDefined();
+      expect(unknownError?.severity).toBe("error");
+      expect(unknownError?.hint).toContain("litellm");
     });
 
-    it("should warn about missing DEFAULT_MODEL for custom provider", () => {
+    it("should reject typo provider with error", () => {
       const env = {
         ...createValidEnv(),
-        LLM_PROVIDER: "invalid-custom-provider",
+        LLM_PROVIDER: "opnai",
       };
 
       const result = ProviderValidationService.validate(env);
 
-      // Should be valid with warnings
-      expect(result.valid).toBe(true);
-
-      const customWarning = result.warnings.find(
-        (w) => w.code === "CUSTOM_PROVIDER",
-      );
-      expect(customWarning).toBeDefined();
-
-      const modelWarning = result.warnings.find(
-        (w) => w.code === "NO_DEFAULT_MODEL",
-      );
-      expect(modelWarning).toBeDefined();
+      expect(result.valid).toBe(false);
+      expect(result.errors.find((e) => e.code === "UNKNOWN_PROVIDER")).toBeDefined();
     });
   });
 
@@ -139,7 +127,7 @@ describe("ProviderValidationService - Extensible Provider Validation", () => {
   });
 
   describe("No Fallback Chains", () => {
-    it("should not describe fallback-first behavior in hints", () => {
+    it("should not describe fallback-first behavior in error hints", () => {
       const env = {
         ...createValidEnv(),
         LLM_PROVIDER: "unknown",
@@ -147,13 +135,11 @@ describe("ProviderValidationService - Extensible Provider Validation", () => {
 
       const result = ProviderValidationService.validate(env);
 
-      // Check that warning hints don't mention fallback behavior
-      const customWarning = result.warnings.find(
-        (w) => w.code === "CUSTOM_PROVIDER",
+      const unknownError = result.errors.find(
+        (e) => e.code === "UNKNOWN_PROVIDER",
       );
-      expect(customWarning).toBeDefined();
-      expect(customWarning?.message).not.toContain("fallback");
-      expect(customWarning?.message).not.toContain("will use");
+      expect(unknownError).toBeDefined();
+      expect(unknownError?.hint).not.toContain("fallback");
     });
   });
 });
