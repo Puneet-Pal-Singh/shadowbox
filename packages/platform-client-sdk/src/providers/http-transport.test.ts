@@ -116,4 +116,35 @@ describe("createByokHttpTransport", () => {
       statusCode: 502,
     });
   });
+
+  it("does not allow overriding protected transport headers", async () => {
+    const fetchImpl = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      headers: new Headers({ "content-type": "application/json" }),
+      json: vi.fn(async () => []),
+    })) as unknown as typeof fetch;
+    const transport = createByokHttpTransport({
+      baseUrl: "http://localhost:8788/api/byok",
+      getRunId: () => "run-123",
+      getHeaders: () => ({
+        "X-Run-Id": "run-override",
+        "x-run-id": "run-lowercase-override",
+        "Content-Type": "text/plain",
+        "content-type": "text/html",
+        "X-Client-Id": "desktop",
+      }),
+      fetchImpl,
+    });
+
+    await transport.discoverProviders();
+
+    const requestInit = fetchImpl.mock.calls[0]?.[1];
+    const headers = requestInit?.headers as Record<string, string>;
+    expect(headers["X-Run-Id"]).toBe("run-123");
+    expect(headers["Content-Type"]).toBe("application/json");
+    expect(headers["X-Client-Id"]).toBe("desktop");
+    expect(headers).not.toHaveProperty("x-run-id");
+    expect(headers).not.toHaveProperty("content-type");
+  });
 });

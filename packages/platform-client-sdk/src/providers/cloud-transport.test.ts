@@ -59,4 +59,27 @@ describe("createByokCloudTransport", () => {
       }),
     );
   });
+
+  it("keeps explicit authorization header regardless of casing", async () => {
+    const fetchImpl = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      headers: new Headers({ "content-type": "application/json" }),
+      json: vi.fn(async () => []),
+    })) as unknown as typeof fetch;
+    const transport = createByokCloudTransport({
+      baseUrl: "http://localhost:8788/api/byok",
+      getRunId: () => "run-123",
+      getAccessToken: () => "token-should-not-override",
+      getHeaders: () => ({ authorization: "Bearer explicit-lowercase-token" }),
+      fetchImpl,
+    });
+
+    await transport.discoverProviders();
+
+    const requestInit = fetchImpl.mock.calls[0]?.[1];
+    const headers = requestInit?.headers as Record<string, string>;
+    expect(headers.authorization).toBe("Bearer explicit-lowercase-token");
+    expect(headers).not.toHaveProperty("Authorization");
+  });
 });

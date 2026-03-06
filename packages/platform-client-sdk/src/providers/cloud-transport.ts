@@ -29,7 +29,7 @@ function createCloudHeaders(
   options: ProviderCloudTransportOptions,
 ): Record<string, string> {
   const headers = options.getHeaders?.() ?? {};
-  if (headers.Authorization) {
+  if (hasAuthorizationHeader(headers)) {
     return headers;
   }
   const accessToken = options.getAccessToken?.();
@@ -40,4 +40,10 @@ function createCloudHeaders(
     ...headers,
     Authorization: `Bearer ${accessToken}`,
   };
+}
+
+function hasAuthorizationHeader(headers: Record<string, string>): boolean {
+  return Object.keys(headers).some(
+    (headerName) => headerName.toLowerCase() === "authorization",
+  );
 }
