@@ -20,7 +20,7 @@ export interface Env {
   SYSTEM_PROMPT?: string;
 
   // ✅ LLM Provider Configuration (Phase 3.1)
-  LLM_PROVIDER?: "litellm" | "openai" | "anthropic";
+  LLM_PROVIDER?: string;
   DEFAULT_MODEL?: string;
   LITELLM_BASE_URL?: string;
   COST_UNKNOWN_PRICING_MODE?: "warn" | "block";

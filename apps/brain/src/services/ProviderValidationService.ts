@@ -31,9 +31,8 @@ export class ProviderValidationService {
    * Validate provider configuration for the given environment
    * Returns structured errors that can be presented to users
    *
-   * RCP3 CHANGE: Strict validation with no silent fallback behavior.
    * - Provider API keys are optional (with warnings)
-   * - Unknown/invalid providers are errors, not warnings
+   * - Unknown providers are accepted with warnings (extensible for BYOK/custom)
    * - Only truly critical configuration (security, encryption) blocks startup
    * - Provider selection must be explicit or use platform defaults
    */
@@ -44,7 +43,7 @@ export class ProviderValidationService {
     // Validate critical security configuration (always required)
     this.validateCriticalSecurity(env, errors);
 
-    // Provider validation: unknown providers now error
+    // Provider validation: known providers get specific checks, unknown get warnings
     const provider = env.LLM_PROVIDER ?? "litellm";
 
     // Check provider configuration
@@ -59,13 +58,22 @@ export class ProviderValidationService {
         this.validateAnthropicOptional(env, errors, warnings);
         break;
       default:
-        // Unknown provider is now an error (not silent fallback)
-        errors.push({
-          code: "UNKNOWN_PROVIDER",
-          message: `Unknown or unsupported LLM_PROVIDER: ${provider}`,
-          severity: "error",
-          hint: `Set LLM_PROVIDER to one of: litellm, openai, anthropic`,
+        // Custom/new providers accepted with warning — no code edit needed to add providers
+        warnings.push({
+          code: "CUSTOM_PROVIDER",
+          message: `LLM_PROVIDER "${provider}" is not a built-in provider family`,
+          severity: "warning",
+          hint: `Built-in providers: litellm, openai, anthropic. Custom providers work via BYOK configuration.`,
         });
+        if (!env.DEFAULT_MODEL) {
+          warnings.push({
+            code: "NO_DEFAULT_MODEL",
+            message: "DEFAULT_MODEL not set for custom provider",
+            severity: "warning",
+            hint: "Set DEFAULT_MODEL for explicit model selection.",
+          });
+        }
+        break;
     }
 
     return {

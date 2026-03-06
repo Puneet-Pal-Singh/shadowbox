@@ -20,10 +20,7 @@ export interface ProviderEndpointConfig {
  * Direct provider endpoint configurations for BYOK runtime
  * Only includes providers with direct endpoints (not OpenAI or Anthropic).
  */
-export const PROVIDER_ENDPOINTS: Record<
-  "openrouter" | "groq",
-  ProviderEndpointConfig
-> = {
+export const PROVIDER_ENDPOINTS: Record<string, ProviderEndpointConfig> = {
   openrouter: {
     baseURL: "https://openrouter.ai/api/v1",
     apiKeyPrefix: "sk-or-",
@@ -36,12 +33,10 @@ export const PROVIDER_ENDPOINTS: Record<
   },
 };
 
-type DirectEndpointProviderId = keyof typeof PROVIDER_ENDPOINTS;
-
 function isDirectEndpointProviderId(
   providerId: ProviderId,
-): providerId is DirectEndpointProviderId {
-  return providerId === "openrouter" || providerId === "groq";
+): boolean {
+  return providerId in PROVIDER_ENDPOINTS;
 }
 
 /**
