@@ -30,6 +30,7 @@ echo -e "${GREEN}[runtime-conformance-gate] ✓ Determinism + provider parity ch
 
 echo -e "${YELLOW}[runtime-conformance-gate] Running observability + parity smoke checks...${NC}"
 pnpm --filter @shadowbox/brain test -- src/core/observability/ByokObservability.test.ts src/runtime/parity-smoke.test.ts > /dev/null
+pnpm --filter @repo/platform-client-sdk test -- src/providers/cross-client-contract-parity.test.ts src/providers/cross-client-lifecycle-parity.test.ts > /dev/null
 echo -e "${GREEN}[runtime-conformance-gate] ✓ Observability + parity smoke checks passed${NC}"
 
 echo -e "${YELLOW}[runtime-conformance-gate] Running isolation + retry reliability checks...${NC}"

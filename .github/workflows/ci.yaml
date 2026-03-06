@@ -87,7 +87,9 @@ jobs:
         run: pnpm check:boundaries
 
       - name: Run architecture boundary tests
-        run: pnpm --filter @shadowbox/brain test -- src/architecture/layering.boundary.test.ts src/architecture/no-legacy-imports.test.ts
+        run: |
+          pnpm --filter @shadowbox/brain test -- src/architecture/layering.boundary.test.ts src/architecture/no-legacy-imports.test.ts
+          pnpm --filter @shadowbox/web test -- src/architecture/byok-sdk-boundary.test.ts src/architecture/provider-sdk-import-boundary.test.ts
 
   runtime-conformance:
     name: Runtime Conformance Gate
@@ -204,6 +206,7 @@ jobs:
         run: |
           pnpm check:boundaries
           pnpm --filter @shadowbox/brain test -- src/architecture/layering.boundary.test.ts src/architecture/no-legacy-imports.test.ts
+          pnpm --filter @shadowbox/web test -- src/architecture/byok-sdk-boundary.test.ts src/architecture/provider-sdk-import-boundary.test.ts
 
       - name: Run smoke checks (strict)
         run: |
