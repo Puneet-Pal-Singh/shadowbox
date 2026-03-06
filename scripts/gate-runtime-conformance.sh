@@ -22,6 +22,7 @@ echo -e "${GREEN}[runtime-conformance-gate] ✓ Type checks passed${NC}"
 echo -e "${YELLOW}[runtime-conformance-gate] Running boundary + fallback policy checks...${NC}"
 pnpm --filter @shadowbox/brain test -- src/architecture/portability-guards.test.ts src/runtime/contracts/portability-boundary.test.ts src/architecture/no-silent-fallbacks.test.ts > /dev/null
 pnpm --filter @shadowbox/execution-engine test -- tests/unit/runtime-adapter-boundary.test.ts tests/unit/runtime-core-decomposition.test.ts > /dev/null
+pnpm --filter @repo/ui-kit test -- src/architecture/provider-transport-boundary.test.ts > /dev/null
 echo -e "${GREEN}[runtime-conformance-gate] ✓ Boundary + fallback policy checks passed${NC}"
 
 echo -e "${YELLOW}[runtime-conformance-gate] Running determinism + provider parity checks...${NC}"
