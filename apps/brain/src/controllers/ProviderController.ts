@@ -1138,6 +1138,7 @@ function mapCatalogEntryToRegistry(
     providerId: entry.providerId,
     displayName: entry.displayName,
     authModes: builtin?.authModes ?? ["api_key"],
+    adapterFamily: builtin?.adapterFamily ?? "custom-http",
     capabilities: {
       streaming: entry.capabilities.streaming,
       tools: entry.capabilities.tools,
@@ -1243,7 +1244,7 @@ async function loadWorkspacePreference(
  * Resolution chain:
  * 1. Request override (providerId/credentialId/modelId)
  * 2. Workspace preference (defaultProviderId/defaultModelId)
- * 3. Connected provider selection (first connected provider)
+ * 3. Strict resolution: throw when no explicit/default provider is resolved
  */
 function resolveSelection(
   request: BYOKResolveRequest,
@@ -1454,7 +1455,7 @@ async function ensureDefaultPreferenceConfigured(
   }
 
   const catalog = await fetchRuntimeCatalog(req, env, scope, correlationId);
-  const defaultModel = resolveDefaultModel(providerId, catalog, env);
+  const defaultModel = resolveDefaultModel(providerId, catalog, correlationId);
   await proxyByokOperation(
     req,
     env,

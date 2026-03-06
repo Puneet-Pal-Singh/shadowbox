@@ -36,6 +36,14 @@ export const PROVIDER_ENDPOINTS: Record<
   },
 };
 
+type DirectEndpointProviderId = keyof typeof PROVIDER_ENDPOINTS;
+
+function isDirectEndpointProviderId(
+  providerId: ProviderId,
+): providerId is DirectEndpointProviderId {
+  return providerId === "openrouter" || providerId === "groq";
+}
+
 /**
  * Validate API key format against provider requirements.
  * @param providerId - The provider ID
@@ -46,7 +54,7 @@ export function validateProviderApiKeyFormat(
   providerId: ProviderId,
   apiKey: string,
 ): void {
-  if (providerId === "openrouter" || providerId === "groq") {
+  if (isDirectEndpointProviderId(providerId)) {
     const config = PROVIDER_ENDPOINTS[providerId];
     if (!apiKey.startsWith(config.apiKeyPrefix)) {
       throw new Error(
@@ -62,7 +70,7 @@ export function validateProviderApiKeyFormat(
  * @returns The base URL, or undefined if not a direct provider
  */
 export function getProviderBaseURL(providerId: ProviderId): string | undefined {
-  if (providerId === "openrouter" || providerId === "groq") {
+  if (isDirectEndpointProviderId(providerId)) {
     return PROVIDER_ENDPOINTS[providerId].baseURL;
   }
   return undefined;

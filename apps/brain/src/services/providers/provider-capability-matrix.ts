@@ -5,6 +5,7 @@
  */
 
 import type { ProviderCapabilityFlags } from "@repo/shared-types";
+import { ValidationError } from "../../domain/errors";
 import { ProviderRegistryService } from "./ProviderRegistryService";
 
 interface ProviderCapabilities {
@@ -12,11 +13,24 @@ interface ProviderCapabilities {
   flags: ProviderCapabilityFlags;
 }
 
+class ProviderCapabilityConfigurationError extends ValidationError {
+  constructor(providerId: string) {
+    super(
+      `Missing provider capability flags for provider "${providerId}".`,
+      "INVALID_PROVIDER_SELECTION",
+    );
+    this.name = "ProviderCapabilityConfigurationError";
+  }
+}
+
 const registryService = new ProviderRegistryService();
 
 function buildCapabilityMatrix(): Record<string, ProviderCapabilities> {
   const matrix: Record<string, ProviderCapabilities> = {};
   for (const provider of registryService.listProviders()) {
+    if (!provider.capabilities) {
+      throw new ProviderCapabilityConfigurationError(provider.providerId);
+    }
     matrix[provider.providerId] = {
       // Default model is a seed only; dynamic discovery remains model authority.
       allowedModelIds: provider.defaultModelId
@@ -51,12 +65,9 @@ export function isModelAllowedByCapabilityMatrix(
 export function getProviderCapabilityFlags(
   providerId: string,
 ): ProviderCapabilityFlags {
-  return (
-    registryService.getProviderCapabilities(providerId) ?? {
-      streaming: false,
-      tools: false,
-      structuredOutputs: false,
-      jsonMode: false,
-    }
-  );
+  const flags = registryService.getProviderCapabilities(providerId);
+  if (!flags) {
+    throw new ProviderCapabilityConfigurationError(providerId);
+  }
+  return flags;
 }

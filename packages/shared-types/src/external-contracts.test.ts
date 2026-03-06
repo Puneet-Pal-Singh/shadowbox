@@ -128,7 +128,7 @@ describe("external contract freeze", () => {
             "defaultProviderId",
             "defaultModelId",
           ],
-          "providerIdPattern": "^[a-z0-9-]+$",
+          "providerIdPattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
           "validateRequestFields": [
             "providerId",
             "mode",

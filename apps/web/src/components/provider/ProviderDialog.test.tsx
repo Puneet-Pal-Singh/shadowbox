@@ -21,6 +21,7 @@ describe("ProviderDialog", () => {
           providerId: "openai",
           displayName: "OpenAI",
           authModes: ["api_key"],
+          adapterFamily: "openai-compatible",
           capabilities: {
             streaming: true,
             tools: true,
@@ -76,8 +77,11 @@ describe("ProviderDialog", () => {
       },
       visibleModelIds: {},
       preferences: {
+        userId: "user-1",
+        workspaceId: "ws-1",
         defaultProviderId: "openai",
         defaultModelId: "gpt-4",
+        visibleModelIds: {},
         updatedAt: new Date().toISOString(),
       },
       selectedProviderId: "openai",

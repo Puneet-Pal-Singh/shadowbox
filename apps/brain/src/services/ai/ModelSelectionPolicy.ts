@@ -144,7 +144,10 @@ export function mapProviderIdToRuntimeProvider(
   providerId: ProviderId,
 ): RuntimeProvider {
   const provider = providerRegistryService.getProvider(providerId);
-  return provider?.adapterFamily ?? "openai-compatible";
+  if (!provider) {
+    throw new InvalidProviderSelectionError(providerId);
+  }
+  return provider.adapterFamily;
 }
 
 /**

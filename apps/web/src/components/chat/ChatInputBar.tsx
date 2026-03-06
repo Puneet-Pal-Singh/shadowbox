@@ -1,6 +1,7 @@
 import { useRef, useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { Plus, Mic, ArrowUp, Paperclip, Square } from "lucide-react";
+import type { ProviderId } from "@repo/shared-types";
 import { useProviderStore } from "../../hooks/useProviderStore.js";
 import { findCredentialByProviderId } from "../../lib/provider-helpers.js";
 import { ProviderDialog, ModelPickerPopover } from "../provider/index.js";
@@ -101,8 +102,6 @@ export function ChatInputBar({
     selectedModelView,
     selectedProviderId,
   ]);
-
-
 
   return (
     <>

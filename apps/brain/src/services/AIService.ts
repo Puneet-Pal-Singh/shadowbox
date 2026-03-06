@@ -144,7 +144,7 @@ export class AIService {
       temperature,
       // OpenRouter often rejects tool-based structured generation for some models.
       // Force JSON mode for OpenAI-compatible providers to avoid `tool_choice` routing failures.
-      ...(selection.runtimeProvider === "anthropic"
+      ...(selection.runtimeProvider === "anthropic-native"
         ? {}
         : { mode: "json" as const }),
     });

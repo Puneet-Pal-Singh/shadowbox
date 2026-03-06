@@ -10,6 +10,7 @@ import {
   ProviderCatalogResponseSchema,
   ProviderConnectionsResponseSchema,
   ProviderErrorEnvelopeSchema,
+  PROVIDER_ID_PATTERN,
   ProviderIdSchema,
 } from "./provider.js";
 import {
@@ -57,7 +58,7 @@ export const EXTERNAL_CONTRACT_MANIFEST = {
     },
   },
   provider: {
-    providerIdPattern: "^[a-z0-9-]+$",
+    providerIdPattern: PROVIDER_ID_PATTERN,
     connectRequestFields: ["providerId", "apiKey"],
     connectResponseFields: [
       "status",
