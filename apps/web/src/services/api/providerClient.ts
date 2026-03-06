@@ -1,35 +1,16 @@
 /**
  * Provider API Client v3
  *
- * Typed HTTP client for provider credential endpoints.
- * All requests/responses validated against shared-types schemas.
- *
- * Usage:
- *   const client = new ProviderApiClient();
- *   const catalog = await client.getCatalog();
- *   const credential = await client.connectCredential({ providerId: 'openai', secret: '...' });
+ * Web-facing adapter that consumes the canonical provider SDK client.
+ * Keeps backward-compatible method names for existing web store usage.
  */
 
 import {
-  BYOKResolutionSchema,
-  BYOKResolveRequestSchema,
-  BYOKCredentialSchema,
-  BYOKPreferenceSchema,
-  ProviderRegistryEntrySchema,
-  BYOKCredentialConnectRequestSchema,
-  BYOKCredentialUpdateRequestSchema,
-  BYOKCredentialValidateRequestSchema,
-  BYOKCredentialValidateResponseSchema,
-  BYOKDiscoveredProviderModelsQuerySchema,
-  BYOKDiscoveredProviderModelsResponseSchema,
-  BYOKDiscoveredProviderModelsRefreshResponseSchema,
-  BYOKPreferencesUpdateRequestSchema,
-  ProviderErrorEnvelopeSchema,
-  BYOKResolution as ProviderResolution,
-  BYOKResolveRequest as ProviderResolveRequest,
-  BYOKCredential as ProviderCredential,
-  BYOKPreference as ProviderPreference,
-  type BYOKModelDiscoverySource,
+  createByokHttpTransport,
+  createProviderClient,
+  ProviderClientContractError,
+  ProviderClientOperationError,
+  type BYOKCredential,
   type BYOKCredentialConnectRequest,
   type BYOKCredentialUpdateRequest,
   type BYOKCredentialValidateRequest,
@@ -37,8 +18,12 @@ import {
   type BYOKDiscoveredProviderModelsQuery,
   type BYOKDiscoveredProviderModelsRefreshResponse,
   type BYOKPreferencesUpdateRequest,
+  type BYOKPreference,
+  type BYOKResolution,
+  type BYOKResolveRequest,
   type ProviderRegistryEntry,
-} from "@repo/shared-types";
+} from "@repo/platform-client-sdk";
+import type { BYOKModelDiscoverySource } from "@repo/shared-types";
 import { getBrainHttpBase } from "../../lib/platform-endpoints.js";
 import { SessionStateService } from "../SessionStateService";
 
@@ -87,10 +72,10 @@ export interface RunIdResolver {
   getRunId(): string | null;
 }
 
-/**
- * Resolve for chat request
- */
-export type ResolveChatRequest = ProviderResolveRequest;
+export type ResolveChatRequest = BYOKResolveRequest;
+export type ProviderCredential = BYOKCredential;
+export type ProviderPreference = BYOKPreference;
+export type ProviderResolution = BYOKResolution;
 
 /**
  * HTTP error wrapper for provider API failures
@@ -111,60 +96,37 @@ export class ProviderApiError extends Error {
   }
 }
 
-/**
- * ProviderApiClient - Typed HTTP client for provider APIs
- */
 export class ProviderApiClient {
-  // Keep `/api/byok` route for current backend contract compatibility.
-  private baseUrl: string = `${getBrainHttpBase()}/api/byok`;
-  private abortControllers: Map<string, AbortController> = new Map();
   private static readonly sessionRunIdKey = "currentRunId";
-  private static readonly responsePreviewLimit = 120;
+  private readonly sdkClient;
+  private readonly abortControllers = new Map<string, AbortController>();
 
   constructor(
     private readonly runIdResolver: RunIdResolver = new DefaultRunIdResolver(
       ProviderApiClient.sessionRunIdKey
     )
-  ) {}
-
-  /**
-   * GET /api/byok/providers (catalog)
-   */
-  async getCatalog(): Promise<ProviderRegistryEntry[]> {
-    const payload = await this.get<unknown>("/providers");
-    return this.parseResponseContract(
-      payload,
-      ProviderRegistryEntrySchema.array(),
-      "provider catalog",
+  ) {
+    this.sdkClient = createProviderClient(
+      createByokHttpTransport({
+        baseUrl: `${getBrainHttpBase()}/api/byok`,
+        getRunId: () => this.resolveRunId(),
+      }),
     );
   }
 
-  /**
-   * GET /api/byok/providers/:providerId/models
-   */
+  async getCatalog(): Promise<ProviderRegistryEntry[]> {
+    return this.callWithAbortKey("GET /providers", (signal) =>
+      this.sdkClient.discoverProviders({ signal }),
+    );
+  }
+
   async getProviderModels(
     providerId: string,
     query: ProviderModelsQuery = {},
   ): Promise<ProviderModelsPageResult> {
-    const validatedQuery = this.parseRequestContract(
-      query,
-      BYOKDiscoveredProviderModelsQuerySchema,
-      "provider model discovery query",
-    );
-    const params = new URLSearchParams({
-      view: validatedQuery.view,
-      limit: String(validatedQuery.limit),
-    });
-    if (validatedQuery.cursor) {
-      params.set("cursor", validatedQuery.cursor);
-    }
-    const payload = await this.get<unknown>(
-      `/providers/${encodeURIComponent(providerId)}/models?${params.toString()}`,
-    );
-    const response = this.parseResponseContract(
-      payload,
-      BYOKDiscoveredProviderModelsResponseSchema,
-      "provider model discovery",
+    const requestKey = `GET /providers/${encodeURIComponent(providerId)}/models`;
+    const response = await this.callWithAbortKey(requestKey, (signal) =>
+      this.sdkClient.discoverProviderModels(providerId, query, { signal }),
     );
     return {
       providerId: response.providerId,
@@ -179,427 +141,184 @@ export class ProviderApiClient {
     };
   }
 
-  /**
-   * POST /api/byok/providers/:providerId/models/refresh
-   */
   async refreshProviderModels(
     providerId: string,
   ): Promise<BYOKDiscoveredProviderModelsRefreshResponse> {
-    const payload = await this.post<unknown>(
-      `/providers/${encodeURIComponent(providerId)}/models/refresh`,
-      {},
-    );
-    return this.parseResponseContract(
-      payload,
-      BYOKDiscoveredProviderModelsRefreshResponseSchema,
-      "provider models refresh",
+    const requestKey = `POST /providers/${encodeURIComponent(providerId)}/models/refresh`;
+    return this.callWithAbortKey(requestKey, (signal) =>
+      this.sdkClient.refreshProviderModels(providerId, { signal }),
     );
   }
 
-  /**
-   * GET /api/byok/credentials
-   */
   async getCredentials(): Promise<ProviderCredential[]> {
-    const payload = await this.get<unknown>("/credentials");
-    return this.parseResponseContract(
-      payload,
-      BYOKCredentialSchema.array(),
-      "credentials",
+    return this.callWithAbortKey("GET /credentials", (signal) =>
+      this.sdkClient.listCredentials({ signal }),
     );
   }
 
-  /**
-   * POST /api/byok/credentials (connect)
-   */
   async connectCredential(
     req: ConnectCredentialRequest
   ): Promise<ProviderCredential> {
-    const request = this.parseRequestContract(
-      req,
-      BYOKCredentialConnectRequestSchema,
-      "connect credential",
+    return this.callWithAbortKey("POST /credentials", (signal) =>
+      this.sdkClient.connectCredential(req, { signal }),
     );
-    const payload = await this.post<unknown>("/credentials", request);
-    return this.parseResponseContract(payload, BYOKCredentialSchema, "credential");
   }
 
-  /**
-   * PATCH /api/byok/credentials/:credentialId (update)
-   */
   async updateCredential(
     credentialId: string,
     req: UpdateCredentialRequest
   ): Promise<ProviderCredential> {
-    const request = this.parseRequestContract(
-      req,
-      BYOKCredentialUpdateRequestSchema,
-      "update credential",
+    const requestKey = `PATCH /credentials/${encodeURIComponent(credentialId)}`;
+    return this.callWithAbortKey(requestKey, (signal) =>
+      this.sdkClient.updateCredential(credentialId, req, { signal }),
     );
-    const payload = await this.patch<unknown>(
-      `/credentials/${credentialId}`,
-      request
-    );
-    return this.parseResponseContract(payload, BYOKCredentialSchema, "credential");
   }
 
-  /**
-   * DELETE /api/byok/credentials/:credentialId (disconnect)
-   */
   async disconnectCredential(credentialId: string): Promise<void> {
-    await this.delete(`/credentials/${credentialId}`);
+    const requestKey = `DELETE /credentials/${encodeURIComponent(credentialId)}`;
+    await this.callWithAbortKey(requestKey, (signal) =>
+      this.sdkClient.disconnectCredential(credentialId, { signal }),
+    );
   }
 
-  /**
-   * POST /api/byok/credentials/:credentialId/validate
-   */
   async validateCredential(
     credentialId: string,
     req: ValidateCredentialRequest
   ): Promise<ValidationResult> {
-    const request = this.parseRequestContract(
-      req,
-      BYOKCredentialValidateRequestSchema,
-      "validate credential",
-    );
-    const payload = await this.post<unknown>(
-      `/credentials/${credentialId}/validate`,
-      request
-    );
-    return this.parseResponseContract(
-      payload,
-      BYOKCredentialValidateResponseSchema,
-      "credential validation",
+    const requestKey = `POST /credentials/${encodeURIComponent(credentialId)}/validate`;
+    return this.callWithAbortKey(requestKey, (signal) =>
+      this.sdkClient.validateCredential(credentialId, req, { signal }),
     );
   }
 
-  /**
-   * GET /api/byok/preferences
-   */
   async getPreferences(): Promise<ProviderPreference> {
-    const payload = await this.get<unknown>("/preferences");
-    return this.parseResponseContract(
-      payload,
-      BYOKPreferenceSchema,
-      "preferences",
+    return this.callWithAbortKey("GET /preferences", (signal) =>
+      this.sdkClient.getPreferences({ signal }),
     );
   }
 
-  /**
-   * PATCH /api/byok/preferences
-   */
   async updatePreferences(
     req: BYOKPreferencesUpdateRequest
   ): Promise<ProviderPreference> {
-    const request = this.parseRequestContract(
-      req,
-      BYOKPreferencesUpdateRequestSchema,
-      "update preferences",
-    );
-    const payload = await this.patch<unknown>("/preferences", request);
-    return this.parseResponseContract(
-      payload,
-      BYOKPreferenceSchema,
-      "preferences",
+    return this.callWithAbortKey("PATCH /preferences", (signal) =>
+      this.sdkClient.selectDefault(req, { signal }),
     );
   }
 
-  /**
-   * POST /api/byok/resolve (resolve for chat)
-   */
   async resolveForChat(req: ResolveChatRequest): Promise<ProviderResolution> {
-    const request = this.parseRequestContract(
-      req,
-      BYOKResolveRequestSchema,
-      "resolve chat request",
-    );
-    const payload = await this.post<unknown>("/resolve", request);
-    return this.parseResponseContract(
-      payload,
-      BYOKResolutionSchema,
-      "resolution",
+    return this.callWithAbortKey("POST /resolve", (signal) =>
+      this.sdkClient.resolveForRun(req, { signal }),
     );
   }
 
-  /**
-   * Abort any in-flight request for a given key
-   */
   abort(key: string): void {
     const controller = this.abortControllers.get(key);
-    if (controller) {
-      controller.abort();
-      this.abortControllers.delete(key);
+    if (!controller) {
+      return;
     }
-  }
-
-  /**
-   * Internal GET helper
-   */
-  private async get<T>(
-    path: string,
-    options?: { signal?: AbortSignal }
-  ): Promise<T> {
-    return this.request<T>("GET", path, undefined, options);
-  }
-
-  /**
-   * Internal POST helper
-   */
-  private async post<T>(
-    path: string,
-    body: unknown,
-    options?: { signal?: AbortSignal }
-  ): Promise<T> {
-    return this.request<T>("POST", path, body, options);
-  }
-
-  /**
-   * Internal PATCH helper
-   */
-  private async patch<T>(
-    path: string,
-    body: unknown,
-    options?: { signal?: AbortSignal }
-  ): Promise<T> {
-    return this.request<T>("PATCH", path, body, options);
-  }
-
-  /**
-   * Internal DELETE helper
-   */
-  private async delete(
-    path: string,
-    options?: { signal?: AbortSignal }
-  ): Promise<void> {
-    await this.request("DELETE", path, undefined, options);
-  }
-
-  /**
-   * Core request handler with error mapping
-   */
-  private async request<T>(
-    method: string,
-    path: string,
-    body?: unknown,
-    options?: { signal?: AbortSignal }
-  ): Promise<T> {
-    const url = `${this.baseUrl}${path}`;
-    const signal = options?.signal;
-
-    const fetchOptions: RequestInit = {
-      method,
-      credentials: "include",
-      headers: this.createHeaders(),
-      signal,
-    };
-
-    if (body) {
-      fetchOptions.body = JSON.stringify(body);
-    }
-
-    try {
-      const response = await fetch(url, fetchOptions);
-
-      if (!response.ok) {
-        await this.handleErrorResponse(response);
-      }
-
-      return await this.parseSuccessResponse<T>(response, method, path);
-    } catch (error) {
-      if (error instanceof ProviderApiError) {
-        throw error;
-      }
-
-      // Network error or abort
-      if (error instanceof Error && error.name === "AbortError") {
-        throw new ProviderApiError(0, "ABORTED", "Request was aborted");
-      }
-
-      throw new ProviderApiError(
-        500,
-        "NETWORK_ERROR",
-        error instanceof Error ? error.message : "Network request failed"
-      );
-    }
-  }
-
-  private async parseSuccessResponse<T>(
-    response: Response,
-    method: string,
-    path: string
-  ): Promise<T> {
-    if (response.status === 204 || method === "DELETE") {
-      return undefined as T;
-    }
-
-    const contentType = response.headers.get("content-type") ?? "";
-    if (!contentType.includes("application/json")) {
-      const preview = await this.readResponsePreview(response);
-      throw new ProviderApiError(
-        502,
-        "INVALID_RESPONSE_FORMAT",
-        `Expected JSON response for ${method} ${path}${preview ? `; received: ${preview}` : ""}`
-      );
-    }
-
-    try {
-      const data = await response.json();
-      return data as T;
-    } catch {
-      throw new ProviderApiError(
-        502,
-        "INVALID_RESPONSE_FORMAT",
-        `Invalid JSON response for ${method} ${path}`
-      );
-    }
-  }
-
-  private parseRequestContract<T>(
-    payload: unknown,
-    schema: { safeParse: (data: unknown) => { success: true; data: T } | { success: false } },
-    context: string
-  ): T {
-    const parsed = schema.safeParse(payload);
-    if (!parsed.success) {
-      throw new ProviderApiError(
-        400,
-        "INVALID_REQUEST_CONTRACT",
-        `Invalid ${context} contract`,
-      );
-    }
-    return parsed.data;
-  }
-
-  private parseResponseContract<T>(
-    payload: unknown,
-    schema: { safeParse: (data: unknown) => { success: true; data: T } | { success: false } },
-    context: string
-  ): T {
-    const parsed = schema.safeParse(payload);
-    if (!parsed.success) {
-      throw new ProviderApiError(
-        502,
-        "INVALID_RESPONSE_CONTRACT",
-        `Invalid ${context} response contract`,
-      );
-    }
-    return parsed.data;
-  }
-
-  private createHeaders(): HeadersInit {
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-    };
-
-    const runId = this.resolveRunId();
-    if (!runId) {
-      throw new ProviderApiError(
-        400,
-        "MISSING_RUN_ID",
-        "Run ID is required for provider requests"
-      );
-    }
-    headers["X-Run-Id"] = runId;
-
-    return headers;
+    controller.abort();
+    this.abortControllers.delete(key);
   }
 
   private resolveRunId(): string | null {
     return this.runIdResolver.getRunId();
   }
 
-  /**
-   * Handle error responses with provider error envelope
-   */
-  private async handleErrorResponse(response: Response): Promise<never> {
-    let message = `HTTP ${response.status}`;
-    let code = "API_ERROR";
-    let correlationId: string | undefined;
-
+  private async call<T>(operation: () => Promise<T>): Promise<T> {
     try {
-      const contentType = response.headers.get("content-type");
-      if (contentType?.includes("application/json")) {
-        const errorData = await response.json();
-        const parsed = ProviderErrorEnvelopeSchema.safeParse(errorData);
-        if (parsed.success) {
-          message = parsed.data.error.message;
-          code = parsed.data.error.code;
-          correlationId = parsed.data.error.correlationId;
-        } else {
-          const fallback = extractErrorFields(errorData);
-          message = fallback.message ?? message;
-          code = fallback.code ?? code;
-          correlationId = fallback.correlationId;
-        }
-      } else {
-        const preview = await this.readResponsePreview(response);
-        if (preview) {
-          message = `Unexpected non-JSON error response: ${preview}`;
-          code = "INVALID_ERROR_RESPONSE";
-        }
-      }
-    } catch {
-      // Ignore JSON parse errors, use default error
+      return await operation();
+    } catch (error) {
+      throw mapProviderApiError(error);
     }
-
-    throw new ProviderApiError(response.status, code, message, correlationId);
   }
 
-  private async readResponsePreview(response: Response): Promise<string> {
+  private async callWithAbortKey<T>(
+    key: string,
+    operation: (signal: AbortSignal) => Promise<T>,
+  ): Promise<T> {
+    const controller = this.prepareAbortController(key);
     try {
-      const text = (await response.text()).trim();
-      if (!text) {
-        return "";
-      }
-      return text.slice(0, ProviderApiClient.responsePreviewLimit);
-    } catch (error) {
-      console.warn(
-        "[provider/readResponsePreview] Failed to read response text",
-        error
-      );
-      return "";
+      return await this.call(() => operation(controller.signal));
+    } finally {
+      this.releaseAbortController(key, controller);
+    }
+  }
+
+  private prepareAbortController(key: string): AbortController {
+    const existing = this.abortControllers.get(key);
+    if (existing) {
+      existing.abort();
+    }
+    const controller = new AbortController();
+    this.abortControllers.set(key, controller);
+    return controller;
+  }
+
+  private releaseAbortController(key: string, controller: AbortController): void {
+    if (this.abortControllers.get(key) === controller) {
+      this.abortControllers.delete(key);
     }
   }
 }
 
-function extractErrorFields(payload: unknown): {
-  code?: string;
-  message?: string;
-  correlationId?: string;
-} {
-  if (!payload || typeof payload !== "object") {
-    return {};
+function mapProviderApiError(error: unknown): ProviderApiError {
+  if (error instanceof ProviderApiError) {
+    return error;
   }
+  if (error instanceof ProviderClientContractError) {
+    const statusCode = error.phase === "request" ? 400 : 502;
+    const code =
+      error.phase === "request"
+        ? "INVALID_REQUEST_CONTRACT"
+        : "INVALID_RESPONSE_CONTRACT";
+    return new ProviderApiError(statusCode, code, error.message);
+  }
+  if (error instanceof ProviderClientOperationError) {
+    const statusCode =
+      error.statusCode && error.statusCode > 0
+        ? error.statusCode
+        : deriveStatusCodeFromOperationError(error.code, error.retryable);
+    return new ProviderApiError(
+      statusCode,
+      error.code,
+      error.message,
+      error.correlationId,
+    );
+  }
+  if (error instanceof Error) {
+    return new ProviderApiError(500, "NETWORK_ERROR", error.message);
+  }
+  return new ProviderApiError(500, "NETWORK_ERROR", "Network request failed");
+}
 
-  const raw = payload as Record<string, unknown>;
-  const nestedError =
-    raw.error && typeof raw.error === "object"
-      ? (raw.error as Record<string, unknown>)
-      : undefined;
-
-  const message =
-    typeof raw.error === "string"
-      ? raw.error
-      : typeof raw.message === "string"
-      ? raw.message
-      : typeof nestedError?.message === "string"
-      ? nestedError.message
-      : undefined;
-
-  const code =
-    typeof raw.code === "string"
-      ? raw.code
-      : typeof nestedError?.code === "string"
-      ? nestedError.code
-      : undefined;
-
-  const correlationId =
-    typeof raw.correlationId === "string"
-      ? raw.correlationId
-      : typeof nestedError?.correlationId === "string"
-      ? nestedError.correlationId
-      : undefined;
-
-  return { code, message, correlationId };
+function deriveStatusCodeFromOperationError(
+  code: string,
+  retryable: boolean,
+): number {
+  if (code === "ABORTED") {
+    return 0;
+  }
+  if (code === "MISSING_RUN_ID" || code === "INVALID_REQUEST_CONTRACT") {
+    return 400;
+  }
+  if (
+    code === "INVALID_RESPONSE_CONTRACT" ||
+    code === "INVALID_RESPONSE_FORMAT" ||
+    code === "INVALID_ERROR_RESPONSE"
+  ) {
+    return 502;
+  }
+  if (
+    code === "RATE_LIMIT_EXCEEDED" ||
+    code === "PROVIDER_RATE_LIMITED" ||
+    code === "QUOTA_EXCEEDED"
+  ) {
+    return 429;
+  }
+  if (retryable || code === "NETWORK_ERROR") {
+    return 500;
+  }
+  return 400;
 }
 
 class DefaultRunIdResolver implements RunIdResolver {
@@ -614,7 +333,6 @@ class DefaultRunIdResolver implements RunIdResolver {
     } catch (error) {
       console.warn("[provider/resolveRunId] Failed to read sessionStorage", error);
     }
-
     return SessionStateService.loadActiveSessionRunId();
   }
 }

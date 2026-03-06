@@ -11,6 +11,12 @@ export type ProviderClientOperationErrorCode =
   | BYOKErrorCode
   | "ABORTED"
   | "NETWORK_ERROR"
+  | "MISSING_RUN_ID"
+  | "INVALID_REQUEST_CONTRACT"
+  | "INVALID_RESPONSE_CONTRACT"
+  | "INVALID_RESPONSE_FORMAT"
+  | "INVALID_ERROR_RESPONSE"
+  | "API_ERROR"
   | "INVALID_TRANSITION"
   | "UNKNOWN_OPERATION_ERROR";
 
@@ -31,6 +37,7 @@ export class ProviderClientOperationError extends Error {
     message: string,
     public readonly retryable: boolean,
     public readonly correlationId?: string,
+    public readonly statusCode?: number,
   ) {
     super(message);
     this.name = "ProviderClientOperationError";
@@ -66,7 +73,16 @@ export function isRetryableProviderClientErrorCode(
   if (code === "ABORTED" || code === "NETWORK_ERROR") {
     return true;
   }
-  if (code === "INVALID_TRANSITION" || code === "UNKNOWN_OPERATION_ERROR") {
+  if (
+    code === "INVALID_TRANSITION" ||
+    code === "UNKNOWN_OPERATION_ERROR" ||
+    code === "MISSING_RUN_ID" ||
+    code === "INVALID_REQUEST_CONTRACT" ||
+    code === "INVALID_RESPONSE_CONTRACT" ||
+    code === "INVALID_RESPONSE_FORMAT" ||
+    code === "INVALID_ERROR_RESPONSE" ||
+    code === "API_ERROR"
+  ) {
     return false;
   }
   return isRetryableError(code);
@@ -88,6 +104,8 @@ export function normalizeProviderClientOperationError(
       "ABORTED",
       "Operation aborted",
       true,
+      undefined,
+      0,
     );
   }
   if (isNetworkError(error)) {
@@ -95,6 +113,8 @@ export function normalizeProviderClientOperationError(
       "NETWORK_ERROR",
       `${operation}: ${getErrorMessage(error)}`,
       true,
+      undefined,
+      0,
     );
   }
 
@@ -103,6 +123,8 @@ export function normalizeProviderClientOperationError(
     "UNKNOWN_OPERATION_ERROR",
     `${operation}: ${normalizedMessage}`,
     false,
+    undefined,
+    500,
   );
 }
 
@@ -162,7 +184,16 @@ export function parseProviderOperationErrorCode(
     return parsed.data;
   }
 
-  if (value === "ABORTED" || value === "NETWORK_ERROR") {
+  if (
+    value === "ABORTED" ||
+    value === "NETWORK_ERROR" ||
+    value === "MISSING_RUN_ID" ||
+    value === "INVALID_REQUEST_CONTRACT" ||
+    value === "INVALID_RESPONSE_CONTRACT" ||
+    value === "INVALID_RESPONSE_FORMAT" ||
+    value === "INVALID_ERROR_RESPONSE" ||
+    value === "API_ERROR"
+  ) {
     return value;
   }
 

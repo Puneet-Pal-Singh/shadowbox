@@ -79,7 +79,7 @@ describe("ProviderApiClient", () => {
           "Content-Type": "application/json",
           "X-Run-Id": testRunId,
         },
-        signal: undefined,
+        signal: expect.any(AbortSignal),
       });
       expect(catalog).toEqual(mockCatalog);
     });
@@ -123,7 +123,7 @@ describe("ProviderApiClient", () => {
             "Content-Type": "application/json",
             "X-Run-Id": testRunId,
           },
-          signal: undefined,
+          signal: expect.any(AbortSignal),
         }
       );
       expect(models.providerId).toBe("openrouter");
@@ -185,7 +185,7 @@ describe("ProviderApiClient", () => {
           "Content-Type": "application/json",
           "X-Run-Id": testRunId,
         },
-        signal: undefined,
+        signal: expect.any(AbortSignal),
       });
       expect(credentials).toEqual(mockCredentials);
     });
@@ -213,7 +213,7 @@ describe("ProviderApiClient", () => {
           "Content-Type": "application/json",
           "X-Run-Id": testRunId,
         },
-        signal: undefined,
+        signal: expect.any(AbortSignal),
         body: JSON.stringify({
           providerId: "openai",
           secret: "sk-test",
@@ -239,7 +239,7 @@ describe("ProviderApiClient", () => {
           "Content-Type": "application/json",
           "X-Run-Id": testRunId,
         },
-        signal: undefined,
+        signal: expect.any(AbortSignal),
       });
     });
   });
@@ -299,7 +299,7 @@ describe("ProviderApiClient", () => {
         headers: new Headers({ "content-type": "application/json" }),
         json: vi.fn().mockResolvedValueOnce({
           error: {
-            code: "INVALID_INPUT",
+            code: "VALIDATION_ERROR",
             message: "Provider ID is invalid",
           },
         }),
@@ -310,7 +310,7 @@ describe("ProviderApiClient", () => {
         expect.fail("Should have thrown error");
       } catch (error) {
         expect(error).toBeInstanceOf(ProviderApiError);
-        expect((error as ProviderApiError).code).toBe("INVALID_INPUT");
+        expect((error as ProviderApiError).code).toBe("VALIDATION_ERROR");
         expect((error as ProviderApiError).statusCode).toBe(400);
       }
     });
@@ -358,6 +358,8 @@ describe("ProviderApiClient", () => {
       } catch (error) {
         expect(error).toBeInstanceOf(ProviderApiError);
         expect((error as ProviderApiError).code).toBe("NETWORK_ERROR");
+        expect((error as ProviderApiError).statusCode).toBe(500);
+        expect((error as ProviderApiError).isRetryable()).toBe(true);
       }
     });
 
@@ -440,11 +442,28 @@ describe("ProviderApiClient", () => {
 
   describe("abort", () => {
     it("aborts in-flight request", async () => {
-      const abortSpy = vi.spyOn(AbortController.prototype, "abort");
+      fetchSpy.mockImplementationOnce((_url, init) => {
+        const signal = (init as RequestInit).signal;
+        return new Promise((_resolve, reject) => {
+          if (!signal) {
+            reject(new Error("Missing abort signal"));
+            return;
+          }
+          signal.addEventListener("abort", () => {
+            const abortError = new Error("Request was aborted");
+            abortError.name = "AbortError";
+            reject(abortError);
+          });
+        });
+      });
 
-      client.abort("test-key");
+      const request = client.getCatalog();
+      client.abort("GET /providers");
 
-      expect(abortSpy).not.toHaveBeenCalled(); // No request was made
+      await expect(request).rejects.toMatchObject({
+        code: "ABORTED",
+        statusCode: 0,
+      });
     });
   });
 });

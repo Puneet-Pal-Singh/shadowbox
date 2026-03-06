@@ -156,7 +156,7 @@ describe("ProviderClient", () => {
     expect(transport.discoverProviderModels).toHaveBeenCalledWith("openai", {
       view: "popular",
       limit: 50,
-    });
+    }, undefined);
   });
 
   it("fails fast on invalid request contract and skips transport", async () => {
