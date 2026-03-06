@@ -33,12 +33,6 @@ export const PROVIDER_ENDPOINTS: Record<string, ProviderEndpointConfig> = {
   },
 };
 
-function isDirectEndpointProviderId(
-  providerId: ProviderId,
-): boolean {
-  return providerId in PROVIDER_ENDPOINTS;
-}
-
 /**
  * Validate API key format against provider requirements.
  * @param providerId - The provider ID
@@ -49,8 +43,8 @@ export function validateProviderApiKeyFormat(
   providerId: ProviderId,
   apiKey: string,
 ): void {
-  if (isDirectEndpointProviderId(providerId)) {
-    const config = PROVIDER_ENDPOINTS[providerId];
+  const config = PROVIDER_ENDPOINTS[providerId];
+  if (config) {
     if (!apiKey.startsWith(config.apiKeyPrefix)) {
       throw new Error(
         `Invalid ${providerId} API key format. Key must start with "${config.apiKeyPrefix}"`,
@@ -65,8 +59,5 @@ export function validateProviderApiKeyFormat(
  * @returns The base URL, or undefined if not a direct provider
  */
 export function getProviderBaseURL(providerId: ProviderId): string | undefined {
-  if (isDirectEndpointProviderId(providerId)) {
-    return PROVIDER_ENDPOINTS[providerId].baseURL;
-  }
-  return undefined;
+  return PROVIDER_ENDPOINTS[providerId]?.baseURL;
 }
