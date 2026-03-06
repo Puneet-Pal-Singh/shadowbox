@@ -10,8 +10,7 @@ import type { Env } from "../../types/ai";
 import { AIService } from "../../services/AIService";
 import {
   ProviderConfigService,
-  getProviderCapabilityFlags,
-  isModelAllowedByCapabilityMatrix,
+  ProviderRegistryService,
 } from "../../services/providers";
 import { ProviderValidationService } from "../../services/ProviderValidationService";
 import { DurableProviderStore } from "../../services/providers/DurableProviderStore";
@@ -86,6 +85,7 @@ export function buildLLMGateway(
     env,
     durableProviderStore,
   );
+  const providerRegistryService = new ProviderRegistryService();
   const aiService = new AIService(env, providerConfigService);
 
   const llmRuntimeService: LLMRuntimeAIService = {
@@ -103,25 +103,13 @@ export function buildLLMGateway(
     costLedger: budgetingComponents.costLedger,
     pricingResolver: budgetingComponents.pricingResolver,
     providerCapabilityResolver: {
-      getCapabilities: (providerId: string) => {
-        if (
-          providerId !== "openrouter" &&
-          providerId !== "openai" &&
-          providerId !== "groq"
-        ) {
-          return undefined;
-        }
-        return getProviderCapabilityFlags(providerId);
-      },
+      getCapabilities: (providerId: string) =>
+        providerRegistryService.getProviderCapabilities(providerId),
       isModelAllowed: (providerId: string, modelId: string) => {
-        if (
-          providerId !== "openrouter" &&
-          providerId !== "openai" &&
-          providerId !== "groq"
-        ) {
+        if (!providerRegistryService.isProviderRegistered(providerId)) {
           return false;
         }
-        return isModelAllowedByCapabilityMatrix(providerId, modelId);
+        return modelId.trim().length > 0;
       },
     },
   });

@@ -4,6 +4,7 @@ import {
   BYOKPreferencesPatchSchema,
   ProviderCatalogResponseSchema,
   ProviderErrorEnvelopeSchema,
+  ProviderIdSchema,
 } from "../provider.js";
 
 describe("provider shared contracts", () => {
@@ -58,5 +59,12 @@ describe("provider shared contracts", () => {
       },
     });
     expect(result.success).toBe(true);
+  });
+
+  it("rejects malformed provider slugs", () => {
+    expect(ProviderIdSchema.safeParse("-").success).toBe(false);
+    expect(ProviderIdSchema.safeParse("openai-").success).toBe(false);
+    expect(ProviderIdSchema.safeParse("openai--gpt").success).toBe(false);
+    expect(ProviderIdSchema.safeParse("openai-gpt").success).toBe(true);
   });
 });

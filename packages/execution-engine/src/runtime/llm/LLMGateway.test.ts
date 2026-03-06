@@ -17,6 +17,30 @@ const baseRequest = {
 };
 
 describe("LLMGateway provider capabilities", () => {
+  it("throws INVALID_PROVIDER_SELECTION when provider/model are missing", async () => {
+    const gateway = new LLMGateway(
+      createDependencies({
+        getCapabilities: () => ({
+          streaming: true,
+          tools: true,
+          structuredOutputs: true,
+          jsonMode: true,
+        }),
+        isModelAllowed: () => true,
+      }),
+    );
+
+    await expect(
+      gateway.generateText({
+        ...baseRequest,
+        providerId: undefined,
+        model: undefined,
+      }),
+    ).rejects.toMatchObject({
+      code: "INVALID_PROVIDER_SELECTION",
+    });
+  });
+
   it("throws MODEL_NOT_ALLOWED when capability resolver rejects provider/model pair", async () => {
     const gateway = new LLMGateway(
       createDependencies({

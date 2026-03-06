@@ -774,7 +774,7 @@ describe("ProviderController", () => {
       expect(resolveData.resolvedAt).toBe("session_preference");
     });
 
-    it("persists fallback preferences in v3 endpoints", async () => {
+    it("rejects fallback preference fields in v3 endpoints", async () => {
       const env = createMockEnv();
       const patchResponse = await ProviderController.byokPreferencesV3(
         new Request("http://localhost/api/byok/preferences", {
@@ -789,23 +789,8 @@ describe("ProviderController", () => {
       );
       const patchData = await patchResponse.json();
 
-      expect(patchResponse.status).toBe(200);
-      expect(patchData.fallbackMode).toBe("allow_fallback");
-      expect(patchData.fallbackChain).toEqual(["openrouter", "groq"]);
-
-      const getHeaders = await withByokHeaders(env);
-      delete getHeaders["Content-Type"];
-      const getResponse = await ProviderController.byokGetPreferencesV3(
-        new Request("http://localhost/api/byok/preferences", {
-          method: "GET",
-          headers: getHeaders,
-        }),
-        env,
-      );
-      const getData = await getResponse.json();
-      expect(getResponse.status).toBe(200);
-      expect(getData.fallbackMode).toBe("allow_fallback");
-      expect(getData.fallbackChain).toEqual(["openrouter", "groq"]);
+      expect(patchResponse.status).toBe(400);
+      expect(patchData.error.code).toBe("VALIDATION_ERROR");
     });
 
     it("disconnects credential by credentialId", async () => {

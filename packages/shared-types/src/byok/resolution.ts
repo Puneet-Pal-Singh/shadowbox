@@ -2,7 +2,7 @@
  * BYOK Resolution Result
  *
  * Represents the resolved effective provider + model for a chat request.
- * Result of the resolution pipeline (request override → preference → fallback → platform default).
+ * Result of the resolution pipeline (request override → preference → explicit defaults/error).
  */
 
 import { z } from "zod";
@@ -33,15 +33,11 @@ export const BYOKResolutionSchema = z.object({
     "request_override",
     "session_preference",
     "workspace_preference",
-    "platform_fallback",
     "platform_defaults",
   ]),
 
   /** Timestamp of resolution */
   resolvedAtTime: z.string().datetime(),
-
-  /** Fallback was triggered (for observability) */
-  fallbackUsed: z.boolean().default(false),
 });
 
 export type BYOKResolution = z.infer<typeof BYOKResolutionSchema>;

@@ -21,6 +21,7 @@ describe("ProviderDialog", () => {
           providerId: "openai",
           displayName: "OpenAI",
           authModes: ["api_key"],
+          adapterFamily: "openai-compatible",
           capabilities: {
             streaming: true,
             tools: true,
@@ -78,8 +79,8 @@ describe("ProviderDialog", () => {
       preferences: {
         userId: "user-1",
         workspaceId: "ws-1",
-        fallbackMode: "strict",
-        fallbackChain: [],
+        defaultProviderId: "openai",
+        defaultModelId: "gpt-4",
         visibleModelIds: {},
         updatedAt: new Date().toISOString(),
       },
@@ -98,7 +99,6 @@ describe("ProviderDialog", () => {
         modelId: "gpt-4",
         resolvedAt: "workspace_preference",
         resolvedAtTime: new Date().toISOString(),
-        fallbackUsed: false,
       },
       bootstrap: vi.fn(async () => undefined),
       connectCredential: vi.fn(async () => undefined),
@@ -122,7 +122,6 @@ describe("ProviderDialog", () => {
         modelId: "gpt-4",
         resolvedAt: "workspace_preference" as const,
         resolvedAtTime: new Date().toISOString(),
-        fallbackUsed: false,
       })),
       resolveForChat: vi.fn(async () => ({
         providerId: "openai",
@@ -130,7 +129,6 @@ describe("ProviderDialog", () => {
         modelId: "gpt-4",
         resolvedAt: "workspace_preference" as const,
         resolvedAtTime: new Date().toISOString(),
-        fallbackUsed: false,
       })),
       toggleModelVisibility: vi.fn(),
       setProviderVisibleModels: vi.fn(),
@@ -259,30 +257,27 @@ describe("ProviderDialog", () => {
   });
 
   describe("Preferences tab", () => {
-    it("shows fallback mode options", () => {
+    it("shows explicit selection policy copy", () => {
       render(<ProviderDialog isOpen={true} onClose={vi.fn()} />);
 
       const prefTab = screen.getByText("Preferences");
       fireEvent.click(prefTab);
 
-      expect(screen.getByText(/Strict/)).toBeInTheDocument();
-      expect(screen.getByText(/Allow Fallback/)).toBeInTheDocument();
+      expect(screen.getByText(/Explicit Selection Policy/)).toBeInTheDocument();
+      expect(
+        screen.getByText(/No hidden provider fallback is applied/)
+      ).toBeInTheDocument();
     });
 
-    it("calls updatePreferences on fallback mode change", async () => {
+    it("does not render legacy fallback controls", async () => {
       render(<ProviderDialog isOpen={true} onClose={vi.fn()} />);
 
       const prefTab = screen.getByText("Preferences");
       fireEvent.click(prefTab);
 
-      const allowFallbackLabel = screen.getByLabelText(/Allow Fallback/);
-      fireEvent.click(allowFallbackLabel);
-
-      await waitFor(() => {
-        expect(mockStore.updatePreferences).toHaveBeenCalledWith({
-          fallbackMode: "allow_fallback",
-        });
-      });
+      expect(screen.queryByLabelText(/Allow Fallback/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/Strict/)).not.toBeInTheDocument();
+      expect(mockStore.updatePreferences).not.toHaveBeenCalled();
     });
   });
 

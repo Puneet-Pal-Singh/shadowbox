@@ -9,6 +9,7 @@ export { DesktopCredentialVaultStub } from "./DesktopCredentialVaultStub";
 export { ProviderCatalogService } from "./ProviderCatalogService";
 export { ProviderConnectionService } from "./ProviderConnectionService";
 export { ProviderConfigService } from "./ProviderConfigService";
+export { ProviderRegistryService } from "./ProviderRegistryService";
 export { DurableProviderStore } from "./DurableProviderStore";
 export { ProviderRateLimitService } from "./ProviderRateLimitService";
 export { ProviderLiveValidationService } from "./ProviderLiveValidationService";

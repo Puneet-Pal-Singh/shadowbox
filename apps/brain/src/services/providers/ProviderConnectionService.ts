@@ -5,20 +5,23 @@
 
 import type {
   ProviderConnection,
-  ProviderId,
 } from "@repo/shared-types";
-import { PROVIDER_IDS } from "../../schemas/provider-registry";
 import type { ProviderCredentialService } from "./ProviderCredentialService";
-import { getProviderCapabilityFlags } from "./provider-capability-matrix";
+import { ProviderRegistryService } from "./ProviderRegistryService";
 
 /**
  * ProviderConnectionService - Queries connection status for all providers
  */
 export class ProviderConnectionService {
   private credentialService: ProviderCredentialService; // Injected credential service
+  private readonly registryService: ProviderRegistryService;
 
-  constructor(credentialService: ProviderCredentialService) {
+  constructor(
+    credentialService: ProviderCredentialService,
+    registryService: ProviderRegistryService,
+  ) {
     this.credentialService = credentialService;
+    this.registryService = registryService;
   }
 
   /**
@@ -27,7 +30,7 @@ export class ProviderConnectionService {
   async getStatus(): Promise<ProviderConnection[]> {
     const statuses: ProviderConnection[] = [];
 
-    for (const providerId of PROVIDER_IDS as readonly ProviderId[]) {
+    for (const providerId of this.registryService.listProviderIds()) {
       const isConnected = await this.credentialService.isConnected(providerId);
 
       statuses.push({
@@ -45,14 +48,15 @@ export class ProviderConnectionService {
   async getConnections(): Promise<ProviderConnection[]> {
     const connections: ProviderConnection[] = [];
 
-    for (const providerId of PROVIDER_IDS as readonly ProviderId[]) {
+    for (const providerId of this.registryService.listProviderIds()) {
       const isConnected = await this.credentialService.isConnected(providerId);
+      const capabilities = this.registryService.getProviderCapabilities(providerId);
 
       connections.push({
         providerId,
         status: isConnected ? "connected" : "disconnected",
         lastValidatedAt: isConnected ? new Date().toISOString() : undefined,
-        capabilities: getProviderCapabilityFlags(providerId),
+        capabilities,
       });
     }
 

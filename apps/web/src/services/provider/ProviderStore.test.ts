@@ -35,6 +35,7 @@ describe("ProviderStore", () => {
         providerId: "openai",
         displayName: "OpenAI",
         authModes: ["api_key"],
+        adapterFamily: "openai-compatible",
         capabilities: {
           streaming: true,
           tools: true,
@@ -69,8 +70,6 @@ describe("ProviderStore", () => {
       defaultProviderId: "openai",
       defaultCredentialId: credential1Id,
       defaultModelId: "gpt-4",
-      fallbackMode: "strict",
-      fallbackChain: [],
       visibleModelIds: {},
       updatedAt: new Date().toISOString(),
     };
@@ -81,7 +80,6 @@ describe("ProviderStore", () => {
       modelId: "gpt-4",
       resolvedAt: "workspace_preference",
       resolvedAtTime: new Date().toISOString(),
-      fallbackUsed: false,
     };
 
     const connectedCredential: BYOKCredential = {
@@ -444,22 +442,21 @@ describe("ProviderStore", () => {
       expect(mockApiClient.resolveForChat).toHaveBeenCalledTimes(1);
     });
 
-    it("requests platform fallback when no provider is connected", async () => {
+    it("requests platform defaults when no provider is connected", async () => {
       vi.mocked(mockApiClient.getCredentials).mockResolvedValueOnce([]);
       vi.mocked(mockApiClient.resolveForChat).mockResolvedValueOnce({
         providerId: "openrouter",
         credentialId: "",
         modelId: "google/gemma-2-9b-it:free",
-        resolvedAt: "platform_fallback",
+        resolvedAt: "platform_defaults",
         resolvedAtTime: new Date().toISOString(),
-        fallbackUsed: true,
       });
       await store.bootstrap();
 
       const config = await store.resolveForChat();
 
       expect(config.providerId).toBe("openrouter");
-      expect(config.fallbackUsed).toBe(true);
+      expect(config.resolvedAt).toBe("platform_defaults");
       expect(mockApiClient.resolveForChat).toHaveBeenCalledWith({});
     });
   });
@@ -479,18 +476,16 @@ describe("ProviderStore", () => {
         workspaceId: "ws-1",
         defaultProviderId: "openai",
         defaultCredentialId: credential2Id,
-        defaultModelId: "gpt-4",
-        fallbackMode: "allow_fallback",
-        fallbackChain: [],
+        defaultModelId: "gpt-4-turbo",
         visibleModelIds: {},
         updatedAt: new Date().toISOString(),
       });
-      await store.updatePreferences({ fallbackMode: "allow_fallback" });
+      await store.updatePreferences({ defaultModelId: "gpt-4-turbo" });
 
       await store.disconnectCredential(credential1Id);
 
       const state = store.getState();
-      expect(state.preferences?.fallbackMode).toBe("allow_fallback");
+      expect(state.preferences?.defaultModelId).toBe("gpt-4-turbo");
       expect(state.credentials).toHaveLength(1);
       expect(state.credentials[0]?.credentialId).toBe(credential2Id);
       expect(state.selectedCredentialId).toBe(credential2Id);

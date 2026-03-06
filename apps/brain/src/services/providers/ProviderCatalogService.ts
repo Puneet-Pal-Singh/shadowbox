@@ -1,69 +1,105 @@
 /**
  * ProviderCatalogService
- * Single Responsibility: Manage provider model catalog responses
+ * Single Responsibility: Build provider catalog and provider model lists from
+ * registry + dynamic discovery authority.
  */
 
 import type {
-  ProviderCatalogResponse,
+  BYOKDiscoveredProviderModelsQuery,
+  ModelDescriptor,
   ProviderCatalogEntry,
-  ProviderId,
+  ProviderCatalogResponse,
 } from "@repo/shared-types";
 import type { ModelsListResponse } from "../../schemas/provider";
-import { PROVIDER_CATALOG } from "./catalog";
-import { getProviderCapabilityFlags } from "./provider-capability-matrix";
+import { ProviderRegistryService } from "./ProviderRegistryService";
+import { ProviderModelDiscoveryService } from "./model-discovery";
 
-const PROVIDER_DISPLAY_NAMES: Record<ProviderId, string> = {
-  openrouter: "OpenRouter",
-  openai: "OpenAI",
-  groq: "Groq",
-  google: "Google",
+const CATALOG_DISCOVERY_QUERY: BYOKDiscoveredProviderModelsQuery = {
+  view: "all",
+  limit: 200,
 };
 
-/**
- * ProviderCatalogService - Manages provider model catalogs
- *
- * Provides read-only access to available models per provider.
- * Catalog is static and defined in catalog.ts.
- */
+const MODELS_DISCOVERY_QUERY: BYOKDiscoveredProviderModelsQuery = {
+  view: "all",
+  limit: 1000,
+};
+
 export class ProviderCatalogService {
+  constructor(
+    private readonly registryService: ProviderRegistryService,
+    private readonly modelDiscoveryService: ProviderModelDiscoveryService,
+  ) {}
+
   async getCatalog(): Promise<ProviderCatalogResponse> {
-    const providers = this.buildCatalogEntries();
+    const registryProviders = this.registryService.listProviders();
+    const providers: ProviderCatalogEntry[] = [];
+
+    for (const provider of registryProviders) {
+      const discoveredModels = await this.loadProviderModels(provider.providerId);
+      providers.push({
+        providerId: provider.providerId,
+        displayName: provider.displayName,
+        capabilities: provider.capabilities,
+        models: discoveredModels,
+      });
+    }
+
     return {
       providers,
       generatedAt: new Date().toISOString(),
     };
   }
 
-  /**
-   * Get available models for a provider
-   */
-  async getModels(providerId: ProviderId): Promise<ModelsListResponse> {
+  async getModels(providerId: string): Promise<ModelsListResponse> {
+    const models = await this.loadProviderModels(providerId);
+    return {
+      providerId,
+      models,
+      lastFetchedAt: new Date().toISOString(),
+    };
+  }
+
+  private async loadProviderModels(providerId: string): Promise<ModelDescriptor[]> {
     try {
-      const models = PROVIDER_CATALOG[providerId] || [];
-
-      console.log(
-        `[provider/catalog] Fetched ${models.length} models for ${providerId}`,
-      );
-
-      return {
+      const discovered = await this.modelDiscoveryService.getDiscoveredModels(
         providerId,
-        models,
-        lastFetchedAt: new Date().toISOString(),
-      };
-    } catch (error) {
-      console.error(`[provider/catalog] Error fetching models:`, error);
-      throw error;
+        CATALOG_DISCOVERY_QUERY,
+      );
+      return discovered.models.map((model) => ({
+        id: model.id,
+        name: model.name,
+        provider: providerId,
+        contextWindow: model.contextWindow,
+        description: model.description,
+      }));
+    } catch {
+      const defaultModelId = this.registryService.getDefaultModel(providerId);
+      if (!defaultModelId) {
+        return [];
+      }
+      return [
+        {
+          id: defaultModelId,
+          name: defaultModelId,
+          provider: providerId,
+        },
+      ];
     }
   }
 
-  private buildCatalogEntries(): ProviderCatalogEntry[] {
-    return (Object.keys(PROVIDER_CATALOG) as ProviderId[]).map(
-      (providerId) => ({
-        providerId,
-        displayName: PROVIDER_DISPLAY_NAMES[providerId] ?? providerId,
-        capabilities: getProviderCapabilityFlags(providerId),
-        models: PROVIDER_CATALOG[providerId] ?? [],
-      }),
+  async getDiscoveredModels(providerId: string): Promise<ModelsListResponse> {
+    const discovered = await this.modelDiscoveryService.getDiscoveredModels(
+      providerId,
+      MODELS_DISCOVERY_QUERY,
     );
+    return {
+      providerId,
+      models: discovered.models.map((model) => ({
+        id: model.id,
+        name: model.name,
+        provider: providerId,
+      })),
+      lastFetchedAt: discovered.metadata.fetchedAt,
+    };
   }
 }

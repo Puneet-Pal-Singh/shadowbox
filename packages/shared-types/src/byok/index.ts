@@ -53,6 +53,8 @@ export {
 
 // Provider registry
 export {
+  ProviderAdapterFamilySchema,
+  ProviderValidationAuthModeSchema,
   ProviderRegistryEntrySchema,
   ProviderRegistrySchema,
   BUILTIN_PROVIDERS,
@@ -60,6 +62,8 @@ export {
   findBuiltinProvider,
   isKnownProvider,
   getKnownProviderIds,
+  type ProviderAdapterFamily,
+  type ProviderValidationAuthMode,
   type ProviderRegistryEntry,
   type ProviderRegistry,
 } from "./registry.js";

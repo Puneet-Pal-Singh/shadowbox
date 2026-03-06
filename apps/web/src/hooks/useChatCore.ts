@@ -1,6 +1,5 @@
 import { useChat as useVercelChat, type Message } from "@ai-sdk/react";
 import { useCallback, useMemo, useState, type FormEvent } from "react";
-import { DEFAULT_PLATFORM_MODEL_ID } from "@repo/shared-types";
 import { chatStreamPath, getBrainHttpBase } from "../lib/platform-endpoints.js";
 import { useProviderStore } from "./useProviderStore.js";
 import type { ChatDebugEvent } from "../types/chat-debug.js";
@@ -77,24 +76,10 @@ export function useChatCore(
   const {
     status,
     credentials,
-    preferences,
-    selectedProviderId,
-    selectedCredentialId,
-    selectedModelId,
-    lastResolvedConfig,
     resolveForChat,
   } = useProviderStore(runId);
   const hasConnectedCredential = credentials.length > 0;
-  // Ready for chat if store is initialized (no longer requires connected provider credentials)
-  const isModelConfigReady = status === "ready";
-  const activeProviderId =
-    selectedProviderId ??
-    (hasConnectedCredential ? lastResolvedConfig?.providerId : undefined);
-  const activeModelId =
-    selectedModelId ??
-    (hasConnectedCredential ? lastResolvedConfig?.modelId : undefined) ??
-    (hasConnectedCredential ? preferences?.defaultModelId : undefined) ??
-    DEFAULT_PLATFORM_MODEL_ID;
+  const isModelConfigReady = status === "ready" && hasConnectedCredential;
 
   const {
     messages,
@@ -166,39 +151,25 @@ export function useChatCore(
       }
       setError(null);
 
-      // Resolve provider/model: use lastResolvedConfig if available,
-      // otherwise fallback to defaults for no-provider-credential path
-      let providerId = activeProviderId;
-      let modelId = activeModelId;
-      let credentialId = selectedCredentialId;
-
-      if (hasConnectedCredential && (!lastResolvedConfig || !selectedCredentialId)) {
-        // Resolve when provider credentials are connected and selection is incomplete
-        const resolvedConfig = await resolveForChat();
-        if (resolvedConfig.credentialId.trim().length > 0) {
-          credentialId = resolvedConfig.credentialId;
-          providerId = resolvedConfig.providerId;
-        } else {
-          credentialId = null;
-          providerId = undefined;
-        }
-        modelId = resolvedConfig.modelId;
+      const resolvedConfig = await resolveForChat();
+      const providerId = resolvedConfig.providerId;
+      const modelId = resolvedConfig.modelId;
+      const credentialId = resolvedConfig.credentialId;
+      if (!providerId || !modelId || !credentialId) {
+        throw new Error(
+          "Provider resolution failed: missing explicit provider/model credential selection.",
+        );
       }
 
-      const includeOverride = Boolean(
-        hasConnectedCredential && credentialId && providerId && modelId,
-      );
       const resolvedHarnessId = resolveRuntimeHarnessId(sessionId);
       const requestBody: ChatRequestBody = {
         sessionId,
         runId,
         harnessId: resolvedHarnessId,
+        providerId,
+        modelId,
         ...loadRepositoryContextFields(sessionId),
       };
-      if (includeOverride) {
-        requestBody.providerId = providerId;
-        requestBody.modelId = modelId;
-      }
 
       pushDebugEvent({
         phase: "request",
@@ -207,11 +178,10 @@ export function useChatCore(
           endpoint: apiPath,
           requestBody,
           userMessage: content,
-          includeOverride,
           resolvedConfig: {
-            providerId: providerId ?? null,
-            modelId: modelId ?? null,
-            credentialId: credentialId ?? null,
+            providerId,
+            modelId,
+            credentialId,
           },
         },
       });
@@ -225,13 +195,8 @@ export function useChatCore(
     },
     [
       append,
-      activeProviderId,
-      activeModelId,
-      hasConnectedCredential,
-      lastResolvedConfig,
       resolveForChat,
       runId,
-      selectedCredentialId,
       sessionId,
       status,
       pushDebugEvent,
@@ -371,24 +336,22 @@ function parseJsonErrorMessage(rawMessage: string): string | null {
 
 function mapKnownChatErrorMessage(message: string): string | null {
   if (containsMissingDefaultKeyError(message)) {
-    return "No default provider key is configured. Connect a provider key in Settings or set OPENROUTER_API_KEY, GROQ_API_KEY, or OPENAI_API_KEY for local fallback.";
+    return "No explicit provider configuration is available. Connect a provider key in Settings.";
   }
   if (containsOpenRouterKeyLimitError(message)) {
     return "OpenRouter key limit is exhausted ($0 total limit). Increase key limit in https://openrouter.ai/settings/keys or use a different provider key.";
   }
   if (containsToolChoiceUnsupportedError(message)) {
-    return "The selected default model does not support required tool-calling/structured planning. Choose another model or disable OpenRouter routing constraints.";
+    return "The selected model does not support required tool-calling/structured planning. Choose a different model.";
   }
   return null;
 }
 
 function containsMissingDefaultKeyError(message: string): boolean {
   return (
-    message.includes("Missing GROQ_API_KEY or OPENAI_API_KEY") ||
-    message.includes(
-      "Missing GROQ_API_KEY, OPENROUTER_API_KEY, or OPENAI_API_KEY",
-    ) ||
-    message.includes("No default provider key is configured")
+    message.includes("No default provider key is configured") ||
+    message.includes("Provider resolution failed") ||
+    message.includes("Missing API key for configured LITELLM_BASE_URL")
   );
 }
 

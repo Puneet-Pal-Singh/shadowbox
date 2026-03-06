@@ -26,12 +26,9 @@ import {
 } from "./ai";
 import { resolveSelectionWithPreferences } from "./ai/preference-selection";
 import {
-  DEFAULT_OPENROUTER_FALLBACK_MODEL,
-  OPENAI_BASE_URL,
-  OPENROUTER_BASE_URL,
-  GROQ_BASE_URL,
 } from "./ai/defaults";
 import { DefaultAdapterService } from "./ai/DefaultAdapterService";
+import { inferUsageProvider } from "./ai/usage-provider";
 
 export class AIService {
   private adapter: ProviderAdapter;
@@ -43,7 +40,7 @@ export class AIService {
     providerConfigService?: ProviderConfigService,
   ) {
     this.adapter = DefaultAdapterService.createResillient(env);
-    this.defaultModel = env.DEFAULT_MODEL ?? DEFAULT_OPENROUTER_FALLBACK_MODEL;
+    this.defaultModel = env.DEFAULT_MODEL ?? "model-unset";
     this.providerConfigService = providerConfigService;
   }
 
@@ -56,6 +53,7 @@ export class AIService {
   }
 
   resolveModelSelection(providerId?: string, modelId?: string, isByokOverride = false) {
+    const options = isByokOverride ? { isByokOverride } : undefined;
     return resolveModelSelection(
       providerId,
       modelId,
@@ -63,7 +61,7 @@ export class AIService {
       this.defaultModel,
       mapProviderIdToRuntimeProvider,
       getRuntimeProviderFromAdapter,
-      { isByokOverride },
+      options,
     );
   }
 
@@ -134,6 +132,7 @@ export class AIService {
       selection.runtimeProvider,
       this.env,
       overrideApiKey,
+      selection.providerId,
     );
 
     const sdkModel = this.createSDKModel(sdkModelConfig);
@@ -145,14 +144,18 @@ export class AIService {
       temperature,
       // OpenRouter often rejects tool-based structured generation for some models.
       // Force JSON mode for OpenAI-compatible providers to avoid `tool_choice` routing failures.
-      ...(selection.runtimeProvider === "anthropic"
+      ...(selection.runtimeProvider === "anthropic-native"
         ? {}
         : { mode: "json" as const }),
     });
 
     // Standardize usage
     const usage: LLMUsage = {
-      provider: inferUsageProvider(selection.runtimeProvider, sdkModelConfig.baseURL),
+      provider: inferUsageProvider(
+        selection.runtimeProvider,
+        selection.providerId,
+        sdkModelConfig.baseURL,
+      ),
       model: selection.model,
       promptTokens: result.usage?.promptTokens ?? 0,
       completionTokens: result.usage?.completionTokens ?? 0,
@@ -226,7 +229,7 @@ export class AIService {
   private createSDKModel(config: SDKModelConfig) {
     const { provider, apiKey, baseURL, model } = config;
 
-    if (provider === "anthropic") {
+    if (provider === "anthropic-native") {
       const client = createAnthropic({
         apiKey,
         baseURL, // Support custom base URL for proxies/gateways
@@ -245,25 +248,3 @@ export class AIService {
 }
 
 export type { GenerateTextResult };
-
-function inferUsageProvider(
-  runtimeProvider: SDKModelConfig["provider"],
-  baseURL: string,
-): "litellm" | "openai" | "anthropic" | "openrouter" | "groq" {
-  if (runtimeProvider !== "litellm") {
-    return runtimeProvider;
-  }
-
-  const normalized = baseURL.toLowerCase();
-  if (normalized.includes(new URL(OPENROUTER_BASE_URL).host)) {
-    return "openrouter";
-  }
-  if (normalized.includes(new URL(GROQ_BASE_URL).host)) {
-    return "groq";
-  }
-  if (normalized.includes(new URL(OPENAI_BASE_URL).host)) {
-    return "openai";
-  }
-
-  return "litellm";
-}

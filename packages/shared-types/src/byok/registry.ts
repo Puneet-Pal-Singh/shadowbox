@@ -10,6 +10,23 @@
 
 import { z } from "zod";
 
+export const ProviderAdapterFamilySchema = z.enum([
+  "openai-compatible",
+  "anthropic-native",
+  "google-native",
+  "custom-http",
+]);
+export type ProviderAdapterFamily = z.infer<typeof ProviderAdapterFamilySchema>;
+
+export const ProviderValidationAuthModeSchema = z.enum([
+  "bearer",
+  "googleApiKey",
+  "none",
+]);
+export type ProviderValidationAuthMode = z.infer<
+  typeof ProviderValidationAuthModeSchema
+>;
+
 /**
  * ProviderRegistryEntry - Metadata for a provider (static catalog)
  *
@@ -46,8 +63,23 @@ export const ProviderRegistryEntrySchema = z.object({
     structuredOutputs: z.boolean().default(false),
   }),
 
+  /** Adapter family used by runtime inference/discovery dispatch. */
+  adapterFamily: ProviderAdapterFamilySchema.default("openai-compatible"),
+
   /** Model catalog source strategy */
   modelSource: z.enum(["static", "remote"]),
+
+  /** Optional provider-specific model-list endpoint override. */
+  modelsEndpoint: z.string().url().optional(),
+
+  /** Optional live validation endpoint metadata. */
+  validation: z
+    .object({
+      endpoint: z.string().url(),
+      authMode: ProviderValidationAuthModeSchema.default("bearer"),
+      headers: z.record(z.string(), z.string()).optional(),
+    })
+    .optional(),
 
   /** Default model ID if not specified by user */
   defaultModelId: z.string().optional(),
@@ -92,8 +124,14 @@ export const BUILTIN_PROVIDERS: Record<string, ProviderRegistryEntry> = {
       jsonMode: true,
       structuredOutputs: true,
     },
+    adapterFamily: "openai-compatible",
     modelSource: "static",
-    defaultModelId: "gpt-4-turbo",
+    modelsEndpoint: "https://api.openai.com/v1/models",
+    validation: {
+      endpoint: "https://api.openai.com/v1/models",
+      authMode: "bearer",
+    },
+    defaultModelId: "gpt-4o",
   },
 
   groq: {
@@ -111,7 +149,13 @@ export const BUILTIN_PROVIDERS: Record<string, ProviderRegistryEntry> = {
       jsonMode: false,
       structuredOutputs: false,
     },
+    adapterFamily: "openai-compatible",
     modelSource: "static",
+    modelsEndpoint: "https://api.groq.com/openai/v1/models",
+    validation: {
+      endpoint: "https://api.groq.com/openai/v1/models",
+      authMode: "bearer",
+    },
     defaultModelId: "mixtral-8x7b-32768",
   },
 
@@ -130,7 +174,17 @@ export const BUILTIN_PROVIDERS: Record<string, ProviderRegistryEntry> = {
       jsonMode: true,
       structuredOutputs: true,
     },
+    adapterFamily: "openai-compatible",
     modelSource: "remote",
+    modelsEndpoint: "https://openrouter.ai/api/v1/models",
+    validation: {
+      endpoint: "https://openrouter.ai/api/v1/key",
+      authMode: "bearer",
+      headers: {
+        "HTTP-Referer": "https://shadowbox.dev",
+        "X-Title": "Shadowbox BYOK Live Validate",
+      },
+    },
   },
 
   anthropic: {
@@ -148,7 +202,12 @@ export const BUILTIN_PROVIDERS: Record<string, ProviderRegistryEntry> = {
       jsonMode: false,
       structuredOutputs: true,
     },
+    adapterFamily: "anthropic-native",
     modelSource: "static",
+    validation: {
+      endpoint: "https://api.anthropic.com/v1/models",
+      authMode: "bearer",
+    },
     defaultModelId: "claude-3-opus",
   },
 
@@ -166,6 +225,7 @@ export const BUILTIN_PROVIDERS: Record<string, ProviderRegistryEntry> = {
       jsonMode: false,
       structuredOutputs: false,
     },
+    adapterFamily: "custom-http",
     modelSource: "remote",
   },
 
@@ -183,6 +243,7 @@ export const BUILTIN_PROVIDERS: Record<string, ProviderRegistryEntry> = {
       jsonMode: false,
       structuredOutputs: false,
     },
+    adapterFamily: "openai-compatible",
     modelSource: "remote",
   },
 
@@ -200,7 +261,13 @@ export const BUILTIN_PROVIDERS: Record<string, ProviderRegistryEntry> = {
       jsonMode: false,
       structuredOutputs: true,
     },
+    adapterFamily: "google-native",
     modelSource: "remote",
+    modelsEndpoint: "https://generativelanguage.googleapis.com/v1beta/models",
+    validation: {
+      endpoint: "https://generativelanguage.googleapis.com/v1beta/models",
+      authMode: "googleApiKey",
+    },
   },
 };
 

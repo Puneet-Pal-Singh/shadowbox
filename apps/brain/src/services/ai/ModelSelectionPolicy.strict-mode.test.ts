@@ -30,20 +30,21 @@ describe("ModelSelectionPolicy strict mode", () => {
     );
   });
 
-  it("throws MODEL_NOT_ALLOWED for provider/model mismatch", () => {
+  it("accepts provider/model pairs without static allowlist enforcement", () => {
     setCompatModeOverride(false);
 
-    expectDomainError(() =>
-      resolveModelSelection(
-        "openai",
-        "llama-3.3-70b-versatile",
-        defaultProvider,
-        defaultModel,
-        mapProviderIdToRuntimeProvider,
-        getRuntimeProviderFromAdapter,
-      ),
-      "MODEL_NOT_ALLOWED",
+    const selection = resolveModelSelection(
+      "openai",
+      "llama-3.3-70b-versatile",
+      defaultProvider,
+      defaultModel,
+      mapProviderIdToRuntimeProvider,
+      getRuntimeProviderFromAdapter,
     );
+
+    expect(selection.provider).toBe("openai");
+    expect(selection.model).toBe("llama-3.3-70b-versatile");
+    expect(selection.fallback).toBe(false);
   });
 
   it("throws INVALID_PROVIDER_SELECTION for incomplete provider/model override", () => {

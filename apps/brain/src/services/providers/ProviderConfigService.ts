@@ -37,6 +37,7 @@ import { ProviderCatalogService } from "./ProviderCatalogService";
 import { ProviderConnectionService } from "./ProviderConnectionService";
 import { ProviderAuditService } from "./ProviderAuditService";
 import { ProviderModelDiscoveryService } from "./model-discovery";
+import { ProviderRegistryService } from "./ProviderRegistryService";
 
 /**
  * ProviderConfigService - Facade delegating to focused services
@@ -44,6 +45,7 @@ import { ProviderModelDiscoveryService } from "./model-discovery";
 export class ProviderConfigService {
   private durableStore: DurableProviderStore;
   private credentialService: ProviderCredentialService;
+  private registryService: ProviderRegistryService;
   private catalogService: ProviderCatalogService;
   private modelDiscoveryService: ProviderModelDiscoveryService;
   private connectionService: ProviderConnectionService;
@@ -51,15 +53,25 @@ export class ProviderConfigService {
 
   constructor(_env: Env, durableStore: DurableProviderStore) {
     this.durableStore = durableStore;
+    this.registryService = new ProviderRegistryService();
     const credentialVault = new CloudCredentialVault(durableStore);
-    this.credentialService = new ProviderCredentialService(_env, credentialVault);
-    this.catalogService = new ProviderCatalogService();
+    this.credentialService = new ProviderCredentialService(
+      _env,
+      credentialVault,
+      this.registryService,
+    );
     this.modelDiscoveryService = new ProviderModelDiscoveryService(
       this.durableStore,
       this.credentialService,
+      this.registryService,
+    );
+    this.catalogService = new ProviderCatalogService(
+      this.registryService,
+      this.modelDiscoveryService,
     );
     this.connectionService = new ProviderConnectionService(
       this.credentialService,
+      this.registryService,
     );
     this.auditService = new ProviderAuditService(this.durableStore);
   }
@@ -189,22 +201,7 @@ export class ProviderConfigService {
    * Delegates to ProviderCatalogService
    */
   async getModels(providerId: ProviderId): Promise<ModelsListResponse> {
-    const discovered = await this.modelDiscoveryService.getDiscoveredModels(
-      providerId,
-      {
-        view: "all",
-        limit: 1000,
-      },
-    );
-    return {
-      providerId,
-      models: discovered.models.map((model) => ({
-        id: model.id,
-        name: model.name,
-        provider: providerId,
-      })),
-      lastFetchedAt: discovered.metadata.fetchedAt,
-    };
+    return this.catalogService.getDiscoveredModels(providerId);
   }
 
   async getDiscoveredModels(

@@ -7,22 +7,17 @@
  */
 
 import { ProviderIdSchema, type ProviderId } from "@repo/shared-types";
+import type { ProviderAdapterFamily } from "@repo/shared-types";
 import {
   InvalidProviderSelectionError,
-  ModelNotAllowedError,
   ValidationError,
 } from "../../domain/errors";
-import { isModelAllowedByCapabilityMatrix } from "../providers/provider-capability-matrix";
+import { ProviderRegistryService } from "../providers";
 
 /**
  * Runtime provider type (subset of ProviderId with runtime semantics)
  */
-export type RuntimeProvider =
-  | "litellm"
-  | "openai"
-  | "anthropic"
-  | "openrouter"
-  | "groq";
+export type RuntimeProvider = ProviderAdapterFamily;
 
 /**
  * Model selection result with provider and fallback information
@@ -110,21 +105,19 @@ export function resolveModelSelection(
   const validProviderId: ProviderId = parseResult.data;
   const runtimeProvider = mapToRuntimeProvider(validProviderId);
 
-  // For BYOK overrides, skip capability matrix check and allow provider-native model IDs
-  if (!isByokOverride) {
-    const isAllowedModel = isModelAllowedForProvider(validProviderId, modelId);
-    if (!isAllowedModel) {
-      throw new ModelNotAllowedError(modelId, validProviderId, correlationId);
-    }
-  } else {
-    // Still validate that modelId is not empty/obviously invalid
-    if (!modelId || modelId.trim().length === 0) {
-      throw new ValidationError(
-        `Empty model ID for BYOK provider override`,
-        "INVALID_MODEL_ID",
-        correlationId,
-      );
-    }
+  if (!providerRegistryService.isProviderRegistered(validProviderId)) {
+    throw new InvalidProviderSelectionError(validProviderId, correlationId);
+  }
+
+  if (!modelId || modelId.trim().length === 0) {
+    throw new ValidationError(
+      `Empty model ID for provider override`,
+      "INVALID_MODEL_ID",
+      correlationId,
+    );
+  }
+
+  if (isByokOverride) {
     console.log(
       `[ai/model-selection] BYOK override: relaxed model validation for providerId=${validProviderId}, modelId=${modelId}`,
     );
@@ -150,10 +143,11 @@ export function resolveModelSelection(
 export function mapProviderIdToRuntimeProvider(
   providerId: ProviderId,
 ): RuntimeProvider {
-  if (providerId === "google") {
-    return "litellm";
+  const provider = providerRegistryService.getProvider(providerId);
+  if (!provider) {
+    throw new InvalidProviderSelectionError(providerId);
   }
-  return providerId;
+  return provider.adapterFamily;
 }
 
 /**
@@ -161,12 +155,16 @@ export function mapProviderIdToRuntimeProvider(
  * Maps concrete provider names to runtime provider types.
  */
 export function getRuntimeProviderFromAdapter(provider: string): RuntimeProvider {
-  if (provider === "openai" || provider === "anthropic") {
-    return provider as RuntimeProvider;
-  }
-  return "litellm";
+  return ADAPTER_PROVIDER_FAMILY_BY_NAME[provider] ?? "openai-compatible";
 }
 
-function isModelAllowedForProvider(providerId: ProviderId, modelId: string): boolean {
-  return isModelAllowedByCapabilityMatrix(providerId, modelId);
-}
+const providerRegistryService = new ProviderRegistryService();
+
+const ADAPTER_PROVIDER_FAMILY_BY_NAME: Record<string, RuntimeProvider> = {
+  anthropic: "anthropic-native",
+  google: "google-native",
+  openai: "openai-compatible",
+  openrouter: "openai-compatible",
+  groq: "openai-compatible",
+  litellm: "openai-compatible",
+};

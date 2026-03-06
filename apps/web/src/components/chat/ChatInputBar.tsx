@@ -1,7 +1,7 @@
 import { useRef, useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { Plus, Mic, ArrowUp, Paperclip, Square } from "lucide-react";
-import type { ProviderId } from "../../types/provider";
+import type { ProviderId } from "@repo/shared-types";
 import { useProviderStore } from "../../hooks/useProviderStore.js";
 import { findCredentialByProviderId } from "../../lib/provider-helpers.js";
 import { ProviderDialog, ModelPickerPopover } from "../provider/index.js";
@@ -85,9 +85,7 @@ export function ChatInputBar({
     if (!onModelSelect || !lastResolvedConfig) {
       return;
     }
-    if (isLegacyProviderId(lastResolvedConfig.providerId)) {
-      onModelSelect(lastResolvedConfig.providerId, lastResolvedConfig.modelId);
-    }
+    onModelSelect(lastResolvedConfig.providerId, lastResolvedConfig.modelId);
   }, [lastResolvedConfig, onModelSelect]);
 
   useEffect(() => {
@@ -104,8 +102,6 @@ export function ChatInputBar({
     selectedModelView,
     selectedProviderId,
   ]);
-
-
 
   return (
     <>
@@ -274,8 +270,4 @@ export function ChatInputBar({
       />
     </>
   );
-}
-
-function isLegacyProviderId(providerId: string): providerId is ProviderId {
-  return providerId === "openrouter" || providerId === "openai" || providerId === "groq";
 }
