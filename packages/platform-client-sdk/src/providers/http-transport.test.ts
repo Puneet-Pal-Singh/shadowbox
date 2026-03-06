@@ -118,12 +118,17 @@ describe("createByokHttpTransport", () => {
   });
 
   it("does not allow overriding protected transport headers", async () => {
-    const fetchImpl = vi.fn(async () => ({
-      ok: true,
-      status: 200,
-      headers: new Headers({ "content-type": "application/json" }),
-      json: vi.fn(async () => []),
-    })) as unknown as typeof fetch;
+    let capturedRequestInit: RequestInit | undefined;
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      capturedRequestInit = init;
+      return {
+        ok: true,
+        status: 200,
+        headers: new Headers({ "content-type": "application/json" }),
+        json: vi.fn(async () => []),
+      };
+    });
+    const fetchImpl = fetchMock as unknown as typeof fetch;
     const transport = createByokHttpTransport({
       baseUrl: "http://localhost:8788/api/byok",
       getRunId: () => "run-123",
@@ -139,8 +144,7 @@ describe("createByokHttpTransport", () => {
 
     await transport.discoverProviders();
 
-    const requestInit = fetchImpl.mock.calls[0]?.[1];
-    const headers = requestInit?.headers as Record<string, string>;
+    const headers = capturedRequestInit?.headers as Record<string, string>;
     expect(headers["X-Run-Id"]).toBe("run-123");
     expect(headers["Content-Type"]).toBe("application/json");
     expect(headers["X-Client-Id"]).toBe("desktop");
