@@ -21,6 +21,7 @@ describe("ProviderDialog", () => {
           providerId: "openai",
           displayName: "OpenAI",
           authModes: ["api_key"],
+          adapterFamily: "openai-compatible",
           capabilities: {
             streaming: true,
             tools: true,

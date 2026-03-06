@@ -21,8 +21,8 @@ import {
   ProviderError,
   ProviderNotConnectedError,
 } from "../../domain/errors";
-import { isProviderApiKeyFormatValid } from "../../schemas/provider-registry";
 import { ProviderLiveValidationService } from "./ProviderLiveValidationService";
+import { ProviderRegistryService } from "./ProviderRegistryService";
 
 /**
  * ProviderCredentialService - Manages provider API credentials
@@ -30,9 +30,15 @@ import { ProviderLiveValidationService } from "./ProviderLiveValidationService";
 export class ProviderCredentialService {
   private vault: CredentialVault;
   private liveValidationService: ProviderLiveValidationService;
+  private readonly registryService: ProviderRegistryService;
 
-  constructor(env: Env, vault: CredentialVault) {
+  constructor(
+    env: Env,
+    vault: CredentialVault,
+    registryService: ProviderRegistryService,
+  ) {
     this.vault = vault;
+    this.registryService = registryService;
     this.liveValidationService = ProviderLiveValidationService.fromEnv(env);
   }
 
@@ -47,7 +53,7 @@ export class ProviderCredentialService {
     try {
       const { providerId, apiKey } = request;
       const normalizedApiKey = apiKey.trim();
-      if (!isConnectApiKeyValid(providerId, normalizedApiKey)) {
+      if (!isConnectApiKeyValid(this.registryService, providerId, normalizedApiKey)) {
         return this.failureResponse(
           providerId,
           "Invalid API key format for this provider",
@@ -88,7 +94,10 @@ export class ProviderCredentialService {
       throw new ProviderNotConnectedError(providerId);
     }
 
-    const isValidFormat = isProviderApiKeyFormatValid(providerId, apiKey);
+    const isValidFormat = this.registryService.isApiKeyFormatValid(
+      providerId,
+      apiKey,
+    );
     if (!isValidFormat) {
       throw new ProviderError(
         `Provider "${providerId}" credential failed validation.`,
@@ -173,12 +182,16 @@ export class ProviderCredentialService {
   }
 }
 
-function isConnectApiKeyValid(providerId: ProviderId, apiKey: string): boolean {
+function isConnectApiKeyValid(
+  registryService: ProviderRegistryService,
+  providerId: ProviderId,
+  apiKey: string,
+): boolean {
   if (apiKey.length < 10) {
     return false;
   }
   if (!/^[a-zA-Z0-9\-_]+$/.test(apiKey)) {
     return false;
   }
-  return isProviderApiKeyFormatValid(providerId, apiKey);
+  return registryService.isApiKeyFormatValid(providerId, apiKey);
 }

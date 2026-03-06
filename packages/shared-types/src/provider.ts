@@ -14,7 +14,10 @@ export const ProviderIdSchema = z
   .min(1)
   .max(64)
   .regex(PROVIDER_ID_REGEX);
-export type ProviderId = z.infer<typeof ProviderIdSchema>;
+declare const providerIdBrand: unique symbol;
+export type ProviderId = z.infer<typeof ProviderIdSchema> & {
+  readonly [providerIdBrand]?: true;
+};
 
 export const ProviderCapabilityFlagsSchema = z.object({
   streaming: z.boolean(),

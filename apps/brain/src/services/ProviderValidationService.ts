@@ -12,7 +12,6 @@
  */
 
 import type { Env } from "../types/ai";
-import { DEFAULT_PLATFORM_MODEL_ID } from "@repo/shared-types";
 
 export interface ValidationError {
   code: string;
@@ -148,13 +147,22 @@ export class ProviderValidationService {
 
   /**
    * Validate LiteLLM provider configuration (optional)
-   * Missing keys will use OpenRouter fallback
+   * Missing keys are reported as warnings.
    */
   private static validateLiteLLMOptional(
     env: Env,
-    errors: ValidationError[],
+    _errors: ValidationError[],
     warnings: ValidationError[],
   ): void {
+    if (!env.LITELLM_BASE_URL) {
+      warnings.push({
+        code: "MISSING_LITELLM_BASE_URL",
+        message: "LITELLM_BASE_URL not configured",
+        severity: "warning",
+        hint: "Set LITELLM_BASE_URL to an explicit OpenAI-compatible endpoint.",
+      });
+    }
+
     const hasGroqKey = !!env.GROQ_API_KEY;
     const hasOpenRouterKey = !!env.OPENROUTER_API_KEY;
     const hasOpenAIKey = !!env.OPENAI_API_KEY;
@@ -164,7 +172,7 @@ export class ProviderValidationService {
         code: "MISSING_LITELLM_KEYS",
         message: "LiteLLM provider keys not configured",
         severity: "warning",
-        hint: "Chat requires at least one fallback key. Set OPENROUTER_API_KEY (recommended), GROQ_API_KEY, or OPENAI_API_KEY",
+        hint: "Set a key matching your configured LITELLM_BASE_URL host (OPENAI_API_KEY, OPENROUTER_API_KEY, or GROQ_API_KEY).",
       });
     }
 
@@ -173,18 +181,18 @@ export class ProviderValidationService {
         code: "NO_DEFAULT_MODEL",
         message: "DEFAULT_MODEL not set",
         severity: "warning",
-        hint: `Will use OpenRouter fallback model (${DEFAULT_PLATFORM_MODEL_ID}). Optionally set for explicit model selection`,
+        hint: "Set DEFAULT_MODEL for explicit model selection.",
       });
     }
   }
 
   /**
    * Validate OpenAI provider configuration (optional)
-   * Missing keys will use OpenRouter fallback
+   * Missing keys are reported as warnings.
    */
   private static validateOpenAIOptional(
     env: Env,
-    errors: ValidationError[],
+    _errors: ValidationError[],
     warnings: ValidationError[],
   ): void {
     if (!env.OPENAI_API_KEY) {
@@ -192,7 +200,7 @@ export class ProviderValidationService {
         code: "MISSING_OPENAI_API_KEY",
         message: "OPENAI_API_KEY not configured",
         severity: "warning",
-        hint: "Chat will use OpenRouter defaults. Optionally set OPENAI_API_KEY for direct OpenAI access",
+        hint: "Set OPENAI_API_KEY for direct OpenAI access.",
       });
     }
 
@@ -201,18 +209,18 @@ export class ProviderValidationService {
         code: "NO_DEFAULT_MODEL",
         message: "DEFAULT_MODEL not set",
         severity: "warning",
-        hint: "Will use OpenRouter fallback model. Optionally set for explicit model selection (e.g., gpt-4)",
+        hint: "Set DEFAULT_MODEL for explicit model selection (e.g., gpt-4).",
       });
     }
   }
 
   /**
    * Validate Anthropic provider configuration (optional)
-   * Missing keys will use OpenRouter fallback
+   * Missing keys are reported as warnings.
    */
   private static validateAnthropicOptional(
     env: Env,
-    errors: ValidationError[],
+    _errors: ValidationError[],
     warnings: ValidationError[],
   ): void {
     if (!env.ANTHROPIC_API_KEY) {
@@ -220,7 +228,7 @@ export class ProviderValidationService {
         code: "MISSING_ANTHROPIC_API_KEY",
         message: "ANTHROPIC_API_KEY not configured",
         severity: "warning",
-        hint: "Chat will use OpenRouter defaults. Optionally set ANTHROPIC_API_KEY for direct Anthropic access",
+        hint: "Set ANTHROPIC_API_KEY for direct Anthropic access.",
       });
     }
 
@@ -229,7 +237,7 @@ export class ProviderValidationService {
         code: "NO_DEFAULT_MODEL",
         message: "DEFAULT_MODEL not set",
         severity: "warning",
-        hint: "Will use OpenRouter fallback model. Optionally set for explicit model selection (e.g., claude-3-sonnet-20240229)",
+        hint: "Set DEFAULT_MODEL for explicit model selection (e.g., claude-3-sonnet-20240229).",
       });
     }
   }

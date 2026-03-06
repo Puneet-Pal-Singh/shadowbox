@@ -1,15 +1,12 @@
 /**
- * Provider capability matrix.
+ * Provider capability lookup backed by provider registry authority.
  *
- * Single Responsibility: expose provider/model capability lookups used by
- * runtime model selection policy.
+ * This module intentionally avoids static in-repo model allowlists.
  */
 
 import type { ProviderCapabilityFlags } from "@repo/shared-types";
-import type { ProviderId } from "@repo/shared-types";
-import { PROVIDER_IDS } from "../../schemas/provider-registry";
 import { ValidationError } from "../../domain/errors";
-import { PROVIDER_CATALOG } from "./catalog";
+import { ProviderRegistryService } from "./ProviderRegistryService";
 
 interface ProviderCapabilities {
   allowedModelIds: ReadonlySet<string>;
@@ -17,7 +14,7 @@ interface ProviderCapabilities {
 }
 
 class ProviderCapabilityConfigurationError extends ValidationError {
-  constructor(providerId: ProviderId) {
+  constructor(providerId: string) {
     super(
       `Missing provider capability flags for provider "${providerId}".`,
       "INVALID_PROVIDER_SELECTION",
@@ -26,74 +23,51 @@ class ProviderCapabilityConfigurationError extends ValidationError {
   }
 }
 
-const PROVIDER_CAPABILITY_FLAGS: Record<ProviderId, ProviderCapabilityFlags> = {
-  openrouter: {
-    streaming: true,
-    tools: true,
-    structuredOutputs: true,
-    jsonMode: true,
-  },
-  openai: {
-    streaming: true,
-    tools: true,
-    structuredOutputs: true,
-    jsonMode: true,
-  },
-  groq: {
-    streaming: true,
-    tools: true,
-    structuredOutputs: true,
-    jsonMode: true,
-  },
-  google: {
-    streaming: true,
-    tools: true,
-    structuredOutputs: true,
-    jsonMode: false,
-  },
-};
+const registryService = new ProviderRegistryService();
 
-function resolveProviderCapabilityFlags(
-  providerId: ProviderId,
-): ProviderCapabilityFlags {
-  const flags = PROVIDER_CAPABILITY_FLAGS[providerId];
-  if (!flags) {
-    throw new ProviderCapabilityConfigurationError(providerId);
-  }
-  return flags;
-}
-
-function buildCapabilityMatrix(): Record<ProviderId, ProviderCapabilities> {
-  const matrix = {} as Record<ProviderId, ProviderCapabilities>;
-  for (const providerId of PROVIDER_IDS as readonly ProviderId[]) {
-    const models = PROVIDER_CATALOG[providerId] ?? [];
-    matrix[providerId] = {
-      allowedModelIds: new Set(models.map((model) => model.id)),
-      flags: resolveProviderCapabilityFlags(providerId),
+function buildCapabilityMatrix(): Record<string, ProviderCapabilities> {
+  const matrix: Record<string, ProviderCapabilities> = {};
+  for (const provider of registryService.listProviders()) {
+    if (!provider.capabilities) {
+      throw new ProviderCapabilityConfigurationError(provider.providerId);
+    }
+    matrix[provider.providerId] = {
+      // Default model is a seed only; dynamic discovery remains model authority.
+      allowedModelIds: provider.defaultModelId
+        ? new Set([provider.defaultModelId])
+        : new Set(),
+      flags: provider.capabilities,
     };
   }
-
   return matrix;
 }
 
 export const PROVIDER_CAPABILITY_MATRIX = buildCapabilityMatrix();
 
 export function isModelAllowedByCapabilityMatrix(
-  providerId: ProviderId,
+  providerId: string,
   modelId: string,
 ): boolean {
-  return (
-    PROVIDER_CAPABILITY_MATRIX[providerId]?.allowedModelIds.has(modelId) ??
-    false
-  );
+  const providerEntry = registryService.getProvider(providerId);
+  if (!providerEntry) {
+    return false;
+  }
+  if (!modelId || modelId.trim().length === 0) {
+    return false;
+  }
+  const seededModels = PROVIDER_CAPABILITY_MATRIX[providerId]?.allowedModelIds;
+  if (!seededModels || seededModels.size === 0) {
+    return true;
+  }
+  return seededModels.has(modelId) || providerEntry.defaultModelId === modelId;
 }
 
 export function getProviderCapabilityFlags(
-  providerId: ProviderId,
+  providerId: string,
 ): ProviderCapabilityFlags {
-  const entry = PROVIDER_CAPABILITY_MATRIX[providerId];
-  if (!entry) {
+  const flags = registryService.getProviderCapabilities(providerId);
+  if (!flags) {
     throw new ProviderCapabilityConfigurationError(providerId);
   }
-  return entry.flags;
+  return flags;
 }

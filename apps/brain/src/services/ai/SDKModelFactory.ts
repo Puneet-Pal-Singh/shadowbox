@@ -38,11 +38,13 @@ export function getSDKModelConfig(
   provider: RuntimeProvider,
   env: Env,
   overrideApiKey?: string,
+  providerId?: string,
 ): SDKModelConfig {
   const { apiKey, baseURL } = resolveProviderKeyForSDK(
     provider,
     env,
     overrideApiKey,
+    providerId,
   );
 
   return {
@@ -65,8 +67,9 @@ function resolveProviderKeyForSDK(
   provider: RuntimeProvider,
   env: Env,
   overrideApiKey?: string,
+  providerId?: string,
 ): { apiKey: string; baseURL: string } {
-  if (provider === "anthropic") {
+  if (provider === "anthropic-native") {
     const apiKey = overrideApiKey ?? env.ANTHROPIC_API_KEY;
     if (!apiKey) {
       throw new ProviderError("anthropic", "Missing ANTHROPIC_API_KEY");
@@ -76,5 +79,5 @@ function resolveProviderKeyForSDK(
   }
 
   // For all other providers, use the standard resolver
-  return resolveProviderKey(provider, env, overrideApiKey);
+  return resolveProviderKey(provider, env, overrideApiKey, providerId);
 }

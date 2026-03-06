@@ -69,7 +69,9 @@ describe("ProviderValidationService", () => {
       expect(result.errors).toHaveLength(0);
       // But should have a warning
       expect(result.warnings.length).toBeGreaterThan(0);
-      expect(result.warnings[0].code).toBe("MISSING_LITELLM_KEYS");
+      expect(result.warnings.some((w) => w.code === "MISSING_LITELLM_KEYS")).toBe(
+        true,
+      );
     });
 
     it("should warn (not error) without DEFAULT_MODEL", () => {

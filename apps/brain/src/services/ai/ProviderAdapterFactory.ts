@@ -26,7 +26,6 @@ import {
   resolveLiteLLMKey,
 } from "./ProviderKeyValidator";
 import { ValidationError } from "../../domain/errors";
-import { DEFAULT_OPENROUTER_FALLBACK_MODEL } from "./defaults";
 
 /**
  * Build the default provider adapter based on env configuration.
@@ -42,24 +41,15 @@ import { DEFAULT_OPENROUTER_FALLBACK_MODEL } from "./defaults";
  * @throws ProviderError in strict mode if provider is unknown or env vars are missing
  */
 export function createDefaultAdapter(env: Env): ProviderAdapter {
-  const provider = env.LLM_PROVIDER ?? "litellm";
-
-  switch (provider) {
-    case "litellm":
-      return createLiteLLMAdapter(env);
-
-    case "openai":
-      return createOpenAIAdapter(env);
-
-    case "anthropic":
-      return createAnthropicAdapter(env);
-
-    default:
-      throw new ValidationError(
-        `Unknown LLM provider: "${provider}". Supported providers: litellm, openai, anthropic`,
-        "UNKNOWN_PROVIDER",
-      );
+  const provider = env.LLM_PROVIDER ?? "openai";
+  const creator = DEFAULT_PROVIDER_ADAPTER_CREATORS[provider];
+  if (!creator) {
+    throw new ValidationError(
+      `Unknown LLM provider: "${provider}". Supported providers: ${Object.keys(DEFAULT_PROVIDER_ADAPTER_CREATORS).join(", ")}`,
+      "UNKNOWN_PROVIDER",
+    );
   }
+  return creator(env);
 }
 
 /**
@@ -73,7 +63,7 @@ export function createLiteLLMAdapter(
   overrideApiKey?: string,
 ): LiteLLMAdapter {
   const { apiKey, baseURL } = resolveLiteLLMKey(env, overrideApiKey);
-  const defaultModel = env.DEFAULT_MODEL ?? DEFAULT_OPENROUTER_FALLBACK_MODEL;
+  const defaultModel = resolveDefaultModel(env);
 
   return new LiteLLMAdapter({
     apiKey,
@@ -91,11 +81,13 @@ export function createLiteLLMAdapter(
 export function createOpenAIAdapter(
   env: Env,
   overrideApiKey?: string,
+  baseURL?: string,
 ): OpenAIAdapter {
-  const { apiKey } = resolveOpenAIKey(env, overrideApiKey);
+  const resolved = resolveOpenAIKey(env, overrideApiKey);
 
   return new OpenAIAdapter({
-    apiKey,
+    apiKey: resolved.apiKey,
+    baseURL: baseURL ?? resolved.baseURL,
     defaultModel: env.DEFAULT_MODEL,
   });
 }
@@ -151,3 +143,19 @@ export function createGroqAdapter(overrideApiKey?: string): OpenAIAdapter {
     defaultModel: undefined, // Groq handles model in request
   });
 }
+
+function resolveDefaultModel(env: Env): string {
+  if (env.DEFAULT_MODEL) {
+    return env.DEFAULT_MODEL;
+  }
+  throw new ValidationError(
+    "DEFAULT_MODEL is required when using LLM_PROVIDER=litellm.",
+    "MISSING_DEFAULT_MODEL",
+  );
+}
+
+const DEFAULT_PROVIDER_ADAPTER_CREATORS: Record<string, (env: Env) => ProviderAdapter> = {
+  litellm: (env) => createLiteLLMAdapter(env),
+  openai: (env) => createOpenAIAdapter(env),
+  anthropic: (env) => createAnthropicAdapter(env),
+};

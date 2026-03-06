@@ -246,6 +246,10 @@ describe("AIService provider override routing", () => {
 
   it("uses persisted BYOK preferences when override is absent", async () => {
     const providerConfig = createProviderConfigService();
+    await providerConfig.connect({
+      providerId: "openai",
+      apiKey: "sk-test-1234567890",
+    });
     await providerConfig.updatePreferences({
       defaultProviderId: "openai",
       defaultModelId: "gpt-4o",
@@ -267,6 +271,7 @@ describe("AIService provider override routing", () => {
       expect.any(String),
       expect.any(Function),
       expect.any(Function),
+      undefined,
     );
   });
 
@@ -290,6 +295,7 @@ describe("AIService provider override routing", () => {
       expect.any(String),
       expect.any(Function),
       expect.any(Function),
+      undefined,
     );
   });
 

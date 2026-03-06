@@ -7,7 +7,7 @@
  * Tabs:
  * - Connected: Active credentials by provider
  * - Available: Add new credentials
- * - Preferences: Default selection + fallback policy
+ * - Preferences: Explicit selection policy
  * - Session: Quick-switch for current chat session
  */
 

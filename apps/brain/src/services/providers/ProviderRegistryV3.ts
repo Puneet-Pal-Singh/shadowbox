@@ -51,6 +51,7 @@ const PROVIDER_REGISTRY: Record<string, ProviderEntry> = {
     providerId: "openai",
     displayName: "OpenAI",
     authModes: ["api_key"],
+    adapterFamily: "openai-compatible",
     capabilities: {
       streaming: true,
       tools: true,
@@ -69,6 +70,7 @@ const PROVIDER_REGISTRY: Record<string, ProviderEntry> = {
     providerId: "anthropic",
     displayName: "Anthropic Claude",
     authModes: ["api_key"],
+    adapterFamily: "anthropic-native",
     capabilities: {
       streaming: true,
       tools: true,
@@ -87,6 +89,7 @@ const PROVIDER_REGISTRY: Record<string, ProviderEntry> = {
     providerId: "groq",
     displayName: "Groq",
     authModes: ["api_key"],
+    adapterFamily: "openai-compatible",
     capabilities: {
       streaming: true,
       tools: true,
@@ -105,6 +108,7 @@ const PROVIDER_REGISTRY: Record<string, ProviderEntry> = {
     providerId: "openrouter",
     displayName: "OpenRouter",
     authModes: ["api_key"],
+    adapterFamily: "openai-compatible",
     capabilities: {
       streaming: true,
       tools: true,
@@ -123,6 +127,7 @@ const PROVIDER_REGISTRY: Record<string, ProviderEntry> = {
     providerId: "cohere",
     displayName: "Cohere",
     authModes: ["api_key"],
+    adapterFamily: "custom-http",
     capabilities: {
       streaming: true,
       tools: true,
@@ -140,6 +145,7 @@ const PROVIDER_REGISTRY: Record<string, ProviderEntry> = {
     providerId: "huggingface",
     displayName: "Hugging Face Inference",
     authModes: ["api_key"],
+    adapterFamily: "custom-http",
     capabilities: {
       streaming: true,
       tools: false,
@@ -157,6 +163,7 @@ const PROVIDER_REGISTRY: Record<string, ProviderEntry> = {
     providerId: "mistral",
     displayName: "Mistral AI",
     authModes: ["api_key"],
+    adapterFamily: "openai-compatible",
     capabilities: {
       streaming: true,
       tools: true,
@@ -174,6 +181,7 @@ const PROVIDER_REGISTRY: Record<string, ProviderEntry> = {
     providerId: "replicate",
     displayName: "Replicate",
     authModes: ["api_key"],
+    adapterFamily: "custom-http",
     capabilities: {
       streaming: true,
       tools: false,
@@ -190,6 +198,7 @@ const PROVIDER_REGISTRY: Record<string, ProviderEntry> = {
     providerId: "deepseek",
     displayName: "DeepSeek",
     authModes: ["api_key"],
+    adapterFamily: "openai-compatible",
     capabilities: {
       streaming: true,
       tools: true,
@@ -208,6 +217,7 @@ const PROVIDER_REGISTRY: Record<string, ProviderEntry> = {
     providerId: "xai",
     displayName: "xAI Grok",
     authModes: ["api_key"],
+    adapterFamily: "openai-compatible",
     capabilities: {
       streaming: true,
       tools: true,
@@ -336,6 +346,7 @@ export class ProviderRegistryV3 {
       providerId: entry.providerId,
       displayName: entry.displayName,
       authModes: [...entry.authModes],
+      adapterFamily: entry.adapterFamily,
       capabilities: {
         streaming: entry.capabilities.streaming,
         tools: entry.capabilities.tools,
@@ -353,6 +364,9 @@ export class ProviderRegistryV3 {
     }
     if (entry.defaultModel) {
       publicEntry.defaultModelId = entry.defaultModel;
+    }
+    if (entry.modelFetchUrl) {
+      publicEntry.modelsEndpoint = entry.modelFetchUrl;
     }
 
     return publicEntry;
