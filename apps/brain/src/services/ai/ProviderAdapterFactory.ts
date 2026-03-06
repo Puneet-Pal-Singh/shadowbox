@@ -154,6 +154,8 @@ function resolveDefaultModel(env: Env): string {
   );
 }
 
+export const SUPPORTED_DEFAULT_PROVIDERS = ["litellm", "openai", "anthropic"] as const;
+
 const DEFAULT_PROVIDER_ADAPTER_CREATORS: Record<string, (env: Env) => ProviderAdapter> = {
   litellm: (env) => createLiteLLMAdapter(env),
   openai: (env) => createOpenAIAdapter(env),

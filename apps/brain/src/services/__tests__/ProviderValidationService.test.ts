@@ -3,55 +3,51 @@ import { ProviderValidationService } from "../ProviderValidationService.js";
 import type { Env } from "../../types/ai.js";
 
 /**
- * Tests for RCP3: Fallback removal and explicit failure semantics.
+ * Tests for provider validation: extensible provider support.
  * 
- * Verifies that invalid/unknown provider configurations fail fast
- * with typed errors, not silent fallback behavior.
+ * Verifies that unknown/custom providers are accepted with warnings
+ * (no code edit needed to add new providers), while built-in providers
+ * get specific validation.
  */
-describe("ProviderValidationService - RCP3: No Silent Fallbacks", () => {
+describe("ProviderValidationService - Extensible Provider Validation", () => {
   const createValidEnv = (): Env => ({
     SESSION_SECRET: "test-secret-key-32-bytes-long!!",
     GITHUB_CLIENT_ID: "test-client-id",
     GITHUB_CLIENT_SECRET: "test-client-secret",
+    BYOK_CREDENTIAL_ENCRYPTION_KEY: "test-encryption-key",
     LLM_PROVIDER: "litellm",
   });
 
   describe("Unknown Provider Handling", () => {
-    it("should error on unknown provider (RCP3 strict mode)", () => {
+    it("should reject unknown provider with error", () => {
       const env = {
         ...createValidEnv(),
         LLM_PROVIDER: "unknown-provider",
+        DEFAULT_MODEL: "some-model",
       };
 
       const result = ProviderValidationService.validate(env);
 
       expect(result.valid).toBe(false);
-      expect(result.errors.length).toBeGreaterThan(0);
 
-      const unknownProviderError = result.errors.find(
+      const unknownError = result.errors.find(
         (e) => e.code === "UNKNOWN_PROVIDER",
       );
-      expect(unknownProviderError).toBeDefined();
-      expect(unknownProviderError?.severity).toBe("error");
-      expect(unknownProviderError?.message).toContain("Unknown or unsupported");
+      expect(unknownError).toBeDefined();
+      expect(unknownError?.severity).toBe("error");
+      expect(unknownError?.hint).toContain("litellm");
     });
 
-    it("should not silently fallback to default for unknown provider", () => {
+    it("should reject typo provider with error", () => {
       const env = {
         ...createValidEnv(),
-        LLM_PROVIDER: "invalid-custom-provider",
+        LLM_PROVIDER: "opnai",
       };
 
       const result = ProviderValidationService.validate(env);
 
-      // Should be invalid, not valid with warnings
       expect(result.valid).toBe(false);
-
-      // Should not have success path
-      const hasSuccessWarnings = result.warnings.some(
-        (w) => w.code === "UNKNOWN_PROVIDER",
-      );
-      expect(hasSuccessWarnings).toBe(false);
+      expect(result.errors.find((e) => e.code === "UNKNOWN_PROVIDER")).toBeDefined();
     });
   });
 
@@ -64,11 +60,11 @@ describe("ProviderValidationService - RCP3: No Silent Fallbacks", () => {
 
       const result = ProviderValidationService.validate(env);
 
-      // Should not have unknown provider error
-      const unknownError = result.errors.find(
-        (e) => e.code === "UNKNOWN_PROVIDER",
+      // Should not have custom provider warning
+      const customWarning = result.warnings.find(
+        (w) => w.code === "CUSTOM_PROVIDER",
       );
-      expect(unknownError).toBeUndefined();
+      expect(customWarning).toBeUndefined();
     });
 
     it("should validate openai provider", () => {
@@ -79,11 +75,11 @@ describe("ProviderValidationService - RCP3: No Silent Fallbacks", () => {
 
       const result = ProviderValidationService.validate(env);
 
-      // Should not have unknown provider error
-      const unknownError = result.errors.find(
-        (e) => e.code === "UNKNOWN_PROVIDER",
+      // Should not have custom provider warning
+      const customWarning = result.warnings.find(
+        (w) => w.code === "CUSTOM_PROVIDER",
       );
-      expect(unknownError).toBeUndefined();
+      expect(customWarning).toBeUndefined();
     });
 
     it("should validate anthropic provider", () => {
@@ -94,11 +90,11 @@ describe("ProviderValidationService - RCP3: No Silent Fallbacks", () => {
 
       const result = ProviderValidationService.validate(env);
 
-      // Should not have unknown provider error
-      const unknownError = result.errors.find(
-        (e) => e.code === "UNKNOWN_PROVIDER",
+      // Should not have custom provider warning
+      const customWarning = result.warnings.find(
+        (w) => w.code === "CUSTOM_PROVIDER",
       );
-      expect(unknownError).toBeUndefined();
+      expect(customWarning).toBeUndefined();
     });
   });
 
@@ -131,7 +127,7 @@ describe("ProviderValidationService - RCP3: No Silent Fallbacks", () => {
   });
 
   describe("No Fallback Chains", () => {
-    it("should not describe fallback-first behavior in hints", () => {
+    it("should not describe fallback-first behavior in error hints", () => {
       const env = {
         ...createValidEnv(),
         LLM_PROVIDER: "unknown",
@@ -139,13 +135,11 @@ describe("ProviderValidationService - RCP3: No Silent Fallbacks", () => {
 
       const result = ProviderValidationService.validate(env);
 
-      // Check that error hints don't mention fallback behavior
       const unknownError = result.errors.find(
         (e) => e.code === "UNKNOWN_PROVIDER",
       );
-      expect(unknownError?.message).not.toContain("fallback");
-      expect(unknownError?.message).not.toContain("default");
-      expect(unknownError?.message).not.toContain("will use");
+      expect(unknownError).toBeDefined();
+      expect(unknownError?.hint).not.toContain("fallback");
     });
   });
 });

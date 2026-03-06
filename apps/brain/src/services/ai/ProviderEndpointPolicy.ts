@@ -20,10 +20,7 @@ export interface ProviderEndpointConfig {
  * Direct provider endpoint configurations for BYOK runtime
  * Only includes providers with direct endpoints (not OpenAI or Anthropic).
  */
-export const PROVIDER_ENDPOINTS: Record<
-  "openrouter" | "groq",
-  ProviderEndpointConfig
-> = {
+export const PROVIDER_ENDPOINTS: Record<string, ProviderEndpointConfig> = {
   openrouter: {
     baseURL: "https://openrouter.ai/api/v1",
     apiKeyPrefix: "sk-or-",
@@ -36,14 +33,6 @@ export const PROVIDER_ENDPOINTS: Record<
   },
 };
 
-type DirectEndpointProviderId = keyof typeof PROVIDER_ENDPOINTS;
-
-function isDirectEndpointProviderId(
-  providerId: ProviderId,
-): providerId is DirectEndpointProviderId {
-  return providerId === "openrouter" || providerId === "groq";
-}
-
 /**
  * Validate API key format against provider requirements.
  * @param providerId - The provider ID
@@ -54,8 +43,8 @@ export function validateProviderApiKeyFormat(
   providerId: ProviderId,
   apiKey: string,
 ): void {
-  if (isDirectEndpointProviderId(providerId)) {
-    const config = PROVIDER_ENDPOINTS[providerId];
+  const config = PROVIDER_ENDPOINTS[providerId];
+  if (config) {
     if (!apiKey.startsWith(config.apiKeyPrefix)) {
       throw new Error(
         `Invalid ${providerId} API key format. Key must start with "${config.apiKeyPrefix}"`,
@@ -70,8 +59,5 @@ export function validateProviderApiKeyFormat(
  * @returns The base URL, or undefined if not a direct provider
  */
 export function getProviderBaseURL(providerId: ProviderId): string | undefined {
-  if (isDirectEndpointProviderId(providerId)) {
-    return PROVIDER_ENDPOINTS[providerId].baseURL;
-  }
-  return undefined;
+  return PROVIDER_ENDPOINTS[providerId]?.baseURL;
 }

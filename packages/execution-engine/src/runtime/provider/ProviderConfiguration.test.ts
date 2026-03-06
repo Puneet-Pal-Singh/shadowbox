@@ -1,98 +1,51 @@
 // packages/execution-engine/src/runtime/provider/ProviderConfiguration.test.ts
-// Phase 5: Test unified provider configuration
+// Pre-63: Test provider-agnostic configuration (no hardcoded defaults)
 
 import { describe, it, expect } from "vitest";
 import { ProviderConfiguration } from "./ProviderConfiguration.js";
 
-describe("ProviderConfiguration - Phase 5: Unified Provider/Model Routing", () => {
-  describe("defaults", () => {
-    it("should provide default provider", () => {
-      expect(ProviderConfiguration.getDefaultProvider()).toBe("openrouter");
+describe("ProviderConfiguration - Provider-Agnostic Validation", () => {
+  describe("isValidProviderId", () => {
+    it("should accept valid slug provider IDs", () => {
+      expect(ProviderConfiguration.isValidProviderId("openrouter")).toBe(true);
+      expect(ProviderConfiguration.isValidProviderId("openai")).toBe(true);
+      expect(ProviderConfiguration.isValidProviderId("my-custom-provider")).toBe(true);
+      expect(ProviderConfiguration.isValidProviderId("groq")).toBe(true);
     });
 
-    it("should provide default model", () => {
-      expect(ProviderConfiguration.getDefaultModel()).toBe(
-        "arcee-ai/trinity-large-preview:free",
-      );
-    });
-  });
-
-  describe("isKnownModel", () => {
-    it("should recognize known openrouter models", () => {
-      const knownModels = [
-        "arcee-ai/trinity-large-preview:free",
-        "llama-3.3-70b-versatile",
-        "mistral-large",
-        "openai/gpt-4o-mini",
-        "openai/gpt-4o",
-        "anthropic/claude-3.5-sonnet",
-      ];
-
-      knownModels.forEach((model) => {
-        expect(ProviderConfiguration.isKnownModel("openrouter", model)).toBe(
-          true,
-          `Should recognize ${model}`,
-        );
-      });
-    });
-
-    it("should reject unknown openrouter models", () => {
-      expect(
-        ProviderConfiguration.isKnownModel(
-          "openrouter",
-          "totally-made-up-model",
-        ),
-      ).toBe(false);
-    });
-
-    it("should allow any model for BYOK providers", () => {
-      expect(ProviderConfiguration.isKnownModel("litellm", "custom-model")).toBe(
-        true,
-      );
-      expect(ProviderConfiguration.isKnownModel("openai", "custom-model")).toBe(
-        true,
-      );
+    it("should reject invalid provider IDs", () => {
+      expect(ProviderConfiguration.isValidProviderId("")).toBe(false);
+      expect(ProviderConfiguration.isValidProviderId("UPPER")).toBe(false);
+      expect(ProviderConfiguration.isValidProviderId("has spaces")).toBe(false);
+      expect(ProviderConfiguration.isValidProviderId("special!char")).toBe(false);
     });
   });
 
-  describe("getFallbackModel (RCP3 Deprecation)", () => {
-    it("should throw error when getFallbackModel is called (deprecated in RCP3)", () => {
-      expect(() => {
-        ProviderConfiguration.getFallbackModel("openrouter");
-      }).toThrow("RCP3");
+  describe("isValidModelId", () => {
+    it("should accept non-empty model IDs", () => {
+      expect(ProviderConfiguration.isValidModelId("gpt-4")).toBe(true);
+      expect(ProviderConfiguration.isValidModelId("claude-3.5-sonnet")).toBe(true);
+      expect(ProviderConfiguration.isValidModelId("custom/model:tag")).toBe(true);
     });
 
-    it("should throw for any provider (no fallback support in RCP3)", () => {
-      expect(() => {
-        ProviderConfiguration.getFallbackModel("custom");
-      }).toThrow();
+    it("should reject empty model ID", () => {
+      expect(ProviderConfiguration.isValidModelId("")).toBe(false);
+    });
+
+    it("should reject whitespace-only model ID", () => {
+      expect(ProviderConfiguration.isValidModelId("   ")).toBe(false);
+      expect(ProviderConfiguration.isValidModelId("\t")).toBe(false);
+    });
+
+    it("should reject model-unset sentinel", () => {
+      expect(ProviderConfiguration.isValidModelId("model-unset")).toBe(false);
     });
   });
 
   describe("validateConfig", () => {
-    it("should accept valid openrouter config", () => {
-      const error = ProviderConfiguration.validateConfig(
-        "openrouter",
-        "arcee-ai/trinity-large-preview:free",
-      );
-      expect(error).toBeNull();
-    });
-
-    it("should accept any model for BYOK provider", () => {
-      const error = ProviderConfiguration.validateConfig(
-        "litellm",
-        "totally-custom-model",
-      );
-      expect(error).toBeNull();
-    });
-
-    it("should reject unknown openrouter models", () => {
-      const error = ProviderConfiguration.validateConfig(
-        "openrouter",
-        "unknown-model",
-      );
-      expect(error).not.toBeNull();
-      expect(error).toContain("Unknown model");
+    it("should accept valid provider/model combination", () => {
+      expect(ProviderConfiguration.validateConfig("openai", "gpt-4")).toBeNull();
+      expect(ProviderConfiguration.validateConfig("openrouter", "custom/model")).toBeNull();
     });
 
     it("should reject missing provider or model", () => {
@@ -100,21 +53,30 @@ describe("ProviderConfiguration - Phase 5: Unified Provider/Model Routing", () =
       expect(ProviderConfiguration.validateConfig("provider", "")).not.toBeNull();
       expect(ProviderConfiguration.validateConfig("", "")).not.toBeNull();
     });
-  });
 
-  describe("consistency across layers", () => {
-    it("should align with shared-types defaults", () => {
-      // Verify that our configuration matches expectations from shared-types
-      expect(ProviderConfiguration.getDefaultProvider()).toBe("openrouter");
-      expect(ProviderConfiguration.getDefaultModel()).toBe(
-        "arcee-ai/trinity-large-preview:free",
-      );
+    it("should reject invalid provider ID format", () => {
+      const error = ProviderConfiguration.validateConfig("INVALID", "model");
+      expect(error).not.toBeNull();
+      expect(error).toContain("Invalid provider ID");
     });
 
-    it("should provide models for catalog/capability matrix", () => {
-      const knownModels = ProviderConfiguration.KNOWN_OPENROUTER_MODELS;
-      expect(knownModels.length).toBeGreaterThan(0);
-      expect(knownModels).toContain("arcee-ai/trinity-large-preview:free");
+    it("should not hardcode any specific provider", () => {
+      // Any valid slug should work — no special-casing
+      expect(ProviderConfiguration.validateConfig("any-new-provider", "any-model")).toBeNull();
+    });
+  });
+
+  describe("no hardcoded defaults", () => {
+    it("should not have DEFAULT_PROVIDER", () => {
+      expect((ProviderConfiguration as Record<string, unknown>)["DEFAULT_PROVIDER"]).toBeUndefined();
+    });
+
+    it("should not have DEFAULT_MODEL", () => {
+      expect((ProviderConfiguration as Record<string, unknown>)["DEFAULT_MODEL"]).toBeUndefined();
+    });
+
+    it("should not have KNOWN_OPENROUTER_MODELS", () => {
+      expect((ProviderConfiguration as Record<string, unknown>)["KNOWN_OPENROUTER_MODELS"]).toBeUndefined();
     });
   });
 });
