@@ -21,6 +21,7 @@ const DEFAULT_RESPONSE_PREVIEW_LIMIT = 120;
 export interface ProviderHttpTransportOptions {
   baseUrl: string;
   getRunId: () => string | null;
+  getHeaders?: () => Record<string, string>;
   fetchImpl?: typeof fetch;
   credentials?: RequestCredentials;
   responsePreviewLimit?: number;
@@ -104,6 +105,10 @@ function createTransportRequest(
       "Content-Type": "application/json",
       "X-Run-Id": runId,
     };
+    const additionalHeaders = options.getHeaders?.();
+    if (additionalHeaders) {
+      Object.assign(headers, additionalHeaders);
+    }
     const requestInit: RequestInit = {
       method,
       credentials,

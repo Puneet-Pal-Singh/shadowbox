@@ -8,6 +8,10 @@ export {
   type ProviderHttpTransportOptions,
 } from "./providers/http-transport.js";
 export {
+  createByokCloudTransport,
+  type ProviderCloudTransportOptions,
+} from "./providers/cloud-transport.js";
+export {
   ProviderClientContractError,
   ProviderClientOperationError,
   ProviderClientTransitionError,
