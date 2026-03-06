@@ -8,6 +8,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./providers/client": "./src/providers/client.ts",
+    "./providers/http-transport": "./src/providers/http-transport.ts",
     "./providers/types": "./src/providers/types.ts",
     "./providers/errors": "./src/providers/errors.ts",
     "./providers/state-machine": "./src/providers/state-machine.ts"

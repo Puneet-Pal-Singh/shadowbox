@@ -299,7 +299,7 @@ describe("ProviderApiClient", () => {
         headers: new Headers({ "content-type": "application/json" }),
         json: vi.fn().mockResolvedValueOnce({
           error: {
-            code: "INVALID_INPUT",
+            code: "VALIDATION_ERROR",
             message: "Provider ID is invalid",
           },
         }),
@@ -310,7 +310,7 @@ describe("ProviderApiClient", () => {
         expect.fail("Should have thrown error");
       } catch (error) {
         expect(error).toBeInstanceOf(ProviderApiError);
-        expect((error as ProviderApiError).code).toBe("INVALID_INPUT");
+        expect((error as ProviderApiError).code).toBe("VALIDATION_ERROR");
         expect((error as ProviderApiError).statusCode).toBe(400);
       }
     });
