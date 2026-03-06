@@ -157,8 +157,8 @@ function selectDefault(
 ): ProviderLifecycleState {
   const providerId = requireField(transition.providerId, "providerId", state.step);
   state.selectedProviderId = providerId;
-  if (transition.modelId) {
-    state.selectedModelId = transition.modelId;
+  if (transition.modelId !== undefined) {
+    state.selectedModelId = requireField(transition.modelId, "modelId", state.step);
   }
   if (transition.credentialId) {
     const credentialId = requireField(
@@ -167,7 +167,11 @@ function selectDefault(
       state.step,
     );
     ensureConnectedCredential(state, credentialId, "select_default");
+    ensureValidatedCredential(state, credentialId, "select_default");
     state.selectedCredentialId = credentialId;
+  } else if (state.selectedCredentialId) {
+    ensureConnectedCredential(state, state.selectedCredentialId, "select_default");
+    ensureValidatedCredential(state, state.selectedCredentialId, "select_default");
   }
   return state;
 }
@@ -176,7 +180,12 @@ function resolveForRun(
   state: ProviderLifecycleState,
   transition: ProviderLifecycleTransition,
 ): ProviderLifecycleState {
-  const providerId = transition.providerId ?? state.selectedProviderId;
+  const providerId = resolveRequiredSelection({
+    explicitValue: transition.providerId,
+    fallbackValue: state.selectedProviderId,
+    fieldName: "providerId",
+    step: state.step,
+  });
   if (!providerId) {
     throw new ProviderClientTransitionError(
       "select_default",
@@ -184,7 +193,12 @@ function resolveForRun(
       "Missing provider selection for resolve_for_run",
     );
   }
-  const modelId = transition.modelId ?? state.selectedModelId;
+  const modelId = resolveRequiredSelection({
+    explicitValue: transition.modelId,
+    fallbackValue: state.selectedModelId,
+    fieldName: "modelId",
+    step: state.step,
+  });
   if (!modelId) {
     throw new ProviderClientTransitionError(
       "select_default",
@@ -194,14 +208,16 @@ function resolveForRun(
   }
   state.selectedProviderId = providerId;
   state.selectedModelId = modelId;
-  if (transition.credentialId) {
-    const credentialId = requireField(
-      transition.credentialId,
+  const credentialId = transition.credentialId ?? state.selectedCredentialId;
+  if (credentialId) {
+    const normalizedCredentialId = requireField(
+      credentialId,
       "credentialId",
       state.step,
     );
-    ensureConnectedCredential(state, credentialId, "resolve_for_run");
-    state.selectedCredentialId = credentialId;
+    ensureConnectedCredential(state, normalizedCredentialId, "resolve_for_run");
+    ensureValidatedCredential(state, normalizedCredentialId, "resolve_for_run");
+    state.selectedCredentialId = normalizedCredentialId;
   }
   state.lastResolvedAt = requireField(
     transition.resolvedAt,
@@ -209,6 +225,21 @@ function resolveForRun(
     state.step,
   );
   return state;
+}
+
+function resolveRequiredSelection(params: {
+  explicitValue: string | undefined;
+  fallbackValue: string | undefined;
+  fieldName: "providerId" | "modelId";
+  step: ProviderLifecycleStep;
+}): string | undefined {
+  if (params.explicitValue !== undefined) {
+    return requireField(params.explicitValue, params.fieldName, params.step);
+  }
+  if (params.fallbackValue !== undefined) {
+    return requireField(params.fallbackValue, params.fieldName, params.step);
+  }
+  return undefined;
 }
 
 function disconnectCredential(
@@ -272,6 +303,20 @@ function ensureConnectedCredential(
       "connect_credential",
       step,
       `Credential is not connected: ${credentialId}`,
+    );
+  }
+}
+
+function ensureValidatedCredential(
+  state: ProviderLifecycleState,
+  credentialId: string,
+  step: "select_default" | "resolve_for_run",
+): void {
+  if (!state.validatedCredentialIds.includes(credentialId)) {
+    throw new ProviderClientTransitionError(
+      "validate_credential",
+      step,
+      `Credential is not validated: ${credentialId}`,
     );
   }
 }

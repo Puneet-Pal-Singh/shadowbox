@@ -69,6 +69,17 @@ describe("provider client errors", () => {
     expect(normalized.message).toContain("connectCredential");
   });
 
+  it("normalizes network failures into retryable network errors", () => {
+    const normalized = normalizeProviderClientOperationError(
+      new TypeError("Failed to fetch"),
+      "discoverProviders",
+    );
+
+    expect(normalized.code).toBe("NETWORK_ERROR");
+    expect(normalized.retryable).toBe(true);
+    expect(normalized.message).toContain("discoverProviders");
+  });
+
   it("parses operation error code fallback values", () => {
     expect(parseProviderOperationErrorCode("PROVIDER_AUTH_FAILED")).toBe(
       "PROVIDER_AUTH_FAILED",

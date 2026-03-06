@@ -90,6 +90,13 @@ export function normalizeProviderClientOperationError(
       true,
     );
   }
+  if (isNetworkError(error)) {
+    return new ProviderClientOperationError(
+      "NETWORK_ERROR",
+      `${operation}: ${getErrorMessage(error)}`,
+      true,
+    );
+  }
 
   const normalizedMessage = getErrorMessage(error);
   return new ProviderClientOperationError(
@@ -120,6 +127,21 @@ function isAbortError(error: unknown): boolean {
     return false;
   }
   return error.name === "AbortError";
+}
+
+function isNetworkError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  if (error.name === "TypeError") {
+    return true;
+  }
+  const lowerMessage = error.message.toLowerCase();
+  return (
+    lowerMessage.includes("network") ||
+    lowerMessage.includes("failed to fetch") ||
+    lowerMessage.includes("econn")
+  );
 }
 
 function getErrorMessage(error: unknown): string {

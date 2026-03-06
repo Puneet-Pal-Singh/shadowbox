@@ -177,4 +177,87 @@ describe("provider lifecycle state machine baseline", () => {
     expect(validated.connectedCredentialIds).toEqual(["cred-1"]);
     expect(validated.validatedCredentialIds).toEqual(["cred-1"]);
   });
+
+  it("rejects selecting or resolving with unvalidated credentials", () => {
+    const connected = transitionProviderLifecycle(
+      createInitialProviderLifecycleState(),
+      {
+        step: "connect_credential",
+        providerId: "openai",
+        credentialId: "cred-a",
+      },
+    );
+    const connectedAgain = transitionProviderLifecycle(connected, {
+      step: "connect_credential",
+      providerId: "openai",
+      credentialId: "cred-b",
+    });
+    const validatedA = transitionProviderLifecycle(connectedAgain, {
+      step: "validate_credential",
+      credentialId: "cred-a",
+    });
+
+    expect(() =>
+      transitionProviderLifecycle(validatedA, {
+        step: "select_default",
+        providerId: "openai",
+        credentialId: "cred-b",
+        modelId: "gpt-4o",
+      }),
+    ).toThrow(ProviderClientTransitionError);
+
+    const invalidSelectedState = {
+      step: "select_default" as const,
+      connectedCredentialIds: ["cred-b"],
+      validatedCredentialIds: [],
+      selectedCredentialId: "cred-b",
+      providerId: "openai",
+      selectedProviderId: "openai",
+      selectedModelId: "gpt-4o",
+    };
+
+    expect(() =>
+      transitionProviderLifecycle(invalidSelectedState, {
+        step: "resolve_for_run",
+        resolvedAt: "2026-03-06T00:00:00.000Z",
+      }),
+    ).toThrow(ProviderClientTransitionError);
+  });
+
+  it("rejects blank provider/model selections", () => {
+    const validated = transitionProviderLifecycle(
+      transitionProviderLifecycle(createInitialProviderLifecycleState(), {
+        step: "connect_credential",
+        providerId: "openai",
+        credentialId: "cred-1",
+      }),
+      {
+        step: "validate_credential",
+        credentialId: "cred-1",
+      },
+    );
+
+    expect(() =>
+      transitionProviderLifecycle(validated, {
+        step: "select_default",
+        providerId: "openai",
+        credentialId: "cred-1",
+        modelId: "   ",
+      }),
+    ).toThrow(ProviderClientTransitionError);
+
+    const selected = transitionProviderLifecycle(validated, {
+      step: "select_default",
+      providerId: "openai",
+      credentialId: "cred-1",
+      modelId: "gpt-4o",
+    });
+    expect(() =>
+      transitionProviderLifecycle(selected, {
+        step: "resolve_for_run",
+        providerId: "   ",
+        resolvedAt: "2026-03-06T00:00:00.000Z",
+      }),
+    ).toThrow(ProviderClientTransitionError);
+  });
 });
