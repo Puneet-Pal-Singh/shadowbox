@@ -1,5 +1,5 @@
 {
-  "name": "@repo/client-sdk",
+  "name": "@repo/platform-client-sdk",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -19,6 +19,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@repo/provider-core": "workspace:*",
     "@repo/shared-types": "workspace:*",
     "zod": "^3.25.0"
   },

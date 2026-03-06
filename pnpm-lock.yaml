@@ -232,25 +232,6 @@ importers:
         specifier: ^1.6.0
         version: 1.6.1(@types/node@24.10.9)(jsdom@23.2.0)(lightningcss@1.30.2)
 
-  packages/client-sdk:
-    dependencies:
-      '@repo/shared-types':
-        specifier: workspace:*
-        version: link:../shared-types
-      zod:
-        specifier: ^3.25.0
-        version: 3.25.1
-    devDependencies:
-      '@repo/typescript-config':
-        specifier: workspace:*
-        version: link:../typescript-config
-      typescript:
-        specifier: ^5.0.0
-        version: 5.9.3
-      vitest:
-        specifier: ^1.0.0
-        version: 1.6.1(@types/node@24.10.9)(jsdom@23.2.0)(lightningcss@1.30.2)
-
   packages/context-assembly:
     devDependencies:
       '@types/node':
@@ -410,6 +391,44 @@ importers:
       vitest:
         specifier: ^1.0.0
         version: 1.6.1(@types/node@20.19.30)(jsdom@23.2.0)(lightningcss@1.30.2)
+
+  packages/platform-client-sdk:
+    dependencies:
+      '@repo/provider-core':
+        specifier: workspace:*
+        version: link:../provider-core
+      '@repo/shared-types':
+        specifier: workspace:*
+        version: link:../shared-types
+      zod:
+        specifier: ^3.25.0
+        version: 3.25.1
+    devDependencies:
+      '@repo/typescript-config':
+        specifier: workspace:*
+        version: link:../typescript-config
+      typescript:
+        specifier: ^5.0.0
+        version: 5.9.3
+      vitest:
+        specifier: ^1.0.0
+        version: 1.6.1(@types/node@24.10.9)(jsdom@23.2.0)(lightningcss@1.30.2)
+
+  packages/provider-core:
+    dependencies:
+      '@repo/shared-types':
+        specifier: workspace:*
+        version: link:../shared-types
+    devDependencies:
+      '@repo/typescript-config':
+        specifier: workspace:*
+        version: link:../typescript-config
+      typescript:
+        specifier: ^5.0.0
+        version: 5.9.3
+      vitest:
+        specifier: ^1.0.0
+        version: 1.6.1(@types/node@24.10.9)(jsdom@23.2.0)(lightningcss@1.30.2)
 
   packages/repo-awareness:
     dependencies:

@@ -14,8 +14,8 @@ export {
   BYOKPreferencesUpdateRequestSchema,
   BYOKResolutionSchema,
   BYOKResolveRequestSchema,
-  ProviderRegistryEntrySchema,
 } from "@repo/shared-types";
+export { ProviderRegistryEntrySchema } from "@repo/provider-core";
 export type {
   BYOKCredential,
   BYOKCredentialConnectRequest,
@@ -32,8 +32,8 @@ export type {
   BYOKPreferencesUpdateRequest,
   BYOKResolution,
   BYOKResolveRequest,
-  ProviderRegistryEntry,
 } from "@repo/shared-types";
+export type { ProviderRegistryEntry } from "@repo/provider-core";
 
 import type { BYOKDiscoveredProviderModelsQuery } from "@repo/shared-types";
 

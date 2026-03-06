@@ -39,14 +39,16 @@ import {
   BYOKPreferencesUpdateRequestSchema as SharedBYOKPreferencesUpdateRequestSchema,
   BYOKResolutionSchema as SharedBYOKResolutionSchema,
   BYOKResolveRequestSchema as SharedBYOKResolveRequestSchema,
-  ProviderRegistryEntrySchema as SharedProviderRegistryEntrySchema,
   type BYOKCredential as SharedBYOKCredential,
   type BYOKError as SharedBYOKError,
   type BYOKPreference as SharedBYOKPreference,
   type BYOKResolution as SharedBYOKResolution,
   type BYOKResolveRequest as SharedBYOKResolveRequest,
-  type ProviderRegistryEntry as SharedProviderRegistryEntry,
 } from "@repo/shared-types";
+import {
+  ProviderRegistryEntrySchema as ProviderCoreProviderRegistryEntrySchema,
+  type ProviderRegistryEntry as ProviderCoreProviderRegistryEntry,
+} from "@repo/provider-core";
 
 describe("provider contract parity", () => {
   it("re-exports canonical schemas from shared-types", () => {
@@ -81,7 +83,9 @@ describe("provider contract parity", () => {
     expect(BYOKErrorCodeSchema).toBe(SharedBYOKErrorCodeSchema);
     expect(BYOKErrorSchema).toBe(SharedBYOKErrorSchema);
     expect(BYOKErrorEnvelopeSchema).toBe(SharedBYOKErrorEnvelopeSchema);
-    expect(ProviderRegistryEntrySchema).toBe(SharedProviderRegistryEntrySchema);
+    expect(ProviderRegistryEntrySchema).toBe(
+      ProviderCoreProviderRegistryEntrySchema,
+    );
   });
 
   it("keeps facade types assignable to shared-types definitions", () => {
@@ -90,6 +94,6 @@ describe("provider contract parity", () => {
     expectTypeOf<BYOKResolution>().toEqualTypeOf<SharedBYOKResolution>();
     expectTypeOf<BYOKResolveRequest>().toEqualTypeOf<SharedBYOKResolveRequest>();
     expectTypeOf<BYOKError>().toEqualTypeOf<SharedBYOKError>();
-    expectTypeOf<ProviderRegistryEntry>().toEqualTypeOf<SharedProviderRegistryEntry>();
+    expectTypeOf<ProviderRegistryEntry>().toEqualTypeOf<ProviderCoreProviderRegistryEntry>();
   });
 });
