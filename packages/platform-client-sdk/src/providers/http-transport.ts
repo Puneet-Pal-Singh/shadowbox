@@ -17,10 +17,12 @@ import type {
 } from "./types.js";
 
 const DEFAULT_RESPONSE_PREVIEW_LIMIT = 120;
+const TRANSPORT_PROTECTED_HEADERS = new Set(["content-type", "x-run-id"]);
 
 export interface ProviderHttpTransportOptions {
   baseUrl: string;
   getRunId: () => string | null;
+  getHeaders?: () => Record<string, string>;
   fetchImpl?: typeof fetch;
   credentials?: RequestCredentials;
   responsePreviewLimit?: number;
@@ -100,9 +102,11 @@ function createTransportRequest(
     }
 
     const url = `${normalizedBaseUrl}${path}`;
+    const additionalHeaders = filterProtectedHeaders(options.getHeaders?.());
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
       "X-Run-Id": runId,
+      ...additionalHeaders,
     };
     const requestInit: RequestInit = {
       method,
@@ -129,6 +133,23 @@ function createTransportRequest(
       throw mapTransportException(error);
     }
   };
+}
+
+function filterProtectedHeaders(
+  headers: Record<string, string> | undefined,
+): Record<string, string> {
+  if (!headers) {
+    return {};
+  }
+
+  const filteredHeaders: Record<string, string> = {};
+  for (const [headerName, value] of Object.entries(headers)) {
+    if (TRANSPORT_PROTECTED_HEADERS.has(headerName.toLowerCase())) {
+      continue;
+    }
+    filteredHeaders[headerName] = value;
+  }
+  return filteredHeaders;
 }
 
 function buildProviderModelsPath(providerId: string, query: unknown): string {
