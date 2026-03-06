@@ -144,5 +144,9 @@ export function parseProviderOperationErrorCode(
     return value;
   }
 
+  if (value === "INVALID_TRANSITION") {
+    return value;
+  }
+
   return "UNKNOWN_OPERATION_ERROR";
 }

@@ -90,6 +90,34 @@ describe("provider lifecycle state machine baseline", () => {
     ).toThrow(ProviderClientTransitionError);
   });
 
+  it("requires resolvedAt for resolve_for_run transitions", () => {
+    const selected = transitionProviderLifecycle(
+      transitionProviderLifecycle(
+        transitionProviderLifecycle(createInitialProviderLifecycleState(), {
+          step: "connect_credential",
+          providerId: "openai",
+          credentialId: "cred-1",
+        }),
+        {
+          step: "validate_credential",
+          credentialId: "cred-1",
+        },
+      ),
+      {
+        step: "select_default",
+        providerId: "openai",
+        credentialId: "cred-1",
+        modelId: "gpt-4o",
+      },
+    );
+
+    expect(() =>
+      transitionProviderLifecycle(selected, {
+        step: "resolve_for_run",
+      }),
+    ).toThrow(ProviderClientTransitionError);
+  });
+
   it("supports disconnect reset and explicit disconnect", () => {
     const resolved = transitionProviderLifecycle(
       transitionProviderLifecycle(
@@ -113,6 +141,7 @@ describe("provider lifecycle state machine baseline", () => {
       ),
       {
         step: "resolve_for_run",
+        resolvedAt: "2026-03-06T00:00:00.000Z",
       },
     );
 
@@ -128,5 +157,24 @@ describe("provider lifecycle state machine baseline", () => {
       step: "discover_providers",
     });
     expect(reset).toEqual(createInitialProviderLifecycleState());
+  });
+
+  it("normalizes credential identifiers across transitions", () => {
+    const connected = transitionProviderLifecycle(
+      createInitialProviderLifecycleState(),
+      {
+        step: "connect_credential",
+        providerId: "openai",
+        credentialId: " cred-1 ",
+      },
+    );
+
+    const validated = transitionProviderLifecycle(connected, {
+      step: "validate_credential",
+      credentialId: "cred-1",
+    });
+
+    expect(validated.connectedCredentialIds).toEqual(["cred-1"]);
+    expect(validated.validatedCredentialIds).toEqual(["cred-1"]);
   });
 });

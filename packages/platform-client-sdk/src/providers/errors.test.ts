@@ -74,6 +74,9 @@ describe("provider client errors", () => {
       "PROVIDER_AUTH_FAILED",
     );
     expect(parseProviderOperationErrorCode("ABORTED")).toBe("ABORTED");
+    expect(parseProviderOperationErrorCode("INVALID_TRANSITION")).toBe(
+      "INVALID_TRANSITION",
+    );
     expect(parseProviderOperationErrorCode("something_else")).toBe(
       "UNKNOWN_OPERATION_ERROR",
     );

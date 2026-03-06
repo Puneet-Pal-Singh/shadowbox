@@ -161,8 +161,13 @@ function selectDefault(
     state.selectedModelId = transition.modelId;
   }
   if (transition.credentialId) {
-    ensureConnectedCredential(state, transition.credentialId, "select_default");
-    state.selectedCredentialId = transition.credentialId;
+    const credentialId = requireField(
+      transition.credentialId,
+      "credentialId",
+      state.step,
+    );
+    ensureConnectedCredential(state, credentialId, "select_default");
+    state.selectedCredentialId = credentialId;
   }
   return state;
 }
@@ -190,10 +195,19 @@ function resolveForRun(
   state.selectedProviderId = providerId;
   state.selectedModelId = modelId;
   if (transition.credentialId) {
-    ensureConnectedCredential(state, transition.credentialId, "resolve_for_run");
-    state.selectedCredentialId = transition.credentialId;
+    const credentialId = requireField(
+      transition.credentialId,
+      "credentialId",
+      state.step,
+    );
+    ensureConnectedCredential(state, credentialId, "resolve_for_run");
+    state.selectedCredentialId = credentialId;
   }
-  state.lastResolvedAt = transition.resolvedAt ?? new Date().toISOString();
+  state.lastResolvedAt = requireField(
+    transition.resolvedAt,
+    "resolvedAt",
+    state.step,
+  );
   return state;
 }
 
@@ -204,9 +218,14 @@ function disconnectCredential(
   if (!transition.credentialId) {
     return createInitialProviderLifecycleState();
   }
-  removeCredential(state.connectedCredentialIds, transition.credentialId);
-  removeCredential(state.validatedCredentialIds, transition.credentialId);
-  if (state.selectedCredentialId === transition.credentialId) {
+  const credentialId = requireField(
+    transition.credentialId,
+    "credentialId",
+    state.step,
+  );
+  removeCredential(state.connectedCredentialIds, credentialId);
+  removeCredential(state.validatedCredentialIds, credentialId);
+  if (state.selectedCredentialId === credentialId) {
     state.selectedCredentialId = undefined;
     state.selectedModelId = undefined;
     state.selectedProviderId = undefined;
@@ -232,14 +251,15 @@ function requireField(
   fieldName: string,
   step: ProviderLifecycleStep,
 ): string {
-  if (!value || value.trim().length === 0) {
+  const normalizedValue = value?.trim();
+  if (!normalizedValue || normalizedValue.length === 0) {
     throw new ProviderClientTransitionError(
       step,
       step,
       `Missing required ${fieldName} for ${step}`,
     );
   }
-  return value;
+  return normalizedValue;
 }
 
 function ensureConnectedCredential(
