@@ -1,0 +1,31 @@
+{
+  "name": "@repo/platform-client-sdk",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./providers/client": "./src/providers/client.ts",
+    "./providers/types": "./src/providers/types.ts",
+    "./providers/errors": "./src/providers/errors.ts",
+    "./providers/state-machine": "./src/providers/state-machine.ts"
+  },
+  "scripts": {
+    "build": "tsc",
+    "lint": "eslint .",
+    "check-types": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@repo/provider-core": "workspace:*",
+    "@repo/shared-types": "workspace:*",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@repo/typescript-config": "workspace:*",
+    "typescript": "^5.0.0",
+    "vitest": "^1.0.0"
+  }
+}
