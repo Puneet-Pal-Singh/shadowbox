@@ -1,5 +1,8 @@
 import { z } from "zod";
-import { ProviderClientContractError } from "./errors.js";
+import {
+  ProviderClientContractError,
+  normalizeProviderClientOperationError,
+} from "./errors.js";
 import {
   BYOKCredentialConnectRequestSchema,
   BYOKCredentialSchema,
@@ -56,7 +59,10 @@ export class ProviderClient {
   constructor(private readonly transport: ProviderClientTransport) {}
 
   async discoverProviders(): Promise<ProviderRegistryEntry[]> {
-    const payload = await this.transport.discoverProviders();
+    const payload = await this.invokeTransportOperation(
+      "discoverProviders",
+      () => this.transport.discoverProviders(),
+    );
     return parseResponse(payload, ProviderCatalogSchema, "discoverProviders");
   }
 
@@ -74,9 +80,13 @@ export class ProviderClient {
       BYOKDiscoveredProviderModelsQuerySchema,
       "discoverProviderModels",
     );
-    const payload = await this.transport.discoverProviderModels(
-      normalizedProviderId,
-      normalizedQuery,
+    const payload = await this.invokeTransportOperation(
+      "discoverProviderModels",
+      () =>
+        this.transport.discoverProviderModels(
+          normalizedProviderId,
+          normalizedQuery,
+        ),
     );
     return parseResponse(
       payload,
@@ -93,8 +103,9 @@ export class ProviderClient {
       "providerId",
       "refreshProviderModels",
     );
-    const payload = await this.transport.refreshProviderModels(
-      normalizedProviderId,
+    const payload = await this.invokeTransportOperation(
+      "refreshProviderModels",
+      () => this.transport.refreshProviderModels(normalizedProviderId),
     );
     return parseResponse(
       payload,
@@ -104,7 +115,9 @@ export class ProviderClient {
   }
 
   async listCredentials(): Promise<BYOKCredential[]> {
-    const payload = await this.transport.listCredentials();
+    const payload = await this.invokeTransportOperation("listCredentials", () =>
+      this.transport.listCredentials(),
+    );
     return parseResponse(payload, CredentialListSchema, "listCredentials");
   }
 
@@ -116,7 +129,9 @@ export class ProviderClient {
       BYOKCredentialConnectRequestSchema,
       "connectCredential",
     );
-    const payload = await this.transport.connectCredential(normalizedRequest);
+    const payload = await this.invokeTransportOperation("connectCredential", () =>
+      this.transport.connectCredential(normalizedRequest),
+    );
     return parseResponse(payload, BYOKCredentialSchema, "connectCredential");
   }
 
@@ -134,9 +149,8 @@ export class ProviderClient {
       BYOKCredentialUpdateRequestSchema,
       "updateCredential",
     );
-    const payload = await this.transport.updateCredential(
-      normalizedCredentialId,
-      normalizedRequest,
+    const payload = await this.invokeTransportOperation("updateCredential", () =>
+      this.transport.updateCredential(normalizedCredentialId, normalizedRequest),
     );
     return parseResponse(payload, BYOKCredentialSchema, "updateCredential");
   }
@@ -147,7 +161,9 @@ export class ProviderClient {
       "credentialId",
       "disconnectCredential",
     );
-    await this.transport.disconnectCredential(normalizedCredentialId);
+    await this.invokeTransportOperation("disconnectCredential", () =>
+      this.transport.disconnectCredential(normalizedCredentialId),
+    );
   }
 
   async validateCredential(
@@ -164,9 +180,8 @@ export class ProviderClient {
       BYOKCredentialValidateRequestSchema,
       "validateCredential",
     );
-    const payload = await this.transport.validateCredential(
-      normalizedCredentialId,
-      normalizedRequest,
+    const payload = await this.invokeTransportOperation("validateCredential", () =>
+      this.transport.validateCredential(normalizedCredentialId, normalizedRequest),
     );
     return parseResponse(
       payload,
@@ -176,7 +191,9 @@ export class ProviderClient {
   }
 
   async getPreferences(): Promise<BYOKPreference> {
-    const payload = await this.transport.getPreferences();
+    const payload = await this.invokeTransportOperation("getPreferences", () =>
+      this.transport.getPreferences(),
+    );
     return parseResponse(payload, BYOKPreferenceSchema, "getPreferences");
   }
 
@@ -188,7 +205,9 @@ export class ProviderClient {
       BYOKPreferencesUpdateRequestSchema,
       "selectDefault",
     );
-    const payload = await this.transport.updatePreferences(normalizedRequest);
+    const payload = await this.invokeTransportOperation("selectDefault", () =>
+      this.transport.updatePreferences(normalizedRequest),
+    );
     return parseResponse(payload, BYOKPreferenceSchema, "selectDefault");
   }
 
@@ -198,8 +217,21 @@ export class ProviderClient {
       BYOKResolveRequestSchema,
       "resolveForRun",
     );
-    const payload = await this.transport.resolveForRun(normalizedRequest);
+    const payload = await this.invokeTransportOperation("resolveForRun", () =>
+      this.transport.resolveForRun(normalizedRequest),
+    );
     return parseResponse(payload, BYOKResolutionSchema, "resolveForRun");
+  }
+
+  private async invokeTransportOperation<T>(
+    operation: string,
+    run: () => Promise<T>,
+  ): Promise<T> {
+    try {
+      return await run();
+    } catch (error) {
+      throw normalizeProviderClientOperationError(error, operation);
+    }
   }
 }
 

@@ -1,4 +1,18 @@
-import { BYOKErrorEnvelopeSchema, type BYOKErrorEnvelope } from "./types.js";
+import {
+  BYOKErrorCodeSchema,
+  BYOKErrorEnvelopeSchema,
+  type BYOKErrorCode,
+  type BYOKErrorEnvelope,
+} from "./types.js";
+import { isRetryableError } from "@repo/shared-types";
+import type { ProviderLifecycleStep } from "./state-machine.js";
+
+export type ProviderClientOperationErrorCode =
+  | BYOKErrorCode
+  | "ABORTED"
+  | "NETWORK_ERROR"
+  | "INVALID_TRANSITION"
+  | "UNKNOWN_OPERATION_ERROR";
 
 export class ProviderClientContractError extends Error {
   constructor(
@@ -13,7 +27,7 @@ export class ProviderClientContractError extends Error {
 
 export class ProviderClientOperationError extends Error {
   constructor(
-    public readonly code: string,
+    public readonly code: ProviderClientOperationErrorCode,
     message: string,
     public readonly retryable: boolean,
     public readonly correlationId?: string,
@@ -24,13 +38,65 @@ export class ProviderClientOperationError extends Error {
 
   static fromEnvelope(envelope: BYOKErrorEnvelope): ProviderClientOperationError {
     const { error } = envelope;
+    const retryable =
+      error.retryable || isRetryableProviderClientErrorCode(error.code);
     return new ProviderClientOperationError(
       error.code,
       error.message,
-      error.retryable,
+      retryable,
       error.correlationId,
     );
   }
+}
+
+export class ProviderClientTransitionError extends ProviderClientOperationError {
+  constructor(
+    public readonly fromStep: ProviderLifecycleStep,
+    public readonly toStep: ProviderLifecycleStep,
+    reason: string,
+  ) {
+    super("INVALID_TRANSITION", reason, false);
+    this.name = "ProviderClientTransitionError";
+  }
+}
+
+export function isRetryableProviderClientErrorCode(
+  code: ProviderClientOperationErrorCode,
+): boolean {
+  if (code === "ABORTED" || code === "NETWORK_ERROR") {
+    return true;
+  }
+  if (code === "INVALID_TRANSITION" || code === "UNKNOWN_OPERATION_ERROR") {
+    return false;
+  }
+  return isRetryableError(code);
+}
+
+export function normalizeProviderClientOperationError(
+  error: unknown,
+  operation: string,
+): ProviderClientOperationError {
+  if (error instanceof ProviderClientOperationError) {
+    return error;
+  }
+  const fromEnvelope = parseProviderErrorEnvelope(error);
+  if (fromEnvelope) {
+    return ProviderClientOperationError.fromEnvelope(fromEnvelope);
+  }
+  if (isAbortError(error)) {
+    return new ProviderClientOperationError(
+      "ABORTED",
+      "Operation aborted",
+      true,
+    );
+  }
+
+  const normalizedMessage = getErrorMessage(error);
+  return new ProviderClientOperationError(
+    "UNKNOWN_OPERATION_ERROR",
+    `${operation}: ${normalizedMessage}`,
+    false,
+  );
 }
 
 export function isProviderErrorEnvelope(
@@ -47,4 +113,36 @@ export function parseProviderErrorEnvelope(
     return null;
   }
   return parsed.data;
+}
+
+function isAbortError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  return error.name === "AbortError";
+}
+
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  if (typeof error === "string" && error.length > 0) {
+    return error;
+  }
+  return "Provider operation failed";
+}
+
+export function parseProviderOperationErrorCode(
+  value: string,
+): ProviderClientOperationErrorCode {
+  const parsed = BYOKErrorCodeSchema.safeParse(value);
+  if (parsed.success) {
+    return parsed.data;
+  }
+
+  if (value === "ABORTED" || value === "NETWORK_ERROR") {
+    return value;
+  }
+
+  return "UNKNOWN_OPERATION_ERROR";
 }

@@ -6,13 +6,20 @@ export {
 export {
   ProviderClientContractError,
   ProviderClientOperationError,
+  ProviderClientTransitionError,
   isProviderErrorEnvelope,
+  isRetryableProviderClientErrorCode,
+  normalizeProviderClientOperationError,
+  parseProviderOperationErrorCode,
   parseProviderErrorEnvelope,
+  type ProviderClientOperationErrorCode,
 } from "./providers/errors.js";
 export {
   PROVIDER_LIFECYCLE_STEPS,
   createInitialProviderLifecycleState,
   isProviderLifecycleStep,
+  transitionProviderLifecycle,
+  type ProviderLifecycleTransition,
   type ProviderLifecycleState,
   type ProviderLifecycleStep,
 } from "./providers/state-machine.js";
