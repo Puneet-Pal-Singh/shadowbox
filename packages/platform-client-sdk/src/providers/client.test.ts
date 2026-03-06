@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import { ProviderClient, createProviderClient } from "./client.js";
-import { ProviderClientContractError } from "./errors.js";
+import {
+  ProviderClientContractError,
+  ProviderClientOperationError,
+} from "./errors.js";
 import type { ProviderClientTransport } from "./client.js";
 
 function createTransport(
@@ -178,5 +181,21 @@ describe("ProviderClient", () => {
     await expect(client.discoverProviders()).rejects.toBeInstanceOf(
       ProviderClientContractError,
     );
+  });
+
+  it("normalizes transport failures into typed operation errors", async () => {
+    const transport = createTransport({
+      resolveForRun: vi.fn(async () => {
+        throw new Error("transport failed");
+      }),
+    });
+    const client = new ProviderClient(transport);
+
+    await expect(
+      client.resolveForRun({
+        providerId: "openai",
+        modelId: "gpt-4o",
+      }),
+    ).rejects.toBeInstanceOf(ProviderClientOperationError);
   });
 });
