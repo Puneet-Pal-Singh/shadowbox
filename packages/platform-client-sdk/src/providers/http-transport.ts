@@ -1,4 +1,5 @@
 import type {
+  ProviderClientOperationOptions,
   ProviderClientTransport,
 } from "./client.js";
 import {
@@ -31,35 +32,43 @@ export function createByokHttpTransport(
   const request = createTransportRequest(options);
 
   return {
-    discoverProviders: () => request("GET", "/providers"),
-    discoverProviderModels: (providerId, query) =>
-      request("GET", buildProviderModelsPath(providerId, query)),
-    refreshProviderModels: (providerId) =>
-      request("POST", `/providers/${encodeURIComponent(providerId)}/models/refresh`, {}),
-    listCredentials: () => request("GET", "/credentials"),
-    connectCredential: (payload: BYOKCredentialConnectRequest) =>
-      request("POST", "/credentials", payload),
+    discoverProviders: (options) => request("GET", "/providers", undefined, options),
+    discoverProviderModels: (providerId, query, options) =>
+      request("GET", buildProviderModelsPath(providerId, query), undefined, options),
+    refreshProviderModels: (providerId, options) =>
+      request(
+        "POST",
+        `/providers/${encodeURIComponent(providerId)}/models/refresh`,
+        {},
+        options,
+      ),
+    listCredentials: (options) => request("GET", "/credentials", undefined, options),
+    connectCredential: (payload: BYOKCredentialConnectRequest, options) =>
+      request("POST", "/credentials", payload, options),
     updateCredential: (
       credentialId: string,
       payload: BYOKCredentialUpdateRequest,
-    ) => request("PATCH", `/credentials/${encodeURIComponent(credentialId)}`, payload),
-    disconnectCredential: async (credentialId: string) => {
-      await request("DELETE", `/credentials/${encodeURIComponent(credentialId)}`);
+      options,
+    ) => request("PATCH", `/credentials/${encodeURIComponent(credentialId)}`, payload, options),
+    disconnectCredential: async (credentialId: string, options) => {
+      await request("DELETE", `/credentials/${encodeURIComponent(credentialId)}`, undefined, options);
     },
     validateCredential: (
       credentialId: string,
       payload: BYOKCredentialValidateRequest,
+      options,
     ) =>
       request(
         "POST",
         `/credentials/${encodeURIComponent(credentialId)}/validate`,
         payload,
+        options,
       ),
-    getPreferences: () => request("GET", "/preferences"),
-    updatePreferences: (payload: BYOKPreferencesUpdateRequest) =>
-      request("PATCH", "/preferences", payload),
-    resolveForRun: (payload: BYOKResolveRequest) =>
-      request("POST", "/resolve", payload),
+    getPreferences: (options) => request("GET", "/preferences", undefined, options),
+    updatePreferences: (payload: BYOKPreferencesUpdateRequest, options) =>
+      request("PATCH", "/preferences", payload, options),
+    resolveForRun: (payload: BYOKResolveRequest, options) =>
+      request("POST", "/resolve", payload, options),
   };
 }
 
@@ -67,6 +76,7 @@ type TransportRequest = (
   method: "GET" | "POST" | "PATCH" | "DELETE",
   path: string,
   payload?: unknown,
+  requestOptions?: ProviderClientOperationOptions,
 ) => Promise<unknown>;
 
 function createTransportRequest(
@@ -77,7 +87,7 @@ function createTransportRequest(
     options.responsePreviewLimit ?? DEFAULT_RESPONSE_PREVIEW_LIMIT;
   const normalizedBaseUrl = options.baseUrl.replace(/\/$/, "");
 
-  return async (method, path, payload) => {
+  return async (method, path, payload, requestOptions) => {
     const runId = options.getRunId();
     if (!runId) {
       throw new ProviderClientOperationError(
@@ -98,7 +108,7 @@ function createTransportRequest(
       method,
       credentials,
       headers,
-      signal: undefined,
+      signal: requestOptions?.signal,
     };
 
     if (payload !== undefined) {
@@ -183,9 +193,11 @@ async function createOperationErrorFromResponse(
   let correlationId: string | undefined;
   let retryable = response.status >= 500 || response.status === 429;
 
-  try {
-    const contentType = response.headers.get("content-type") ?? "";
-    if (contentType.includes("application/json")) {
+  const contentType = response.headers.get("content-type") ?? "";
+  if (contentType.includes("application/json")) {
+    const previewResponse =
+      typeof response.clone === "function" ? response.clone() : response;
+    try {
       const payload = await response.json();
       const envelope = parseProviderErrorEnvelope(payload);
       if (envelope) {
@@ -203,16 +215,27 @@ async function createOperationErrorFromResponse(
       code = fallback.code ?? code;
       message = fallback.message ?? message;
       correlationId = fallback.correlationId;
-      retryable = retryable || isRetryableProviderClientErrorCode(parseProviderOperationErrorCode(code));
-    } else {
-      const preview = await readResponsePreview(response, responsePreviewLimit);
-      if (preview.length > 0) {
-        code = "INVALID_ERROR_RESPONSE";
-        message = `Unexpected non-JSON error response: ${preview}`;
-      }
+      retryable =
+        retryable ||
+        isRetryableProviderClientErrorCode(parseProviderOperationErrorCode(code));
+    } catch (error) {
+      const preview = await readResponsePreview(previewResponse, responsePreviewLimit);
+      code = "INVALID_ERROR_RESPONSE";
+      message = preview
+        ? `Malformed JSON error response: ${preview}`
+        : "Malformed JSON error response";
+      retryable = false;
+      console.warn(
+        "[provider/httpTransport] Failed to parse JSON error response",
+        { error },
+      );
     }
-  } catch {
-    // Preserve defaults when payload parsing fails.
+  } else {
+    const preview = await readResponsePreview(response, responsePreviewLimit);
+    if (preview.length > 0) {
+      code = "INVALID_ERROR_RESPONSE";
+      message = `Unexpected non-JSON error response: ${preview}`;
+    }
   }
 
   return new ProviderClientOperationError(

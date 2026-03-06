@@ -99,6 +99,7 @@ export class ProviderApiError extends Error {
 export class ProviderApiClient {
   private static readonly sessionRunIdKey = "currentRunId";
   private readonly sdkClient;
+  private readonly abortControllers = new Map<string, AbortController>();
 
   constructor(
     private readonly runIdResolver: RunIdResolver = new DefaultRunIdResolver(
@@ -114,15 +115,18 @@ export class ProviderApiClient {
   }
 
   async getCatalog(): Promise<ProviderRegistryEntry[]> {
-    return this.call(() => this.sdkClient.discoverProviders());
+    return this.callWithAbortKey("GET /providers", (signal) =>
+      this.sdkClient.discoverProviders({ signal }),
+    );
   }
 
   async getProviderModels(
     providerId: string,
     query: ProviderModelsQuery = {},
   ): Promise<ProviderModelsPageResult> {
-    const response = await this.call(() =>
-      this.sdkClient.discoverProviderModels(providerId, query),
+    const requestKey = `GET /providers/${encodeURIComponent(providerId)}/models`;
+    const response = await this.callWithAbortKey(requestKey, (signal) =>
+      this.sdkClient.discoverProviderModels(providerId, query, { signal }),
     );
     return {
       providerId: response.providerId,
@@ -140,54 +144,80 @@ export class ProviderApiClient {
   async refreshProviderModels(
     providerId: string,
   ): Promise<BYOKDiscoveredProviderModelsRefreshResponse> {
-    return this.call(() => this.sdkClient.refreshProviderModels(providerId));
+    const requestKey = `POST /providers/${encodeURIComponent(providerId)}/models/refresh`;
+    return this.callWithAbortKey(requestKey, (signal) =>
+      this.sdkClient.refreshProviderModels(providerId, { signal }),
+    );
   }
 
   async getCredentials(): Promise<ProviderCredential[]> {
-    return this.call(() => this.sdkClient.listCredentials());
+    return this.callWithAbortKey("GET /credentials", (signal) =>
+      this.sdkClient.listCredentials({ signal }),
+    );
   }
 
   async connectCredential(
     req: ConnectCredentialRequest
   ): Promise<ProviderCredential> {
-    return this.call(() => this.sdkClient.connectCredential(req));
+    return this.callWithAbortKey("POST /credentials", (signal) =>
+      this.sdkClient.connectCredential(req, { signal }),
+    );
   }
 
   async updateCredential(
     credentialId: string,
     req: UpdateCredentialRequest
   ): Promise<ProviderCredential> {
-    return this.call(() => this.sdkClient.updateCredential(credentialId, req));
+    const requestKey = `PATCH /credentials/${encodeURIComponent(credentialId)}`;
+    return this.callWithAbortKey(requestKey, (signal) =>
+      this.sdkClient.updateCredential(credentialId, req, { signal }),
+    );
   }
 
   async disconnectCredential(credentialId: string): Promise<void> {
-    await this.call(() => this.sdkClient.disconnectCredential(credentialId));
+    const requestKey = `DELETE /credentials/${encodeURIComponent(credentialId)}`;
+    await this.callWithAbortKey(requestKey, (signal) =>
+      this.sdkClient.disconnectCredential(credentialId, { signal }),
+    );
   }
 
   async validateCredential(
     credentialId: string,
     req: ValidateCredentialRequest
   ): Promise<ValidationResult> {
-    return this.call(() => this.sdkClient.validateCredential(credentialId, req));
+    const requestKey = `POST /credentials/${encodeURIComponent(credentialId)}/validate`;
+    return this.callWithAbortKey(requestKey, (signal) =>
+      this.sdkClient.validateCredential(credentialId, req, { signal }),
+    );
   }
 
   async getPreferences(): Promise<ProviderPreference> {
-    return this.call(() => this.sdkClient.getPreferences());
+    return this.callWithAbortKey("GET /preferences", (signal) =>
+      this.sdkClient.getPreferences({ signal }),
+    );
   }
 
   async updatePreferences(
     req: BYOKPreferencesUpdateRequest
   ): Promise<ProviderPreference> {
-    return this.call(() => this.sdkClient.selectDefault(req));
+    return this.callWithAbortKey("PATCH /preferences", (signal) =>
+      this.sdkClient.selectDefault(req, { signal }),
+    );
   }
 
   async resolveForChat(req: ResolveChatRequest): Promise<ProviderResolution> {
-    return this.call(() => this.sdkClient.resolveForRun(req));
+    return this.callWithAbortKey("POST /resolve", (signal) =>
+      this.sdkClient.resolveForRun(req, { signal }),
+    );
   }
 
   abort(key: string): void {
-    void key;
-    // SDK transport owns request orchestration; this remains as backward-compatible no-op.
+    const controller = this.abortControllers.get(key);
+    if (!controller) {
+      return;
+    }
+    controller.abort();
+    this.abortControllers.delete(key);
   }
 
   private resolveRunId(): string | null {
@@ -199,6 +229,34 @@ export class ProviderApiClient {
       return await operation();
     } catch (error) {
       throw mapProviderApiError(error);
+    }
+  }
+
+  private async callWithAbortKey<T>(
+    key: string,
+    operation: (signal: AbortSignal) => Promise<T>,
+  ): Promise<T> {
+    const controller = this.prepareAbortController(key);
+    try {
+      return await this.call(() => operation(controller.signal));
+    } finally {
+      this.releaseAbortController(key, controller);
+    }
+  }
+
+  private prepareAbortController(key: string): AbortController {
+    const existing = this.abortControllers.get(key);
+    if (existing) {
+      existing.abort();
+    }
+    const controller = new AbortController();
+    this.abortControllers.set(key, controller);
+    return controller;
+  }
+
+  private releaseAbortController(key: string, controller: AbortController): void {
+    if (this.abortControllers.get(key) === controller) {
+      this.abortControllers.delete(key);
     }
   }
 }
@@ -217,7 +275,9 @@ function mapProviderApiError(error: unknown): ProviderApiError {
   }
   if (error instanceof ProviderClientOperationError) {
     const statusCode =
-      error.statusCode ?? deriveStatusCodeFromOperationError(error.code, error.retryable);
+      error.statusCode && error.statusCode > 0
+        ? error.statusCode
+        : deriveStatusCodeFromOperationError(error.code, error.retryable);
     return new ProviderApiError(
       statusCode,
       error.code,

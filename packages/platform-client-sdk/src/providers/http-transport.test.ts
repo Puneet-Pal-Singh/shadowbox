@@ -67,4 +67,53 @@ describe("createByokHttpTransport", () => {
       ProviderClientOperationError,
     );
   });
+
+  it("forwards abort signals to fetch", async () => {
+    const fetchImpl = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      headers: new Headers({ "content-type": "application/json" }),
+      json: vi.fn(async () => []),
+    })) as unknown as typeof fetch;
+    const transport = createByokHttpTransport({
+      baseUrl: "http://localhost:8788/api/byok",
+      getRunId: () => "run-123",
+      fetchImpl,
+    });
+    const controller = new AbortController();
+
+    await transport.discoverProviders({ signal: controller.signal });
+
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "http://localhost:8788/api/byok/providers",
+      expect.objectContaining({
+        signal: controller.signal,
+      }),
+    );
+  });
+
+  it("returns INVALID_ERROR_RESPONSE when JSON error parsing fails", async () => {
+    const fetchImpl = vi.fn(async () => ({
+      ok: false,
+      status: 502,
+      headers: new Headers({ "content-type": "application/json" }),
+      clone: vi.fn(() => ({
+        text: vi.fn(async () => "{\"error\":"),
+      })),
+      json: vi.fn(async () => {
+        throw new Error("Unexpected end of JSON input");
+      }),
+    })) as unknown as typeof fetch;
+    const transport = createByokHttpTransport({
+      baseUrl: "http://localhost:8788/api/byok",
+      getRunId: () => "run-123",
+      fetchImpl,
+    });
+
+    await expect(transport.discoverProviders()).rejects.toMatchObject({
+      code: "INVALID_ERROR_RESPONSE",
+      message: expect.stringContaining("Malformed JSON error response"),
+      statusCode: 502,
+    });
+  });
 });
