@@ -87,10 +87,12 @@ describe("ProviderResolutionService", () => {
       // Request override now validates the credential, triggering the error
       const result = await service.resolve(request, context);
 
-      // Should either error or fall back
+      expect("code" in result).toBe(true);
       if ("code" in result) {
         expect(result.message.length).toBeGreaterThan(0);
         expect(result.correlationId).toBe(context.sessionId);
+      } else {
+        throw new Error("Expected error result");
       }
     });
   });
@@ -153,10 +155,12 @@ describe("ProviderResolutionService", () => {
       };
       const result = await service.resolve(request, context);
 
-      // The request override validation should trigger the error
+      expect("code" in result).toBe(true);
       if ("code" in result) {
         expect(result.message).toContain("Database connection failed");
         expect(result.correlationId).toBe(context.sessionId);
+      } else {
+        throw new Error("Expected error result");
       }
     });
   });

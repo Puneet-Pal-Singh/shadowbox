@@ -1243,7 +1243,7 @@ async function loadWorkspacePreference(
  * Resolution chain:
  * 1. Request override (providerId/credentialId/modelId)
  * 2. Workspace preference (defaultProviderId/defaultModelId)
- * 3. Connected provider selection (first connected provider)
+ * 3. Strict resolution: throw when no explicit/default provider is resolved
  */
 function resolveSelection(
   request: BYOKResolveRequest,

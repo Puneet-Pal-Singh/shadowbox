@@ -156,8 +156,10 @@ export function mapProviderIdToRuntimeProvider(
     case "openrouter":
     case "groq":
       return providerId;
-    default:
+    case "google":
       return "litellm";
+    default:
+      throw new InvalidProviderSelectionError(providerId);
   }
 }
 

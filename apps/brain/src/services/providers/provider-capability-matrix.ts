@@ -8,6 +8,7 @@
 import type { ProviderCapabilityFlags } from "@repo/shared-types";
 import type { ProviderId } from "@repo/shared-types";
 import { PROVIDER_IDS } from "../../schemas/provider-registry";
+import { ValidationError } from "../../domain/errors";
 import { PROVIDER_CATALOG } from "./catalog";
 
 interface ProviderCapabilities {
@@ -15,12 +16,15 @@ interface ProviderCapabilities {
   flags: ProviderCapabilityFlags;
 }
 
-const DEFAULT_PROVIDER_CAPABILITY_FLAGS: ProviderCapabilityFlags = {
-  streaming: false,
-  tools: false,
-  structuredOutputs: false,
-  jsonMode: false,
-};
+class ProviderCapabilityConfigurationError extends ValidationError {
+  constructor(providerId: ProviderId) {
+    super(
+      `Missing provider capability flags for provider "${providerId}".`,
+      "INVALID_PROVIDER_SELECTION",
+    );
+    this.name = "ProviderCapabilityConfigurationError";
+  }
+}
 
 const PROVIDER_CAPABILITY_FLAGS: Record<ProviderId, ProviderCapabilityFlags> = {
   openrouter: {
@@ -49,15 +53,23 @@ const PROVIDER_CAPABILITY_FLAGS: Record<ProviderId, ProviderCapabilityFlags> = {
   },
 };
 
+function resolveProviderCapabilityFlags(
+  providerId: ProviderId,
+): ProviderCapabilityFlags {
+  const flags = PROVIDER_CAPABILITY_FLAGS[providerId];
+  if (!flags) {
+    throw new ProviderCapabilityConfigurationError(providerId);
+  }
+  return flags;
+}
+
 function buildCapabilityMatrix(): Record<ProviderId, ProviderCapabilities> {
   const matrix = {} as Record<ProviderId, ProviderCapabilities>;
   for (const providerId of PROVIDER_IDS as readonly ProviderId[]) {
     const models = PROVIDER_CATALOG[providerId] ?? [];
     matrix[providerId] = {
       allowedModelIds: new Set(models.map((model) => model.id)),
-      flags:
-        PROVIDER_CAPABILITY_FLAGS[providerId] ??
-        DEFAULT_PROVIDER_CAPABILITY_FLAGS,
+      flags: resolveProviderCapabilityFlags(providerId),
     };
   }
 
@@ -79,8 +91,9 @@ export function isModelAllowedByCapabilityMatrix(
 export function getProviderCapabilityFlags(
   providerId: ProviderId,
 ): ProviderCapabilityFlags {
-  return (
-    PROVIDER_CAPABILITY_MATRIX[providerId]?.flags ??
-    DEFAULT_PROVIDER_CAPABILITY_FLAGS
-  );
+  const entry = PROVIDER_CAPABILITY_MATRIX[providerId];
+  if (!entry) {
+    throw new ProviderCapabilityConfigurationError(providerId);
+  }
+  return entry.flags;
 }

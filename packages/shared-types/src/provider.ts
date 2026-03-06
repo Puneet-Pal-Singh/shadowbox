@@ -1,6 +1,7 @@
 import { z } from "zod";
 
-const PROVIDER_ID_REGEX = /^[a-z0-9-]+$/;
+export const PROVIDER_ID_PATTERN = "^[a-z0-9]+(?:-[a-z0-9]+)*$";
+const PROVIDER_ID_REGEX = new RegExp(PROVIDER_ID_PATTERN);
 
 /**
  * Seed providers for bootstrap/fixtures.
