@@ -17,8 +17,18 @@ import {
   BYOKResolveRequestSchema,
   ProviderRegistryEntrySchema,
   type BYOKCredential,
+  type BYOKCredentialConnectRequest,
+  type BYOKCredentialUpdateRequest,
+  type BYOKCredentialValidateRequest,
+  type BYOKCredentialValidateResponse,
+  type BYOKDiscoveredProviderModelsQuery,
+  type BYOKDiscoveredProviderModelsRefreshResponse,
+  type BYOKDiscoveredProviderModelsResponse,
   type BYOKError,
+  type BYOKErrorCode,
+  type BYOKErrorEnvelope,
   type BYOKPreference,
+  type BYOKPreferencesUpdateRequest,
   type BYOKResolution,
   type BYOKResolveRequest,
   type ProviderRegistryEntry,
@@ -40,8 +50,18 @@ import {
   BYOKResolutionSchema as SharedBYOKResolutionSchema,
   BYOKResolveRequestSchema as SharedBYOKResolveRequestSchema,
   type BYOKCredential as SharedBYOKCredential,
+  type BYOKCredentialConnectRequest as SharedBYOKCredentialConnectRequest,
+  type BYOKCredentialUpdateRequest as SharedBYOKCredentialUpdateRequest,
+  type BYOKCredentialValidateRequest as SharedBYOKCredentialValidateRequest,
+  type BYOKCredentialValidateResponse as SharedBYOKCredentialValidateResponse,
+  type BYOKDiscoveredProviderModelsQuery as SharedBYOKDiscoveredProviderModelsQuery,
+  type BYOKDiscoveredProviderModelsRefreshResponse as SharedBYOKDiscoveredProviderModelsRefreshResponse,
+  type BYOKDiscoveredProviderModelsResponse as SharedBYOKDiscoveredProviderModelsResponse,
   type BYOKError as SharedBYOKError,
+  type BYOKErrorCode as SharedBYOKErrorCode,
+  type BYOKErrorEnvelope as SharedBYOKErrorEnvelope,
   type BYOKPreference as SharedBYOKPreference,
+  type BYOKPreferencesUpdateRequest as SharedBYOKPreferencesUpdateRequest,
   type BYOKResolution as SharedBYOKResolution,
   type BYOKResolveRequest as SharedBYOKResolveRequest,
 } from "@repo/shared-types";
@@ -90,10 +110,20 @@ describe("provider contract parity", () => {
 
   it("keeps facade types assignable to shared-types definitions", () => {
     expectTypeOf<BYOKCredential>().toEqualTypeOf<SharedBYOKCredential>();
+    expectTypeOf<BYOKCredentialConnectRequest>().toEqualTypeOf<SharedBYOKCredentialConnectRequest>();
+    expectTypeOf<BYOKCredentialUpdateRequest>().toEqualTypeOf<SharedBYOKCredentialUpdateRequest>();
+    expectTypeOf<BYOKCredentialValidateRequest>().toEqualTypeOf<SharedBYOKCredentialValidateRequest>();
+    expectTypeOf<BYOKCredentialValidateResponse>().toEqualTypeOf<SharedBYOKCredentialValidateResponse>();
+    expectTypeOf<BYOKDiscoveredProviderModelsQuery>().toEqualTypeOf<SharedBYOKDiscoveredProviderModelsQuery>();
+    expectTypeOf<BYOKDiscoveredProviderModelsRefreshResponse>().toEqualTypeOf<SharedBYOKDiscoveredProviderModelsRefreshResponse>();
+    expectTypeOf<BYOKDiscoveredProviderModelsResponse>().toEqualTypeOf<SharedBYOKDiscoveredProviderModelsResponse>();
     expectTypeOf<BYOKPreference>().toEqualTypeOf<SharedBYOKPreference>();
+    expectTypeOf<BYOKPreferencesUpdateRequest>().toEqualTypeOf<SharedBYOKPreferencesUpdateRequest>();
     expectTypeOf<BYOKResolution>().toEqualTypeOf<SharedBYOKResolution>();
     expectTypeOf<BYOKResolveRequest>().toEqualTypeOf<SharedBYOKResolveRequest>();
     expectTypeOf<BYOKError>().toEqualTypeOf<SharedBYOKError>();
+    expectTypeOf<BYOKErrorCode>().toEqualTypeOf<SharedBYOKErrorCode>();
+    expectTypeOf<BYOKErrorEnvelope>().toEqualTypeOf<SharedBYOKErrorEnvelope>();
     expectTypeOf<ProviderRegistryEntry>().toEqualTypeOf<ProviderCoreProviderRegistryEntry>();
   });
 });
