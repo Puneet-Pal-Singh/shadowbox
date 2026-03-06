@@ -2,166 +2,57 @@ import { describe, it, expect } from "vitest";
 import { ProviderConfiguration } from "../ProviderConfiguration.js";
 
 /**
- * Tests for RCP3: Fallback model removal from ProviderConfiguration.
- * 
- * Verifies that silent fallback model selection is completely removed
- * and explicit DEFAULT_MODEL is used instead.
+ * Tests for Pre-63: Provider-agnostic configuration.
+ * Verifies no hardcoded vendor defaults remain.
  */
-describe("ProviderConfiguration - RCP3: No Fallback Models", () => {
-  describe("Default Configuration", () => {
-    it("should define DEFAULT_PROVIDER", () => {
-      expect(ProviderConfiguration.DEFAULT_PROVIDER).toBe("openrouter");
+describe("ProviderConfiguration - No Vendor Defaults", () => {
+  describe("No hardcoded constants", () => {
+    it("should not define DEFAULT_PROVIDER", () => {
+      expect((ProviderConfiguration as Record<string, unknown>)["DEFAULT_PROVIDER"]).toBeUndefined();
     });
 
-    it("should define DEFAULT_MODEL", () => {
-      expect(ProviderConfiguration.DEFAULT_MODEL).toBe(
-        "arcee-ai/trinity-large-preview:free",
-      );
+    it("should not define DEFAULT_MODEL", () => {
+      expect((ProviderConfiguration as Record<string, unknown>)["DEFAULT_MODEL"]).toBeUndefined();
     });
 
-    it("should have KNOWN_OPENROUTER_MODELS without fallback chain", () => {
-      const models = ProviderConfiguration.KNOWN_OPENROUTER_MODELS;
-
-      expect(models).toContain("arcee-ai/trinity-large-preview:free");
-      expect(models.length).toBeGreaterThan(0);
-
-      // Should not have a separate FALLBACK_MODELS constant
-      expect((ProviderConfiguration as any).FALLBACK_MODELS).toBeUndefined();
-    });
-  });
-
-  describe("getFallbackModel Deprecation (RCP3)", () => {
-    it("should throw error when getFallbackModel is called", () => {
-      expect(() => {
-        ProviderConfiguration.getFallbackModel("openrouter");
-      }).toThrow();
+    it("should not define KNOWN_OPENROUTER_MODELS", () => {
+      expect((ProviderConfiguration as Record<string, unknown>)["KNOWN_OPENROUTER_MODELS"]).toBeUndefined();
     });
 
-    it("should mention RCP3 in the error message", () => {
-      try {
-        ProviderConfiguration.getFallbackModel("openrouter");
-        expect.fail("Should have thrown");
-      } catch (error) {
-        const message = (error as Error).message;
-        expect(message).toContain("RCP3");
-        expect(message).toContain("deprecated");
-        expect(message).toContain("fallback");
-      }
+    it("should not have getFallbackModel", () => {
+      expect((ProviderConfiguration as Record<string, unknown>)["getFallbackModel"]).toBeUndefined();
     });
 
-    it("should suggest using DEFAULT_MODEL instead", () => {
-      try {
-        ProviderConfiguration.getFallbackModel("openrouter");
-        expect.fail("Should have thrown");
-      } catch (error) {
-        const message = (error as Error).message;
-        expect(message).toContain("DEFAULT_MODEL");
-      }
+    it("should not have getDefaultProvider", () => {
+      expect((ProviderConfiguration as Record<string, unknown>)["getDefaultProvider"]).toBeUndefined();
     });
 
-    it("should error for any provider, not just openrouter", () => {
-      const providers = ["openrouter", "custom-provider", "unknown"];
-
-      for (const provider of providers) {
-        expect(() => {
-          ProviderConfiguration.getFallbackModel(provider);
-        }).toThrow();
-      }
+    it("should not have getDefaultModel", () => {
+      expect((ProviderConfiguration as Record<string, unknown>)["getDefaultModel"]).toBeUndefined();
     });
   });
 
-  describe("getDefaultProvider", () => {
-    it("should return openrouter", () => {
-      expect(ProviderConfiguration.getDefaultProvider()).toBe("openrouter");
-    });
-  });
-
-  describe("getDefaultModel", () => {
-    it("should return the default model", () => {
-      expect(ProviderConfiguration.getDefaultModel()).toBe(
-        "arcee-ai/trinity-large-preview:free",
-      );
+  describe("isValidProviderId", () => {
+    it("should accept valid slug-format provider IDs", () => {
+      expect(ProviderConfiguration.isValidProviderId("openai")).toBe(true);
+      expect(ProviderConfiguration.isValidProviderId("my-provider")).toBe(true);
     });
 
-    it("should not change based on context", () => {
-      // Verify it's consistent (no fallback selection logic)
-      const model1 = ProviderConfiguration.getDefaultModel();
-      const model2 = ProviderConfiguration.getDefaultModel();
-
-      expect(model1).toBe(model2);
-      expect(model1).toBe("arcee-ai/trinity-large-preview:free");
-    });
-  });
-
-  describe("isKnownModel", () => {
-    it("should recognize known openrouter models", () => {
-      const knownModels = [
-        "arcee-ai/trinity-large-preview:free",
-        "llama-3.3-70b-versatile",
-        "mistral-large",
-      ];
-
-      for (const model of knownModels) {
-        expect(
-          ProviderConfiguration.isKnownModel("openrouter", model),
-        ).toBe(true);
-      }
-    });
-
-    it("should return false for unknown openrouter models", () => {
-      expect(ProviderConfiguration.isKnownModel("openrouter", "unknown-model"))
-        .toBe(false);
-    });
-
-    it("should allow any model for non-openrouter providers (BYOK)", () => {
-      expect(
-        ProviderConfiguration.isKnownModel("custom-provider", "any-model"),
-      ).toBe(true);
-      expect(
-        ProviderConfiguration.isKnownModel("user-provided-api", "custom-model"),
-      ).toBe(true);
+    it("should reject invalid provider IDs", () => {
+      expect(ProviderConfiguration.isValidProviderId("")).toBe(false);
+      expect(ProviderConfiguration.isValidProviderId("HAS_UPPER")).toBe(false);
     });
   });
 
   describe("validateConfig", () => {
-    it("should fail if provider is missing", () => {
-      const result = ProviderConfiguration.validateConfig("", "some-model");
-
-      expect(result).not.toBeNull();
-      expect(result).toContain("Provider");
+    it("should pass for any valid slug + non-empty model", () => {
+      expect(ProviderConfiguration.validateConfig("openrouter", "any-model")).toBeNull();
+      expect(ProviderConfiguration.validateConfig("groq", "llama-3")).toBeNull();
     });
 
-    it("should fail if model is missing", () => {
-      const result = ProviderConfiguration.validateConfig("openrouter", "");
-
-      expect(result).not.toBeNull();
-      expect(result).toContain("model");
-    });
-
-    it("should fail if both are missing", () => {
-      const result = ProviderConfiguration.validateConfig("", "");
-
-      expect(result).not.toBeNull();
-      expect(result).toContain("Provider");
-      expect(result).toContain("model");
-    });
-
-    it("should pass for valid openrouter model", () => {
-      const result = ProviderConfiguration.validateConfig(
-        "openrouter",
-        "arcee-ai/trinity-large-preview:free",
-      );
-
-      expect(result).toBeNull();
-    });
-
-    it("should fail for unknown openrouter model", () => {
-      const result = ProviderConfiguration.validateConfig(
-        "openrouter",
-        "unknown-model",
-      );
-
-      expect(result).not.toBeNull();
+    it("should fail for missing provider or model", () => {
+      expect(ProviderConfiguration.validateConfig("", "model")).not.toBeNull();
+      expect(ProviderConfiguration.validateConfig("provider", "")).not.toBeNull();
     });
   });
 });
