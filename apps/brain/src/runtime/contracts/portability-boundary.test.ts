@@ -16,17 +16,47 @@ import type {
   ProviderResolutionPort,
   RealtimeEventPort,
 } from "../ports";
+import type { RunStateEnvelope } from "@shadowbox/orchestrator-core";
+
+function createExecutionRuntimePortMock(): ExecutionRuntimePort {
+  return {
+    executeTask: async (_runId, _input) => ({ status: "success" as const, output: "" }),
+    cancelTask: async (_runId, _taskId) => true,
+    getRunState: async (_runId): Promise<RunStateEnvelope | null> => null,
+    transitionRun: async (_runId, _newStatus) => {},
+    scheduleNext: async (_runId) => null,
+  };
+}
+
+function createProviderResolutionPortMock(): ProviderResolutionPort {
+  return {
+    getCredentialStatus: async (_runId, _providerId) => ({
+      providerId: "test",
+      configured: false,
+    }),
+    resolveCredential: async (_runId, _providerId) => ({}),
+    getModels: async (_providerId) => [],
+    generateText: async (_providerId, _modelId, _input) => "",
+    generateStructured: async (_providerId, _modelId, _input) => ({}),
+    createChatStream: async (_providerId, _modelId, _input) =>
+      new ReadableStream<unknown>(),
+  };
+}
+
+function createRealtimeEventPortMock(): RealtimeEventPort {
+  return {
+    emit: (_event) => {},
+    emitBatch: (_events) => {},
+    complete: (_runId) => {},
+    error: (_runId, _error) => {},
+    getStream: (_runId) => new ReadableStream<unknown>(),
+  };
+}
 
 describe("Portability Boundary: Conformance Tests", () => {
   describe("Port Interface Contracts", () => {
     it("should define ExecutionRuntimePort with all required methods", () => {
-      const port: ExecutionRuntimePort = {
-        executeTask: async () => ({ status: "success", output: "" }),
-        cancelTask: async () => true,
-        getRunState: async () => null,
-        transitionRun: async () => {},
-        scheduleNext: async () => null,
-      };
+      const port = createExecutionRuntimePortMock();
 
       expect(port.executeTask).toBeDefined();
       expect(port.cancelTask).toBeDefined();
@@ -36,14 +66,7 @@ describe("Portability Boundary: Conformance Tests", () => {
     });
 
     it("should define ProviderResolutionPort with all required methods", () => {
-      const port: ProviderResolutionPort = {
-        getCredentialStatus: async () => ({ providerId: "test", configured: false }),
-        resolveCredential: async () => ({}),
-        getModels: async () => [],
-        generateText: async () => "",
-        generateStructured: async () => ({}),
-        createChatStream: async () => new ReadableStream(),
-      };
+      const port = createProviderResolutionPortMock();
 
       expect(port.getCredentialStatus).toBeDefined();
       expect(port.resolveCredential).toBeDefined();
@@ -54,13 +77,7 @@ describe("Portability Boundary: Conformance Tests", () => {
     });
 
     it("should define RealtimeEventPort with all required methods", () => {
-      const port: RealtimeEventPort = {
-        emit: () => {},
-        emitBatch: () => {},
-        complete: () => {},
-        error: () => {},
-        getStream: () => new ReadableStream(),
-      };
+      const port = createRealtimeEventPortMock();
 
       expect(port.emit).toBeDefined();
       expect(port.emitBatch).toBeDefined();
@@ -72,16 +89,7 @@ describe("Portability Boundary: Conformance Tests", () => {
 
   describe("Canonical Port Naming Alignment", () => {
     it("ExecutionRuntimePort should map to ExecutionSandboxPort + RunOrchestratorPort", () => {
-      // Verify ExecutionRuntimePort is composition of two concerns
-      // ExecutionSandboxPort: executeTask, cancelTask
-      // RunOrchestratorPort: getRunState, transitionRun, scheduleNext
-      const port: ExecutionRuntimePort = {
-        executeTask: async () => ({ status: "success", output: "" }),
-        cancelTask: async () => true,
-        getRunState: async () => null,
-        transitionRun: async () => {},
-        scheduleNext: async () => null,
-      };
+      const port = createExecutionRuntimePortMock();
 
       // Sandbox concern
       expect(port.executeTask).toBeDefined();
@@ -97,14 +105,7 @@ describe("Portability Boundary: Conformance Tests", () => {
       // Verify ProviderResolutionPort is composition of two concerns
       // ProviderAuthPort: getCredentialStatus, resolveCredential
       // ModelProviderPort: getModels, generateText, generateStructured, createChatStream
-      const port: ProviderResolutionPort = {
-        getCredentialStatus: async () => ({ providerId: "test", configured: false }),
-        resolveCredential: async () => ({}),
-        getModels: async () => [],
-        generateText: async () => "",
-        generateStructured: async () => ({}),
-        createChatStream: async () => new ReadableStream(),
-      };
+      const port = createProviderResolutionPortMock();
 
       // Auth concern
       expect(port.getCredentialStatus).toBeDefined();
@@ -138,29 +139,29 @@ describe("Portability Boundary: Conformance Tests", () => {
     it("should allow adapter implementations to be swapped without changing orchestration behavior", () => {
       // Two different implementations of the same port should be interchangeable
       const mockPort1: ExecutionRuntimePort = {
-        executeTask: async () => ({ status: "success", output: "impl1" }),
-        cancelTask: async () => true,
-        getRunState: async () => ({
+        executeTask: async (_runId, _input) => ({ status: "success" as const, output: "impl1" }),
+        cancelTask: async (_runId, _taskId) => true,
+        getRunState: async (_runId): Promise<RunStateEnvelope | null> => ({
           runId: "test",
           status: "RUNNING",
           createdAt: 0,
           updatedAt: 0,
         }),
-        transitionRun: async () => {},
-        scheduleNext: async () => null,
+        transitionRun: async (_runId, _newStatus) => {},
+        scheduleNext: async (_runId) => null,
       };
 
       const mockPort2: ExecutionRuntimePort = {
-        executeTask: async () => ({ status: "success", output: "impl2" }),
-        cancelTask: async () => true,
-        getRunState: async () => ({
+        executeTask: async (_runId, _input) => ({ status: "success" as const, output: "impl2" }),
+        cancelTask: async (_runId, _taskId) => true,
+        getRunState: async (_runId): Promise<RunStateEnvelope | null> => ({
           runId: "test",
           status: "RUNNING",
           createdAt: 0,
           updatedAt: 0,
         }),
-        transitionRun: async () => {},
-        scheduleNext: async () => null,
+        transitionRun: async (_runId, _newStatus) => {},
+        scheduleNext: async (_runId) => null,
       };
 
       // Both implementations satisfy the contract

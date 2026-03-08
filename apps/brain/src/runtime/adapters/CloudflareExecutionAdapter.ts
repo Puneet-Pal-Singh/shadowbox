@@ -7,6 +7,11 @@
 
 import type { DurableObjectState as LegacyDurableObjectState } from "@cloudflare/workers-types";
 import type { ExecutionRuntimePort, TaskInput, TaskResult } from "../ports";
+import type {
+  RunStateEnvelope,
+  RunStatus,
+  ScheduledTaskEnvelope,
+} from "@shadowbox/orchestrator-core";
 
 /**
  * Cloudflare-backed implementation of execution and orchestration.
@@ -39,33 +44,21 @@ export class CloudflareExecutionAdapter implements ExecutionRuntimePort {
     );
   }
 
-  async getRunState(
-    _runId: string,
-  ): Promise<{
-    runId: string;
-    status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED";
-    createdAt: number;
-    updatedAt: number;
-  } | null> {
+  async getRunState(_runId: string): Promise<RunStateEnvelope | null> {
     // Implementation stub: Actual state management is handled at Muscle boundary
     throw new Error(
       "ExecutionRuntimePort.getRunState should be invoked at Muscle boundary, not Brain.",
     );
   }
 
-  async transitionRun(
-    _runId: string,
-    _newStatus: "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED",
-  ): Promise<void> {
+  async transitionRun(_runId: string, _newStatus: RunStatus): Promise<void> {
     // Implementation stub: Actual transitions are handled at Muscle boundary
     throw new Error(
       "ExecutionRuntimePort.transitionRun should be invoked at Muscle boundary, not Brain.",
     );
   }
 
-  async scheduleNext(
-    _runId: string,
-  ): Promise<{ taskId: string; input: TaskInput } | null> {
+  async scheduleNext(_runId: string): Promise<ScheduledTaskEnvelope<TaskInput> | null> {
     // Implementation stub: Actual scheduling is handled at Muscle boundary
     throw new Error(
       "ExecutionRuntimePort.scheduleNext should be invoked at Muscle boundary, not Brain.",

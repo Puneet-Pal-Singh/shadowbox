@@ -1,4 +1,8 @@
+import type { OrchestratorBackend } from "@shadowbox/orchestrator-core";
+import { RunManifestMismatchError } from "@shadowbox/orchestrator-core";
 import type { RunInput, RunManifest, RuntimeHarnessId } from "../types.js";
+
+export { RunManifestMismatchError } from "@shadowbox/orchestrator-core";
 
 /**
  * Creates a run manifest with deterministic configuration.
@@ -11,7 +15,7 @@ import type { RunInput, RunManifest, RuntimeHarnessId } from "../types.js";
  */
 export function createRunManifest(
   input: RunInput,
-  options?: { preferredBackend?: "execution-engine-v1" | "cloudflare_agents" },
+  options?: { preferredBackend?: OrchestratorBackend },
 ): RunManifest {
   const orchestratorBackend = options?.preferredBackend ?? "execution-engine-v1";
   
@@ -51,15 +55,4 @@ function normalizeHarnessSelection(
   harnessId?: RuntimeHarnessId,
 ): RuntimeHarnessId {
   return harnessId ?? "cloudflare-sandbox";
-}
-
-export class RunManifestMismatchError extends Error {
-  constructor(existing: RunManifest, candidate: RunManifest) {
-    super(
-      `[run/manifest] Immutable run manifest mismatch. existing=${JSON.stringify(
-        existing,
-      )} candidate=${JSON.stringify(candidate)}`,
-    );
-    this.name = "RunManifestMismatchError";
-  }
 }
