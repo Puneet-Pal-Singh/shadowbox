@@ -2,6 +2,7 @@
 // Phase 3A: Run state machine logic and utilities
 
 import type { RunStatus } from "../types.js";
+import { StateMachineError } from "@shadowbox/orchestrator-core";
 
 export interface StateTransition {
   from: RunStatus;
@@ -85,4 +86,4 @@ export function validateStateTransition(from: RunStatus, to: RunStatus): void {
   }
 }
 
-export { StateMachineError } from "@shadowbox/orchestrator-core";
+export { StateMachineError };
