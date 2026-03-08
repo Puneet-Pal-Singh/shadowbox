@@ -16,6 +16,10 @@ import { extractSessionToken } from "../services/AuthService";
 import { resolveAuthorizedProviderScope } from "./provider/ProviderAuthScopeService";
 
 type RuntimeHarnessId = "cloudflare-sandbox" | "local-sandbox";
+type RuntimeOrchestratorBackend = "execution-engine-v1" | "cloudflare_agents";
+type RuntimeExecutionBackend = "cloudflare_sandbox" | "e2b" | "daytona";
+type RuntimeHarnessMode = "platform_owned" | "delegated";
+type RuntimeAuthMode = "api_key" | "oauth";
 
 export interface ExecutionScope {
   userId?: string;
@@ -36,6 +40,10 @@ export interface RunEngineExecutionPayload {
     providerId?: string;
     modelId?: string;
     harnessId?: RuntimeHarnessId;
+    orchestratorBackend: RuntimeOrchestratorBackend;
+    executionBackend: RuntimeExecutionBackend;
+    harnessMode: RuntimeHarnessMode;
+    authMode: RuntimeAuthMode;
     repositoryContext?: RepositoryContext;
   };
   messages: CoreMessage[];

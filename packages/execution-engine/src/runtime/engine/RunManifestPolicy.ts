@@ -1,30 +1,41 @@
 import type { OrchestratorBackend } from "@shadowbox/orchestrator-core";
 import { RunManifestMismatchError } from "@shadowbox/orchestrator-core";
-import type { RunInput, RunManifest, RuntimeHarnessId } from "../types.js";
+import type {
+  RunInput,
+  RunManifest,
+  RuntimeAuthMode,
+  RuntimeExecutionBackend,
+  RuntimeHarnessId,
+  RuntimeHarnessMode,
+} from "../types.js";
 
 export { RunManifestMismatchError } from "@shadowbox/orchestrator-core";
 
 /**
  * Creates a run manifest with deterministic configuration.
  * 
- * Backend selection follows explicit precedence:
- * 1. If runtime context specifies cloudflare_agents, use cloudflare_agents
- * 2. Otherwise default to execution-engine-v1 (current standard)
+ * Selection fields follow explicit precedence:
+ * 1. Use request-supplied selection when provided
+ * 2. Otherwise apply deterministic defaults
  * 
  * This ensures portable, explicit backend selection without implicit fallbacks.
  */
 export function createRunManifest(
   input: RunInput,
-  options?: { preferredBackend?: OrchestratorBackend },
 ): RunManifest {
-  const orchestratorBackend = options?.preferredBackend ?? "execution-engine-v1";
-  
+  const orchestratorBackend = normalizeOrchestratorBackend(
+    input.orchestratorBackend,
+  );
+
   return {
     mode: "agentic",
     providerId: normalizeOptionalSelection(input.providerId),
     modelId: normalizeOptionalSelection(input.modelId),
     harness: normalizeHarnessSelection(input.harnessId),
     orchestratorBackend,
+    executionBackend: normalizeExecutionBackend(input.executionBackend),
+    harnessMode: normalizeHarnessMode(input.harnessMode, input.metadata),
+    authMode: normalizeAuthMode(input.authMode),
   };
 }
 
@@ -40,7 +51,10 @@ export function ensureManifestMatch(
     existing.providerId !== candidate.providerId ||
     existing.modelId !== candidate.modelId ||
     existing.harness !== candidate.harness ||
-    existing.orchestratorBackend !== candidate.orchestratorBackend
+    existing.orchestratorBackend !== candidate.orchestratorBackend ||
+    existing.executionBackend !== candidate.executionBackend ||
+    existing.harnessMode !== candidate.harnessMode ||
+    existing.authMode !== candidate.authMode
   ) {
     throw new RunManifestMismatchError(existing, candidate);
   }
@@ -55,4 +69,56 @@ function normalizeHarnessSelection(
   harnessId?: RuntimeHarnessId,
 ): RuntimeHarnessId {
   return harnessId ?? "cloudflare-sandbox";
+}
+
+function normalizeOrchestratorBackend(
+  orchestratorBackend?: OrchestratorBackend,
+): OrchestratorBackend {
+  return orchestratorBackend ?? "execution-engine-v1";
+}
+
+function normalizeExecutionBackend(
+  executionBackend?: RuntimeExecutionBackend,
+): RuntimeExecutionBackend {
+  return executionBackend ?? "cloudflare_sandbox";
+}
+
+function normalizeHarnessMode(
+  harnessMode?: RuntimeHarnessMode,
+  metadata?: Record<string, unknown>,
+): RuntimeHarnessMode {
+  const normalized = harnessMode ?? "platform_owned";
+  if (normalized !== "delegated") {
+    return normalized;
+  }
+
+  if (isDelegatedHarnessModeTrusted(metadata)) {
+    return "delegated";
+  }
+
+  console.warn(
+    "[run/manifest] Denied delegated harnessMode without internal authorization; forcing platform_owned.",
+  );
+  return "platform_owned";
+}
+
+function normalizeAuthMode(authMode?: RuntimeAuthMode): RuntimeAuthMode {
+  return authMode ?? "api_key";
+}
+
+function isDelegatedHarnessModeTrusted(
+  metadata: Record<string, unknown> | undefined,
+): boolean {
+  if (!metadata) {
+    return false;
+  }
+
+  const internal = metadata.internal;
+  if (typeof internal !== "object" || internal === null) {
+    return false;
+  }
+
+  return (
+    (internal as Record<string, unknown>).allowDelegatedHarnessMode === true
+  );
 }

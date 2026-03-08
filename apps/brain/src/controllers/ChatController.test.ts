@@ -74,6 +74,76 @@ describe("ChatController DO runtime migration", () => {
     expect(payload.input.modelId).toBe("gpt-4");
   });
 
+  it("forwards deterministic runtime selection defaults to payload", async () => {
+    const runtime = createMockRuntimeNamespace();
+    const env = createEnv(runtime.namespace);
+
+    const response = await ChatController.handle(createChatRequest(), env);
+
+    expect(response.status).toBe(200);
+    const fetchCall = runtime.fetch.mock.calls[0];
+    expect(fetchCall).toBeDefined();
+
+    const payloadStr = (fetchCall[1] as { body: string }).body;
+    const payload = JSON.parse(payloadStr) as {
+      input: {
+        orchestratorBackend: string;
+        executionBackend: string;
+        harnessMode: string;
+        authMode: string;
+      };
+    };
+
+    expect(payload.input.orchestratorBackend).toBe("execution-engine-v1");
+    expect(payload.input.executionBackend).toBe("cloudflare_sandbox");
+    expect(payload.input.harnessMode).toBe("platform_owned");
+    expect(payload.input.authMode).toBe("api_key");
+  });
+
+  it("forwards explicit runtime selection overrides to runtime payload", async () => {
+    const runtime = createMockRuntimeNamespace();
+    const env = createEnv(runtime.namespace);
+    const requestWithOverrides = new Request("https://brain.local/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sessionId: "session-1",
+        runId: VALID_RUN_ID,
+        orchestratorBackend: "cloudflare_agents",
+        executionBackend: "e2b",
+        harnessMode: "delegated",
+        authMode: "oauth",
+        messages: [
+          {
+            role: "user",
+            content: "hello",
+          },
+        ],
+      }),
+    });
+
+    const response = await ChatController.handle(requestWithOverrides, env);
+
+    expect(response.status).toBe(200);
+    const fetchCall = runtime.fetch.mock.calls[0];
+    expect(fetchCall).toBeDefined();
+
+    const payloadStr = (fetchCall[1] as { body: string }).body;
+    const payload = JSON.parse(payloadStr) as {
+      input: {
+        orchestratorBackend: string;
+        executionBackend: string;
+        harnessMode: string;
+        authMode: string;
+      };
+    };
+
+    expect(payload.input.orchestratorBackend).toBe("cloudflare_agents");
+    expect(payload.input.executionBackend).toBe("e2b");
+    expect(payload.input.harnessMode).toBe("delegated");
+    expect(payload.input.authMode).toBe("oauth");
+  });
+
   it("forwards repository context fields to runtime payload", async () => {
     const runtime = createMockRuntimeNamespace();
     const env = createEnv(runtime.namespace);

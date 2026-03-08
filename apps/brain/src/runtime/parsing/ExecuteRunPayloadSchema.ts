@@ -25,6 +25,18 @@ const CoreMessageSchema = z.union([
   }),
 ]);
 
+const OrchestratorBackendSchema = z.enum([
+  "execution-engine-v1",
+  "cloudflare_agents",
+]);
+const ExecutionBackendSchema = z.enum([
+  "cloudflare_sandbox",
+  "e2b",
+  "daytona",
+]);
+const HarnessModeSchema = z.enum(["platform_owned", "delegated"]);
+const AuthModeSchema = z.enum(["api_key", "oauth"]);
+
 /**
  * Request payload for RunEngine.execute().
  *
@@ -57,6 +69,10 @@ export const ExecuteRunPayloadSchema = z.object({
       providerId: z.string().trim().min(1).optional(),
       modelId: z.string().trim().min(1).optional(),
       harnessId: z.enum(["cloudflare-sandbox", "local-sandbox"]).optional(),
+      orchestratorBackend: OrchestratorBackendSchema,
+      executionBackend: ExecutionBackendSchema,
+      harnessMode: HarnessModeSchema,
+      authMode: AuthModeSchema,
       repositoryContext: z
         .object({
           owner: z.string().trim().min(1).optional(),

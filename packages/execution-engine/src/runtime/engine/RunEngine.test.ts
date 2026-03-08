@@ -206,6 +206,10 @@ describe("RunEngine", () => {
 
     const manifest = persisted?.metadata.manifest;
     const snapshots = persisted?.metadata.phaseSelectionSnapshots;
+    const lifecycleSteps = persisted?.metadata.lifecycleSteps?.map(
+      (entry) => entry.step,
+    );
+    const telemetry = persisted?.metadata.orchestrationTelemetry;
 
     expect(manifest).toBeDefined();
     expect(snapshots).toBeDefined();
@@ -213,6 +217,127 @@ describe("RunEngine", () => {
     expect(snapshots?.execution).toEqual(manifest);
     expect(snapshots?.synthesis).toEqual(manifest);
     expect(snapshots?.planning).not.toBe(manifest);
+    expect(lifecycleSteps).toEqual([
+      "RUN_CREATED",
+      "CONTEXT_PREPARED",
+      "PLAN_VALIDATED",
+      "TASK_EXECUTING",
+      "SYNTHESIS",
+      "TERMINAL",
+    ]);
+    expect(telemetry?.wakeupCount).toBe(1);
+    expect(telemetry?.resumeCount).toBe(0);
+    expect(telemetry?.activeDurationMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it("tracks wakeups and resumptions for pre-existing active runs", async () => {
+    const runEngine = createRunEngine({
+      llmGateway: createPlanningLLMGateway(),
+    });
+    const privateApi = runEngine as unknown as {
+      getOrCreateRun(
+        input: {
+          agentType: "coding";
+          prompt: string;
+          sessionId: string;
+          providerId?: string;
+          modelId?: string;
+        },
+        runId: string,
+        sessionId: string,
+      ): Promise<Run>;
+      runRepo: {
+        update(run: Run): Promise<void>;
+      };
+      getRun(runId: string): Promise<Run | null>;
+    };
+
+    const preexistingRun = await privateApi.getOrCreateRun(
+      {
+        agentType: "coding",
+        prompt: "resume marker",
+        sessionId: "session-1",
+      },
+      TEST_RUN_ID,
+      "session-1",
+    );
+    preexistingRun.metadata.orchestrationTelemetry = {
+      activeDurationMs: 10,
+      wakeupCount: 1,
+      resumeCount: 0,
+      lastWakeupAt: new Date(Date.now() - 5_000).toISOString(),
+    };
+    await privateApi.runRepo.update(preexistingRun);
+
+    const response = await runEngine.execute(
+      {
+        agentType: "coding",
+        prompt: "continue with a deterministic plan",
+        sessionId: "session-1",
+      },
+      [{ role: "user", content: "continue with a deterministic plan" }],
+      {},
+    );
+
+    expect(response.status).toBe(200);
+
+    const persisted = await privateApi.getRun(TEST_RUN_ID);
+    expect(persisted?.metadata.orchestrationTelemetry?.wakeupCount).toBe(2);
+    expect(persisted?.metadata.orchestrationTelemetry?.resumeCount).toBe(1);
+    expect(
+      persisted?.metadata.orchestrationTelemetry?.activeDurationMs ?? 0,
+    ).toBeGreaterThanOrEqual(10);
+  });
+
+  it("maintains isolated lifecycle/telemetry state across a run matrix", async () => {
+    const state = new MockRuntimeState();
+    const runIds = [
+      "33333333-3333-4333-8333-333333333333",
+      "44444444-4444-4444-8444-444444444444",
+      "55555555-5555-4555-8555-555555555555",
+    ];
+    const sessionIds = ["session-matrix-a", "session-matrix-a", "session-matrix-b"];
+
+    const engines = runIds.map((runId, index) =>
+      createRunEngineForRun({
+        state,
+        runId,
+        sessionId: sessionIds[index] ?? "session-matrix-a",
+      }),
+    );
+
+    await Promise.all(
+      engines.map((engine, index) =>
+        engine.execute(
+          {
+            agentType: "coding",
+            prompt: `hey from run ${index + 1}`,
+            sessionId: sessionIds[index] ?? "session-matrix-a",
+          },
+          [{ role: "user", content: `hey from run ${index + 1}` }],
+          {},
+        ),
+      ),
+    );
+
+    const runs = await Promise.all(
+      engines.map((engine, index) => engine.getRun(runIds[index]!)),
+    );
+    const manifests = runs.map((run) => run?.metadata.manifest);
+    const lifecycles = runs.map((run) =>
+      run?.metadata.lifecycleSteps?.map((step) => step.step),
+    );
+    const wakeups = runs.map(
+      (run) => run?.metadata.orchestrationTelemetry?.wakeupCount ?? 0,
+    );
+
+    expect(new Set(runs.map((run) => run?.id)).size).toBe(3);
+    expect(new Set(runs.map((run) => run?.sessionId)).size).toBe(2);
+    expect(manifests.every((manifest) => manifest !== undefined)).toBe(true);
+    expect(
+      lifecycles.every((steps) => steps?.includes("RUN_CREATED")),
+    ).toBe(true);
+    expect(wakeups).toEqual([1, 1, 1]);
   });
 
   it("builds conversational system prompt with direct-answer style guidance", () => {
@@ -321,23 +446,111 @@ describe("RunEngine", () => {
     );
     expect(blockedMessage).toContain("approve cross-repo acme/platform-core");
   });
+
+  it("forces platform approval gate when delegated harness mode is untrusted", async () => {
+    const runEngine = createRunEngine({
+      llmGateway: createPlanningLLMGateway(),
+    });
+
+    const response = await runEngine.execute(
+      {
+        agentType: "coding",
+        prompt: "check repository acme/platform-core README.md",
+        sessionId: "session-1",
+        harnessMode: "delegated",
+        repositoryContext: {
+          owner: "sourcegraph",
+          repo: "shadowbox",
+        },
+      },
+      [{ role: "user", content: "check repository acme/platform-core README.md" }],
+      {},
+    );
+
+    expect(response.status).toBe(200);
+    const output = await response.text();
+
+    const persisted = await (runEngine as unknown as {
+      getRun(runId: string): Promise<Run | null>;
+    }).getRun(TEST_RUN_ID);
+
+    const lifecycleSteps = persisted?.metadata.lifecycleSteps?.map(
+      (entry) => entry.step,
+    );
+
+    expect(lifecycleSteps).toContain("APPROVAL_WAIT");
+    expect(persisted?.metadata.manifest?.harnessMode).toBe("platform_owned");
+    expect(output).toContain("approve cross-repo acme/platform-core");
+    expect(persisted?.status).toBe("COMPLETED");
+  });
+
+  it("skips platform approval gate when delegated mode is internally authorized", async () => {
+    const runEngine = createRunEngine({
+      llmGateway: createPlanningLLMGateway(),
+    });
+
+    const response = await runEngine.execute(
+      {
+        agentType: "coding",
+        prompt: "check repository acme/platform-core README.md",
+        sessionId: "session-1",
+        harnessMode: "delegated",
+        metadata: {
+          internal: { allowDelegatedHarnessMode: true },
+        },
+        repositoryContext: {
+          owner: "sourcegraph",
+          repo: "shadowbox",
+        },
+      },
+      [{ role: "user", content: "check repository acme/platform-core README.md" }],
+      {},
+    );
+
+    expect(response.status).toBe(200);
+
+    const persisted = await (runEngine as unknown as {
+      getRun(runId: string): Promise<Run | null>;
+    }).getRun(TEST_RUN_ID);
+
+    const lifecycleSteps = persisted?.metadata.lifecycleSteps?.map(
+      (entry) => entry.step,
+    );
+
+    expect(lifecycleSteps).not.toContain("APPROVAL_WAIT");
+    expect(persisted?.metadata.manifest?.harnessMode).toBe("delegated");
+    expect(persisted?.status).toBe("COMPLETED");
+  });
 });
 
 function createRunEngine(
   dependencies: Partial<RunEngineDependencies> = {},
 ): RunEngine {
-  const state = new MockRuntimeState();
-  const llmGateway = createMockLLMGateway();
+  return createRunEngineForRun({ dependencies });
+}
+
+function createRunEngineForRun({
+  state = new MockRuntimeState(),
+  runId = TEST_RUN_ID,
+  sessionId = "session-1",
+  dependencies = {},
+}: {
+  state?: RuntimeDurableObjectState;
+  runId?: string;
+  sessionId?: string;
+  dependencies?: Partial<RunEngineDependencies>;
+} = {}): RunEngine {
+  const llmGateway = dependencies.llmGateway ?? createMockLLMGateway();
   return new RunEngine(
     state,
     {
       env: { NODE_ENV: "test" } as unknown,
-      sessionId: "session-1",
-      runId: TEST_RUN_ID,
+      sessionId,
+      runId,
     },
     undefined,
     undefined,
-    { llmGateway, ...dependencies },
+    { ...dependencies, llmGateway },
   );
 }
 
