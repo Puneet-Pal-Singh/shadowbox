@@ -21,7 +21,11 @@ export type {
   WorkflowStep,
 } from "@shadowbox/orchestrator-core";
 
-import type { WorkflowStep } from "@shadowbox/orchestrator-core";
+import type {
+  OrchestratorBackend,
+  RunStatus,
+  WorkflowStep,
+} from "@shadowbox/orchestrator-core";
 
 export type RunPhase = WorkflowStep;
 

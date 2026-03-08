@@ -10,10 +10,13 @@
 import { describe, it, expect } from "vitest";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 
-const BRAIN_SRC_DIR = path.resolve(__dirname, "../..");
-const PORTS_FILE = path.resolve(__dirname, "../ports/ExecutionRuntimePort.ts");
-const PORTS_INDEX = path.resolve(__dirname, "../ports/index.ts");
+const CURRENT_FILE = fileURLToPath(import.meta.url);
+const CURRENT_DIR = path.dirname(CURRENT_FILE);
+const BRAIN_SRC_DIR = path.resolve(CURRENT_DIR, "../..");
+const PORTS_FILE = path.resolve(CURRENT_DIR, "../ports/ExecutionRuntimePort.ts");
+const PORTS_INDEX = path.resolve(CURRENT_DIR, "../ports/index.ts");
 
 function readFileContent(filePath: string): string {
   return fs.readFileSync(filePath, "utf-8");
