@@ -18,7 +18,10 @@ import type {
   SessionStatePort,
   ArtifactStorePort,
 } from "../ports";
-import { AgentRuntimeAdapterFactory } from "../adapters/AgentRuntimeAdapterFactory";
+import {
+  AgentRuntimeAdapterFactory,
+  type RuntimeExecutionBackend,
+} from "../adapters/AgentRuntimeAdapterFactory";
 import type { IPlugin } from "../interfaces/types";
 
 /**
@@ -67,6 +70,7 @@ export interface ComposeRuntimeInput {
   sandbox: Sandbox;
   plugins: Map<string, IPlugin>;
   r2Bucket: R2BucketCompat;
+  executionBackend?: RuntimeExecutionBackend;
 }
 
 /**
@@ -86,6 +90,7 @@ export function composeRuntime(
     sandbox: input.sandbox,
     plugins: input.plugins,
     r2Bucket: input.r2Bucket,
+    executionBackend: input.executionBackend,
   });
 
   return {
