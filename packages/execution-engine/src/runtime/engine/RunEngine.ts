@@ -532,10 +532,10 @@ export class RunEngine implements IRunEngine {
     ) {
       return false;
     }
-
     run.transition("CANCELLED");
+    recordLifecycleStep(run, "TERMINAL", "status=CANCELLED");
+    recordOrchestrationTerminal(run);
     await this.runRepo.update(run);
-
     const tasks = await this.taskRepo.getByRun(runId);
     for (const task of tasks) {
       if (["PENDING", "READY", "RUNNING"].includes(task.status)) {

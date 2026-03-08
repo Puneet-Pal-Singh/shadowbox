@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { Run } from "../run/index.js";
 import {
   MissingManifestError,
+  isPlatformApprovalOwner,
   recordPhaseSelectionSnapshot,
 } from "./RunMetadataPolicy.js";
 
@@ -62,5 +63,26 @@ describe("RunMetadataPolicy", () => {
     expect(run.metadata.phaseSelectionSnapshots?.planning).not.toBe(
       run.metadata.manifest,
     );
+  });
+
+  it("throws MissingManifestError when approval owner resolves without manifest", () => {
+    expect(() => isPlatformApprovalOwner(undefined)).toThrow(
+      MissingManifestError,
+    );
+  });
+
+  it("resolves delegated manifests to delegated approval owner", () => {
+    expect(
+      isPlatformApprovalOwner({
+        mode: "agentic",
+        providerId: "openai",
+        modelId: "gpt-4o",
+        harness: "cloudflare-sandbox",
+        orchestratorBackend: "execution-engine-v1",
+        executionBackend: "cloudflare_sandbox",
+        harnessMode: "delegated",
+        authMode: "api_key",
+      }),
+    ).toBe(false);
   });
 });

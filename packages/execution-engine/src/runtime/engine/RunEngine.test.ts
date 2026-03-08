@@ -289,6 +289,57 @@ describe("RunEngine", () => {
     ).toBeGreaterThanOrEqual(10);
   });
 
+  it("maintains isolated lifecycle/telemetry state across a run matrix", async () => {
+    const state = new MockRuntimeState();
+    const runIds = [
+      "33333333-3333-4333-8333-333333333333",
+      "44444444-4444-4444-8444-444444444444",
+      "55555555-5555-4555-8555-555555555555",
+    ];
+    const sessionIds = ["session-matrix-a", "session-matrix-a", "session-matrix-b"];
+
+    const engines = runIds.map((runId, index) =>
+      createRunEngineForRun({
+        state,
+        runId,
+        sessionId: sessionIds[index] ?? "session-matrix-a",
+      }),
+    );
+
+    await Promise.all(
+      engines.map((engine, index) =>
+        engine.execute(
+          {
+            agentType: "coding",
+            prompt: `hey from run ${index + 1}`,
+            sessionId: sessionIds[index] ?? "session-matrix-a",
+          },
+          [{ role: "user", content: `hey from run ${index + 1}` }],
+          {},
+        ),
+      ),
+    );
+
+    const runs = await Promise.all(
+      engines.map((engine, index) => engine.getRun(runIds[index]!)),
+    );
+    const manifests = runs.map((run) => run?.metadata.manifest);
+    const lifecycles = runs.map((run) =>
+      run?.metadata.lifecycleSteps?.map((step) => step.step),
+    );
+    const wakeups = runs.map(
+      (run) => run?.metadata.orchestrationTelemetry?.wakeupCount ?? 0,
+    );
+
+    expect(new Set(runs.map((run) => run?.id)).size).toBe(3);
+    expect(new Set(runs.map((run) => run?.sessionId)).size).toBe(2);
+    expect(manifests.every((manifest) => manifest !== undefined)).toBe(true);
+    expect(
+      lifecycles.every((steps) => steps?.includes("RUN_CREATED")),
+    ).toBe(true);
+    expect(wakeups).toEqual([1, 1, 1]);
+  });
+
   it("builds conversational system prompt with direct-answer style guidance", () => {
     const prompt = buildConversationalSystemPrompt();
     expect(prompt).toContain("Answer the user directly in the first sentence");
@@ -475,18 +526,31 @@ describe("RunEngine", () => {
 function createRunEngine(
   dependencies: Partial<RunEngineDependencies> = {},
 ): RunEngine {
-  const state = new MockRuntimeState();
-  const llmGateway = createMockLLMGateway();
+  return createRunEngineForRun({ dependencies });
+}
+
+function createRunEngineForRun({
+  state = new MockRuntimeState(),
+  runId = TEST_RUN_ID,
+  sessionId = "session-1",
+  dependencies = {},
+}: {
+  state?: RuntimeDurableObjectState;
+  runId?: string;
+  sessionId?: string;
+  dependencies?: Partial<RunEngineDependencies>;
+} = {}): RunEngine {
+  const llmGateway = dependencies.llmGateway ?? createMockLLMGateway();
   return new RunEngine(
     state,
     {
       env: { NODE_ENV: "test" } as unknown,
-      sessionId: "session-1",
-      runId: TEST_RUN_ID,
+      sessionId,
+      runId,
     },
     undefined,
     undefined,
-    { llmGateway, ...dependencies },
+    { ...dependencies, llmGateway },
   );
 }
 

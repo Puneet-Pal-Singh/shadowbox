@@ -31,7 +31,12 @@ export function recordPhaseSelectionSnapshot(
 }
 
 export function isPlatformApprovalOwner(manifest?: RunManifest): boolean {
-  return manifest?.harnessMode !== "delegated";
+  if (!manifest) {
+    throw new MissingManifestError(
+      "[run/engine] Missing run manifest before resolving approval owner",
+    );
+  }
+  return manifest.harnessMode !== "delegated";
 }
 
 export function recordLifecycleStep(

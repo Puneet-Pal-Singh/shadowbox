@@ -114,15 +114,26 @@ function createRun(
   });
 }
 
+function cloneValue<T>(value: T): T {
+  if (typeof structuredClone === "function") {
+    return structuredClone(value);
+  }
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
 class InMemoryStorage implements RuntimeStorage {
   private store = new Map<string, unknown>();
 
   async get<T>(key: string): Promise<T | undefined> {
-    return this.store.get(key) as T | undefined;
+    const value = this.store.get(key);
+    if (value === undefined) {
+      return undefined;
+    }
+    return cloneValue(value as T);
   }
 
   async put<T>(key: string, value: T): Promise<void> {
-    this.store.set(key, value);
+    this.store.set(key, cloneValue(value));
   }
 
   async delete(key: string | string[]): Promise<boolean | number> {
@@ -149,8 +160,11 @@ class InMemoryStorage implements RuntimeStorage {
     const start = options?.start;
     const end = options?.end;
     const limit = options?.limit;
+    const entries = [...this.store.entries()].sort(([left], [right]) =>
+      left.localeCompare(right),
+    );
 
-    for (const [key, value] of this.store.entries()) {
+    for (const [key, value] of entries) {
       if (prefix && !key.startsWith(prefix)) {
         continue;
       }
@@ -160,7 +174,7 @@ class InMemoryStorage implements RuntimeStorage {
       if (end && key >= end) {
         continue;
       }
-      output.set(key, value as T);
+      output.set(key, cloneValue(value as T));
       if (typeof limit === "number" && output.size >= limit) {
         break;
       }

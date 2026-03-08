@@ -36,7 +36,7 @@ export const WORKFLOW_STEPS = {
 export type WorkflowStep =
   (typeof WORKFLOW_STEPS)[keyof typeof WORKFLOW_STEPS];
 
-export const CANONICAL_RUN_LIFECYCLE_STEPS = {
+export const CANONICAL_RUN_LIFECYCLE_STEPS = Object.freeze({
   RUN_CREATED: "RUN_CREATED",
   CONTEXT_PREPARED: "CONTEXT_PREPARED",
   PLAN_VALIDATED: "PLAN_VALIDATED",
@@ -44,7 +44,7 @@ export const CANONICAL_RUN_LIFECYCLE_STEPS = {
   APPROVAL_WAIT: "APPROVAL_WAIT",
   SYNTHESIS: "SYNTHESIS",
   TERMINAL: "TERMINAL",
-} as const;
+} as const);
 
 export type CanonicalRunLifecycleStep =
   (typeof CANONICAL_RUN_LIFECYCLE_STEPS)[keyof typeof CANONICAL_RUN_LIFECYCLE_STEPS];

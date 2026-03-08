@@ -177,6 +177,7 @@ async function readStreamEvents(stream: ReadableStream<Uint8Array>): Promise<Str
     }
     buffer += decoder.decode(value, { stream: true });
   }
+  buffer += decoder.decode();
 
   return buffer
     .trim()
