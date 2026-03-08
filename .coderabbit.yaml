@@ -1,0 +1,9 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+reviews:
+  auto_review:
+    enabled: false
+    auto_incremental_review: true
+    labels:
+      - "coderabbit-train-review"
+    base_branches:
+      - "^codex/train-.*$"
