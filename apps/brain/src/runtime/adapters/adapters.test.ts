@@ -86,6 +86,61 @@ describe("Runtime Adapters", () => {
       // Should warn and return early, not throw
       expect(() => adapter.emit(event)).not.toThrow();
     });
+
+    it("should stream NDJSON envelopes in emitted order", async () => {
+      const runId = "test-run-stream-order";
+      const stream = adapter.getStream(runId);
+
+      adapter.emit({
+        type: "text-delta",
+        runId,
+        timestamp: 1000,
+        data: { delta: "hello" },
+      });
+      adapter.emit({
+        type: "tool-call",
+        runId,
+        timestamp: 1001,
+        data: { tool: "read_file" },
+      });
+      adapter.complete(runId);
+
+      const events = await readStreamEvents(stream);
+      expect(events.map((event) => event.type)).toEqual([
+        "text-delta",
+        "tool-call",
+      ]);
+      expect(events.every((event) => event.runId === runId)).toBe(true);
+    });
+
+    it("should keep streams isolated per runId", async () => {
+      const streamA = adapter.getStream("run-a");
+      const streamB = adapter.getStream("run-b");
+
+      adapter.emit({
+        type: "text-delta",
+        runId: "run-a",
+        timestamp: 1,
+        data: { delta: "A" },
+      });
+      adapter.emit({
+        type: "text-delta",
+        runId: "run-b",
+        timestamp: 2,
+        data: { delta: "B" },
+      });
+      adapter.complete("run-a");
+      adapter.complete("run-b");
+
+      const [eventsA, eventsB] = await Promise.all([
+        readStreamEvents(streamA),
+        readStreamEvents(streamB),
+      ]);
+      expect(eventsA).toHaveLength(1);
+      expect(eventsB).toHaveLength(1);
+      expect(eventsA[0]?.runId).toBe("run-a");
+      expect(eventsB[0]?.runId).toBe("run-b");
+    });
   });
 
   describe("Adapter Substitutability", () => {
@@ -109,3 +164,23 @@ describe("Runtime Adapters", () => {
     });
   });
 });
+
+async function readStreamEvents(stream: ReadableStream<Uint8Array>): Promise<StreamEvent[]> {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+    buffer += decoder.decode(value, { stream: true });
+  }
+
+  return buffer
+    .trim()
+    .split("\n")
+    .filter((line) => line.length > 0)
+    .map((line) => JSON.parse(line) as StreamEvent);
+}
