@@ -46,8 +46,20 @@ describe("RunManifestPolicy", () => {
       expect(manifest.providerId).toBe("openai");
       expect(manifest.modelId).toBe("gpt-4");
       expect(manifest.executionBackend).toBe("e2b");
-      expect(manifest.harnessMode).toBe("delegated");
+      expect(manifest.harnessMode).toBe("platform_owned");
       expect(manifest.authMode).toBe("oauth");
+    });
+
+    it("allows delegated harness mode only with internal authorization metadata", () => {
+      const input = createInput({
+        harnessMode: "delegated",
+        metadata: {
+          internal: { allowDelegatedHarnessMode: true },
+        },
+      });
+
+      const manifest = createRunManifest(input);
+      expect(manifest.harnessMode).toBe("delegated");
     });
 
     it("should set null for missing provider and model", () => {
@@ -163,7 +175,12 @@ describe("RunManifestPolicy", () => {
         createInput({ harnessMode: "platform_owned" }),
       );
       const candidate = createRunManifest(
-        createInput({ harnessMode: "delegated" }),
+        createInput({
+          harnessMode: "delegated",
+          metadata: {
+            internal: { allowDelegatedHarnessMode: true },
+          },
+        }),
       );
 
       expect(() => {

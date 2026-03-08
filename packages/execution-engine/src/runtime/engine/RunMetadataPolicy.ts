@@ -5,13 +5,20 @@ import type {
 } from "../types.js";
 import type { Run } from "../run/index.js";
 
+export class MissingManifestError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "MissingManifestError";
+  }
+}
+
 export function recordPhaseSelectionSnapshot(
   run: Run,
   phase: "planning" | "execution" | "synthesis",
 ): void {
   const manifest = run.metadata.manifest;
   if (!manifest) {
-    throw new Error(
+    throw new MissingManifestError(
       `[run/engine] Missing run manifest before recording ${phase} phase snapshot`,
     );
   }

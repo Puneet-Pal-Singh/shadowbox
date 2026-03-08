@@ -396,7 +396,7 @@ describe("RunEngine", () => {
     expect(blockedMessage).toContain("approve cross-repo acme/platform-core");
   });
 
-  it("skips platform approval gate when harness mode is delegated", async () => {
+  it("forces platform approval gate when delegated harness mode is untrusted", async () => {
     const runEngine = createRunEngine({
       llmGateway: createPlanningLLMGateway(),
     });
@@ -417,6 +417,46 @@ describe("RunEngine", () => {
     );
 
     expect(response.status).toBe(200);
+    const output = await response.text();
+
+    const persisted = await (runEngine as unknown as {
+      getRun(runId: string): Promise<Run | null>;
+    }).getRun(TEST_RUN_ID);
+
+    const lifecycleSteps = persisted?.metadata.lifecycleSteps?.map(
+      (entry) => entry.step,
+    );
+
+    expect(lifecycleSteps).toContain("APPROVAL_WAIT");
+    expect(persisted?.metadata.manifest?.harnessMode).toBe("platform_owned");
+    expect(output).toContain("approve cross-repo acme/platform-core");
+    expect(persisted?.status).toBe("COMPLETED");
+  });
+
+  it("skips platform approval gate when delegated mode is internally authorized", async () => {
+    const runEngine = createRunEngine({
+      llmGateway: createPlanningLLMGateway(),
+    });
+
+    const response = await runEngine.execute(
+      {
+        agentType: "coding",
+        prompt: "check repository acme/platform-core README.md",
+        sessionId: "session-1",
+        harnessMode: "delegated",
+        metadata: {
+          internal: { allowDelegatedHarnessMode: true },
+        },
+        repositoryContext: {
+          owner: "sourcegraph",
+          repo: "shadowbox",
+        },
+      },
+      [{ role: "user", content: "check repository acme/platform-core README.md" }],
+      {},
+    );
+
+    expect(response.status).toBe(200);
 
     const persisted = await (runEngine as unknown as {
       getRun(runId: string): Promise<Run | null>;
@@ -427,6 +467,7 @@ describe("RunEngine", () => {
     );
 
     expect(lifecycleSteps).not.toContain("APPROVAL_WAIT");
+    expect(persisted?.metadata.manifest?.harnessMode).toBe("delegated");
     expect(persisted?.status).toBe("COMPLETED");
   });
 });

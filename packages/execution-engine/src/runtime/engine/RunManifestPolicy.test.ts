@@ -102,6 +102,9 @@ describe("RunManifestPolicy matrix conformance", () => {
       harnessId: "cloudflare-sandbox",
       executionBackend: "cloudflare_sandbox",
       harnessMode: "delegated",
+      metadata: {
+        internal: { allowDelegatedHarnessMode: true },
+      },
     });
 
     expect(() =>

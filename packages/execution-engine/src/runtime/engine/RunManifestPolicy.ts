@@ -34,7 +34,7 @@ export function createRunManifest(
     harness: normalizeHarnessSelection(input.harnessId),
     orchestratorBackend,
     executionBackend: normalizeExecutionBackend(input.executionBackend),
-    harnessMode: normalizeHarnessMode(input.harnessMode),
+    harnessMode: normalizeHarnessMode(input.harnessMode, input.metadata),
     authMode: normalizeAuthMode(input.authMode),
   };
 }
@@ -85,10 +85,40 @@ function normalizeExecutionBackend(
 
 function normalizeHarnessMode(
   harnessMode?: RuntimeHarnessMode,
+  metadata?: Record<string, unknown>,
 ): RuntimeHarnessMode {
-  return harnessMode ?? "platform_owned";
+  const normalized = harnessMode ?? "platform_owned";
+  if (normalized !== "delegated") {
+    return normalized;
+  }
+
+  if (isDelegatedHarnessModeTrusted(metadata)) {
+    return "delegated";
+  }
+
+  console.warn(
+    "[run/manifest] Denied delegated harnessMode without internal authorization; forcing platform_owned.",
+  );
+  return "platform_owned";
 }
 
 function normalizeAuthMode(authMode?: RuntimeAuthMode): RuntimeAuthMode {
   return authMode ?? "api_key";
+}
+
+function isDelegatedHarnessModeTrusted(
+  metadata: Record<string, unknown> | undefined,
+): boolean {
+  if (!metadata) {
+    return false;
+  }
+
+  const internal = metadata.internal;
+  if (typeof internal !== "object" || internal === null) {
+    return false;
+  }
+
+  return (
+    (internal as Record<string, unknown>).allowDelegatedHarnessMode === true
+  );
 }
