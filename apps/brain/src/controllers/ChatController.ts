@@ -38,6 +38,14 @@ const ChatRequestBodySchema = z.object({
   providerId: z.string().optional(),
   modelId: z.string().optional(),
   harnessId: z.enum(["cloudflare-sandbox", "local-sandbox"]).optional(),
+  orchestratorBackend: z
+    .enum(["execution-engine-v1", "cloudflare_agents"])
+    .optional(),
+  executionBackend: z
+    .enum(["cloudflare_sandbox", "e2b", "daytona"])
+    .optional(),
+  harnessMode: z.enum(["platform_owned", "delegated"]).optional(),
+  authMode: z.enum(["api_key", "oauth"]).optional(),
   repositoryOwner: z.string().optional(),
   repositoryName: z.string().optional(),
   repositoryBranch: z.string().optional(),
@@ -202,6 +210,10 @@ export class ChatController {
           providerId: body.providerId,
           modelId: body.modelId,
           harnessId: body.harnessId,
+          orchestratorBackend: body.orchestratorBackend,
+          executionBackend: body.executionBackend,
+          harnessMode: body.harnessMode,
+          authMode: body.authMode,
           repositoryOwner: body.repositoryOwner,
           repositoryName: body.repositoryName,
           repositoryBranch: body.repositoryBranch,
