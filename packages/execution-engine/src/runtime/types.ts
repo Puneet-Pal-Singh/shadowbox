@@ -15,22 +15,17 @@ export interface RuntimeDurableObjectState {
   blockConcurrencyWhile<T>(closure: () => Promise<T>): Promise<T>;
 }
 
-export type RunStatus =
-  | "CREATED"
-  | "PLANNING"
-  | "RUNNING"
-  | "PAUSED"
-  | "COMPLETED"
-  | "FAILED"
-  | "CANCELLED";
+export type {
+  RunStatus,
+  OrchestratorBackend,
+  WorkflowStep,
+} from "@shadowbox/orchestrator-core";
+
+import type { WorkflowStep } from "@shadowbox/orchestrator-core";
+
+export type RunPhase = WorkflowStep;
 
 export type AgentType = "coding" | "review" | "ci" | (string & {});
-
-/**
- * Canonical orchestrator backend identifier.
- * Centralized to avoid drift across runtime modules.
- */
-export type OrchestratorBackend = "execution-engine-v1" | "cloudflare_agents";
 export type RuntimeHarnessId = "cloudflare-sandbox" | "local-sandbox";
 
 export interface RepositoryContext {
@@ -99,8 +94,6 @@ export interface RunManifest {
   /** Orchestrator backend identifier - determines which executor handles this run. */
   orchestratorBackend: OrchestratorBackend;
 }
-
-export type RunPhase = "planning" | "execution" | "synthesis";
 
 export interface RunMetadata {
   prompt: string;

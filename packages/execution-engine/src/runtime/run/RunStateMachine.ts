@@ -85,9 +85,4 @@ export function validateStateTransition(from: RunStatus, to: RunStatus): void {
   }
 }
 
-export class StateMachineError extends Error {
-  constructor(message: string) {
-    super(`[run/state-machine] ${message}`);
-    this.name = "StateMachineError";
-  }
-}
+export { StateMachineError } from "@shadowbox/orchestrator-core";

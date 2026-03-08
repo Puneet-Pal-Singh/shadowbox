@@ -78,6 +78,7 @@
     "test:coverage": "vitest --coverage"
   },
   "dependencies": {
+    "@shadowbox/orchestrator-core": "workspace:*",
     "zod": "^3.22.0"
   },
   "devDependencies": {
