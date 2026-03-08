@@ -22,7 +22,6 @@ import { TaskScheduler } from "../orchestration/index.js";
 import { DefaultTaskExecutor, AgentTaskExecutor } from "./TaskExecutor.js";
 import type {
   RunInput,
-  RunManifest,
   RunStatus,
   IAgent,
   RuntimeDurableObjectState,
@@ -71,6 +70,11 @@ import {
   transitionRunToCompleted,
   transitionRunToFailed,
 } from "./RunStatusPolicy.js";
+import {
+  isPlatformApprovalOwner,
+  recordLifecycleStep,
+  recordPhaseSelectionSnapshot,
+} from "./RunMetadataPolicy.js";
 
 export interface IRunEngine {
   execute(
@@ -263,16 +267,29 @@ export class RunEngine implements IRunEngine {
         this.persistConversationMessages(runId, sessionId, messages, "user"),
       );
 
-      const approvalDirectiveMessage = await this.processPermissionDirectives(
-        input.prompt,
-      );
-      if (approvalDirectiveMessage) {
-        console.log(
-          `[run/engine] Permission directive processed for run ${runId}`,
+      recordLifecycleStep(run, "CONTEXT_PREPARED");
+
+      if (isPlatformApprovalOwner(run.metadata.manifest)) {
+        const approvalDirectiveMessage = await this.processPermissionDirectives(
+          input.prompt,
         );
-        return await this.completeRunWithAssistantMessage(
-          run,
-          approvalDirectiveMessage,
+        if (approvalDirectiveMessage) {
+          recordLifecycleStep(
+            run,
+            "APPROVAL_WAIT",
+            "approval directive processed",
+          );
+          console.log(
+            `[run/engine] Permission directive processed for run ${runId}`,
+          );
+          return await this.completeRunWithAssistantMessage(
+            run,
+            approvalDirectiveMessage,
+          );
+        }
+      } else {
+        console.log(
+          `[run/engine] Delegated harness mode active; skipping platform approval directives for run ${runId}`,
         );
       }
 
@@ -308,15 +325,26 @@ export class RunEngine implements IRunEngine {
         );
       }
 
-      const permissionMessage = await this.getPermissionPolicyMessage(
-        input.prompt,
-        input.repositoryContext,
-      );
-      if (permissionMessage) {
-        console.log(
-          `[run/engine] Permission check blocked action planning for run ${runId}`,
+      if (isPlatformApprovalOwner(run.metadata.manifest)) {
+        const permissionMessage = await this.getPermissionPolicyMessage(
+          input.prompt,
+          input.repositoryContext,
         );
-        return await this.completeRunWithAssistantMessage(run, permissionMessage);
+        if (permissionMessage) {
+          recordLifecycleStep(
+            run,
+            "APPROVAL_WAIT",
+            "platform approval required",
+          );
+          console.log(
+            `[run/engine] Permission check blocked action planning for run ${runId}`,
+          );
+          return await this.completeRunWithAssistantMessage(run, permissionMessage);
+        }
+      } else {
+        console.log(
+          `[run/engine] Delegated harness mode active; skipping platform approval gates for run ${runId}`,
+        );
       }
 
       const bootstrapMessage = await this.getWorkspaceBootstrapMessage(
@@ -333,7 +361,7 @@ export class RunEngine implements IRunEngine {
       console.log(`[run/engine] Planning phase for run ${runId}`);
       try {
         run.transition("PLANNING");
-        this.recordPhaseSelectionSnapshot(run, "planning");
+        recordPhaseSelectionSnapshot(run, "planning");
         await this.runRepo.update(run);
 
         const plan = await this.generatePlan(
@@ -342,6 +370,7 @@ export class RunEngine implements IRunEngine {
           this.currentMemoryContext,
         );
         await this.createTasksFromPlan(run.id, plan);
+        recordLifecycleStep(run, "PLAN_VALIDATED");
 
         await this.safeMemoryOperation(() =>
           this.memoryCoordinator.createCheckpoint({
@@ -364,7 +393,8 @@ export class RunEngine implements IRunEngine {
 
       console.log(`[run/engine] Execution phase for run ${runId}`);
       run.transition("RUNNING");
-      this.recordPhaseSelectionSnapshot(run, "execution");
+      recordPhaseSelectionSnapshot(run, "execution");
+      recordLifecycleStep(run, "TASK_EXECUTING");
       await this.runRepo.update(run);
 
       const taskResults: Array<{ taskId: string; content: string }> = [];
@@ -419,7 +449,8 @@ export class RunEngine implements IRunEngine {
       );
 
       console.log(`[run/engine] Synthesis phase for run ${runId}`);
-      this.recordPhaseSelectionSnapshot(run, "synthesis");
+      recordPhaseSelectionSnapshot(run, "synthesis");
+      recordLifecycleStep(run, "SYNTHESIS");
       const finalOutputRaw = await this.generateSynthesis(
         run,
         input.prompt,
@@ -457,6 +488,7 @@ export class RunEngine implements IRunEngine {
       );
 
       applyFinalRunStatus(run, runId, finalRunStatus, allTasks);
+      recordLifecycleStep(run, "TERMINAL", `status=${finalRunStatus}`);
       run.output = { content: finalOutput };
       await this.runRepo.update(run);
 
@@ -568,7 +600,16 @@ export class RunEngine implements IRunEngine {
       input.agentType,
       input,
       undefined,
-      { prompt: input.prompt, manifest },
+      {
+        prompt: input.prompt,
+        manifest,
+        lifecycleSteps: [
+          {
+            step: "RUN_CREATED",
+            recordedAt: new Date().toISOString(),
+          },
+        ],
+      },
     );
   }
 
@@ -749,6 +790,7 @@ If any task failed or was cancelled, clearly say so and do not claim full comple
     text: string,
   ): Promise<Response> {
     const sanitizedText = sanitizeUserFacingOutput(text);
+    recordLifecycleStep(run, "SYNTHESIS");
 
     await this.safeMemoryOperation(() =>
       this.memoryCoordinator.extractAndPersist({
@@ -780,43 +822,13 @@ If any task failed or was cancelled, clearly say so and do not claim full comple
     );
 
     transitionRunToCompleted(run, run.id);
-    this.recordPhaseSelectionSnapshot(run, "synthesis");
+    recordLifecycleStep(run, "TERMINAL", "status=COMPLETED");
+    recordPhaseSelectionSnapshot(run, "synthesis");
     run.output = { content: sanitizedText };
     await this.runRepo.update(run);
     console.log(`[run/engine] Completed conversational run ${run.id}`);
 
     return this.createStreamResponse(sanitizedText);
-  }
-
-  private recordPhaseSelectionSnapshot(
-    run: Run,
-    phase: "planning" | "execution" | "synthesis",
-  ): void {
-    const manifest = run.metadata.manifest;
-    if (!manifest) {
-      throw new RunEngineError(
-        `Missing run manifest before recording ${phase} phase snapshot`,
-      );
-    }
-
-    const existingSnapshots = run.metadata.phaseSelectionSnapshots ?? {};
-    run.metadata.phaseSelectionSnapshots = {
-      ...existingSnapshots,
-      [phase]: this.cloneManifest(manifest),
-    };
-  }
-
-  private cloneManifest(manifest: RunManifest): RunManifest {
-    return {
-      mode: manifest.mode,
-      providerId: manifest.providerId,
-      modelId: manifest.modelId,
-      harness: manifest.harness,
-      orchestratorBackend: manifest.orchestratorBackend,
-      executionBackend: manifest.executionBackend,
-      harnessMode: manifest.harnessMode,
-      authMode: manifest.authMode,
-    };
   }
 
   private async processPermissionDirectives(prompt: string): Promise<string | null> {
@@ -954,6 +966,7 @@ If any task failed or was cancelled, clearly say so and do not claim full comple
       const run = await this.runRepo.getById(runId);
       if (run) {
         transitionRunToFailed(run, runId);
+        recordLifecycleStep(run, "TERMINAL", "status=FAILED");
         run.metadata.error = errorMessage;
         await this.runRepo.update(run);
       }

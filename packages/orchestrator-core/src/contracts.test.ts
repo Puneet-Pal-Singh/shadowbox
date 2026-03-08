@@ -3,6 +3,7 @@ import {
   RUN_STATUSES,
   ORCHESTRATOR_BACKENDS,
   WORKFLOW_STEPS,
+  CANONICAL_RUN_LIFECYCLE_STEPS,
   type RunOrchestratorPort,
   type RunStateEnvelope,
   type ScheduledTaskEnvelope,
@@ -33,6 +34,24 @@ describe("orchestrator-core contracts", () => {
       expect(WORKFLOW_STEPS.PLANNING).toBe("planning");
       expect(WORKFLOW_STEPS.EXECUTION).toBe("execution");
       expect(WORKFLOW_STEPS.SYNTHESIS).toBe("synthesis");
+    });
+
+    it("exports canonical lifecycle step vocabulary", () => {
+      expect(CANONICAL_RUN_LIFECYCLE_STEPS.RUN_CREATED).toBe("RUN_CREATED");
+      expect(CANONICAL_RUN_LIFECYCLE_STEPS.CONTEXT_PREPARED).toBe(
+        "CONTEXT_PREPARED",
+      );
+      expect(CANONICAL_RUN_LIFECYCLE_STEPS.PLAN_VALIDATED).toBe(
+        "PLAN_VALIDATED",
+      );
+      expect(CANONICAL_RUN_LIFECYCLE_STEPS.TASK_EXECUTING).toBe(
+        "TASK_EXECUTING",
+      );
+      expect(CANONICAL_RUN_LIFECYCLE_STEPS.APPROVAL_WAIT).toBe(
+        "APPROVAL_WAIT",
+      );
+      expect(CANONICAL_RUN_LIFECYCLE_STEPS.SYNTHESIS).toBe("SYNTHESIS");
+      expect(CANONICAL_RUN_LIFECYCLE_STEPS.TERMINAL).toBe("TERMINAL");
     });
   });
 

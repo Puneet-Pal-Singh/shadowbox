@@ -19,6 +19,20 @@ import { CloudflareSessionStateAdapter } from "./CloudflareSessionStateAdapter";
 import { CloudflareArtifactStoreAdapter } from "./CloudflareArtifactStoreAdapter";
 import { IPlugin } from "../interfaces/types";
 
+export type RuntimeExecutionBackend =
+  | "cloudflare_sandbox"
+  | "e2b"
+  | "daytona";
+
+export class UnsupportedExecutionBackendError extends Error {
+  constructor(backend: RuntimeExecutionBackend) {
+    super(
+      `[runtime/composition] Unsupported execution backend '${backend}'. Only 'cloudflare_sandbox' is implemented in this phase.`,
+    );
+    this.name = "UnsupportedExecutionBackendError";
+  }
+}
+
 /**
  * R2 bucket interface type for artifact storage.
  */
@@ -38,6 +52,7 @@ interface AdapterCompositionConfig {
   sandbox: Sandbox;
   plugins: Map<string, IPlugin>;
   r2Bucket: R2Bucket;
+  executionBackend?: RuntimeExecutionBackend;
 }
 
 /**
@@ -55,8 +70,12 @@ export class AgentRuntimeAdapterFactory {
   static createSandboxExecutionAdapter(
     sandbox: Sandbox,
     plugins: Map<string, IPlugin>,
+    executionBackend: RuntimeExecutionBackend = "cloudflare_sandbox",
   ): SandboxExecutionPort {
-    return new CloudflareSandboxExecutionAdapter(sandbox, plugins);
+    if (executionBackend === "cloudflare_sandbox") {
+      return new CloudflareSandboxExecutionAdapter(sandbox, plugins);
+    }
+    throw new UnsupportedExecutionBackendError(executionBackend);
   }
 
   /**
@@ -90,10 +109,13 @@ export class AgentRuntimeAdapterFactory {
     sessionState: SessionStatePort;
     artifactStore: ArtifactStorePort;
   } {
+    const executionBackend = config.executionBackend ?? "cloudflare_sandbox";
+
     return {
       sandboxExecution: this.createSandboxExecutionAdapter(
         config.sandbox,
         config.plugins,
+        executionBackend,
       ),
       sessionState: this.createSessionStateAdapter(
         config.durableObjectState,

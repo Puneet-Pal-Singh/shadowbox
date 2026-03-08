@@ -18,6 +18,7 @@ import type { Sandbox } from "@cloudflare/sandbox";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { IPlugin, PluginResult, ToolDefinition } from "../interfaces/types";
 import { composeRuntime } from "../factories/RuntimeCompositionFactory";
+import { UnsupportedExecutionBackendError } from "../adapters/AgentRuntimeAdapterFactory";
 import type {
   ArtifactStorePort,
   SandboxExecutionPort,
@@ -371,6 +372,51 @@ describe("Portability Conformance", () => {
       expect(runtime.executionPort).not.toBe(runtime2.executionPort);
       expect(runtime.sessionPort).not.toBe(runtime2.sessionPort);
       expect(runtime.artifactPort).not.toBe(runtime2.artifactPort);
+    });
+
+    it("should default execution backend routing to cloudflare_sandbox", async () => {
+      const defaultRuntime = composeRuntime({
+        durableObjectState: durableObjectState as unknown as DurableObjectState,
+        sandbox: {} as Sandbox,
+        plugins: new Map<string, IPlugin>([["MockPlugin", new MockPlugin()]]),
+        r2Bucket,
+      });
+
+      const result = await defaultRuntime.executionPort.executeTask("session-1", {
+        taskId: "task-default-backend",
+        action: "MockPlugin.execute",
+        params: { command: "echo backend", runId: "run-default" },
+      });
+
+      expect(result.status).toBe("success");
+      expect(result.output).toContain("echo backend");
+    });
+
+    it("should reject unsupported execution backends deterministically", () => {
+      expect(() =>
+        composeRuntime({
+          durableObjectState:
+            durableObjectState as unknown as DurableObjectState,
+          sandbox: {} as Sandbox,
+          plugins: new Map<string, IPlugin>([
+            ["MockPlugin", new MockPlugin()],
+          ]),
+          r2Bucket,
+          executionBackend: "e2b",
+        }),
+      ).toThrow(UnsupportedExecutionBackendError);
+      expect(() =>
+        composeRuntime({
+          durableObjectState:
+            durableObjectState as unknown as DurableObjectState,
+          sandbox: {} as Sandbox,
+          plugins: new Map<string, IPlugin>([
+            ["MockPlugin", new MockPlugin()],
+          ]),
+          r2Bucket,
+          executionBackend: "daytona",
+        }),
+      ).toThrow(UnsupportedExecutionBackendError);
     });
   });
 });
