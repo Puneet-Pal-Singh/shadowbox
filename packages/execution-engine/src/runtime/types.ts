@@ -126,10 +126,20 @@ export interface RunMetadata {
     detail?: string;
   }>;
   phaseSelectionSnapshots?: Partial<Record<RunPhase, RunManifest>>;
+  orchestrationTelemetry?: RunOrchestrationTelemetry;
   planId?: string;
   completedAt?: string;
   error?: string;
   startedAt?: string;
+}
+
+export interface RunOrchestrationTelemetry {
+  activeDurationMs: number;
+  wakeupCount: number;
+  resumeCount: number;
+  lastWakeupAt?: string;
+  lastResumedAt?: string;
+  lastTerminalAt?: string;
 }
 
 export interface SerializedRun {
