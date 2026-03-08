@@ -31,6 +31,7 @@ describe("RunRecovery", () => {
     );
 
     expect(replay.run.id).toBe(RUN_ID);
+    expect(replay.run.status).toBe("COMPLETED");
     expect(replay.tasks).toHaveLength(1);
     expect(replay.checkpoint.runId).toBe(RUN_ID);
     expect(replay.checkpoint.phase).toBe("execution");
@@ -61,6 +62,7 @@ describe("RunRecovery", () => {
     await failedDeps.runRecovery.reconstructState(failedRun);
     const persistedFailed = await failedDeps.runRepo.getById(RUN_ID);
     expect(persistedFailed?.status).toBe("FAILED");
+    expect(persistedFailed?.metadata.error).toBe("1 task(s) failed");
 
     const cancelledDeps = createRecoveryDeps("22222222-2222-4222-8222-222222222222");
     const cancelledRun = createRun(
