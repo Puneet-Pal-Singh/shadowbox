@@ -813,6 +813,9 @@ If any task failed or was cancelled, clearly say so and do not claim full comple
       modelId: manifest.modelId,
       harness: manifest.harness,
       orchestratorBackend: manifest.orchestratorBackend,
+      executionBackend: manifest.executionBackend,
+      harnessMode: manifest.harnessMode,
+      authMode: manifest.authMode,
     };
   }
 

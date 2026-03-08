@@ -21,13 +21,14 @@ describe("RunManifestPolicy", () => {
 
       expect(manifest.mode).toBe("agentic");
       expect(manifest.orchestratorBackend).toBe("execution-engine-v1");
+      expect(manifest.executionBackend).toBe("cloudflare_sandbox");
+      expect(manifest.harnessMode).toBe("platform_owned");
+      expect(manifest.authMode).toBe("api_key");
     });
 
     it("should support cloudflare_agents backend when specified", () => {
-      const input = createInput();
-      const manifest = createRunManifest(input, {
-        preferredBackend: "cloudflare_agents",
-      });
+      const input = createInput({ orchestratorBackend: "cloudflare_agents" });
+      const manifest = createRunManifest(input);
 
       expect(manifest.orchestratorBackend).toBe("cloudflare_agents");
     });
@@ -36,11 +37,17 @@ describe("RunManifestPolicy", () => {
       const input = createInput({
         providerId: "  openai  ",
         modelId: "  gpt-4  ",
+        executionBackend: "e2b",
+        harnessMode: "delegated",
+        authMode: "oauth",
       });
       const manifest = createRunManifest(input);
 
       expect(manifest.providerId).toBe("openai");
       expect(manifest.modelId).toBe("gpt-4");
+      expect(manifest.executionBackend).toBe("e2b");
+      expect(manifest.harnessMode).toBe("delegated");
+      expect(manifest.authMode).toBe("oauth");
     });
 
     it("should set null for missing provider and model", () => {
@@ -80,14 +87,13 @@ describe("RunManifestPolicy", () => {
         providerId: "openai",
         modelId: "gpt-4",
         harnessId: "cloudflare-sandbox",
+        executionBackend: "cloudflare_sandbox",
+        harnessMode: "platform_owned",
+        authMode: "api_key",
       });
 
-      const manifest = createRunManifest(input, {
-        preferredBackend: "execution-engine-v1",
-      });
-      const candidate = createRunManifest(input, {
-        preferredBackend: "execution-engine-v1",
-      });
+      const manifest = createRunManifest(input);
+      const candidate = createRunManifest(input);
 
       expect(() => {
         ensureManifestMatch(manifest, candidate);
@@ -96,11 +102,29 @@ describe("RunManifestPolicy", () => {
 
     it("should throw on orchestratorBackend mismatch", () => {
       const input = createInput();
-      const existing = createRunManifest(input, {
-        preferredBackend: "execution-engine-v1",
+      const existing = createRunManifest({
+        ...input,
+        orchestratorBackend: "execution-engine-v1",
       });
-      const candidate = createRunManifest(input, {
-        preferredBackend: "cloudflare_agents",
+      const candidate = createRunManifest({
+        ...input,
+        orchestratorBackend: "cloudflare_agents",
+      });
+
+      expect(() => {
+        ensureManifestMatch(existing, candidate);
+      }).toThrow(RunManifestMismatchError);
+    });
+
+    it("should throw on executionBackend mismatch", () => {
+      const input = createInput();
+      const existing = createRunManifest({
+        ...input,
+        executionBackend: "cloudflare_sandbox",
+      });
+      const candidate = createRunManifest({
+        ...input,
+        executionBackend: "e2b",
       });
 
       expect(() => {
@@ -131,6 +155,19 @@ describe("RunManifestPolicy", () => {
 
       expect(() => {
         ensureManifestMatch(manifest, candidate);
+      }).toThrow(RunManifestMismatchError);
+    });
+
+    it("should throw on harnessMode mismatch", () => {
+      const existing = createRunManifest(
+        createInput({ harnessMode: "platform_owned" }),
+      );
+      const candidate = createRunManifest(
+        createInput({ harnessMode: "delegated" }),
+      );
+
+      expect(() => {
+        ensureManifestMatch(existing, candidate);
       }).toThrow(RunManifestMismatchError);
     });
 

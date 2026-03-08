@@ -31,6 +31,12 @@ export type RunPhase = WorkflowStep;
 
 export type AgentType = "coding" | "review" | "ci" | (string & {});
 export type RuntimeHarnessId = "cloudflare-sandbox" | "local-sandbox";
+export type RuntimeExecutionBackend =
+  | "cloudflare_sandbox"
+  | "e2b"
+  | "daytona";
+export type RuntimeHarnessMode = "platform_owned" | "delegated";
+export type RuntimeAuthMode = "api_key" | "oauth";
 
 export interface RepositoryContext {
   owner?: string;
@@ -68,6 +74,10 @@ export interface RunInput {
   providerId?: string;
   modelId?: string;
   harnessId?: RuntimeHarnessId;
+  orchestratorBackend?: OrchestratorBackend;
+  executionBackend?: RuntimeExecutionBackend;
+  harnessMode?: RuntimeHarnessMode;
+  authMode?: RuntimeAuthMode;
   metadata?: Record<string, unknown>;
   // Phase 4: Repository context for workspace-aware operations
   repositoryContext?: RepositoryContext;
@@ -84,9 +94,9 @@ export interface RunOutput {
  * This manifest is frozen at run creation and enforced to remain immutable
  * throughout the run lifecycle. Mid-run changes to any field are invalid.
  * 
- * Backend selection follows deterministic precedence:
- * 1. Explicit orchestratorBackend from run creation input
- * 2. Platform default (execution-engine-v1)
+ * Selection fields follow deterministic precedence:
+ * 1. Explicit selection from run creation input
+ * 2. Policy defaults in RunManifestPolicy
  * 
  * Once set, backend cannot change. Mismatch errors fail fast with typed errors.
  */
@@ -97,6 +107,12 @@ export interface RunManifest {
   harness: RuntimeHarnessId;
   /** Orchestrator backend identifier - determines which executor handles this run. */
   orchestratorBackend: OrchestratorBackend;
+  /** Execution backend identifier - determines sandbox provider for task execution. */
+  executionBackend: RuntimeExecutionBackend;
+  /** Harness loop ownership mode - exactly one owner per run. */
+  harnessMode: RuntimeHarnessMode;
+  /** Provider auth mode selected at run creation. */
+  authMode: RuntimeAuthMode;
 }
 
 export interface RunMetadata {
