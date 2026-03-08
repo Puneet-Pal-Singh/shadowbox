@@ -43,7 +43,7 @@ When this skill is used in the Shadowbox repo, these rules are mandatory:
 - Follow `local/Rules/GIT-RULES.md` as mandatory workflow policy.
 - Follow `local/Rules/pr-strategy-checklist.md` for PR split/merge order.
 - **CRITICAL**: Never create task completion reports, summaries, or documentation files unless explicitly requested by user.
-  - ❌ Do NOT create `PR-4-COMPLETION-REPORT.md`, `SUMMARY.md`, auto-generated docs
+  - ❌ Do NOT create `PR-4-COMPLETION-REPORT.md`, `SUMMARY.md`, `SESSION_SUMMARY.md` (by default), or auto-generated docs
   - ✅ DO put all details in PR description itself
   - See `AGENTS.md` Section 18 "Documentation Files: STRICT RULE"
 
@@ -67,6 +67,7 @@ Rules:
 - If branch is shared/reviewed: integrate with `git pull --ff-only` or explicit merge from `origin/main`.
 - If `--ff-only` fails: stop and do explicit merge conflict resolution.
 - Rebase only on private pre-PR branches.
+- Create/switch branches only on explicit user request or explicit workflow step.
 - Keep PRs small and boundary-scoped to reduce overlap conflicts.
 - Never use blanket conflict strategies (`-X ours`/`-X theirs`) for runtime/business logic.
 
@@ -93,17 +94,18 @@ Use semantic, intent-first naming for both branches and PR titles.
 - Do not use numbering/phase labels in branch names or PR titles:
   - `pr-1`, `pr-2`, `phase-1`, `phase-2`, `task-3`, etc.
 - Internal tracking IDs are allowed only in PR body metadata (for example: `Internal Ref: JIRA-123` or `GitHub Issue: #42`).
+- Canonical branch prefixes: `feat/`, `fix/`, `refactor/`, `docs/`, `chore/`, `test/`.
 
 Recommended branch format:
 
 ```bash
-<type>/<scope>-<intent>
+<type>/<intent>
 ```
 
-Automated agent branches may use the required Shadowbox agent prefix:
+Optional automated-agent prefix (only if required by the execution platform):
 
 ```bash
-codex/<type>-<scope>-<intent>
+codex/<type>-<intent>
 ```
 
 Examples:

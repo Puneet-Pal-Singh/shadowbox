@@ -20,7 +20,7 @@ Use this skill when:
 - Checking repository status
 - Viewing commit history
 - Staging changes
-- Switching branches (when explicitly requested)
+- Switching branches (only when explicitly requested)
 
 ## Safety Rules (CRITICAL)
 
@@ -116,9 +116,11 @@ Hard rules:
 
 ## Branch Operations
 
-### Create Feature Branch
+### Create Feature Branch (Explicit Request Required)
 
 ```bash
+# Execute this flow only after explicit user request to create/switch branch.
+
 # Check current status first
 git status
 
@@ -139,10 +141,14 @@ git branch -v
 - Fixes: `fix/bug-description`
 - Refactoring: `refactor/description`
 - Documentation: `docs/description`
+- Chores: `chore/task-description`
+- Tests: `test/test-scope`
 
 ### Safe Branch Switching
 
 ```bash
+# Execute this flow only after explicit user request to switch branch.
+
 # Check for uncommitted changes
 git status
 
@@ -151,8 +157,8 @@ git checkout branch-name
 
 # If uncommitted changes exist, ask user:
 # "You have uncommitted changes. Should I:
-#   1. Stash them (git stash push -m 'WIP: description')
-#   2. Commit them first
+#   1. Commit them first
+#   2. Stash them (only if explicitly requested)
 #   3. Cancel the switch"
 ```
 

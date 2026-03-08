@@ -25,7 +25,7 @@ All Shadowbox agents share these common traits:
   - Always operates in **Plan Mode** (`planMode: true`).
   - Does not write implementation code; creates `TODO.md` and architecture maps.
   - Summarizes complex repo structures into the "Workspace Map."
-- **Tools**: `list_files`, `read_file`, `search_code`.
+- **Allowed Tools (strict names)**: `list_files`, `read_file`, `search_code`.
 
 ### 💻 The Fullstack Engineer (`role: engineer`)
 
@@ -34,7 +34,7 @@ All Shadowbox agents share these common traits:
   - Direct execution.
   - **Must** use `create_code_artifact` for all multi-line changes.
   - Follows SOLID and DRY principles strictly.
-- **Tools**: `create_code_artifact`, `run_command`, `npm_install`, `read_file`.
+- **Allowed Tools (strict names)**: `create_code_artifact`, `run_command`, `npm_install`, `read_file`.
 
 ### 🛡️ The Security Auditor (`role: security`)
 
@@ -43,16 +43,22 @@ All Shadowbox agents share these common traits:
   - Defensive mindset.
   - Rejects any plan that uses `eval()` or unvalidated user input.
   - Focuses on the "Airlock" boundaries.
-- **Tools**: `read_file`, `run_command` (snyk/audit), `list_files`.
+- **Allowed Tools (strict names)**: `read_file`, `run_command`, `list_files`.
 
 ### 🚀 The DevOps/Git Operator (`role: devops`)
 
-- **Primary Mission**: Branch management, Worktree cleanup, and PR creation.
+- **Primary Mission**: Branch management, worktree cleanup (only when explicitly requested), and PR creation.
 - **Protocol**:
   - Expert in Git.
-  - Manages the `baseBranch` -> `runId` branch transitions.
+  - Manages the `baseBranch` -> `runId` branch transitions only when explicitly requested.
   - Ensures clean commit history.
-- **Tools**: `setup_workspace`, `git_commit`, `git_push`, `cleanup_worktree`.
+- **Allowed Tools (strict names)**: `setup_workspace`, `git_commit`, `git_push`, `cleanup_worktree`.
+
+### Tool Contract Semantics (Required)
+
+- Role tool lists are **strict executable tool names**, not conceptual labels.
+- If a listed tool is unavailable in the active runtime, fail fast and report the missing tool.
+- Do not silently substitute unlisted tools for role-scoped operations.
 
 ---
 
@@ -80,9 +86,10 @@ When an agent is in **Execute Mode**, it should:
 
 When moving from one agent to another within the same `Session`:
 
-1. **Summary Persistence**: The current agent must write a brief `SESSION_SUMMARY.md` in the worktree root.
-2. **Context Injection**: The incoming agent reads `SESSION_SUMMARY.md` to pick up where the previous agent left off.
-3. **Isolation**: Remember that while they share the **Filesystem**, they have separate **Chat History** (scoped by `runId`).
+1. **Default (No Extra File)**: Do not create `SESSION_SUMMARY.md` by default.
+2. **Optional Summary File**: Create `SESSION_SUMMARY.md` only when the user explicitly requests hand-off documentation.
+3. **Context Injection**: Incoming agent should use issue/PR/git context first, then optional `SESSION_SUMMARY.md` if present.
+4. **Isolation**: Remember that while they share the **Filesystem**, they have separate **Chat History** (scoped by `runId`).
 
 ---
 
@@ -385,7 +392,9 @@ function findCommon(arr1: string[], arr2: string[]): string[] {
 
 ### Branching Strategy
 
-- **Feature Branches**: Always create a branch for a task. Format: `feat/persistence-engine`, `fix/cors-headers`.
+- **Canonical Branch Names**: `feat/<intent>`, `fix/<intent>`, `refactor/<intent>`, `docs/<intent>`, `chore/<intent>`, `test/<intent>`.
+- **Branch Creation/Switching Gate**: Create or switch branches only when explicitly requested by the user (or an explicit workflow step such as "create PR branch").
+- **Task Branch Rule**: Once branch creation is explicitly requested, create the task branch before implementation work.
 - **No Direct Push**: Never push directly to `main` without verification.
 
 ### Commit Standards
@@ -500,7 +509,7 @@ When multiple agents work in the same repository:
 
 - **Do NOT create/apply/drop `git stash`** entries unless explicitly requested
 - **Do NOT switch branches** unless explicitly requested
-- **Do NOT create/remove/modify `git worktree`** checkouts unless explicitly requested
+- **Do NOT create/remove/modify `git worktree`** checkouts unless explicitly requested (including DevOps tasks)
 - When the user says "push", sync shared branches with `git pull --ff-only`
 - When the user says "commit", scope to your changes only
 - When you see unrecognized files, keep going; focus on your changes
@@ -672,6 +681,7 @@ Note - Check [Pr Workflow](.agents/skills/pr-workflow) skill for this Structure
 
 **Do NOT create:**
 - ❌ Any `.md` summary files (PR4_SUMMARY.md, COMPLETION_SUMMARY.md, etc.)
+- ❌ `SESSION_SUMMARY.md` by default (allowed only when explicitly requested for hand-off)
 - ❌ Task completion documents
 - ❌ Status reports in markdown
 - ❌ Multiple documentation files
