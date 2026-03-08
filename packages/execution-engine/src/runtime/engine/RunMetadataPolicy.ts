@@ -1,5 +1,16 @@
-import type { CanonicalRunLifecycleStep, RunManifest } from "../types.js";
+import type {
+  CanonicalRunLifecycleStep,
+  RunManifest,
+  RunOrchestrationTelemetry,
+} from "../types.js";
 import type { Run } from "../run/index.js";
+
+export class MissingManifestError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "MissingManifestError";
+  }
+}
 
 export function recordPhaseSelectionSnapshot(
   run: Run,
@@ -7,7 +18,7 @@ export function recordPhaseSelectionSnapshot(
 ): void {
   const manifest = run.metadata.manifest;
   if (!manifest) {
-    throw new Error(
+    throw new MissingManifestError(
       `[run/engine] Missing run manifest before recording ${phase} phase snapshot`,
     );
   }
@@ -39,6 +50,32 @@ export function recordLifecycleStep(
   ];
 }
 
+export function recordOrchestrationActivation(run: Run): void {
+  const telemetry = ensureOrchestrationTelemetry(run);
+  const nowIso = new Date().toISOString();
+  const resumed = telemetry.wakeupCount > 0;
+
+  run.metadata.orchestrationTelemetry = {
+    ...telemetry,
+    wakeupCount: telemetry.wakeupCount + 1,
+    resumeCount: telemetry.resumeCount + (resumed ? 1 : 0),
+    lastWakeupAt: nowIso,
+    lastResumedAt: resumed ? nowIso : telemetry.lastResumedAt,
+  };
+}
+
+export function recordOrchestrationTerminal(run: Run): void {
+  const telemetry = ensureOrchestrationTelemetry(run);
+  const nowIso = new Date().toISOString();
+  run.metadata.orchestrationTelemetry = {
+    ...telemetry,
+    activeDurationMs:
+      telemetry.activeDurationMs +
+      getDeltaFromIso(telemetry.lastWakeupAt, nowIso),
+    lastTerminalAt: nowIso,
+  };
+}
+
 function cloneManifest(manifest: RunManifest): RunManifest {
   return {
     mode: manifest.mode,
@@ -50,4 +87,26 @@ function cloneManifest(manifest: RunManifest): RunManifest {
     harnessMode: manifest.harnessMode,
     authMode: manifest.authMode,
   };
+}
+
+function ensureOrchestrationTelemetry(run: Run): RunOrchestrationTelemetry {
+  return (
+    run.metadata.orchestrationTelemetry ?? {
+      activeDurationMs: 0,
+      wakeupCount: 0,
+      resumeCount: 0,
+    }
+  );
+}
+
+function getDeltaFromIso(startIso: string | undefined, endIso: string): number {
+  if (!startIso) {
+    return 0;
+  }
+  const start = Date.parse(startIso);
+  const end = Date.parse(endIso);
+  if (!Number.isFinite(start) || !Number.isFinite(end)) {
+    return 0;
+  }
+  return Math.max(0, end - start);
 }

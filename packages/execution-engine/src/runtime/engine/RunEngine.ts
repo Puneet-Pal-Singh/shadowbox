@@ -73,9 +73,10 @@ import {
 import {
   isPlatformApprovalOwner,
   recordLifecycleStep,
+  recordOrchestrationActivation,
+  recordOrchestrationTerminal,
   recordPhaseSelectionSnapshot,
 } from "./RunMetadataPolicy.js";
-
 export interface IRunEngine {
   execute(
     input: RunInput,
@@ -247,11 +248,11 @@ export class RunEngine implements IRunEngine {
     _tools: Record<string, CoreTool>,
   ): Promise<Response> {
     const { runId, sessionId } = this.options;
-
     try {
       await this.sessionCostsLoaded;
       const run = await this.getOrCreateRun(input, runId, sessionId);
-
+      recordOrchestrationActivation(run);
+      await this.runRepo.update(run);
       console.log(`[run/engine] Retrieving memory context for run ${runId}`);
       this.currentMemoryContext = await this.safeMemoryOperation(
         () =>
@@ -262,11 +263,9 @@ export class RunEngine implements IRunEngine {
             phase: "planning",
           }),
       );
-
       await this.safeMemoryOperation(() =>
         this.persistConversationMessages(runId, sessionId, messages, "user"),
       );
-
       recordLifecycleStep(run, "CONTEXT_PREPARED");
 
       if (isPlatformApprovalOwner(run.metadata.manifest)) {
@@ -486,12 +485,11 @@ export class RunEngine implements IRunEngine {
           "assistant",
         ),
       );
-
       applyFinalRunStatus(run, runId, finalRunStatus, allTasks);
       recordLifecycleStep(run, "TERMINAL", `status=${finalRunStatus}`);
+      recordOrchestrationTerminal(run);
       run.output = { content: finalOutput };
       await this.runRepo.update(run);
-
       console.log(`[run/engine] Completed run ${runId}`);
       return this.createStreamResponse(finalOutput);
     } catch (error) {
@@ -603,6 +601,11 @@ export class RunEngine implements IRunEngine {
       {
         prompt: input.prompt,
         manifest,
+        orchestrationTelemetry: {
+          activeDurationMs: 0,
+          wakeupCount: 0,
+          resumeCount: 0,
+        },
         lifecycleSteps: [
           {
             step: "RUN_CREATED",
@@ -820,10 +823,10 @@ If any task failed or was cancelled, clearly say so and do not claim full comple
         taskStatuses: {},
       }),
     );
-
     transitionRunToCompleted(run, run.id);
     recordLifecycleStep(run, "TERMINAL", "status=COMPLETED");
     recordPhaseSelectionSnapshot(run, "synthesis");
+    recordOrchestrationTerminal(run);
     run.output = { content: sanitizedText };
     await this.runRepo.update(run);
     console.log(`[run/engine] Completed conversational run ${run.id}`);
@@ -961,12 +964,12 @@ If any task failed or was cancelled, clearly say so and do not claim full comple
   ): Promise<void> {
     const errorMessage =
       error instanceof Error ? error.message : "Unknown execution error";
-
     try {
       const run = await this.runRepo.getById(runId);
       if (run) {
         transitionRunToFailed(run, runId);
         recordLifecycleStep(run, "TERMINAL", "status=FAILED");
+        recordOrchestrationTerminal(run);
         run.metadata.error = errorMessage;
         await this.runRepo.update(run);
       }
