@@ -331,7 +331,7 @@ Type selection guide:
 
 ### PR Body Template (Required)
 
-Check the -> PR body template in `.github/pull_request_template.md` and ensure all sections are filled out with relevant information. Do not leave any section blank.
+Review the PR body template in `.github/pull_request_template.md` and ensure all sections are completed with relevant information; do not leave any section blank.
 
 ### PR Content Safety (Mandatory)
 

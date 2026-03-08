@@ -1,0 +1,50 @@
+name: CodeRabbit Train Label Gate
+
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize, edited, ready_for_review]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  gate-label:
+    name: Apply/Remove Train Review Label
+    runs-on: ubuntu-latest
+    steps:
+      - name: Sync train-review label with base branch
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const label = "coderabbit-train-review";
+            const baseRef = context.payload.pull_request.base.ref;
+            const isTrainBase = /^codex\/train-.*$/.test(baseRef);
+            const params = {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            };
+
+            const { data: labels } = await github.rest.issues.listLabelsOnIssue(params);
+            const hasLabel = labels.some((item) => item.name === label);
+
+            if (isTrainBase && !hasLabel) {
+              await github.rest.issues.addLabels({
+                ...params,
+                labels: [label],
+              });
+              core.info(`Added '${label}' because base branch '${baseRef}' matches train pattern.`);
+              return;
+            }
+
+            if (!isTrainBase && hasLabel) {
+              await github.rest.issues.removeLabel({
+                ...params,
+                name: label,
+              });
+              core.info(`Removed '${label}' because base branch '${baseRef}' does not match train pattern.`);
+              return;
+            }
+
+            core.info(`No label change needed. baseRef='${baseRef}', isTrainBase=${isTrainBase}, hasLabel=${hasLabel}`);
