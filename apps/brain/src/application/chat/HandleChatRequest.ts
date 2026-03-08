@@ -23,6 +23,10 @@ import type {
 } from "@shadowbox/execution-engine/runtime";
 
 type RuntimeHarnessId = "cloudflare-sandbox" | "local-sandbox";
+type RuntimeOrchestratorBackend = "execution-engine-v1" | "cloudflare_agents";
+type RuntimeExecutionBackend = "cloudflare_sandbox" | "e2b" | "daytona";
+type RuntimeHarnessMode = "platform_owned" | "delegated";
+type RuntimeAuthMode = "api_key" | "oauth";
 
 export interface HandleChatRequestInput {
   sessionId: string;
@@ -36,6 +40,10 @@ export interface HandleChatRequestInput {
   providerId?: string;
   modelId?: string;
   harnessId?: RuntimeHarnessId;
+  orchestratorBackend?: RuntimeOrchestratorBackend;
+  executionBackend?: RuntimeExecutionBackend;
+  harnessMode?: RuntimeHarnessMode;
+  authMode?: RuntimeAuthMode;
   // Phase 4: Repository context for workspace-aware operations
   repositoryOwner?: string;
   repositoryName?: string;
@@ -62,6 +70,10 @@ export interface HandleChatRequestOutput {
       providerId?: string;
       modelId?: string;
       harnessId?: RuntimeHarnessId;
+      orchestratorBackend: RuntimeOrchestratorBackend;
+      executionBackend: RuntimeExecutionBackend;
+      harnessMode: RuntimeHarnessMode;
+      authMode: RuntimeAuthMode;
       repositoryContext?: RepositoryContext;
     };
     messages: CoreMessage[];
@@ -104,6 +116,8 @@ export class HandleChatRequest {
       repositoryBranch,
       repositoryBaseUrl,
     } = input;
+
+    const runtimeSelections = this.resolveRuntimeSelections(input);
 
     try {
       // Validate messages
@@ -155,6 +169,10 @@ export class HandleChatRequest {
           providerId: input.providerId,
           modelId: input.modelId,
           harnessId: input.harnessId,
+          orchestratorBackend: runtimeSelections.orchestratorBackend,
+          executionBackend: runtimeSelections.executionBackend,
+          harnessMode: runtimeSelections.harnessMode,
+          authMode: runtimeSelections.authMode,
           // Phase 4: Include repository context for workspace-aware operations
           repositoryContext:
             repositoryOwner || repositoryName
@@ -184,5 +202,19 @@ export class HandleChatRequest {
       console.error(`[chat/usecase] ${correlationId}: Error:`, error);
       throw error;
     }
+  }
+
+  private resolveRuntimeSelections(input: HandleChatRequestInput): {
+    orchestratorBackend: RuntimeOrchestratorBackend;
+    executionBackend: RuntimeExecutionBackend;
+    harnessMode: RuntimeHarnessMode;
+    authMode: RuntimeAuthMode;
+  } {
+    return {
+      orchestratorBackend: input.orchestratorBackend ?? "execution-engine-v1",
+      executionBackend: input.executionBackend ?? "cloudflare_sandbox",
+      harnessMode: input.harnessMode ?? "platform_owned",
+      authMode: input.authMode ?? "api_key",
+    };
   }
 }

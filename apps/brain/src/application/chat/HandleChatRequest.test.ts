@@ -51,6 +51,14 @@ describe("HandleChatRequest", () => {
     expect(result.executionPayload.input.providerId).toBe("openai");
     expect(result.executionPayload.input.modelId).toBe("gpt-4");
     expect(result.executionPayload.input.harnessId).toBe("cloudflare-sandbox");
+    expect(result.executionPayload.input.orchestratorBackend).toBe(
+      "execution-engine-v1",
+    );
+    expect(result.executionPayload.input.executionBackend).toBe(
+      "cloudflare_sandbox",
+    );
+    expect(result.executionPayload.input.harnessMode).toBe("platform_owned");
+    expect(result.executionPayload.input.authMode).toBe("api_key");
     expect(result.executionPayload.input.repositoryContext).toEqual({
       owner: "sourcegraph",
       repo: "shadowbox",
@@ -64,6 +72,31 @@ describe("HandleChatRequest", () => {
       "123e4567-e89b-42d3-a456-426614174000",
       { role: "user", content: "latest user prompt" },
     );
+  });
+
+  it("honors explicit runtime selection overrides in execution payload", async () => {
+    vi.spyOn(PersistenceService.prototype, "persistUserMessage").mockResolvedValue();
+
+    const useCase = new HandleChatRequest(createEnv());
+    const result = await useCase.execute({
+      sessionId: "session-1",
+      runId: "123e4567-e89b-42d3-a456-426614174000",
+      correlationId: "corr-override",
+      agentType: "coding",
+      prompt: "hello",
+      messages: [{ role: "user", content: "hello" }],
+      orchestratorBackend: "cloudflare_agents",
+      executionBackend: "e2b",
+      harnessMode: "delegated",
+      authMode: "oauth",
+    });
+
+    expect(result.executionPayload.input.orchestratorBackend).toBe(
+      "cloudflare_agents",
+    );
+    expect(result.executionPayload.input.executionBackend).toBe("e2b");
+    expect(result.executionPayload.input.harnessMode).toBe("delegated");
+    expect(result.executionPayload.input.authMode).toBe("oauth");
   });
 
   it("throws NO_MESSAGES when messages are empty", async () => {

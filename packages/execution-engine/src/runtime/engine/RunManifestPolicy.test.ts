@@ -27,6 +27,9 @@ describe("RunManifestPolicy matrix conformance", () => {
         expect(manifest.modelId).toBe(`${providerId}-model`);
         expect(manifest.harness).toBe(harnessId);
         expect(manifest.orchestratorBackend).toBe("execution-engine-v1");
+        expect(manifest.executionBackend).toBe("cloudflare_sandbox");
+        expect(manifest.harnessMode).toBe("platform_owned");
+        expect(manifest.authMode).toBe("api_key");
       }
     }
   });
@@ -63,6 +66,48 @@ describe("RunManifestPolicy matrix conformance", () => {
       RunManifestMismatchError,
     );
     expect(() => ensureManifestMatch(existing, changedProvider)).toThrow(
+      RunManifestMismatchError,
+    );
+  });
+
+  it("rejects active-run manifest drift when execution backend or harness mode changes", () => {
+    const existing = createRunManifest({
+      agentType: "coding",
+      prompt: "run once",
+      sessionId: "session-1",
+      providerId: "openai",
+      modelId: "gpt-4o",
+      harnessId: "cloudflare-sandbox",
+      executionBackend: "cloudflare_sandbox",
+      harnessMode: "platform_owned",
+    });
+
+    const changedExecutionBackend = createRunManifest({
+      agentType: "coding",
+      prompt: "same run",
+      sessionId: "session-1",
+      providerId: "openai",
+      modelId: "gpt-4o",
+      harnessId: "cloudflare-sandbox",
+      executionBackend: "e2b",
+      harnessMode: "platform_owned",
+    });
+
+    const changedHarnessMode = createRunManifest({
+      agentType: "coding",
+      prompt: "same run",
+      sessionId: "session-1",
+      providerId: "openai",
+      modelId: "gpt-4o",
+      harnessId: "cloudflare-sandbox",
+      executionBackend: "cloudflare_sandbox",
+      harnessMode: "delegated",
+    });
+
+    expect(() =>
+      ensureManifestMatch(existing, changedExecutionBackend),
+    ).toThrow(RunManifestMismatchError);
+    expect(() => ensureManifestMatch(existing, changedHarnessMode)).toThrow(
       RunManifestMismatchError,
     );
   });

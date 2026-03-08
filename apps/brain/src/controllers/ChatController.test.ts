@@ -74,6 +74,32 @@ describe("ChatController DO runtime migration", () => {
     expect(payload.input.modelId).toBe("gpt-4");
   });
 
+  it("forwards deterministic runtime selection defaults to payload", async () => {
+    const runtime = createMockRuntimeNamespace();
+    const env = createEnv(runtime.namespace);
+
+    const response = await ChatController.handle(createChatRequest(), env);
+
+    expect(response.status).toBe(200);
+    const fetchCall = runtime.fetch.mock.calls[0];
+    expect(fetchCall).toBeDefined();
+
+    const payloadStr = (fetchCall[1] as { body: string }).body;
+    const payload = JSON.parse(payloadStr) as {
+      input: {
+        orchestratorBackend: string;
+        executionBackend: string;
+        harnessMode: string;
+        authMode: string;
+      };
+    };
+
+    expect(payload.input.orchestratorBackend).toBe("execution-engine-v1");
+    expect(payload.input.executionBackend).toBe("cloudflare_sandbox");
+    expect(payload.input.harnessMode).toBe("platform_owned");
+    expect(payload.input.authMode).toBe("api_key");
+  });
+
   it("forwards repository context fields to runtime payload", async () => {
     const runtime = createMockRuntimeNamespace();
     const env = createEnv(runtime.namespace);
