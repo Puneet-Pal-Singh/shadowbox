@@ -16,12 +16,14 @@ export interface RuntimeDurableObjectState {
 }
 
 export type {
+  CanonicalRunLifecycleStep,
   RunStatus,
   OrchestratorBackend,
   WorkflowStep,
 } from "@shadowbox/orchestrator-core";
 
 import type {
+  CanonicalRunLifecycleStep,
   OrchestratorBackend,
   RunStatus,
   WorkflowStep,
@@ -118,6 +120,11 @@ export interface RunManifest {
 export interface RunMetadata {
   prompt: string;
   manifest?: RunManifest;
+  lifecycleSteps?: Array<{
+    step: CanonicalRunLifecycleStep;
+    recordedAt: string;
+    detail?: string;
+  }>;
   phaseSelectionSnapshots?: Partial<Record<RunPhase, RunManifest>>;
   planId?: string;
   completedAt?: string;

@@ -206,6 +206,9 @@ describe("RunEngine", () => {
 
     const manifest = persisted?.metadata.manifest;
     const snapshots = persisted?.metadata.phaseSelectionSnapshots;
+    const lifecycleSteps = persisted?.metadata.lifecycleSteps?.map(
+      (entry) => entry.step,
+    );
 
     expect(manifest).toBeDefined();
     expect(snapshots).toBeDefined();
@@ -213,6 +216,14 @@ describe("RunEngine", () => {
     expect(snapshots?.execution).toEqual(manifest);
     expect(snapshots?.synthesis).toEqual(manifest);
     expect(snapshots?.planning).not.toBe(manifest);
+    expect(lifecycleSteps).toEqual([
+      "RUN_CREATED",
+      "CONTEXT_PREPARED",
+      "PLAN_VALIDATED",
+      "TASK_EXECUTING",
+      "SYNTHESIS",
+      "TERMINAL",
+    ]);
   });
 
   it("builds conversational system prompt with direct-answer style guidance", () => {
@@ -320,6 +331,40 @@ describe("RunEngine", () => {
       { owner: "sourcegraph", repo: "shadowbox" },
     );
     expect(blockedMessage).toContain("approve cross-repo acme/platform-core");
+  });
+
+  it("skips platform approval gate when harness mode is delegated", async () => {
+    const runEngine = createRunEngine({
+      llmGateway: createPlanningLLMGateway(),
+    });
+
+    const response = await runEngine.execute(
+      {
+        agentType: "coding",
+        prompt: "check repository acme/platform-core README.md",
+        sessionId: "session-1",
+        harnessMode: "delegated",
+        repositoryContext: {
+          owner: "sourcegraph",
+          repo: "shadowbox",
+        },
+      },
+      [{ role: "user", content: "check repository acme/platform-core README.md" }],
+      {},
+    );
+
+    expect(response.status).toBe(200);
+
+    const persisted = await (runEngine as unknown as {
+      getRun(runId: string): Promise<Run | null>;
+    }).getRun(TEST_RUN_ID);
+
+    const lifecycleSteps = persisted?.metadata.lifecycleSteps?.map(
+      (entry) => entry.step,
+    );
+
+    expect(lifecycleSteps).not.toContain("APPROVAL_WAIT");
+    expect(persisted?.status).toBe("COMPLETED");
   });
 });
 
