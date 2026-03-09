@@ -14,6 +14,18 @@ describe("provider recovery advice", () => {
     expect(advice.remediation).toContain("Choose a connected provider");
   });
 
+  it("maps active-run immutable selection conflicts to wait/stop guidance", () => {
+    const advice = getProviderRecoveryAdvice("RUN_MANIFEST_IMMUTABLE");
+    expect(advice.actionLabel).toBe("Wait or Stop Current Run");
+    expect(advice.remediation).toContain("Wait for the current run to finish");
+  });
+
+  it("maps rate limit errors to provider switch guidance", () => {
+    const advice = getProviderRecoveryAdvice("RATE_LIMIT exceeded for key");
+    expect(advice.actionLabel).toBe("Switch Provider");
+    expect(advice.remediation).toContain("Switch to another connected provider");
+  });
+
   it("returns default advice for unknown errors", () => {
     const advice = getProviderRecoveryAdvice("Unexpected backend error");
     expect(advice.actionLabel).toBe("Open Provider Settings");

@@ -386,6 +386,26 @@ function findCommon(arr1: string[], arr2: string[]): string[] {
 - **Fail fast with typed errors**: Prefer explicit errors over hidden compatibility behavior.
 - **Delete deprecated paths quickly**: Once replacement is validated, remove old logic in the same milestone or next immediate PR.
 
+### Hard-Cut Product Policy
+
+- **Current product phase assumption**: This app currently has no external installed user base. Optimize for one canonical current-state implementation, not compatibility with historical local states.
+- **Do not introduce compatibility glue** unless explicitly requested by the user: no migration shims, fallback paths, compat adapters, or dual behavior for old local states.
+- Prefer:
+  - one canonical current-state codepath
+  - fail-fast diagnostics
+  - explicit recovery steps
+- Over:
+  - automatic migration
+  - compatibility glue
+  - silent fallbacks
+  - "temporary" second paths
+- If temporary migration/compatibility code is introduced for debugging or a narrow transition, the same diff must call out:
+  - why it exists
+  - why the canonical path is insufficient
+  - exact deletion criteria
+  - the ADR/task that tracks removal
+- **Default stance across the app**: delete old-state compatibility code rather than carrying it forward.
+
 ---
 
 ## 9. Git & Workflow Protocol

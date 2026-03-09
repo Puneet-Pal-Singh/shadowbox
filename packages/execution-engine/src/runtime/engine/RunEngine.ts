@@ -1,5 +1,5 @@
 import type { CoreMessage, CoreTool } from "ai";
-import { Run, RunRepository } from "../run/index.js";
+import { Run, RunRepository, RunStateMachine } from "../run/index.js";
 import { Task, TaskRepository } from "../task/index.js";
 import {
   BudgetManager,
@@ -77,6 +77,7 @@ import {
   recordOrchestrationTerminal,
   recordPhaseSelectionSnapshot,
 } from "./RunMetadataPolicy.js";
+import { resetRecyclableRun } from "./RunRecyclableResetPolicy.js";
 export interface IRunEngine {
   execute(
     input: RunInput,
@@ -86,7 +87,6 @@ export interface IRunEngine {
   getRunStatus(runId: string): Promise<RunStatus | null>;
   cancel(runId: string): Promise<boolean>;
 }
-
 export interface RunEngineOptions {
   env: RunEngineEnv;
   sessionId: string;
@@ -94,7 +94,6 @@ export interface RunEngineOptions {
   correlationId: string;
   requestOrigin?: string;
 }
-
 export interface RunEngineEnv {
   COST_FAIL_ON_UNSEEDED_PRICING?: string;
   COST_UNKNOWN_PRICING_MODE?: string;
@@ -553,7 +552,6 @@ export class RunEngine implements IRunEngine {
     runId: string,
     sessionId: string,
   ): Promise<Run> {
-    const requestedManifest = createRunManifest(input);
     const existing = await this.runRepo.getById(runId);
     if (existing) {
       if (existing.sessionId !== sessionId) {
@@ -562,17 +560,25 @@ export class RunEngine implements IRunEngine {
         );
       }
 
-      ensureManifestMatch(existing.metadata.manifest, requestedManifest);
+      const isTerminal = RunStateMachine.isTerminalState(existing.status);
+      const isIdleCreated =
+        existing.status === "CREATED" &&
+        (await this.taskRepo.getByRun(runId)).length === 0;
 
-      if (this.isTerminalRun(existing.status)) {
-        await this.taskRepo.deleteByRun(runId);
-        const resetRun = this.createFreshRun(runId, sessionId, input);
-        await this.runRepo.update(resetRun);
-        console.log(
-          `[run/engine] Reset terminal run ${runId} (${existing.status}) for next turn`,
-        );
-        return resetRun;
+      if (isTerminal || isIdleCreated) {
+        return resetRecyclableRun({
+          runId,
+          sessionId,
+          input,
+          previousStatus: existing.status,
+          taskRepo: this.taskRepo,
+          runRepo: this.runRepo,
+          createFreshRun: this.createFreshRun.bind(this),
+        });
       }
+
+      const requestedManifest = createRunManifest(input);
+      ensureManifestMatch(existing.metadata.manifest, requestedManifest);
 
       return existing;
     }
@@ -613,12 +619,6 @@ export class RunEngine implements IRunEngine {
           },
         ],
       },
-    );
-  }
-
-  private isTerminalRun(status: RunStatus): boolean {
-    return (
-      status === "COMPLETED" || status === "FAILED" || status === "CANCELLED"
     );
   }
 
