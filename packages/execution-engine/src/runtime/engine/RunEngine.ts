@@ -1,5 +1,5 @@
 import type { CoreMessage, CoreTool } from "ai";
-import { Run, RunRepository } from "../run/index.js";
+import { Run, RunRepository, RunStateMachine } from "../run/index.js";
 import { Task, TaskRepository } from "../task/index.js";
 import {
   BudgetManager,
@@ -561,7 +561,7 @@ export class RunEngine implements IRunEngine {
         );
       }
 
-      const isTerminal = this.isTerminalRun(existing.status);
+      const isTerminal = RunStateMachine.isTerminalState(existing.status);
       const isIdleCreated =
         existing.status === "CREATED" &&
         (await this.taskRepo.getByRun(runId)).length === 0;
@@ -618,12 +618,6 @@ export class RunEngine implements IRunEngine {
           },
         ],
       },
-    );
-  }
-
-  private isTerminalRun(status: RunStatus): boolean {
-    return (
-      status === "COMPLETED" || status === "FAILED" || status === "CANCELLED"
     );
   }
 
