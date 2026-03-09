@@ -561,12 +561,17 @@ export class RunEngine implements IRunEngine {
         );
       }
 
-      if (this.isTerminalRun(existing.status)) {
+      const isTerminal = this.isTerminalRun(existing.status);
+      const isIdleCreated =
+        existing.status === "CREATED" &&
+        (await this.taskRepo.getByRun(runId)).length === 0;
+
+      if (isTerminal || isIdleCreated) {
         await this.taskRepo.deleteByRun(runId);
         const resetRun = this.createFreshRun(runId, sessionId, input);
         await this.runRepo.update(resetRun);
         console.log(
-          `[run/engine] Reset terminal run ${runId} (${existing.status}) for next turn with refreshed selection`,
+          `[run/engine] Reset recyclable run ${runId} (${existing.status}) for next turn with refreshed selection`,
         );
         return resetRun;
       }

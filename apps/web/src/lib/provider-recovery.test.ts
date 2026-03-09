@@ -20,6 +20,12 @@ describe("provider recovery advice", () => {
     expect(advice.remediation).toContain("Wait for the current run to finish");
   });
 
+  it("maps rate limit errors to provider switch guidance", () => {
+    const advice = getProviderRecoveryAdvice("RATE_LIMIT exceeded for key");
+    expect(advice.actionLabel).toBe("Switch Provider");
+    expect(advice.remediation).toContain("Switch to another connected provider");
+  });
+
   it("returns default advice for unknown errors", () => {
     const advice = getProviderRecoveryAdvice("Unexpected backend error");
     expect(advice.actionLabel).toBe("Open Provider Settings");

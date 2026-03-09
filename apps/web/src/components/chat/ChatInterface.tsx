@@ -163,6 +163,7 @@ export function ChatInterface({
             onStop={stop}
             isLoading={isLoading}
             sessionId={sessionId}
+            hasMessages={messages.length > 0}
             onModelSelect={onModelSelect}
           />
           <div className="pl-6 mt-1">

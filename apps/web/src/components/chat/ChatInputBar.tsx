@@ -6,6 +6,9 @@ import { useProviderStore } from "../../hooks/useProviderStore.js";
 import { findCredentialByProviderId } from "../../lib/provider-helpers.js";
 import { ProviderDialog, ModelPickerPopover } from "../provider/index.js";
 
+const IDLE_SWITCH_WARNING =
+  "Changing models mid-conversation will degrade performance.";
+
 interface ChatInputBarProps {
   input: string;
   onChange: (value: string) => void;
@@ -14,6 +17,7 @@ interface ChatInputBarProps {
   isLoading?: boolean;
   placeholder?: string;
   sessionId: string;
+  hasMessages?: boolean;
   onModelSelect?: (providerId: ProviderId, modelId: string) => void;
 }
 
@@ -24,10 +28,12 @@ export function ChatInputBar({
   onStop,
   isLoading = false,
   placeholder = "Ask Shadowbox anything, @ to add files, / for commands",
+  hasMessages = false,
   onModelSelect,
 }: ChatInputBarProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [isFocused, setIsFocused] = useState(false);
+  const [idleSwitchWarning, setIdleSwitchWarning] = useState(false);
   const [showProviderDialog, setShowProviderDialog] = useState(false);
   const [providerDialogInitialTab, setProviderDialogInitialTab] = useState<
     "connected" | "available" | "preferences" | "session" | undefined
@@ -190,6 +196,9 @@ export function ChatInputBar({
                     credentialId: credential.credentialId,
                     modelId,
                   });
+                  if (hasMessages && !isLoading) {
+                    setIdleSwitchWarning(true);
+                  }
                 }}
                 onSelectModelView={setModelView}
                 onLoadMoreSelectedProviderModels={loadMoreProviderModels}
@@ -254,6 +263,12 @@ export function ChatInputBar({
             </div>
           </div>
         </div>
+
+        {idleSwitchWarning && (
+          <p className="mt-1.5 text-xs text-amber-400/80 px-1">
+            {IDLE_SWITCH_WARNING}
+          </p>
+        )}
       </form>
       <ProviderDialog
         isOpen={showProviderDialog}

@@ -151,6 +151,9 @@ describe("RunEngine", () => {
         runId: string,
         sessionId: string,
       ): Promise<Run>;
+      taskRepo: {
+        create(task: { id: string; runId: string; toJSON(): unknown }): Promise<void>;
+      };
     };
 
     await privateApi.getOrCreateRun(
@@ -165,6 +168,18 @@ describe("RunEngine", () => {
       "session-1",
     );
 
+    // Seed a task so the CREATED run is non-idle and manifest is enforced
+    const { Task: TaskClass } = await import("../task/index.js");
+    const seedTask = new TaskClass(
+      "manifest-guard-task",
+      TEST_RUN_ID,
+      "shell",
+      "PENDING",
+      [],
+      { description: "guard task" },
+    );
+    await privateApi.taskRepo.create(seedTask);
+
     await expect(
       privateApi.getOrCreateRun(
         {
@@ -178,6 +193,53 @@ describe("RunEngine", () => {
         "session-1",
       ),
     ).rejects.toThrow("Immutable run manifest mismatch");
+  });
+
+  it("recycles idle CREATED run with no tasks when selection changes", async () => {
+    const runEngine = createRunEngine();
+    const privateApi = runEngine as unknown as {
+      getOrCreateRun(
+        input: {
+          agentType: "coding";
+          prompt: string;
+          sessionId: string;
+          providerId?: string;
+          modelId?: string;
+        },
+        runId: string,
+        sessionId: string,
+      ): Promise<Run>;
+    };
+
+    await privateApi.getOrCreateRun(
+      {
+        agentType: "coding",
+        prompt: "initial idle run",
+        sessionId: "session-1",
+        providerId: "openai",
+        modelId: "gpt-4o",
+      },
+      TEST_RUN_ID,
+      "session-1",
+    );
+
+    const recycled = await privateApi.getOrCreateRun(
+      {
+        agentType: "coding",
+        prompt: "switch provider while idle",
+        sessionId: "session-1",
+        providerId: "groq",
+        modelId: "llama-3.3-70b-versatile",
+      },
+      TEST_RUN_ID,
+      "session-1",
+    );
+
+    expect(recycled.status).toBe("CREATED");
+    expect(recycled.input.providerId).toBe("groq");
+    expect(recycled.input.modelId).toBe("llama-3.3-70b-versatile");
+    expect(recycled.metadata.manifest?.providerId).toBe("groq");
+    expect(recycled.metadata.manifest?.modelId).toBe("llama-3.3-70b-versatile");
   });
 
   it("allows selection changes when existing run is terminal", async () => {
@@ -211,6 +273,7 @@ describe("RunEngine", () => {
       "session-1",
     );
 
+    initialRun.transition("RUNNING");
     initialRun.transition("COMPLETED");
     await privateApi.runRepo.update(initialRun);
 
@@ -302,6 +365,9 @@ describe("RunEngine", () => {
       runRepo: {
         update(run: Run): Promise<void>;
       };
+      taskRepo: {
+        create(task: { id: string; runId: string; toJSON(): unknown }): Promise<void>;
+      };
       getRun(runId: string): Promise<Run | null>;
     };
 
@@ -321,6 +387,18 @@ describe("RunEngine", () => {
       lastWakeupAt: new Date(Date.now() - 5_000).toISOString(),
     };
     await privateApi.runRepo.update(preexistingRun);
+
+    // Seed a task so the CREATED run is not considered idle-recyclable
+    const { Task: TaskClass } = await import("../task/index.js");
+    const seedTask = new TaskClass(
+      "seed-task-1",
+      TEST_RUN_ID,
+      "shell",
+      "PENDING",
+      [],
+      { description: "seed task" },
+    );
+    await privateApi.taskRepo.create(seedTask);
 
     const response = await runEngine.execute(
       {
