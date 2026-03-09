@@ -180,6 +180,59 @@ describe("RunEngine", () => {
     ).rejects.toThrow("Immutable run manifest mismatch");
   });
 
+  it("allows selection changes when existing run is terminal", async () => {
+    const runEngine = createRunEngine();
+    const privateApi = runEngine as unknown as {
+      getOrCreateRun(
+        input: {
+          agentType: "coding";
+          prompt: string;
+          sessionId: string;
+          providerId?: string;
+          modelId?: string;
+        },
+        runId: string,
+        sessionId: string,
+      ): Promise<Run>;
+      runRepo: {
+        update(run: Run): Promise<void>;
+      };
+    };
+
+    const initialRun = await privateApi.getOrCreateRun(
+      {
+        agentType: "coding",
+        prompt: "run once",
+        sessionId: "session-1",
+        providerId: "openai",
+        modelId: "gpt-4o",
+      },
+      TEST_RUN_ID,
+      "session-1",
+    );
+
+    initialRun.transition("COMPLETED");
+    await privateApi.runRepo.update(initialRun);
+
+    const resetRun = await privateApi.getOrCreateRun(
+      {
+        agentType: "coding",
+        prompt: "reuse run id with new model",
+        sessionId: "session-1",
+        providerId: "groq",
+        modelId: "llama-3.3-70b-versatile",
+      },
+      TEST_RUN_ID,
+      "session-1",
+    );
+
+    expect(resetRun.status).toBe("CREATED");
+    expect(resetRun.input.providerId).toBe("groq");
+    expect(resetRun.input.modelId).toBe("llama-3.3-70b-versatile");
+    expect(resetRun.metadata.manifest?.providerId).toBe("groq");
+    expect(resetRun.metadata.manifest?.modelId).toBe("llama-3.3-70b-versatile");
+  });
+
   it("records immutable selection snapshots across planning, execution, and synthesis metadata", async () => {
     const runEngine = createRunEngine({
       llmGateway: createPlanningLLMGateway(),

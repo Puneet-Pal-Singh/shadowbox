@@ -553,7 +553,6 @@ export class RunEngine implements IRunEngine {
     runId: string,
     sessionId: string,
   ): Promise<Run> {
-    const requestedManifest = createRunManifest(input);
     const existing = await this.runRepo.getById(runId);
     if (existing) {
       if (existing.sessionId !== sessionId) {
@@ -562,17 +561,18 @@ export class RunEngine implements IRunEngine {
         );
       }
 
-      ensureManifestMatch(existing.metadata.manifest, requestedManifest);
-
       if (this.isTerminalRun(existing.status)) {
         await this.taskRepo.deleteByRun(runId);
         const resetRun = this.createFreshRun(runId, sessionId, input);
         await this.runRepo.update(resetRun);
         console.log(
-          `[run/engine] Reset terminal run ${runId} (${existing.status}) for next turn`,
+          `[run/engine] Reset terminal run ${runId} (${existing.status}) for next turn with refreshed selection`,
         );
         return resetRun;
       }
+
+      const requestedManifest = createRunManifest(input);
+      ensureManifestMatch(existing.metadata.manifest, requestedManifest);
 
       return existing;
     }

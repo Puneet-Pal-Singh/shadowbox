@@ -9,6 +9,16 @@ export function getProviderRecoveryAdvice(
 ): ProviderRecoveryAdvice {
   const message = (rawMessage ?? "").trim();
 
+  if (containsActiveRunSelectionConflict(message)) {
+    return {
+      message:
+        "This run is still active, so model/provider selection cannot change yet.",
+      actionLabel: "Wait or Stop Current Run",
+      remediation:
+        "Wait for the current run to finish (or stop it), then retry with your new model selection.",
+    };
+  }
+
   if (containsMissingProviderConfiguration(message)) {
     return {
       message:
@@ -68,5 +78,12 @@ function containsRateLimitError(message: string): boolean {
     message.includes("RATE_LIMIT") ||
     message.includes("rate limit") ||
     message.includes("Key limit exceeded")
+  );
+}
+
+function containsActiveRunSelectionConflict(message: string): boolean {
+  return (
+    message.includes("RUN_MANIFEST_IMMUTABLE") ||
+    message.includes("Run selection is immutable while a run is active")
   );
 }
