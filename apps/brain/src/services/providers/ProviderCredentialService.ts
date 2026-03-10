@@ -216,7 +216,10 @@ function ensureProviderAllowsManualCredential(
 ): void {
   const provider = registryService.getProvider(providerId);
   if (!provider) {
-    return;
+    throw new ValidationError(
+      `Provider "${providerId}" is not registered.`,
+      "INVALID_PROVIDER_SELECTION",
+    );
   }
   if (provider.authModes.includes("platform_managed")) {
     throw new ValidationError(

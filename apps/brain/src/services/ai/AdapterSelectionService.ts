@@ -25,7 +25,6 @@ import {
   createAnthropicAdapter,
   createLiteLLMAdapter,
 } from "./ProviderAdapterFactory";
-import { resolveAxisOpenRouterKey } from "./ProviderKeyValidator";
 import type { Env } from "../../types/ai";
 import {
   ProviderNotConnectedError,
@@ -79,7 +78,8 @@ export async function selectAdapter(
     : undefined;
 
   if (!overrideApiKey && selection.providerId === "axis") {
-    overrideApiKey = resolveAxisOpenRouterKey(env).apiKey;
+    const axisApiKey = env.AXIS_OPENROUTER_API_KEY?.trim();
+    overrideApiKey = axisApiKey && axisApiKey.length > 0 ? axisApiKey : undefined;
   }
 
   // Provider was selected but not connected

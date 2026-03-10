@@ -198,7 +198,11 @@ export class AxisDailyLimitExceededError extends DomainError {
       429,
       false,
       correlationId,
-      details as Record<string, unknown>,
+      {
+        used: details.used,
+        limit: details.limit,
+        resetsAt: details.resetsAt,
+      },
     );
   }
 }

@@ -18,7 +18,7 @@ describe("BYOK Resolution", () => {
   it("validates platform defaults resolution", () => {
     const resolution = {
       providerId: "axis",
-      credentialId: "",
+      credentialId: "550e8400-e29b-41d4-a716-446655440002",
       modelId: "openai/gpt-oss-120b:free",
       resolvedAt: "platform_defaults" as const,
       resolvedAtTime: "2025-02-23T10:00:00Z",

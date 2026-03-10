@@ -25,6 +25,14 @@ export function resolveAxisOpenRouterKey(env: Env): {
       "Missing AXIS_OPENROUTER_API_KEY for platform-managed Axis provider.",
     );
   }
+
+  if (!registryService.isApiKeyFormatValid("openrouter", apiKey)) {
+    throw new ProviderError(
+      "axis",
+      "Invalid AXIS_OPENROUTER_API_KEY format for platform-managed Axis provider.",
+    );
+  }
+
   return {
     apiKey,
     baseURL: OPENROUTER_BASE_URL,
@@ -161,6 +169,12 @@ export function resolveProviderKey(
   }
 
   if (providerId === "axis") {
+    if (overrideApiKey) {
+      throw new ProviderError(
+        "axis",
+        "Axis is platform-managed and does not accept override API keys.",
+      );
+    }
     return resolveAxisOpenRouterKey(env);
   }
 

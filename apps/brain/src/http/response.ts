@@ -55,6 +55,10 @@ export function errorResponse(
   code?: string,
   metadata?: Record<string, unknown>,
 ): Response {
+  if (metadata && !code) {
+    throw new TypeError("errorResponse metadata requires an error code.");
+  }
+
   const errorBody = code
     ? metadata
       ? { error: message, code, metadata }

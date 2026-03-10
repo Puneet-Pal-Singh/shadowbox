@@ -16,14 +16,15 @@ import { z } from "zod";
  * 3. Workspace preference
  * 4. Platform defaults (explicit, not fallback) - RCP3 change
  *
- * Note: credentialId may be empty string for platform defaults (no BYOK credential).
+ * credentialId is always a concrete credential identity (virtual UUID for
+ * platform-managed providers, persisted UUID for BYOK credentials).
  */
 export const BYOKResolutionSchema = z.object({
   /** Resolved provider ID */
   providerId: z.string().min(1),
 
-  /** Resolved credential ID (empty string for platform defaults) */
-  credentialId: z.string(),
+  /** Resolved credential ID */
+  credentialId: z.string().uuid(),
 
   /** Resolved model ID */
   modelId: z.string().min(1),

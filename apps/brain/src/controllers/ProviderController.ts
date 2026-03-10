@@ -67,7 +67,8 @@ import {
   resolveAuthorizedProviderScope,
   type AuthorizedProviderScope,
 } from "./provider/ProviderAuthScopeService";
-import { AXIS_PROVIDER_ID } from "../services/providers/axis";
+
+const AXIS_PROVIDER_ID = "axis" as const;
 
 const WorkspaceByokMetadataSchema = z.object({
   credentialLabels: z.record(z.string(), z.string()).default({}),
