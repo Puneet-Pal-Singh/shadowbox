@@ -6,6 +6,23 @@ import type {
   CommitPayload,
   StageFilesRequest,
 } from "@repo/shared-types";
+import { z } from "zod";
+import { WorkspaceBootstrapService } from "../runtime/services/WorkspaceBootstrapService";
+
+const GitBootstrapRequestBodySchema = z.object({
+  runId: z.string(),
+  sessionId: z.string().optional(),
+  repositoryOwner: z.string(),
+  repositoryName: z.string(),
+  repositoryBranch: z.string().optional(),
+  repositoryBaseUrl: z.string().optional(),
+});
+
+type GitBootstrapRequestBody = z.infer<typeof GitBootstrapRequestBodySchema>;
+type GitBootstrapResult = Awaited<
+  ReturnType<WorkspaceBootstrapService["bootstrap"]>
+>;
+const bootstrapRequestsByWorkspace = new Map<string, Promise<GitBootstrapResult>>();
 
 /**
  * GitController
@@ -238,6 +255,109 @@ export class GitController {
       );
     }
   }
+
+  /**
+   * Bootstrap git workspace for a run before first chat turn.
+   * Enables git status/diff/changes tab in newly-created tasks.
+   */
+  static async bootstrap(req: Request, env: Env): Promise<Response> {
+    try {
+      const body = await parseGitBootstrapRequestBody(req, env);
+      if (!body) {
+        return errorResponse(req, env, "Invalid git bootstrap request body", 400);
+      }
+      const {
+        runId,
+        sessionId,
+        repositoryOwner,
+        repositoryName,
+        repositoryBranch,
+        repositoryBaseUrl,
+      } = body;
+
+      const normalizedRunId = runId?.trim();
+      const owner = repositoryOwner?.trim();
+      const repo = repositoryName?.trim();
+      const branch = repositoryBranch?.trim() || "main";
+      const baseUrl = repositoryBaseUrl?.trim();
+
+      if (!normalizedRunId || !owner || !repo) {
+        return errorResponse(
+          req,
+          env,
+          "runId, repositoryOwner, and repositoryName are required",
+          400,
+        );
+      }
+
+      const muscleSession = resolveMuscleSessionId(normalizedRunId, sessionId);
+      const workspaceKey = `${muscleSession}:${normalizedRunId}`;
+      const existingRequest = bootstrapRequestsByWorkspace.get(workspaceKey);
+      if (existingRequest) {
+        const result = await existingRequest;
+        return corsJsonResponse(req, env, result);
+      }
+
+      const bootstrapper = WorkspaceBootstrapService.fromEnv(
+        env,
+        muscleSession,
+        normalizedRunId,
+      );
+      const bootstrapRequest = bootstrapper.bootstrap({
+        runId: normalizedRunId,
+        repositoryContext: {
+          owner,
+          repo,
+          branch,
+          baseUrl,
+        },
+      });
+      bootstrapRequestsByWorkspace.set(workspaceKey, bootstrapRequest);
+
+      let result: GitBootstrapResult;
+      try {
+        result = await bootstrapRequest;
+      } finally {
+        if (bootstrapRequestsByWorkspace.get(workspaceKey) === bootstrapRequest) {
+          bootstrapRequestsByWorkspace.delete(workspaceKey);
+        }
+      }
+
+      return corsJsonResponse(req, env, result);
+    } catch (error) {
+      console.error("[GitController:bootstrap] Error:", error);
+      return errorResponse(
+        req,
+        env,
+        error instanceof Error ? error.message : "Failed to bootstrap git workspace",
+        500,
+      );
+    }
+  }
+}
+
+async function parseGitBootstrapRequestBody(
+  req: Request,
+  env: Env,
+): Promise<GitBootstrapRequestBody | null> {
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch (error) {
+    console.warn("[GitController:bootstrap] Invalid JSON body", { error });
+    return null;
+  }
+
+  const parsedBody = GitBootstrapRequestBodySchema.safeParse(body);
+  if (!parsedBody.success) {
+    console.warn("[GitController:bootstrap] Body validation failed", {
+      issues: parsedBody.error.issues,
+      environment: env.NODE_ENV,
+    });
+    return null;
+  }
+
+  return parsedBody.data;
 }
 
 interface PluginSuccessPayload {

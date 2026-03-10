@@ -150,6 +150,16 @@ export function gitStagePath(): string {
 }
 
 /**
+ * Build the git workspace bootstrap endpoint URL
+ * Used to initialize run-scoped repository before first chat turn.
+ *
+ * Path: /api/git/bootstrap
+ */
+export function gitBootstrapPath(): string {
+  return `${getBrainHttpBase()}/api/git/bootstrap`;
+}
+
+/**
  * Build the artifact endpoint URL
  * Used for loading artifact content from Muscle
  * Path: /api/artifacts/:key

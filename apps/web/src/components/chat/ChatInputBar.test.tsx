@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { ChatInputBar } from "./ChatInputBar.js";
 import * as useProviderStoreModule from "../../hooks/useProviderStore.js";
@@ -126,6 +126,10 @@ describe("ChatInputBar", () => {
     });
   });
 
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   describe("idle switch warning", () => {
     it("does not show warning on initial render", () => {
       render(
@@ -162,6 +166,32 @@ describe("ChatInputBar", () => {
         expect(screen.getByText(IDLE_SWITCH_WARNING)).toBeTruthy();
       });
     });
+
+    it("auto-dismisses warning after 4 seconds", async () => {
+      render(
+        <ChatInputBar
+          input=""
+          onChange={vi.fn()}
+          onSubmit={vi.fn()}
+          sessionId="session-1"
+          hasMessages
+        />,
+      );
+
+      const trigger = screen.getByLabelText("Open model picker");
+      fireEvent.click(trigger);
+
+      const modelOption = await screen.findByText("GPT-4o");
+      fireEvent.click(modelOption);
+
+      await waitFor(() => {
+        expect(screen.getByText(IDLE_SWITCH_WARNING)).toBeTruthy();
+      });
+
+      await waitFor(() => {
+        expect(screen.queryByText(IDLE_SWITCH_WARNING)).toBeNull();
+      }, { timeout: 5000 });
+    }, 12000);
 
     it("does not show warning when thread has no messages", async () => {
       render(

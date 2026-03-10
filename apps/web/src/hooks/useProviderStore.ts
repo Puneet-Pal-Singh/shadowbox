@@ -32,6 +32,8 @@ import type {
 } from "../services/api/providerClient.js";
 import { useRunContext } from "./useRunContext";
 
+const SESSION_RUN_ID_KEY = "currentRunId";
+
 /**
  * useProviderStore Hook
  *
@@ -93,6 +95,7 @@ export function useProviderStore(
       return;
     }
 
+    persistRunId(runId);
     store.setActiveRunId(runId);
 
     if (state.status === "idle") {
@@ -182,4 +185,12 @@ export function useProviderStore(
     clearError,
     reset,
   };
+}
+
+function persistRunId(runId: string): void {
+  try {
+    sessionStorage.setItem(SESSION_RUN_ID_KEY, runId);
+  } catch (error) {
+    console.warn("[provider/store] failed to persist run id", error);
+  }
 }

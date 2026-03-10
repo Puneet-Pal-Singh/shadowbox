@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
 import {
   ChevronDown,
@@ -10,7 +10,6 @@ import {
   Mic,
   ArrowUp,
   Paperclip,
-  Settings,
 } from "lucide-react";
 import {
   staggerContainer,
@@ -20,11 +19,24 @@ import {
 } from "../../lib/animations";
 import { useGitHub } from "../github/GitHubContextProvider";
 import { ChatBranchSelector } from "../chat/ChatBranchSelector";
-import { ProviderDialog } from "../provider/ProviderDialog";
+import { ProviderDialog, ModelPickerPopover } from "../provider";
 import { useProviderStore } from "../../hooks/useProviderStore.js";
+import { useRunContext } from "../../hooks/useRunContext.js";
+import { findCredentialByProviderId } from "../../lib/provider-helpers.js";
+import { bootstrapGitWorkspace } from "../../lib/git-workspace-bootstrap.js";
+import { useWorkspaceState } from "../layout/workspace/useWorkspaceState";
+import { SidebarHeader } from "../layout/workspace/SidebarHeader";
+import { SidebarContent } from "../layout/workspace/SidebarContent";
+import { useGitHubTree } from "../layout/workspace/useGitHubTree";
+import { useFileLoader } from "../layout/workspace/useFileLoader";
+import { Resizer } from "../ui/Resizer";
+import { useGitStatus } from "../../hooks/useGitStatus";
+import { useGitDiff } from "../../hooks/useGitDiff";
+import type { FileExplorerHandle } from "../FileExplorer";
 
 interface AgentSetupProps {
   sessionId: string;
+  isRightSidebarOpen?: boolean;
   onStart: (config: { repo: string; branch: string; task: string }) => void;
   onRepoClick?: () => void;
 }
@@ -54,16 +66,86 @@ const SUGGESTED_ACTIONS: SuggestedAction[] = [
 ];
 
 export function AgentSetup({
+  sessionId,
+  isRightSidebarOpen = false,
   onStart,
   onRepoClick,
 }: AgentSetupProps) {
   const { repo, branch } = useGitHub();
+  const { runId } = useRunContext();
   const [task, setTask] = useState("");
   const [isInputFocused, setIsInputFocused] = useState(false);
   const [hoveredCard, setHoveredCard] = useState<number | null>(null);
-  const [showProviderSettings, setShowProviderSettings] = useState(false);
-  const { selectedModelId, selectedProviderId, preferences } = useProviderStore();
+  const [showProviderDialog, setShowProviderDialog] = useState(false);
+  const [providerDialogInitialTab, setProviderDialogInitialTab] = useState<
+    "connected" | "available" | "preferences" | "session" | undefined
+  >(undefined);
+  const [providerDialogInitialView, setProviderDialogInitialView] = useState<
+    "default" | "manage-models"
+  >("default");
+  const [providerDialogVariant, setProviderDialogVariant] = useState<
+    "full" | "connect-only" | "manage-models-only"
+  >("full");
+  const {
+    catalog,
+    credentials,
+    status,
+    selectedProviderId,
+    selectedModelId,
+    selectedModelView,
+    providerModels,
+    providerModelsMetadata,
+    providerModelsPage,
+    visibleModelIds,
+    loadingModelsForProviderId,
+    refreshingModelsForProviderId,
+    loadProviderModels,
+    loadMoreProviderModels,
+    refreshProviderModels,
+    setModelView,
+    applySessionSelection,
+  } = useProviderStore();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const explorerRef = useRef<FileExplorerHandle>(null);
+  const workspaceBootstrapKeyRef = useRef<string | null>(null);
+  const workspaceBootstrapInFlightRef = useRef<string | null>(null);
+  const activeRunId = runId ?? "";
+  const {
+    activeTab,
+    setActiveTab,
+    sidebarWidth,
+    setSidebarWidth,
+    isResizing,
+    setIsResizing,
+    selectedFile,
+    setSelectedFile,
+    selectedDiff,
+    setSelectedDiff,
+    isViewingContent,
+    setIsViewingContent,
+    isLoadingContent,
+    setIsLoadingContent,
+  } = useWorkspaceState();
+  const {
+    repoTree,
+    isLoadingTree,
+    repo: githubRepo,
+    branch: githubBranch,
+    isGitHubLoaded,
+  } = useGitHubTree();
+  const { status: gitStatus, refetch: refetchGitStatus } = useGitStatus(
+    activeRunId || undefined,
+    sessionId,
+  );
+  const { fetch: fetchDiff, diff } = useGitDiff(activeRunId || undefined, sessionId);
+  const changesCount = gitStatus?.files?.length ?? 0;
+  const { handleFileClick, handleGitHubFileSelect } = useFileLoader({
+    sandboxId: sessionId,
+    runId: activeRunId,
+    setIsLoadingContent,
+    setIsViewingContent,
+    setSelectedFile,
+  });
 
   const hasTask = task.trim().length > 0;
 
@@ -76,6 +158,93 @@ export function AgentSetup({
       textareaRef.current.style.height = newHeight + "px";
     }
   }, [task, hasTask]);
+
+  useEffect(() => {
+    if (!selectedProviderId || providerModels[selectedProviderId]) {
+      return;
+    }
+    void loadProviderModels(selectedProviderId, {
+      view: selectedModelView,
+      append: false,
+    });
+  }, [
+    loadProviderModels,
+    providerModels,
+    selectedModelView,
+    selectedProviderId,
+  ]);
+
+  useEffect(() => {
+    const owner = repo?.owner?.login?.trim();
+    const name = repo?.name?.trim();
+    const targetBranch = (branch || repo?.default_branch || "main").trim();
+    if (!runId || !sessionId || !owner || !name) {
+      return;
+    }
+
+    const bootstrapKey = `${sessionId}:${runId}:${owner}/${name}:${targetBranch}`;
+    if (
+      workspaceBootstrapKeyRef.current === bootstrapKey ||
+      workspaceBootstrapInFlightRef.current === bootstrapKey
+    ) {
+      return;
+    }
+    workspaceBootstrapInFlightRef.current = bootstrapKey;
+
+    const bootstrap = async (): Promise<void> => {
+      try {
+        const result = await bootstrapGitWorkspace({
+          runId,
+          sessionId,
+          repositoryOwner: owner,
+          repositoryName: name,
+          repositoryBranch: targetBranch,
+          repositoryBaseUrl: repo?.html_url,
+        });
+        if (result.status === "ready") {
+          workspaceBootstrapKeyRef.current = bootstrapKey;
+        }
+        if (result.status !== "ready" && result.message) {
+          console.warn(
+            `[agent-setup/git-bootstrap] ${result.status}: ${result.message}`,
+          );
+        }
+      } catch (error) {
+        console.warn("[agent-setup/git-bootstrap] failed", error);
+      } finally {
+        if (workspaceBootstrapInFlightRef.current === bootstrapKey) {
+          workspaceBootstrapInFlightRef.current = null;
+        }
+        await refetchGitStatus();
+      }
+    };
+
+    void bootstrap();
+  }, [
+    branch,
+    repo?.default_branch,
+    repo?.html_url,
+    repo?.name,
+    repo?.owner?.login,
+    refetchGitStatus,
+    runId,
+    sessionId,
+  ]);
+
+  useEffect(() => {
+    if (diff && activeTab === "changes") {
+      setSelectedDiff({ path: diff.newPath, content: diff });
+      setIsViewingContent(true);
+    }
+  }, [activeTab, diff, setIsViewingContent, setSelectedDiff]);
+
+  const handleViewChange = useCallback(
+    (path: string) => {
+      void handleFileClick(path);
+      void fetchDiff(path);
+    },
+    [fetchDiff, handleFileClick],
+  );
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -96,12 +265,13 @@ export function AgentSetup({
 
   return (
     <motion.div
-      className="flex-1 flex flex-col bg-black relative overflow-hidden"
+      className="flex-1 flex bg-black relative overflow-hidden"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       transition={{ duration: 0.3 }}
     >
+      <main className="flex-1 min-w-0 flex flex-col bg-black relative overflow-hidden">
       {/* Animated Background Glow */}
       <div className="absolute inset-0 pointer-events-none overflow-hidden">
         <motion.div
@@ -259,7 +429,7 @@ export function AgentSetup({
 
               {/* Toolbar */}
               <div className="flex items-center justify-between mt-2 pt-2">
-                {/* Left: Add button + Model selector + Settings */}
+                {/* Left: Add button + Model picker */}
                 <div className="flex items-center gap-1.5">
                   <motion.button
                     type="button"
@@ -272,35 +442,66 @@ export function AgentSetup({
 
                   <div className="h-3.5 w-px bg-zinc-800" />
 
-                  <motion.button
-                    type="button"
-                    onClick={() =>
-                      setShowProviderSettings(!showProviderSettings)
+                  <ModelPickerPopover
+                    catalog={catalog}
+                    providerModels={providerModels}
+                    visibleModelIds={visibleModelIds}
+                    selectedProviderId={selectedProviderId}
+                    selectedModelId={selectedModelId}
+                    selectedModelView={selectedModelView}
+                    selectedProviderMetadata={
+                      selectedProviderId
+                        ? providerModelsMetadata[selectedProviderId] ?? null
+                        : null
                     }
-                    whileHover={{ scale: 1.02 }}
-                    className="flex items-center gap-1 px-1.5 py-0.5 text-xs text-zinc-500 hover:text-zinc-300 transition-colors duration-150"
-                    title="Configure provider and model"
-                  >
-                    <span className="font-medium">
-                      {selectedModelId || preferences?.defaultModelId || "Select Model"}
-                    </span>
-                    <span className="text-zinc-700">
-                      {selectedProviderId || preferences?.defaultProviderId || "provider"}
-                    </span>
-                    <ChevronDown size={12} />
-                  </motion.button>
-
-                  <motion.button
-                    type="button"
-                    onClick={() =>
-                      setShowProviderSettings(!showProviderSettings)
+                    hasMoreSelectedProviderModels={
+                      selectedProviderId
+                        ? providerModelsPage[selectedProviderId]?.hasMore ?? false
+                        : false
                     }
-                    {...hoverScaleSmall}
-                    className="p-1 text-zinc-500 hover:text-zinc-300 transition-colors duration-150"
-                    title="Provider settings"
-                  >
-                    <Settings size={16} />
-                  </motion.button>
+                    isLoadingMoreSelectedProviderModels={
+                      selectedProviderId !== null &&
+                      loadingModelsForProviderId === selectedProviderId
+                    }
+                    isRefreshingSelectedProviderModels={
+                      selectedProviderId !== null &&
+                      refreshingModelsForProviderId === selectedProviderId
+                    }
+                    onSelectModel={async (providerId, modelId) => {
+                      const credential = findCredentialByProviderId(
+                        credentials,
+                        providerId
+                      );
+                      if (!credential) {
+                        setProviderDialogInitialTab("available");
+                        setProviderDialogInitialView("default");
+                        setProviderDialogVariant("connect-only");
+                        setShowProviderDialog(true);
+                        return;
+                      }
+                      await applySessionSelection({
+                        providerId,
+                        credentialId: credential.credentialId,
+                        modelId,
+                      });
+                    }}
+                    onSelectModelView={setModelView}
+                    onLoadMoreSelectedProviderModels={loadMoreProviderModels}
+                    onRefreshSelectedProviderModels={refreshProviderModels}
+                    onConnectProvider={() => {
+                      setProviderDialogInitialTab("available");
+                      setProviderDialogInitialView("default");
+                      setProviderDialogVariant("connect-only");
+                      setShowProviderDialog(true);
+                    }}
+                    onManageModels={() => {
+                      setProviderDialogInitialTab("connected");
+                      setProviderDialogInitialView("manage-models");
+                      setProviderDialogVariant("manage-models-only");
+                      setShowProviderDialog(true);
+                    }}
+                    isLoading={status === "loading"}
+                  />
                 </div>
 
                 {/* Right: Attachment, Mic, Send */}
@@ -348,11 +549,89 @@ export function AgentSetup({
           </div>
         </motion.div>
       </div>
+      </main>
+
+      <motion.aside
+        initial={false}
+        animate={{
+          width: isRightSidebarOpen ? sidebarWidth : 0,
+        }}
+        transition={
+          isResizing
+            ? { duration: 0 }
+            : { duration: 0.15, ease: [0.23, 1, 0.32, 1] }
+        }
+        className={`border-l border-zinc-800 bg-black flex flex-col overflow-hidden shrink-0 relative ${
+          !isRightSidebarOpen ? "border-transparent" : ""
+        }`}
+      >
+        {isRightSidebarOpen && (
+          <Resizer
+            side="right"
+            onResizeStart={() => setIsResizing(true)}
+            onResizeEnd={() => setIsResizing(false)}
+            onResize={(delta) =>
+              setSidebarWidth((prev) =>
+                Math.max(280, Math.min(600, prev + delta)),
+              )
+            }
+          />
+        )}
+
+        <div
+          className="flex-1 flex flex-col min-w-[280px]"
+          style={{ width: sidebarWidth }}
+        >
+          <SidebarHeader
+            isViewingContent={isViewingContent}
+            activeTab={activeTab}
+            changesCount={changesCount}
+            onBack={() => {
+              setIsViewingContent(false);
+              setSelectedFile(null);
+              setSelectedDiff(null);
+            }}
+            onTabChange={setActiveTab}
+          />
+
+          <SidebarContent
+            isViewingContent={isViewingContent}
+            activeTab={activeTab}
+            isLoadingContent={isLoadingContent}
+            selectedFile={selectedFile}
+            selectedDiff={selectedDiff}
+            onCloseContent={() => {
+              setIsViewingContent(false);
+              setSelectedFile(null);
+              setSelectedDiff(null);
+            }}
+            repo={githubRepo}
+            isGitHubLoaded={isGitHubLoaded}
+            repoTree={repoTree}
+            isLoadingTree={!!isLoadingTree}
+            branch={githubBranch || "main"}
+            handleGitHubFileSelect={handleGitHubFileSelect}
+            handleFileClick={handleFileClick}
+            handleViewChange={handleViewChange}
+            explorerRef={explorerRef}
+            sandboxId={sessionId}
+            runId={activeRunId}
+          />
+        </div>
+      </motion.aside>
 
       <ProviderDialog
-        isOpen={showProviderSettings}
-        onClose={() => setShowProviderSettings(false)}
-        mode="settings"
+        isOpen={showProviderDialog}
+        onClose={() => {
+          setShowProviderDialog(false);
+          setProviderDialogInitialTab(undefined);
+          setProviderDialogInitialView("default");
+          setProviderDialogVariant("full");
+        }}
+        mode="composer"
+        initialTab={providerDialogInitialTab}
+        initialView={providerDialogInitialView}
+        variant={providerDialogVariant}
       />
     </motion.div>
   );
