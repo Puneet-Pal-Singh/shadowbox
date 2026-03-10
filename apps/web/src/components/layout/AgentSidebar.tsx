@@ -18,7 +18,7 @@ interface AgentSidebarProps {
   onRemoveRepository?: (repo: string) => void;
   onRenameRepository?: (oldName: string, newName: string) => void;
   onClose?: () => void;
-  onAddRepository?: () => void;
+  onAddRepository: () => void;
   width?: number;
 }
 
@@ -27,13 +27,11 @@ type TaskStatusFilter =
   | "running"
   | "idle"
   | "completed"
-  | "failed"
-  | "needs_approval";
+  | "failed";
 
 const FILTER_OPTIONS: Array<{ value: TaskStatusFilter; label: string }> = [
   { value: "all", label: "All tasks" },
   { value: "running", label: "Running" },
-  { value: "needs_approval", label: "Needs approval" },
   { value: "failed", label: "Failed" },
   { value: "completed", label: "Completed" },
   { value: "idle", label: "Idle" },
@@ -159,14 +157,7 @@ export function AgentSidebar({
           <button
             type="button"
             aria-label="Add workspace"
-            onClick={() => {
-              if (onAddRepository) {
-                onAddRepository();
-                return;
-              }
-
-              onCreate();
-            }}
+            onClick={onAddRepository}
             className="rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-800/60 hover:text-zinc-200"
             title="Add workspace"
           >
@@ -206,7 +197,8 @@ export function AgentSidebar({
                       setIsFilterMenuOpen(false);
                     }}
                     className="flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-left text-sm text-zinc-200 transition-colors hover:bg-zinc-800"
-                    role="menuitem"
+                    role="menuitemradio"
+                    aria-checked={statusFilter === option.value}
                   >
                     <span>{option.label}</span>
                     {statusFilter === option.value ? (
@@ -225,14 +217,7 @@ export function AgentSidebar({
   const footer = (
     <button
       type="button"
-      onClick={() => {
-        if (onAddRepository) {
-          onAddRepository();
-          return;
-        }
-
-        onCreate();
-      }}
+      onClick={onAddRepository}
       className="inline-flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs font-medium text-zinc-400 transition-colors hover:bg-zinc-900 hover:text-zinc-200"
     >
       <FolderPlus size={13} className="text-zinc-500" />
