@@ -133,8 +133,13 @@ export function ChatInputBar({
           animate={{ opacity: 1, y: 0, scale: 1 }}
           transition={{ duration: 0.2 }}
           className="fixed left-1/2 top-4 z-[90] -translate-x-1/2 px-4"
+          aria-live="polite"
+          aria-atomic="true"
         >
-          <div className="flex items-center gap-3 rounded-2xl border border-zinc-700 bg-zinc-900/95 px-4 py-2 text-sm text-zinc-100 shadow-2xl backdrop-blur-sm">
+          <div
+            role="status"
+            className="flex items-center gap-3 rounded-2xl border border-zinc-700 bg-zinc-900/95 px-4 py-2 text-sm text-zinc-100 shadow-2xl backdrop-blur-sm"
+          >
             <span>{IDLE_SWITCH_WARNING}</span>
             <button
               type="button"
