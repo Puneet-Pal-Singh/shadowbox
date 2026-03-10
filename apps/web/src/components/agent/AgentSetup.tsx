@@ -10,7 +10,6 @@ import {
   Mic,
   ArrowUp,
   Paperclip,
-  Settings,
 } from "lucide-react";
 import {
   staggerContainer,
@@ -20,8 +19,9 @@ import {
 } from "../../lib/animations";
 import { useGitHub } from "../github/GitHubContextProvider";
 import { ChatBranchSelector } from "../chat/ChatBranchSelector";
-import { ProviderDialog } from "../provider/ProviderDialog";
+import { ProviderDialog, ModelPickerPopover } from "../provider";
 import { useProviderStore } from "../../hooks/useProviderStore.js";
+import { findCredentialByProviderId } from "../../lib/provider-helpers.js";
 
 interface AgentSetupProps {
   sessionId: string;
@@ -61,8 +61,35 @@ export function AgentSetup({
   const [task, setTask] = useState("");
   const [isInputFocused, setIsInputFocused] = useState(false);
   const [hoveredCard, setHoveredCard] = useState<number | null>(null);
-  const [showProviderSettings, setShowProviderSettings] = useState(false);
-  const { selectedModelId, selectedProviderId, preferences } = useProviderStore();
+  const [showProviderDialog, setShowProviderDialog] = useState(false);
+  const [providerDialogInitialTab, setProviderDialogInitialTab] = useState<
+    "connected" | "available" | "preferences" | "session" | undefined
+  >(undefined);
+  const [providerDialogInitialView, setProviderDialogInitialView] = useState<
+    "default" | "manage-models"
+  >("default");
+  const [providerDialogVariant, setProviderDialogVariant] = useState<
+    "full" | "connect-only" | "manage-models-only"
+  >("full");
+  const {
+    catalog,
+    credentials,
+    status,
+    selectedProviderId,
+    selectedModelId,
+    selectedModelView,
+    providerModels,
+    providerModelsMetadata,
+    providerModelsPage,
+    visibleModelIds,
+    loadingModelsForProviderId,
+    refreshingModelsForProviderId,
+    loadProviderModels,
+    loadMoreProviderModels,
+    refreshProviderModels,
+    setModelView,
+    applySessionSelection,
+  } = useProviderStore();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const hasTask = task.trim().length > 0;
@@ -76,6 +103,21 @@ export function AgentSetup({
       textareaRef.current.style.height = newHeight + "px";
     }
   }, [task, hasTask]);
+
+  useEffect(() => {
+    if (!selectedProviderId || providerModels[selectedProviderId]) {
+      return;
+    }
+    void loadProviderModels(selectedProviderId, {
+      view: selectedModelView,
+      append: false,
+    });
+  }, [
+    loadProviderModels,
+    providerModels,
+    selectedModelView,
+    selectedProviderId,
+  ]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -259,7 +301,7 @@ export function AgentSetup({
 
               {/* Toolbar */}
               <div className="flex items-center justify-between mt-2 pt-2">
-                {/* Left: Add button + Model selector + Settings */}
+                {/* Left: Add button + Model picker */}
                 <div className="flex items-center gap-1.5">
                   <motion.button
                     type="button"
@@ -272,35 +314,66 @@ export function AgentSetup({
 
                   <div className="h-3.5 w-px bg-zinc-800" />
 
-                  <motion.button
-                    type="button"
-                    onClick={() =>
-                      setShowProviderSettings(!showProviderSettings)
+                  <ModelPickerPopover
+                    catalog={catalog}
+                    providerModels={providerModels}
+                    visibleModelIds={visibleModelIds}
+                    selectedProviderId={selectedProviderId}
+                    selectedModelId={selectedModelId}
+                    selectedModelView={selectedModelView}
+                    selectedProviderMetadata={
+                      selectedProviderId
+                        ? providerModelsMetadata[selectedProviderId] ?? null
+                        : null
                     }
-                    whileHover={{ scale: 1.02 }}
-                    className="flex items-center gap-1 px-1.5 py-0.5 text-xs text-zinc-500 hover:text-zinc-300 transition-colors duration-150"
-                    title="Configure provider and model"
-                  >
-                    <span className="font-medium">
-                      {selectedModelId || preferences?.defaultModelId || "Select Model"}
-                    </span>
-                    <span className="text-zinc-700">
-                      {selectedProviderId || preferences?.defaultProviderId || "provider"}
-                    </span>
-                    <ChevronDown size={12} />
-                  </motion.button>
-
-                  <motion.button
-                    type="button"
-                    onClick={() =>
-                      setShowProviderSettings(!showProviderSettings)
+                    hasMoreSelectedProviderModels={
+                      selectedProviderId
+                        ? providerModelsPage[selectedProviderId]?.hasMore ?? false
+                        : false
                     }
-                    {...hoverScaleSmall}
-                    className="p-1 text-zinc-500 hover:text-zinc-300 transition-colors duration-150"
-                    title="Provider settings"
-                  >
-                    <Settings size={16} />
-                  </motion.button>
+                    isLoadingMoreSelectedProviderModels={
+                      selectedProviderId !== null &&
+                      loadingModelsForProviderId === selectedProviderId
+                    }
+                    isRefreshingSelectedProviderModels={
+                      selectedProviderId !== null &&
+                      refreshingModelsForProviderId === selectedProviderId
+                    }
+                    onSelectModel={async (providerId, modelId) => {
+                      const credential = findCredentialByProviderId(
+                        credentials,
+                        providerId
+                      );
+                      if (!credential) {
+                        setProviderDialogInitialTab("available");
+                        setProviderDialogInitialView("default");
+                        setProviderDialogVariant("connect-only");
+                        setShowProviderDialog(true);
+                        return;
+                      }
+                      await applySessionSelection({
+                        providerId,
+                        credentialId: credential.credentialId,
+                        modelId,
+                      });
+                    }}
+                    onSelectModelView={setModelView}
+                    onLoadMoreSelectedProviderModels={loadMoreProviderModels}
+                    onRefreshSelectedProviderModels={refreshProviderModels}
+                    onConnectProvider={() => {
+                      setProviderDialogInitialTab("available");
+                      setProviderDialogInitialView("default");
+                      setProviderDialogVariant("connect-only");
+                      setShowProviderDialog(true);
+                    }}
+                    onManageModels={() => {
+                      setProviderDialogInitialTab("connected");
+                      setProviderDialogInitialView("manage-models");
+                      setProviderDialogVariant("manage-models-only");
+                      setShowProviderDialog(true);
+                    }}
+                    isLoading={status === "loading"}
+                  />
                 </div>
 
                 {/* Right: Attachment, Mic, Send */}
@@ -350,9 +423,17 @@ export function AgentSetup({
       </div>
 
       <ProviderDialog
-        isOpen={showProviderSettings}
-        onClose={() => setShowProviderSettings(false)}
-        mode="settings"
+        isOpen={showProviderDialog}
+        onClose={() => {
+          setShowProviderDialog(false);
+          setProviderDialogInitialTab(undefined);
+          setProviderDialogInitialView("default");
+          setProviderDialogVariant("full");
+        }}
+        mode="composer"
+        initialTab={providerDialogInitialTab}
+        initialView={providerDialogInitialView}
+        variant={providerDialogVariant}
       />
     </motion.div>
   );

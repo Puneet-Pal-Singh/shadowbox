@@ -17,6 +17,7 @@ import { Resizer } from "./components/ui/Resizer";
 import { uiShellStore } from "./store/uiShellStore";
 import type { RunInboxItem } from "./components/run/RunInbox";
 import { SessionStateService } from "./services/SessionStateService";
+import { RunContextProvider } from "./hooks/useRunContext";
 
 /**
  * Main App Component
@@ -362,8 +363,8 @@ function AppContent() {
   );
 
   // Robust visibility flags
-  const showSetup = !!activeSessionId && !isSessionStarted;
-  const showWorkspace = !!activeSessionId && !!isSessionStarted;
+  const showSetup = !!activeSessionId && !!activeSession && !isSessionStarted;
+  const showWorkspace = !!activeSessionId && !!activeSession && !!isSessionStarted;
 
   return (
     <div className="h-screen w-screen bg-background text-zinc-400 flex overflow-hidden font-sans">
@@ -423,25 +424,30 @@ function AppContent() {
                 transition={{ duration: 0.2 }}
                 className="absolute inset-0 flex"
               >
-                <AgentSetup
-                  sessionId={activeSessionId}
-                  onRepoClick={() => setShowRepoPicker(true)}
-                  onStart={(config) => {
-                    const name =
-                      config.task.length > 20
-                        ? config.task.substring(0, 20) + "..."
-                        : config.task;
+                <RunContextProvider
+                  runId={activeSession.activeRunId}
+                  sessionId={activeSession.id}
+                >
+                  <AgentSetup
+                    sessionId={activeSessionId}
+                    onRepoClick={() => setShowRepoPicker(true)}
+                    onStart={(config) => {
+                      const name =
+                        config.task.length > 20
+                          ? config.task.substring(0, 20) + "..."
+                          : config.task;
 
-                    updateSession(activeSessionId, { name, status: "running" });
-                    // Store pending query in session-scoped storage
-                    SessionStateService.saveSessionPendingQuery(
-                      activeSessionId,
-                      config.task,
-                    );
-                    // State updates above (updateSession + saveSessionPendingQuery)
-                    // will naturally trigger re-renders; no manual trigger needed
-                  }}
-                />
+                      updateSession(activeSessionId, { name, status: "running" });
+                      // Store pending query in session-scoped storage
+                      SessionStateService.saveSessionPendingQuery(
+                        activeSessionId,
+                        config.task,
+                      );
+                      // State updates above (updateSession + saveSessionPendingQuery)
+                      // will naturally trigger re-renders; no manual trigger needed
+                    }}
+                  />
+                </RunContextProvider>
               </motion.div>
             ) : showWorkspace ? (
               <motion.div
