@@ -1,6 +1,6 @@
 import { useRef, useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { Plus, Mic, ArrowUp, Paperclip, Square } from "lucide-react";
+import { Plus, Mic, ArrowUp, Paperclip, Square, X } from "lucide-react";
 import type { ProviderId } from "@repo/shared-types";
 import { useProviderStore } from "../../hooks/useProviderStore.js";
 import { findCredentialByProviderId } from "../../lib/provider-helpers.js";
@@ -8,6 +8,7 @@ import { ProviderDialog, ModelPickerPopover } from "../provider/index.js";
 
 const IDLE_SWITCH_WARNING =
   "Changing models mid-conversation will degrade performance.";
+const WARNING_AUTO_DISMISS_MS = 4000;
 
 interface ChatInputBarProps {
   input: string;
@@ -34,6 +35,7 @@ export function ChatInputBar({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [isFocused, setIsFocused] = useState(false);
   const [idleSwitchWarning, setIdleSwitchWarning] = useState(false);
+  const [idleSwitchWarningTick, setIdleSwitchWarningTick] = useState(0);
   const [showProviderDialog, setShowProviderDialog] = useState(false);
   const [providerDialogInitialTab, setProviderDialogInitialTab] = useState<
     "connected" | "available" | "preferences" | "session" | undefined
@@ -109,8 +111,43 @@ export function ChatInputBar({
     selectedProviderId,
   ]);
 
+  useEffect(() => {
+    if (!idleSwitchWarning) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setIdleSwitchWarning(false);
+    }, WARNING_AUTO_DISMISS_MS);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [idleSwitchWarning, idleSwitchWarningTick]);
+
   return (
     <>
+      {idleSwitchWarning ? (
+        <motion.div
+          initial={{ opacity: 0, y: -12, scale: 0.98 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          transition={{ duration: 0.2 }}
+          className="fixed left-1/2 top-4 z-[90] -translate-x-1/2 px-4"
+        >
+          <div className="flex items-center gap-3 rounded-2xl border border-zinc-700 bg-zinc-900/95 px-4 py-2 text-sm text-zinc-100 shadow-2xl backdrop-blur-sm">
+            <span>{IDLE_SWITCH_WARNING}</span>
+            <button
+              type="button"
+              onClick={() => setIdleSwitchWarning(false)}
+              className="rounded p-0.5 text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
+              aria-label="Dismiss model switch warning"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        </motion.div>
+      ) : null}
+
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -198,6 +235,7 @@ export function ChatInputBar({
                   });
                   if (hasMessages && !isLoading) {
                     setIdleSwitchWarning(true);
+                    setIdleSwitchWarningTick((value) => value + 1);
                   }
                 }}
                 onSelectModelView={setModelView}
@@ -263,12 +301,6 @@ export function ChatInputBar({
             </div>
           </div>
         </div>
-
-        {idleSwitchWarning && (
-          <p className="mt-1.5 text-xs text-amber-400/80 px-1">
-            {IDLE_SWITCH_WARNING}
-          </p>
-        )}
       </form>
       <ProviderDialog
         isOpen={showProviderDialog}
