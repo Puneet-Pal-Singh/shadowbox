@@ -117,16 +117,18 @@ export function AgentSidebar({
             isActive: session.id === activeSessionId,
           }));
 
+        const statusFilteredTasks = filterTasks(allTasks, "", statusFilter);
         const filteredTasks = filterTasks(allTasks, normalizedQuery, statusFilter);
         const repoMatches = normalizedQuery
           ? matchesSearch(repository, normalizedQuery) ||
             matchesSearch(getRepositoryLabel(repository), normalizedQuery)
           : true;
+        const tasksToRender = repoMatches ? statusFilteredTasks : filteredTasks;
 
         return {
           repository,
           repositoryLabel: getRepositoryLabel(repository),
-          tasks: filteredTasks,
+          tasks: tasksToRender,
           shouldRender: repoMatches || filteredTasks.length > 0,
         };
       })
@@ -156,6 +158,7 @@ export function AgentSidebar({
         <div className="flex items-center gap-1">
           <button
             type="button"
+            aria-label="Add workspace"
             onClick={() => {
               if (onAddRepository) {
                 onAddRepository();
@@ -167,11 +170,12 @@ export function AgentSidebar({
             className="rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-800/60 hover:text-zinc-200"
             title="Add workspace"
           >
-            <FolderPlus size={14} />
+            <FolderPlus size={14} aria-hidden="true" />
           </button>
           <div className="relative" ref={filterMenuRef}>
             <button
               type="button"
+              aria-label="Filter tasks"
               onClick={() => setIsFilterMenuOpen((value) => !value)}
               className="rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-800/60 hover:text-zinc-200"
               title="Filter tasks"
@@ -180,6 +184,7 @@ export function AgentSidebar({
             >
               <ListFilter
                 size={14}
+                aria-hidden="true"
                 className={statusFilter !== "all" ? "text-emerald-300" : undefined}
               />
             </button>

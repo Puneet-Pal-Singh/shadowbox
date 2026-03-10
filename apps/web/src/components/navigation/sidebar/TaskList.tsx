@@ -37,7 +37,21 @@ export function TaskList({
   const rowRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
   const visibleTasks = useMemo(() => {
-    return isExpanded ? tasks : tasks.slice(0, maxRows);
+    if (isExpanded || tasks.length <= maxRows) {
+      return tasks;
+    }
+
+    const activeIndex = tasks.findIndex((task) => task.isActive);
+    if (activeIndex === -1 || activeIndex < maxRows) {
+      return tasks.slice(0, maxRows);
+    }
+
+    const activeTask = tasks[activeIndex];
+    if (!activeTask) {
+      return tasks.slice(0, maxRows);
+    }
+
+    return [...tasks.slice(0, maxRows - 1), activeTask];
   }, [isExpanded, maxRows, tasks]);
 
   const effectiveFocusedIndex = useMemo(() => {

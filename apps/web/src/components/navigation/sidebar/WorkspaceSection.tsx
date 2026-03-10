@@ -83,6 +83,7 @@ export function WorkspaceSection({
   const confirmRename = () => {
     const trimmedName = newName.trim();
     if (!trimmedName || trimmedName === workspaceName) {
+      setNewName(workspaceName);
       setIsRenaming(false);
       return;
     }
@@ -104,40 +105,43 @@ export function WorkspaceSection({
         >
           <ChevronDown
             size={14}
+            aria-hidden="true"
             className={cn(
               "text-zinc-500 transition-transform",
               !isExpanded && "-rotate-90",
             )}
           />
-          <Folder size={15} className="shrink-0 text-zinc-500" />
-          {isRenaming ? (
-            <input
-              autoFocus
-              value={newName}
-              onBlur={confirmRename}
-              onChange={(event) => setNewName(event.target.value)}
-              onClick={(event) => event.stopPropagation()}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") confirmRename();
-                if (event.key === "Escape") {
-                  event.preventDefault();
-                  setNewName(workspaceName);
-                  setIsRenaming(false);
-                }
-              }}
-              className="h-6 w-full rounded border border-zinc-700 bg-zinc-900 px-1.5 text-xs text-zinc-100 outline-none"
-            />
-          ) : (
+          <Folder size={15} aria-hidden="true" className="shrink-0 text-zinc-500" />
+          {!isRenaming ? (
             <span className="truncate text-sm font-semibold text-zinc-100">
               {workspaceName}
             </span>
-          )}
+          ) : null}
         </button>
+        {isRenaming ? (
+          <input
+            autoFocus
+            value={newName}
+            onBlur={confirmRename}
+            onChange={(event) => setNewName(event.target.value)}
+            onClick={(event) => event.stopPropagation()}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") confirmRename();
+              if (event.key === "Escape") {
+                event.preventDefault();
+                setNewName(workspaceName);
+                setIsRenaming(false);
+              }
+            }}
+            className="h-6 flex-1 rounded border border-zinc-700 bg-zinc-900 px-1.5 text-xs text-zinc-100 outline-none"
+          />
+        ) : null}
 
         <div className="relative" ref={menuRef}>
           {onAddTask ? (
             <button
               type="button"
+              aria-label={`New task in ${workspaceName}`}
               onClick={(event) => {
                 event.stopPropagation();
                 onAddTask();
@@ -145,12 +149,13 @@ export function WorkspaceSection({
               className="mr-1 rounded p-1 text-zinc-500 transition-colors hover:bg-zinc-800/50 hover:text-zinc-200"
               title={`New task in ${workspaceName}`}
             >
-              <Plus size={14} />
+              <Plus size={14} aria-hidden="true" />
             </button>
           ) : null}
 
           <button
             type="button"
+            aria-label={`Workspace actions for ${workspaceName}`}
             onClick={(event) => {
               event.stopPropagation();
               setShowMenu((value) => {
@@ -164,7 +169,7 @@ export function WorkspaceSection({
             className="rounded p-1 text-zinc-500 transition-colors hover:bg-zinc-800/50 hover:text-zinc-200"
             title={`Actions for ${workspaceName}`}
           >
-            <MoreHorizontal size={14} />
+            <MoreHorizontal size={14} aria-hidden="true" />
           </button>
 
           <AnimatePresence>

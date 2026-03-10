@@ -33,6 +33,7 @@ export function Workspace({
 }: WorkspaceProps) {
   const explorerRef = useRef<FileExplorerHandle>(null);
   const workspaceBootstrapKeyRef = useRef<string | null>(null);
+  const workspaceBootstrapInFlightRef = useRef<string | null>(null);
   const sandboxId = sessionId;
 
   // Custom Hooks
@@ -76,6 +77,17 @@ export function Workspace({
   );
   const { fetch: fetchDiff, diff } = useGitDiff(activeRunId, sessionId);
   const changesCount = status?.files?.length ?? 0;
+  const sessionGitHubContext = SessionStateService.loadSessionGitHubContext(sessionId);
+  const storedOwner = sessionGitHubContext?.repoOwner?.trim() ?? "";
+  const storedRepo = sessionGitHubContext?.repoName?.trim() ?? "";
+  const storedBranch = sessionGitHubContext?.branch?.trim() ?? "";
+  const storedBaseUrl = sessionGitHubContext?.fullName
+    ? `https://github.com/${sessionGitHubContext.fullName}`
+    : undefined;
+  const repositoryOwner = repo?.owner?.login?.trim() || storedOwner;
+  const repositoryName = repo?.name?.trim() || storedRepo;
+  const repositoryBranch = (branch || repo?.default_branch || storedBranch || "main").trim();
+  const repositoryBaseUrl = repo?.html_url || storedBaseUrl;
 
   const { handleFileClick, handleGitHubFileSelect } = useFileLoader({
     sandboxId,
@@ -101,29 +113,32 @@ export function Workspace({
       return;
     }
 
-    const bootstrapKey = `${sessionId}:${activeRunId}`;
-    if (workspaceBootstrapKeyRef.current === bootstrapKey) {
+    if (!repositoryOwner || !repositoryName) {
       return;
     }
 
-    const context = SessionStateService.loadSessionGitHubContext(sessionId);
-    if (!context?.repoOwner || !context?.repoName) {
+    const bootstrapKey = `${sessionId}:${activeRunId}:${repositoryOwner}/${repositoryName}:${repositoryBranch}`;
+    if (
+      workspaceBootstrapKeyRef.current === bootstrapKey ||
+      workspaceBootstrapInFlightRef.current === bootstrapKey
+    ) {
       return;
     }
 
-    workspaceBootstrapKeyRef.current = bootstrapKey;
+    workspaceBootstrapInFlightRef.current = bootstrapKey;
     const bootstrap = async (): Promise<void> => {
       try {
         const result = await bootstrapGitWorkspace({
           runId: activeRunId,
           sessionId,
-          repositoryOwner: context.repoOwner,
-          repositoryName: context.repoName,
-          repositoryBranch: context.branch,
-          repositoryBaseUrl: context.fullName
-            ? `https://github.com/${context.fullName}`
-            : undefined,
+          repositoryOwner,
+          repositoryName,
+          repositoryBranch,
+          repositoryBaseUrl,
         });
+        if (result.status === "ready") {
+          workspaceBootstrapKeyRef.current = bootstrapKey;
+        }
         if (result.status !== "ready" && result.message) {
           console.warn(
             `[workspace/git-bootstrap] ${result.status}: ${result.message}`,
@@ -132,12 +147,23 @@ export function Workspace({
       } catch (error) {
         console.warn("[workspace/git-bootstrap] failed", error);
       } finally {
+        if (workspaceBootstrapInFlightRef.current === bootstrapKey) {
+          workspaceBootstrapInFlightRef.current = null;
+        }
         await refetchGitStatus();
       }
     };
 
     void bootstrap();
-  }, [activeRunId, refetchGitStatus, sessionId]);
+  }, [
+    activeRunId,
+    refetchGitStatus,
+    repositoryBaseUrl,
+    repositoryBranch,
+    repositoryName,
+    repositoryOwner,
+    sessionId,
+  ]);
 
   // Sync diff from hook to local state when it loads
   useEffect(() => {

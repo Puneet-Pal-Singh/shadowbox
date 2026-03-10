@@ -108,6 +108,7 @@ export function AgentSetup({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const explorerRef = useRef<FileExplorerHandle>(null);
   const workspaceBootstrapKeyRef = useRef<string | null>(null);
+  const workspaceBootstrapInFlightRef = useRef<string | null>(null);
   const activeRunId = runId ?? "";
   const {
     activeTab,
@@ -132,7 +133,10 @@ export function AgentSetup({
     branch: githubBranch,
     isGitHubLoaded,
   } = useGitHubTree();
-  const { status: gitStatus } = useGitStatus(activeRunId || undefined, sessionId);
+  const { status: gitStatus, refetch: refetchGitStatus } = useGitStatus(
+    activeRunId || undefined,
+    sessionId,
+  );
   const { fetch: fetchDiff, diff } = useGitDiff(activeRunId || undefined, sessionId);
   const changesCount = gitStatus?.files?.length ?? 0;
   const { handleFileClick, handleGitHubFileSelect } = useFileLoader({
@@ -173,15 +177,19 @@ export function AgentSetup({
   useEffect(() => {
     const owner = repo?.owner?.login?.trim();
     const name = repo?.name?.trim();
+    const targetBranch = (branch || repo?.default_branch || "main").trim();
     if (!runId || !sessionId || !owner || !name) {
       return;
     }
 
-    const bootstrapKey = `${sessionId}:${runId}`;
-    if (workspaceBootstrapKeyRef.current === bootstrapKey) {
+    const bootstrapKey = `${sessionId}:${runId}:${owner}/${name}:${targetBranch}`;
+    if (
+      workspaceBootstrapKeyRef.current === bootstrapKey ||
+      workspaceBootstrapInFlightRef.current === bootstrapKey
+    ) {
       return;
     }
-    workspaceBootstrapKeyRef.current = bootstrapKey;
+    workspaceBootstrapInFlightRef.current = bootstrapKey;
 
     const bootstrap = async (): Promise<void> => {
       try {
@@ -190,9 +198,12 @@ export function AgentSetup({
           sessionId,
           repositoryOwner: owner,
           repositoryName: name,
-          repositoryBranch: branch || repo?.default_branch || "main",
+          repositoryBranch: targetBranch,
           repositoryBaseUrl: repo?.html_url,
         });
+        if (result.status === "ready") {
+          workspaceBootstrapKeyRef.current = bootstrapKey;
+        }
         if (result.status !== "ready" && result.message) {
           console.warn(
             `[agent-setup/git-bootstrap] ${result.status}: ${result.message}`,
@@ -200,16 +211,23 @@ export function AgentSetup({
         }
       } catch (error) {
         console.warn("[agent-setup/git-bootstrap] failed", error);
+      } finally {
+        if (workspaceBootstrapInFlightRef.current === bootstrapKey) {
+          workspaceBootstrapInFlightRef.current = null;
+        }
+        await refetchGitStatus();
       }
     };
 
     void bootstrap();
   }, [
     branch,
+    isRightSidebarOpen,
     repo?.default_branch,
     repo?.html_url,
     repo?.name,
     repo?.owner?.login,
+    refetchGitStatus,
     runId,
     sessionId,
   ]);

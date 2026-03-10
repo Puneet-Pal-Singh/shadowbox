@@ -29,12 +29,13 @@ export function SidebarShell({
           <motion.button
             type="button"
             onClick={onClose}
+            aria-label="Close sidebar"
             whileHover={{ scale: 1.04 }}
             whileTap={{ scale: 0.96 }}
             className="rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-800/60 hover:text-zinc-200"
             title="Close sidebar"
           >
-            <PanelLeftClose size={16} />
+            <PanelLeftClose size={16} aria-hidden="true" />
           </motion.button>
         ) : null}
       </div>
