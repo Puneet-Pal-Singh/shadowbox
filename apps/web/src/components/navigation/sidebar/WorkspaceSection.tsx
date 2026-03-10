@@ -1,0 +1,212 @@
+import { AnimatePresence, motion } from "framer-motion";
+import { ChevronDown, Edit2, Folder, MoreHorizontal, Plus, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { cn } from "../../../lib/utils";
+import { TaskList } from "./TaskList";
+import type { SidebarTaskItem, SidebarTaskStatus } from "./types";
+
+interface WorkspaceSectionProps {
+  workspaceName: string;
+  tasks: SidebarTaskItem[];
+  onSelectTask: (taskId: string) => void;
+  onAddTask?: () => void;
+  onRemoveTask?: (taskId: string) => void;
+  onRenameWorkspace?: (newName: string) => void;
+  onRemoveWorkspace?: () => void;
+  initiallyExpanded?: boolean;
+}
+
+const STATUS_PRIORITY: Record<SidebarTaskStatus, number> = {
+  running: 0,
+  needs_approval: 1,
+  idle: 2,
+  failed: 3,
+  completed: 4,
+};
+
+function byStatusAndRecency(a: SidebarTaskItem, b: SidebarTaskItem): number {
+  const byStatus = STATUS_PRIORITY[a.status] - STATUS_PRIORITY[b.status];
+  if (byStatus !== 0) return byStatus;
+
+  return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+}
+
+function sortTasks(tasks: SidebarTaskItem[]): SidebarTaskItem[] {
+  return [...tasks].sort(byStatusAndRecency);
+}
+
+export function WorkspaceSection({
+  workspaceName,
+  tasks,
+  onSelectTask,
+  onAddTask,
+  onRemoveTask,
+  onRenameWorkspace,
+  onRemoveWorkspace,
+  initiallyExpanded = true,
+}: WorkspaceSectionProps) {
+  const [isExpanded, setIsExpanded] = useState(initiallyExpanded);
+  const [showMenu, setShowMenu] = useState(false);
+  const [isRenaming, setIsRenaming] = useState(false);
+  const [newName, setNewName] = useState(workspaceName);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setNewName(workspaceName);
+  }, [workspaceName]);
+
+  useEffect(() => {
+    function handleOutsideClick(event: MouseEvent): void {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setShowMenu(false);
+      }
+    }
+
+    document.addEventListener("mousedown", handleOutsideClick);
+    return () => document.removeEventListener("mousedown", handleOutsideClick);
+  }, []);
+
+  const sortedTasks = useMemo(() => sortTasks(tasks), [tasks]);
+
+  const confirmRename = () => {
+    const trimmedName = newName.trim();
+    if (!trimmedName || trimmedName === workspaceName) {
+      setIsRenaming(false);
+      return;
+    }
+
+    onRenameWorkspace?.(trimmedName);
+    setIsRenaming(false);
+    setShowMenu(false);
+  };
+
+  return (
+    <section className="rounded-xl border border-zinc-900/80 bg-zinc-950/40 px-2 py-2">
+      <div className="flex items-center gap-1">
+        <button
+          type="button"
+          onClick={() => setIsExpanded((value) => !value)}
+          className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 py-1 text-left transition-colors hover:bg-zinc-900/70"
+          aria-expanded={isExpanded}
+          aria-label={`Toggle ${workspaceName}`}
+        >
+          <ChevronDown
+            size={14}
+            className={cn(
+              "text-zinc-500 transition-transform",
+              !isExpanded && "-rotate-90",
+            )}
+          />
+          <Folder size={14} className="shrink-0 text-zinc-500" />
+          {isRenaming ? (
+            <input
+              autoFocus
+              value={newName}
+              onBlur={confirmRename}
+              onChange={(event) => setNewName(event.target.value)}
+              onClick={(event) => event.stopPropagation()}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") confirmRename();
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  setNewName(workspaceName);
+                  setIsRenaming(false);
+                }
+              }}
+              className="h-6 w-full rounded border border-zinc-700 bg-zinc-900 px-1.5 text-xs text-zinc-100 outline-none"
+            />
+          ) : (
+            <span className="truncate text-sm font-semibold text-zinc-100">
+              {workspaceName}
+            </span>
+          )}
+        </button>
+
+        {onAddTask ? (
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onAddTask();
+            }}
+            className="rounded p-1 text-zinc-500 transition-colors hover:bg-zinc-900 hover:text-zinc-200"
+            title={`New task in ${workspaceName}`}
+          >
+            <Plus size={14} />
+          </button>
+        ) : null}
+
+        <div className="relative" ref={menuRef}>
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              setShowMenu((value) => !value);
+            }}
+            className="rounded p-1 text-zinc-500 transition-colors hover:bg-zinc-900 hover:text-zinc-200"
+            title={`Actions for ${workspaceName}`}
+          >
+            <MoreHorizontal size={14} />
+          </button>
+
+          <AnimatePresence>
+            {showMenu ? (
+              <motion.div
+                initial={{ opacity: 0, y: -6, scale: 0.98 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -6, scale: 0.98 }}
+                className="absolute right-0 top-7 z-20 w-36 rounded-lg border border-zinc-800 bg-zinc-950 py-1 shadow-xl"
+              >
+                {onRenameWorkspace ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsRenaming(true);
+                      setShowMenu(false);
+                    }}
+                    className="flex w-full items-center gap-2 px-2.5 py-1.5 text-xs text-zinc-200 transition-colors hover:bg-zinc-900"
+                  >
+                    <Edit2 size={12} className="text-zinc-500" />
+                    Rename
+                  </button>
+                ) : null}
+
+                {onRemoveWorkspace ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onRemoveWorkspace();
+                      setShowMenu(false);
+                    }}
+                    className="flex w-full items-center gap-2 px-2.5 py-1.5 text-xs text-red-300 transition-colors hover:bg-red-950/40"
+                  >
+                    <Trash2 size={12} className="text-red-300" />
+                    Remove
+                  </button>
+                ) : null}
+              </motion.div>
+            ) : null}
+          </AnimatePresence>
+        </div>
+      </div>
+
+      <AnimatePresence initial={false}>
+        {isExpanded ? (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.15 }}
+            className="mt-2 overflow-hidden pl-1"
+          >
+            <TaskList
+              tasks={sortedTasks}
+              onSelectTask={onSelectTask}
+              onRemoveTask={onRemoveTask}
+            />
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
+    </section>
+  );
+}
