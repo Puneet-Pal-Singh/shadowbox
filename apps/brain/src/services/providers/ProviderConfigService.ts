@@ -36,8 +36,13 @@ import { ProviderCredentialService } from "./ProviderCredentialService";
 import { ProviderCatalogService } from "./ProviderCatalogService";
 import { ProviderConnectionService } from "./ProviderConnectionService";
 import { ProviderAuditService } from "./ProviderAuditService";
+import { AxisQuotaService, type AxisQuotaStatus } from "./AxisQuotaService";
 import { ProviderModelDiscoveryService } from "./model-discovery";
 import { ProviderRegistryService } from "./ProviderRegistryService";
+import {
+  AXIS_PROVIDER_ID,
+  getAxisDiscoveredModels,
+} from "./axis";
 
 /**
  * ProviderConfigService - Facade delegating to focused services
@@ -50,6 +55,7 @@ export class ProviderConfigService {
   private modelDiscoveryService: ProviderModelDiscoveryService;
   private connectionService: ProviderConnectionService;
   private auditService: ProviderAuditService;
+  private axisQuotaService: AxisQuotaService;
 
   constructor(_env: Env, durableStore: DurableProviderStore) {
     this.durableStore = durableStore;
@@ -74,6 +80,7 @@ export class ProviderConfigService {
       this.registryService,
     );
     this.auditService = new ProviderAuditService(this.durableStore);
+    this.axisQuotaService = new AxisQuotaService(this.durableStore);
   }
 
   async getCatalog(): Promise<ProviderCatalogResponse> {
@@ -208,12 +215,24 @@ export class ProviderConfigService {
     providerId: ProviderId,
     query: BYOKDiscoveredProviderModelsQuery,
   ): Promise<BYOKDiscoveredProviderModelsResponse> {
+    if (providerId === AXIS_PROVIDER_ID) {
+      return this.catalogService.getStaticDiscoveredModelsForAxis(query);
+    }
     return this.modelDiscoveryService.getDiscoveredModels(providerId, query);
   }
 
   async refreshDiscoveredModels(
     providerId: ProviderId,
   ): Promise<BYOKDiscoveredProviderModelsRefreshResponse> {
+    if (providerId === AXIS_PROVIDER_ID) {
+      return {
+        providerId: AXIS_PROVIDER_ID,
+        refreshedAt: new Date().toISOString(),
+        source: "provider_api",
+        cacheInvalidated: false,
+        modelsCount: getAxisDiscoveredModels().length,
+      };
+    }
     return this.modelDiscoveryService.refreshDiscoveredModels(providerId);
   }
 
@@ -241,6 +260,14 @@ export class ProviderConfigService {
    */
   async isConnected(providerId: ProviderId): Promise<boolean> {
     return this.credentialService.isConnected(providerId);
+  }
+
+  async getAxisQuotaStatus(): Promise<AxisQuotaStatus> {
+    return this.axisQuotaService.getStatus();
+  }
+
+  async consumeAxisQuota(correlationId?: string): Promise<AxisQuotaStatus> {
+    return this.axisQuotaService.consume(correlationId);
   }
 
   /**

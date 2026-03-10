@@ -16,6 +16,7 @@ export interface Env {
   ANTHROPIC_API_KEY?: string;
   GROQ_API_KEY?: string;
   OPENROUTER_API_KEY?: string;
+  AXIS_OPENROUTER_API_KEY?: string;
   OPENAI_API_KEY?: string;
   SYSTEM_PROMPT?: string;
 

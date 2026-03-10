@@ -53,9 +53,12 @@ export function errorResponse(
   message: string,
   status: number = 500,
   code?: string,
+  metadata?: Record<string, unknown>,
 ): Response {
   const errorBody = code
-    ? { error: message, code }
+    ? metadata
+      ? { error: message, code, metadata }
+      : { error: message, code }
     : { error: message };
 
   return new Response(JSON.stringify(errorBody), {

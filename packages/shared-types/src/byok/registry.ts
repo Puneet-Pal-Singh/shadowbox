@@ -4,7 +4,7 @@
  * Defines the provider registry contract and base provider metadata.
  * The registry is extensible and NOT tied to a fixed enum.
  *
- * Phase 1: Include openai, groq, openrouter
+ * Phase 1: Include axis, openai, groq, openrouter
  * Phase 2+: Add 10+ more providers without schema changes
  */
 
@@ -27,6 +27,13 @@ export type ProviderValidationAuthMode = z.infer<
   typeof ProviderValidationAuthModeSchema
 >;
 
+export const ProviderAuthModeSchema = z.enum([
+  "api_key",
+  "oauth",
+  "platform_managed",
+]);
+export type ProviderAuthMode = z.infer<typeof ProviderAuthModeSchema>;
+
 /**
  * ProviderRegistryEntry - Metadata for a provider (static catalog)
  *
@@ -41,7 +48,7 @@ export const ProviderRegistryEntrySchema = z.object({
   displayName: z.string().min(1).max(256),
 
   /** Auth modes supported by this provider */
-  authModes: z.array(z.enum(["api_key", "oauth"])).min(1),
+  authModes: z.array(ProviderAuthModeSchema).min(1),
 
   /** Optional base URL for custom endpoints */
   baseUrl: z.string().url().optional(),
@@ -109,6 +116,22 @@ export type ProviderRegistry = z.infer<typeof ProviderRegistrySchema>;
  * ProviderRegistry without code changes.
  */
 export const BUILTIN_PROVIDERS: Record<string, ProviderRegistryEntry> = {
+  axis: {
+    providerId: "axis",
+    displayName: "Axis",
+    authModes: ["platform_managed"],
+    baseUrl: "https://openrouter.ai/api/v1",
+    capabilities: {
+      streaming: true,
+      tools: true,
+      jsonMode: true,
+      structuredOutputs: true,
+    },
+    adapterFamily: "openai-compatible",
+    modelSource: "static",
+    defaultModelId: "openai/gpt-oss-120b:free",
+  },
+
   openai: {
     providerId: "openai",
     displayName: "OpenAI",

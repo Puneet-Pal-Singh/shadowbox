@@ -75,6 +75,7 @@ const PROVIDER_STORE_V2_PREFIX = "provider:v2:";
 const PROVIDER_MODEL_CACHE_PREFIX = "provider:model-cache:v1:";
 const PROVIDER_PREFERENCES_SUFFIX = "_preferences";
 const PROVIDER_AUDIT_PREFIX = "provider:audit:v1:";
+const AXIS_QUOTA_PREFIX = "provider:axis-quota:v1:";
 
 const ProviderModelCacheRecordV1Schema = z
   .object({
@@ -273,6 +274,27 @@ export class DurableProviderStore {
     };
   }
 
+  async getAxisQuotaUsage(dayKey: string): Promise<number> {
+    const raw = await this.state.storage?.get(this.getAxisQuotaKey(dayKey));
+    if (typeof raw === "number" && Number.isFinite(raw)) {
+      return Math.max(0, Math.floor(raw));
+    }
+    if (typeof raw === "string") {
+      const parsed = Number(raw);
+      if (Number.isFinite(parsed)) {
+        return Math.max(0, Math.floor(parsed));
+      }
+    }
+    return 0;
+  }
+
+  async setAxisQuotaUsage(dayKey: string, usage: number): Promise<void> {
+    await this.state.storage?.put(
+      this.getAxisQuotaKey(dayKey),
+      Math.max(0, Math.floor(usage)),
+    );
+  }
+
   async getModelCache(providerId: string): Promise<ProviderModelCacheRecord | null> {
     const raw = await this.state.storage?.get(this.getModelCacheKey(providerId));
     if (typeof raw !== "string") {
@@ -335,6 +357,7 @@ export class DurableProviderStore {
     await this.deleteEntriesByPrefix(this.getScopedPrefix());
     await this.deleteEntriesByPrefix(this.getAuditPrefix());
     await this.deleteEntriesByPrefix(this.getModelCachePrefix());
+    await this.deleteEntriesByPrefix(this.getAxisQuotaPrefix());
 
     console.log("[provider/durable] Cleared all credentials (test only)");
   }
@@ -477,6 +500,14 @@ export class DurableProviderStore {
     const user = sanitizeScopeSegment(this.scope.userId);
     const workspace = sanitizeScopeSegment(this.scope.workspaceId);
     return `${PROVIDER_MODEL_CACHE_PREFIX}${user}:${workspace}:`;
+  }
+
+  private getAxisQuotaKey(dayKey: string): string {
+    return `${AXIS_QUOTA_PREFIX}${sanitizeScopeSegment(this.scope.userId)}:${sanitizeScopeSegment(this.scope.workspaceId)}:${dayKey}`;
+  }
+
+  private getAxisQuotaPrefix(): string {
+    return `${AXIS_QUOTA_PREFIX}${sanitizeScopeSegment(this.scope.userId)}:${sanitizeScopeSegment(this.scope.workspaceId)}:`;
   }
 
   private getAuditEventKey(): string {

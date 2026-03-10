@@ -5,7 +5,9 @@
  */
 
 import type {
+  BYOKDiscoveredProviderModelsResponse,
   BYOKDiscoveredProviderModelsQuery,
+  BYOKModelDiscoveryView,
   ModelDescriptor,
   ProviderCatalogEntry,
   ProviderCatalogResponse,
@@ -13,6 +15,11 @@ import type {
 import type { ModelsListResponse } from "../../schemas/provider";
 import { ProviderRegistryService } from "./ProviderRegistryService";
 import { ProviderModelDiscoveryService } from "./model-discovery";
+import {
+  AXIS_PROVIDER_ID,
+  getAxisCatalogModels,
+  getAxisDiscoveredModels,
+} from "./axis";
 
 const CATALOG_DISCOVERY_QUERY: BYOKDiscoveredProviderModelsQuery = {
   view: "all",
@@ -60,6 +67,10 @@ export class ProviderCatalogService {
   }
 
   private async loadProviderModels(providerId: string): Promise<ModelDescriptor[]> {
+    if (providerId === AXIS_PROVIDER_ID) {
+      return getAxisCatalogModels();
+    }
+
     try {
       const discovered = await this.modelDiscoveryService.getDiscoveredModels(
         providerId,
@@ -88,6 +99,14 @@ export class ProviderCatalogService {
   }
 
   async getDiscoveredModels(providerId: string): Promise<ModelsListResponse> {
+    if (providerId === AXIS_PROVIDER_ID) {
+      return {
+        providerId,
+        models: getAxisCatalogModels(),
+        lastFetchedAt: new Date().toISOString(),
+      };
+    }
+
     const discovered = await this.modelDiscoveryService.getDiscoveredModels(
       providerId,
       MODELS_DISCOVERY_QUERY,
@@ -100,6 +119,30 @@ export class ProviderCatalogService {
         provider: providerId,
       })),
       lastFetchedAt: discovered.metadata.fetchedAt,
+    };
+  }
+
+  async getStaticDiscoveredModelsForAxis(query: {
+    view: BYOKModelDiscoveryView;
+    limit: number;
+    cursor?: string;
+  }): Promise<BYOKDiscoveredProviderModelsResponse> {
+    const models = getAxisDiscoveredModels();
+    const limited = models.slice(0, query.limit);
+    return {
+      providerId: AXIS_PROVIDER_ID,
+      view: query.view,
+      models: limited,
+      page: {
+        limit: query.limit,
+        cursor: query.cursor,
+        hasMore: false,
+      },
+      metadata: {
+        fetchedAt: new Date().toISOString(),
+        stale: false,
+        source: "provider_api",
+      },
     };
   }
 }

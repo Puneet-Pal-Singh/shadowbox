@@ -21,6 +21,7 @@ export class DomainError extends Error {
   public readonly status: number;
   public readonly retryable: boolean;
   public readonly correlationId?: string;
+  public readonly metadata?: Record<string, unknown>;
 
   constructor(
     code: string,
@@ -28,12 +29,14 @@ export class DomainError extends Error {
     status: number = 500,
     retryable: boolean = false,
     correlationId?: string,
+    metadata?: Record<string, unknown>,
   ) {
     super(message);
     this.code = code;
     this.status = status;
     this.retryable = retryable;
     this.correlationId = correlationId;
+    this.metadata = metadata;
     this.name = this.constructor.name;
   }
 }
@@ -178,6 +181,28 @@ export class ParseError extends DomainError {
   }
 }
 
+export interface AxisQuotaErrorMetadata {
+  used: number;
+  limit: number;
+  resetsAt: string;
+}
+
+export class AxisDailyLimitExceededError extends DomainError {
+  constructor(
+    details: AxisQuotaErrorMetadata,
+    correlationId?: string,
+  ) {
+    super(
+      "AXIS_DAILY_LIMIT_EXCEEDED",
+      `Axis free-tier daily limit exceeded (${details.used}/${details.limit}). Retry after ${details.resetsAt}.`,
+      429,
+      false,
+      correlationId,
+      details as Record<string, unknown>,
+    );
+  }
+}
+
 /**
  * Type guard: check if an error is a domain error with typed properties.
  */
@@ -196,11 +221,13 @@ export function mapDomainErrorToHttp(error: DomainError): {
   status: number;
   code: string;
   message: string;
+  metadata?: Record<string, unknown>;
 } {
   return {
     status: error.status,
     code: error.code,
     message: error.message,
+    metadata: error.metadata,
   };
 }
 
@@ -219,6 +246,7 @@ export function normalizeProviderErrorCode(
     code === "AUTH_FAILED" ||
     code === "MODEL_NOT_ALLOWED" ||
     code === "RATE_LIMITED" ||
+    code === "AXIS_DAILY_LIMIT_EXCEEDED" ||
     code === "PROVIDER_NOT_CONNECTED" ||
     code === "INVALID_PROVIDER_SELECTION" ||
     code === "PROVIDER_UNAVAILABLE" ||

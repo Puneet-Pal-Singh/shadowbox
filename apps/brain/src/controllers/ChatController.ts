@@ -128,8 +128,8 @@ export class ChatController {
         console.warn(
           `[chat/validation] ${errorCorrelationId}: ${error.code} - ${error.message}`,
         );
-        const { status, code, message } = mapDomainErrorToHttp(error);
-        return errorResponse(req, env, message, status, code);
+        const { status, code, message, metadata } = mapDomainErrorToHttp(error);
+        return errorResponse(req, env, message, status, code, metadata);
       }
       console.error(`[chat/error] ${correlationId}:`, error);
       const errorMessage =

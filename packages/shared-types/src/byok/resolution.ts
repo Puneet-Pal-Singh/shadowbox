@@ -38,6 +38,15 @@ export const BYOKResolutionSchema = z.object({
 
   /** Timestamp of resolution */
   resolvedAtTime: z.string().datetime(),
+
+  /** Optional provider quota metadata for UI surfaces */
+  quota: z
+    .object({
+      used: z.number().int().nonnegative(),
+      limit: z.number().int().positive(),
+      resetsAt: z.string().datetime(),
+    })
+    .optional(),
 });
 
 export type BYOKResolution = z.infer<typeof BYOKResolutionSchema>;

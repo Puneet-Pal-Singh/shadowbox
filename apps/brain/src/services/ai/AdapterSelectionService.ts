@@ -25,6 +25,7 @@ import {
   createAnthropicAdapter,
   createLiteLLMAdapter,
 } from "./ProviderAdapterFactory";
+import { resolveAxisOpenRouterKey } from "./ProviderKeyValidator";
 import type { Env } from "../../types/ai";
 import {
   ProviderNotConnectedError,
@@ -72,10 +73,14 @@ export async function selectAdapter(
   }
 
   // Try to get override API key if provider was specified
-  const overrideApiKey = selection.providerId
+  let overrideApiKey = selection.providerId
     ? ((await providerConfigService?.getApiKey(selection.providerId)) ??
       undefined)
     : undefined;
+
+  if (!overrideApiKey && selection.providerId === "axis") {
+    overrideApiKey = resolveAxisOpenRouterKey(env).apiKey;
+  }
 
   // Provider was selected but not connected
   if (!overrideApiKey) {

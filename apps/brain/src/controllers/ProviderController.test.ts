@@ -25,6 +25,15 @@ function createMockEnv(): Env {
   );
 
   const catalog: Record<ProviderId, Array<{ id: string; name: string }>> = {
+    axis: [
+      { id: "openai/gpt-oss-120b:free", name: "openai/gpt-oss-120b:free" },
+      { id: "z-ai/glm-4.5-air:free", name: "z-ai/glm-4.5-air:free" },
+      {
+        id: "arcee-ai/trinity-large-preview:free",
+        name: "arcee-ai/trinity-large-preview:free",
+      },
+      { id: "stepfun/step-3.5-flash:free", name: "stepfun/step-3.5-flash:free" },
+    ],
     openai: [{ id: "gpt-4o", name: "GPT-4o" }],
     openrouter: [{ id: "openrouter/auto", name: "Auto" }],
     groq: [{ id: "llama-3.3-70b-versatile", name: "Llama 3.3 70B" }],
@@ -57,6 +66,13 @@ function createMockEnv(): Env {
 
         if (url.pathname === "/providers/connect" && request.method === "POST") {
           const body = (await request.json()) as { providerId: ProviderId };
+          if (body.providerId === "axis") {
+            return jsonError(
+              'Provider "axis" is platform-managed and cannot be manually connected or disconnected.',
+              400,
+              "INVALID_PROVIDER_SELECTION",
+            );
+          }
           connectedProviders.add(body.providerId);
           return jsonOk({
             status: "connected",
@@ -70,6 +86,13 @@ function createMockEnv(): Env {
           request.method === "POST"
         ) {
           const body = (await request.json()) as { providerId: ProviderId };
+          if (body.providerId === "axis") {
+            return jsonError(
+              'Provider "axis" is platform-managed and cannot be manually connected or disconnected.',
+              400,
+              "INVALID_PROVIDER_SELECTION",
+            );
+          }
           connectedProviders.delete(body.providerId);
           return jsonOk({
             status: "disconnected",
@@ -79,7 +102,7 @@ function createMockEnv(): Env {
 
         if (url.pathname === "/providers/catalog" && request.method === "GET") {
           return jsonOk({
-            providers: (["openrouter", "openai", "groq"] as ProviderId[]).map(
+            providers: (["axis", "openrouter", "openai", "groq"] as ProviderId[]).map(
               (providerId) => ({
                 providerId,
                 displayName: providerId.toUpperCase(),
@@ -156,10 +179,11 @@ function createMockEnv(): Env {
           request.method === "GET"
         ) {
           return jsonOk({
-            connections: (["openrouter", "openai", "groq"] as ProviderId[]).map(
+            connections: (["axis", "openrouter", "openai", "groq"] as ProviderId[]).map(
               (providerId) => ({
                 providerId,
-                status: connectedProviders.has(providerId)
+                status:
+                  providerId === "axis" || connectedProviders.has(providerId)
                   ? "connected"
                   : "disconnected",
                 capabilities: {
@@ -170,6 +194,14 @@ function createMockEnv(): Env {
                 },
               }),
             ),
+          });
+        }
+
+        if (url.pathname === "/providers/axis/quota" && request.method === "GET") {
+          return jsonOk({
+            used: 0,
+            limit: 5,
+            resetsAt: "2026-03-12T00:00:00.000Z",
           });
         }
 
@@ -640,7 +672,11 @@ describe("ProviderController", () => {
       expect(response.status).toBe(200);
       expect(Array.isArray(data)).toBe(true);
       expect(data[0].providerId).toBeDefined();
-      expect(data[0].authModes).toContain("api_key");
+      const axisEntry = data.find(
+        (entry: { providerId: string }) => entry.providerId === "axis",
+      );
+      expect(axisEntry).toBeDefined();
+      expect(axisEntry.authModes).toContain("platform_managed");
     });
 
     it("refreshes models for a provider", async () => {
@@ -697,6 +733,29 @@ describe("ProviderController", () => {
       expect(resolveData.providerId).toBe("openai");
       expect(resolveData.credentialId).toBe(connectData.credentialId);
       expect(resolveData.modelId).toBe("gpt-4o");
+    });
+
+    it("resolves axis platform defaults when no BYOK credential is selected", async () => {
+      const env = createMockEnv();
+
+      const resolveResponse = await ProviderController.byokResolve(
+        new Request("http://localhost/api/byok/resolve", {
+          method: "POST",
+          headers: await withByokHeaders(env),
+          body: JSON.stringify({}),
+        }),
+        env,
+      );
+      const resolveData = await resolveResponse.json();
+
+      expect(resolveResponse.status).toBe(200);
+      expect(resolveData.providerId).toBe("axis");
+      expect(resolveData.resolvedAt).toBe("platform_defaults");
+      expect(resolveData.quota).toEqual({
+        used: 0,
+        limit: 5,
+        resetsAt: "2026-03-12T00:00:00.000Z",
+      });
     });
 
     it("fails fast when session-selected provider is not connected", async () => {
