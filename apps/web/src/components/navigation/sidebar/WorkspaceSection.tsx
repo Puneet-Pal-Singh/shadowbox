@@ -48,6 +48,7 @@ export function WorkspaceSection({
   const [isExpanded, setIsExpanded] = useState(initiallyExpanded);
   const [showMenu, setShowMenu] = useState(false);
   const [isRenaming, setIsRenaming] = useState(false);
+  const [isConfirmingWorkspaceRemove, setIsConfirmingWorkspaceRemove] = useState(false);
   const [newName, setNewName] = useState(workspaceName);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -59,12 +60,23 @@ export function WorkspaceSection({
     function handleOutsideClick(event: MouseEvent): void {
       if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
         setShowMenu(false);
+        setIsConfirmingWorkspaceRemove(false);
       }
     }
 
     document.addEventListener("mousedown", handleOutsideClick);
     return () => document.removeEventListener("mousedown", handleOutsideClick);
   }, []);
+
+  useEffect(() => {
+    if (!isConfirmingWorkspaceRemove) return;
+
+    const timer = window.setTimeout(() => {
+      setIsConfirmingWorkspaceRemove(false);
+    }, 4000);
+
+    return () => window.clearTimeout(timer);
+  }, [isConfirmingWorkspaceRemove]);
 
   const sortedTasks = useMemo(() => sortTasks(tasks), [tasks]);
 
@@ -141,7 +153,13 @@ export function WorkspaceSection({
             type="button"
             onClick={(event) => {
               event.stopPropagation();
-              setShowMenu((value) => !value);
+              setShowMenu((value) => {
+                const next = !value;
+                if (!next) {
+                  setIsConfirmingWorkspaceRemove(false);
+                }
+                return next;
+              });
             }}
             className="rounded p-1 text-zinc-500 transition-colors hover:bg-zinc-900 hover:text-zinc-200"
             title={`Actions for ${workspaceName}`}
@@ -162,6 +180,7 @@ export function WorkspaceSection({
                     type="button"
                     onClick={() => {
                       setIsRenaming(true);
+                      setIsConfirmingWorkspaceRemove(false);
                       setShowMenu(false);
                     }}
                     className="flex w-full items-center gap-2 px-2.5 py-1.5 text-xs text-zinc-200 transition-colors hover:bg-zinc-900"
@@ -172,17 +191,44 @@ export function WorkspaceSection({
                 ) : null}
 
                 {onRemoveWorkspace ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onRemoveWorkspace();
-                      setShowMenu(false);
-                    }}
-                    className="flex w-full items-center gap-2 px-2.5 py-1.5 text-xs text-red-300 transition-colors hover:bg-red-950/40"
-                  >
-                    <Trash2 size={12} className="text-red-300" />
-                    Remove
-                  </button>
+                  isConfirmingWorkspaceRemove ? (
+                    <div className="px-2.5 py-1.5">
+                      <div className="mb-1.5 text-[10px] font-medium text-zinc-500">
+                        Confirm remove?
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => setIsConfirmingWorkspaceRemove(false)}
+                          className="flex-1 rounded border border-zinc-700 px-1.5 py-1 text-[10px] font-medium text-zinc-300 transition-colors hover:bg-zinc-800"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onRemoveWorkspace();
+                            setIsConfirmingWorkspaceRemove(false);
+                            setShowMenu(false);
+                          }}
+                          className="flex-1 rounded border border-red-700/70 bg-red-950/40 px-1.5 py-1 text-[10px] font-semibold text-red-300 transition-colors hover:bg-red-900/40"
+                        >
+                          Confirm
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsConfirmingWorkspaceRemove(true);
+                      }}
+                      className="flex w-full items-center gap-2 px-2.5 py-1.5 text-xs text-red-300 transition-colors hover:bg-red-950/40"
+                    >
+                      <Trash2 size={12} className="text-red-300" />
+                      Remove
+                    </button>
+                  )
                 ) : null}
               </motion.div>
             ) : null}
