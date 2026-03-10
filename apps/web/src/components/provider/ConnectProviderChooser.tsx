@@ -52,10 +52,12 @@ export function ConnectProviderChooser({
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   const providerOptions = useMemo((): ProviderOption[] => {
-    return catalog.map((entry) => ({
-      entry,
-      displayName: entry.displayName,
-    }));
+    return catalog
+      .filter((entry) => entry.authModes.includes("api_key"))
+      .map((entry) => ({
+        entry,
+        displayName: entry.providerId === "axis" ? "Axis (Free)" : entry.displayName,
+      }));
   }, [catalog]);
 
   const filteredProviders = useMemo((): ProviderOption[] => {

@@ -43,6 +43,12 @@ export interface ProviderModelsPageState {
   hasMore: boolean;
 }
 
+export interface ProviderAxisQuotaState {
+  used: number;
+  limit: number;
+  resetsAt: string;
+}
+
 /**
  * Store state shape
  */
@@ -63,6 +69,7 @@ export interface ProviderStoreState {
 
   // Computed
   lastResolvedConfig: ProviderResolution | null;
+  axisQuota?: ProviderAxisQuotaState | null;
 
   // Status tracking
   status: "idle" | "loading" | "ready" | "error";
@@ -166,6 +173,7 @@ export class ProviderStore {
       selectedCredentialId: null,
       selectedModelId: null,
       lastResolvedConfig: null,
+      axisQuota: null,
       status: "idle",
       error: null,
       isValidating: false,
@@ -859,6 +867,10 @@ export class ProviderStore {
       request.credentialId,
       request.modelId
     );
+    await this.updatePreferences({
+      defaultProviderId: request.providerId,
+      ...(request.modelId ? { defaultModelId: request.modelId } : {}),
+    });
     return this.resolveForChat();
   }
 
@@ -950,6 +962,14 @@ export class ProviderStore {
         selectedProviderId: config.providerId,
         selectedCredentialId: normalizedCredentialId,
         selectedModelId: config.modelId,
+        axisQuota:
+          config.providerId === "axis" && config.quota
+            ? {
+                used: config.quota.used,
+                limit: config.quota.limit,
+                resetsAt: config.quota.resetsAt,
+              }
+            : null,
       });
       this.lastResolveSelectionKey = selectionKey;
       this.lastResolveError = null;
@@ -1065,6 +1085,7 @@ export class ProviderStore {
       selectedCredentialId: null,
       selectedModelId: null,
       lastResolvedConfig: null,
+      axisQuota: null,
       status: "idle",
       error: null,
       isValidating: false,
@@ -1082,7 +1103,7 @@ export class ProviderStore {
     const shouldInvalidateResolution = this.shouldInvalidateResolution(partial);
     const nextPartial =
       shouldInvalidateResolution && partial.lastResolvedConfig === undefined
-        ? { ...partial, lastResolvedConfig: null }
+        ? { ...partial, lastResolvedConfig: null, axisQuota: null }
         : partial;
     if (shouldInvalidateResolution) {
       this.lastResolveSelectionKey = null;

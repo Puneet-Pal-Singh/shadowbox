@@ -316,17 +316,30 @@ function pickDebugHeaders(headers: Headers): Record<string, string> {
 
 function normalizeChatErrorMessage(error: Error): string {
   const rawMessage = error.message || "Unknown chat error";
-  const parsedMessage = parseJsonErrorMessage(rawMessage);
-  const message = parsedMessage ?? rawMessage;
-  const normalized = mapKnownChatErrorMessage(message);
+  const parsedPayload = parseJsonErrorPayload(rawMessage);
+  const message = parsedPayload?.error?.trim() || rawMessage;
+  const normalized = mapKnownChatErrorMessage(message, parsedPayload);
   return normalized ?? message;
 }
 
-function parseJsonErrorMessage(rawMessage: string): string | null {
+interface ParsedChatErrorPayload {
+  error?: string;
+  code?: string;
+  metadata?: {
+    used?: number;
+    limit?: number;
+    resetsAt?: string;
+  };
+}
+
+function parseJsonErrorPayload(rawMessage: string): ParsedChatErrorPayload | null {
   try {
-    const parsed = JSON.parse(rawMessage) as { error?: string };
-    if (typeof parsed?.error === "string" && parsed.error.trim().length > 0) {
-      return parsed.error.trim();
+    const parsed = JSON.parse(rawMessage) as ParsedChatErrorPayload;
+    if (
+      (typeof parsed?.error === "string" && parsed.error.trim().length > 0) ||
+      typeof parsed?.code === "string"
+    ) {
+      return parsed;
     }
   } catch {
     // Not a JSON payload
@@ -334,9 +347,25 @@ function parseJsonErrorMessage(rawMessage: string): string | null {
   return null;
 }
 
-function mapKnownChatErrorMessage(message: string): string | null {
+function mapKnownChatErrorMessage(
+  message: string,
+  payload?: ParsedChatErrorPayload | null,
+): string | null {
+  if (payload?.code === "AXIS_DAILY_LIMIT_EXCEEDED") {
+    const used = payload.metadata?.used;
+    const limit = payload.metadata?.limit;
+    const resetsAt = payload.metadata?.resetsAt;
+    if (
+      typeof used === "number" &&
+      typeof limit === "number" &&
+      typeof resetsAt === "string"
+    ) {
+      return `Axis free-tier limit reached (${used}/${limit}). Connect a BYOK provider or retry after ${new Date(resetsAt).toLocaleString()}.`;
+    }
+    return "Axis free-tier limit reached. Connect a BYOK provider or retry after reset.";
+  }
   if (containsMissingDefaultKeyError(message)) {
-    return "No explicit provider configuration is available. Connect a provider key in Settings.";
+    return "No explicit provider configuration is available. Connect a provider key in Settings. If you are in private/incognito mode, persistence may be reset.";
   }
   if (containsOpenRouterKeyLimitError(message)) {
     return "OpenRouter key limit is exhausted ($0 total limit). Increase key limit in https://openrouter.ai/settings/keys or use a different provider key.";
@@ -351,7 +380,8 @@ function containsMissingDefaultKeyError(message: string): boolean {
   return (
     message.includes("No default provider key is configured") ||
     message.includes("Provider resolution failed") ||
-    message.includes("Missing API key for configured LITELLM_BASE_URL")
+    message.includes("Missing API key for configured LITELLM_BASE_URL") ||
+    message.includes("Missing AXIS_OPENROUTER_API_KEY")
   );
 }
 

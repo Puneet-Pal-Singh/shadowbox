@@ -25,7 +25,17 @@ export function getProviderRecoveryAdvice(
         "Provider configuration is missing. Connect a provider key or configure a platform default key.",
       actionLabel: "Open Provider Settings",
       remediation:
-        "Connect or validate a provider key, then retry your chat request.",
+        "Connect or validate a provider key, then retry your chat request. In private/incognito mode, cookies and storage can reset provider persistence.",
+    };
+  }
+
+  if (containsPersistenceScopeMismatch(message)) {
+    return {
+      message:
+        "Provider persistence requires an authenticated user/workspace scope.",
+      actionLabel: "Re-authenticate",
+      remediation:
+        "Sign in again, verify workspace access, and avoid private/incognito mode when expecting persistent provider defaults.",
     };
   }
 
@@ -61,6 +71,7 @@ function containsMissingProviderConfiguration(message: string): boolean {
     message.includes("No default provider key is configured") ||
     message.includes("Missing GROQ_API_KEY") ||
     message.includes("Missing OPENROUTER_API_KEY") ||
+    message.includes("Missing AXIS_OPENROUTER_API_KEY") ||
     message.includes("No BYOK provider connected")
   );
 }
@@ -75,9 +86,20 @@ function containsProviderSelectionMismatch(message: string): boolean {
 
 function containsRateLimitError(message: string): boolean {
   return (
+    message.includes("AXIS_DAILY_LIMIT_EXCEEDED") ||
+    message.includes("Axis free-tier limit reached") ||
     message.includes("RATE_LIMIT") ||
     message.includes("rate limit") ||
     message.includes("Key limit exceeded")
+  );
+}
+
+function containsPersistenceScopeMismatch(message: string): boolean {
+  return (
+    message.includes("Unauthorized: missing or invalid authentication") ||
+    message.includes("Missing required X-Run-Id header") ||
+    message.includes("MISSING_RUN_ID") ||
+    message.includes("AUTH_FAILED")
   );
 }
 

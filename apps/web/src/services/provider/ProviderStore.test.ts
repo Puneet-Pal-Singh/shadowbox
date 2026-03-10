@@ -409,6 +409,10 @@ describe("ProviderStore", () => {
       expect(state.selectedProviderId).toBe("openai");
       expect(state.selectedCredentialId).toBe(credential1Id);
       expect(state.lastResolvedConfig).toEqual(resolved);
+      expect(mockApiClient.updatePreferences).toHaveBeenCalledWith({
+        defaultProviderId: "openai",
+        defaultModelId: "gpt-4",
+      });
       expect(mockApiClient.resolveForChat).toHaveBeenCalledTimes(1);
     });
   });

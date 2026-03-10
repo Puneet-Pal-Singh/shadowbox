@@ -52,6 +52,7 @@ export function ChatInputBar({
     status,
     selectedProviderId,
     selectedModelId,
+    axisQuota,
     selectedModelView,
     lastResolvedConfig,
     providerModels,
@@ -260,6 +261,15 @@ export function ChatInputBar({
                 }}
                 isLoading={status === "loading"}
               />
+
+              {selectedProviderId === "axis" && axisQuota ? (
+                <span
+                  className="rounded border border-emerald-800/60 bg-emerald-950/40 px-1.5 py-0.5 text-[10px] font-medium text-emerald-300"
+                  title={`Axis daily usage resets at ${new Date(axisQuota.resetsAt).toLocaleString()}`}
+                >
+                  Axis {axisQuota.used}/{axisQuota.limit}
+                </span>
+              ) : null}
             </div>
 
             {/* Right: Attachment, Mic, Send */}
