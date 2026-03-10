@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
 import {
   ChevronDown,
@@ -21,10 +21,22 @@ import { useGitHub } from "../github/GitHubContextProvider";
 import { ChatBranchSelector } from "../chat/ChatBranchSelector";
 import { ProviderDialog, ModelPickerPopover } from "../provider";
 import { useProviderStore } from "../../hooks/useProviderStore.js";
+import { useRunContext } from "../../hooks/useRunContext.js";
 import { findCredentialByProviderId } from "../../lib/provider-helpers.js";
+import { bootstrapGitWorkspace } from "../../lib/git-workspace-bootstrap.js";
+import { useWorkspaceState } from "../layout/workspace/useWorkspaceState";
+import { SidebarHeader } from "../layout/workspace/SidebarHeader";
+import { SidebarContent } from "../layout/workspace/SidebarContent";
+import { useGitHubTree } from "../layout/workspace/useGitHubTree";
+import { useFileLoader } from "../layout/workspace/useFileLoader";
+import { Resizer } from "../ui/Resizer";
+import { useGitStatus } from "../../hooks/useGitStatus";
+import { useGitDiff } from "../../hooks/useGitDiff";
+import type { FileExplorerHandle } from "../FileExplorer";
 
 interface AgentSetupProps {
   sessionId: string;
+  isRightSidebarOpen?: boolean;
   onStart: (config: { repo: string; branch: string; task: string }) => void;
   onRepoClick?: () => void;
 }
@@ -54,10 +66,13 @@ const SUGGESTED_ACTIONS: SuggestedAction[] = [
 ];
 
 export function AgentSetup({
+  sessionId,
+  isRightSidebarOpen = false,
   onStart,
   onRepoClick,
 }: AgentSetupProps) {
   const { repo, branch } = useGitHub();
+  const { runId } = useRunContext();
   const [task, setTask] = useState("");
   const [isInputFocused, setIsInputFocused] = useState(false);
   const [hoveredCard, setHoveredCard] = useState<number | null>(null);
@@ -91,6 +106,42 @@ export function AgentSetup({
     applySessionSelection,
   } = useProviderStore();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const explorerRef = useRef<FileExplorerHandle>(null);
+  const workspaceBootstrapKeyRef = useRef<string | null>(null);
+  const activeRunId = runId ?? "";
+  const {
+    activeTab,
+    setActiveTab,
+    sidebarWidth,
+    setSidebarWidth,
+    isResizing,
+    setIsResizing,
+    selectedFile,
+    setSelectedFile,
+    selectedDiff,
+    setSelectedDiff,
+    isViewingContent,
+    setIsViewingContent,
+    isLoadingContent,
+    setIsLoadingContent,
+  } = useWorkspaceState();
+  const {
+    repoTree,
+    isLoadingTree,
+    repo: githubRepo,
+    branch: githubBranch,
+    isGitHubLoaded,
+  } = useGitHubTree();
+  const { status: gitStatus } = useGitStatus(activeRunId || undefined, sessionId);
+  const { fetch: fetchDiff, diff } = useGitDiff(activeRunId || undefined, sessionId);
+  const changesCount = gitStatus?.files?.length ?? 0;
+  const { handleFileClick, handleGitHubFileSelect } = useFileLoader({
+    sandboxId: sessionId,
+    runId: activeRunId,
+    setIsLoadingContent,
+    setIsViewingContent,
+    setSelectedFile,
+  });
 
   const hasTask = task.trim().length > 0;
 
@@ -119,6 +170,65 @@ export function AgentSetup({
     selectedProviderId,
   ]);
 
+  useEffect(() => {
+    const owner = repo?.owner?.login?.trim();
+    const name = repo?.name?.trim();
+    if (!runId || !sessionId || !owner || !name) {
+      return;
+    }
+
+    const bootstrapKey = `${sessionId}:${runId}`;
+    if (workspaceBootstrapKeyRef.current === bootstrapKey) {
+      return;
+    }
+    workspaceBootstrapKeyRef.current = bootstrapKey;
+
+    const bootstrap = async (): Promise<void> => {
+      try {
+        const result = await bootstrapGitWorkspace({
+          runId,
+          sessionId,
+          repositoryOwner: owner,
+          repositoryName: name,
+          repositoryBranch: branch || repo?.default_branch || "main",
+          repositoryBaseUrl: repo?.html_url,
+        });
+        if (result.status !== "ready" && result.message) {
+          console.warn(
+            `[agent-setup/git-bootstrap] ${result.status}: ${result.message}`,
+          );
+        }
+      } catch (error) {
+        console.warn("[agent-setup/git-bootstrap] failed", error);
+      }
+    };
+
+    void bootstrap();
+  }, [
+    branch,
+    repo?.default_branch,
+    repo?.html_url,
+    repo?.name,
+    repo?.owner?.login,
+    runId,
+    sessionId,
+  ]);
+
+  useEffect(() => {
+    if (diff && activeTab === "changes") {
+      setSelectedDiff({ path: diff.newPath, content: diff });
+      setIsViewingContent(true);
+    }
+  }, [activeTab, diff, setIsViewingContent, setSelectedDiff]);
+
+  const handleViewChange = useCallback(
+    (path: string) => {
+      void handleFileClick(path);
+      void fetchDiff(path);
+    },
+    [fetchDiff, handleFileClick],
+  );
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (task.trim()) {
@@ -138,12 +248,13 @@ export function AgentSetup({
 
   return (
     <motion.div
-      className="flex-1 flex flex-col bg-black relative overflow-hidden"
+      className="flex-1 flex bg-black relative overflow-hidden"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       transition={{ duration: 0.3 }}
     >
+      <main className="flex-1 min-w-0 flex flex-col bg-black relative overflow-hidden">
       {/* Animated Background Glow */}
       <div className="absolute inset-0 pointer-events-none overflow-hidden">
         <motion.div
@@ -421,6 +532,76 @@ export function AgentSetup({
           </div>
         </motion.div>
       </div>
+      </main>
+
+      <motion.aside
+        initial={false}
+        animate={{
+          width: isRightSidebarOpen ? sidebarWidth : 0,
+        }}
+        transition={
+          isResizing
+            ? { duration: 0 }
+            : { duration: 0.15, ease: [0.23, 1, 0.32, 1] }
+        }
+        className={`border-l border-zinc-800 bg-black flex flex-col overflow-hidden shrink-0 relative ${
+          !isRightSidebarOpen ? "border-transparent" : ""
+        }`}
+      >
+        {isRightSidebarOpen && (
+          <Resizer
+            side="right"
+            onResizeStart={() => setIsResizing(true)}
+            onResizeEnd={() => setIsResizing(false)}
+            onResize={(delta) =>
+              setSidebarWidth((prev) =>
+                Math.max(280, Math.min(600, prev + delta)),
+              )
+            }
+          />
+        )}
+
+        <div
+          className="flex-1 flex flex-col min-w-[280px]"
+          style={{ width: sidebarWidth }}
+        >
+          <SidebarHeader
+            isViewingContent={isViewingContent}
+            activeTab={activeTab}
+            changesCount={changesCount}
+            onBack={() => {
+              setIsViewingContent(false);
+              setSelectedFile(null);
+              setSelectedDiff(null);
+            }}
+            onTabChange={setActiveTab}
+          />
+
+          <SidebarContent
+            isViewingContent={isViewingContent}
+            activeTab={activeTab}
+            isLoadingContent={isLoadingContent}
+            selectedFile={selectedFile}
+            selectedDiff={selectedDiff}
+            onCloseContent={() => {
+              setIsViewingContent(false);
+              setSelectedFile(null);
+              setSelectedDiff(null);
+            }}
+            repo={githubRepo}
+            isGitHubLoaded={isGitHubLoaded}
+            repoTree={repoTree}
+            isLoadingTree={!!isLoadingTree}
+            branch={githubBranch || "main"}
+            handleGitHubFileSelect={handleGitHubFileSelect}
+            handleFileClick={handleFileClick}
+            handleViewChange={handleViewChange}
+            explorerRef={explorerRef}
+            sandboxId={sessionId}
+            runId={activeRunId}
+          />
+        </div>
+      </motion.aside>
 
       <ProviderDialog
         isOpen={showProviderDialog}

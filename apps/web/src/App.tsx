@@ -281,7 +281,7 @@ function AppContent() {
   };
 
   const handleToggleRightSidebar = () => {
-    setIsRightSidebarOpen(!isRightSidebarOpen);
+    setIsRightSidebarOpen((previous) => !previous);
   };
 
   /**
@@ -430,6 +430,7 @@ function AppContent() {
                 >
                   <AgentSetup
                     sessionId={activeSessionId}
+                    isRightSidebarOpen={isRightSidebarOpen}
                     onRepoClick={() => setShowRepoPicker(true)}
                     onStart={(config) => {
                       const name =

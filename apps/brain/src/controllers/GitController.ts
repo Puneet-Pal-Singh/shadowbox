@@ -6,6 +6,7 @@ import type {
   CommitPayload,
   StageFilesRequest,
 } from "@repo/shared-types";
+import { WorkspaceBootstrapService } from "../runtime/services/WorkspaceBootstrapService";
 
 /**
  * GitController
@@ -234,6 +235,72 @@ export class GitController {
         req,
         env,
         error instanceof Error ? error.message : "Failed to commit",
+        500,
+      );
+    }
+  }
+
+  /**
+   * Bootstrap git workspace for a run before first chat turn.
+   * Enables git status/diff/changes tab in newly-created tasks.
+   */
+  static async bootstrap(req: Request, env: Env): Promise<Response> {
+    try {
+      const body = (await req.json()) as {
+        runId: string;
+        sessionId?: string;
+        repositoryOwner: string;
+        repositoryName: string;
+        repositoryBranch?: string;
+        repositoryBaseUrl?: string;
+      };
+      const {
+        runId,
+        sessionId,
+        repositoryOwner,
+        repositoryName,
+        repositoryBranch,
+        repositoryBaseUrl,
+      } = body;
+
+      const normalizedRunId = runId?.trim();
+      const owner = repositoryOwner?.trim();
+      const repo = repositoryName?.trim();
+      const branch = repositoryBranch?.trim() || "main";
+      const baseUrl = repositoryBaseUrl?.trim();
+
+      if (!normalizedRunId || !owner || !repo) {
+        return errorResponse(
+          req,
+          env,
+          "runId, repositoryOwner, and repositoryName are required",
+          400,
+        );
+      }
+
+      const muscleSession = resolveMuscleSessionId(normalizedRunId, sessionId);
+      const bootstrapper = WorkspaceBootstrapService.fromEnv(
+        env,
+        muscleSession,
+        normalizedRunId,
+      );
+      const result = await bootstrapper.bootstrap({
+        runId: normalizedRunId,
+        repositoryContext: {
+          owner,
+          repo,
+          branch,
+          baseUrl,
+        },
+      });
+
+      return corsJsonResponse(req, env, result);
+    } catch (error) {
+      console.error("[GitController:bootstrap] Error:", error);
+      return errorResponse(
+        req,
+        env,
+        error instanceof Error ? error.message : "Failed to bootstrap git workspace",
         500,
       );
     }

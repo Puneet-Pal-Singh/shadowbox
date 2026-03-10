@@ -84,6 +84,7 @@ function createRouter(): Router {
   // Git local routes (for sidebar)
   router.add(/\/api\/git\/status/, GitController.getStatus);
   router.add(/\/api\/git\/diff/, GitController.getDiff);
+  router.add(/\/api\/git\/bootstrap/, GitController.bootstrap, "POST");
   router.add(/\/api\/git\/stage/, GitController.stageFiles, "POST");
   router.add(/\/api\/git\/commit/, GitController.commit, "POST");
   router.add(/\/api\/run\/summary/, RunController.getSummary, "GET");

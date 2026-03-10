@@ -13,6 +13,8 @@ import { useGitHubTree } from "./workspace/useGitHubTree";
 import { useFileLoader } from "./workspace/useFileLoader";
 import { SidebarHeader } from "./workspace/SidebarHeader";
 import { SidebarContent } from "./workspace/SidebarContent";
+import { SessionStateService } from "../../services/SessionStateService";
+import { bootstrapGitWorkspace } from "../../lib/git-workspace-bootstrap";
 
 interface WorkspaceProps {
   sessionId: string;
@@ -30,6 +32,7 @@ export function Workspace({
   setIsRightSidebarOpen,
 }: WorkspaceProps) {
   const explorerRef = useRef<FileExplorerHandle>(null);
+  const workspaceBootstrapKeyRef = useRef<string | null>(null);
   const sandboxId = sessionId;
 
   // Custom Hooks
@@ -67,7 +70,10 @@ export function Workspace({
   } = useChat(sessionId, initialRunId, () => {
     explorerRef.current?.refresh();
   });
-  const { status } = useGitStatus(activeRunId, sessionId);
+  const { status, refetch: refetchGitStatus } = useGitStatus(
+    activeRunId,
+    sessionId,
+  );
   const { fetch: fetchDiff, diff } = useGitDiff(activeRunId, sessionId);
   const changesCount = status?.files?.length ?? 0;
 
@@ -90,6 +96,49 @@ export function Workspace({
     explorerRef.current?.refresh();
   }, [activeRunId]);
 
+  useEffect(() => {
+    if (!sessionId || !activeRunId) {
+      return;
+    }
+
+    const bootstrapKey = `${sessionId}:${activeRunId}`;
+    if (workspaceBootstrapKeyRef.current === bootstrapKey) {
+      return;
+    }
+
+    const context = SessionStateService.loadSessionGitHubContext(sessionId);
+    if (!context?.repoOwner || !context?.repoName) {
+      return;
+    }
+
+    workspaceBootstrapKeyRef.current = bootstrapKey;
+    const bootstrap = async (): Promise<void> => {
+      try {
+        const result = await bootstrapGitWorkspace({
+          runId: activeRunId,
+          sessionId,
+          repositoryOwner: context.repoOwner,
+          repositoryName: context.repoName,
+          repositoryBranch: context.branch,
+          repositoryBaseUrl: context.fullName
+            ? `https://github.com/${context.fullName}`
+            : undefined,
+        });
+        if (result.status !== "ready" && result.message) {
+          console.warn(
+            `[workspace/git-bootstrap] ${result.status}: ${result.message}`,
+          );
+        }
+      } catch (error) {
+        console.warn("[workspace/git-bootstrap] failed", error);
+      } finally {
+        await refetchGitStatus();
+      }
+    };
+
+    void bootstrap();
+  }, [activeRunId, refetchGitStatus, sessionId]);
+
   // Sync diff from hook to local state when it loads
   useEffect(() => {
     if (diff && activeTab === "changes") {
@@ -97,6 +146,15 @@ export function Workspace({
       setIsViewingContent(true);
     }
   }, [diff, activeTab, setSelectedDiff, setIsViewingContent]);
+
+  // Git availability can be stale if status is fetched before workspace bootstrap
+  // completes. Refresh after each chat turn to surface newly-initialized repos.
+  useEffect(() => {
+    if (isLoading) {
+      return;
+    }
+    void refetchGitStatus();
+  }, [isLoading, messages.length, refetchGitStatus]);
 
   // Restore selected file on mount if we were viewing one
   useEffect(() => {
