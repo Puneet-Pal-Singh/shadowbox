@@ -194,7 +194,7 @@ function AppContent() {
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(() => {
     return localStorage.getItem("shadowbox_right_sidebar_open") === "true";
   });
-  const [sidebarWidth, setSidebarWidth] = useState(260);
+  const [sidebarWidth, setSidebarWidth] = useState(320);
 
   useEffect(() => {
     localStorage.setItem(
@@ -387,7 +387,7 @@ function AppContent() {
             side="left"
             onResize={(delta) =>
               setSidebarWidth((prev) =>
-                Math.max(160, Math.min(400, prev + delta)),
+                Math.max(160, Math.min(520, prev + delta)),
               )
             }
           />
