@@ -190,7 +190,10 @@ export function AgentSidebar({
             </button>
 
             {isFilterMenuOpen ? (
-              <div className="absolute right-0 top-8 z-30 w-48 rounded-xl border border-zinc-700 bg-zinc-900/95 p-2 shadow-2xl">
+              <div
+                role="menu"
+                className="absolute right-0 top-8 z-30 w-48 rounded-xl border border-zinc-700 bg-zinc-900/95 p-2 shadow-2xl"
+              >
                 <div className="px-1 pb-1 text-xs font-medium text-zinc-400">
                   Show
                 </div>

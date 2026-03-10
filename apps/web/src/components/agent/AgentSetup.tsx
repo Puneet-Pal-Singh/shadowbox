@@ -222,7 +222,6 @@ export function AgentSetup({
     void bootstrap();
   }, [
     branch,
-    isRightSidebarOpen,
     repo?.default_branch,
     repo?.html_url,
     repo?.name,
