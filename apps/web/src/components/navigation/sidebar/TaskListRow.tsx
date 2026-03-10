@@ -1,6 +1,6 @@
 import { motion } from "framer-motion";
 import { Trash2 } from "lucide-react";
-import type { KeyboardEvent } from "react";
+import { useEffect, useState, type KeyboardEvent } from "react";
 import { formatTimeAgo } from "../../../lib/timeFormat";
 import { cn } from "../../../lib/utils";
 import type { SidebarTaskItem, SidebarTaskStatus } from "./types";
@@ -126,10 +126,21 @@ export function TaskListRow({
   onMoveFocus,
   buttonRef,
 }: TaskListRowProps) {
+  const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
   const visual = STATUS_VISUALS[task.status];
   const rowMeta = [visual.label, getRelativeTime(task.updatedAt), getMetricsLabel(task)]
     .filter((entry) => Boolean(entry))
     .join(" · ");
+
+  useEffect(() => {
+    if (!isConfirmingDelete) return;
+
+    const timer = window.setTimeout(() => {
+      setIsConfirmingDelete(false);
+    }, 4000);
+
+    return () => window.clearTimeout(timer);
+  }, [isConfirmingDelete]);
 
   return (
     <li className="group relative">
@@ -148,7 +159,7 @@ export function TaskListRow({
           task.isActive
             ? "bg-zinc-900 text-zinc-100 ring-1 ring-zinc-700"
             : "text-zinc-400 hover:bg-zinc-900/60 hover:text-zinc-100",
-          onRemove && "pr-8",
+          onRemove && (isConfirmingDelete ? "pr-28" : "pr-8"),
         )}
       >
         <div className="flex items-center justify-between gap-2">
@@ -170,13 +181,39 @@ export function TaskListRow({
         </div>
       </button>
 
-      {onRemove ? (
+      {onRemove && isConfirmingDelete ? (
+        <div className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-1">
+          <button
+            type="button"
+            aria-label={`Cancel deletion for ${task.title}`}
+            onClick={(event) => {
+              event.stopPropagation();
+              setIsConfirmingDelete(false);
+            }}
+            className="rounded border border-zinc-700 px-1.5 py-0.5 text-[10px] font-medium text-zinc-300 transition-colors hover:bg-zinc-800"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            aria-label={`Confirm deletion for ${task.title}`}
+            onClick={(event) => {
+              event.stopPropagation();
+              setIsConfirmingDelete(false);
+              onRemove();
+            }}
+            className="rounded border border-red-700/70 bg-red-950/40 px-1.5 py-0.5 text-[10px] font-semibold text-red-300 transition-colors hover:bg-red-900/40"
+          >
+            Confirm
+          </button>
+        </div>
+      ) : onRemove ? (
         <button
           type="button"
           aria-label={`Remove ${task.title}`}
           onClick={(event) => {
             event.stopPropagation();
-            onRemove();
+            setIsConfirmingDelete(true);
           }}
           className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-zinc-500 opacity-0 transition group-hover:opacity-100 hover:bg-zinc-800 hover:text-red-300"
         >
