@@ -95,6 +95,7 @@ function createEnv(): Env {
     LLM_PROVIDER: "litellm",
     DEFAULT_MODEL: "llama-3.3-70b-versatile",
     GROQ_API_KEY: "test-groq-key",
+    AXIS_OPENROUTER_API_KEY: "sk-or-axis-managed-key",
     OPENAI_API_KEY: "sk-env-openai-key",
   };
 }
@@ -319,6 +320,21 @@ describe("AIService provider override routing", () => {
     expect(result.usage.model).toBe("gpt-4o");
     expect(openaiAdapter.generate).toHaveBeenCalledTimes(1);
     expect(litellmAdapter.generate).not.toHaveBeenCalled();
+  });
+
+  it("enforces axis quota before runtime inference", async () => {
+    const providerConfig = createProviderConfigService();
+    const consumeAxisQuotaSpy = vi.spyOn(providerConfig, "consumeAxisQuota");
+    const service = new AIService(createEnv(), providerConfig);
+    mockedAi.selectAdapter.mockResolvedValue(openrouterAdapter);
+
+    await service.generateText({
+      messages: BASE_MESSAGES,
+      providerId: "axis",
+      model: "openai/gpt-oss-120b:free",
+    });
+
+    expect(consumeAxisQuotaSpy).toHaveBeenCalledTimes(1);
   });
 
   it("throws ProviderNotConnectedError when override provider is disconnected (strict mode)", async () => {
