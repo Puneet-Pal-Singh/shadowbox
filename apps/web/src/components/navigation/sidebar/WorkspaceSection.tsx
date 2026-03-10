@@ -93,12 +93,12 @@ export function WorkspaceSection({
   };
 
   return (
-    <section className="rounded-xl border border-zinc-900/80 bg-zinc-950/40 px-2 py-2">
+    <section className="space-y-1.5">
       <div className="flex items-center gap-1">
         <button
           type="button"
           onClick={() => setIsExpanded((value) => !value)}
-          className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 py-1 text-left transition-colors hover:bg-zinc-900/70"
+          className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-1 py-0.5 text-left transition-colors hover:bg-zinc-800/40"
           aria-expanded={isExpanded}
           aria-label={`Toggle ${workspaceName}`}
         >
@@ -109,7 +109,7 @@ export function WorkspaceSection({
               !isExpanded && "-rotate-90",
             )}
           />
-          <Folder size={14} className="shrink-0 text-zinc-500" />
+          <Folder size={15} className="shrink-0 text-zinc-500" />
           {isRenaming ? (
             <input
               autoFocus
@@ -134,21 +134,21 @@ export function WorkspaceSection({
           )}
         </button>
 
-        {onAddTask ? (
-          <button
-            type="button"
-            onClick={(event) => {
-              event.stopPropagation();
-              onAddTask();
-            }}
-            className="rounded p-1 text-zinc-500 transition-colors hover:bg-zinc-900 hover:text-zinc-200"
-            title={`New task in ${workspaceName}`}
-          >
-            <Plus size={14} />
-          </button>
-        ) : null}
-
         <div className="relative" ref={menuRef}>
+          {onAddTask ? (
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                onAddTask();
+              }}
+              className="mr-1 rounded p-1 text-zinc-500 transition-colors hover:bg-zinc-800/50 hover:text-zinc-200"
+              title={`New task in ${workspaceName}`}
+            >
+              <Plus size={14} />
+            </button>
+          ) : null}
+
           <button
             type="button"
             onClick={(event) => {
@@ -161,7 +161,7 @@ export function WorkspaceSection({
                 return next;
               });
             }}
-            className="rounded p-1 text-zinc-500 transition-colors hover:bg-zinc-900 hover:text-zinc-200"
+            className="rounded p-1 text-zinc-500 transition-colors hover:bg-zinc-800/50 hover:text-zinc-200"
             title={`Actions for ${workspaceName}`}
           >
             <MoreHorizontal size={14} />
@@ -173,7 +173,7 @@ export function WorkspaceSection({
                 initial={{ opacity: 0, y: -6, scale: 0.98 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: -6, scale: 0.98 }}
-                className="absolute right-0 top-7 z-20 w-36 rounded-lg border border-zinc-800 bg-zinc-950 py-1 shadow-xl"
+                className="absolute right-0 top-7 z-20 w-36 rounded-lg border border-zinc-800 bg-zinc-900 py-1 shadow-xl"
               >
                 {onRenameWorkspace ? (
                   <button
@@ -243,7 +243,7 @@ export function WorkspaceSection({
             animate={{ opacity: 1, height: "auto" }}
             exit={{ opacity: 0, height: 0 }}
             transition={{ duration: 0.15 }}
-            className="mt-2 overflow-hidden pl-1"
+            className="mt-1 overflow-hidden pl-5"
           >
             <TaskList
               tasks={sortedTasks}

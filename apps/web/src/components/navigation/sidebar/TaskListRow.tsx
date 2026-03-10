@@ -16,41 +16,29 @@ interface TaskListRowProps {
 }
 
 interface StatusVisual {
-  label: string;
   dotClass: string;
-  labelClass: string;
   animate: boolean;
 }
 
 const STATUS_VISUALS: Record<SidebarTaskStatus, StatusVisual> = {
   idle: {
-    label: "Idle",
     dotClass: "bg-zinc-500/70",
-    labelClass: "text-zinc-400",
     animate: false,
   },
   running: {
-    label: "Running",
     dotClass: "bg-emerald-400",
-    labelClass: "text-emerald-300",
     animate: true,
   },
   failed: {
-    label: "Failed",
     dotClass: "bg-red-400",
-    labelClass: "text-red-300",
     animate: false,
   },
   completed: {
-    label: "Completed",
     dotClass: "bg-blue-300",
-    labelClass: "text-blue-200",
     animate: false,
   },
   needs_approval: {
-    label: "Approval",
     dotClass: "bg-amber-400",
-    labelClass: "text-amber-300",
     animate: false,
   },
 };
@@ -127,10 +115,8 @@ export function TaskListRow({
   buttonRef,
 }: TaskListRowProps) {
   const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
-  const visual = STATUS_VISUALS[task.status];
-  const rowMeta = [visual.label, getRelativeTime(task.updatedAt), getMetricsLabel(task)]
-    .filter((entry) => Boolean(entry))
-    .join(" · ");
+  const metricLabel = getMetricsLabel(task);
+  const relativeTime = getRelativeTime(task.updatedAt);
 
   useEffect(() => {
     if (!isConfirmingDelete) return;
@@ -154,11 +140,11 @@ export function TaskListRow({
         onClick={onSelect}
         onKeyDown={(event) => handleRowKeyDown(event, onSelect, onMoveFocus)}
         className={cn(
-          "h-10 w-full rounded-lg px-2.5 text-left transition-all duration-150",
+          "h-10 w-full rounded-xl px-2.5 text-left transition-all duration-150",
           "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500",
           task.isActive
-            ? "bg-zinc-900 text-zinc-100 ring-1 ring-zinc-700"
-            : "text-zinc-400 hover:bg-zinc-900/60 hover:text-zinc-100",
+            ? "bg-zinc-800/70 text-zinc-100"
+            : "text-zinc-300 hover:bg-zinc-800/45 hover:text-zinc-100",
           onRemove && (isConfirmingDelete ? "pr-28" : "pr-8"),
         )}
       >
@@ -175,8 +161,24 @@ export function TaskListRow({
               {task.title}
             </span>
           </div>
-          <div className={cn("truncate text-[11px]", visual.labelClass)} title={rowMeta}>
-            {rowMeta}
+          <div className="flex shrink-0 items-center gap-2 text-xs">
+            {metricLabel ? (
+              <span
+                className={cn(
+                  "font-medium",
+                  task.status === "failed"
+                    ? "text-red-300"
+                    : task.status === "running"
+                      ? "text-emerald-300"
+                      : "text-zinc-400",
+                )}
+              >
+                {metricLabel}
+              </span>
+            ) : null}
+            <span className="text-zinc-500" title={relativeTime}>
+              {relativeTime}
+            </span>
           </div>
         </div>
       </button>
