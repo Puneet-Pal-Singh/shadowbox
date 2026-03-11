@@ -487,6 +487,85 @@ describe("RunEngine", () => {
     expect(telemetry?.activeDurationMs).toBeGreaterThanOrEqual(0);
   });
 
+  it("applies reviewer pass when reviewer feature flag is enabled", async () => {
+    const llmGateway: ILLMGateway = {
+      generateText: async () => ({
+        text: "Execution complete",
+        usage: {
+          provider: "mock",
+          model: "mock-model",
+          promptTokens: 5,
+          completionTokens: 5,
+          totalTokens: 10,
+        },
+      }),
+      generateStructured: async (req) => {
+        if (req.context.phase === "planning") {
+          return {
+            object: {
+              tasks: [],
+              metadata: { estimatedSteps: 1 },
+            },
+            usage: {
+              provider: "mock",
+              model: "mock-model",
+              promptTokens: 5,
+              completionTokens: 5,
+              totalTokens: 10,
+            },
+          };
+        }
+
+        return {
+          object: {
+            verdict: "request_changes",
+            summary: "Improve result precision",
+            issues: ["Missing implementation detail"],
+          },
+          usage: {
+            provider: "mock",
+            model: "mock-model",
+            promptTokens: 5,
+            completionTokens: 5,
+            totalTokens: 10,
+          },
+        };
+      },
+      generateStream: async () =>
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.close();
+          },
+        }),
+    };
+    const runEngine = createRunEngine({ llmGateway });
+
+    const response = await runEngine.execute(
+      {
+        agentType: "coding",
+        prompt: "implement a tiny command task",
+        sessionId: "session-1",
+        metadata: {
+          featureFlags: {
+            reviewerPassV1: true,
+          },
+        },
+      },
+      [{ role: "user", content: "implement a tiny command task" }],
+      {},
+    );
+
+    expect(response.status).toBe(200);
+    const output = await response.text();
+    expect(output).toContain("Reviewer Note (request_changes)");
+
+    const persisted = await (runEngine as unknown as {
+      getRun(runId: string): Promise<Run | null>;
+    }).getRun(TEST_RUN_ID);
+    expect(persisted?.metadata.reviewerPass?.enabled).toBe(true);
+    expect(persisted?.metadata.reviewerPass?.verdict).toBe("request_changes");
+  });
+
   it("tracks wakeups and resumptions for pre-existing active runs", async () => {
     const runEngine = createRunEngine({
       llmGateway: createPlanningLLMGateway(),

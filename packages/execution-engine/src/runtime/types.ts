@@ -120,6 +120,15 @@ export interface RunManifest {
 export interface RunMetadata {
   prompt: string;
   manifest?: RunManifest;
+  reviewerPass?: {
+    enabled: boolean;
+    verdict?: "accept" | "request_changes" | "fail";
+    summary?: string;
+    issues?: string[];
+    reviewedAt?: string;
+    applied: boolean;
+    error?: string;
+  };
   lifecycleSteps?: Array<{
     step: CanonicalRunLifecycleStep;
     recordedAt: string;
