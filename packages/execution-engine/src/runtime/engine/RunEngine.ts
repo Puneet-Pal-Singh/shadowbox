@@ -59,7 +59,6 @@ import {
 import {
   buildConversationalSystemPrompt,
   getActionClarificationMessage,
-  getDeterministicConversationalReply,
   hasRepositorySelection,
   shouldBypassPlanning,
 } from "./ConversationPolicy.js";
@@ -293,18 +292,6 @@ export class RunEngine implements IRunEngine {
 
       const bypassPlanning = shouldBypassPlanning(input.prompt);
       if (bypassPlanning) {
-        const deterministicReply = getDeterministicConversationalReply(
-          input.prompt,
-        );
-        if (deterministicReply) {
-          console.log(
-            `[run/engine] Deterministic conversational reply for run ${runId}`,
-          );
-          return await this.completeRunWithAssistantMessage(
-            run,
-            deterministicReply,
-          );
-        }
         console.log(`[run/engine] Conversational bypass for run ${runId}`);
         return await this.executeConversationalTurn(run, input, messages);
       }
