@@ -4,6 +4,7 @@ import {
   getGoldenFlowToolNames,
   getGoldenFlowToolRegistry,
   getGoldenFlowToolRoute,
+  validateGoldenFlowToolInput,
 } from "./CodingToolGateway.js";
 
 describe("CodingToolGateway", () => {
@@ -58,5 +59,28 @@ describe("CodingToolGateway", () => {
     expect(filtered.read_file?.description).toBe("custom read");
     expect(Object.keys(filtered)).toEqual(getGoldenFlowToolNames());
     expect("web_search" in filtered).toBe(false);
+  });
+
+  it("validates tool inputs against canonical schemas", () => {
+    const parsedGrep = validateGoldenFlowToolInput("grep", {
+      pattern: "TODO",
+      path: ".",
+      maxResults: 5,
+      caseSensitive: false,
+      ignored: "field",
+    });
+    expect(parsedGrep).toEqual({
+      pattern: "TODO",
+      path: ".",
+      maxResults: 5,
+      caseSensitive: false,
+    });
+
+    expect(() =>
+      validateGoldenFlowToolInput("grep", {
+        pattern: "TODO",
+        caseSensitive: "false",
+      }),
+    ).toThrow("Invalid grep input");
   });
 });

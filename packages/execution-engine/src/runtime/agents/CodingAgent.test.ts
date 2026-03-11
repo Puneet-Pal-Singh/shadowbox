@@ -279,6 +279,35 @@ describe("CodingAgent task-phase model selection", () => {
     expect(result.status).toBe("DONE");
     expect(result.output?.content).toContain('No matches found for "(a+)+$"');
   });
+
+  it("rejects invalid grep input types via golden-flow schema validation", async () => {
+    const llmGateway = createLLMGatewayMock();
+    const execute = vi.fn(async () => ({ success: true, output: "README.md\n" }));
+    const executionService = { execute } as unknown as RuntimeExecutionService;
+    const agent = new CodingAgent(llmGateway, executionService);
+
+    const task = {
+      id: "task-grep-invalid-input",
+      runId: "run-1",
+      type: "grep",
+      input: {
+        description: "grep",
+        pattern: "TODO",
+        caseSensitive: "true",
+      },
+    } as unknown as Task;
+
+    const context: ExecutionContext = {
+      runId: "run-1",
+      sessionId: "session-1",
+      dependencies: [],
+    };
+
+    await expect(agent.executeTask(task, context)).rejects.toThrow(
+      "Invalid grep input",
+    );
+    expect(execute).not.toHaveBeenCalled();
+  });
 });
 
 function createLLMGatewayMock(): ILLMGateway {

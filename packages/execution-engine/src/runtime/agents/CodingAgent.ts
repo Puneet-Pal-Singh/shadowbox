@@ -22,7 +22,9 @@ import {
   isConcretePathInput,
   isValidGitActionInput,
   type GoldenFlowToolName,
+  type GoldenFlowToolInputByName,
   VALID_GIT_ACTIONS,
+  validateGoldenFlowToolInput,
 } from "../contracts/index.js";
 import {
   extractExecutionFailure,
@@ -307,11 +309,8 @@ VALIDATION RULES:
   }
 
   private async executeReadFileTool(task: Task): Promise<TaskResult> {
-    const rawPath = extractStructuredField(task.input, "path");
-    if (!rawPath) {
-      throw new TaskInputError("read_file", "Missing 'path' field in task input");
-    }
-    const path = normalizeTaskPath(rawPath);
+    const validatedInput = this.validateGoldenFlowInput("read_file", task.input);
+    const path = normalizeTaskPath(validatedInput.path);
     if (requiresDiscoveryBeforeRead(path)) {
       return this.executeDiscoveryForAmbiguousTarget(task.id, path);
     }
@@ -321,8 +320,8 @@ VALIDATION RULES:
   }
 
   private async executeListFilesTool(task: Task): Promise<TaskResult> {
-    const rawPath = extractStructuredField(task.input, "path");
-    const path = rawPath ? normalizeTaskPath(rawPath) : ".";
+    const validatedInput = this.validateGoldenFlowInput("list_files", task.input);
+    const path = validatedInput.path ? normalizeTaskPath(validatedInput.path) : ".";
     if (path !== ".") {
       validateSafePath(path);
     }
@@ -330,21 +329,11 @@ VALIDATION RULES:
   }
 
   private async executeWriteFileTool(task: Task): Promise<TaskResult> {
-    const rawPath = extractStructuredField(task.input, "path");
-    if (!rawPath) {
-      throw new TaskInputError("write_file", "Missing 'path' field in task input");
-    }
-    const path = normalizeTaskPath(rawPath);
+    const validatedInput = this.validateGoldenFlowInput("write_file", task.input);
+    const path = normalizeTaskPath(validatedInput.path);
     validateTaskPath(path);
     validateSafePath(path);
-
-    const content = extractStructuredField(task.input, "content");
-    if (!content) {
-      throw new TaskInputError(
-        "write_file",
-        "Missing 'content' field in task input",
-      );
-    }
+    const { content } = validatedInput;
 
     const result = await this.executeGatewayPlugin("write_file", { path, content });
     const failure = extractExecutionFailure(result);
@@ -355,17 +344,12 @@ VALIDATION RULES:
   }
 
   private async executeRunCommandTool(task: Task): Promise<TaskResult> {
-    const command = extractStructuredField(task.input, "command");
-    if (!command) {
-      throw new TaskInputError(
-        "run_command",
-        "Missing 'command' field in task input",
-      );
-    }
-    return this.executeCommandWithGuards(task.id, command);
+    const validatedInput = this.validateGoldenFlowInput("run_command", task.input);
+    return this.executeCommandWithGuards(task.id, validatedInput.command);
   }
 
   private async executeGitStatusTool(task: Task): Promise<TaskResult> {
+    this.validateGoldenFlowInput("git_status", task.input);
     const result = await this.executeGatewayPlugin("git_status", {});
     const failure = extractExecutionFailure(result);
     if (failure) {
@@ -375,16 +359,17 @@ VALIDATION RULES:
   }
 
   private async executeGitDiffTool(task: Task): Promise<TaskResult> {
+    const validatedInput = this.validateGoldenFlowInput("git_diff", task.input);
     const payload: Record<string, unknown> = {};
-    const path = extractStructuredField(task.input, "path");
+    const path = validatedInput.path;
     if (path) {
       const normalizedPath = normalizeTaskPath(path);
       validateSafePath(normalizedPath);
       payload.path = normalizedPath;
     }
 
-    if (typeof task.input.staged === "boolean") {
-      payload.staged = task.input.staged;
+    if (typeof validatedInput.staged === "boolean") {
+      payload.staged = validatedInput.staged;
     }
 
     const result = await this.executeGatewayPlugin("git_diff", payload);
@@ -396,15 +381,13 @@ VALIDATION RULES:
   }
 
   private async executeGlobTool(task: Task): Promise<TaskResult> {
-    const pattern = extractStructuredField(task.input, "pattern");
-    if (!pattern) {
-      throw new TaskInputError("glob", "Missing 'pattern' field in task input");
-    }
-    const startPath = extractStructuredField(task.input, "path") ?? ".";
+    const validatedInput = this.validateGoldenFlowInput("glob", task.input);
+    const { pattern } = validatedInput;
+    const startPath = validatedInput.path ?? ".";
     if (startPath !== ".") {
       validateSafePath(startPath);
     }
-    const maxResults = readPositiveInt(task.input.maxResults, 50);
+    const maxResults = validatedInput.maxResults ?? 50;
     const matches = await this.findGlobMatches(pattern, startPath, maxResults);
     const output =
       matches.length > 0
@@ -414,17 +397,15 @@ VALIDATION RULES:
   }
 
   private async executeGrepTool(task: Task): Promise<TaskResult> {
-    const pattern = extractStructuredField(task.input, "pattern");
-    if (!pattern) {
-      throw new TaskInputError("grep", "Missing 'pattern' field in task input");
-    }
-    const startPath = extractStructuredField(task.input, "path") ?? ".";
+    const validatedInput = this.validateGoldenFlowInput("grep", task.input);
+    const { pattern } = validatedInput;
+    const startPath = validatedInput.path ?? ".";
     if (startPath !== ".") {
       validateSafePath(startPath);
     }
-    const globPattern = extractStructuredField(task.input, "glob");
-    const caseSensitive = readBoolean(task.input.caseSensitive, false);
-    const maxResults = readPositiveInt(task.input.maxResults, 25);
+    const globPattern = validatedInput.glob;
+    const caseSensitive = validatedInput.caseSensitive ?? false;
+    const maxResults = validatedInput.maxResults ?? 25;
     const matches = await this.findGrepMatches({
       pattern,
       startPath,
@@ -571,6 +552,18 @@ VALIDATION RULES:
       );
     }
     return this.executionService.execute(route.plugin, route.action, payload);
+  }
+
+  private validateGoldenFlowInput<T extends GoldenFlowToolName>(
+    toolName: T,
+    input: TaskInput,
+  ): GoldenFlowToolInputByName[T] {
+    try {
+      return validateGoldenFlowToolInput(toolName, input);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Invalid tool input";
+      throw new TaskInputError(toolName, message);
+    }
   }
 
   private async findGlobMatches(
@@ -935,16 +928,6 @@ function buildSubstringMatcher(
 
 function escapeRegexChar(char: string): string {
   return /[\\^$.*+?()[\]{}|]/.test(char) ? `\\${char}` : char;
-}
-
-function readPositiveInt(value: unknown, fallback: number): number {
-  return typeof value === "number" && Number.isInteger(value) && value > 0
-    ? value
-    : fallback;
-}
-
-function readBoolean(value: unknown, fallback: boolean): boolean {
-  return typeof value === "boolean" ? value : fallback;
 }
 
 export class UnsupportedTaskTypeError extends Error {

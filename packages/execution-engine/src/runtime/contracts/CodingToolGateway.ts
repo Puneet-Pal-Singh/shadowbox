@@ -29,67 +29,94 @@ interface GoldenFlowToolSpec {
   route: ToolGatewayRoute;
 }
 
+const READ_FILE_TOOL_INPUT_SCHEMA = z.object({
+  path: z.string().min(1).max(MAX_PATH_LENGTH),
+});
+
+const LIST_FILES_TOOL_INPUT_SCHEMA = z.object({
+  path: z.string().min(1).max(MAX_PATH_LENGTH).optional(),
+});
+
+const WRITE_FILE_TOOL_INPUT_SCHEMA = z.object({
+  path: z.string().min(1).max(MAX_PATH_LENGTH),
+  content: z.string().min(1).max(MAX_WRITE_CONTENT_LENGTH),
+});
+
+const RUN_COMMAND_TOOL_INPUT_SCHEMA = z.object({
+  command: z.string().min(1).max(MAX_COMMAND_LENGTH),
+});
+
+const GIT_STATUS_TOOL_INPUT_SCHEMA = z.object({});
+
+const GIT_DIFF_TOOL_INPUT_SCHEMA = z.object({
+  path: z.string().min(1).max(MAX_PATH_LENGTH).optional(),
+  staged: z.boolean().optional(),
+});
+
+const GLOB_TOOL_INPUT_SCHEMA = z.object({
+  pattern: z.string().min(1).max(MAX_PATTERN_LENGTH),
+  path: z.string().min(1).max(MAX_PATH_LENGTH).optional(),
+  maxResults: z.number().int().min(1).max(MAX_SEARCH_RESULTS).optional(),
+});
+
+const GREP_TOOL_INPUT_SCHEMA = z.object({
+  pattern: z.string().min(1).max(MAX_PATTERN_LENGTH),
+  path: z.string().min(1).max(MAX_PATH_LENGTH).optional(),
+  glob: z.string().min(1).max(MAX_PATTERN_LENGTH).optional(),
+  maxResults: z.number().int().min(1).max(MAX_SEARCH_RESULTS).optional(),
+  caseSensitive: z.boolean().optional(),
+});
+
+export type GoldenFlowToolInputByName = {
+  read_file: z.infer<typeof READ_FILE_TOOL_INPUT_SCHEMA>;
+  list_files: z.infer<typeof LIST_FILES_TOOL_INPUT_SCHEMA>;
+  write_file: z.infer<typeof WRITE_FILE_TOOL_INPUT_SCHEMA>;
+  run_command: z.infer<typeof RUN_COMMAND_TOOL_INPUT_SCHEMA>;
+  git_status: z.infer<typeof GIT_STATUS_TOOL_INPUT_SCHEMA>;
+  git_diff: z.infer<typeof GIT_DIFF_TOOL_INPUT_SCHEMA>;
+  glob: z.infer<typeof GLOB_TOOL_INPUT_SCHEMA>;
+  grep: z.infer<typeof GREP_TOOL_INPUT_SCHEMA>;
+};
+
 const GOLDEN_FLOW_TOOL_SPECS: Record<GoldenFlowToolName, GoldenFlowToolSpec> = {
   read_file: {
     description: "Read a file from the current workspace.",
-    parameters: z.object({
-      path: z.string().min(1).max(MAX_PATH_LENGTH),
-    }),
+    parameters: READ_FILE_TOOL_INPUT_SCHEMA,
     route: { toolName: "read_file", plugin: "filesystem", action: "read_file" },
   },
   list_files: {
     description: "List files in a workspace directory.",
-    parameters: z.object({
-      path: z.string().min(1).max(MAX_PATH_LENGTH).optional(),
-    }),
+    parameters: LIST_FILES_TOOL_INPUT_SCHEMA,
     route: { toolName: "list_files", plugin: "filesystem", action: "list_files" },
   },
   write_file: {
     description: "Write content to a file path in the workspace.",
-    parameters: z.object({
-      path: z.string().min(1).max(MAX_PATH_LENGTH),
-      content: z.string().min(1).max(MAX_WRITE_CONTENT_LENGTH),
-    }),
+    parameters: WRITE_FILE_TOOL_INPUT_SCHEMA,
     route: { toolName: "write_file", plugin: "filesystem", action: "write_file" },
   },
   run_command: {
     description: "Run a bounded Node/shell command in the workspace.",
-    parameters: z.object({
-      command: z.string().min(1).max(MAX_COMMAND_LENGTH),
-    }),
+    parameters: RUN_COMMAND_TOOL_INPUT_SCHEMA,
     route: { toolName: "run_command", plugin: "node", action: "run" },
   },
   git_status: {
     description: "Get git status for the workspace repository.",
-    parameters: z.object({}),
+    parameters: GIT_STATUS_TOOL_INPUT_SCHEMA,
     route: { toolName: "git_status", plugin: "git", action: "git_status" },
   },
   git_diff: {
     description: "Get git diff for workspace changes.",
-    parameters: z.object({
-      path: z.string().min(1).max(MAX_PATH_LENGTH).optional(),
-      staged: z.boolean().optional(),
-    }),
+    parameters: GIT_DIFF_TOOL_INPUT_SCHEMA,
     route: { toolName: "git_diff", plugin: "git", action: "git_diff" },
   },
   glob: {
     description: "Find files by glob pattern.",
-    parameters: z.object({
-      pattern: z.string().min(1).max(MAX_PATTERN_LENGTH),
-      path: z.string().min(1).max(MAX_PATH_LENGTH).optional(),
-      maxResults: z.number().int().min(1).max(MAX_SEARCH_RESULTS).optional(),
-    }),
+    parameters: GLOB_TOOL_INPUT_SCHEMA,
     route: { toolName: "glob", plugin: "internal", action: "glob" },
   },
   grep: {
     description: "Search file content by pattern.",
-    parameters: z.object({
-      pattern: z.string().min(1).max(MAX_PATTERN_LENGTH),
-      path: z.string().min(1).max(MAX_PATH_LENGTH).optional(),
-      glob: z.string().min(1).max(MAX_PATTERN_LENGTH).optional(),
-      maxResults: z.number().int().min(1).max(MAX_SEARCH_RESULTS).optional(),
-      caseSensitive: z.boolean().optional(),
-    }),
+    parameters: GREP_TOOL_INPUT_SCHEMA,
     route: { toolName: "grep", plugin: "internal", action: "grep" },
   },
 };
@@ -143,4 +170,18 @@ export function enforceGoldenFlowToolFloor(
     }
   }
   return constrained;
+}
+
+export function validateGoldenFlowToolInput<T extends GoldenFlowToolName>(
+  toolName: T,
+  input: unknown,
+): GoldenFlowToolInputByName[T] {
+  const parsed = GOLDEN_FLOW_TOOL_SPECS[toolName].parameters.safeParse(input);
+  if (!parsed.success) {
+    const details = parsed.error.issues
+      .map((issue) => `${issue.path.join(".") || "input"}: ${issue.message}`)
+      .join("; ");
+    throw new Error(`Invalid ${toolName} input. ${details}`);
+  }
+  return parsed.data as GoldenFlowToolInputByName[T];
 }
