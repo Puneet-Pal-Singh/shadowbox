@@ -2,7 +2,7 @@ import {
   RoutingDetector,
   type RoutingDecision,
   type RoutingIntent,
-} from "../../../../../packages/execution-engine/src/runtime/lib/RoutingDetector.js";
+} from "@shadowbox/execution-engine/runtime";
 
 export type ChatIntent = RoutingIntent;
 export type ChatRoutingDecision = RoutingDecision;
