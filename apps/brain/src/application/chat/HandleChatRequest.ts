@@ -176,6 +176,7 @@ export class HandleChatRequest {
           authMode: runtimeSelections.authMode,
           metadata: {
             featureFlags: {
+              agenticLoopV1: this.isAgenticLoopEnabled(),
               reviewerPassV1: this.isReviewerPassEnabled(),
             },
           },
@@ -226,6 +227,11 @@ export class HandleChatRequest {
 
   private isReviewerPassEnabled(): boolean {
     const raw = this.env.FEATURE_FLAG_CHAT_REVIEWER_PASS_V1;
+    return raw === "1" || raw === "true";
+  }
+
+  private isAgenticLoopEnabled(): boolean {
+    const raw = this.env.FEATURE_FLAG_CHAT_AGENTIC_LOOP_V1;
     return raw === "1" || raw === "true";
   }
 }

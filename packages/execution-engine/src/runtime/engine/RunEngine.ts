@@ -19,8 +19,9 @@ import {
   type CostSnapshot,
 } from "../cost/index.js";
 import { PlannerService } from "../planner/index.js";
-import { TaskScheduler } from "../orchestration/index.js";
+import { TaskScheduler, type TaskExecutor } from "../orchestration/index.js";
 import { DefaultTaskExecutor, AgentTaskExecutor } from "./TaskExecutor.js";
+import { AgenticLoop, type AgenticLoopResult } from "./AgenticLoop.js";
 import type {
   RunInput,
   RunStatus,
@@ -86,6 +87,30 @@ const ReviewerDecisionSchema = z.object({
 });
 
 type ReviewerDecision = z.infer<typeof ReviewerDecisionSchema>;
+const AGENTIC_LOOP_DEFAULT_MAX_STEPS = 6;
+const AGENTIC_TOOL_SCHEMA = {
+  analyze: z.object({
+    path: z.string().min(1).max(500),
+  }),
+  edit: z.object({
+    path: z.string().min(1).max(500),
+    content: z.string().min(1),
+  }),
+  test: z.object({
+    command: z.string().min(1).max(500),
+  }),
+  shell: z.object({
+    command: z.string().min(1).max(500),
+  }),
+  git: z.object({
+    action: z.string().min(1).max(120),
+    message: z.string().max(500).optional(),
+  }),
+  review: z.object({
+    notes: z.string().max(2000).optional(),
+  }),
+} as const;
+
 export interface IRunEngine {
   execute(
     input: RunInput,
@@ -135,6 +160,7 @@ export class RunEngine implements IRunEngine {
   private budgetManager: IBudgetManager & BudgetPolicy;
   private planner: PlannerService;
   private scheduler: TaskScheduler;
+  private taskExecutor: TaskExecutor;
   private aiService?: LLMRuntimeAIService;
   private llmGateway: ILLMGateway;
   private agent?: IAgent;
@@ -220,7 +246,7 @@ export class RunEngine implements IRunEngine {
     }
 
     // Use AgentTaskExecutor when agent is provided, otherwise use DefaultTaskExecutor in test mode
-    const taskExecutor = agent
+    this.taskExecutor = agent
       ? new AgentTaskExecutor(
           agent,
           options.runId,
@@ -230,7 +256,7 @@ export class RunEngine implements IRunEngine {
         )
       : new DefaultTaskExecutor();
     this.scheduler =
-      dependencies.scheduler ?? new TaskScheduler(this.taskRepo, taskExecutor);
+      dependencies.scheduler ?? new TaskScheduler(this.taskRepo, this.taskExecutor);
 
     if (dependencies.memoryCoordinator) {
       this.memoryCoordinator = dependencies.memoryCoordinator;
@@ -252,7 +278,7 @@ export class RunEngine implements IRunEngine {
   async execute(
     input: RunInput,
     messages: CoreMessage[],
-    _tools: Record<string, CoreTool>,
+    tools: Record<string, CoreTool>,
   ): Promise<Response> {
     const { runId, sessionId } = this.options;
     try {
@@ -350,6 +376,19 @@ export class RunEngine implements IRunEngine {
           `[run/engine] Workspace bootstrap blocked action planning for run ${runId}`,
         );
         return await this.completeRunWithAssistantMessage(run, bootstrapMessage);
+      }
+
+      const agenticLoopTools = this.resolveAgenticLoopTools(
+        run.input.metadata,
+        tools,
+      );
+      if (agenticLoopTools) {
+        return await this.executeAgenticLoopPath(
+          run,
+          input,
+          messages,
+          agenticLoopTools,
+        );
       }
 
       console.log(`[run/engine] Planning phase for run ${runId}`);
@@ -495,6 +534,157 @@ export class RunEngine implements IRunEngine {
       await this.handleExecutionError(runId, error);
       throw error;
     }
+  }
+
+  private async executeAgenticLoopPath(
+    run: Run,
+    input: RunInput,
+    messages: CoreMessage[],
+    tools: Record<string, CoreTool>,
+  ): Promise<Response> {
+    console.log(`[run/engine] Agentic loop execution active for run ${run.id}`);
+    run.transition("RUNNING");
+    recordPhaseSelectionSnapshot(run, "execution");
+    recordLifecycleStep(run, "TASK_EXECUTING", "agentic_loop");
+    await this.runRepo.update(run);
+
+    const loop = new AgenticLoop(
+      {
+        maxSteps: this.getAgenticLoopMaxSteps(run.input.metadata),
+        runId: run.id,
+        sessionId: run.sessionId,
+        budget: this.budgetManager,
+      },
+      this.llmGateway,
+      this.taskExecutor,
+    );
+    const loopResult = await loop.execute(messages, tools, {
+      agentType: run.agentType,
+      modelId: input.modelId,
+      providerId: input.providerId,
+      temperature: 0.2,
+    });
+
+    this.recordAgenticLoopMetadata(run, loopResult);
+    const loopOutput = this.buildAgenticLoopFinalOutput(loopResult);
+    const finalOutput = await this.applyReviewerPassIfEnabled(
+      run,
+      input.prompt,
+      sanitizeUserFacingOutput(loopOutput),
+    );
+    return this.completeRunWithAssistantMessage(run, finalOutput);
+  }
+
+  private resolveAgenticLoopTools(
+    metadata: Record<string, unknown> | undefined,
+    incomingTools: Record<string, CoreTool>,
+  ): Record<string, CoreTool> | null {
+    if (!this.isAgenticLoopEnabled(metadata)) {
+      return null;
+    }
+    if (Object.keys(incomingTools).length > 0) {
+      return incomingTools;
+    }
+    return this.buildDefaultAgenticLoopTools();
+  }
+
+  private buildDefaultAgenticLoopTools(): Record<string, CoreTool> {
+    return {
+      analyze: {
+        description: "Read and inspect an existing file path.",
+        parameters: AGENTIC_TOOL_SCHEMA.analyze,
+      } as unknown as CoreTool,
+      edit: {
+        description: "Write content to a file path.",
+        parameters: AGENTIC_TOOL_SCHEMA.edit,
+      } as unknown as CoreTool,
+      test: {
+        description: "Run a test command.",
+        parameters: AGENTIC_TOOL_SCHEMA.test,
+      } as unknown as CoreTool,
+      shell: {
+        description: "Run a non-git shell command.",
+        parameters: AGENTIC_TOOL_SCHEMA.shell,
+      } as unknown as CoreTool,
+      git: {
+        description: "Execute a structured git action.",
+        parameters: AGENTIC_TOOL_SCHEMA.git,
+      } as unknown as CoreTool,
+      review: {
+        description: "Run a focused review step.",
+        parameters: AGENTIC_TOOL_SCHEMA.review,
+      } as unknown as CoreTool,
+    };
+  }
+
+  private buildAgenticLoopFinalOutput(result: AgenticLoopResult): string {
+    const assistantText = this.getLastAssistantText(result.messages);
+    if (assistantText) {
+      return assistantText;
+    }
+
+    return [
+      "Agentic loop completed without assistant synthesis output.",
+      `Stop reason: ${result.stopReason}`,
+      `Steps executed: ${result.stepsExecuted}`,
+      `Tools executed: ${result.toolExecutionCount}`,
+      `Failed tools: ${result.failedToolCount}`,
+    ].join("\n");
+  }
+
+  private getLastAssistantText(messages: CoreMessage[]): string | null {
+    for (let index = messages.length - 1; index >= 0; index--) {
+      const message = messages[index];
+      if (!message || message.role !== "assistant") {
+        continue;
+      }
+      if (typeof message.content === "string" && message.content.trim()) {
+        return message.content;
+      }
+    }
+    return null;
+  }
+
+  private recordAgenticLoopMetadata(run: Run, result: AgenticLoopResult): void {
+    run.metadata.agenticLoop = {
+      enabled: true,
+      stopReason: result.stopReason,
+      stepsExecuted: result.stepsExecuted,
+      toolExecutionCount: result.toolExecutionCount,
+      failedToolCount: result.failedToolCount,
+      completedAt: new Date().toISOString(),
+    };
+  }
+
+  private getAgenticLoopMaxSteps(metadata?: Record<string, unknown>): number {
+    const featureFlags = metadata?.featureFlags;
+    if (typeof featureFlags !== "object" || featureFlags === null) {
+      return AGENTIC_LOOP_DEFAULT_MAX_STEPS;
+    }
+    const raw = (featureFlags as Record<string, unknown>).agenticLoopMaxSteps;
+    if (typeof raw === "number" && Number.isInteger(raw) && raw > 0 && raw <= 20) {
+      return raw;
+    }
+    return AGENTIC_LOOP_DEFAULT_MAX_STEPS;
+  }
+
+  private isAgenticLoopEnabled(metadata?: Record<string, unknown>): boolean {
+    if (!metadata) {
+      return false;
+    }
+
+    const directFlag = metadata.agenticLoopV1;
+    if (typeof directFlag === "boolean") {
+      return directFlag;
+    }
+
+    const featureFlags = metadata.featureFlags;
+    if (typeof featureFlags !== "object" || featureFlags === null) {
+      return false;
+    }
+
+    const nestedFlag = (featureFlags as Record<string, unknown>).agenticLoopV1;
+    return typeof nestedFlag === "boolean" ? nestedFlag : false;
   }
 
   private async persistConversationMessages(

@@ -61,6 +61,7 @@ describe("HandleChatRequest", () => {
     expect(result.executionPayload.input.authMode).toBe("api_key");
     expect(result.executionPayload.input.metadata).toEqual({
       featureFlags: {
+        agenticLoopV1: false,
         reviewerPassV1: false,
       },
     });
