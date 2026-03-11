@@ -53,4 +53,17 @@ describe("brain cors policy", () => {
       "http://localhost:5173",
     );
   });
+
+  it("allows localhost origin by default when Brain request host is localhost", () => {
+    const request = new Request("http://localhost:8788/chat", {
+      headers: { Origin: "http://localhost:5173" },
+    });
+
+    const headers = getCorsHeaders(request, {
+      CORS_ALLOWED_ORIGINS: "https://app.shadowbox.dev",
+    });
+    expect(headers["Access-Control-Allow-Origin"]).toBe(
+      "http://localhost:5173",
+    );
+  });
 });
