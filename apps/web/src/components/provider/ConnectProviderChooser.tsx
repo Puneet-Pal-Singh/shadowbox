@@ -56,7 +56,7 @@ export function ConnectProviderChooser({
       .filter((entry) => entry.authModes.includes("api_key"))
       .map((entry) => ({
         entry,
-        displayName: entry.providerId === "axis" ? "Axis (Free)" : entry.displayName,
+        displayName: entry.displayName,
       }));
   }, [catalog]);
 

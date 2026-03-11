@@ -56,6 +56,19 @@ describe("ConnectProviderChooser", () => {
       },
       modelSource: "remote",
     },
+    {
+      providerId: "axis",
+      displayName: "Axis",
+      authModes: ["platform_managed"],
+      adapterFamily: "openai-compatible",
+      capabilities: {
+        streaming: true,
+        tools: true,
+        jsonMode: true,
+        structuredOutputs: true,
+      },
+      modelSource: "static",
+    },
   ];
 
   const mockHandlers = {
@@ -74,6 +87,7 @@ describe("ConnectProviderChooser", () => {
     expect(screen.getByText("OpenAI")).toBeInTheDocument();
     expect(screen.getByText("Anthropic")).toBeInTheDocument();
     expect(screen.getByText("Groq")).toBeInTheDocument();
+    expect(screen.queryByText("Axis")).not.toBeInTheDocument();
   });
 
   it("filters providers by query", () => {
