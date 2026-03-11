@@ -1,5 +1,5 @@
 import type { DurableObjectState as LegacyDurableObjectState } from "@cloudflare/workers-types";
-import type { CoreMessage } from "ai";
+import type { CoreMessage, CoreTool } from "ai";
 import { z } from "zod";
 import { DurableObject } from "cloudflare:workers";
 import { RunEngine } from "@shadowbox/execution-engine/runtime/engine";
@@ -253,11 +253,12 @@ export class RunEngineRuntime extends DurableObject {
           runEngineDeps,
         );
 
+        const runtimeTools = toRuntimeCoreTools(payload.tools);
         // Messages validated by zod schema in parser, cast to CoreMessage[] for type safety
         return runEngine.execute(
           payload.input,
           payload.messages as CoreMessage[],
-          {},
+          runtimeTools,
         );
       });
     } catch (error: unknown) {
@@ -582,4 +583,20 @@ export class RunEngineRuntime extends DurableObject {
       release();
     }
   }
+}
+
+function toRuntimeCoreTools(
+  tools: ExecuteRunPayload["tools"],
+): Record<string, CoreTool> {
+  if (!tools) {
+    return {};
+  }
+
+  const runtimeTools: Record<string, CoreTool> = {};
+  for (const [toolName, definition] of Object.entries(tools)) {
+    runtimeTools[toolName] = {
+      ...definition,
+    } as CoreTool;
+  }
+  return runtimeTools;
 }

@@ -26,6 +26,12 @@ export interface ExecutionScope {
   workspaceId?: string;
 }
 
+export interface SerializableToolDefinition {
+  description?: string;
+  inputSchema?: unknown;
+  parameters?: unknown;
+}
+
 export interface RunEngineExecutionPayload {
   runId: string;
   userId?: string;
@@ -47,6 +53,7 @@ export interface RunEngineExecutionPayload {
     repositoryContext?: RepositoryContext;
   };
   messages: CoreMessage[];
+  tools?: Record<string, SerializableToolDefinition>;
 }
 
 export function extractPromptFromMessages(

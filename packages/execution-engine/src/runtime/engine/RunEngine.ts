@@ -19,7 +19,7 @@ import {
   type CostSnapshot,
 } from "../cost/index.js";
 import { PlannerService } from "../planner/index.js";
-import { TaskScheduler } from "../orchestration/index.js";
+import { TaskScheduler, type TaskExecutor } from "../orchestration/index.js";
 import { DefaultTaskExecutor, AgentTaskExecutor } from "./TaskExecutor.js";
 import type {
   RunInput,
@@ -78,6 +78,7 @@ import {
   recordPhaseSelectionSnapshot,
 } from "./RunMetadataPolicy.js";
 import { resetRecyclableRun } from "./RunRecyclableResetPolicy.js";
+import { AgenticLoop, type StopReason as AgenticLoopStopReason } from "./AgenticLoop.js";
 
 const ReviewerDecisionSchema = z.object({
   verdict: z.enum(["accept", "request_changes", "fail"]),
@@ -86,6 +87,7 @@ const ReviewerDecisionSchema = z.object({
 });
 
 type ReviewerDecision = z.infer<typeof ReviewerDecisionSchema>;
+const DEFAULT_AGENTIC_LOOP_MAX_STEPS = 8;
 export interface IRunEngine {
   execute(
     input: RunInput,
@@ -109,6 +111,7 @@ export interface RunEngineEnv {
   MAX_SESSION_BUDGET?: string;
   NODE_ENV?: string;
   ALLOW_DEFAULT_EXECUTOR?: string;
+  FEATURE_FLAG_CHAT_AGENTIC_LOOP_V1?: string;
 }
 
 export interface RunEngineDependencies {
@@ -135,6 +138,7 @@ export class RunEngine implements IRunEngine {
   private budgetManager: IBudgetManager & BudgetPolicy;
   private planner: PlannerService;
   private scheduler: TaskScheduler;
+  private taskExecutor: TaskExecutor;
   private aiService?: LLMRuntimeAIService;
   private llmGateway: ILLMGateway;
   private agent?: IAgent;
@@ -220,7 +224,7 @@ export class RunEngine implements IRunEngine {
     }
 
     // Use AgentTaskExecutor when agent is provided, otherwise use DefaultTaskExecutor in test mode
-    const taskExecutor = agent
+    this.taskExecutor = agent
       ? new AgentTaskExecutor(
           agent,
           options.runId,
@@ -230,7 +234,7 @@ export class RunEngine implements IRunEngine {
         )
       : new DefaultTaskExecutor();
     this.scheduler =
-      dependencies.scheduler ?? new TaskScheduler(this.taskRepo, taskExecutor);
+      dependencies.scheduler ?? new TaskScheduler(this.taskRepo, this.taskExecutor);
 
     if (dependencies.memoryCoordinator) {
       this.memoryCoordinator = dependencies.memoryCoordinator;
@@ -252,7 +256,7 @@ export class RunEngine implements IRunEngine {
   async execute(
     input: RunInput,
     messages: CoreMessage[],
-    _tools: Record<string, CoreTool>,
+    tools: Record<string, CoreTool>,
   ): Promise<Response> {
     const { runId, sessionId } = this.options;
     try {
@@ -305,196 +309,345 @@ export class RunEngine implements IRunEngine {
         return await this.executeConversationalTurn(run, input, messages);
       }
 
-      const clarificationMessage = getActionClarificationMessage(
-        input.prompt,
-        input.repositoryContext,
-      );
-      if (clarificationMessage) {
-        console.log(
-          `[run/engine] Clarification required before action planning for run ${runId}`,
-        );
-        return await this.completeRunWithAssistantMessage(
-          run,
-          clarificationMessage,
-        );
-      }
-
-      if (isPlatformApprovalOwner(run.metadata.manifest)) {
-        const permissionMessage = await this.getPermissionPolicyMessage(
-          input.prompt,
-          input.repositoryContext,
-        );
-        if (permissionMessage) {
-          recordLifecycleStep(
-            run,
-            "APPROVAL_WAIT",
-            "platform approval required",
-          );
-          console.log(
-            `[run/engine] Permission check blocked action planning for run ${runId}`,
-          );
-          return await this.completeRunWithAssistantMessage(run, permissionMessage);
-        }
-      } else {
-        console.log(
-          `[run/engine] Delegated harness mode active; skipping platform approval gates for run ${runId}`,
-        );
-      }
-
-      const bootstrapMessage = await this.getWorkspaceBootstrapMessage(
-        run.id,
-        input.repositoryContext,
-      );
-      if (bootstrapMessage) {
-        console.log(
-          `[run/engine] Workspace bootstrap blocked action planning for run ${runId}`,
-        );
-        return await this.completeRunWithAssistantMessage(run, bootstrapMessage);
-      }
-
-      console.log(`[run/engine] Planning phase for run ${runId}`);
-      try {
-        run.transition("PLANNING");
-        recordPhaseSelectionSnapshot(run, "planning");
-        await this.runRepo.update(run);
-
-        const plan = await this.generatePlan(
-          run,
-          input.prompt,
-          this.currentMemoryContext,
-        );
-        await this.createTasksFromPlan(run.id, plan);
-        recordLifecycleStep(run, "PLAN_VALIDATED");
-
-        await this.safeMemoryOperation(() =>
-          this.memoryCoordinator.createCheckpoint({
-            runId,
-            sequence: 1,
-            phase: "planning",
-            runStatus: run.status,
-            taskStatuses: {},
-          }),
-        );
-      } catch (planError) {
-        transitionRunToFailed(run, runId);
-        run.metadata.error =
-          planError instanceof Error
-            ? planError.message
-            : "Planning phase failed";
-        await this.runRepo.update(run);
-        throw planError;
-      }
-
-      console.log(`[run/engine] Execution phase for run ${runId}`);
-      run.transition("RUNNING");
-      recordPhaseSelectionSnapshot(run, "execution");
-      recordLifecycleStep(run, "TASK_EXECUTING");
-      await this.runRepo.update(run);
-
-      const taskResults: Array<{ taskId: string; content: string }> = [];
-
-      await this.scheduler.execute(run.id, {
-        beforeTask: async (task) => {
-          console.log(
-            `[task/scheduler] beforeTask run=${run.id} task=${task.id} phase=task`,
-          );
-        },
-        afterTask: async (task, result) => {
-          console.log(
-            `[task/scheduler] afterTask run=${run.id} task=${task.id} status=${result.status}`,
-          );
-          if (result.output?.content) {
-            taskResults.push({
-              taskId: task.id,
-              content: result.output.content,
-            });
-          }
-        },
-        onTaskError: async (task, error) => {
-          console.error(`[task/scheduler] onTaskError task=${task.id}`, error);
-        },
-      });
-
-      for (const { taskId, content } of taskResults) {
-        await this.safeMemoryOperation(() =>
-          this.memoryCoordinator.extractAndPersist({
-            runId,
-            sessionId,
-            taskId,
-            source: "task",
-            content,
-            phase: "execution",
-          }),
-        );
-      }
-
-      const allTasks = await this.taskRepo.getByRun(runId);
-      const finalRunStatus = determineRunStatusFromTasks(allTasks);
-      await this.safeMemoryOperation(() =>
-        this.memoryCoordinator.createCheckpoint({
-          runId,
-          sequence: 2,
-          phase: "execution",
-          runStatus: run.status,
-          taskStatuses: Object.fromEntries(
-            allTasks.map((t) => [t.id, t.status]),
-          ),
-        }),
-      );
-
-      console.log(`[run/engine] Synthesis phase for run ${runId}`);
-      recordPhaseSelectionSnapshot(run, "synthesis");
-      recordLifecycleStep(run, "SYNTHESIS");
-      const finalOutputRaw = await this.generateSynthesis(
-        run,
-        input.prompt,
-        this.currentMemoryContext,
-      );
-      const finalOutput = await this.applyReviewerPassIfEnabled(
-        run,
-        input.prompt,
-        sanitizeUserFacingOutput(finalOutputRaw),
-      );
-
-      await this.safeMemoryOperation(() =>
-        this.memoryCoordinator.extractAndPersist({
-          runId,
-          sessionId,
-          source: "synthesis",
-          content: finalOutput,
-          phase: "synthesis",
-        }),
-      );
-
-      await this.safeMemoryOperation(() =>
-        this.memoryCoordinator.createCheckpoint({
-          runId,
-          sequence: 3,
-          phase: "synthesis",
-          runStatus: finalRunStatus,
-          taskStatuses: {},
-        }),
-      );
-
-      await this.safeMemoryOperation(() =>
-        this.persistConversationMessages(
-          runId,
-          sessionId,
-          [{ role: "assistant", content: finalOutput }],
-          "assistant",
-        ),
-      );
-      applyFinalRunStatus(run, runId, finalRunStatus, allTasks);
-      recordLifecycleStep(run, "TERMINAL", `status=${finalRunStatus}`);
-      recordOrchestrationTerminal(run);
-      run.output = { content: finalOutput };
-      await this.runRepo.update(run);
-      console.log(`[run/engine] Completed run ${runId}`);
-      return this.createStreamResponse(finalOutput);
+      return await this.executeActionRun(run, input, messages, tools);
     } catch (error) {
       await this.handleExecutionError(runId, error);
       throw error;
     }
+  }
+
+  private async executeActionRun(
+    run: Run,
+    input: RunInput,
+    messages: CoreMessage[],
+    tools: Record<string, CoreTool>,
+  ): Promise<Response> {
+    const clarificationMessage = getActionClarificationMessage(
+      input.prompt,
+      input.repositoryContext,
+    );
+    if (clarificationMessage) {
+      console.log(
+        `[run/engine] Clarification required before action planning for run ${run.id}`,
+      );
+      return await this.completeRunWithAssistantMessage(run, clarificationMessage);
+    }
+
+    if (isPlatformApprovalOwner(run.metadata.manifest)) {
+      const permissionMessage = await this.getPermissionPolicyMessage(
+        input.prompt,
+        input.repositoryContext,
+      );
+      if (permissionMessage) {
+        recordLifecycleStep(
+          run,
+          "APPROVAL_WAIT",
+          "platform approval required",
+        );
+        console.log(
+          `[run/engine] Permission check blocked action planning for run ${run.id}`,
+        );
+        return await this.completeRunWithAssistantMessage(run, permissionMessage);
+      }
+    } else {
+      console.log(
+        `[run/engine] Delegated harness mode active; skipping platform approval gates for run ${run.id}`,
+      );
+    }
+
+    const bootstrapMessage = await this.getWorkspaceBootstrapMessage(
+      run.id,
+      input.repositoryContext,
+    );
+    if (bootstrapMessage) {
+      console.log(
+        `[run/engine] Workspace bootstrap blocked action planning for run ${run.id}`,
+      );
+      return await this.completeRunWithAssistantMessage(run, bootstrapMessage);
+    }
+
+    if (this.shouldUseAgenticLoop(input.metadata, tools)) {
+      console.log(
+        `[run/engine] Agentic loop execution path enabled for run ${run.id}`,
+      );
+      return await this.executeAgenticLoopRun(run, input, messages, tools);
+    }
+
+    return this.executePlannedRun(run, input);
+  }
+
+  private async executePlannedRun(run: Run, input: RunInput): Promise<Response> {
+    const runId = run.id;
+    const sessionId = run.sessionId;
+
+    console.log(`[run/engine] Planning phase for run ${runId}`);
+    try {
+      run.transition("PLANNING");
+      recordPhaseSelectionSnapshot(run, "planning");
+      await this.runRepo.update(run);
+
+      const plan = await this.generatePlan(
+        run,
+        input.prompt,
+        this.currentMemoryContext,
+      );
+      await this.createTasksFromPlan(run.id, plan);
+      recordLifecycleStep(run, "PLAN_VALIDATED");
+
+      await this.safeMemoryOperation(() =>
+        this.memoryCoordinator.createCheckpoint({
+          runId,
+          sequence: 1,
+          phase: "planning",
+          runStatus: run.status,
+          taskStatuses: {},
+        }),
+      );
+    } catch (planError) {
+      transitionRunToFailed(run, runId);
+      run.metadata.error =
+        planError instanceof Error
+          ? planError.message
+          : "Planning phase failed";
+      await this.runRepo.update(run);
+      throw planError;
+    }
+
+    console.log(`[run/engine] Execution phase for run ${runId}`);
+    run.transition("RUNNING");
+    recordPhaseSelectionSnapshot(run, "execution");
+    recordLifecycleStep(run, "TASK_EXECUTING");
+    await this.runRepo.update(run);
+
+    const taskResults: Array<{ taskId: string; content: string }> = [];
+
+    await this.scheduler.execute(run.id, {
+      beforeTask: async (task) => {
+        console.log(
+          `[task/scheduler] beforeTask run=${run.id} task=${task.id} phase=task`,
+        );
+      },
+      afterTask: async (task, result) => {
+        console.log(
+          `[task/scheduler] afterTask run=${run.id} task=${task.id} status=${result.status}`,
+        );
+        if (result.output?.content) {
+          taskResults.push({
+            taskId: task.id,
+            content: result.output.content,
+          });
+        }
+      },
+      onTaskError: async (task, error) => {
+        console.error(`[task/scheduler] onTaskError task=${task.id}`, error);
+      },
+    });
+
+    for (const { taskId, content } of taskResults) {
+      await this.safeMemoryOperation(() =>
+        this.memoryCoordinator.extractAndPersist({
+          runId,
+          sessionId,
+          taskId,
+          source: "task",
+          content,
+          phase: "execution",
+        }),
+      );
+    }
+
+    const allTasks = await this.taskRepo.getByRun(runId);
+    const finalRunStatus = determineRunStatusFromTasks(allTasks);
+    await this.safeMemoryOperation(() =>
+      this.memoryCoordinator.createCheckpoint({
+        runId,
+        sequence: 2,
+        phase: "execution",
+        runStatus: run.status,
+        taskStatuses: Object.fromEntries(
+          allTasks.map((task) => [task.id, task.status]),
+        ),
+      }),
+    );
+
+    console.log(`[run/engine] Synthesis phase for run ${runId}`);
+    recordPhaseSelectionSnapshot(run, "synthesis");
+    recordLifecycleStep(run, "SYNTHESIS");
+    const finalOutputRaw = await this.generateSynthesis(
+      run,
+      input.prompt,
+      this.currentMemoryContext,
+    );
+    const finalOutput = await this.applyReviewerPassIfEnabled(
+      run,
+      input.prompt,
+      sanitizeUserFacingOutput(finalOutputRaw),
+    );
+
+    await this.safeMemoryOperation(() =>
+      this.memoryCoordinator.extractAndPersist({
+        runId,
+        sessionId,
+        source: "synthesis",
+        content: finalOutput,
+        phase: "synthesis",
+      }),
+    );
+
+    await this.safeMemoryOperation(() =>
+      this.memoryCoordinator.createCheckpoint({
+        runId,
+        sequence: 3,
+        phase: "synthesis",
+        runStatus: finalRunStatus,
+        taskStatuses: {},
+      }),
+    );
+
+    await this.safeMemoryOperation(() =>
+      this.persistConversationMessages(
+        runId,
+        sessionId,
+        [{ role: "assistant", content: finalOutput }],
+        "assistant",
+      ),
+    );
+    applyFinalRunStatus(run, runId, finalRunStatus, allTasks);
+    recordLifecycleStep(run, "TERMINAL", `status=${finalRunStatus}`);
+    recordOrchestrationTerminal(run);
+    run.output = { content: finalOutput };
+    await this.runRepo.update(run);
+    console.log(`[run/engine] Completed run ${runId}`);
+    return this.createStreamResponse(finalOutput);
+  }
+
+  private async executeAgenticLoopRun(
+    run: Run,
+    input: RunInput,
+    messages: CoreMessage[],
+    tools: Record<string, CoreTool>,
+  ): Promise<Response> {
+    const runId = run.id;
+    const sessionId = run.sessionId;
+
+    run.transition("RUNNING");
+    recordPhaseSelectionSnapshot(run, "planning");
+    recordLifecycleStep(run, "PLAN_VALIDATED", "agentic-loop");
+    recordPhaseSelectionSnapshot(run, "execution");
+    recordLifecycleStep(run, "TASK_EXECUTING", "agentic-loop");
+    await this.runRepo.update(run);
+
+    await this.safeMemoryOperation(() =>
+      this.memoryCoordinator.createCheckpoint({
+        runId,
+        sequence: 1,
+        phase: "planning",
+        runStatus: run.status,
+        taskStatuses: {},
+      }),
+    );
+
+    const loop = new AgenticLoop(
+      {
+        maxSteps: this.getAgenticLoopMaxSteps(run.input.metadata),
+        runId,
+        sessionId,
+        budget: this.budgetManager,
+      },
+      this.llmGateway,
+      this.taskExecutor,
+    );
+    const loopResult = await loop.execute(messages, tools, {
+      agentType: run.agentType,
+      modelId: run.input.modelId,
+      providerId: run.input.providerId,
+      temperature: 0.3,
+    });
+
+    if (this.getAgenticLoopTerminalStatus(loopResult.stopReason) === "FAILED") {
+      throw new RunEngineError(
+        `Agentic loop failed for run ${runId} with stop reason ${loopResult.stopReason}`,
+      );
+    }
+
+    await this.safeMemoryOperation(() =>
+      this.memoryCoordinator.createCheckpoint({
+        runId,
+        sequence: 2,
+        phase: "execution",
+        runStatus: run.status,
+        taskStatuses: {},
+      }),
+    );
+
+    console.log(`[run/engine] Synthesis phase for run ${runId}`);
+    recordPhaseSelectionSnapshot(run, "synthesis");
+    recordLifecycleStep(run, "SYNTHESIS");
+    const finalOutputRaw = this.extractAgenticLoopOutput(loopResult);
+    const finalOutput = await this.applyReviewerPassIfEnabled(
+      run,
+      input.prompt,
+      sanitizeUserFacingOutput(finalOutputRaw),
+    );
+
+    await this.safeMemoryOperation(() =>
+      this.memoryCoordinator.extractAndPersist({
+        runId,
+        sessionId,
+        source: "synthesis",
+        content: finalOutput,
+        phase: "synthesis",
+      }),
+    );
+
+    await this.safeMemoryOperation(() =>
+      this.memoryCoordinator.createCheckpoint({
+        runId,
+        sequence: 3,
+        phase: "synthesis",
+        runStatus: "COMPLETED",
+        taskStatuses: {},
+      }),
+    );
+
+    await this.safeMemoryOperation(() =>
+      this.persistConversationMessages(
+        runId,
+        sessionId,
+        [{ role: "assistant", content: finalOutput }],
+        "assistant",
+      ),
+    );
+    transitionRunToCompleted(run, runId);
+    recordLifecycleStep(run, "TERMINAL", "status=COMPLETED");
+    recordOrchestrationTerminal(run);
+    run.output = { content: finalOutput };
+    await this.runRepo.update(run);
+    console.log(`[run/engine] Completed run ${runId}`);
+    return this.createStreamResponse(finalOutput);
+  }
+
+  private extractAgenticLoopOutput(result: {
+    stopReason: AgenticLoopStopReason;
+    messages: CoreMessage[];
+  }): string {
+    const assistantMessage = [...result.messages]
+      .reverse()
+      .find(
+        (message) =>
+          message.role === "assistant" && typeof message.content === "string",
+      );
+
+    const assistantText =
+      typeof assistantMessage?.content === "string"
+        ? assistantMessage.content
+        : "I completed the tool-chaining loop but could not produce a text response.";
+
+    if (result.stopReason === "max_steps_reached") {
+      return `${assistantText}\n\nI reached the configured tool-chaining step limit before receiving an explicit final stop.`;
+    }
+
+    return assistantText;
   }
 
   private async persistConversationMessages(
@@ -961,6 +1114,58 @@ If any task failed or was cancelled, clearly say so and do not claim full comple
       "Reviewer Issues:",
       issueLines,
     ].join("\n");
+  }
+
+  private shouldUseAgenticLoop(
+    metadata: Record<string, unknown> | undefined,
+    tools: Record<string, CoreTool>,
+  ): boolean {
+    return this.isAgenticLoopEnabled(metadata) && Object.keys(tools).length > 0;
+  }
+
+  private isAgenticLoopEnabled(
+    metadata: Record<string, unknown> | undefined,
+  ): boolean {
+    if (metadata) {
+      const directFlag = metadata.agenticLoopV1;
+      if (typeof directFlag === "boolean") {
+        return directFlag;
+      }
+
+      const featureFlags = metadata.featureFlags;
+      if (typeof featureFlags === "object" && featureFlags !== null) {
+        const nestedFlag = (featureFlags as Record<string, unknown>).agenticLoopV1;
+        if (typeof nestedFlag === "boolean") {
+          return nestedFlag;
+        }
+      }
+    }
+
+    const envFlag = this.options.env.FEATURE_FLAG_CHAT_AGENTIC_LOOP_V1;
+    return envFlag === "1" || envFlag === "true";
+  }
+
+  private getAgenticLoopMaxSteps(
+    metadata: Record<string, unknown> | undefined,
+  ): number {
+    const stepCandidate = metadata?.agenticLoopMaxSteps;
+    if (typeof stepCandidate === "number" && Number.isInteger(stepCandidate)) {
+      return Math.max(1, stepCandidate);
+    }
+    return DEFAULT_AGENTIC_LOOP_MAX_STEPS;
+  }
+
+  private getAgenticLoopTerminalStatus(
+    stopReason: AgenticLoopStopReason,
+  ): RunStatus {
+    if (
+      stopReason === "tool_error" ||
+      stopReason === "budget_exceeded" ||
+      stopReason === "cancelled"
+    ) {
+      return "FAILED";
+    }
+    return "COMPLETED";
   }
 
   private isReviewerPassEnabled(metadata?: Record<string, unknown>): boolean {

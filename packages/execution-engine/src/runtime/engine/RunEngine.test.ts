@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import type { CoreTool } from "ai";
 import { RunEngine, type RunEngineDependencies } from "./RunEngine.js";
 import {
   buildConversationalSystemPrompt,
@@ -118,6 +119,150 @@ describe("RunEngine", () => {
     };
     expect(req.tools).toBeUndefined();
     expect(req.system).toContain("conversational chat mode");
+  });
+
+  it("routes action execution through AgenticLoop when enabled and tools are provided", async () => {
+    const generateText = vi
+      .fn()
+      .mockResolvedValueOnce({
+        text: "Calling run_command",
+        toolCalls: [
+          {
+            id: "tool-call-1",
+            toolName: "run_command",
+            args: { command: "echo loop" },
+          },
+        ],
+        usage: {
+          provider: "mock",
+          model: "mock-model",
+          promptTokens: 2,
+          completionTokens: 2,
+          totalTokens: 4,
+        },
+      })
+      .mockResolvedValueOnce({
+        text: "Loop finished successfully",
+        toolCalls: [],
+        usage: {
+          provider: "mock",
+          model: "mock-model",
+          promptTokens: 2,
+          completionTokens: 2,
+          totalTokens: 4,
+        },
+      });
+    const generateStructured = vi.fn(async () => ({
+      object: { tasks: [], metadata: { estimatedSteps: 1 } },
+      usage: {
+        provider: "mock",
+        model: "mock-model",
+        promptTokens: 1,
+        completionTokens: 1,
+        totalTokens: 2,
+      },
+    }));
+
+    const runEngine = createRunEngine({
+      llmGateway: {
+        generateText,
+        generateStructured,
+        generateStream: async () =>
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.close();
+            },
+          }),
+      },
+    });
+
+    const response = await runEngine.execute(
+      {
+        agentType: "coding",
+        prompt: "implement this by running a tool",
+        sessionId: "session-1",
+        metadata: {
+          featureFlags: {
+            agenticLoopV1: true,
+          },
+        },
+      },
+      [{ role: "user", content: "implement this by running a tool" }],
+      {
+        run_command: {
+          description: "Run command",
+        } as CoreTool,
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain("Loop finished successfully");
+    expect(generateText).toHaveBeenCalledTimes(2);
+    expect(generateStructured).not.toHaveBeenCalled();
+  });
+
+  it("keeps planner path when agentic loop flag is disabled", async () => {
+    const generateText = vi.fn(async () => ({
+      text: "Execution complete",
+      usage: {
+        provider: "mock",
+        model: "mock-model",
+        promptTokens: 1,
+        completionTokens: 1,
+        totalTokens: 2,
+      },
+    }));
+    const generateStructured = vi.fn(async () => ({
+      object: {
+        tasks: [
+          {
+            id: "task-1",
+            type: "shell",
+            description: "Do one step",
+            dependsOn: [],
+            input: { command: "echo planner" },
+          },
+        ],
+        metadata: { estimatedSteps: 1 },
+      },
+      usage: {
+        provider: "mock",
+        model: "mock-model",
+        promptTokens: 1,
+        completionTokens: 1,
+        totalTokens: 2,
+      },
+    }));
+
+    const runEngine = createRunEngine({
+      llmGateway: {
+        generateText,
+        generateStructured,
+        generateStream: async () =>
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.close();
+            },
+          }),
+      },
+    });
+
+    const response = await runEngine.execute(
+      {
+        agentType: "coding",
+        prompt: "implement a tiny command task",
+        sessionId: "session-1",
+      },
+      [{ role: "user", content: "implement a tiny command task" }],
+      {
+        run_command: {
+          description: "Run command",
+        } as CoreTool,
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect(generateStructured).toHaveBeenCalledTimes(1);
   });
 
   it("sanitizes internal runtime paths in user-facing output", () => {

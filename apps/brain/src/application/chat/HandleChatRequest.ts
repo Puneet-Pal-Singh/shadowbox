@@ -28,6 +28,12 @@ type RuntimeExecutionBackend = "cloudflare_sandbox" | "e2b" | "daytona";
 type RuntimeHarnessMode = "platform_owned" | "delegated";
 type RuntimeAuthMode = "api_key" | "oauth";
 
+interface SerializableToolDefinition {
+  description?: string;
+  inputSchema?: unknown;
+  parameters?: unknown;
+}
+
 export interface HandleChatRequestInput {
   sessionId: string;
   runId: string;
@@ -49,6 +55,7 @@ export interface HandleChatRequestInput {
   repositoryName?: string;
   repositoryBranch?: string;
   repositoryBaseUrl?: string;
+  tools?: Record<string, SerializableToolDefinition>;
 }
 
 export interface HandleChatRequestOutput {
@@ -78,6 +85,7 @@ export interface HandleChatRequestOutput {
       repositoryContext?: RepositoryContext;
     };
     messages: CoreMessage[];
+    tools?: Record<string, SerializableToolDefinition>;
   };
 }
 
@@ -176,6 +184,7 @@ export class HandleChatRequest {
           authMode: runtimeSelections.authMode,
           metadata: {
             featureFlags: {
+              agenticLoopV1: this.isAgenticLoopEnabled(),
               reviewerPassV1: this.isReviewerPassEnabled(),
             },
           },
@@ -191,6 +200,7 @@ export class HandleChatRequest {
               : undefined,
         },
         messages,
+        tools: input.tools,
       };
 
       console.log(
@@ -226,6 +236,11 @@ export class HandleChatRequest {
 
   private isReviewerPassEnabled(): boolean {
     const raw = this.env.FEATURE_FLAG_CHAT_REVIEWER_PASS_V1;
+    return raw === "1" || raw === "true";
+  }
+
+  private isAgenticLoopEnabled(): boolean {
+    const raw = this.env.FEATURE_FLAG_CHAT_AGENTIC_LOOP_V1;
     return raw === "1" || raw === "true";
   }
 }

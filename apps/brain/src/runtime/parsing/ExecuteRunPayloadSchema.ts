@@ -122,6 +122,15 @@ export const ExecuteRunPayloadSchema = z.object({
       }
     }),
   messages: z.array(CoreMessageSchema).min(1),
+  tools: z
+    .record(
+      z.object({
+        description: z.string().optional(),
+        inputSchema: z.unknown().optional(),
+        parameters: z.unknown().optional(),
+      }),
+    )
+    .optional(),
 });
 
 /**

@@ -61,6 +61,7 @@ describe("HandleChatRequest", () => {
     expect(result.executionPayload.input.authMode).toBe("api_key");
     expect(result.executionPayload.input.metadata).toEqual({
       featureFlags: {
+        agenticLoopV1: false,
         reviewerPassV1: false,
       },
     });
@@ -102,6 +103,31 @@ describe("HandleChatRequest", () => {
     expect(result.executionPayload.input.executionBackend).toBe("e2b");
     expect(result.executionPayload.input.harnessMode).toBe("delegated");
     expect(result.executionPayload.input.authMode).toBe("oauth");
+  });
+
+  it("passes optional tool definitions into execution payload", async () => {
+    vi.spyOn(PersistenceService.prototype, "persistUserMessage").mockResolvedValue();
+
+    const useCase = new HandleChatRequest(createEnv());
+    const result = await useCase.execute({
+      sessionId: "session-1",
+      runId: "123e4567-e89b-42d3-a456-426614174000",
+      correlationId: "corr-tools",
+      agentType: "coding",
+      prompt: "use tools",
+      messages: [{ role: "user", content: "use tools" }],
+      tools: {
+        run_command: {
+          description: "Run command",
+        },
+      },
+    });
+
+    expect(result.executionPayload.tools).toEqual({
+      run_command: {
+        description: "Run command",
+      },
+    });
   });
 
   it("throws NO_MESSAGES when messages are empty", async () => {

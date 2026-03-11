@@ -145,6 +145,18 @@ describe("ChatIntentDetector - Phase 3: Conversational vs Action", () => {
       ).toBeTruthy();
       expect(ChatIntentDetector.detectIntent("?")).toBeTruthy();
     });
+
+    it("returns canonical routing decision metadata", () => {
+      const conversationalDecision = ChatIntentDetector.analyze("hey");
+      expect(conversationalDecision.intent).toBe("conversational");
+      expect(conversationalDecision.bypass).toBe(true);
+      expect(conversationalDecision.reasonCode.length).toBeGreaterThan(0);
+
+      const actionDecision = ChatIntentDetector.analyze("read README.md");
+      expect(actionDecision.intent).toBe("action");
+      expect(actionDecision.bypass).toBe(false);
+      expect(actionDecision.reasonCode.length).toBeGreaterThan(0);
+    });
   });
 
   describe("Integration examples", () => {
