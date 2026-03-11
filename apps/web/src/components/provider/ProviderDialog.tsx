@@ -621,7 +621,7 @@ function SessionTab({
           <option value="">Select a provider...</option>
           {availableProviders.map((p) => (
             <option key={p.providerId} value={p.providerId}>
-              {p.displayName}
+              {p.providerId === "axis" ? "Axis (Free)" : p.displayName}
             </option>
           ))}
         </select>

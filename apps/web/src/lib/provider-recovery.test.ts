@@ -26,6 +26,19 @@ describe("provider recovery advice", () => {
     expect(advice.remediation).toContain("Switch to another connected provider");
   });
 
+  it("maps axis quota limit errors to provider switch guidance", () => {
+    const advice = getProviderRecoveryAdvice("AXIS_DAILY_LIMIT_EXCEEDED");
+    expect(advice.actionLabel).toBe("Switch Provider");
+  });
+
+  it("maps auth scope persistence issues to re-auth guidance", () => {
+    const advice = getProviderRecoveryAdvice(
+      "Unauthorized: missing or invalid authentication.",
+    );
+    expect(advice.actionLabel).toBe("Re-authenticate");
+    expect(advice.message).toContain("authenticated");
+  });
+
   it("returns default advice for unknown errors", () => {
     const advice = getProviderRecoveryAdvice("Unexpected backend error");
     expect(advice.actionLabel).toBe("Open Provider Settings");

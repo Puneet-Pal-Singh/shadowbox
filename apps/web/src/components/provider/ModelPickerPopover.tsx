@@ -77,6 +77,13 @@ interface ProviderGroup {
   models: ProviderModelOption[];
 }
 
+function formatProviderDisplayName(
+  providerId: string,
+  displayName: string
+): string {
+  return providerId === "axis" ? "Axis (Free)" : displayName;
+}
+
 /**
  * ModelPickerPopover Component
  */
@@ -117,7 +124,7 @@ export function ModelPickerPopover({
     return catalog
       .map((entry) => ({
         providerId: entry.providerId,
-        displayName: entry.displayName,
+        displayName: formatProviderDisplayName(entry.providerId, entry.displayName),
         models: providerModels[entry.providerId] || [],
       }))
       .filter((group) => group.models.length > 0);
@@ -166,7 +173,7 @@ export function ModelPickerPopover({
       return "Select Model";
     }
 
-    return `${provider.displayName}: ${model.name}`;
+    return `${formatProviderDisplayName(provider.providerId, provider.displayName)}: ${model.name}`;
   }, [selectedProviderId, selectedModelId, catalog, providerModels]);
 
   // Handle model selection

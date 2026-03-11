@@ -311,7 +311,8 @@ function deriveStatusCodeFromOperationError(
   if (
     code === "RATE_LIMIT_EXCEEDED" ||
     code === "PROVIDER_RATE_LIMITED" ||
-    code === "QUOTA_EXCEEDED"
+    code === "QUOTA_EXCEEDED" ||
+    code === "AXIS_DAILY_LIMIT_EXCEEDED"
   ) {
     return 429;
   }
