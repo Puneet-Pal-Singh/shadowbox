@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { getBrainHttpBase } from "../lib/platform-endpoints.js";
 
 interface RunSummary {
@@ -13,18 +13,24 @@ interface UseRunSummaryResult {
   summary: RunSummary | null;
 }
 
-const POLL_INTERVAL_MS = 1500;
+const POLL_INTERVAL_MS = 3000;
+const TERMINAL_RUN_STATUSES = new Set(["COMPLETED", "FAILED", "CANCELLED"]);
 
 export function useRunSummary(runId: string, shouldPoll: boolean): UseRunSummaryResult {
   const [summary, setSummary] = useState<RunSummary | null>(null);
+  const inFlightRef = useRef(false);
 
   const fetchSummary = useCallback(async () => {
     if (!runId) {
       setSummary(null);
       return;
     }
+    if (inFlightRef.current) {
+      return;
+    }
 
     try {
+      inFlightRef.current = true;
       const response = await fetch(
         `${getBrainHttpBase()}/api/run/summary?runId=${encodeURIComponent(runId)}`,
       );
@@ -35,6 +41,8 @@ export function useRunSummary(runId: string, shouldPoll: boolean): UseRunSummary
       setSummary(payload);
     } catch {
       // Ignore non-critical summary fetch errors; chat remains functional.
+    } finally {
+      inFlightRef.current = false;
     }
   }, [runId]);
 
@@ -47,14 +55,15 @@ export function useRunSummary(runId: string, shouldPoll: boolean): UseRunSummary
   }, [fetchSummary]);
 
   useEffect(() => {
-    if (!shouldPoll || !runId) {
+    const isTerminal = Boolean(summary?.status && TERMINAL_RUN_STATUSES.has(summary.status));
+    if (!shouldPoll || !runId || isTerminal) {
       return;
     }
     const intervalId = window.setInterval(() => {
       void fetchSummary();
     }, POLL_INTERVAL_MS);
     return () => window.clearInterval(intervalId);
-  }, [fetchSummary, runId, shouldPoll]);
+  }, [fetchSummary, runId, shouldPoll, summary?.status]);
 
   return { summary };
 }

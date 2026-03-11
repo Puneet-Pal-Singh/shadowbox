@@ -364,6 +364,12 @@ function mapKnownChatErrorMessage(
     }
     return "Axis free-tier limit reached. Connect a BYOK provider or retry after reset.";
   }
+  if (payload?.code === "PLAN_SCHEMA_MISMATCH") {
+    return "The model could not build a valid structured plan for this request. Retry with a concrete file path or command, or switch to a stronger model.";
+  }
+  if (payload?.code === "PLAN_GENERATION_TIMEOUT") {
+    return "Planning timed out before executable tasks were generated. Retry with a narrower request.";
+  }
   if (containsMissingDefaultKeyError(message)) {
     return "No explicit provider configuration is available. Connect a provider key in Settings. If you are in private/incognito mode, persistence may be reset.";
   }

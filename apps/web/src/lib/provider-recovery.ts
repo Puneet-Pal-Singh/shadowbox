@@ -58,6 +58,16 @@ export function getProviderRecoveryAdvice(
     };
   }
 
+  if (containsPlanningError(message)) {
+    return {
+      message:
+        "The model failed to produce a valid executable plan for this request.",
+      actionLabel: "Retry with Specific Task",
+      remediation:
+        "Use a concrete file path or command (for example `read README.md` or `run pnpm test`). If this repeats, switch to a model with stronger structured-output support.",
+    };
+  }
+
   return {
     message: message || "Provider setup is required before chat can continue.",
     actionLabel: "Open Provider Settings",
@@ -91,6 +101,16 @@ function containsRateLimitError(message: string): boolean {
     message.includes("RATE_LIMIT") ||
     message.includes("rate limit") ||
     message.includes("Key limit exceeded")
+  );
+}
+
+function containsPlanningError(message: string): boolean {
+  return (
+    message.includes("PLAN_SCHEMA_MISMATCH") ||
+    message.includes("PLAN_GENERATION_TIMEOUT") ||
+    message.includes("did not match schema") ||
+    message.includes("failed to produce a valid structured execution plan") ||
+    message.includes("Planning timed out before executable tasks could be generated")
   );
 }
 

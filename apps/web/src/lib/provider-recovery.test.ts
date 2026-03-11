@@ -31,6 +31,12 @@ describe("provider recovery advice", () => {
     expect(advice.actionLabel).toBe("Switch Provider");
   });
 
+  it("maps planning schema failures to prompt-specific remediation", () => {
+    const advice = getProviderRecoveryAdvice("PLAN_SCHEMA_MISMATCH");
+    expect(advice.actionLabel).toBe("Retry with Specific Task");
+    expect(advice.remediation).toContain("concrete file path or command");
+  });
+
   it("maps auth scope persistence issues to re-auth guidance", () => {
     const advice = getProviderRecoveryAdvice(
       "Unauthorized: missing or invalid authentication.",
