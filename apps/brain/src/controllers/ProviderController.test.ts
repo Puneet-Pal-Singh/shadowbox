@@ -27,8 +27,15 @@ function createMockEnv(options?: { axisConnected?: boolean }): Env {
 
   const catalog: Record<ProviderId, Array<{ id: string; name: string }>> = {
     axis: [
-      { id: "openai/gpt-oss-120b:free", name: "openai/gpt-oss-120b:free" },
       { id: "z-ai/glm-4.5-air:free", name: "z-ai/glm-4.5-air:free" },
+      {
+        id: "nvidia/nemotron-3-nano-30b-a3b:free",
+        name: "nvidia/nemotron-3-nano-30b-a3b:free",
+      },
+      {
+        id: "nvidia/nemotron-3-super-120b-a12b:free",
+        name: "nvidia/nemotron-3-super-120b-a12b:free",
+      },
       {
         id: "arcee-ai/trinity-large-preview:free",
         name: "arcee-ai/trinity-large-preview:free",

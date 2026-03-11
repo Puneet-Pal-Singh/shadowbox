@@ -96,7 +96,7 @@ describe("Provider Capabilities", () => {
     expect(axis).toBeDefined();
     if (axis) {
       expect(axis.authModes).toEqual(["platform_managed"]);
-      expect(axis.defaultModelId).toBe("openai/gpt-oss-120b:free");
+      expect(axis.defaultModelId).toBe("z-ai/glm-4.5-air:free");
     }
   });
 });

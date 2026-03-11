@@ -125,11 +125,12 @@ export class AIService {
     });
     await this.enforceAxisQuota(selection.providerId);
 
-    const overrideApiKey = selection.providerId
-      ? ((await this.providerConfigService?.getApiKey(
-          selection.providerId,
-        )) ?? undefined)
-      : undefined;
+    const overrideApiKey =
+      selection.providerId && selection.providerId !== AXIS_PROVIDER_ID
+        ? ((await this.providerConfigService?.getApiKey(
+            selection.providerId,
+          )) ?? undefined)
+        : undefined;
 
     const sdkModelConfig = getSDKModelConfig(
       selection.model,

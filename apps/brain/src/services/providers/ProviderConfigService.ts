@@ -40,6 +40,7 @@ import { AxisQuotaService, type AxisQuotaStatus } from "./AxisQuotaService";
 import { ProviderModelDiscoveryService } from "./model-discovery";
 import { ProviderRegistryService } from "./ProviderRegistryService";
 import {
+  AXIS_DAILY_LIMIT,
   AXIS_PROVIDER_ID,
   getAxisDiscoveredModels,
 } from "./axis";
@@ -80,7 +81,10 @@ export class ProviderConfigService {
       this.registryService,
     );
     this.auditService = new ProviderAuditService(this.durableStore);
-    this.axisQuotaService = new AxisQuotaService(this.durableStore);
+    this.axisQuotaService = new AxisQuotaService(
+      this.durableStore,
+      resolveAxisDailyLimit(_env.AXIS_DAILY_LIMIT),
+    );
   }
 
   async getCatalog(): Promise<ProviderCatalogResponse> {
@@ -284,4 +288,20 @@ function toErrorMessage(error: unknown): string {
     return error.message;
   }
   return "Unknown error";
+}
+
+function resolveAxisDailyLimit(rawLimit: string | undefined): number {
+  if (!rawLimit) {
+    return AXIS_DAILY_LIMIT;
+  }
+
+  const parsedLimit = Number.parseInt(rawLimit, 10);
+  if (!Number.isFinite(parsedLimit) || parsedLimit < 1) {
+    console.warn(
+      `[provider/axis-quota] Invalid AXIS_DAILY_LIMIT="${rawLimit}". Using default ${AXIS_DAILY_LIMIT}.`,
+    );
+    return AXIS_DAILY_LIMIT;
+  }
+
+  return parsedLimit;
 }

@@ -331,7 +331,7 @@ describe("AIService provider override routing", () => {
     await service.generateText({
       messages: BASE_MESSAGES,
       providerId: "axis",
-      model: "openai/gpt-oss-120b:free",
+      model: "z-ai/glm-4.5-air:free",
     });
 
     expect(consumeAxisQuotaSpy).toHaveBeenCalledTimes(1);
