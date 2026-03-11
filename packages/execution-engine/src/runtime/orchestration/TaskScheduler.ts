@@ -20,6 +20,8 @@ export interface TaskExecutor {
 
 export interface SchedulerConfig {
   concurrencyLimit?: number;
+  enforceReadOnlyParallel?: boolean;
+  readOnlyTaskTypes?: string[];
 }
 
 export interface SchedulerHooks {
@@ -39,6 +41,8 @@ export interface SchedulerHooks {
  */
 export class TaskScheduler implements ITaskScheduler {
   private concurrencyLimit: number;
+  private enforceReadOnlyParallel: boolean;
+  private readOnlyTaskTypes: Set<string>;
 
   constructor(
     private taskRepo: TaskRepository,
@@ -46,6 +50,12 @@ export class TaskScheduler implements ITaskScheduler {
     config: SchedulerConfig = {},
   ) {
     this.concurrencyLimit = config.concurrencyLimit ?? 1;
+    this.enforceReadOnlyParallel = config.enforceReadOnlyParallel ?? true;
+    this.readOnlyTaskTypes = new Set(
+      (config.readOnlyTaskTypes ?? ["analyze", "review"]).map((type) =>
+        type.toLowerCase(),
+      ),
+    );
     if (this.concurrencyLimit < 1) {
       throw new SchedulerError("concurrencyLimit must be >= 1");
     }
@@ -70,8 +80,7 @@ export class TaskScheduler implements ITaskScheduler {
         break;
       }
 
-      // Phase 3C: Execute in parallel batches up to concurrency limit
-      const batch = readyTasks.slice(0, this.concurrencyLimit);
+      const batch = this.selectExecutionBatch(readyTasks);
       console.log(
         `[task/scheduler] Executing batch of ${batch.length} task(s)`,
       );
@@ -112,6 +121,36 @@ export class TaskScheduler implements ITaskScheduler {
 
     // Wait for all tasks to complete (both success and failure)
     await Promise.all(promises);
+  }
+
+  private selectExecutionBatch(readyTasks: Task[]): Task[] {
+    if (readyTasks.length === 0) {
+      return [];
+    }
+
+    if (this.concurrencyLimit === 1 || !this.enforceReadOnlyParallel) {
+      return readyTasks.slice(0, this.concurrencyLimit);
+    }
+
+    const readOnlyTasks = readyTasks.filter((task) =>
+      this.isReadOnlyTask(task.type),
+    );
+    if (readOnlyTasks.length > 0) {
+      console.log(
+        `[task/scheduler] Read-only parallel lane selected (${readOnlyTasks.length} ready)`,
+      );
+      return readOnlyTasks.slice(0, this.concurrencyLimit);
+    }
+
+    const mutatingTask = readyTasks[0];
+    console.log(
+      `[task/scheduler] Mutating lane selected; serializing task ${mutatingTask?.id ?? "unknown"}`,
+    );
+    return mutatingTask ? [mutatingTask] : [];
+  }
+
+  private isReadOnlyTask(taskType: string): boolean {
+    return this.readOnlyTaskTypes.has(taskType.toLowerCase());
   }
 
   private async bestEffortFinalizeRunningTask(
