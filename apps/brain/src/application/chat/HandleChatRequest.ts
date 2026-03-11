@@ -74,6 +74,7 @@ export interface HandleChatRequestOutput {
       executionBackend: RuntimeExecutionBackend;
       harnessMode: RuntimeHarnessMode;
       authMode: RuntimeAuthMode;
+      metadata?: Record<string, unknown>;
       repositoryContext?: RepositoryContext;
     };
     messages: CoreMessage[];
@@ -173,6 +174,11 @@ export class HandleChatRequest {
           executionBackend: runtimeSelections.executionBackend,
           harnessMode: runtimeSelections.harnessMode,
           authMode: runtimeSelections.authMode,
+          metadata: {
+            featureFlags: {
+              reviewerPassV1: this.isReviewerPassEnabled(),
+            },
+          },
           // Phase 4: Include repository context for workspace-aware operations
           repositoryContext:
             repositoryOwner || repositoryName
@@ -216,5 +222,10 @@ export class HandleChatRequest {
       harnessMode: input.harnessMode ?? "platform_owned",
       authMode: input.authMode ?? "api_key",
     };
+  }
+
+  private isReviewerPassEnabled(): boolean {
+    const raw = this.env.FEATURE_FLAG_CHAT_REVIEWER_PASS_V1;
+    return raw === "1" || raw === "true";
   }
 }

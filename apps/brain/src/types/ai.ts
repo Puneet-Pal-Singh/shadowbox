@@ -48,6 +48,7 @@ export interface Env {
   FRONTEND_URL: string;
   CORS_ALLOWED_ORIGINS?: string;
   CORS_ALLOW_DEV_ORIGINS?: "true" | "false";
+  FEATURE_FLAG_CHAT_REVIEWER_PASS_V1?: "true" | "false" | "1" | "0";
 
   // Service URLs (environment-driven, not hardcoded)
   MUSCLE_BASE_URL?: string;

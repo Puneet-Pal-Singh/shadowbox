@@ -22,6 +22,7 @@ export enum FeatureFlagName {
   // Track 2: Event Envelope Streaming
   CHAT_EVENT_STREAM_V1 = "CHAT_EVENT_STREAM_V1",
   CHAT_AGENTIC_LOOP_V1 = "CHAT_AGENTIC_LOOP_V1",
+  CHAT_REVIEWER_PASS_V1 = "CHAT_REVIEWER_PASS_V1",
 }
 
 /**
@@ -71,6 +72,12 @@ const FLAG_DEFINITIONS: Record<FeatureFlagName, FeatureFlagDef> = {
     description: "Enable bounded agentic loop for tool chaining",
     defaultValue: false,
     envVarName: "FEATURE_FLAG_CHAT_AGENTIC_LOOP_V1",
+  },
+  [FeatureFlagName.CHAT_REVIEWER_PASS_V1]: {
+    name: FeatureFlagName.CHAT_REVIEWER_PASS_V1,
+    description: "Enable generator->reviewer pass for synthesis",
+    defaultValue: false,
+    envVarName: "FEATURE_FLAG_CHAT_REVIEWER_PASS_V1",
   },
 };
 

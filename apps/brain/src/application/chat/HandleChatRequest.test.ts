@@ -59,6 +59,11 @@ describe("HandleChatRequest", () => {
     );
     expect(result.executionPayload.input.harnessMode).toBe("platform_owned");
     expect(result.executionPayload.input.authMode).toBe("api_key");
+    expect(result.executionPayload.input.metadata).toEqual({
+      featureFlags: {
+        reviewerPassV1: false,
+      },
+    });
     expect(result.executionPayload.input.repositoryContext).toEqual({
       owner: "sourcegraph",
       repo: "shadowbox",
