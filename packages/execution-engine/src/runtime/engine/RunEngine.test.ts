@@ -32,7 +32,7 @@ describe("RunEngine", () => {
     expect(task.input.command).toBe("node --version");
   });
 
-  it("routes greeting prompts through planning (no hardcoded bypass path)", async () => {
+  it("uses model-selected chat mode for greeting prompts", async () => {
     const generateText = vi.fn(async () => ({
       text: "ok",
       usage: {
@@ -44,7 +44,7 @@ describe("RunEngine", () => {
       },
     }));
     const generateStructured = vi.fn(async () => ({
-      object: { tasks: [], metadata: { estimatedSteps: 1 } },
+      object: { mode: "chat", rationale: "simple greeting" },
       usage: {
         provider: "mock",
         model: "mock-model",
@@ -79,10 +79,10 @@ describe("RunEngine", () => {
     expect(await response.text()).toBe("ok");
     expect(generateStructured).toHaveBeenCalledTimes(1);
     expect(generateText).toHaveBeenCalledTimes(1);
-    const planningRequest = generateStructured.mock.calls[0]?.[0] as {
+    const modeRequest = generateStructured.mock.calls[0]?.[0] as {
       context?: { phase?: string };
     };
-    expect(planningRequest.context?.phase).toBe("planning");
+    expect(modeRequest.context?.phase).toBe("planning");
   });
 
   it("executes active agentic loop path when feature flag is enabled", async () => {

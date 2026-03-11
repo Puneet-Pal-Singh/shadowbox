@@ -59,6 +59,7 @@ import {
   ensureManifestMatch,
 } from "./RunManifestPolicy.js";
 import {
+  buildConversationalSystemPrompt,
   hasRepositorySelection,
 } from "./ConversationPolicy.js";
 import { sanitizeUserFacingOutput } from "./RunOutputSanitizer.js";
@@ -79,6 +80,11 @@ import { resetRecyclableRun } from "./RunRecyclableResetPolicy.js";
 import { applyReviewerPassIfEnabled } from "./RunReviewerPassPolicy.js";
 
 const AGENTIC_LOOP_DEFAULT_MAX_STEPS = 6;
+const TURN_MODE_SCHEMA = z.object({
+  mode: z.enum(["chat", "action"]),
+  rationale: z.string().max(400).optional(),
+});
+type TurnMode = z.infer<typeof TURN_MODE_SCHEMA>["mode"];
 const AGENTIC_TOOL_SCHEMA = {
   analyze: z.object({
     path: z.string().min(1).max(500),
@@ -313,6 +319,14 @@ export class RunEngine implements IRunEngine {
         console.log(
           `[run/engine] Delegated harness mode active; skipping platform approval directives for run ${runId}`,
         );
+      }
+
+      const turnMode = await this.determineTurnMode(run, input.prompt);
+      if (turnMode === "chat") {
+        console.log(
+          `[run/engine] Model-selected conversational mode for run ${runId}`,
+        );
+        return await this.executeConversationalTurn(run, input, messages);
       }
 
       if (isPlatformApprovalOwner(run.metadata.manifest)) {
@@ -839,6 +853,66 @@ export class RunEngine implements IRunEngine {
       });
     }
     return this.synthesizeResult(run, originalPrompt, memoryContext);
+  }
+
+  private async executeConversationalTurn(
+    run: Run,
+    input: RunInput,
+    messages: CoreMessage[],
+  ): Promise<Response> {
+    run.transition("RUNNING");
+    await this.runRepo.update(run);
+
+    const result = await this.llmGateway.generateText({
+      context: {
+        runId: run.id,
+        sessionId: run.sessionId,
+        agentType: run.agentType,
+        phase: "synthesis",
+      },
+      messages,
+      system: buildConversationalSystemPrompt(),
+      model: input.modelId,
+      providerId: input.providerId,
+      temperature: 0.7,
+    });
+    return this.completeRunWithAssistantMessage(run, result.text);
+  }
+
+  private async determineTurnMode(
+    run: Run,
+    prompt: string,
+  ): Promise<TurnMode> {
+    const result = await this.llmGateway.generateStructured({
+      context: {
+        runId: run.id,
+        sessionId: run.sessionId,
+        agentType: run.agentType,
+        phase: "planning",
+      },
+      schema: TURN_MODE_SCHEMA,
+      messages: [
+        {
+          role: "system",
+          content: [
+            "Classify the user's latest request into a turn mode.",
+            'Return "chat" when the request is conversational (greeting, Q&A, general explanation, capability question) and does not require repository/tool execution.',
+            'Return "action" when the request requires reading/modifying repository files, running commands, or any tool execution.',
+            "Respond strictly with schema-compliant JSON.",
+          ].join(" "),
+        },
+        {
+          role: "user",
+          content: prompt,
+        },
+      ],
+      model: run.input.modelId,
+      providerId: run.input.providerId,
+      temperature: 0,
+    });
+
+    const mode = result.object.mode;
+    return mode === "chat" ? "chat" : "action";
   }
 
   private async synthesizeResult(
