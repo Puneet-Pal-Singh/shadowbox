@@ -79,6 +79,16 @@ export const ExecuteRunPayloadSchema = z.object({
       executionBackend: ExecutionBackendSchema,
       harnessMode: HarnessModeSchema,
       authMode: AuthModeSchema,
+      metadata: z
+        .object({
+          featureFlags: z
+            .object({
+              agenticLoopV1: z.boolean().optional(),
+              reviewerPassV1: z.boolean().optional(),
+            })
+            .optional(),
+        })
+        .optional(),
       repositoryContext: z
         .object({
           owner: z.string().trim().min(1).optional(),

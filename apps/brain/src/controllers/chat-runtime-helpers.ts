@@ -9,6 +9,7 @@ import {
   ValidationError,
   isDomainError,
 } from "../domain/errors";
+import type { SerializableToolDefinition } from "../types/tools";
 import {
   parseOptionalScopeIdentifier,
 } from "./chat-request-helpers";
@@ -24,12 +25,6 @@ type RuntimeAuthMode = "api_key" | "oauth";
 export interface ExecutionScope {
   userId?: string;
   workspaceId?: string;
-}
-
-export interface SerializableToolDefinition {
-  description?: string;
-  inputSchema?: Record<string, unknown>;
-  parameters?: Record<string, unknown>;
 }
 
 export interface RunEngineExecutionPayload {

@@ -64,4 +64,18 @@ describe("ExecuteRunPayloadSchema tools validation", () => {
     const result = ExecuteRunPayloadSchema.safeParse(payload);
     expect(result.success).toBe(true);
   });
+
+  it("keeps validated input.metadata feature flags", () => {
+    const payload = createValidPayload();
+    payload.input.metadata = {
+      featureFlags: {
+        agenticLoopV1: true,
+        reviewerPassV1: false,
+      },
+    };
+
+    const result = ExecuteRunPayloadSchema.parse(payload);
+    expect(result.input.metadata?.featureFlags?.agenticLoopV1).toBe(true);
+    expect(result.input.metadata?.featureFlags?.reviewerPassV1).toBe(false);
+  });
 });

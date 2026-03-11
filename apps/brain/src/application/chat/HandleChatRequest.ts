@@ -17,6 +17,7 @@ import type { CoreMessage } from "ai";
 import type { Env } from "../../types/ai";
 import { ValidationError } from "../../domain/errors";
 import { PersistenceService } from "../../services/PersistenceService";
+import type { SerializableToolDefinition } from "../../types/tools";
 import type {
   AgentType,
   RepositoryContext,
@@ -27,12 +28,6 @@ type RuntimeOrchestratorBackend = "execution-engine-v1" | "cloudflare_agents";
 type RuntimeExecutionBackend = "cloudflare_sandbox" | "e2b" | "daytona";
 type RuntimeHarnessMode = "platform_owned" | "delegated";
 type RuntimeAuthMode = "api_key" | "oauth";
-
-interface SerializableToolDefinition {
-  description?: string;
-  inputSchema?: Record<string, unknown>;
-  parameters?: Record<string, unknown>;
-}
 
 export interface HandleChatRequestInput {
   sessionId: string;
