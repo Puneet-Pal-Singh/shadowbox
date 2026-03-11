@@ -1,3 +1,4 @@
+import { useMemo, useState } from "react";
 import type { Message } from "@ai-sdk/react";
 import { ArtifactPreview } from "./ArtifactPreview";
 import { cn } from "../../lib/utils";
@@ -10,26 +11,58 @@ interface ChatMessageProps {
 
 export function ChatMessage({ message, onArtifactOpen }: ChatMessageProps) {
   const isUser = message.role === "user";
+  const [isThinkingVisible, setIsThinkingVisible] = useState(false);
 
-  // Safely extract text content even if it's an array of parts
-  const getTextContent = () => {
+  const { content, thinkingBlocks } = useMemo(() => {
     const rawContent: unknown = message.content;
-    if (typeof rawContent === 'string') return rawContent;
-    if (Array.isArray(rawContent)) {
-      return (rawContent as Array<{ type: string; text?: string }>)
-        .filter((part): part is { type: 'text'; text: string } => 
-          part.type === 'text' && typeof part.text === 'string'
-        )
-        .map(part => part.text)
-        .join('');
+    let extractedText = "";
+    const extractedThinking: string[] = [];
+
+    if (typeof rawContent === "string") {
+      extractedText = rawContent;
+    } else if (Array.isArray(rawContent)) {
+      for (const part of rawContent) {
+        if (!part || typeof part !== "object") {
+          continue;
+        }
+        const record = part as Record<string, unknown>;
+        const type = typeof record.type === "string" ? record.type : "";
+        const text = typeof record.text === "string" ? record.text : "";
+        const reasoning =
+          typeof record.reasoning === "string" ? record.reasoning : "";
+
+        if (type === "reasoning" || type === "thinking") {
+          const block = (text || reasoning).trim();
+          if (block) {
+            extractedThinking.push(block);
+          }
+          continue;
+        }
+
+        if (text) {
+          extractedText += text;
+        }
+      }
     }
-    return '';
-  };
 
-  const content = getTextContent();
+    const parsedText = parseThinkingTags(extractedText);
+    const dedupedThinking = Array.from(
+      new Set(
+        [...extractedThinking, ...parsedText.thinkingBlocks]
+          .map((block) => block.trim())
+          .filter((block) => block.length > 0),
+      ),
+    );
 
-  // Extract file references from message content (simple regex)
-  const fileRefs = content.match(/[\w-]+\.(md|json|ts|tsx|js|jsx|css|html)/g) || [];
+    return {
+      content: parsedText.visibleContent.trim(),
+      thinkingBlocks: dedupedThinking,
+    };
+  }, [message.content]);
+
+  // Extract file references from assistant answer content (simple regex)
+  const fileRefs =
+    content.match(/[\w-]+\.(md|json|ts|tsx|js|jsx|css|html)/g) || [];
 
   // Unique file references
   const uniqueFileRefs = [...new Set(fileRefs)] as string[];
@@ -51,11 +84,37 @@ export function ChatMessage({ message, onArtifactOpen }: ChatMessageProps) {
         )}
 
         {/* Assistant message */}
-        {!isUser && content && (
+        {!isUser && (content || thinkingBlocks.length > 0) && (
           <div className="space-y-3">
-            <div className="text-sm text-zinc-300 leading-relaxed whitespace-pre-wrap">
-              {content}
-            </div>
+            {thinkingBlocks.length > 0 && (
+              <div className="rounded-lg border border-zinc-800/90 bg-zinc-950/70">
+                <button
+                  type="button"
+                  onClick={() => setIsThinkingVisible((current) => !current)}
+                  className="w-full cursor-pointer select-none px-3 py-2 text-left text-xs font-medium text-zinc-300 hover:text-zinc-100"
+                >
+                  {isThinkingVisible ? "Hide thinking" : "Show thinking"}
+                </button>
+                {isThinkingVisible && (
+                  <div className="space-y-3 border-t border-zinc-800/80 px-3 py-3">
+                    {thinkingBlocks.map((block, index) => (
+                      <pre
+                        key={`thinking-${index}`}
+                        className="whitespace-pre-wrap break-words text-xs leading-relaxed text-zinc-400"
+                      >
+                        {block}
+                      </pre>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {content && (
+              <div className="text-sm text-zinc-300 leading-relaxed whitespace-pre-wrap">
+                {content}
+              </div>
+            )}
 
             {/* File references as pills */}
             {uniqueFileRefs.length > 0 && (
@@ -106,4 +165,30 @@ export function ChatMessage({ message, onArtifactOpen }: ChatMessageProps) {
       </div>
     </div>
   );
+}
+
+function parseThinkingTags(content: string): {
+  visibleContent: string;
+  thinkingBlocks: string[];
+} {
+  if (!content) {
+    return { visibleContent: "", thinkingBlocks: [] };
+  }
+
+  const thinkingBlocks: string[] = [];
+  const visibleContent = content.replace(
+    /<(thinking|think)>([\s\S]*?)<\/\1>/gi,
+    (_match: string, _tag: string, block: string) => {
+      const trimmedBlock = block.trim();
+      if (trimmedBlock) {
+        thinkingBlocks.push(trimmedBlock);
+      }
+      return "";
+    },
+  );
+
+  return {
+    visibleContent: visibleContent.replace(/\n{3,}/g, "\n\n"),
+    thinkingBlocks,
+  };
 }
