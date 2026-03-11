@@ -130,6 +130,7 @@ describe("ChatIntentDetector - Phase 3: Conversational vs Action", () => {
         "what's this?",
         "can you help?",
         "anything else?",
+        "hey from run 1",
       ];
 
       ambiguous.forEach((prompt) => {

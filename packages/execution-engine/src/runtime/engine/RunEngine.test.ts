@@ -68,6 +68,58 @@ describe("RunEngine", () => {
     expect(await response.text()).toBe("ok");
   });
 
+  it("keeps tools disabled in conversational bypass path", async () => {
+    const generateText = vi.fn(async () => ({
+      text: "conversational response",
+      usage: {
+        provider: "mock",
+        model: "mock-model",
+        promptTokens: 1,
+        completionTokens: 1,
+        totalTokens: 2,
+      },
+    }));
+    const llmGateway: ILLMGateway = {
+      generateText,
+      generateStructured: async () => ({
+        object: { tasks: [], metadata: { estimatedSteps: 1 } },
+        usage: {
+          provider: "mock",
+          model: "mock-model",
+          promptTokens: 1,
+          completionTokens: 1,
+          totalTokens: 2,
+        },
+      }),
+      generateStream: async () =>
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.close();
+          },
+        }),
+    };
+    const runEngine = createRunEngine({ llmGateway });
+
+    const response = await runEngine.execute(
+      {
+        agentType: "coding",
+        prompt: "hello",
+        sessionId: "session-1",
+      },
+      [{ role: "user", content: "hello" }],
+      {},
+    );
+
+    expect(response.status).toBe(200);
+    expect(generateText).toHaveBeenCalledTimes(1);
+    const req = generateText.mock.calls[0]?.[0] as {
+      tools?: unknown;
+      system?: string;
+    };
+    expect(req.tools).toBeUndefined();
+    expect(req.system).toContain("conversational chat mode");
+  });
+
   it("sanitizes internal runtime paths in user-facing output", () => {
     const leaked =
       'cat: /home/sandbox/runs/5212f17b-eb1f-463f-a41f-2c4c6b9d4ba6/README.md: No such file or directory\nSee https://internal/debug';
