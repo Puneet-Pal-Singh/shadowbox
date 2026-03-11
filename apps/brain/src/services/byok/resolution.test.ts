@@ -57,6 +57,33 @@ describe("ProviderResolutionService", () => {
       expect(result.resolvedAt).toBe("request_override");
     });
 
+    it("returns error when credential provider does not match request provider", async () => {
+      mockRepository.retrieve.mockResolvedValueOnce({
+        id: "cred-123",
+        status: "connected",
+        providerId: "anthropic",
+      });
+
+      const request = {
+        providerId: "openai",
+        credentialId: "cred-123",
+        modelId: "gpt-4-turbo",
+      };
+
+      const result = await service.resolve(request, context);
+
+      expect("code" in result).toBe(true);
+      if ("code" in result) {
+        expect(result.code).toBe("INVALID_REQUEST");
+        expect(result.message).toContain(
+          "Credential does not belong to requested provider",
+        );
+        expect(result.correlationId).toBe("cred-123");
+      } else {
+        throw new Error("Expected error result");
+      }
+    });
+
     it("resolves platform defaults when no override", async () => {
       const request = {};
 

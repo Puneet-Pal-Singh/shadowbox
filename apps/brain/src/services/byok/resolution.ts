@@ -147,6 +147,14 @@ export class ProviderResolutionService {
       );
     }
 
+    if (credential.providerId !== providerId) {
+      return createBYOKError(
+        "INVALID_REQUEST",
+        `Credential does not belong to requested provider (expected: ${providerId}, actual: ${credential.providerId})`,
+        { correlationId: credentialId },
+      );
+    }
+
     return {
       providerId,
       credentialId,
