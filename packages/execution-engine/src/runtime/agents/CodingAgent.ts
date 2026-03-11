@@ -12,6 +12,7 @@ import type {
 import type { Task } from "../task/index.js";
 import type { Plan, PlanContext } from "../planner/index.js";
 import { PlanSchema } from "../planner/index.js";
+import safeRegex from "safe-regex";
 import { BaseAgent } from "./BaseAgent.js";
 import { validateSafePath, extractStructuredField } from "./validation.js";
 import {
@@ -28,6 +29,8 @@ import {
   formatExecutionResult,
   formatTaskOutput,
 } from "./ResultFormatter.js";
+
+type LineMatcherPatternSource = "external_user_input" | "deriveGrepPatternFromHint";
 
 export class CodingAgent extends BaseAgent {
   readonly type: AgentType = "coding";
@@ -428,6 +431,7 @@ VALIDATION RULES:
       globPattern,
       caseSensitive,
       maxResults,
+      patternSource: "external_user_input",
     });
     const output =
       matches.length > 0
@@ -488,6 +492,7 @@ VALIDATION RULES:
         globPattern: deriveGlobPatternFromHint(targetHint) ?? undefined,
         caseSensitive: false,
         maxResults: 10,
+        patternSource: "deriveGrepPatternFromHint",
       });
       if (grepMatches.length > 0) {
         sections.push(`Grep matches (${grepNeedle}):\n${grepMatches.join("\n")}`);
@@ -585,13 +590,18 @@ VALIDATION RULES:
     globPattern?: string;
     caseSensitive: boolean;
     maxResults: number;
+    patternSource: LineMatcherPatternSource;
   }): Promise<string[]> {
     const scanLimit = Math.max(input.maxResults * 4, 80);
     const candidates = input.globPattern
       ? await this.findGlobMatches(input.globPattern, input.startPath, scanLimit)
       : await this.collectWorkspaceFiles(input.startPath, scanLimit, 4);
     const matches: string[] = [];
-    const lineMatcher = buildLineMatcher(input.pattern, input.caseSensitive);
+    const lineMatcher = buildLineMatcher(
+      input.pattern,
+      input.caseSensitive,
+      input.patternSource,
+    );
 
     for (const filePath of candidates) {
       if (matches.length >= input.maxResults) {
@@ -852,21 +862,75 @@ function buildGlobMatcher(pattern: string): (value: string) => boolean {
   return (value: string) => matcher.test(value);
 }
 
+const MAX_UNTRUSTED_REGEX_PATTERN_LENGTH = 200;
+const MAX_REGEX_COMPILE_BUDGET_MS = 10;
+const MAX_REGEX_TEST_BUDGET_MS = 10;
+const MAX_REGEX_TEST_INPUT_LENGTH = 2_000;
+
 function buildLineMatcher(
   pattern: string,
   caseSensitive: boolean,
+  patternSource: LineMatcherPatternSource,
 ): (line: string) => boolean {
+  const substringMatcher = buildSubstringMatcher(pattern, caseSensitive);
+  const skipExternalScreening = patternSource === "deriveGrepPatternFromHint";
+  if (!skipExternalScreening && !isUserRegexPatternSafe(pattern)) {
+    return substringMatcher;
+  }
+
   const flags = caseSensitive ? "" : "i";
   try {
-    const regex = new RegExp(pattern, flags);
-    return (line: string) => regex.test(line);
-  } catch {
-    const needle = caseSensitive ? pattern : pattern.toLowerCase();
+    const regex = compileRegexWithBudget(pattern, flags);
+    let disableRegex = false;
     return (line: string) => {
-      const haystack = caseSensitive ? line : line.toLowerCase();
-      return haystack.includes(needle);
+      if (disableRegex) {
+        return substringMatcher(line);
+      }
+      const candidate =
+        line.length > MAX_REGEX_TEST_INPUT_LENGTH
+          ? line.slice(0, MAX_REGEX_TEST_INPUT_LENGTH)
+          : line;
+      const startedAt = Date.now();
+      const matched = regex.test(candidate);
+      if (Date.now() - startedAt > MAX_REGEX_TEST_BUDGET_MS) {
+        disableRegex = true;
+        return substringMatcher(line);
+      }
+      return matched;
     };
+  } catch {
+    return substringMatcher;
   }
+}
+
+function compileRegexWithBudget(pattern: string, flags: string): RegExp {
+  const startedAt = Date.now();
+  const regex = new RegExp(pattern, flags);
+  if (Date.now() - startedAt > MAX_REGEX_COMPILE_BUDGET_MS) {
+    throw new Error("Regex compile budget exceeded");
+  }
+  return regex;
+}
+
+function isUserRegexPatternSafe(pattern: string): boolean {
+  if (
+    pattern.length === 0 ||
+    pattern.length > MAX_UNTRUSTED_REGEX_PATTERN_LENGTH
+  ) {
+    return false;
+  }
+  return safeRegex(pattern);
+}
+
+function buildSubstringMatcher(
+  pattern: string,
+  caseSensitive: boolean,
+): (line: string) => boolean {
+  const needle = caseSensitive ? pattern : pattern.toLowerCase();
+  return (line: string) => {
+    const haystack = caseSensitive ? line : line.toLowerCase();
+    return haystack.includes(needle);
+  };
 }
 
 function escapeRegexChar(char: string): string {

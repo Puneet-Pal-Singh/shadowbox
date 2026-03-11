@@ -240,6 +240,45 @@ describe("CodingAgent task-phase model selection", () => {
       path: ".",
     });
   });
+
+  it("does not treat unsafe user grep patterns as executable regex", async () => {
+    const llmGateway = createLLMGatewayMock();
+    const execute = vi.fn(
+      async (plugin: string, action: string, payload: Record<string, unknown>) => {
+        if (plugin === "filesystem" && action === "list_files") {
+          return { success: true, output: "README.md\n" };
+        }
+        if (
+          plugin === "filesystem" &&
+          action === "read_file" &&
+          payload.path === "README.md"
+        ) {
+          return { success: true, output: "aaaa\nbbbb\n" };
+        }
+        return { success: false, error: `unexpected call ${plugin}:${action}` };
+      },
+    );
+    const executionService = { execute } as unknown as RuntimeExecutionService;
+    const agent = new CodingAgent(llmGateway, executionService);
+
+    const task = {
+      id: "task-grep-unsafe-pattern",
+      runId: "run-1",
+      type: "grep",
+      input: { description: "grep", pattern: "(a+)+$", path: ".", caseSensitive: true },
+    } as unknown as Task;
+
+    const context: ExecutionContext = {
+      runId: "run-1",
+      sessionId: "session-1",
+      dependencies: [],
+    };
+
+    const result = await agent.executeTask(task, context);
+
+    expect(result.status).toBe("DONE");
+    expect(result.output?.content).toContain('No matches found for "(a+)+$"');
+  });
 });
 
 function createLLMGatewayMock(): ILLMGateway {
