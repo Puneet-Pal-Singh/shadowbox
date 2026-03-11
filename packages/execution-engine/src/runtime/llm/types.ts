@@ -36,6 +36,7 @@ export interface LLMTextResponse {
   text: string;
   usage: LLMUsage;
   providerRequestId?: string;
+  toolCalls?: LLMToolCall[];
 }
 
 export interface LLMStructuredResponse<T> {
@@ -73,7 +74,15 @@ export interface LLMRuntimeAIService {
     providerId?: string;
     temperature?: number;
     system?: string;
-  }): Promise<{ text: string; usage: LLMUsage }>;
+    tools?: Record<string, CoreTool>;
+  }): Promise<{
+    text: string;
+    usage: LLMUsage;
+    toolCalls?: Array<{
+      toolName: string;
+      args: unknown;
+    }>;
+  }>;
   generateStructured<T>(input: {
     messages: CoreMessage[];
     schema: ZodSchema<T>;
@@ -90,4 +99,10 @@ export interface LLMRuntimeAIService {
     temperature?: number;
     onFinish?: (result: { usage: LLMUsage }) => void | Promise<void>;
   }): Promise<ReadableStream<Uint8Array>>;
+}
+
+export interface LLMToolCall {
+  id: string;
+  toolName: string;
+  args: Record<string, unknown>;
 }

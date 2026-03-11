@@ -91,6 +91,76 @@ describe("LLMGateway provider capabilities", () => {
     expect(response.text).toBe("ok");
     expect(deps.aiService.generateText).toHaveBeenCalledTimes(1);
   });
+
+  it("propagates normalized tool calls when provider returns tool calls", async () => {
+    const deps = createDependencies({
+      getCapabilities: () => ({
+        streaming: true,
+        tools: true,
+        structuredOutputs: true,
+        jsonMode: true,
+      }),
+      isModelAllowed: () => true,
+    });
+    deps.aiService.generateText.mockResolvedValueOnce({
+      text: "tool-step",
+      toolCalls: [
+        {
+          toolName: "read_file",
+          args: { path: "README.md" },
+        },
+      ],
+      usage: {
+        provider: "openai",
+        model: "gpt-4o",
+        promptTokens: 1,
+        completionTokens: 1,
+        totalTokens: 2,
+      },
+    });
+    const gateway = new LLMGateway(deps);
+
+    const response = await gateway.generateText({
+      ...baseRequest,
+      tools: {
+        read_file: {
+          description: "Read file",
+        } as unknown as import("ai").CoreTool,
+      },
+    });
+
+    expect(response.toolCalls).toBeDefined();
+    expect(response.toolCalls?.[0]?.toolName).toBe("read_file");
+    expect(response.toolCalls?.[0]?.args).toEqual({ path: "README.md" });
+    expect(response.toolCalls?.[0]?.id).toBeTruthy();
+  });
+
+  it("throws TOOLS_NOT_SUPPORTED when tools are requested for unsupported providers", async () => {
+    const gateway = new LLMGateway(
+      createDependencies({
+        getCapabilities: () => ({
+          streaming: true,
+          tools: false,
+          structuredOutputs: true,
+          jsonMode: true,
+        }),
+        isModelAllowed: () => true,
+      }),
+    );
+
+    await expect(
+      gateway.generateText({
+        ...baseRequest,
+        tools: {
+          read_file: {
+            description: "Read file",
+          } as unknown as import("ai").CoreTool,
+        },
+      }),
+    ).rejects.toMatchObject({
+      code: "TOOLS_NOT_SUPPORTED",
+    });
+  });
 });
 
 function createDependencies(

@@ -5,7 +5,7 @@
  * Returns standardized LLMUsage for cost tracking.
  */
 
-import type { CoreMessage } from "ai";
+import type { CoreMessage, CoreTool } from "ai";
 import type { LLMUsage } from "@shadowbox/execution-engine/runtime/cost";
 import type { ProviderAdapter, GenerationParams } from "../providers";
 
@@ -16,6 +16,10 @@ export interface GenerateTextResult {
   text: string;
   usage: LLMUsage;
   finishReason?: string;
+  toolCalls?: Array<{
+    toolName: string;
+    args: unknown;
+  }>;
 }
 
 /**
@@ -30,6 +34,7 @@ export async function generateText(
   params: {
     messages: CoreMessage[];
     system?: string;
+    tools?: Record<string, CoreTool>;
     temperature?: number;
     model: string;
   },
@@ -37,6 +42,7 @@ export async function generateText(
   const generationParams: GenerationParams = {
     messages: params.messages,
     system: params.system,
+    tools: params.tools,
     temperature: params.temperature,
     model: params.model,
   };
@@ -47,5 +53,6 @@ export async function generateText(
     text: result.content,
     usage: result.usage,
     finishReason: result.finishReason,
+    toolCalls: result.toolCalls,
   };
 }

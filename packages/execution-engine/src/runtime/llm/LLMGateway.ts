@@ -45,14 +45,22 @@ export class LLMGateway implements ILLMGateway {
       providerId: req.providerId,
       temperature: req.temperature,
       system: req.system,
+      tools: req.tools,
     });
 
     const usage = this.normalizeUsage(result.usage, req.model);
     await this.persistCostEvent(requestWithIdempotency, usage);
 
+    const toolCalls = result.toolCalls?.map((toolCall) => ({
+      id: crypto.randomUUID(),
+      toolName: toolCall.toolName,
+      args: normalizeToolArgs(toolCall.args),
+    }));
+
     return {
       text: result.text,
       usage,
+      toolCalls,
     };
   }
 
@@ -306,6 +314,16 @@ export class LLMGateway implements ILLMGateway {
         req.model,
       );
     }
+
+    if ("tools" in req && req.tools && Object.keys(req.tools).length > 0) {
+      if (!capabilities.tools) {
+        throw new ProviderCapabilityError(
+          "TOOLS_NOT_SUPPORTED",
+          req.providerId,
+          req.model,
+        );
+      }
+    }
   }
 
   private withIdempotencyKey<T extends LLMTextRequest | LLMStructuredRequest<unknown>>(
@@ -351,7 +369,10 @@ export class UnknownPricingError extends Error {
 
 export class ProviderCapabilityError extends Error {
   constructor(
-    public readonly code: "MODEL_NOT_ALLOWED" | "INVALID_PROVIDER_SELECTION",
+    public readonly code:
+      | "MODEL_NOT_ALLOWED"
+      | "INVALID_PROVIDER_SELECTION"
+      | "TOOLS_NOT_SUPPORTED",
     providerId: string,
     modelId: string,
   ) {
@@ -360,4 +381,11 @@ export class ProviderCapabilityError extends Error {
     );
     this.name = "ProviderCapabilityError";
   }
+}
+
+function normalizeToolArgs(args: unknown): Record<string, unknown> {
+  if (typeof args !== "object" || args === null || Array.isArray(args)) {
+    return {};
+  }
+  return args as Record<string, unknown>;
 }
