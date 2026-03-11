@@ -1,9 +1,8 @@
 /**
  * RoutingDetector: Unified conversational vs action intent detection
  *
- * This service provides a single source of truth for routing decisions.
- * It mirrors the logic in @shadowbox/brain/ChatIntentDetector but is
- * standalone to avoid circular dependencies.
+ * This service provides the single source of truth for routing decisions.
+ * Brain-side ChatIntentDetector delegates to this contract.
  */
 
 export type RoutingIntent = "conversational" | "action" | "unknown";

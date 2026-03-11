@@ -120,6 +120,101 @@ describe("RunEngine", () => {
     expect(req.system).toContain("conversational chat mode");
   });
 
+  it("executes active agentic loop path when feature flag is enabled", async () => {
+    const generateText = vi
+      .fn()
+      .mockResolvedValueOnce({
+        text: "I will inspect the file first.",
+        toolCalls: [
+          {
+            id: "call-1",
+            toolName: "analyze",
+            args: { path: "README.md" },
+          },
+        ],
+        usage: {
+          provider: "mock",
+          model: "mock-model",
+          promptTokens: 3,
+          completionTokens: 6,
+          totalTokens: 9,
+        },
+      })
+      .mockResolvedValueOnce({
+        text: "README inspection complete.",
+        toolCalls: [],
+        usage: {
+          provider: "mock",
+          model: "mock-model",
+          promptTokens: 4,
+          completionTokens: 5,
+          totalTokens: 9,
+        },
+      });
+    const llmGateway: ILLMGateway = {
+      generateText,
+      generateStructured: async () => ({
+        object: { tasks: [], metadata: { estimatedSteps: 1 } },
+        usage: {
+          provider: "mock",
+          model: "mock-model",
+          promptTokens: 1,
+          completionTokens: 1,
+          totalTokens: 2,
+        },
+      }),
+      generateStream: async () =>
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.close();
+          },
+        }),
+    };
+    const planner = {
+      plan: vi.fn(async () => ({
+        tasks: [],
+        metadata: { estimatedSteps: 1 },
+      })),
+    } as unknown as RunEngineDependencies["planner"];
+    const runEngine = createRunEngine({ llmGateway, planner });
+
+    const response = await runEngine.execute(
+      {
+        agentType: "coding",
+        prompt: "inspect README and summarize it",
+        sessionId: "session-1",
+        repositoryContext: {
+          owner: "sourcegraph",
+          repo: "shadowbox",
+        },
+        metadata: {
+          featureFlags: {
+            agenticLoopV1: true,
+          },
+        },
+      },
+      [{ role: "user", content: "inspect README and summarize it" }],
+      {},
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain("README inspection complete.");
+    expect(generateText).toHaveBeenCalledTimes(2);
+    const firstRequest = generateText.mock.calls[0]?.[0] as {
+      tools?: Record<string, unknown>;
+    };
+    expect(firstRequest.tools).toBeDefined();
+    expect(Object.keys(firstRequest.tools ?? {})).toContain("analyze");
+    expect(planner.plan).not.toHaveBeenCalled();
+
+    const persisted = await (runEngine as unknown as {
+      getRun(runId: string): Promise<Run | null>;
+    }).getRun(TEST_RUN_ID);
+    expect(persisted?.metadata.agenticLoop?.enabled).toBe(true);
+    expect(persisted?.metadata.agenticLoop?.stopReason).toBe("llm_stop");
+    expect(persisted?.metadata.agenticLoop?.toolExecutionCount).toBe(1);
+  });
+
   it("sanitizes internal runtime paths in user-facing output", () => {
     const leaked =
       'cat: /home/sandbox/runs/5212f17b-eb1f-463f-a41f-2c4c6b9d4ba6/README.md: No such file or directory\nSee https://internal/debug';

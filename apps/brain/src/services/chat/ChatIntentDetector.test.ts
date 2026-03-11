@@ -145,6 +145,13 @@ describe("ChatIntentDetector - Phase 3: Conversational vs Action", () => {
       ).toBeTruthy();
       expect(ChatIntentDetector.detectIntent("?")).toBeTruthy();
     });
+
+    it("returns canonical routing reason codes via analyze()", () => {
+      const decision = ChatIntentDetector.analyze("check this file in the repo");
+      expect(decision.intent).toBe("action");
+      expect(decision.bypass).toBe(false);
+      expect(decision.reasonCode).toBe("ACTION_AMBIGUOUS_TARGET");
+    });
   });
 
   describe("Integration examples", () => {
