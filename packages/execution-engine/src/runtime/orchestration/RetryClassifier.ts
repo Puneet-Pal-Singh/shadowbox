@@ -29,7 +29,7 @@ const DETERMINISTIC_RULES: Array<{
   },
   {
     pattern:
-      /\bis a directory\b|\bno such file or directory\b|\bfile does not exist\b|\bpath .* not found\b/i,
+      /\bis a directory\b|\bno such file or directory\b|\bfile does not exist\b|\bpath .* not found\b|\btarget .* ambiguous\b|\bno files matched glob pattern\b|\bno matches found for\b/i,
     reasonCode: "DETERMINISTIC_INVALID_TARGET",
   },
 ];

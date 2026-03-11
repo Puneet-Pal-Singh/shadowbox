@@ -144,6 +144,102 @@ describe("CodingAgent task-phase model selection", () => {
     expect(result.error?.message).toContain("Git shell commands are not allowed");
     expect(execute).not.toHaveBeenCalled();
   });
+
+  it("routes golden-flow read_file tool calls through the gateway contract", async () => {
+    const llmGateway = createLLMGatewayMock();
+    const execute = vi.fn(async () => ({ success: true, output: "README body" }));
+    const executionService = { execute } as unknown as RuntimeExecutionService;
+    const agent = new CodingAgent(llmGateway, executionService);
+
+    const task = {
+      id: "task-tool-read",
+      runId: "run-1",
+      type: "read_file",
+      input: { description: "read file", path: "README.md" },
+    } as unknown as Task;
+
+    const context: ExecutionContext = {
+      runId: "run-1",
+      sessionId: "session-1",
+      dependencies: [],
+    };
+
+    const result = await agent.executeTask(task, context);
+    expect(result.status).toBe("DONE");
+    expect(execute).toHaveBeenCalledWith("filesystem", "read_file", {
+      path: "README.md",
+    });
+  });
+
+  it("routes run_command and git_diff tools to bounded executable handlers", async () => {
+    const llmGateway = createLLMGatewayMock();
+    const execute = vi
+      .fn()
+      .mockResolvedValueOnce({ success: true, output: "ok" })
+      .mockResolvedValueOnce({
+        success: true,
+        output: "diff --git a/a.ts b/a.ts",
+      });
+    const executionService = { execute } as unknown as RuntimeExecutionService;
+    const agent = new CodingAgent(llmGateway, executionService);
+
+    const context: ExecutionContext = {
+      runId: "run-1",
+      sessionId: "session-1",
+      dependencies: [],
+    };
+
+    const commandTask = {
+      id: "task-tool-command",
+      runId: "run-1",
+      type: "run_command",
+      input: { description: "run tests", command: "pnpm test" },
+    } as unknown as Task;
+    const commandResult = await agent.executeTask(commandTask, context);
+    expect(commandResult.status).toBe("DONE");
+
+    const diffTask = {
+      id: "task-tool-diff",
+      runId: "run-1",
+      type: "git_diff",
+      input: { description: "show diff" },
+    } as unknown as Task;
+    const diffResult = await agent.executeTask(diffTask, context);
+    expect(diffResult.status).toBe("DONE");
+
+    expect(execute).toHaveBeenCalledWith("node", "run", { command: "pnpm test" });
+    expect(execute).toHaveBeenCalledWith("git", "git_diff", {});
+  });
+
+  it("uses discovery-first analyze flow for ambiguous targets", async () => {
+    const llmGateway = createLLMGatewayMock();
+    const execute = vi.fn(async () => ({
+      success: true,
+      output: "README.md\nsrc/\n",
+    }));
+    const executionService = { execute } as unknown as RuntimeExecutionService;
+    const agent = new CodingAgent(llmGateway, executionService);
+
+    const task = {
+      id: "task-analyze-discovery",
+      runId: "run-1",
+      type: "analyze",
+      input: { description: "check this file", path: "this file" },
+    } as unknown as Task;
+
+    const context: ExecutionContext = {
+      runId: "run-1",
+      sessionId: "session-1",
+      dependencies: [],
+    };
+
+    const result = await agent.executeTask(task, context);
+    expect(result.status).toBe("DONE");
+    expect(result.output?.content).toContain("Running discovery first");
+    expect(execute).toHaveBeenCalledWith("filesystem", "list_files", {
+      path: ".",
+    });
+  });
 });
 
 function createLLMGatewayMock(): ILLMGateway {

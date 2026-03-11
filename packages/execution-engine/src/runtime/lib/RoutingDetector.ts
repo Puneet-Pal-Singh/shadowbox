@@ -206,7 +206,11 @@ export class RoutingDetector {
       /(src\/|tests\/|lib\/|docs\/|scripts\/|package\.json|tsconfig)/i,
     ];
 
-    return actionPatterns.some((p) => p.test(normalized));
+    if (actionPatterns.some((p) => p.test(normalized))) {
+      return true;
+    }
+
+    return this.hasCodingActionPair(normalized);
   }
 
   private static hasActionKeywords(normalized: string): boolean {
@@ -248,5 +252,17 @@ export class RoutingDetector {
     }
 
     return true;
+  }
+
+  private static hasCodingActionPair(normalized: string): boolean {
+    const actionVerb =
+      /\b(read|check|inspect|review|analyze|search|find|list|open|edit|write|update|fix|run|execute|test|debug|refactor|implement)\b/i;
+    const codingTarget =
+      /\b(file|files|repo|repository|project|code|function|class|module|test|tests|readme|package\.json|tsconfig)\b/i;
+    const workspacePathHint = /(?:^|[\s(])(?:src|apps|packages|docs|tests|scripts)\//i;
+    return (
+      actionVerb.test(normalized) &&
+      (codingTarget.test(normalized) || workspacePathHint.test(normalized))
+    );
   }
 }
