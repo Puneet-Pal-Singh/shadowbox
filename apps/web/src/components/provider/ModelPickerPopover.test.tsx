@@ -11,6 +11,20 @@ import { type ProviderModelOption } from "../../services/api/providerClient";
 describe("ModelPickerPopover", () => {
   const mockCatalog: ProviderRegistryEntry[] = [
     {
+      providerId: "axis",
+      displayName: "Axis",
+      authModes: ["platform_managed"],
+      adapterFamily: "openai-compatible",
+      capabilities: {
+        streaming: true,
+        tools: true,
+        jsonMode: true,
+        structuredOutputs: true,
+      },
+      modelSource: "static",
+      defaultModelId: "openai/gpt-oss-120b:free",
+    },
+    {
       providerId: "openai",
       displayName: "OpenAI",
       authModes: ["api_key"],
@@ -41,6 +55,13 @@ describe("ModelPickerPopover", () => {
   ];
 
   const mockModels: Record<string, ProviderModelOption[]> = {
+    axis: [
+      {
+        id: "openai/gpt-oss-120b:free",
+        name: "openai/gpt-oss-120b:free",
+      },
+      { id: "z-ai/glm-4.5-air:free", name: "z-ai/glm-4.5-air:free" },
+    ],
     openai: [
       { id: "gpt-4", name: "GPT-4" },
       { id: "gpt-4-turbo", name: "GPT-4 Turbo" },
@@ -61,6 +82,7 @@ describe("ModelPickerPopover", () => {
   };
 
   const mockVisibleModelIds: Record<string, Set<string>> = {
+    axis: new Set(),
     openai: new Set(["gpt-4", "gpt-4-turbo"]),
     anthropic: new Set(["claude-3-opus", "claude-3-sonnet"]),
   };
@@ -211,6 +233,24 @@ describe("ModelPickerPopover", () => {
   });
 
   describe("Model Display", () => {
+    it("shows included default axis models in a dedicated section", async () => {
+      render(
+        <ModelPickerPopover
+          {...defaultProps}
+          selectedProviderId={null}
+          selectedModelId={null}
+        />
+      );
+
+      const triggerButton = screen.getByRole("button", { name: /open model picker/i });
+      fireEvent.click(triggerButton);
+
+      await waitFor(() => {
+        expect(screen.getByText("Included default models")).toBeInTheDocument();
+        expect(screen.getByText("openai/gpt-oss-120b:free")).toBeInTheDocument();
+      });
+    });
+
     it("displays all providers and models when popover is open", async () => {
       render(
         <ModelPickerPopover
@@ -224,6 +264,7 @@ describe("ModelPickerPopover", () => {
       fireEvent.click(triggerButton);
 
       await waitFor(() => {
+        expect(screen.getByText("Included default models")).toBeInTheDocument();
         expect(screen.getByText("OpenAI")).toBeInTheDocument();
         expect(screen.getByText("Anthropic")).toBeInTheDocument();
         expect(screen.getByText("GPT-4")).toBeInTheDocument();
@@ -632,7 +673,7 @@ describe("ModelPickerPopover", () => {
 
       await waitFor(() => {
         expect(
-          screen.getByText(/no providers connected yet/i)
+          screen.getByText(/no models available yet/i)
         ).toBeInTheDocument();
       });
     });

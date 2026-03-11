@@ -120,6 +120,14 @@ export interface RunManifest {
 export interface RunMetadata {
   prompt: string;
   manifest?: RunManifest;
+  agenticLoop?: {
+    enabled: boolean;
+    stopReason?: "max_steps_reached" | "budget_exceeded" | "llm_stop" | "tool_error" | "cancelled";
+    stepsExecuted?: number;
+    toolExecutionCount?: number;
+    failedToolCount?: number;
+    completedAt?: string;
+  };
   reviewerPass?: {
     enabled: boolean;
     verdict?: "accept" | "request_changes" | "fail";

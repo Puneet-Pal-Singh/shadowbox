@@ -31,8 +31,8 @@ import {
 
 const SerializableToolDefinitionSchema = z.object({
   description: z.string().optional(),
-  inputSchema: z.unknown().optional(),
-  parameters: z.unknown().optional(),
+  inputSchema: z.object({}).catchall(z.unknown()).optional(),
+  parameters: z.object({}).catchall(z.unknown()).optional(),
 });
 
 // Zod schema for request body validation

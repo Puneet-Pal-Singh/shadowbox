@@ -36,6 +36,12 @@ const ExecutionBackendSchema = z.enum([
 ]);
 const HarnessModeSchema = z.enum(["platform_owned", "delegated"]);
 const AuthModeSchema = z.enum(["api_key", "oauth"]);
+const SerializableToolObjectSchema = z.object({}).catchall(z.unknown());
+export const SerializableToolDefinitionSchema = z.object({
+  description: z.string().optional(),
+  inputSchema: SerializableToolObjectSchema.optional(),
+  parameters: SerializableToolObjectSchema.default({}),
+});
 
 /**
  * Request payload for RunEngine.execute().
@@ -123,13 +129,7 @@ export const ExecuteRunPayloadSchema = z.object({
     }),
   messages: z.array(CoreMessageSchema).min(1),
   tools: z
-    .record(
-      z.object({
-        description: z.string().optional(),
-        inputSchema: z.unknown().optional(),
-        parameters: z.unknown().optional(),
-      }),
-    )
+    .record(SerializableToolDefinitionSchema)
     .optional(),
 });
 

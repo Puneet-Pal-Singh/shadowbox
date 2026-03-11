@@ -30,8 +30,8 @@ type RuntimeAuthMode = "api_key" | "oauth";
 
 interface SerializableToolDefinition {
   description?: string;
-  inputSchema?: unknown;
-  parameters?: unknown;
+  inputSchema?: Record<string, unknown>;
+  parameters?: Record<string, unknown>;
 }
 
 export interface HandleChatRequestInput {

@@ -1,18 +1,18 @@
-// apps/brain/src/services/chat/ChatIntentDetector.ts
-// Delegates to execution-runtime RoutingDetector to keep one canonical contract.
 import {
   RoutingDetector,
   type RoutingDecision,
   type RoutingIntent,
-  type RoutingReasonCode,
 } from "@shadowbox/execution-engine/runtime";
 
 export type ChatIntent = RoutingIntent;
-export type ChatIntentDecision = RoutingDecision;
-export type ChatIntentReasonCode = RoutingReasonCode;
+export type ChatRoutingDecision = RoutingDecision;
 
+/**
+ * ChatIntentDetector is a thin adapter over runtime RoutingDetector.
+ * This keeps a single canonical routing contract across brain/runtime.
+ */
 export class ChatIntentDetector {
-  static analyze(prompt: string): ChatIntentDecision {
+  static analyze(prompt: string): ChatRoutingDecision {
     return RoutingDetector.analyze(prompt);
   }
 
@@ -22,9 +22,5 @@ export class ChatIntentDetector {
 
   static shouldBypassPlanning(prompt: string): boolean {
     return this.analyze(prompt).bypass;
-  }
-
-  static requiresDiscoveryBeforeRead(prompt: string): boolean {
-    return RoutingDetector.requiresDiscoveryBeforeRead(prompt);
   }
 }

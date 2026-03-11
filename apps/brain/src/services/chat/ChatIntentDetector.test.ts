@@ -146,16 +146,11 @@ describe("ChatIntentDetector - Phase 3: Conversational vs Action", () => {
       expect(ChatIntentDetector.detectIntent("?")).toBeTruthy();
     });
 
-    it("returns canonical routing decision metadata", () => {
-      const conversationalDecision = ChatIntentDetector.analyze("hey");
-      expect(conversationalDecision.intent).toBe("conversational");
-      expect(conversationalDecision.bypass).toBe(true);
-      expect(conversationalDecision.reasonCode.length).toBeGreaterThan(0);
-
-      const actionDecision = ChatIntentDetector.analyze("read README.md");
-      expect(actionDecision.intent).toBe("action");
-      expect(actionDecision.bypass).toBe(false);
-      expect(actionDecision.reasonCode.length).toBeGreaterThan(0);
+    it("returns canonical routing reason codes via analyze()", () => {
+      const decision = ChatIntentDetector.analyze("check this file in the repo");
+      expect(decision.intent).toBe("action");
+      expect(decision.bypass).toBe(false);
+      expect(decision.reasonCode).toBe("ACTION_AMBIGUOUS_TARGET");
     });
   });
 

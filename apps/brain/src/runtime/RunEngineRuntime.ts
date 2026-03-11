@@ -9,7 +9,10 @@ import { TaskRepository } from "@shadowbox/execution-engine/runtime/task";
 import type { Env } from "../types/ai";
 import { parseExecuteRunRequest } from "./parsing/RunEngineRequestParser";
 import { buildRuntimeDependencies } from "./factories/ExecutionGatewayFactory";
-import type { ExecuteRunPayload } from "./parsing/ExecuteRunPayloadSchema";
+import {
+  SerializableToolDefinitionSchema,
+  type ExecuteRunPayload,
+} from "./parsing/ExecuteRunPayloadSchema";
 import { errorResponse, jsonResponse } from "../http/response";
 import {
   ValidationError,
@@ -594,8 +597,10 @@ function toRuntimeCoreTools(
 
   const runtimeTools: Record<string, CoreTool> = {};
   for (const [toolName, definition] of Object.entries(tools)) {
+    const validatedDefinition = SerializableToolDefinitionSchema.parse(definition);
     runtimeTools[toolName] = {
-      ...definition,
+      ...validatedDefinition,
+      parameters: validatedDefinition.parameters ?? {},
     } as CoreTool;
   }
   return runtimeTools;

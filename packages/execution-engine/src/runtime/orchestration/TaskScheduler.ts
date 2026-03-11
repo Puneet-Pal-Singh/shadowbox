@@ -1,6 +1,3 @@
-// packages/execution-engine/src/runtime/orchestration/TaskScheduler.ts
-// Phase 3.2: Parallel task execution scheduler with concurrency limits
-
 import type { TaskRepository } from "../task/index.js";
 import { Task, TaskState } from "../task/index.js";
 import type { TaskResult } from "../types.js";
@@ -34,11 +31,6 @@ export interface SchedulerHooks {
   ) => Promise<void>;
 }
 
-/**
- * TaskScheduler manages the execution of tasks according to their dependencies.
- * Phase 3B: Sequential execution (concurrencyLimit = 1)
- * Phase 3C: Parallel execution with configurable concurrency limit
- */
 export class TaskScheduler implements ITaskScheduler {
   private concurrencyLimit: number;
   private enforceReadOnlyParallel: boolean;
@@ -67,11 +59,9 @@ export class TaskScheduler implements ITaskScheduler {
     );
 
     while (await this.hasExecutableTasks(runId)) {
-      // Find all ready tasks (up to concurrency limit)
       const readyTasks = await this.findAllReadyTasks(runId);
 
       if (readyTasks.length === 0) {
-        // Check for deadlocks or completion
         const hasPending = await this.hasPendingTasks(runId);
         if (hasPending) {
           console.error(`[task/scheduler] Deadlock detected in run ${runId}`);
@@ -96,17 +86,14 @@ export class TaskScheduler implements ITaskScheduler {
     runId: string,
     hooks?: SchedulerHooks,
   ): Promise<void> {
-    // Execute all tasks in parallel
     const promises = tasks.map((task) =>
       this.executeSingleWithHooks(task.id, runId, hooks).catch(
         async (error) => {
-          // Collect errors but continue batch execution
           console.error(
             `[task/scheduler] Batch task ${task.id} failed:`,
             error instanceof Error ? error.message : String(error),
           );
           await this.bestEffortFinalizeRunningTask(task.id, runId, error);
-          // Return empty result to keep batch processing
           return {
             taskId: task.id,
             status: "FAILED" as const,
@@ -119,7 +106,6 @@ export class TaskScheduler implements ITaskScheduler {
       ),
     );
 
-    // Wait for all tasks to complete (both success and failure)
     await Promise.all(promises);
   }
 
@@ -194,7 +180,6 @@ export class TaskScheduler implements ITaskScheduler {
       throw new SchedulerError(`Task ${taskId} not found in run ${runId}`);
     }
 
-    // Validate task is ready before executing (allow RETRYING for retry logic)
     if (!["READY", "RETRYING"].includes(task.status)) {
       throw new SchedulerError(
         `Task ${taskId} is not ready for execution (status: ${task.status})`,
@@ -207,16 +192,13 @@ export class TaskScheduler implements ITaskScheduler {
       await hooks.beforeTask(task);
     }
 
-    // Transition to RUNNING
     task.transition("RUNNING");
     await this.taskRepo.update(task);
 
     try {
-      // Execute the task
       const result = await this.executor.execute(task);
 
       if (result.status !== "DONE") {
-        // Non-DONE status means task failed or errored, not success
         const fallbackMessage = `Task ${task.id} returned non-success status: ${result.status}`;
         const errorMessage = result.error?.message ?? fallbackMessage;
         console.warn(
@@ -225,7 +207,6 @@ export class TaskScheduler implements ITaskScheduler {
         throw new SchedulerTaskResultError(task.id, result.status, errorMessage);
       }
 
-      // Mark as DONE only when result.status is explicitly DONE
       task.transition("DONE", { output: result.output });
       await this.taskRepo.update(task);
 
@@ -240,7 +221,6 @@ export class TaskScheduler implements ITaskScheduler {
       if (hooks?.onTaskError) {
         await hooks.onTaskError(task, error);
       }
-      // Handle failure with retry logic
       const failed = await this.handleTaskFailure(task, error, hooks);
       if (hooks?.afterTask) {
         await hooks.afterTask(task, failed);
@@ -259,7 +239,6 @@ export class TaskScheduler implements ITaskScheduler {
 
     console.error(`[task/scheduler] Task ${task.id} failed:`, errorMessage);
 
-    // Move RUNNING -> FAILED first so retry eligibility reflects task state machine.
     task.transition("FAILED", {
       error: {
         message: errorMessage,
@@ -296,7 +275,6 @@ export class TaskScheduler implements ITaskScheduler {
         `[task/scheduler] Retrying task ${task.id} (attempt ${task.retryCount})`,
       );
 
-      // Execute again with hooks to maintain visibility during retries
       return this.executeSingleWithHooks(task.id, task.runId, hooks);
     }
 
@@ -324,7 +302,6 @@ export class TaskScheduler implements ITaskScheduler {
         continue;
       }
 
-      // Handle PENDING tasks
       const isReady = await this.preparePendingTask(task, runId);
       if (isReady) {
         readyTasks.push(task);
@@ -338,21 +315,18 @@ export class TaskScheduler implements ITaskScheduler {
     task: Task,
     runId: string,
   ): Promise<boolean> {
-    // No dependencies - can start immediately
     if (task.dependencies.length === 0) {
       task.transition("READY");
       await this.taskRepo.update(task);
       return true;
     }
 
-    // Has dependencies - check if all are done
     return await this.checkDependencies(task, runId);
   }
 
   private async checkDependencies(task: Task, runId: string): Promise<boolean> {
     const dependencies = await this.taskRepo.getByIds(task.dependencies, runId);
 
-    // Verify all requested dependencies were found
     if (dependencies.length !== task.dependencies.length) {
       const foundIds = new Set(dependencies.map((d) => d.id));
       const missingIds = task.dependencies.filter((id) => !foundIds.has(id));
@@ -360,14 +334,12 @@ export class TaskScheduler implements ITaskScheduler {
       return false;
     }
 
-    // Check for failed dependencies
     const failedDep = dependencies.find((d) => d.status === "FAILED");
     if (failedDep) {
       await this.failTaskDependencyFailed(task, failedDep);
       return false;
     }
 
-    // All dependencies done?
     const allDone = dependencies.every((d) => d.status === "DONE");
     if (allDone) {
       task.transition("READY");
@@ -402,8 +374,6 @@ export class TaskScheduler implements ITaskScheduler {
 
   private async hasExecutableTasks(runId: string): Promise<boolean> {
     const allTasks = await this.taskRepo.getByRun(runId);
-    // Check for READY or PENDING tasks
-    // PENDING tasks will be evaluated in findAllReadyTasks() for dependency resolution
     return allTasks.some(
       (task) => task.status === "READY" || task.status === "PENDING",
     );

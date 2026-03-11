@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from "vitest";
-import type { CoreTool } from "ai";
 import { RunEngine, type RunEngineDependencies } from "./RunEngine.js";
 import {
   buildConversationalSystemPrompt,
@@ -121,148 +120,99 @@ describe("RunEngine", () => {
     expect(req.system).toContain("conversational chat mode");
   });
 
-  it("routes action execution through AgenticLoop when enabled and tools are provided", async () => {
+  it("executes active agentic loop path when feature flag is enabled", async () => {
     const generateText = vi
       .fn()
       .mockResolvedValueOnce({
-        text: "Calling run_command",
+        text: "I will inspect the file first.",
         toolCalls: [
           {
-            id: "tool-call-1",
-            toolName: "run_command",
-            args: { command: "echo loop" },
+            id: "call-1",
+            toolName: "analyze",
+            args: { path: "README.md" },
           },
         ],
         usage: {
           provider: "mock",
           model: "mock-model",
-          promptTokens: 2,
-          completionTokens: 2,
-          totalTokens: 4,
+          promptTokens: 3,
+          completionTokens: 6,
+          totalTokens: 9,
         },
       })
       .mockResolvedValueOnce({
-        text: "Loop finished successfully",
+        text: "README inspection complete.",
         toolCalls: [],
         usage: {
           provider: "mock",
           model: "mock-model",
-          promptTokens: 2,
-          completionTokens: 2,
-          totalTokens: 4,
+          promptTokens: 4,
+          completionTokens: 5,
+          totalTokens: 9,
         },
       });
-    const generateStructured = vi.fn(async () => ({
-      object: { tasks: [], metadata: { estimatedSteps: 1 } },
-      usage: {
-        provider: "mock",
-        model: "mock-model",
-        promptTokens: 1,
-        completionTokens: 1,
-        totalTokens: 2,
-      },
-    }));
-
-    const runEngine = createRunEngine({
-      llmGateway: {
-        generateText,
-        generateStructured,
-        generateStream: async () =>
-          new ReadableStream<Uint8Array>({
-            start(controller) {
-              controller.close();
-            },
-          }),
-      },
-    });
+    const llmGateway: ILLMGateway = {
+      generateText,
+      generateStructured: async () => ({
+        object: { tasks: [], metadata: { estimatedSteps: 1 } },
+        usage: {
+          provider: "mock",
+          model: "mock-model",
+          promptTokens: 1,
+          completionTokens: 1,
+          totalTokens: 2,
+        },
+      }),
+      generateStream: async () =>
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.close();
+          },
+        }),
+    };
+    const planner = {
+      plan: vi.fn(async () => ({
+        tasks: [],
+        metadata: { estimatedSteps: 1 },
+      })),
+    } as unknown as RunEngineDependencies["planner"];
+    const runEngine = createRunEngine({ llmGateway, planner });
 
     const response = await runEngine.execute(
       {
         agentType: "coding",
-        prompt: "implement this by running a tool",
+        prompt: "inspect README and summarize it",
         sessionId: "session-1",
+        repositoryContext: {
+          owner: "sourcegraph",
+          repo: "shadowbox",
+        },
         metadata: {
           featureFlags: {
             agenticLoopV1: true,
           },
         },
       },
-      [{ role: "user", content: "implement this by running a tool" }],
-      {
-        run_command: {
-          description: "Run command",
-        } as CoreTool,
-      },
+      [{ role: "user", content: "inspect README and summarize it" }],
+      {},
     );
 
     expect(response.status).toBe(200);
-    expect(await response.text()).toContain("Loop finished successfully");
+    expect(await response.text()).toContain("README inspection complete.");
     expect(generateText).toHaveBeenCalledTimes(2);
-    expect(generateStructured).not.toHaveBeenCalled();
-  });
+    const firstRequest = generateText.mock.calls[0]?.[0] as {
+      tools?: Record<string, unknown>;
+    };
+    expect(firstRequest.tools).toBeDefined();
+    expect(Object.keys(firstRequest.tools ?? {})).toContain("analyze");
+    expect(planner.plan).not.toHaveBeenCalled();
 
-  it("keeps planner path when agentic loop flag is disabled", async () => {
-    const generateText = vi.fn(async () => ({
-      text: "Execution complete",
-      usage: {
-        provider: "mock",
-        model: "mock-model",
-        promptTokens: 1,
-        completionTokens: 1,
-        totalTokens: 2,
-      },
-    }));
-    const generateStructured = vi.fn(async () => ({
-      object: {
-        tasks: [
-          {
-            id: "task-1",
-            type: "shell",
-            description: "Do one step",
-            dependsOn: [],
-            input: { command: "echo planner" },
-          },
-        ],
-        metadata: { estimatedSteps: 1 },
-      },
-      usage: {
-        provider: "mock",
-        model: "mock-model",
-        promptTokens: 1,
-        completionTokens: 1,
-        totalTokens: 2,
-      },
-    }));
-
-    const runEngine = createRunEngine({
-      llmGateway: {
-        generateText,
-        generateStructured,
-        generateStream: async () =>
-          new ReadableStream<Uint8Array>({
-            start(controller) {
-              controller.close();
-            },
-          }),
-      },
-    });
-
-    const response = await runEngine.execute(
-      {
-        agentType: "coding",
-        prompt: "implement a tiny command task",
-        sessionId: "session-1",
-      },
-      [{ role: "user", content: "implement a tiny command task" }],
-      {
-        run_command: {
-          description: "Run command",
-        } as CoreTool,
-      },
-    );
-
-    expect(response.status).toBe(200);
-    expect(generateStructured).toHaveBeenCalledTimes(1);
+    const persisted = await (runEngine as unknown as {
+      getRun(runId: string): Promise<Run | null>;
+    }).getRun(TEST_RUN_ID);
+    expect(persisted?.metadata.agenticLoop?.enabled).toBe(true);
+    expect(persisted?.metadata.agenticLoop?.stopReason).toBe("llm_stop");
+    expect(persisted?.metadata.agenticLoop?.toolExecutionCount).toBe(1);
   });
 
   it("sanitizes internal runtime paths in user-facing output", () => {
