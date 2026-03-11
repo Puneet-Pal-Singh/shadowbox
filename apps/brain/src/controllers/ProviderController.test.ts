@@ -8,7 +8,8 @@ const TEST_USER_ID = "user-123";
 const TEST_WORKSPACE_ID = "workspace-main";
 const TEST_SESSION_SECRET = "test-session-secret";
 
-function createMockEnv(): Env {
+function createMockEnv(options?: { axisConnected?: boolean }): Env {
+  const axisConnected = options?.axisConnected ?? true;
   const providerState = new Map<string, Set<ProviderId>>();
   const preferencesState = new Map<
     string,
@@ -183,7 +184,8 @@ function createMockEnv(): Env {
               (providerId) => ({
                 providerId,
                 status:
-                  providerId === "axis" || connectedProviders.has(providerId)
+                  (providerId === "axis" && axisConnected) ||
+                  connectedProviders.has(providerId)
                   ? "connected"
                   : "disconnected",
                 capabilities: {
@@ -756,6 +758,25 @@ describe("ProviderController", () => {
         limit: 5,
         resetsAt: "2026-03-12T00:00:00.000Z",
       });
+    });
+
+    it("returns recovery guidance when axis platform credential is unavailable", async () => {
+      const env = createMockEnv({ axisConnected: false });
+
+      const resolveResponse = await ProviderController.byokResolve(
+        new Request("http://localhost/api/byok/resolve", {
+          method: "POST",
+          headers: await withByokHeaders(env),
+          body: JSON.stringify({}),
+        }),
+        env,
+      );
+      const resolveData = await resolveResponse.json();
+
+      expect(resolveResponse.status).toBe(400);
+      expect(resolveData.error.code).toBe("AUTH_FAILED");
+      expect(resolveData.error.message).toContain("Missing AXIS_OPENROUTER_API_KEY");
+      expect(resolveData.error.message).toContain("Connect a BYOK API-key provider");
     });
 
     it("fails fast when session-selected provider is not connected", async () => {

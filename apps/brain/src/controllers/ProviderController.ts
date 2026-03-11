@@ -1307,6 +1307,14 @@ function resolveSelection(
   const resolvedAt = selection.resolvedAt;
 
   if (!selectedCredential) {
+    const axisCredentialError = resolveAxisPlatformCredentialErrorMessage(
+      request,
+      preference,
+      credentials,
+    );
+    if (axisCredentialError) {
+      throw new ValidationError(axisCredentialError, "AUTH_FAILED", correlationId);
+    }
     throw new ProviderNotConnectedError(
       request.providerId ?? preference.defaultProviderId ?? "provider",
       correlationId,
@@ -1400,6 +1408,29 @@ function resolveCredentialSelection(
     selectedCredential: undefined,
     resolvedAt: "workspace_preference",
   };
+}
+
+function resolveAxisPlatformCredentialErrorMessage(
+  request: BYOKResolveRequest,
+  preference: BYOKPreference,
+  credentials: BYOKCredential[],
+): string | null {
+  const hasAxisCredential = credentials.some(
+    (credential) => credential.providerId === AXIS_PROVIDER_ID,
+  );
+  if (hasAxisCredential) {
+    return null;
+  }
+
+  const preferredProviderId = request.providerId ?? preference.defaultProviderId;
+  const canResolveToAxisByDefault = preferredProviderId === undefined;
+  const usesAxisPath =
+    preferredProviderId === AXIS_PROVIDER_ID || canResolveToAxisByDefault;
+  if (!usesAxisPath) {
+    return null;
+  }
+
+  return "Missing AXIS_OPENROUTER_API_KEY for platform-managed Axis provider. Connect a BYOK API-key provider in Provider Settings to continue.";
 }
 
 function resolveCredentialFromRequest(
