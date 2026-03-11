@@ -119,6 +119,80 @@ describe("AgenticLoop - Bounded Agentic Tool Chaining", () => {
         content: "Response text",
       });
     });
+
+    it("executes tool calls and appends tool results for next LLM step", async () => {
+      vi.mocked(llmGateway.generateText!)
+        .mockResolvedValueOnce({
+          text: "Calling tool",
+          toolCalls: [
+            {
+              id: "tool-call-1",
+              toolName: "read_file",
+              args: { path: "README.md" },
+            },
+          ],
+          usage: { promptTokens: 10, completionTokens: 5 },
+        })
+        .mockResolvedValueOnce({
+          text: "Tool result processed",
+          toolCalls: [],
+          usage: { promptTokens: 12, completionTokens: 6 },
+        });
+
+      vi.mocked(executor.execute!).mockResolvedValue({
+        taskId: "tool-call-1",
+        status: "DONE",
+        output: { content: "README content" },
+        completedAt: new Date(),
+      });
+
+      const tools = {
+        read_file: {
+          description: "Read a file",
+        },
+      } as unknown as Record<string, import("ai").CoreTool>;
+
+      const result = await loop.execute(
+        [{ role: "user", content: "read readme" }],
+        tools,
+        { agentType: "coding" },
+      );
+
+      expect(result.stopReason).toBe("llm_stop");
+      expect(result.stepsExecuted).toBe(2);
+      expect(result.toolExecutionCount).toBe(1);
+      expect(result.failedToolCount).toBe(0);
+      expect(result.messages).toHaveLength(4);
+      expect(result.messages[2]).toMatchObject({
+        role: "user",
+      });
+      expect(executor.execute).toHaveBeenCalledTimes(1);
+    });
+
+    it("stops with tool_error when LLM requests an unregistered tool", async () => {
+      vi.mocked(llmGateway.generateText!).mockResolvedValue({
+        text: "calling unknown tool",
+        toolCalls: [
+          {
+            id: "unknown-call",
+            toolName: "delete_all",
+            args: {},
+          },
+        ],
+        usage: { promptTokens: 10, completionTokens: 5 },
+      });
+
+      const result = await loop.execute(
+        [{ role: "user", content: "do something risky" }],
+        {},
+        { agentType: "coding" },
+      );
+
+      expect(result.stopReason).toBe("tool_error");
+      expect(result.toolExecutionCount).toBe(1);
+      expect(result.failedToolCount).toBe(1);
+      expect(executor.execute).not.toHaveBeenCalled();
+    });
   });
 
   describe("Statistics", () => {

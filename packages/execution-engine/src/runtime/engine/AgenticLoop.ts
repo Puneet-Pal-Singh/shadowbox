@@ -13,38 +13,13 @@ import {
 import type { ILLMGateway } from "../llm/index.js";
 import type { IBudgetManager } from "../cost/index.js";
 import type { TaskExecutor } from "../orchestration/index.js";
-import type { TaskResult } from "../types.js";
+import { Task } from "../task/index.js";
 
 export interface AgenticLoopConfig {
   maxSteps: number;
   runId: string;
   sessionId: string;
   budget?: IBudgetManager;
-}
-
-/**
- * Minimal LLM response interface for agentic loop
- * Simplified from what generateWithTools would return
- */
-export interface LLMToolResponse {
-  text: string;
-  toolCalls: Array<{
-    id: string;
-    toolName: string;
-    args: Record<string, unknown>;
-  }>;
-}
-
-/**
- * Minimal task interface for tool execution within agentic loop
- * Satisfies TaskExecutor.execute() contract
- */
-interface ToolTask {
-  id: string;
-  type: string;
-  input: Record<string, unknown>;
-  runId: string;
-  status: string;
 }
 
 export type StopReason =
@@ -138,14 +113,10 @@ export class AgenticLoop {
         `[agentic-loop] Step ${step + 1}/${this.config.maxSteps} for run ${this.config.runId}`,
       );
 
-      // Call LLM - note: tool support would require extending ILLMGateway
-      // For now, this is a placeholder. In production, AgenticLoop would be invoked
-      // as part of a higher-level orchestration that handles tool parsing.
-      let response: LLMToolResponse;
+      // Call LLM with tool definitions for this step.
+      let response;
       try {
-        // Placeholder: actual implementation would parse tool calls from LLM output
-        // or use a specialized generateWithTools method on ILLMGateway
-        const textResponse = await this.llmGateway.generateText({
+        response = await this.llmGateway.generateText({
           context: {
             runId: this.config.runId,
             sessionId: this.config.sessionId,
@@ -153,14 +124,11 @@ export class AgenticLoop {
             phase: "task",
           },
           messages,
+          tools,
           model: context.modelId,
           providerId: context.providerId,
           temperature: context.temperature,
         });
-        response = {
-          text: textResponse.text,
-          toolCalls: [],
-        };
       } catch (error) {
         console.error(
           `[agentic-loop] LLM call failed at step ${step}:`,
@@ -187,6 +155,7 @@ export class AgenticLoop {
       // Execute requested tools
       const toolResults: Array<{
         toolId: string;
+        toolName: string;
         result: unknown;
         error?: string;
       }> = [];
@@ -220,33 +189,40 @@ export class AgenticLoop {
 
         // Execute tool
         try {
+          if (!tools[toolCall.toolName]) {
+            this.failedToolCount++;
+            const message = `Tool "${toolCall.toolName}" is not registered for this run`;
+            console.warn(
+              `[agentic-loop] ${message} (call: ${toolCall.id})`,
+            );
+            toolResults.push({
+              toolId: toolCall.id,
+              toolName: toolCall.toolName,
+              result: null,
+              error: message,
+            });
+            continue;
+          }
+
           console.log(
             `[agentic-loop] Executing tool: ${toolCall.toolName} (call: ${toolCall.id})`,
           );
 
-          // Create a minimal task-like object for executor
-          const toolTask: ToolTask = {
-            id: toolCall.id,
-            type: toolCall.toolName,
-            input: {
-              description: `Execute ${toolCall.toolName}`,
-              ...toolCall.args,
-            },
-            runId: this.config.runId,
-            status: "RUNNING",
-          };
+          const toolTask = this.createToolTask(toolCall.id, toolCall);
 
-          const result = await this.executor.execute(toolTask as any);
+          const result = await this.executor.execute(toolTask);
 
           if (result.status === "DONE") {
             toolResults.push({
               toolId: toolCall.id,
+              toolName: toolCall.toolName,
               result: result.output?.content,
             });
           } else {
             this.failedToolCount++;
             toolResults.push({
               toolId: toolCall.id,
+              toolName: toolCall.toolName,
               result: null,
               error: result.error?.message || "Tool execution failed",
             });
@@ -261,6 +237,7 @@ export class AgenticLoop {
           );
           toolResults.push({
             toolId: toolCall.id,
+            toolName: toolCall.toolName,
             result: null,
             error: errorMessage,
           });
@@ -281,6 +258,11 @@ export class AgenticLoop {
             timestamp: new Date().toISOString(),
           }),
         });
+      }
+
+      if (toolResults.some((result) => Boolean(result.error))) {
+        stopReason = "tool_error";
+        break;
       }
 
       // Check if we should continue
@@ -325,5 +307,18 @@ export class AgenticLoop {
     this.stepsExecuted = 0;
     this.toolExecutionCount = 0;
     this.failedToolCount = 0;
+  }
+
+  private createToolTask(
+    id: string,
+    toolCall: {
+      toolName: string;
+      args: Record<string, unknown>;
+    },
+  ): Task {
+    return new Task(id, this.config.runId, toolCall.toolName, "RUNNING", [], {
+      description: `Execute ${toolCall.toolName}`,
+      ...toolCall.args,
+    });
   }
 }

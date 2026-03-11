@@ -70,12 +70,14 @@ export class AIService {
     providerId,
     temperature = 0.7,
     system,
+    tools,
   }: {
     messages: CoreMessage[];
     model?: string;
     providerId?: string;
     temperature?: number;
     system?: string;
+    tools?: Record<string, CoreTool>;
   }): Promise<GenerateTextResult> {
     const selection = await resolveSelectionWithPreferences({
       providerId,
@@ -95,6 +97,7 @@ export class AIService {
     return generateText(selectedAdapter, {
       messages,
       system,
+      tools,
       temperature,
       model: selection.model,
     });
