@@ -44,4 +44,34 @@ describe("RunExecutionErrorMapper", () => {
 
     expect(mapped).toBeNull();
   });
+
+  it("maps planning schema mismatch errors to typed validation failure", () => {
+    const mapped = mapRunExecutionErrorToDomain(
+      new Error("No object generated: response did not match schema."),
+      "corr-5",
+    );
+
+    expect(mapped).toMatchObject({
+      code: "PLAN_SCHEMA_MISMATCH",
+      status: 422,
+      retryable: false,
+      correlationId: "corr-5",
+    });
+  });
+
+  it("maps planning timeout errors to typed retryable timeout", () => {
+    const timeoutError = new Error(
+      "[llm/gateway] structured call timed out after 45000ms (phase=planning)",
+    );
+    timeoutError.name = "LLMTimeoutError";
+
+    const mapped = mapRunExecutionErrorToDomain(timeoutError, "corr-6");
+
+    expect(mapped).toMatchObject({
+      code: "PLAN_GENERATION_TIMEOUT",
+      status: 504,
+      retryable: true,
+      correlationId: "corr-6",
+    });
+  });
 });
