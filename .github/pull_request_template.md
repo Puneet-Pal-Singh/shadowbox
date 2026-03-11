@@ -17,25 +17,33 @@ Safety:
 - Do not include internal/local file names or paths, especially from ignored/private directories.
 -->
 
-## Summary
+## Description
+
+<!-- Provide a clear and concise description of what this PR does -->
 
 ## What was accomplished
 
 ## Why this change
 
-## Changes
+## What changed?
 
-## Verification
+<!-- Describe the changes made in this PR -->
 
-## **Test Results** (code block)
+## Breaking changes
+
+<!-- If this PR contains breaking changes, describe them here -->
+
+<!-- ## Verification -->
+
+<!-- ## **Test Results** (code block)
    ```
    ✓ test-file.test.ts ({N} tests)
    ───────────────────────
    Total: {X}/{Y} tests PASSING ✅
-   ``` 
+   ```  -->
 
-## **Code Quality Metrics** (simple table)
-   - TypeScript strict, zero `any`, Zod validation, etc.
+<!-- ## **Code Quality Metrics** (simple table)
+   - TypeScript strict, zero `any`, Zod validation, etc. -->
 
 ## Related
 <!-- Public GitHub PRs/issues only. If none, write N/A. -->
