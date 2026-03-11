@@ -54,6 +54,9 @@ const BRANCH_MISSING_PATTERNS = [
 const REMOTE_REF_MISSING_PATTERNS = [/couldn't find remote ref/i];
 const REMOTE_MISSING_PATTERNS = [/no such remote/i];
 const NO_TRACKING_PATTERNS = [/there is no tracking information/i];
+const CLONE_DESTINATION_NOT_EMPTY_PATTERNS = [
+  /destination path .* already exists and is not an empty directory/i,
+];
 
 export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
   constructor(private executionClient: GitExecutionClient) {}
@@ -98,8 +101,22 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
 
       const cloneResult = await this.executeGit("git_clone", { url: cloneUrl });
       if (!cloneResult.success) {
+        const cloneError = cloneResult.error ?? "Failed to clone repository into workspace.";
+        if (matchesAny(cloneError, CLONE_DESTINATION_NOT_EMPTY_PATTERNS)) {
+          const forcedCloneResult = await this.executeGit("git_clone", {
+            url: cloneUrl,
+            replaceExisting: true,
+          });
+          if (forcedCloneResult.success) {
+            return await this.syncBranch(normalized.branch);
+          }
+          return mapGitFailure(
+            forcedCloneResult.error ??
+              "Failed to replace existing workspace contents for repository clone.",
+          );
+        }
         return mapGitFailure(
-          cloneResult.error ?? "Failed to clone repository into workspace.",
+          cloneError,
         );
       }
     }
@@ -250,6 +267,9 @@ function resolveCloneUrl(context: NormalizedRepositoryContext): string | null {
 
 function sanitizeError(error: string): string {
   const trimmed = error.trim();
+  if (matchesAny(trimmed, CLONE_DESTINATION_NOT_EMPTY_PATTERNS)) {
+    return "Workspace initialization conflict: existing non-repository files blocked clone. Retry to reinitialize the workspace.";
+  }
   return trimmed.length > 0
     ? trimmed
     : "Workspace synchronization failed due to an unknown git error.";
