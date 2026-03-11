@@ -182,7 +182,16 @@ export class ProviderCredentialService {
 
     if (providerId === "axis") {
       const apiKey = this.env.AXIS_OPENROUTER_API_KEY?.trim();
-      return apiKey && apiKey.length > 0 ? apiKey : null;
+      if (!apiKey || apiKey.length === 0) {
+        return null;
+      }
+      if (!this.registryService.isApiKeyFormatValid("openrouter", apiKey)) {
+        throw new ValidationError(
+          `Platform-managed credential for "${providerId}" is misconfigured.`,
+          "AUTH_FAILED",
+        );
+      }
+      return apiKey;
     }
 
     return null;

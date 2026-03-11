@@ -1150,7 +1150,7 @@ async function fetchRuntimeAxisQuota(
   env: Env,
   scope: AuthorizedProviderScope,
   correlationId: string,
-): Promise<z.infer<typeof AxisQuotaMetadataSchema>> {
+): Promise<z.infer<typeof AxisQuotaMetadataSchema> | undefined> {
   const response = await proxyByokOperation(
     req,
     env,
@@ -1162,7 +1162,12 @@ async function fetchRuntimeAxisQuota(
     AxisQuotaMetadataSchema,
     correlationId,
   );
-  return await readResponseJson(response, correlationId);
+  if (!response.ok) {
+    return undefined;
+  }
+
+  const payload = await readResponseJson<unknown>(response, correlationId);
+  return validateWithSchema(payload, AxisQuotaMetadataSchema, correlationId);
 }
 
 function mapCatalogEntryToRegistry(
@@ -1232,7 +1237,7 @@ function resolveCredentialLabel(
   metadata: WorkspaceByokMetadata,
 ): string {
   if (connection.providerId === AXIS_PROVIDER_ID) {
-    return "Axis (Free)";
+    return metadata.credentialLabels[credentialId] ?? "Axis (Free)";
   }
   return (
     metadata.credentialLabels[credentialId] ??
