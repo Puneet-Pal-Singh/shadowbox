@@ -79,14 +79,8 @@ import {
   recordPhaseSelectionSnapshot,
 } from "./RunMetadataPolicy.js";
 import { resetRecyclableRun } from "./RunRecyclableResetPolicy.js";
+import { applyReviewerPassIfEnabled } from "./RunReviewerPassPolicy.js";
 
-const ReviewerDecisionSchema = z.object({
-  verdict: z.enum(["accept", "request_changes", "fail"]),
-  summary: z.string().trim().min(1),
-  issues: z.array(z.string().trim().min(1)).max(10).default([]),
-});
-
-type ReviewerDecision = z.infer<typeof ReviewerDecisionSchema>;
 const AGENTIC_LOOP_DEFAULT_MAX_STEPS = 6;
 const AGENTIC_TOOL_SCHEMA = {
   analyze: z.object({
@@ -110,7 +104,6 @@ const AGENTIC_TOOL_SCHEMA = {
     notes: z.string().max(2000).optional(),
   }),
 } as const;
-
 export interface IRunEngine {
   execute(
     input: RunInput,
@@ -489,11 +482,12 @@ export class RunEngine implements IRunEngine {
         input.prompt,
         this.currentMemoryContext,
       );
-      const finalOutput = await this.applyReviewerPassIfEnabled(
+      const finalOutput = await applyReviewerPassIfEnabled({
         run,
-        input.prompt,
-        sanitizeUserFacingOutput(finalOutputRaw),
-      );
+        originalPrompt: input.prompt,
+        synthesisOutput: sanitizeUserFacingOutput(finalOutputRaw),
+        llmGateway: this.llmGateway,
+      });
 
       await this.safeMemoryOperation(() =>
         this.memoryCoordinator.extractAndPersist({
@@ -567,11 +561,12 @@ export class RunEngine implements IRunEngine {
 
     this.recordAgenticLoopMetadata(run, loopResult);
     const loopOutput = this.buildAgenticLoopFinalOutput(loopResult);
-    const finalOutput = await this.applyReviewerPassIfEnabled(
+    const finalOutput = await applyReviewerPassIfEnabled({
       run,
-      input.prompt,
-      sanitizeUserFacingOutput(loopOutput),
-    );
+      originalPrompt: input.prompt,
+      synthesisOutput: sanitizeUserFacingOutput(loopOutput),
+      llmGateway: this.llmGateway,
+    });
     return this.completeRunWithAssistantMessage(run, finalOutput);
   }
 
@@ -1022,154 +1017,6 @@ If any task failed or was cancelled, clearly say so and do not claim full comple
     console.log(`[run/engine] Completed conversational run ${run.id}`);
 
     return this.createStreamResponse(sanitizedText);
-  }
-
-  private async applyReviewerPassIfEnabled(
-    run: Run,
-    originalPrompt: string,
-    synthesisOutput: string,
-  ): Promise<string> {
-    if (!this.isReviewerPassEnabled(run.input.metadata)) {
-      this.setReviewerPassDisabled(run);
-      return synthesisOutput;
-    }
-
-    console.log(`[run/engine] Reviewer pass enabled for run ${run.id}`);
-    const decision = await this.generateReviewerDecision(
-      run,
-      originalPrompt,
-      synthesisOutput,
-    );
-    if (!decision) {
-      return synthesisOutput;
-    }
-
-    this.recordReviewerDecision(run, decision);
-    if (decision.verdict === "accept") {
-      return synthesisOutput;
-    }
-
-    recordLifecycleStep(run, "SYNTHESIS", `reviewer=${decision.verdict}`);
-    return `${synthesisOutput}\n\n${this.formatReviewerSuffix(decision)}`;
-  }
-
-  private setReviewerPassDisabled(run: Run): void {
-    run.metadata.reviewerPass = {
-      enabled: false,
-      applied: false,
-    };
-  }
-
-  private async generateReviewerDecision(
-    run: Run,
-    originalPrompt: string,
-    synthesisOutput: string,
-  ): Promise<ReviewerDecision | null> {
-    try {
-      const reviewResult = await this.llmGateway.generateStructured({
-        context: {
-          runId: run.id,
-          sessionId: run.sessionId,
-          agentType: "review",
-          phase: "synthesis",
-        },
-        messages: this.buildReviewerMessages(originalPrompt, synthesisOutput),
-        schema: ReviewerDecisionSchema,
-        model: run.input.modelId,
-        providerId: run.input.providerId,
-        temperature: 0.1,
-      });
-      return {
-        ...reviewResult.object,
-        issues: reviewResult.object.issues ?? [],
-      };
-    } catch (error) {
-      this.recordReviewerPassFailure(run, error);
-      return null;
-    }
-  }
-
-  private buildReviewerMessages(
-    originalPrompt: string,
-    synthesisOutput: string,
-  ): CoreMessage[] {
-    return [
-      {
-        role: "system",
-        content:
-          "Review the candidate response for correctness and regressions. Return a strict verdict and concise review notes.",
-      },
-      {
-        role: "user",
-        content: [
-          "Original user request:",
-          originalPrompt,
-          "",
-          "Candidate synthesis output:",
-          synthesisOutput,
-        ].join("\n"),
-      },
-    ];
-  }
-
-  private recordReviewerDecision(run: Run, decision: ReviewerDecision): void {
-    run.metadata.reviewerPass = {
-      enabled: true,
-      verdict: decision.verdict,
-      summary: decision.summary,
-      issues: decision.issues,
-      reviewedAt: new Date().toISOString(),
-      applied: decision.verdict !== "accept",
-    };
-  }
-
-  private recordReviewerPassFailure(run: Run, error: unknown): void {
-    const message = error instanceof Error ? error.message : "reviewer pass failed";
-    run.metadata.reviewerPass = {
-      enabled: true,
-      verdict: "fail",
-      summary: "Reviewer pass failed; returning generator output.",
-      issues: [],
-      reviewedAt: new Date().toISOString(),
-      applied: false,
-      error: message,
-    };
-    console.warn(`[run/engine] Reviewer pass failed for run ${run.id}: ${message}`);
-  }
-
-  private formatReviewerSuffix(decision: ReviewerDecision): string {
-    const issueLines =
-      decision.issues.length > 0
-        ? decision.issues.map((issue, index) => `${index + 1}. ${issue}`).join("\n")
-        : "1. No detailed issue list provided by reviewer.";
-
-    return [
-      "---",
-      `Reviewer Note (${decision.verdict})`,
-      decision.summary,
-      "",
-      "Reviewer Issues:",
-      issueLines,
-    ].join("\n");
-  }
-
-  private isReviewerPassEnabled(metadata?: Record<string, unknown>): boolean {
-    if (!metadata) {
-      return false;
-    }
-
-    const directFlag = metadata.reviewerPassV1;
-    if (typeof directFlag === "boolean") {
-      return directFlag;
-    }
-
-    const featureFlags = metadata.featureFlags;
-    if (typeof featureFlags !== "object" || featureFlags === null) {
-      return false;
-    }
-
-    const nestedFlag = (featureFlags as Record<string, unknown>).reviewerPassV1;
-    return typeof nestedFlag === "boolean" ? nestedFlag : false;
   }
 
   private async processPermissionDirectives(prompt: string): Promise<string | null> {

@@ -78,6 +78,20 @@ describe("DurableProviderStore", () => {
     expect(preferences.defaultModelId).toBe("gpt-4o");
   });
 
+  it("seeds axis defaults when no preference record exists", async () => {
+    const { state } = createMockDurableState();
+    const store = new DurableProviderStore(
+      state,
+      { runId: "run-defaults", userId: "user-1", workspaceId: "workspace-1" },
+      "test-encryption-key",
+    );
+
+    const preferences = await store.getPreferences();
+    expect(preferences.defaultProviderId).toBe("axis");
+    expect(preferences.defaultModelId).toBe("openai/gpt-oss-120b:free");
+    expect(preferences.updatedAt).toBeTypeOf("string");
+  });
+
   it("uses collision-safe scope encoding for storage keys", async () => {
     const { state, storage } = createMockDurableState();
     const storeA = new DurableProviderStore(

@@ -134,6 +134,9 @@ export function ModelPickerPopover({
   const filteredGroups = useMemo((): ProviderGroup[] => {
     const query = searchQuery.toLowerCase();
     const byVisibility = providerGroups.map((group) => {
+      if (group.providerId === "axis") {
+        return group;
+      }
       const visibleSet = visibleModelIds[group.providerId] || new Set();
       return {
         ...group,
@@ -157,6 +160,12 @@ export function ModelPickerPopover({
       }))
       .filter((group) => group.models.length > 0);
   }, [providerGroups, searchQuery, visibleModelIds]);
+  const axisDefaultGroup = filteredGroups.find(
+    (group) => group.providerId === "axis"
+  );
+  const connectedProviderGroups = filteredGroups.filter(
+    (group) => group.providerId !== "axis"
+  );
 
   // Get currently selected model label
   const selectedModelLabel = useMemo((): string => {
@@ -478,53 +487,94 @@ export function ModelPickerPopover({
               <div className="p-6 text-center text-neutral-400 text-sm">
                 {searchQuery
                   ? "No models match your search"
-                  : "No providers connected yet."}
+                  : "No models available yet."}
               </div>
             ) : (
-              filteredGroups.map((group) => (
-                <div
-                  key={group.providerId}
-                  className="border-b border-neutral-800/80 last:border-b-0"
-                >
-                  {/* Provider Header */}
-                  <div className="sticky top-0 bg-neutral-900/95 px-3 py-2">
-                    <h3 className="text-[10px] font-semibold text-neutral-500 uppercase tracking-wide">
-                      {group.displayName}
-                    </h3>
+              <>
+                {axisDefaultGroup && (
+                  <div className="border-b border-neutral-800/80">
+                    <div className="sticky top-0 bg-neutral-900/95 px-3 py-2">
+                      <h3 className="text-[10px] font-semibold text-neutral-500 uppercase tracking-wide">
+                        Included default models
+                      </h3>
+                    </div>
+                    <div className="py-1">
+                      {axisDefaultGroup.models.map((model) => (
+                        <button
+                          type="button"
+                          key={model.id}
+                          onClick={() =>
+                            handleSelectModel(axisDefaultGroup.providerId, model.id)
+                          }
+                          disabled={selectingModelId === model.id}
+                          className={`
+                            w-full px-3 py-2 text-left text-xs
+                            transition-colors disabled:opacity-50
+                            ${
+                              selectedProviderId === axisDefaultGroup.providerId &&
+                              selectedModelId === model.id
+                                ? "bg-neutral-800 text-neutral-100"
+                                : "text-neutral-400 hover:bg-neutral-800/50"
+                            }
+                          `}
+                          title={`${model.name} (${model.id})`}
+                        >
+                          <div className="flex min-w-0 items-center gap-2">
+                            <p className="truncate font-medium">{model.name}</p>
+                            {selectedProviderId === axisDefaultGroup.providerId &&
+                              selectedModelId === model.id && (
+                                <span className="ml-auto text-neutral-200">✓</span>
+                              )}
+                          </div>
+                        </button>
+                      ))}
+                    </div>
                   </div>
+                )}
 
-                  {/* Models */}
-                  <div className="py-1">
-                    {group.models.map((model) => (
-                       <button
-                         type="button"
-                         key={model.id}
-                         onClick={() => handleSelectModel(group.providerId, model.id)}
-                         disabled={selectingModelId === model.id}
-                         className={`
-                           w-full px-3 py-2 text-left text-xs
-                           transition-colors disabled:opacity-50
-                           ${
-                             selectedProviderId === group.providerId &&
-                             selectedModelId === model.id
-                               ? "bg-neutral-800 text-neutral-100"
-                               : "text-neutral-400 hover:bg-neutral-800/50"
-                           }
-                         `}
-                         title={`${model.name} (${model.id})`}
-                       >
-                        <div className="flex min-w-0 items-center gap-2">
-                          <p className="truncate font-medium">{model.name}</p>
-                          {selectedProviderId === group.providerId &&
-                            selectedModelId === model.id && (
-                              <span className="ml-auto text-neutral-200">✓</span>
-                            )}
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              ))
+                {connectedProviderGroups.length > 0 &&
+                  connectedProviderGroups.map((group) => (
+                    <div
+                      key={group.providerId}
+                      className="border-b border-neutral-800/80 last:border-b-0"
+                    >
+                      <div className="sticky top-0 bg-neutral-900/95 px-3 py-2">
+                        <h3 className="text-[10px] font-semibold text-neutral-500 uppercase tracking-wide">
+                          {group.displayName}
+                        </h3>
+                      </div>
+                      <div className="py-1">
+                        {group.models.map((model) => (
+                          <button
+                            type="button"
+                            key={model.id}
+                            onClick={() => handleSelectModel(group.providerId, model.id)}
+                            disabled={selectingModelId === model.id}
+                            className={`
+                              w-full px-3 py-2 text-left text-xs
+                              transition-colors disabled:opacity-50
+                              ${
+                                selectedProviderId === group.providerId &&
+                                selectedModelId === model.id
+                                  ? "bg-neutral-800 text-neutral-100"
+                                  : "text-neutral-400 hover:bg-neutral-800/50"
+                              }
+                            `}
+                            title={`${model.name} (${model.id})`}
+                          >
+                            <div className="flex min-w-0 items-center gap-2">
+                              <p className="truncate font-medium">{model.name}</p>
+                              {selectedProviderId === group.providerId &&
+                                selectedModelId === model.id && (
+                                  <span className="ml-auto text-neutral-200">✓</span>
+                                )}
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+              </>
             )}
             </div>
             {hasMoreSelectedProviderModels && canLoadMoreSelectedProviderModels && (

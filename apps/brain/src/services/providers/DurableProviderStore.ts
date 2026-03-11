@@ -36,6 +36,7 @@ import {
   type ProviderStoreScopeInput,
 } from "./provider-scope";
 import type { ProviderEncryptionConfig } from "./provider-encryption-key";
+import { AXIS_CURATED_MODEL_IDS, AXIS_PROVIDER_ID } from "./axis";
 
 export interface ProviderCredential {
   providerId: ProviderId;
@@ -76,6 +77,7 @@ const PROVIDER_MODEL_CACHE_PREFIX = "provider:model-cache:v1:";
 const PROVIDER_PREFERENCES_SUFFIX = "_preferences";
 const PROVIDER_AUDIT_PREFIX = "provider:audit:v1:";
 const AXIS_QUOTA_PREFIX = "provider:axis-quota:v1:";
+const AXIS_DEFAULT_MODEL_ID = AXIS_CURATED_MODEL_IDS[0];
 
 const ProviderModelCacheRecordV1Schema = z
   .object({
@@ -222,9 +224,13 @@ export class DurableProviderStore {
 
     try {
       const parsed = JSON.parse(raw) as ProviderPreferencesRecordV1;
+      const defaultProviderId = parsed.defaultProviderId ?? AXIS_PROVIDER_ID;
+      const defaultModelId =
+        parsed.defaultModelId ??
+        (defaultProviderId === AXIS_PROVIDER_ID ? AXIS_DEFAULT_MODEL_ID : undefined);
       return {
-        defaultProviderId: parsed.defaultProviderId,
-        defaultModelId: parsed.defaultModelId,
+        defaultProviderId,
+        defaultModelId,
         updatedAt: parsed.updatedAt,
       };
     } catch (error) {
@@ -526,6 +532,8 @@ export class DurableProviderStore {
 
   private createDefaultPreferences(): BYOKPreferences {
     return {
+      defaultProviderId: AXIS_PROVIDER_ID,
+      defaultModelId: AXIS_DEFAULT_MODEL_ID,
       updatedAt: new Date().toISOString(),
     };
   }
