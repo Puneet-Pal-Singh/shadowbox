@@ -172,7 +172,112 @@ describe("TaskScheduler", () => {
     const persisted = await taskRepo.getById("5", "run-5");
     expect(persisted?.status).toBe("FAILED");
   });
+
+  it("parallelizes read-only tasks while serializing mutating tasks", async () => {
+    const ctx = new MockRuntimeState();
+    const taskRepo = new TaskRepository(ctx);
+    await taskRepo.create(
+      new Task("r1", "run-parallel", "analyze", "READY", [], {
+        description: "Analyze A",
+      }),
+    );
+    await taskRepo.create(
+      new Task("r2", "run-parallel", "analyze", "READY", [], {
+        description: "Analyze B",
+      }),
+    );
+    await taskRepo.create(
+      new Task("m1", "run-parallel", "edit", "READY", [], {
+        description: "Edit file",
+      }),
+    );
+
+    let activeCount = 0;
+    let maxActive = 0;
+    let completedReadOnly = 0;
+    let editStartedAfterReadOnly = true;
+
+    const executor = {
+      execute: vi.fn(async (task: Task): Promise<TaskResult> => {
+        if (task.type === "edit" && completedReadOnly < 2) {
+          editStartedAfterReadOnly = false;
+        }
+        activeCount += 1;
+        maxActive = Math.max(maxActive, activeCount);
+        await sleep(20);
+        if (task.type === "analyze") {
+          completedReadOnly += 1;
+        }
+        activeCount -= 1;
+        return {
+          taskId: task.id,
+          status: "DONE",
+          output: { content: `${task.type} complete` },
+          completedAt: new Date(),
+        };
+      }),
+    };
+
+    const scheduler = new TaskScheduler(taskRepo, executor, {
+      concurrencyLimit: 3,
+      enforceReadOnlyParallel: true,
+      readOnlyTaskTypes: ["analyze"],
+    });
+    await scheduler.execute("run-parallel");
+
+    expect(executor.execute).toHaveBeenCalledTimes(3);
+    expect(maxActive).toBe(2);
+    expect(editStartedAfterReadOnly).toBe(true);
+  });
+
+  it("keeps mutating tasks serialized when read-only lane has no eligible tasks", async () => {
+    const ctx = new MockRuntimeState();
+    const taskRepo = new TaskRepository(ctx);
+    await taskRepo.create(
+      new Task("m2", "run-serial", "edit", "READY", [], {
+        description: "Edit one",
+      }),
+    );
+    await taskRepo.create(
+      new Task("m3", "run-serial", "shell", "READY", [], {
+        description: "Shell two",
+      }),
+    );
+
+    let activeCount = 0;
+    let maxActive = 0;
+    const executor = {
+      execute: vi.fn(async (task: Task): Promise<TaskResult> => {
+        activeCount += 1;
+        maxActive = Math.max(maxActive, activeCount);
+        await sleep(20);
+        activeCount -= 1;
+        return {
+          taskId: task.id,
+          status: "DONE",
+          output: { content: `${task.type} complete` },
+          completedAt: new Date(),
+        };
+      }),
+    };
+
+    const scheduler = new TaskScheduler(taskRepo, executor, {
+      concurrencyLimit: 3,
+      enforceReadOnlyParallel: true,
+      readOnlyTaskTypes: ["analyze"],
+    });
+    await scheduler.execute("run-serial");
+
+    expect(executor.execute).toHaveBeenCalledTimes(2);
+    expect(maxActive).toBe(1);
+  });
 });
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
 
 class InMemoryStorage implements RuntimeStorage {
   private store = new Map<string, unknown>();
