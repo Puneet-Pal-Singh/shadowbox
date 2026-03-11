@@ -139,7 +139,12 @@ describe("RoutingDetector - Unified routing logic", () => {
     });
 
     it("should default to conversational for non-action prompts", () => {
-      const ambiguous = ["what's this?", "can you help?", "anything else?"];
+      const ambiguous = [
+        "what's this?",
+        "can you help?",
+        "anything else?",
+        "hey from run 1",
+      ];
 
       ambiguous.forEach((prompt) => {
         const decision = RoutingDetector.analyze(prompt);

@@ -131,7 +131,9 @@ export class ChatIntentDetector {
       /\b(fix.*failing|make.*pass|debug.*test)\b/i,
 
       // Execution
-      /\b(run|execute|exec|npm|yarn|pnpm|node|npx)\s+/i,
+      /\b(run)\s+(the\s+)?(tests?|build|lint|format|typecheck|compile|start|dev|install|deploy)\b/i,
+      /\b(execute|exec)\s+(this\s+)?(command|script|task|tests?|build|install|deploy)\b/i,
+      /\b(npm|yarn|pnpm|node|npx)\s+[^\s]+/i,
       /\bsh(ell)?.*command\b/i,
 
       // Code-specific
