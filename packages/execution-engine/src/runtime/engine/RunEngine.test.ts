@@ -1,10 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
 import { RunEngine, type RunEngineDependencies } from "./RunEngine.js";
-import {
-  buildConversationalSystemPrompt,
-  getActionClarificationMessage,
-  shouldBypassPlanning,
-} from "./ConversationPolicy.js";
 import { sanitizeUserFacingOutput } from "./RunOutputSanitizer.js";
 import type { PlannedTask } from "../planner/PlanSchema.js";
 import type { RuntimeDurableObjectState, RuntimeStorage } from "../types.js";
@@ -37,40 +32,19 @@ describe("RunEngine", () => {
     expect(task.input.command).toBe("node --version");
   });
 
-  it("bypasses planning for conversational prompts with filler lead-ins", () => {
-    expect(shouldBypassPlanning("so? what is your name?")).toBe(true);
-    expect(shouldBypassPlanning("what can you do?")).toBe(true);
-    expect(shouldBypassPlanning("how?")).toBe(true);
-    expect(shouldBypassPlanning("great")).toBe(true);
-    expect(shouldBypassPlanning("sounds good")).toBe(true);
-    expect(shouldBypassPlanning("check README file")).toBe(false);
-    expect(shouldBypassPlanning("read this readme")).toBe(false);
-    expect(shouldBypassPlanning("fix this")).toBe(false);
-  });
-
-  it("uses model-generated conversational responses for greeting prompts", async () => {
-    const llmGateway = createMockLLMGateway();
-    const runEngine = createRunEngine({
-      llmGateway,
-    });
-
-    const response = await runEngine.execute(
-      {
-        agentType: "coding",
-        prompt: "hey",
-        sessionId: "session-1",
-      },
-      [{ role: "user", content: "hey" }],
-      {},
-    );
-
-    expect(response.status).toBe(200);
-    expect(await response.text()).toBe("ok");
-  });
-
-  it("keeps tools disabled in conversational bypass path", async () => {
+  it("routes greeting prompts through planning (no hardcoded bypass path)", async () => {
     const generateText = vi.fn(async () => ({
-      text: "conversational response",
+      text: "ok",
+      usage: {
+        provider: "mock",
+        model: "mock-model",
+        promptTokens: 1,
+        completionTokens: 1,
+        totalTokens: 2,
+      },
+    }));
+    const generateStructured = vi.fn(async () => ({
+      object: { tasks: [], metadata: { estimatedSteps: 1 } },
       usage: {
         provider: "mock",
         model: "mock-model",
@@ -81,16 +55,7 @@ describe("RunEngine", () => {
     }));
     const llmGateway: ILLMGateway = {
       generateText,
-      generateStructured: async () => ({
-        object: { tasks: [], metadata: { estimatedSteps: 1 } },
-        usage: {
-          provider: "mock",
-          model: "mock-model",
-          promptTokens: 1,
-          completionTokens: 1,
-          totalTokens: 2,
-        },
-      }),
+      generateStructured,
       generateStream: async () =>
         new ReadableStream<Uint8Array>({
           start(controller) {
@@ -111,13 +76,13 @@ describe("RunEngine", () => {
     );
 
     expect(response.status).toBe(200);
+    expect(await response.text()).toBe("ok");
+    expect(generateStructured).toHaveBeenCalledTimes(1);
     expect(generateText).toHaveBeenCalledTimes(1);
-    const req = generateText.mock.calls[0]?.[0] as {
-      tools?: unknown;
-      system?: string;
+    const planningRequest = generateStructured.mock.calls[0]?.[0] as {
+      context?: { phase?: string };
     };
-    expect(req.tools).toBeUndefined();
-    expect(req.system).toContain("conversational chat mode");
+    expect(planningRequest.context?.phase).toBe("planning");
   });
 
   it("executes active agentic loop path when feature flag is enabled", async () => {
@@ -227,36 +192,6 @@ describe("RunEngine", () => {
       "The requested file was not found in the current workspace.",
     );
     expect(sanitized).toContain("[internal-url]");
-  });
-
-  it("asks for clarification on vague file-check prompts", () => {
-    expect(getActionClarificationMessage("can you check my file?")).toContain(
-      "select a repository first",
-    );
-    expect(
-      getActionClarificationMessage("can you check my file?", {
-        owner: "sourcegraph",
-        repo: "shadowbox",
-      }),
-    ).toContain("discovery step");
-    expect(
-      getActionClarificationMessage("check README.md", {
-        owner: "sourcegraph",
-        repo: "shadowbox",
-      }),
-    ).toBeNull();
-    expect(
-      getActionClarificationMessage("check this file", {
-        owner: "sourcegraph",
-        repo: "shadowbox",
-      }),
-    ).toContain("discovery step");
-    expect(
-      getActionClarificationMessage("check my repo?", {
-        owner: "sourcegraph",
-        repo: "shadowbox",
-      }),
-    ).toContain("discovery step");
   });
 
   it("marks CREATED runs as FAILED when execution error handling runs", async () => {
@@ -784,13 +719,6 @@ describe("RunEngine", () => {
       lifecycles.every((steps) => steps?.includes("RUN_CREATED")),
     ).toBe(true);
     expect(wakeups).toEqual([1, 1, 1]);
-  });
-
-  it("builds conversational system prompt with direct-answer style guidance", () => {
-    const prompt = buildConversationalSystemPrompt();
-    expect(prompt).toContain("Answer the user directly in the first sentence");
-    expect(prompt).toContain("Avoid robotic report phrasing");
-    expect(prompt).toContain("Do not fabricate tool execution");
   });
 
   it("returns a clear auth message when workspace bootstrap needs authorization", async () => {

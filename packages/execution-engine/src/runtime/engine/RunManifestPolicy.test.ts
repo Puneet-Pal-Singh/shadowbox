@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { RoutingDetector } from "../lib/RoutingDetector.js";
 import {
   RunManifestMismatchError,
   createRunManifest,
@@ -115,30 +114,29 @@ describe("RunManifestPolicy matrix conformance", () => {
     );
   });
 
-  it("keeps behavior class parity stable across provider/harness matrix", () => {
+  it("keeps manifest fields stable across prompt variations and matrix", () => {
     const prompts = [
-      { prompt: "hey", expectedBypass: true },
-      { prompt: "check README.md", expectedBypass: false },
-      { prompt: "what can you do?", expectedBypass: true },
-      { prompt: "fix this", expectedBypass: false },
+      "hey",
+      "check README.md",
+      "what can you do?",
+      "fix this",
     ] as const;
 
     for (const providerId of PROVIDERS) {
       for (const harnessId of HARNESSES) {
-        for (const fixture of prompts) {
+        for (const prompt of prompts) {
           const manifest = createRunManifest({
             agentType: "coding",
-            prompt: fixture.prompt,
+            prompt,
             sessionId: "session-1",
             providerId,
             modelId: `${providerId}-model`,
             harnessId,
           });
-          const decision = RoutingDetector.analyze(fixture.prompt);
-          expect(decision.bypass).toBe(fixture.expectedBypass);
-          expect(decision.reasonCode.length).toBeGreaterThan(0);
           expect(manifest.providerId).toBe(providerId);
           expect(manifest.harness).toBe(harnessId);
+          expect(manifest.orchestratorBackend).toBe("execution-engine-v1");
+          expect(manifest.executionBackend).toBe("cloudflare_sandbox");
         }
       }
     }

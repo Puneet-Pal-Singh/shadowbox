@@ -59,10 +59,7 @@ import {
   ensureManifestMatch,
 } from "./RunManifestPolicy.js";
 import {
-  buildConversationalSystemPrompt,
-  getActionClarificationMessage,
   hasRepositorySelection,
-  shouldBypassPlanning,
 } from "./ConversationPolicy.js";
 import { sanitizeUserFacingOutput } from "./RunOutputSanitizer.js";
 import {
@@ -315,26 +312,6 @@ export class RunEngine implements IRunEngine {
       } else {
         console.log(
           `[run/engine] Delegated harness mode active; skipping platform approval directives for run ${runId}`,
-        );
-      }
-
-      const bypassPlanning = shouldBypassPlanning(input.prompt);
-      if (bypassPlanning) {
-        console.log(`[run/engine] Conversational bypass for run ${runId}`);
-        return await this.executeConversationalTurn(run, input, messages);
-      }
-
-      const clarificationMessage = getActionClarificationMessage(
-        input.prompt,
-        input.repositoryContext,
-      );
-      if (clarificationMessage) {
-        console.log(
-          `[run/engine] Clarification required before action planning for run ${runId}`,
-        );
-        return await this.completeRunWithAssistantMessage(
-          run,
-          clarificationMessage,
         );
       }
 
@@ -862,30 +839,6 @@ export class RunEngine implements IRunEngine {
       });
     }
     return this.synthesizeResult(run, originalPrompt, memoryContext);
-  }
-
-  private async executeConversationalTurn(
-    run: Run,
-    input: RunInput,
-    messages: CoreMessage[],
-  ): Promise<Response> {
-    run.transition("RUNNING");
-    await this.runRepo.update(run);
-
-    const result = await this.llmGateway.generateText({
-      context: {
-        runId: run.id,
-        sessionId: run.sessionId,
-        agentType: run.agentType,
-        phase: "synthesis",
-      },
-      messages,
-      system: buildConversationalSystemPrompt(),
-      model: input.modelId,
-      providerId: input.providerId,
-      temperature: 0.7,
-    });
-    return this.completeRunWithAssistantMessage(run, result.text);
   }
 
   private async synthesizeResult(
