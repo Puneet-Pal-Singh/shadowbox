@@ -316,7 +316,7 @@ export class AgenticLoop {
       args: Record<string, unknown>;
     },
   ): Task {
-    return new Task(id, this.config.runId, toolCall.toolName, "RUNNING", [], {
+    return new Task(id, this.config.runId, toolCall.toolName, "PENDING", [], {
       description: `Execute ${toolCall.toolName}`,
       ...toolCall.args,
     });
