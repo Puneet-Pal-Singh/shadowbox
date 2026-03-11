@@ -90,6 +90,28 @@ describe("ConnectProviderChooser", () => {
     expect(screen.queryByText("Axis")).not.toBeInTheDocument();
   });
 
+  it("excludes Axis from connect list even if auth mode is misconfigured", () => {
+    const misconfiguredCatalog = mockCatalog.map((entry) =>
+      entry.providerId === "axis"
+        ? {
+            ...entry,
+            authModes: ["api_key"] as Array<
+              "api_key" | "oauth" | "platform_managed"
+            >,
+          }
+        : entry
+    );
+
+    render(
+      <ConnectProviderChooser
+        catalog={misconfiguredCatalog}
+        {...mockHandlers}
+      />
+    );
+
+    expect(screen.queryByText("Axis")).not.toBeInTheDocument();
+  });
+
   it("filters providers by query", () => {
     render(<ConnectProviderChooser catalog={mockCatalog} {...mockHandlers} />);
 

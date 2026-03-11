@@ -53,7 +53,10 @@ export function ConnectProviderChooser({
 
   const providerOptions = useMemo((): ProviderOption[] => {
     return catalog
-      .filter((entry) => entry.authModes.includes("api_key"))
+      .filter(
+        (entry) =>
+          entry.providerId !== "axis" && entry.authModes.includes("api_key")
+      )
       .map((entry) => ({
         entry,
         displayName: entry.displayName,

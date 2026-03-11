@@ -311,18 +311,20 @@ export class ProviderStore {
         status: "ready",
       });
 
-      if (
-        selection.selectedProviderId &&
-        !this.state.providerModels[selection.selectedProviderId]
-      ) {
-        void this.loadProviderModels(selection.selectedProviderId).catch(
-          (error) => {
-            this.log("[bootstrap] model preload failed", {
-              providerId: selection.selectedProviderId,
-              error,
-            });
-          }
-        );
+      const preloadProviderIds = this.collectBootstrapModelPreloadProviderIds(
+        catalog,
+        selection.selectedProviderId,
+      );
+      for (const providerId of preloadProviderIds) {
+        if (this.state.providerModels[providerId]) {
+          continue;
+        }
+        void this.loadProviderModels(providerId).catch((error) => {
+          this.log("[bootstrap] model preload failed", {
+            providerId,
+            error,
+          });
+        });
       }
 
       this.log("[bootstrap] Success", {
@@ -1249,6 +1251,20 @@ export class ProviderStore {
       selectedCredentialId: credentialId,
       selectedModelId: modelId,
     };
+  }
+
+  private collectBootstrapModelPreloadProviderIds(
+    catalog: ProviderRegistryEntry[],
+    selectedProviderId: string | null,
+  ): string[] {
+    const providerIds = new Set<string>();
+    if (catalog.some((entry) => entry.providerId === "axis")) {
+      providerIds.add("axis");
+    }
+    if (selectedProviderId) {
+      providerIds.add(selectedProviderId);
+    }
+    return Array.from(providerIds);
   }
 
   private isStaleEpoch(operation: string, epoch: number): boolean {
