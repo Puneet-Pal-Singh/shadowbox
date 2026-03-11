@@ -13,6 +13,7 @@ interface ProviderRegistryEntry {
 
 export const PROVIDER_REGISTRY: Record<ProviderId, ProviderRegistryEntry> =
   {
+    axis: { apiKeyPrefixes: [] },
     openrouter: { apiKeyPrefixes: ["sk-or-"] },
     openai: { apiKeyPrefixes: ["sk-"] },
     groq: { apiKeyPrefixes: ["gsk_"] },

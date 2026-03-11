@@ -133,20 +133,32 @@ export class ProviderResolutionService {
       return null; // No override provided, check next step
     }
 
+    const providerId = request.providerId!;
+    const credentialId = request.credentialId!;
+    const modelId = request.modelId!;
+
     // Validate credential exists and is connected
-    const credential = await this.repository.retrieve(request.credentialId ?? "");
+    const credential = await this.repository.retrieve(credentialId);
     if (!credential || credential.status !== "connected") {
       return createBYOKError(
         "CREDENTIAL_NOT_FOUND",
         "Requested credential is missing or not connected",
-        { correlationId: request.credentialId },
+        { correlationId: credentialId },
+      );
+    }
+
+    if (credential.providerId !== providerId) {
+      return createBYOKError(
+        "INVALID_REQUEST",
+        `Credential does not belong to requested provider (expected: ${providerId}, actual: ${credential.providerId})`,
+        { correlationId: credentialId },
       );
     }
 
     return {
-      providerId: request.providerId ?? "",
-      credentialId: request.credentialId ?? "",
-      modelId: request.modelId ?? "",
+      providerId,
+      credentialId,
+      modelId,
       resolvedAt: "request_override",
       resolvedAtTime: new Date().toISOString(),
     };
@@ -202,9 +214,10 @@ export class ProviderResolutionService {
    * Marks resolution source as "platform_defaults" (not "fallback").
    */
   private resolvePlatformDefaults(): BYOKResolution {
+    const providerId = this.platformDefaults.providerId;
     return {
-      providerId: this.platformDefaults.providerId,
-      credentialId: "", // No credential for platform default
+      providerId,
+      credentialId: buildVirtualCredentialId(providerId),
       modelId: this.platformDefaults.modelId,
       resolvedAt: "platform_defaults",
       resolvedAtTime: new Date().toISOString(),
@@ -221,4 +234,20 @@ export class ProviderResolutionService {
     // For now, return null to fall through to platform default
     return null;
   }
+}
+
+function buildVirtualCredentialId(providerId: string): string {
+  const bytes = new Uint8Array(16);
+  for (let index = 0; index < providerId.length; index += 1) {
+    const code = providerId.charCodeAt(index);
+    const position = index % 16;
+    const current = bytes[position] ?? 0;
+    bytes[position] = (current + code + index) & 0xff;
+  }
+
+  bytes[6] = ((bytes[6] ?? 0) & 0x0f) | 0x40;
+  bytes[8] = ((bytes[8] ?? 0) & 0x3f) | 0x80;
+
+  const hex = Array.from(bytes, (value) => value.toString(16).padStart(2, "0"));
+  return `${hex.slice(0, 4).join("")}-${hex.slice(4, 6).join("")}-${hex.slice(6, 8).join("")}-${hex.slice(8, 10).join("")}-${hex.slice(10, 16).join("")}`;
 }

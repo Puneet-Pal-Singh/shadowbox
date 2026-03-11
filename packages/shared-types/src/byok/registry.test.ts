@@ -11,6 +11,7 @@ import {
 describe("Provider Registry", () => {
   it("has known builtin providers", () => {
     expect(Object.keys(BUILTIN_PROVIDERS).length).toBeGreaterThanOrEqual(3);
+    expect("axis" in BUILTIN_PROVIDERS).toBe(true);
     expect("openai" in BUILTIN_PROVIDERS).toBe(true);
     expect("groq" in BUILTIN_PROVIDERS).toBe(true);
     expect("openrouter" in BUILTIN_PROVIDERS).toBe(true);
@@ -35,6 +36,7 @@ describe("Provider Registry", () => {
   });
 
   it("recognizes known providers", () => {
+    expect(isKnownProvider("axis")).toBe(true);
     expect(isKnownProvider("openai")).toBe(true);
     expect(isKnownProvider("groq")).toBe(true);
     expect(isKnownProvider("unknown-provider")).toBe(false);
@@ -43,6 +45,7 @@ describe("Provider Registry", () => {
   it("returns all known provider IDs", () => {
     const ids = getKnownProviderIds();
     expect(ids.length).toBeGreaterThanOrEqual(3);
+    expect(ids).toContain("axis");
     expect(ids).toContain("openai");
     expect(ids).toContain("groq");
     expect(ids).toContain("openrouter");
@@ -85,6 +88,15 @@ describe("Provider Capabilities", () => {
     expect(openrouter).toBeDefined();
     if (openrouter) {
       expect(openrouter.modelSource).toBe("remote");
+    }
+  });
+
+  it("axis uses platform managed auth mode", () => {
+    const axis = BUILTIN_PROVIDERS["axis"];
+    expect(axis).toBeDefined();
+    if (axis) {
+      expect(axis.authModes).toEqual(["platform_managed"]);
+      expect(axis.defaultModelId).toBe("openai/gpt-oss-120b:free");
     }
   });
 });

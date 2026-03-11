@@ -72,10 +72,15 @@ export async function selectAdapter(
   }
 
   // Try to get override API key if provider was specified
-  const overrideApiKey = selection.providerId
+  let overrideApiKey = selection.providerId
     ? ((await providerConfigService?.getApiKey(selection.providerId)) ??
       undefined)
     : undefined;
+
+  if (!overrideApiKey && selection.providerId === "axis") {
+    const axisApiKey = env.AXIS_OPENROUTER_API_KEY?.trim();
+    overrideApiKey = axisApiKey && axisApiKey.length > 0 ? axisApiKey : undefined;
+  }
 
   // Provider was selected but not connected
   if (!overrideApiKey) {

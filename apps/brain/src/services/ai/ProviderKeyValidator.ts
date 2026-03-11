@@ -14,6 +14,31 @@ import { ProviderRegistryService } from "../providers";
 
 const registryService = new ProviderRegistryService();
 
+export function resolveAxisOpenRouterKey(env: Env): {
+  apiKey: string;
+  baseURL: string;
+} {
+  const apiKey = env.AXIS_OPENROUTER_API_KEY?.trim();
+  if (!apiKey) {
+    throw new ProviderError(
+      "axis",
+      "Missing AXIS_OPENROUTER_API_KEY for platform-managed Axis provider.",
+    );
+  }
+
+  if (!registryService.isApiKeyFormatValid("openrouter", apiKey)) {
+    throw new ProviderError(
+      "axis",
+      "Invalid AXIS_OPENROUTER_API_KEY format for platform-managed Axis provider.",
+    );
+  }
+
+  return {
+    apiKey,
+    baseURL: OPENROUTER_BASE_URL,
+  };
+}
+
 export function resolveOpenAIKey(
   env: Env,
   overrideApiKey?: string,
@@ -141,6 +166,16 @@ export function resolveProviderKey(
 
   if (providerId === "openrouter") {
     return resolveOpenRouterKey(overrideApiKey);
+  }
+
+  if (providerId === "axis") {
+    if (overrideApiKey) {
+      throw new ProviderError(
+        "axis",
+        "Axis is platform-managed and does not accept override API keys.",
+      );
+    }
+    return resolveAxisOpenRouterKey(env);
   }
 
   if (providerId === "groq") {

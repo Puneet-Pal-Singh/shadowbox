@@ -17,11 +17,16 @@ describe("BYOK Resolution", () => {
 
   it("validates platform defaults resolution", () => {
     const resolution = {
-      providerId: "groq",
-      credentialId: "550e8400-e29b-41d4-a716-446655440001",
-      modelId: "mixtral-8x7b-32768",
+      providerId: "axis",
+      credentialId: "550e8400-e29b-41d4-a716-446655440002",
+      modelId: "openai/gpt-oss-120b:free",
       resolvedAt: "platform_defaults" as const,
       resolvedAtTime: "2025-02-23T10:00:00Z",
+      quota: {
+        used: 2,
+        limit: 5,
+        resetsAt: "2025-02-24T00:00:00.000Z",
+      },
     };
 
     const result = BYOKResolutionSchema.safeParse(resolution);

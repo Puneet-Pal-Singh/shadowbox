@@ -11,10 +11,18 @@ export { ProviderConnectionService } from "./ProviderConnectionService";
 export { ProviderConfigService } from "./ProviderConfigService";
 export { ProviderRegistryService } from "./ProviderRegistryService";
 export { DurableProviderStore } from "./DurableProviderStore";
+export { AxisQuotaService, type AxisQuotaStatus } from "./AxisQuotaService";
 export { ProviderRateLimitService } from "./ProviderRateLimitService";
 export { ProviderLiveValidationService } from "./ProviderLiveValidationService";
 export { ProviderAuditService } from "./ProviderAuditService";
 export type { ProviderAuditEvent } from "./DurableProviderStore";
+export {
+  AXIS_PROVIDER_ID,
+  AXIS_DAILY_LIMIT,
+  AXIS_CURATED_MODEL_IDS,
+  getAxisCatalogModels,
+  getAxisDiscoveredModels,
+} from "./axis";
 export {
   ProviderModelDiscoveryAuthError,
   ProviderModelDiscoveryApiError,

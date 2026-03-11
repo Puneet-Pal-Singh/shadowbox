@@ -39,6 +39,7 @@ import {
   ProviderConfigService,
   readByokEncryptionConfig,
 } from "../services/providers";
+import { AXIS_PROVIDER_ID } from "../services/providers/axis";
 import {
   MAX_SCOPE_IDENTIFIER_LENGTH,
   SAFE_SCOPE_IDENTIFIER_REGEX,
@@ -208,12 +209,14 @@ export class RunEngineRuntime extends DurableObject {
       payload = await parseExecuteRunRequest(request);
     } catch (error: unknown) {
       if (isDomainError(error)) {
-        const { status, message } = mapDomainErrorToHttp(error);
+        const { status, code, message, metadata } = mapDomainErrorToHttp(error);
         return errorResponse(
           request,
           this.env as Env,
           message,
           status,
+          code,
+          metadata,
         );
       }
       const message =
@@ -263,8 +266,15 @@ export class RunEngineRuntime extends DurableObject {
         payload.correlationId,
       );
       if (domainError) {
-        const { status, code, message } = mapDomainErrorToHttp(domainError);
-        return errorResponse(request, this.env as Env, message, status, code);
+        const { status, code, message, metadata } = mapDomainErrorToHttp(domainError);
+        return errorResponse(
+          request,
+          this.env as Env,
+          message,
+          status,
+          code,
+          metadata,
+        );
       }
       const message =
         error instanceof Error
@@ -405,6 +415,14 @@ export class RunEngineRuntime extends DurableObject {
         return jsonResponse(request, env, response);
       }
 
+      if (url.pathname === `/providers/${AXIS_PROVIDER_ID}/quota`) {
+        if (request.method !== "GET") {
+          return errorResponse(request, env, "Method Not Allowed", 405);
+        }
+        const response = await configService.getAxisQuotaStatus();
+        return jsonResponse(request, env, response);
+      }
+
       if (url.pathname === "/providers/validate") {
         if (request.method !== "POST") {
           return errorResponse(request, env, "Method Not Allowed", 405);
@@ -442,8 +460,8 @@ export class RunEngineRuntime extends DurableObject {
       return errorResponse(request, env, "Not Found", 404);
     } catch (error: unknown) {
       if (isDomainError(error)) {
-        const { status, code, message } = mapDomainErrorToHttp(error);
-        return errorResponse(request, env, message, status, code);
+        const { status, code, message, metadata } = mapDomainErrorToHttp(error);
+        return errorResponse(request, env, message, status, code, metadata);
       }
 
       console.error(

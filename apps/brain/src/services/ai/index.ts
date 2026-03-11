@@ -21,6 +21,7 @@ export {
   resolveOpenAIKey,
   resolveAnthropicKey,
   resolveOpenRouterKey,
+  resolveAxisOpenRouterKey,
   resolveGroqKey,
   resolveLiteLLMKey,
   resolveProviderKey,

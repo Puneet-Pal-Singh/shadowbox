@@ -68,8 +68,15 @@ import {
   type AuthorizedProviderScope,
 } from "./provider/ProviderAuthScopeService";
 
+const AXIS_PROVIDER_ID = "axis" as const;
+
 const WorkspaceByokMetadataSchema = z.object({
   credentialLabels: z.record(z.string(), z.string()).default({}),
+});
+const AxisQuotaMetadataSchema = z.object({
+  used: z.number().int().nonnegative(),
+  limit: z.number().int().positive(),
+  resetsAt: z.string().datetime(),
 });
 const BYOK_WORKSPACE_METADATA_PREFIX = "byok:workspace-meta:";
 type WorkspaceByokMetadata = z.infer<typeof WorkspaceByokMetadataSchema>;
@@ -528,7 +535,15 @@ export class ProviderController {
         correlationId,
       );
 
-      return withScopeJson(req, env, scope, resolution);
+      const axisQuota =
+        resolution.providerId === AXIS_PROVIDER_ID
+          ? await fetchRuntimeAxisQuota(req, env, scope, correlationId)
+          : undefined;
+
+      return withScopeJson(req, env, scope, {
+        ...resolution,
+        ...(axisQuota ? { quota: axisQuota } : {}),
+      });
     } catch (error) {
       return handleByokError(req, env, error, correlationId);
     }
@@ -1130,6 +1145,31 @@ async function fetchRuntimePreferences(
   return await readResponseJson(response, correlationId);
 }
 
+async function fetchRuntimeAxisQuota(
+  req: Request,
+  env: Env,
+  scope: AuthorizedProviderScope,
+  correlationId: string,
+): Promise<z.infer<typeof AxisQuotaMetadataSchema> | undefined> {
+  const response = await proxyByokOperation(
+    req,
+    env,
+    {
+      scope,
+      method: "GET",
+      path: `/providers/${AXIS_PROVIDER_ID}/quota`,
+    },
+    AxisQuotaMetadataSchema,
+    correlationId,
+  );
+  if (!response.ok) {
+    return undefined;
+  }
+
+  const payload = await readResponseJson<unknown>(response, correlationId);
+  return validateWithSchema(payload, AxisQuotaMetadataSchema, correlationId);
+}
+
 function mapCatalogEntryToRegistry(
   entry: ProviderCatalogResponse["providers"][number],
 ): ProviderRegistryEntry {
@@ -1196,6 +1236,9 @@ function resolveCredentialLabel(
   credentialId: string,
   metadata: WorkspaceByokMetadata,
 ): string {
+  if (connection.providerId === AXIS_PROVIDER_ID) {
+    return metadata.credentialLabels[credentialId] ?? "Axis (Free)";
+  }
   return (
     metadata.credentialLabels[credentialId] ??
     `${connection.providerId} key`
@@ -1244,7 +1287,8 @@ async function loadWorkspacePreference(
  * Resolution chain:
  * 1. Request override (providerId/credentialId/modelId)
  * 2. Workspace preference (defaultProviderId/defaultModelId)
- * 3. Strict resolution: throw when no explicit/default provider is resolved
+ * 3. Platform-managed Axis default when available
+ * 4. Strict resolution: throw when no explicit/default provider is resolved
  */
 function resolveSelection(
   request: BYOKResolveRequest,
@@ -1342,6 +1386,14 @@ function resolveCredentialSelection(
           : "workspace_preference",
       };
     }
+  }
+
+  const axisCredential = resolveCredentialForProvider(credentials, AXIS_PROVIDER_ID);
+  if (axisCredential) {
+    return {
+      selectedCredential: axisCredential,
+      resolvedAt: "platform_defaults",
+    };
   }
 
   return {

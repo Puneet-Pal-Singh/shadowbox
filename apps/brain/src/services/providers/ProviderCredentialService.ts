@@ -18,7 +18,8 @@ import type {
   BYOKValidateResponse,
 } from "@repo/shared-types";
 import {
-  ProviderError,
+  ValidationError,
+  isDomainError,
   ProviderNotConnectedError,
 } from "../../domain/errors";
 import { ProviderLiveValidationService } from "./ProviderLiveValidationService";
@@ -29,6 +30,7 @@ import { ProviderRegistryService } from "./ProviderRegistryService";
  */
 export class ProviderCredentialService {
   private vault: CredentialVault;
+  private readonly env: Env;
   private liveValidationService: ProviderLiveValidationService;
   private readonly registryService: ProviderRegistryService;
 
@@ -37,6 +39,7 @@ export class ProviderCredentialService {
     vault: CredentialVault,
     registryService: ProviderRegistryService,
   ) {
+    this.env = env;
     this.vault = vault;
     this.registryService = registryService;
     this.liveValidationService = ProviderLiveValidationService.fromEnv(env);
@@ -52,6 +55,7 @@ export class ProviderCredentialService {
   ): Promise<BYOKConnectResponse> {
     try {
       const { providerId, apiKey } = request;
+      ensureProviderAllowsManualCredential(this.registryService, providerId);
       const normalizedApiKey = apiKey.trim();
       if (!isConnectApiKeyValid(this.registryService, providerId, normalizedApiKey)) {
         return this.failureResponse(
@@ -75,6 +79,9 @@ export class ProviderCredentialService {
       const providerId = request.providerId;
       const errorMessage =
         error instanceof Error ? error.message : "Unknown error";
+      if (isDomainError(error)) {
+        throw error;
+      }
       console.error(
         `[provider/credential] Error connecting ${providerId}:`,
         error,
@@ -88,6 +95,7 @@ export class ProviderCredentialService {
     request: BYOKValidateRequest,
   ): Promise<BYOKValidateResponse> {
     const { providerId } = request;
+    ensureProviderAllowsManualCredential(this.registryService, providerId);
     const validationMode = request.mode ?? "format";
     const apiKey = await this.getApiKey(providerId);
     if (!apiKey) {
@@ -99,11 +107,9 @@ export class ProviderCredentialService {
       apiKey,
     );
     if (!isValidFormat) {
-      throw new ProviderError(
+      throw new ValidationError(
         `Provider "${providerId}" credential failed validation.`,
         "AUTH_FAILED",
-        401,
-        false,
       );
     }
 
@@ -127,6 +133,7 @@ export class ProviderCredentialService {
   ): Promise<{ status: "disconnected"; providerId: ProviderId }> {
     try {
       const { providerId } = request;
+      ensureProviderAllowsManualCredential(this.registryService, providerId);
 
       await this.vault.deleteCredential(providerId);
       console.log(
@@ -149,6 +156,10 @@ export class ProviderCredentialService {
    * Uses durable store as the only source of truth.
    */
   async getApiKey(providerId: ProviderId): Promise<string | null> {
+    const platformManagedApiKey = this.getPlatformManagedApiKey(providerId);
+    if (platformManagedApiKey) {
+      return platformManagedApiKey;
+    }
     return this.vault.getApiKey(providerId);
   }
 
@@ -157,7 +168,33 @@ export class ProviderCredentialService {
    * Uses durable store as the only source of truth.
    */
   async isConnected(providerId: ProviderId): Promise<boolean> {
+    if (this.getPlatformManagedApiKey(providerId)) {
+      return true;
+    }
     return this.vault.isConnected(providerId);
+  }
+
+  private getPlatformManagedApiKey(providerId: ProviderId): string | null {
+    const provider = this.registryService.getProvider(providerId);
+    if (!provider || !provider.authModes.includes("platform_managed")) {
+      return null;
+    }
+
+    if (providerId === "axis") {
+      const apiKey = this.env.AXIS_OPENROUTER_API_KEY?.trim();
+      if (!apiKey || apiKey.length === 0) {
+        return null;
+      }
+      if (!this.registryService.isApiKeyFormatValid("openrouter", apiKey)) {
+        throw new ValidationError(
+          `Platform-managed credential for "${providerId}" is misconfigured.`,
+          "AUTH_FAILED",
+        );
+      }
+      return apiKey;
+    }
+
+    return null;
   }
 
   private failureResponse(
@@ -179,6 +216,25 @@ export class ProviderCredentialService {
    */
   static resetForTests(): void {
     // Durable-store-only implementation has no module-level state to reset.
+  }
+}
+
+function ensureProviderAllowsManualCredential(
+  registryService: ProviderRegistryService,
+  providerId: ProviderId,
+): void {
+  const provider = registryService.getProvider(providerId);
+  if (!provider) {
+    throw new ValidationError(
+      `Provider "${providerId}" is not registered.`,
+      "INVALID_PROVIDER_SELECTION",
+    );
+  }
+  if (provider.authModes.includes("platform_managed")) {
+    throw new ValidationError(
+      `Provider "${providerId}" is platform-managed and cannot be manually connected or disconnected.`,
+      "INVALID_PROVIDER_SELECTION",
+    );
   }
 }
 

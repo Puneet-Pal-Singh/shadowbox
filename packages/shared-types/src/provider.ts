@@ -7,7 +7,7 @@ const PROVIDER_ID_REGEX = new RegExp(PROVIDER_ID_PATTERN);
  * Seed providers for bootstrap/fixtures.
  * These are not contract authority; runtime accepts any slug-matching provider id.
  */
-export const PROVIDER_IDS = ["openrouter", "openai", "groq", "google"] as const;
+export const PROVIDER_IDS = ["axis", "openrouter", "openai", "groq", "google"] as const;
 
 export const ProviderIdSchema = z
   .string()
@@ -74,6 +74,7 @@ export const ProviderErrorCodeSchema = z.enum([
   "AUTH_FAILED",
   "MODEL_NOT_ALLOWED",
   "RATE_LIMITED",
+  "AXIS_DAILY_LIMIT_EXCEEDED",
   "PROVIDER_NOT_CONNECTED",
   "INVALID_PROVIDER_SELECTION",
   "PROVIDER_UNAVAILABLE",

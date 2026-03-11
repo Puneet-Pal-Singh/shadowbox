@@ -25,10 +25,9 @@ import {
   type GenerateStructuredResult,
 } from "./ai";
 import { resolveSelectionWithPreferences } from "./ai/preference-selection";
-import {
-} from "./ai/defaults";
 import { DefaultAdapterService } from "./ai/DefaultAdapterService";
 import { inferUsageProvider } from "./ai/usage-provider";
+import { AXIS_PROVIDER_ID } from "./providers/axis";
 
 export class AIService {
   private adapter: ProviderAdapter;
@@ -85,6 +84,7 @@ export class AIService {
       resolveSelection: (selectedProviderId, selectedModelId) =>
         this.resolveModelSelection(selectedProviderId, selectedModelId),
     });
+    await this.enforceAxisQuota(selection.providerId);
     const selectedAdapter = await selectAdapter(
       selection,
       this.adapter,
@@ -120,6 +120,7 @@ export class AIService {
       resolveSelection: (selectedProviderId, selectedModelId) =>
         this.resolveModelSelection(selectedProviderId, selectedModelId),
     });
+    await this.enforceAxisQuota(selection.providerId);
 
     const overrideApiKey = selection.providerId
       ? ((await this.providerConfigService?.getApiKey(
@@ -199,6 +200,7 @@ export class AIService {
       resolveSelection: (selectedProviderId, selectedModelId) =>
         this.resolveModelSelection(selectedProviderId, selectedModelId),
     });
+    await this.enforceAxisQuota(selection.providerId);
     const selectedAdapter = await selectAdapter(
       selection,
       this.adapter,
@@ -244,6 +246,13 @@ export class AIService {
     });
 
     return client(model);
+  }
+
+  private async enforceAxisQuota(providerId?: string): Promise<void> {
+    if (providerId !== AXIS_PROVIDER_ID || !this.providerConfigService) {
+      return;
+    }
+    await this.providerConfigService.consumeAxisQuota();
   }
 }
 
