@@ -1,32 +1,9 @@
 import type { CoreMessage, CoreTool } from "ai";
-import { z } from "zod";
 import type { Run } from "../run/index.js";
 import type { AgenticLoopResult } from "./AgenticLoop.js";
+import { enforceGoldenFlowToolFloor } from "../contracts/CodingToolGateway.js";
 
 const AGENTIC_LOOP_DEFAULT_MAX_STEPS = 6;
-
-const AGENTIC_TOOL_SCHEMA = {
-  analyze: z.object({
-    path: z.string().min(1).max(500),
-  }),
-  edit: z.object({
-    path: z.string().min(1).max(500),
-    content: z.string().min(1),
-  }),
-  test: z.object({
-    command: z.string().min(1).max(500),
-  }),
-  shell: z.object({
-    command: z.string().min(1).max(500),
-  }),
-  git: z.object({
-    action: z.string().min(1).max(120),
-    message: z.string().max(500).optional(),
-  }),
-  review: z.object({
-    notes: z.string().max(2000).optional(),
-  }),
-} as const;
 
 export function resolveAgenticLoopTools(
   metadata: Record<string, unknown> | undefined,
@@ -36,11 +13,7 @@ export function resolveAgenticLoopTools(
     return null;
   }
 
-  if (Object.keys(incomingTools).length > 0) {
-    return incomingTools;
-  }
-
-  return buildDefaultAgenticLoopTools();
+  return enforceGoldenFlowToolFloor(incomingTools);
 }
 
 export function getAgenticLoopMaxSteps(
@@ -86,35 +59,6 @@ export function buildAgenticLoopFinalOutput(result: AgenticLoopResult): string {
     `Tools executed: ${result.toolExecutionCount}`,
     `Failed tools: ${result.failedToolCount}`,
   ].join("\n");
-}
-
-function buildDefaultAgenticLoopTools(): Record<string, CoreTool> {
-  return {
-    analyze: {
-      description: "Read and inspect an existing file path.",
-      parameters: AGENTIC_TOOL_SCHEMA.analyze,
-    } as unknown as CoreTool,
-    edit: {
-      description: "Write content to a file path.",
-      parameters: AGENTIC_TOOL_SCHEMA.edit,
-    } as unknown as CoreTool,
-    test: {
-      description: "Run a test command.",
-      parameters: AGENTIC_TOOL_SCHEMA.test,
-    } as unknown as CoreTool,
-    shell: {
-      description: "Run a non-git shell command.",
-      parameters: AGENTIC_TOOL_SCHEMA.shell,
-    } as unknown as CoreTool,
-    git: {
-      description: "Execute a structured git action.",
-      parameters: AGENTIC_TOOL_SCHEMA.git,
-    } as unknown as CoreTool,
-    review: {
-      description: "Run a focused review step.",
-      parameters: AGENTIC_TOOL_SCHEMA.review,
-    } as unknown as CoreTool,
-  };
 }
 
 function isAgenticLoopEnabled(metadata?: Record<string, unknown>): boolean {

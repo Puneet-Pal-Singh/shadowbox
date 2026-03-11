@@ -14,3 +14,12 @@ export {
   isValidGitActionInput,
   isVagueTaskInput,
 } from "./TaskInputContract.js";
+export {
+  enforceGoldenFlowToolFloor,
+  getGoldenFlowToolNames,
+  getGoldenFlowToolRegistry,
+  getGoldenFlowToolRoute,
+  isGoldenFlowToolName,
+  type GoldenFlowToolName,
+  type ToolGatewayRoute,
+} from "./CodingToolGateway.js";
