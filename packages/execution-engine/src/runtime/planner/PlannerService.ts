@@ -6,6 +6,9 @@ import { PlanSchema, type Plan } from "./PlanSchema.js";
 import type { ILLMGateway } from "../llm/index.js";
 import type { MemoryContext } from "../memory/index.js";
 
+const STRUCTURED_SCHEMA_MISMATCH_SENTINEL =
+  "No object generated: response did not match schema";
+
 export interface IPlannerService {
   plan(run: Run, prompt: string, memoryContext?: MemoryContext): Promise<Plan>;
 }
@@ -158,14 +161,47 @@ Generate a plan to accomplish this request.`;
       return result.object as Plan;
     } catch (error) {
       console.error("[planner/service] Failed to generate plan:", error);
-      throw new PlannerError("Failed to generate valid plan from LLM");
+      if (isPlanningTimeoutError(error)) {
+        throw new PlannerError(
+          "Planner request timed out while generating task plan.",
+          "PLAN_GENERATION_TIMEOUT",
+        );
+      }
+      if (isPlanningSchemaMismatchError(error)) {
+        throw new PlannerError(
+          "Planner response did not match required schema.",
+          "PLAN_SCHEMA_MISMATCH",
+        );
+      }
+      throw new PlannerError(
+        "Failed to generate valid plan from LLM",
+        "PLAN_GENERATION_FAILED",
+      );
     }
   }
 }
 
 export class PlannerError extends Error {
-  constructor(message: string) {
+  constructor(
+    message: string,
+    public readonly code:
+      | "PLAN_SCHEMA_MISMATCH"
+      | "PLAN_GENERATION_TIMEOUT"
+      | "PLAN_GENERATION_FAILED" = "PLAN_GENERATION_FAILED",
+  ) {
     super(`[planner/service] ${message}`);
     this.name = "PlannerError";
   }
+}
+
+function isPlanningSchemaMismatchError(error: unknown): boolean {
+  return error instanceof Error
+    ? error.message.includes(STRUCTURED_SCHEMA_MISMATCH_SENTINEL)
+    : false;
+}
+
+function isPlanningTimeoutError(error: unknown): boolean {
+  return error instanceof Error
+    ? error.name === "LLMTimeoutError" && error.message.includes("(phase=planning)")
+    : false;
 }

@@ -85,6 +85,65 @@ describe("RunEngine", () => {
     expect(modeRequest.context?.phase).toBe("planning");
   });
 
+  it("returns a user-facing recovery message when structured planning output is invalid", async () => {
+    const llmGateway: ILLMGateway = {
+      generateText: async () => ({
+        text: "unused",
+        usage: {
+          provider: "mock",
+          model: "mock-model",
+          promptTokens: 1,
+          completionTokens: 1,
+          totalTokens: 2,
+        },
+      }),
+      generateStructured: vi
+        .fn()
+        .mockResolvedValueOnce({
+          object: { mode: "action", rationale: "needs tools" },
+          usage: {
+            provider: "mock",
+            model: "mock-model",
+            promptTokens: 1,
+            completionTokens: 1,
+            totalTokens: 2,
+          },
+        })
+        .mockRejectedValueOnce(
+          new Error("No object generated: response did not match schema."),
+        ),
+      generateStream: async () =>
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.close();
+          },
+        }),
+    };
+    const runEngine = createRunEngine({ llmGateway });
+
+    const response = await runEngine.execute(
+      {
+        agentType: "coding",
+        prompt: "read my repo and summarize",
+        sessionId: "session-1",
+      },
+      [{ role: "user", content: "read my repo and summarize" }],
+      {},
+    );
+
+    expect(response.status).toBe(200);
+    const output = await response.text();
+    expect(output).toContain("couldn't generate a valid structured plan");
+
+    const persisted = await (runEngine as unknown as {
+      getRun(runId: string): Promise<Run | null>;
+    }).getRun(TEST_RUN_ID);
+    expect(persisted?.status).toBe("FAILED");
+    expect(persisted?.metadata.error).toContain(
+      "Planner response did not match required schema",
+    );
+  });
+
   it("executes active agentic loop path when feature flag is enabled", async () => {
     const generateText = vi
       .fn()

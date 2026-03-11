@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import type { CoreMessage } from "ai";
-import { LLMGateway, ProviderCapabilityError } from "./LLMGateway.js";
+import { z } from "zod";
+import {
+  LLMGateway,
+  LLMTimeoutError,
+  ProviderCapabilityError,
+} from "./LLMGateway.js";
 import type { LLMGatewayDependencies } from "./LLMGateway.js";
 import type { ProviderCapabilityResolver } from "./types.js";
 
@@ -160,6 +165,30 @@ describe("LLMGateway provider capabilities", () => {
     ).rejects.toMatchObject({
       code: "TOOLS_NOT_SUPPORTED",
     });
+  });
+
+  it("fails fast for structured calls that exceed timeout", async () => {
+    const deps = createDependencies({
+      getCapabilities: () => ({
+        streaming: true,
+        tools: true,
+        structuredOutputs: true,
+        jsonMode: true,
+      }),
+      isModelAllowed: () => true,
+    });
+    deps.aiService.generateStructured.mockImplementationOnce(
+      () => new Promise(() => {}),
+    );
+    const gateway = new LLMGateway(deps);
+
+    await expect(
+      gateway.generateStructured({
+        ...baseRequest,
+        schema: z.object({ ok: z.boolean() }),
+        timeoutMs: 5,
+      }),
+    ).rejects.toBeInstanceOf(LLMTimeoutError);
   });
 });
 

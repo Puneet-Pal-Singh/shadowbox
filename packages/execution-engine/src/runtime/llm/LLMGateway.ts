@@ -16,6 +16,7 @@ import type {
 
 const TOKEN_CHAR_RATIO = 4;
 const DEFAULT_COMPLETION_TOKENS = 500;
+const DEFAULT_STRUCTURED_TIMEOUT_MS = 45_000;
 
 export interface LLMGatewayDependencies {
   aiService: LLMRuntimeAIService;
@@ -23,6 +24,27 @@ export interface LLMGatewayDependencies {
   costLedger: ICostLedger;
   pricingResolver: IPricingResolver;
   providerCapabilityResolver?: ProviderCapabilityResolver;
+}
+
+export class LLMTimeoutError extends Error {
+  readonly timeoutMs: number;
+  readonly phase: LLMCallContext["phase"];
+  readonly operation: "structured" | "text";
+
+  constructor(input: {
+    timeoutMs: number;
+    phase: LLMCallContext["phase"];
+    operation: "structured" | "text";
+  }) {
+    const { timeoutMs, phase, operation } = input;
+    super(
+      `[llm/gateway] ${operation} call timed out after ${timeoutMs}ms (phase=${phase})`,
+    );
+    this.name = "LLMTimeoutError";
+    this.timeoutMs = timeoutMs;
+    this.phase = phase;
+    this.operation = operation;
+  }
 }
 
 export class LLMGateway implements ILLMGateway {
@@ -77,13 +99,20 @@ export class LLMGateway implements ILLMGateway {
         this.createIdempotencyKey(req.context, estimatedUsage),
     );
 
-    const result = await this.deps.aiService.generateStructured({
-      messages: req.messages,
-      schema: req.schema,
-      model: req.model,
-      providerId: req.providerId,
-      temperature: req.temperature,
-    });
+    const result = await this.withTimeout(
+      this.deps.aiService.generateStructured({
+        messages: req.messages,
+        schema: req.schema,
+        model: req.model,
+        providerId: req.providerId,
+        temperature: req.temperature,
+      }),
+      {
+        timeoutMs: req.timeoutMs ?? DEFAULT_STRUCTURED_TIMEOUT_MS,
+        phase: req.context.phase,
+        operation: "structured",
+      },
+    );
 
     const usage = this.normalizeUsage(result.usage, req.model);
     await this.persistCostEvent(requestWithIdempotency, usage);
@@ -92,6 +121,33 @@ export class LLMGateway implements ILLMGateway {
       object: result.object,
       usage,
     };
+  }
+
+  private async withTimeout<T>(
+    promise: Promise<T>,
+    input: {
+      timeoutMs: number;
+      phase: LLMCallContext["phase"];
+      operation: "structured" | "text";
+    },
+  ): Promise<T> {
+    const { timeoutMs, phase, operation } = input;
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+    try {
+      return await Promise.race([
+        promise,
+        new Promise<T>((_, reject) => {
+          timeoutId = setTimeout(() => {
+            reject(new LLMTimeoutError({ timeoutMs, phase, operation }));
+          }, timeoutMs);
+        }),
+      ]);
+    } finally {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    }
   }
 
   async generateStream(req: LLMTextRequest): Promise<ReadableStream<Uint8Array>> {

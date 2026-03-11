@@ -18,7 +18,7 @@ import {
   type IPricingResolver,
   type CostSnapshot,
 } from "../cost/index.js";
-import { PlannerService } from "../planner/index.js";
+import { PlannerError, PlannerService } from "../planner/index.js";
 import { TaskScheduler, type TaskExecutor } from "../orchestration/index.js";
 import { DefaultTaskExecutor, AgentTaskExecutor } from "./TaskExecutor.js";
 import { AgenticLoop, type AgenticLoopResult } from "./AgenticLoop.js";
@@ -34,6 +34,7 @@ import type {
 import type { Plan, PlannedTask } from "../planner/index.js";
 import {
   LLMGateway,
+  LLMTimeoutError,
   type ILLMGateway,
   type LLMRuntimeAIService,
 } from "../llm/index.js";
@@ -80,6 +81,8 @@ import { resetRecyclableRun } from "./RunRecyclableResetPolicy.js";
 import { applyReviewerPassIfEnabled } from "./RunReviewerPassPolicy.js";
 
 const AGENTIC_LOOP_DEFAULT_MAX_STEPS = 6;
+const STRUCTURED_SCHEMA_MISMATCH_SENTINEL =
+  "No object generated: response did not match schema";
 const TURN_MODE_SCHEMA = z.object({
   mode: z.enum(["chat", "action"]),
   rationale: z.string().max(400).optional(),
@@ -399,6 +402,14 @@ export class RunEngine implements IRunEngine {
           }),
         );
       } catch (planError) {
+        const recoveryResponse = await this.tryHandlePlanningError(
+          run,
+          runId,
+          planError,
+        );
+        if (recoveryResponse) {
+          return recoveryResponse;
+        }
         transitionRunToFailed(run, runId);
         run.metadata.error =
           planError instanceof Error
@@ -1044,6 +1055,116 @@ If any task failed or was cancelled, clearly say so and do not claim full comple
     console.log(`[run/engine] Completed conversational run ${run.id}`);
 
     return this.createStreamResponse(sanitizedText);
+  }
+
+  private async completeRunWithFailedAssistantMessage(
+    run: Run,
+    text: string,
+    technicalError?: string,
+  ): Promise<Response> {
+    const sanitizedText = sanitizeUserFacingOutput(text);
+    recordLifecycleStep(run, "SYNTHESIS", "planning_recovery");
+
+    await this.safeMemoryOperation(() =>
+      this.memoryCoordinator.extractAndPersist({
+        runId: run.id,
+        sessionId: run.sessionId,
+        source: "synthesis",
+        content: sanitizedText,
+        phase: "synthesis",
+      }),
+    );
+
+    await this.safeMemoryOperation(() =>
+      this.persistConversationMessages(
+        run.id,
+        run.sessionId,
+        [{ role: "assistant", content: sanitizedText }],
+        "assistant",
+      ),
+    );
+
+    transitionRunToFailed(run, run.id);
+    if (technicalError) {
+      run.metadata.error = technicalError;
+    }
+    recordLifecycleStep(run, "TERMINAL", "status=FAILED");
+    recordOrchestrationTerminal(run);
+    run.output = { content: sanitizedText };
+    await this.runRepo.update(run);
+
+    console.warn(
+      `[run/engine] Completed run ${run.id} with recoverable planning failure`,
+    );
+    return this.createStreamResponse(sanitizedText);
+  }
+
+  private async tryHandlePlanningError(
+    run: Run,
+    runId: string,
+    error: unknown,
+  ): Promise<Response | null> {
+    const technicalMessage =
+      error instanceof Error ? error.message : "Planning phase failed";
+    const userMessage = this.buildPlanningRecoveryMessage(error);
+    if (!userMessage) {
+      return null;
+    }
+
+    console.warn(
+      `[run/engine] Recoverable planning error for run ${runId}: ${technicalMessage}`,
+    );
+
+    return this.completeRunWithFailedAssistantMessage(
+      run,
+      userMessage,
+      technicalMessage,
+    );
+  }
+
+  private buildPlanningRecoveryMessage(error: unknown): string | null {
+    if (this.isPlanningSchemaMismatchError(error)) {
+      return [
+        "I couldn't generate a valid structured plan for this turn, so I stopped before running tools.",
+        "Try a more concrete request like `read README.md`, `list files in src`, or `run pnpm test`.",
+        "If your request is conversational, retry in plain chat without asking for repository actions.",
+      ].join(" ");
+    }
+
+    if (this.isPlanningTimeoutError(error)) {
+      return [
+        "Planning timed out before I could build safe executable tasks.",
+        "Please retry with a narrower request (specific file path or command).",
+      ].join(" ");
+    }
+
+    return null;
+  }
+
+  private isPlanningSchemaMismatchError(error: unknown): boolean {
+    if (error instanceof PlannerError && error.code === "PLAN_SCHEMA_MISMATCH") {
+      return true;
+    }
+    if (!(error instanceof Error)) {
+      return false;
+    }
+    return error.message.includes(STRUCTURED_SCHEMA_MISMATCH_SENTINEL);
+  }
+
+  private isPlanningTimeoutError(error: unknown): boolean {
+    if (error instanceof LLMTimeoutError) {
+      return error.phase === "planning";
+    }
+    if (error instanceof PlannerError && error.code === "PLAN_GENERATION_TIMEOUT") {
+      return true;
+    }
+    if (!(error instanceof Error)) {
+      return false;
+    }
+    return (
+      error.name === "LLMTimeoutError" &&
+      error.message.includes("(phase=planning)")
+    );
   }
 
   private async processPermissionDirectives(prompt: string): Promise<string | null> {
