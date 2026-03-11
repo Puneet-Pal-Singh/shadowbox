@@ -9,6 +9,7 @@ import {
   ValidationError,
   isDomainError,
 } from "../domain/errors";
+import type { SerializableToolDefinition } from "../types/tools";
 import {
   parseOptionalScopeIdentifier,
 } from "./chat-request-helpers";
@@ -47,6 +48,7 @@ export interface RunEngineExecutionPayload {
     repositoryContext?: RepositoryContext;
   };
   messages: CoreMessage[];
+  tools?: Record<string, SerializableToolDefinition>;
 }
 
 export function extractPromptFromMessages(

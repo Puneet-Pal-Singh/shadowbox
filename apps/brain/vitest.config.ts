@@ -11,6 +11,10 @@ export default defineConfig({
         __dirname,
         "../../packages/shared-types/src/index.ts",
       ),
+      "@shadowbox/execution-engine/runtime": path.resolve(
+        __dirname,
+        "../../packages/execution-engine/src/runtime/index.ts",
+      ),
     },
   },
   test: {

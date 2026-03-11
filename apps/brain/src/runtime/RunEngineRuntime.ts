@@ -1,5 +1,5 @@
 import type { DurableObjectState as LegacyDurableObjectState } from "@cloudflare/workers-types";
-import type { CoreMessage } from "ai";
+import type { CoreMessage, CoreTool } from "ai";
 import { z } from "zod";
 import { DurableObject } from "cloudflare:workers";
 import { RunEngine } from "@shadowbox/execution-engine/runtime/engine";
@@ -9,7 +9,10 @@ import { TaskRepository } from "@shadowbox/execution-engine/runtime/task";
 import type { Env } from "../types/ai";
 import { parseExecuteRunRequest } from "./parsing/RunEngineRequestParser";
 import { buildRuntimeDependencies } from "./factories/ExecutionGatewayFactory";
-import type { ExecuteRunPayload } from "./parsing/ExecuteRunPayloadSchema";
+import {
+  SerializableToolDefinitionSchema,
+  type ExecuteRunPayload,
+} from "./parsing/ExecuteRunPayloadSchema";
 import { errorResponse, jsonResponse } from "../http/response";
 import {
   ValidationError,
@@ -253,11 +256,12 @@ export class RunEngineRuntime extends DurableObject {
           runEngineDeps,
         );
 
+        const runtimeTools = toRuntimeCoreTools(payload.tools);
         // Messages validated by zod schema in parser, cast to CoreMessage[] for type safety
         return runEngine.execute(
           payload.input,
           payload.messages as CoreMessage[],
-          {},
+          runtimeTools,
         );
       });
     } catch (error: unknown) {
@@ -582,4 +586,22 @@ export class RunEngineRuntime extends DurableObject {
       release();
     }
   }
+}
+
+function toRuntimeCoreTools(
+  tools: ExecuteRunPayload["tools"],
+): Record<string, CoreTool> {
+  if (!tools) {
+    return {};
+  }
+
+  const runtimeTools: Record<string, CoreTool> = {};
+  for (const [toolName, definition] of Object.entries(tools)) {
+    const validatedDefinition = SerializableToolDefinitionSchema.parse(definition);
+    runtimeTools[toolName] = {
+      ...validatedDefinition,
+      parameters: validatedDefinition.parameters ?? {},
+    } as CoreTool;
+  }
+  return runtimeTools;
 }

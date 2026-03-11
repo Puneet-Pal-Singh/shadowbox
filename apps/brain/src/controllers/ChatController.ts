@@ -29,9 +29,16 @@ import {
   type ExecutionScope,
 } from "./chat-runtime-helpers";
 
+const SerializableToolDefinitionSchema = z.object({
+  description: z.string().optional(),
+  inputSchema: z.object({}).catchall(z.unknown()).optional(),
+  parameters: z.object({}).catchall(z.unknown()).optional(),
+});
+
 // Zod schema for request body validation
 const ChatRequestBodySchema = z.object({
   messages: z.array(z.unknown()).optional(),
+  tools: z.record(SerializableToolDefinitionSchema).optional(),
   sessionId: z.string().optional(),
   agentId: z.string().optional(),
   runId: z.string().optional(),
@@ -218,6 +225,7 @@ export class ChatController {
           repositoryName: body.repositoryName,
           repositoryBranch: body.repositoryBranch,
           repositoryBaseUrl: body.repositoryBaseUrl,
+          tools: body.tools,
         },
         req.headers.get("Origin") || undefined,
       );

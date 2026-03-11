@@ -1,5 +1,4 @@
 import type { CoreMessage, CoreTool } from "ai";
-import { z } from "zod";
 import { Run, RunRepository, RunStateMachine } from "../run/index.js";
 import { Task, TaskRepository } from "../task/index.js";
 import {
@@ -21,15 +20,14 @@ import {
 import { PlannerService } from "../planner/index.js";
 import { TaskScheduler, type TaskExecutor } from "../orchestration/index.js";
 import { DefaultTaskExecutor, AgentTaskExecutor } from "./TaskExecutor.js";
-import { AgenticLoop, type AgenticLoopResult } from "./AgenticLoop.js";
+import { AgenticLoop } from "./AgenticLoop.js";
 import type {
   RunInput,
   RunStatus,
   IAgent,
-  RuntimeDurableObjectState,
   RepositoryContext,
+  RuntimeDurableObjectState,
   WorkspaceBootstrapper,
-  WorkspaceBootstrapResult,
 } from "../types.js";
 import type { Plan, PlannedTask } from "../planner/index.js";
 import {
@@ -45,15 +43,10 @@ import {
 } from "../memory/index.js";
 import { PermissionApprovalStore } from "./PermissionApprovalStore.js";
 import {
-  detectCrossRepoTarget,
-  formatCrossRepoApprovalGrantedMessage,
-  formatCrossRepoApprovalMessage,
-  formatDestructiveApprovalGrantedMessage,
-  formatDestructiveApprovalMessage,
-  getSelectedRepoRef,
-  isDestructiveActionPrompt,
-  parsePermissionApprovalDirective,
-} from "./RepositoryPermissionPolicy.js";
+  getPermissionPolicyMessage,
+  getWorkspaceBootstrapMessage,
+  processPermissionDirectives,
+} from "./RunPermissionWorkspacePolicy.js";
 import {
   createRunManifest,
   ensureManifestMatch,
@@ -61,7 +54,6 @@ import {
 import {
   buildConversationalSystemPrompt,
   getActionClarificationMessage,
-  hasRepositorySelection,
   shouldBypassPlanning,
 } from "./ConversationPolicy.js";
 import { sanitizeUserFacingOutput } from "./RunOutputSanitizer.js";
@@ -72,6 +64,12 @@ import {
   transitionRunToFailed,
 } from "./RunStatusPolicy.js";
 import {
+  buildAgenticLoopFinalOutput,
+  getAgenticLoopMaxSteps,
+  recordAgenticLoopMetadata,
+  resolveAgenticLoopTools,
+} from "./RunAgenticLoopPolicy.js";
+import {
   isPlatformApprovalOwner,
   recordLifecycleStep,
   recordOrchestrationActivation,
@@ -80,30 +78,6 @@ import {
 } from "./RunMetadataPolicy.js";
 import { resetRecyclableRun } from "./RunRecyclableResetPolicy.js";
 import { applyReviewerPassIfEnabled } from "./RunReviewerPassPolicy.js";
-
-const AGENTIC_LOOP_DEFAULT_MAX_STEPS = 6;
-const AGENTIC_TOOL_SCHEMA = {
-  analyze: z.object({
-    path: z.string().min(1).max(500),
-  }),
-  edit: z.object({
-    path: z.string().min(1).max(500),
-    content: z.string().min(1),
-  }),
-  test: z.object({
-    command: z.string().min(1).max(500),
-  }),
-  shell: z.object({
-    command: z.string().min(1).max(500),
-  }),
-  git: z.object({
-    action: z.string().min(1).max(120),
-    message: z.string().max(500).optional(),
-  }),
-  review: z.object({
-    notes: z.string().max(2000).optional(),
-  }),
-} as const;
 export interface IRunEngine {
   execute(
     input: RunInput,
@@ -295,8 +269,9 @@ export class RunEngine implements IRunEngine {
       recordLifecycleStep(run, "CONTEXT_PREPARED");
 
       if (isPlatformApprovalOwner(run.metadata.manifest)) {
-        const approvalDirectiveMessage = await this.processPermissionDirectives(
+        const approvalDirectiveMessage = await processPermissionDirectives(
           input.prompt,
+          this.permissionApprovalStore,
         );
         if (approvalDirectiveMessage) {
           recordLifecycleStep(
@@ -339,9 +314,10 @@ export class RunEngine implements IRunEngine {
       }
 
       if (isPlatformApprovalOwner(run.metadata.manifest)) {
-        const permissionMessage = await this.getPermissionPolicyMessage(
+        const permissionMessage = await getPermissionPolicyMessage(
           input.prompt,
           input.repositoryContext,
+          this.permissionApprovalStore,
         );
         if (permissionMessage) {
           recordLifecycleStep(
@@ -360,9 +336,10 @@ export class RunEngine implements IRunEngine {
         );
       }
 
-      const bootstrapMessage = await this.getWorkspaceBootstrapMessage(
+      const bootstrapMessage = await getWorkspaceBootstrapMessage(
         run.id,
         input.repositoryContext,
+        this.workspaceBootstrapper,
       );
       if (bootstrapMessage) {
         console.log(
@@ -371,7 +348,7 @@ export class RunEngine implements IRunEngine {
         return await this.completeRunWithAssistantMessage(run, bootstrapMessage);
       }
 
-      const agenticLoopTools = this.resolveAgenticLoopTools(
+      const agenticLoopTools = resolveAgenticLoopTools(
         run.input.metadata,
         tools,
       );
@@ -544,7 +521,7 @@ export class RunEngine implements IRunEngine {
 
     const loop = new AgenticLoop(
       {
-        maxSteps: this.getAgenticLoopMaxSteps(run.input.metadata),
+        maxSteps: getAgenticLoopMaxSteps(run.input.metadata),
         runId: run.id,
         sessionId: run.sessionId,
         budget: this.budgetManager,
@@ -559,8 +536,8 @@ export class RunEngine implements IRunEngine {
       temperature: 0.2,
     });
 
-    this.recordAgenticLoopMetadata(run, loopResult);
-    const loopOutput = this.buildAgenticLoopFinalOutput(loopResult);
+    recordAgenticLoopMetadata(run, loopResult);
+    const loopOutput = buildAgenticLoopFinalOutput(loopResult);
     const finalOutput = await applyReviewerPassIfEnabled({
       run,
       originalPrompt: input.prompt,
@@ -568,118 +545,6 @@ export class RunEngine implements IRunEngine {
       llmGateway: this.llmGateway,
     });
     return this.completeRunWithAssistantMessage(run, finalOutput);
-  }
-
-  private resolveAgenticLoopTools(
-    metadata: Record<string, unknown> | undefined,
-    incomingTools: Record<string, CoreTool>,
-  ): Record<string, CoreTool> | null {
-    if (!this.isAgenticLoopEnabled(metadata)) {
-      return null;
-    }
-    if (Object.keys(incomingTools).length > 0) {
-      return incomingTools;
-    }
-    return this.buildDefaultAgenticLoopTools();
-  }
-
-  private buildDefaultAgenticLoopTools(): Record<string, CoreTool> {
-    return {
-      analyze: {
-        description: "Read and inspect an existing file path.",
-        parameters: AGENTIC_TOOL_SCHEMA.analyze,
-      } as unknown as CoreTool,
-      edit: {
-        description: "Write content to a file path.",
-        parameters: AGENTIC_TOOL_SCHEMA.edit,
-      } as unknown as CoreTool,
-      test: {
-        description: "Run a test command.",
-        parameters: AGENTIC_TOOL_SCHEMA.test,
-      } as unknown as CoreTool,
-      shell: {
-        description: "Run a non-git shell command.",
-        parameters: AGENTIC_TOOL_SCHEMA.shell,
-      } as unknown as CoreTool,
-      git: {
-        description: "Execute a structured git action.",
-        parameters: AGENTIC_TOOL_SCHEMA.git,
-      } as unknown as CoreTool,
-      review: {
-        description: "Run a focused review step.",
-        parameters: AGENTIC_TOOL_SCHEMA.review,
-      } as unknown as CoreTool,
-    };
-  }
-
-  private buildAgenticLoopFinalOutput(result: AgenticLoopResult): string {
-    const assistantText = this.getLastAssistantText(result.messages);
-    if (assistantText) {
-      return assistantText;
-    }
-
-    return [
-      "Agentic loop completed without assistant synthesis output.",
-      `Stop reason: ${result.stopReason}`,
-      `Steps executed: ${result.stepsExecuted}`,
-      `Tools executed: ${result.toolExecutionCount}`,
-      `Failed tools: ${result.failedToolCount}`,
-    ].join("\n");
-  }
-
-  private getLastAssistantText(messages: CoreMessage[]): string | null {
-    for (let index = messages.length - 1; index >= 0; index--) {
-      const message = messages[index];
-      if (!message || message.role !== "assistant") {
-        continue;
-      }
-      if (typeof message.content === "string" && message.content.trim()) {
-        return message.content;
-      }
-    }
-    return null;
-  }
-
-  private recordAgenticLoopMetadata(run: Run, result: AgenticLoopResult): void {
-    run.metadata.agenticLoop = {
-      enabled: true,
-      stopReason: result.stopReason,
-      stepsExecuted: result.stepsExecuted,
-      toolExecutionCount: result.toolExecutionCount,
-      failedToolCount: result.failedToolCount,
-      completedAt: new Date().toISOString(),
-    };
-  }
-
-  private getAgenticLoopMaxSteps(metadata?: Record<string, unknown>): number {
-    const featureFlags = metadata?.featureFlags;
-    if (typeof featureFlags !== "object" || featureFlags === null) {
-      return AGENTIC_LOOP_DEFAULT_MAX_STEPS;
-    }
-    const raw = (featureFlags as Record<string, unknown>).agenticLoopMaxSteps;
-    if (typeof raw === "number" && Number.isInteger(raw) && raw > 0 && raw <= 20) {
-      return raw;
-    }
-    return AGENTIC_LOOP_DEFAULT_MAX_STEPS;
-  }
-
-  private isAgenticLoopEnabled(metadata?: Record<string, unknown>): boolean {
-    if (!metadata) {
-      return false;
-    }
-
-    const directFlag = metadata.agenticLoopV1;
-    if (typeof directFlag === "boolean") {
-      return directFlag;
-    }
-
-    const featureFlags = metadata.featureFlags;
-    if (typeof featureFlags !== "object" || featureFlags === null) {
-      return false;
-    }
-
-    const nestedFlag = (featureFlags as Record<string, unknown>).agenticLoopV1;
-    return typeof nestedFlag === "boolean" ? nestedFlag : false;
   }
 
   private async persistConversationMessages(
@@ -1019,128 +884,32 @@ If any task failed or was cancelled, clearly say so and do not claim full comple
     return this.createStreamResponse(sanitizedText);
   }
 
-  private async processPermissionDirectives(prompt: string): Promise<string | null> {
-    const directive = parsePermissionApprovalDirective(prompt);
-    if (!directive.isApprovalOnlyPrompt) {
-      return null;
-    }
-
-    const approvalMessages: string[] = [];
-
-    if (directive.crossRepo) {
-      await this.permissionApprovalStore.grantCrossRepo(
-        directive.crossRepo.repoRef,
-        directive.crossRepo.ttlMs,
-      );
-      approvalMessages.push(
-        formatCrossRepoApprovalGrantedMessage(
-          directive.crossRepo.repoRef,
-          directive.crossRepo.ttlMs,
-        ),
-      );
-    }
-
-    if (directive.destructive) {
-      await this.permissionApprovalStore.grantDestructive(
-        directive.destructive.ttlMs,
-      );
-      approvalMessages.push(
-        formatDestructiveApprovalGrantedMessage(directive.destructive.ttlMs),
-      );
-    }
-
-    if (approvalMessages.length === 0) {
-      return null;
-    }
-
-    return `${approvalMessages.join(" ")} Re-send your repository action to continue.`;
+  private async processPermissionDirectives(
+    prompt: string,
+  ): Promise<string | null> {
+    return processPermissionDirectives(prompt, this.permissionApprovalStore);
   }
 
   private async getPermissionPolicyMessage(
     prompt: string,
     repositoryContext?: RepositoryContext,
   ): Promise<string | null> {
-    const selectedRepoRef = getSelectedRepoRef(repositoryContext);
-    const crossRepoTarget = detectCrossRepoTarget(prompt, selectedRepoRef);
-
-    if (crossRepoTarget) {
-      const allowed =
-        await this.permissionApprovalStore.hasCrossRepo(crossRepoTarget);
-      if (!allowed) {
-        return formatCrossRepoApprovalMessage(crossRepoTarget, selectedRepoRef);
-      }
-    }
-
-    if (isDestructiveActionPrompt(prompt)) {
-      const allowed = await this.permissionApprovalStore.hasDestructive();
-      if (!allowed) {
-        return formatDestructiveApprovalMessage();
-      }
-    }
-
-    return null;
+    return getPermissionPolicyMessage(
+      prompt,
+      repositoryContext,
+      this.permissionApprovalStore,
+    );
   }
 
   private async getWorkspaceBootstrapMessage(
     runId: string,
     repositoryContext?: RepositoryContext,
   ): Promise<string | null> {
-    if (!repositoryContext || !this.workspaceBootstrapper) {
-      return null;
-    }
-
-    if (!hasRepositorySelection(repositoryContext)) {
-      return "I need a valid repository selection before I can run repository actions. Please reselect the repository and try again.";
-    }
-
-    try {
-      const bootstrapResult = await this.workspaceBootstrapper.bootstrap({
-        runId,
-        repositoryContext,
-      });
-      return this.mapBootstrapResultToMessage(bootstrapResult, repositoryContext);
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : "workspace bootstrap failed";
-      const repoRef = this.describeRepositoryRef(repositoryContext);
-      return `I couldn't prepare the workspace for ${repoRef}. ${errorMessage}`;
-    }
-  }
-
-  private mapBootstrapResultToMessage(
-    bootstrapResult: WorkspaceBootstrapResult,
-    repositoryContext: RepositoryContext,
-  ): string | null {
-    if (bootstrapResult.status === "ready") {
-      return null;
-    }
-
-    if (bootstrapResult.status === "needs-auth") {
-      return (
-        bootstrapResult.message ??
-        "I need GitHub authorization before I can access this repository. Please reconnect GitHub and try again."
-      );
-    }
-
-    if (bootstrapResult.status === "invalid-context") {
-      return (
-        bootstrapResult.message ??
-        "I need valid repository details (owner, repository, branch) before I can continue."
-      );
-    }
-
-    const repoRef = this.describeRepositoryRef(repositoryContext);
-    const reason =
-      bootstrapResult.message ??
-      "Repository sync failed. Please confirm the branch exists and retry.";
-    return `I couldn't prepare the workspace for ${repoRef}. ${reason}`;
-  }
-
-  private describeRepositoryRef(repositoryContext: RepositoryContext): string {
-    const owner = repositoryContext.owner?.trim() || "unknown-owner";
-    const repo = repositoryContext.repo?.trim() || "unknown-repo";
-    const branch = repositoryContext.branch?.trim();
-    return branch ? `${owner}/${repo}@${branch}` : `${owner}/${repo}`;
+    return getWorkspaceBootstrapMessage(
+      runId,
+      repositoryContext,
+      this.workspaceBootstrapper,
+    );
   }
 
   private async handleExecutionError(
