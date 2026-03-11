@@ -16,16 +16,6 @@ export function shouldBypassPlanning(prompt: string): boolean {
   return decision.bypass;
 }
 
-export function getDeterministicConversationalReply(
-  prompt: string,
-): string | null {
-  const normalized = normalizeConversationalPrompt(prompt);
-  if (/^(hey|hi|hello|howdy|greetings)[!.?]*$/.test(normalized)) {
-    return "Hey! I'm ready to help with this repo. Tell me what you want to inspect or change.";
-  }
-  return null;
-}
-
 export function buildConversationalSystemPrompt(now = new Date()): string {
   const nowIso = now.toISOString();
   return [
@@ -69,8 +59,4 @@ export function hasRepositorySelection(
   repositoryContext?: RepositoryContext,
 ): boolean {
   return Boolean(repositoryContext?.owner?.trim() && repositoryContext.repo?.trim());
-}
-
-function normalizeConversationalPrompt(prompt: string): string {
-  return prompt.toLowerCase().replace(/\s+/g, " ").trim();
 }

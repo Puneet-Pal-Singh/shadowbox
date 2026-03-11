@@ -48,9 +48,10 @@ describe("RunEngine", () => {
     expect(shouldBypassPlanning("fix this")).toBe(false);
   });
 
-  it("returns deterministic greeting response without invoking LLM", async () => {
+  it("uses model-generated conversational responses for greeting prompts", async () => {
+    const llmGateway = createMockLLMGateway();
     const runEngine = createRunEngine({
-      llmGateway: createExplodingLLMGateway(),
+      llmGateway,
     });
 
     const response = await runEngine.execute(
@@ -64,9 +65,7 @@ describe("RunEngine", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(await response.text()).toBe(
-      "Hey! I'm ready to help with this repo. Tell me what you want to inspect or change.",
-    );
+    expect(await response.text()).toBe("ok");
   });
 
   it("sanitizes internal runtime paths in user-facing output", () => {
@@ -787,30 +786,6 @@ function createMockLLMGateway(): ILLMGateway {
         totalTokens: 2,
       },
     }),
-    generateStructured: async () => ({
-      object: { tasks: [], metadata: { estimatedSteps: 1 } },
-      usage: {
-        provider: "mock",
-        model: "mock-model",
-        promptTokens: 1,
-        completionTokens: 1,
-        totalTokens: 2,
-      },
-    }),
-    generateStream: async () =>
-      new ReadableStream<Uint8Array>({
-        start(controller) {
-          controller.close();
-        },
-      }),
-  };
-}
-
-function createExplodingLLMGateway(): ILLMGateway {
-  return {
-    generateText: async () => {
-      throw new Error("generateText should not be called for deterministic greeting");
-    },
     generateStructured: async () => ({
       object: { tasks: [], metadata: { estimatedSteps: 1 } },
       usage: {
