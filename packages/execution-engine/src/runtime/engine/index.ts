@@ -11,3 +11,11 @@ export {
 } from "./RunEngine.js";
 
 export { DefaultTaskExecutor, AgentTaskExecutor } from "./TaskExecutor.js";
+export {
+  enforceGoldenFlowToolFloor,
+  getGoldenFlowToolRegistry,
+  getGoldenFlowToolRoute,
+  isGoldenFlowToolName,
+  type GoldenFlowToolName,
+  type ToolGatewayRoute,
+} from "../contracts/CodingToolGateway.js";

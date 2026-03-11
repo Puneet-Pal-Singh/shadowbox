@@ -38,13 +38,6 @@ export function getActionClarificationMessage(
   repositoryContext?: RepositoryContext,
 ): string | null {
   const normalized = prompt.toLowerCase().trim();
-  if (
-    RoutingDetector.requiresDiscoveryBeforeRead(normalized) &&
-    hasRepositorySelection(repositoryContext)
-  ) {
-    return "I can help, but that target is ambiguous. First run a discovery step (list/search) and then request a specific file path to read.";
-  }
-
   const asksForRepoOrFileAction =
     ACTION_VERB_RE.test(normalized) &&
     (REPO_FILE_NOUN_RE.test(normalized) || FILE_PATH_HINT_RE.test(normalized));

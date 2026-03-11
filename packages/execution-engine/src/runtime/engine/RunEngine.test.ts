@@ -7,10 +7,15 @@ import {
 } from "./ConversationPolicy.js";
 import { sanitizeUserFacingOutput } from "./RunOutputSanitizer.js";
 import type { PlannedTask } from "../planner/PlanSchema.js";
-import type { RuntimeDurableObjectState, RuntimeStorage } from "../types.js";
+import type {
+  RuntimeDurableObjectState,
+  RuntimeExecutionService,
+  RuntimeStorage,
+} from "../types.js";
 import type { Task } from "../task/index.js";
 import type { ILLMGateway } from "../llm/types.js";
 import { Run } from "../run/index.js";
+import { CodingAgent } from "../agents/CodingAgent.js";
 
 const TEST_RUN_ID = "f462a003-5c36-4c86-a95d-367b92bf46c9";
 
@@ -128,7 +133,7 @@ describe("RunEngine", () => {
         toolCalls: [
           {
             id: "call-1",
-            toolName: "analyze",
+            toolName: "read_file",
             args: { path: "README.md" },
           },
         ],
@@ -204,7 +209,7 @@ describe("RunEngine", () => {
       tools?: Record<string, unknown>;
     };
     expect(firstRequest.tools).toBeDefined();
-    expect(Object.keys(firstRequest.tools ?? {})).toContain("analyze");
+    expect(Object.keys(firstRequest.tools ?? {})).toContain("read_file");
     expect(planner.plan).not.toHaveBeenCalled();
 
     const persisted = await (runEngine as unknown as {
@@ -213,6 +218,211 @@ describe("RunEngine", () => {
     expect(persisted?.metadata.agenticLoop?.enabled).toBe(true);
     expect(persisted?.metadata.agenticLoop?.stopReason).toBe("llm_stop");
     expect(persisted?.metadata.agenticLoop?.toolExecutionCount).toBe(1);
+  });
+
+  it("completes the golden-flow tool roundtrip in one agentic run", async () => {
+    const generateText = vi
+      .fn()
+      .mockResolvedValueOnce({
+        text: "Executing golden flow tools now.",
+        toolCalls: [
+          { id: "t1", toolName: "list_files", args: { path: "." } },
+          { id: "t2", toolName: "read_file", args: { path: "README.md" } },
+          {
+            id: "t3",
+            toolName: "write_file",
+            args: { path: "README.md", content: "# Updated README\n" },
+          },
+          {
+            id: "t4",
+            toolName: "run_command",
+            args: { command: "pnpm --filter @shadowbox/execution-engine test" },
+          },
+          { id: "t5", toolName: "git_diff", args: {} },
+        ],
+        usage: {
+          provider: "mock",
+          model: "mock-model",
+          promptTokens: 10,
+          completionTokens: 10,
+          totalTokens: 20,
+        },
+      })
+      .mockResolvedValueOnce({
+        text: "Golden flow completed without retries.",
+        toolCalls: [],
+        usage: {
+          provider: "mock",
+          model: "mock-model",
+          promptTokens: 8,
+          completionTokens: 6,
+          totalTokens: 14,
+        },
+      });
+
+    const llmGateway: ILLMGateway = {
+      generateText,
+      generateStructured: async () => ({
+        object: { tasks: [], metadata: { estimatedSteps: 1 } },
+        usage: {
+          provider: "mock",
+          model: "mock-model",
+          promptTokens: 1,
+          completionTokens: 1,
+          totalTokens: 2,
+        },
+      }),
+      generateStream: async () =>
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.close();
+          },
+        }),
+    };
+
+    const executionService: RuntimeExecutionService = {
+      execute: vi.fn(
+        async (
+          plugin: string,
+          action: string,
+          payload: Record<string, unknown>,
+        ) => {
+          if (plugin === "filesystem" && action === "list_files") {
+            return { success: true, output: "README.md\npackages/\n" };
+          }
+          if (plugin === "filesystem" && action === "read_file") {
+            return { success: true, output: "# Shadowbox\n" };
+          }
+          if (plugin === "filesystem" && action === "write_file") {
+            return { success: true, output: "Wrote 17 bytes to README.md" };
+          }
+          if (plugin === "node" && action === "run") {
+            return { success: true, output: "test suite passed\n" };
+          }
+          if (plugin === "git" && action === "git_diff") {
+            return { success: true, output: "diff --git a/README.md b/README.md" };
+          }
+          return {
+            success: false,
+            error: `Unexpected route ${plugin}:${action} ${JSON.stringify(payload)}`,
+          };
+        },
+      ),
+    };
+
+    const runEngine = new RunEngine(
+      new MockRuntimeState(),
+      {
+        env: { NODE_ENV: "test" } as unknown,
+        sessionId: "session-1",
+        runId: TEST_RUN_ID,
+        correlationId: "corr-golden-flow",
+      },
+      new CodingAgent(llmGateway, executionService),
+      undefined,
+      { llmGateway },
+    );
+
+    const response = await runEngine.execute(
+      {
+        agentType: "coding",
+        prompt: "Find the target file, update it, run tests, and show git diff",
+        sessionId: "session-1",
+        repositoryContext: { owner: "sourcegraph", repo: "shadowbox" },
+        metadata: { featureFlags: { agenticLoopV1: true } },
+      },
+      [
+        {
+          role: "user",
+          content:
+            "Find the target file, update it, run tests, and show git diff",
+        },
+      ],
+      {},
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain("Golden flow completed");
+
+    const executeSpy = executionService.execute as ReturnType<typeof vi.fn>;
+    expect(executeSpy).toHaveBeenCalledWith("filesystem", "list_files", {
+      path: ".",
+    });
+    expect(executeSpy).toHaveBeenCalledWith("filesystem", "read_file", {
+      path: "README.md",
+    });
+    expect(executeSpy).toHaveBeenCalledWith("filesystem", "write_file", {
+      path: "README.md",
+      content: "# Updated README\n",
+    });
+    expect(executeSpy).toHaveBeenCalledWith("node", "run", {
+      command: "pnpm --filter @shadowbox/execution-engine test",
+    });
+    expect(executeSpy).toHaveBeenCalledWith("git", "git_diff", {});
+
+    const persisted = await (runEngine as unknown as {
+      getRun(runId: string): Promise<Run | null>;
+    }).getRun(TEST_RUN_ID);
+    expect(persisted?.metadata.agenticLoop?.stopReason).toBe("llm_stop");
+    expect(persisted?.metadata.agenticLoop?.toolExecutionCount).toBe(5);
+    expect(persisted?.metadata.agenticLoop?.failedToolCount).toBe(0);
+  });
+
+  it("enforces the bounded golden-flow tool floor for agentic-loop tool maps", async () => {
+    const generateText = vi.fn().mockResolvedValue({
+      text: "done",
+      toolCalls: [],
+      usage: {
+        provider: "mock",
+        model: "mock-model",
+        promptTokens: 1,
+        completionTokens: 1,
+        totalTokens: 2,
+      },
+    });
+    const llmGateway: ILLMGateway = {
+      generateText,
+      generateStructured: async () => ({
+        object: { tasks: [], metadata: { estimatedSteps: 1 } },
+        usage: {
+          provider: "mock",
+          model: "mock-model",
+          promptTokens: 1,
+          completionTokens: 1,
+          totalTokens: 2,
+        },
+      }),
+      generateStream: async () =>
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.close();
+          },
+        }),
+    };
+    const runEngine = createRunEngine({ llmGateway });
+
+    const response = await runEngine.execute(
+      {
+        agentType: "coding",
+        prompt: "inspect repository",
+        sessionId: "session-1",
+        metadata: { featureFlags: { agenticLoopV1: true } },
+        repositoryContext: { owner: "sourcegraph", repo: "shadowbox" },
+      },
+      [{ role: "user", content: "inspect repository" }],
+      {
+        web_search: { description: "not in scope" } as unknown as import("ai").CoreTool,
+      },
+    );
+
+    expect(response.status).toBe(200);
+    const firstRequest = generateText.mock.calls[0]?.[0] as {
+      tools?: Record<string, unknown>;
+    };
+    const toolNames = Object.keys(firstRequest.tools ?? {});
+    expect(toolNames).toContain("read_file");
+    expect(toolNames).toContain("grep");
+    expect(toolNames).not.toContain("web_search");
   });
 
   it("sanitizes internal runtime paths in user-facing output", () => {
@@ -238,7 +448,7 @@ describe("RunEngine", () => {
         owner: "sourcegraph",
         repo: "shadowbox",
       }),
-    ).toContain("discovery step");
+    ).toBeNull();
     expect(
       getActionClarificationMessage("check README.md", {
         owner: "sourcegraph",
@@ -250,13 +460,13 @@ describe("RunEngine", () => {
         owner: "sourcegraph",
         repo: "shadowbox",
       }),
-    ).toContain("discovery step");
+    ).toBeNull();
     expect(
       getActionClarificationMessage("check my repo?", {
         owner: "sourcegraph",
         repo: "shadowbox",
       }),
-    ).toContain("discovery step");
+    ).toBeNull();
   });
 
   it("marks CREATED runs as FAILED when execution error handling runs", async () => {

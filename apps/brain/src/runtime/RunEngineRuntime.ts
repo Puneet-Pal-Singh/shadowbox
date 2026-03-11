@@ -2,7 +2,11 @@ import type { DurableObjectState as LegacyDurableObjectState } from "@cloudflare
 import type { CoreMessage, CoreTool } from "ai";
 import { z } from "zod";
 import { DurableObject } from "cloudflare:workers";
-import { RunEngine } from "@shadowbox/execution-engine/runtime/engine";
+import {
+  RunEngine,
+  enforceGoldenFlowToolFloor,
+  getGoldenFlowToolRegistry,
+} from "@shadowbox/execution-engine/runtime/engine";
 import { tagRuntimeStateSemantics } from "@shadowbox/execution-engine/runtime";
 import { RunRepository } from "@shadowbox/execution-engine/runtime/run";
 import { TaskRepository } from "@shadowbox/execution-engine/runtime/task";
@@ -591,17 +595,21 @@ export class RunEngineRuntime extends DurableObject {
 function toRuntimeCoreTools(
   tools: ExecuteRunPayload["tools"],
 ): Record<string, CoreTool> {
-  if (!tools) {
-    return {};
+  const parsedTools: Record<string, CoreTool> = {};
+  if (tools) {
+    for (const [toolName, definition] of Object.entries(tools)) {
+      const validatedDefinition =
+        SerializableToolDefinitionSchema.parse(definition);
+      parsedTools[toolName] = {
+        ...validatedDefinition,
+        parameters: validatedDefinition.parameters ?? {},
+      } as CoreTool;
+    }
   }
 
-  const runtimeTools: Record<string, CoreTool> = {};
-  for (const [toolName, definition] of Object.entries(tools)) {
-    const validatedDefinition = SerializableToolDefinitionSchema.parse(definition);
-    runtimeTools[toolName] = {
-      ...validatedDefinition,
-      parameters: validatedDefinition.parameters ?? {},
-    } as CoreTool;
+  if (Object.keys(parsedTools).length === 0) {
+    return getGoldenFlowToolRegistry();
   }
-  return runtimeTools;
+
+  return enforceGoldenFlowToolFloor(parsedTools);
 }

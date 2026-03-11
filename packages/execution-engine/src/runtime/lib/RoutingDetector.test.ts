@@ -102,6 +102,7 @@ describe("RoutingDetector - Unified routing logic", () => {
       ["analyze the src/ directory", "workspace context"],
       ["fix this", "imperative action"],
       ["can you check README?", "polite imperative action"],
+      ["help me fix failing tests in this repo", "coding action with helper phrasing"],
     ];
 
     actionExamples.forEach(([prompt, context]) => {
