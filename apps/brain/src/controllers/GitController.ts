@@ -9,7 +9,11 @@ import type {
 import { z } from "zod";
 import { WorkspaceBootstrapService } from "../runtime/services/WorkspaceBootstrapService";
 import { sanitizeUnknownError } from "../core/security/LogSanitizer";
-import { logErrorRateLimited, logWarnRateLimited } from "../lib/rate-limited-log";
+import {
+  logErrorRateLimited,
+  logInfoRateLimited,
+  logWarnRateLimited,
+} from "../lib/rate-limited-log";
 
 const GitBootstrapRequestBodySchema = z.object({
   runId: z.string(),
@@ -50,7 +54,7 @@ export class GitController {
     }
 
     const localDevFallback = "http://localhost:8787";
-    logWarnRateLimited(
+    logInfoRateLimited(
       MUSCLE_BASE_URL_FALLBACK_LOG_KEY,
       `[GitController] MUSCLE_BASE_URL not configured, using dev fallback: ${localDevFallback}`,
       undefined,

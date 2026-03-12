@@ -24,6 +24,22 @@ export function logWarnRateLimited(
   console.warn(message, details);
 }
 
+export function logInfoRateLimited(
+  key: string,
+  message: string,
+  details?: unknown,
+  windowMs: number = DEFAULT_WINDOW_MS,
+): void {
+  if (!shouldLog(key, windowMs)) {
+    return;
+  }
+  if (details === undefined) {
+    console.info(message);
+    return;
+  }
+  console.info(message, details);
+}
+
 export function logErrorRateLimited(
   key: string,
   message: string,
