@@ -299,7 +299,6 @@ export class RunEngine implements IRunEngine {
 
       let turnMode: TurnMode;
       try {
-        const turnModeStartedAt = Date.now();
         turnMode = await determineTurnModePolicy({
           llmGateway: this.llmGateway,
           run,
@@ -307,9 +306,6 @@ export class RunEngine implements IRunEngine {
           messages,
           repositoryContext: input.repositoryContext,
         });
-        console.log(
-          `[run/timing] run=${runId} step=turn_mode elapsedMs=${Date.now() - turnModeStartedAt} mode=${turnMode}`,
-        );
       } catch (turnModeError) {
         const recoveryResponse = await this.tryHandlePlanningError(
           run,
@@ -325,11 +321,7 @@ export class RunEngine implements IRunEngine {
         console.log(
           `[run/engine] Model-selected conversational mode for run ${runId}`,
         );
-        const conversationalStartedAt = Date.now();
         const response = await this.executeConversationalTurn(run, input, messages);
-        console.log(
-          `[run/timing] run=${runId} step=conversational elapsedMs=${Date.now() - conversationalStartedAt}`,
-        );
         console.log(
           `[run/timing] run=${runId} step=total elapsedMs=${Date.now() - runStartedAt} status=${run.status} mode=chat`,
         );
@@ -385,7 +377,6 @@ export class RunEngine implements IRunEngine {
       }
 
       console.log(`[run/engine] Planning phase for run ${runId}`);
-      const planningStartedAt = Date.now();
       try {
         run.transition("PLANNING");
         recordPhaseSelectionSnapshot(run, "planning");
@@ -425,12 +416,8 @@ export class RunEngine implements IRunEngine {
         await this.runRepo.update(run);
         throw planError;
       }
-      console.log(
-        `[run/timing] run=${runId} step=planning elapsedMs=${Date.now() - planningStartedAt}`,
-      );
 
       console.log(`[run/engine] Execution phase for run ${runId}`);
-      const executionStartedAt = Date.now();
       run.transition("RUNNING");
       recordPhaseSelectionSnapshot(run, "execution");
       recordLifecycleStep(run, "TASK_EXECUTING");
@@ -486,12 +473,8 @@ export class RunEngine implements IRunEngine {
           ),
         }),
       );
-      console.log(
-        `[run/timing] run=${runId} step=execution elapsedMs=${Date.now() - executionStartedAt}`,
-      );
 
       console.log(`[run/engine] Synthesis phase for run ${runId}`);
-      const synthesisStartedAt = Date.now();
       recordPhaseSelectionSnapshot(run, "synthesis");
       recordLifecycleStep(run, "SYNTHESIS");
       const finalOutputRaw = await this.generateSynthesis(
@@ -525,9 +508,6 @@ export class RunEngine implements IRunEngine {
           taskStatuses: {},
         }),
       );
-      console.log(
-        `[run/timing] run=${runId} step=synthesis elapsedMs=${Date.now() - synthesisStartedAt}`,
-      );
 
       await this.safeMemoryOperation(() =>
         this.persistConversationMessages(
@@ -549,9 +529,6 @@ export class RunEngine implements IRunEngine {
       return this.createStreamResponse(finalOutput);
     } catch (error) {
       await this.handleExecutionError(runId, error);
-      console.warn(
-        `[run/timing] run=${runId} step=total elapsedMs=${Date.now() - runStartedAt} status=FAILED`,
-      );
       throw error;
     }
   }
