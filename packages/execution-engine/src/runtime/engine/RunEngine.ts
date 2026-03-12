@@ -1,15 +1,12 @@
 import type { CoreMessage, CoreTool } from "ai";
-import { z } from "zod";
 import { Run, RunRepository, RunStateMachine } from "../run/index.js";
 import { Task, TaskRepository } from "../task/index.js";
 import {
   BudgetManager,
-  BudgetExceededError,
   CostLedger,
   CostTracker,
   PricingRegistry,
   PricingResolver,
-  SessionBudgetExceededError,
   type BudgetPolicy,
   type IBudgetManager,
   type ICostLedger,
@@ -18,7 +15,7 @@ import {
   type IPricingResolver,
   type CostSnapshot,
 } from "../cost/index.js";
-import { PlannerError, PlannerService } from "../planner/index.js";
+import { PlannerService } from "../planner/index.js";
 import { TaskScheduler, type TaskExecutor } from "../orchestration/index.js";
 import { DefaultTaskExecutor, AgentTaskExecutor } from "./TaskExecutor.js";
 import { AgenticLoop } from "./AgenticLoop.js";
@@ -33,7 +30,6 @@ import type {
 import type { Plan, PlannedTask } from "../planner/index.js";
 import {
   LLMGateway,
-  LLMTimeoutError,
   type ILLMGateway,
   type LLMRuntimeAIService,
 } from "../llm/index.js";
@@ -78,37 +74,13 @@ import {
 } from "./RunMetadataPolicy.js";
 import { resetRecyclableRun } from "./RunRecyclableResetPolicy.js";
 import { applyReviewerPassIfEnabled } from "./RunReviewerPassPolicy.js";
+import {
+  determineTurnMode as determineTurnModePolicy,
+  type TurnMode,
+} from "./RunTurnModePolicy.js";
+import { buildPlanningRecoveryMessage } from "./RunPlanningRecoveryPolicy.js";
+import { synthesizeResultFromTasks } from "./RunSynthesisPolicy.js";
 
-const AGENTIC_LOOP_DEFAULT_MAX_STEPS = 6;
-const STRUCTURED_SCHEMA_MISMATCH_SENTINEL =
-  "No object generated: response did not match schema";
-const TURN_MODE_SCHEMA = z.object({
-  mode: z.enum(["chat", "action"]),
-  rationale: z.string().max(400).optional(),
-});
-type TurnMode = z.infer<typeof TURN_MODE_SCHEMA>["mode"];
-const AGENTIC_TOOL_SCHEMA = {
-  analyze: z.object({
-    path: z.string().min(1).max(500),
-  }),
-  edit: z.object({
-    path: z.string().min(1).max(500),
-    content: z.string().min(1),
-  }),
-  test: z.object({
-    command: z.string().min(1).max(500),
-  }),
-  shell: z.object({
-    command: z.string().min(1).max(500),
-  }),
-  git: z.object({
-    action: z.string().min(1).max(120),
-    message: z.string().max(500).optional(),
-  }),
-  review: z.object({
-    notes: z.string().max(2000).optional(),
-  }),
-} as const;
 export interface IRunEngine {
   execute(
     input: RunInput,
@@ -325,12 +297,13 @@ export class RunEngine implements IRunEngine {
 
       let turnMode: TurnMode;
       try {
-        turnMode = await this.determineTurnMode(
+        turnMode = await determineTurnModePolicy({
+          llmGateway: this.llmGateway,
           run,
-          input.prompt,
+          prompt: input.prompt,
           messages,
-          input.repositoryContext,
-        );
+          repositoryContext: input.repositoryContext,
+        });
       } catch (turnModeError) {
         const recoveryResponse = await this.tryHandlePlanningError(
           run,
@@ -770,7 +743,14 @@ export class RunEngine implements IRunEngine {
         providerId: run.input.providerId,
       });
     }
-    return this.synthesizeResult(run, originalPrompt, memoryContext);
+    return synthesizeResultFromTasks({
+      run,
+      originalPrompt,
+      memoryContext,
+      taskRepo: this.taskRepo,
+      memoryCoordinator: this.memoryCoordinator,
+      llmGateway: this.llmGateway,
+    });
   }
 
   private async executeConversationalTurn(
@@ -795,177 +775,6 @@ export class RunEngine implements IRunEngine {
       temperature: 0.7,
     });
     return this.completeRunWithAssistantMessage(run, result.text);
-  }
-
-  private async determineTurnMode(
-    run: Run,
-    prompt: string,
-    messages: CoreMessage[],
-    repositoryContext?: RepositoryContext,
-  ): Promise<TurnMode> {
-    const classifierMessages = this.buildTurnModeMessages(
-      prompt,
-      messages,
-      repositoryContext,
-    );
-    const result = await this.llmGateway.generateStructured({
-      context: {
-        runId: run.id,
-        sessionId: run.sessionId,
-        agentType: run.agentType,
-        phase: "planning",
-      },
-      schema: TURN_MODE_SCHEMA,
-      messages: classifierMessages,
-      model: run.input.modelId,
-      providerId: run.input.providerId,
-      temperature: 0,
-    });
-
-    const mode = result.object.mode;
-    return mode === "chat" ? "chat" : "action";
-  }
-
-  private buildTurnModeMessages(
-    prompt: string,
-    messages: CoreMessage[],
-    repositoryContext?: RepositoryContext,
-  ): Array<{ role: "system" | "user"; content: string }> {
-    const recentTurns = messages
-      .slice(-8)
-      .map((message) => this.formatTurnModeMessage(message))
-      .filter((line) => line.length > 0);
-    const repositoryLine = repositoryContext?.owner && repositoryContext?.repo
-      ? `Repository selection: ${repositoryContext.owner}/${repositoryContext.repo}${repositoryContext.branch ? `@${repositoryContext.branch}` : ""}.`
-      : "Repository selection: none.";
-
-    return [
-      {
-        role: "system",
-        content: [
-          "Classify the user's latest request into a turn mode.",
-          'Return "chat" when the request is conversational (greeting, Q&A, general explanation, capability question) and does not require repository/tool execution.',
-          'Return "action" when the request requires reading/modifying repository files, running commands, or any tool execution.',
-          "Use the recent conversation and repository selection for context when the latest request is brief (for example: continue, do it, same repo).",
-          "Respond strictly with schema-compliant JSON.",
-        ].join(" "),
-      },
-      {
-        role: "user",
-        content: [
-          repositoryLine,
-          "Recent conversation:",
-          recentTurns.join("\n") || "(none)",
-          "Latest user request:",
-          prompt,
-        ].join("\n"),
-      },
-    ];
-  }
-
-  private formatTurnModeMessage(message: CoreMessage): string {
-    const role = message.role.toUpperCase();
-    const content = this.extractTurnModeMessageContent(message.content);
-    if (!content) {
-      return "";
-    }
-    return `${role}: ${content}`;
-  }
-
-  private extractTurnModeMessageContent(content: CoreMessage["content"]): string {
-    if (typeof content === "string") {
-      return content.trim();
-    }
-    if (!Array.isArray(content)) {
-      return "";
-    }
-    return content
-      .map((part) => {
-        if (typeof part === "string") {
-          return part;
-        }
-        if (!part || typeof part !== "object") {
-          return "";
-        }
-        const candidate = part as unknown as Record<string, unknown>;
-        if (typeof candidate.text === "string") {
-          return candidate.text;
-        }
-        if (typeof candidate.content === "string") {
-          return candidate.content;
-        }
-        return "";
-      })
-      .filter((text) => text.trim().length > 0)
-      .join("\n")
-      .trim();
-  }
-
-  private async synthesizeResult(
-    run: Run,
-    originalPrompt: string,
-    memoryContext?: MemoryContext,
-  ): Promise<string> {
-    const tasks = await this.taskRepo.getByRun(run.id);
-    const taskResults = tasks
-      .map(
-        (task) =>
-          `- [${task.status}] ${task.type}: ${task.input.description}\n  Result: ${task.output?.content || task.error?.message || "N/A"}`,
-      )
-      .join("\n");
-
-    const memorySection = memoryContext
-      ? this.memoryCoordinator.formatContextForPrompt(memoryContext)
-      : "";
-
-    const synthesisPrompt = `Based on the following task outcomes, provide a final summary:
-
-Original Request: ${originalPrompt}
-
-${memorySection ? `Memory Context:\n${memorySection}\n\n` : ""}Completed Tasks:
-${taskResults}
-
-Provide a concise summary of what actually happened.
-If any task failed or was cancelled, clearly say so and do not claim full completion.`;
-
-    try {
-      const result = await this.llmGateway.generateText({
-        context: {
-          runId: run.id,
-          sessionId: run.sessionId,
-          agentType: run.agentType,
-          phase: "synthesis",
-        },
-        messages: [
-          {
-            role: "system",
-          content:
-            "You are a helpful assistant summarizing task execution results accurately.",
-          },
-          {
-            role: "user",
-            content: synthesisPrompt,
-          },
-        ],
-        model: run.input.modelId,
-        providerId: run.input.providerId,
-        temperature: 0.7,
-      });
-
-      return result.text;
-    } catch (error) {
-      if (
-        error instanceof BudgetExceededError ||
-        error instanceof SessionBudgetExceededError
-      ) {
-        console.error(`[run/engine] Budget exceeded for run ${run.id}`);
-        const completedTasks = tasks.filter((task) => task.status === "DONE").length;
-        return `## Summary\n\nBudget limit reached for this run.\n\nCompleted ${completedTasks}/${tasks.length} tasks for your request.\n\n${taskResults}`;
-      }
-      console.error("[run/engine] Synthesis failed:", error);
-      const completedTasks = tasks.filter((task) => task.status === "DONE").length;
-      return `## Summary\n\nCompleted ${completedTasks}/${tasks.length} tasks for your request.\n\n${taskResults}`;
-    }
   }
 
   private createStreamResponse(content: string): Response {
@@ -1081,7 +890,7 @@ If any task failed or was cancelled, clearly say so and do not claim full comple
   ): Promise<Response | null> {
     const technicalMessage =
       error instanceof Error ? error.message : "Planning phase failed";
-    const userMessage = this.buildPlanningRecoveryMessage(error);
+    const userMessage = buildPlanningRecoveryMessage(error);
     if (!userMessage) {
       return null;
     }
@@ -1094,51 +903,6 @@ If any task failed or was cancelled, clearly say so and do not claim full comple
       run,
       userMessage,
       technicalMessage,
-    );
-  }
-
-  private buildPlanningRecoveryMessage(error: unknown): string | null {
-    if (this.isPlanningSchemaMismatchError(error)) {
-      return [
-        "I couldn't generate a valid structured plan for this turn, so I stopped before running tools.",
-        "Try a more concrete request like `read README.md`, `list files in src`, or `run pnpm test`.",
-        "If your request is conversational, retry in plain chat without asking for repository actions.",
-      ].join(" ");
-    }
-
-    if (this.isPlanningTimeoutError(error)) {
-      return [
-        "Planning timed out before I could build safe executable tasks.",
-        "Please retry with a narrower request (specific file path or command).",
-      ].join(" ");
-    }
-
-    return null;
-  }
-
-  private isPlanningSchemaMismatchError(error: unknown): boolean {
-    if (error instanceof PlannerError && error.code === "PLAN_SCHEMA_MISMATCH") {
-      return true;
-    }
-    if (!(error instanceof Error)) {
-      return false;
-    }
-    return error.message.includes(STRUCTURED_SCHEMA_MISMATCH_SENTINEL);
-  }
-
-  private isPlanningTimeoutError(error: unknown): boolean {
-    if (error instanceof LLMTimeoutError) {
-      return error.phase === "planning";
-    }
-    if (error instanceof PlannerError && error.code === "PLAN_GENERATION_TIMEOUT") {
-      return true;
-    }
-    if (!(error instanceof Error)) {
-      return false;
-    }
-    return (
-      error.name === "LLMTimeoutError" &&
-      error.message.includes("(phase=planning)")
     );
   }
 
