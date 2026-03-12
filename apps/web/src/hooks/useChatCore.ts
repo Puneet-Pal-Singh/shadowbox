@@ -1,5 +1,5 @@
 import { useChat as useVercelChat, type Message } from "@ai-sdk/react";
-import { useCallback, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useMemo, useRef, useState, type FormEvent } from "react";
 import { chatStreamPath, getBrainHttpBase } from "../lib/platform-endpoints.js";
 import { useProviderStore } from "./useProviderStore.js";
 import type { ChatDebugEvent } from "../types/chat-debug.js";
@@ -54,6 +54,10 @@ export function useChatCore(
   );
   const [error, setError] = useState<string | null>(null);
   const [debugEvents, setDebugEvents] = useState<ChatDebugEvent[]>([]);
+  const lastLoggedStreamErrorRef = useRef<{
+    message: string;
+    timestamp: number;
+  } | null>(null);
   const runId = externalRunId || internalRunId;
   const apiPath = chatStreamPath();
 
@@ -130,7 +134,13 @@ export function useChatCore(
           normalizedError: message,
         },
       });
-      console.error("🧬 [Shadowbox] Chat Stream Error:", message);
+      if (shouldLogStreamError(lastLoggedStreamErrorRef.current, message)) {
+        console.error("🧬 [Shadowbox] Chat Stream Error:", message);
+        lastLoggedStreamErrorRef.current = {
+          message,
+          timestamp: Date.now(),
+        };
+      }
     },
   });
 
@@ -379,6 +389,9 @@ function mapKnownChatErrorMessage(
   if (containsToolChoiceUnsupportedError(message)) {
     return "The selected model does not support required tool-calling/structured planning. Choose a different model.";
   }
+  if (containsTransientNetworkError(message)) {
+    return "Temporary network/service issue while streaming chat. Please retry in a few seconds.";
+  }
   return null;
 }
 
@@ -397,6 +410,28 @@ function containsOpenRouterKeyLimitError(message: string): boolean {
 
 function containsToolChoiceUnsupportedError(message: string): boolean {
   return message.includes("support the provided 'tool_choice' value");
+}
+
+function containsTransientNetworkError(message: string): boolean {
+  return (
+    message.includes("Failed to fetch") ||
+    message.includes("NetworkError") ||
+    message.includes("Network connection lost") ||
+    message.includes("Service Unavailable")
+  );
+}
+
+function shouldLogStreamError(
+  previous: { message: string; timestamp: number } | null,
+  message: string,
+): boolean {
+  if (!previous) {
+    return true;
+  }
+  if (previous.message !== message) {
+    return true;
+  }
+  return Date.now() - previous.timestamp >= 30_000;
 }
 
 function resolveRuntimeHarnessId(sessionId: string): RuntimeHarnessId {
