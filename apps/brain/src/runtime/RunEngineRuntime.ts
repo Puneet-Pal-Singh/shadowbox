@@ -25,6 +25,7 @@ import {
 } from "../domain/errors";
 import { mapRunExecutionErrorToDomain } from "./RunExecutionErrorMapper";
 import { parseRequestBody, validateWithSchema } from "../http/validation";
+import { sanitizeUnknownError } from "../core/security/LogSanitizer";
 import {
   type BYOKDiscoveredProviderModelsQuery,
   BYOKDiscoveredProviderModelsQuerySchema,
@@ -291,6 +292,9 @@ export class RunEngineRuntime extends DurableObject {
         payload.correlationId,
       );
       if (domainError) {
+        console.warn(
+          `[run/engine-runtime] ${payload.correlationId}: mapped runtime error code=${domainError.code} status=${domainError.status}`,
+        );
         const { status, code, message, metadata } = mapDomainErrorToHttp(domainError);
         return errorResponse(
           request,
@@ -301,6 +305,9 @@ export class RunEngineRuntime extends DurableObject {
           metadata,
         );
       }
+      console.error(
+        `[run/engine-runtime] ${payload.correlationId}: untyped runtime failure: ${sanitizeUnknownError(error)}`,
+      );
       const message =
         error instanceof Error
           ? error.message

@@ -74,4 +74,46 @@ describe("RunExecutionErrorMapper", () => {
       correlationId: "corr-6",
     });
   });
+
+  it("maps provider retry exhaustion to provider unavailable", () => {
+    const mapped = mapRunExecutionErrorToDomain(
+      new Error("Failed after 3 attempts. Last error: Provider returned error"),
+      "corr-7",
+    );
+
+    expect(mapped).toMatchObject({
+      code: "PROVIDER_UNAVAILABLE",
+      status: 503,
+      retryable: true,
+      correlationId: "corr-7",
+    });
+  });
+
+  it("maps provider rate limits to typed 429 error", () => {
+    const mapped = mapRunExecutionErrorToDomain(
+      new Error("Provider returned status code 429: Too Many Requests"),
+      "corr-8",
+    );
+
+    expect(mapped).toMatchObject({
+      code: "RATE_LIMITED",
+      status: 429,
+      retryable: true,
+      correlationId: "corr-8",
+    });
+  });
+
+  it("maps provider auth failures to typed 401 error", () => {
+    const mapped = mapRunExecutionErrorToDomain(
+      new Error("Provider returned status code 401: invalid api key"),
+      "corr-9",
+    );
+
+    expect(mapped).toMatchObject({
+      code: "AUTH_FAILED",
+      status: 401,
+      retryable: false,
+      correlationId: "corr-9",
+    });
+  });
 });
