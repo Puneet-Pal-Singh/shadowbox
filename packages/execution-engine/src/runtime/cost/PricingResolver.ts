@@ -18,6 +18,7 @@ export interface IPricingResolver {
 
 export class PricingResolver implements IPricingResolver {
   private readonly unknownPricingMode: "warn" | "block";
+  private readonly unknownWarningTimestampByKey = new Map<string, number>();
 
   constructor(
     private readonly pricingRegistry: IPricingRegistry,
@@ -60,14 +61,37 @@ export class PricingResolver implements IPricingResolver {
     }
 
     const shouldBlock = this.unknownPricingMode === "block";
-    console.warn(
-      `[cost/pricing] source=unknown provider=${usage.provider} model=${usage.model} mode=${this.unknownPricingMode}`,
-    );
+    if (this.shouldWarnUnknownPricing(usage.provider, usage.model)) {
+      console.warn(
+        `[cost/pricing] source=unknown provider=${usage.provider} model=${usage.model} mode=${this.unknownPricingMode}`,
+      );
+    }
     return {
       calculatedCostUsd: 0,
       pricingSource: "unknown",
       shouldBlock,
     };
+  }
+
+  private shouldWarnUnknownPricing(provider: string, model: string): boolean {
+    const key = `${provider}:${model}:${this.unknownPricingMode}`;
+    const now = Date.now();
+    const lastTimestamp = this.unknownWarningTimestampByKey.get(key);
+    if (typeof lastTimestamp === "number" && now - lastTimestamp < 30_000) {
+      return false;
+    }
+    this.unknownWarningTimestampByKey.set(key, now);
+    this.pruneUnknownWarningTimestamps(now);
+    return true;
+  }
+
+  private pruneUnknownWarningTimestamps(now: number): void {
+    const retentionMs = 5 * 60 * 1000;
+    for (const [key, timestamp] of this.unknownWarningTimestampByKey.entries()) {
+      if (now - timestamp > retentionMs) {
+        this.unknownWarningTimestampByKey.delete(key);
+      }
+    }
   }
 
   private extractLiteLLMCost(raw: unknown): number | undefined {
