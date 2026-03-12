@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState } from "react";
+import { useRef, useEffect, useState, useMemo } from "react";
 import { ChatMessage } from "./ChatMessage";
 import { ChatInputBar } from "./ChatInputBar";
 import { ExploredFilesSummary } from "./ExploredFilesSummary";
@@ -9,6 +9,8 @@ import type { ProviderId } from "../../types/provider";
 import type { ChatDebugEvent } from "../../types/chat-debug.js";
 import { useRunSummary } from "../../hooks/useRunSummary.js";
 import { getProviderRecoveryAdvice } from "../../lib/provider-recovery";
+import { useProviderStore } from "../../hooks/useProviderStore.js";
+import { buildChatMessageMetadata } from "./messageMetadata";
 
 interface ChatInterfaceProps {
   chatProps: {
@@ -59,7 +61,6 @@ export function ChatInterface({
   useEffect(() => {
     if (!isLoading) {
       thinkingStartAtRef.current = null;
-      setThinkingElapsedMs(0);
       return;
     }
 
@@ -84,6 +85,16 @@ export function ChatInterface({
   const showDebugPanel =
     import.meta.env.VITE_ENABLE_CHAT_DEBUG_PANEL === "true";
   const [showProviderDialog, setShowProviderDialog] = useState(false);
+  const { providerModels } = useProviderStore(runId);
+
+  const messageMetadataById = useMemo(() => {
+    return buildChatMessageMetadata(
+      messages,
+      debugEvents,
+      (modelId) => resolveModelLabel(modelId, providerModels),
+      "Build",
+    );
+  }, [messages, debugEvents, providerModels]);
 
   const handleInputChangeWrapper = (value: string) => {
     // Create a synthetic event to match the expected interface
@@ -165,6 +176,7 @@ export function ChatInterface({
             <ChatMessage
               key={msg.id}
               message={msg}
+              metadata={messageMetadataById[msg.id]}
               onArtifactOpen={onArtifactOpen}
             />
           ))}
@@ -226,4 +238,26 @@ function formatDebugPayload(payload: unknown): string {
   } catch {
     return String(payload);
   }
+}
+
+function resolveModelLabel(
+  modelId: string,
+  providerModels: Record<string, Array<{ id: string; name: string }>>,
+): string {
+  for (const models of Object.values(providerModels)) {
+    const matched = models.find((model) => model.id === modelId);
+    if (matched?.name) {
+      return matched.name;
+    }
+  }
+  return summarizeModelId(modelId);
+}
+
+function summarizeModelId(modelId: string): string {
+  const trimmed = modelId.trim();
+  if (!trimmed) {
+    return "Unknown model";
+  }
+  const withoutProvider = trimmed.includes("/") ? trimmed.split("/").pop() ?? trimmed : trimmed;
+  return withoutProvider.replace(/:free$/i, "").replace(/-/g, " ");
 }
