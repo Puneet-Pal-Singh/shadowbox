@@ -5,6 +5,10 @@ import {
   sanitizeUnknownError,
 } from "../core/security/LogSanitizer";
 
+const DEFAULT_EXECUTION_TIMEOUT_MS = 120_000;
+const GIT_STATUS_TIMEOUT_MS = 12_000;
+const GIT_MUTATION_TIMEOUT_MS = 20_000;
+
 /**
  * ExecutionService - Handles plugin execution with secure token pass-through
  *
@@ -42,7 +46,9 @@ export class ExecutionService {
         }
       }
 
-      const res = await this.env.SECURE_API.fetch(
+      const timeoutMs = resolveExecutionTimeoutMs(plugin, action);
+      const res = await fetchWithTimeout(
+        this.env.SECURE_API,
         `http://internal/?session=${this.sessionId}`,
         {
           method: "POST",
@@ -52,6 +58,7 @@ export class ExecutionService {
             payload: { action, runId: this.runId, ...payload },
           }),
         },
+        timeoutMs,
       );
 
       const text = await res.text();
@@ -135,10 +142,46 @@ export class ExecutionService {
   }
 
   async getArtifact(key: string): Promise<string> {
-    const res = await this.env.SECURE_API.fetch(
+    const res = await fetchWithTimeout(
+      this.env.SECURE_API,
       `http://internal/artifact?key=${encodeURIComponent(key)}`,
+      undefined,
+      DEFAULT_EXECUTION_TIMEOUT_MS,
     );
     if (!res.ok) return "[Error: Artifact not found]";
     return await res.text();
+  }
+}
+
+function resolveExecutionTimeoutMs(plugin: string, action: string): number {
+  if (plugin !== "git") {
+    return DEFAULT_EXECUTION_TIMEOUT_MS;
+  }
+
+  if (action === "git_status") {
+    return GIT_STATUS_TIMEOUT_MS;
+  }
+
+  return GIT_MUTATION_TIMEOUT_MS;
+}
+
+async function fetchWithTimeout(
+  service: Env["SECURE_API"],
+  input: string,
+  init: Parameters<Env["SECURE_API"]["fetch"]>[1],
+  timeoutMs: number,
+): Promise<Awaited<ReturnType<Env["SECURE_API"]["fetch"]>>> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(new Error(`Execution request timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+  });
+  try {
+    return await Promise.race([service.fetch(input, init), timeoutPromise]);
+  } finally {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
   }
 }

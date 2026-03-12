@@ -32,6 +32,8 @@ const bootstrapRequestsByWorkspace = new Map<string, Promise<GitBootstrapResult>
 const MUSCLE_BASE_URL_FALLBACK_LOG_KEY = "GitController:muscle-base-url-fallback";
 const ERROR_LOG_WINDOW_MS = 30_000;
 const WARNING_LOG_WINDOW_MS = 5 * 60 * 1000;
+const MUSCLE_STATUS_TIMEOUT_MS = 12_000;
+const MUSCLE_GIT_TIMEOUT_MS = 20_000;
 
 /**
  * GitController
@@ -77,7 +79,7 @@ export class GitController {
       }
 
       const muscleSession = resolveMuscleSessionId(runId, sessionId);
-      const response = await fetch(
+      const response = await fetchWithTimeout(
         `${GitController.getMuscleBaseUrl(env)}/?session=${encodeURIComponent(muscleSession)}`,
         {
           method: "POST",
@@ -92,6 +94,7 @@ export class GitController {
             },
           }),
         },
+        MUSCLE_STATUS_TIMEOUT_MS,
       );
 
       await assertMuscleResponseOk(response, "status");
@@ -127,7 +130,7 @@ export class GitController {
       }
 
       const muscleSession = resolveMuscleSessionId(runId, sessionId);
-      const response = await fetch(
+      const response = await fetchWithTimeout(
        `${GitController.getMuscleBaseUrl(env)}/?session=${encodeURIComponent(muscleSession)}`,
        {
          method: "POST",
@@ -144,6 +147,7 @@ export class GitController {
             },
           }),
         },
+        MUSCLE_GIT_TIMEOUT_MS,
       );
 
       await assertMuscleResponseOk(response, "diff");
@@ -173,7 +177,7 @@ export class GitController {
       }
 
       const muscleSession = resolveMuscleSessionId(runId, sessionId);
-      const response = await fetch(
+      const response = await fetchWithTimeout(
         `${GitController.getMuscleBaseUrl(env)}/?session=${encodeURIComponent(muscleSession)}`,
         {
           method: "POST",
@@ -189,6 +193,7 @@ export class GitController {
             },
           }),
         },
+        MUSCLE_GIT_TIMEOUT_MS,
       );
 
       await assertMuscleResponseOk(response, unstage ? "unstage" : "stage");
@@ -216,7 +221,7 @@ export class GitController {
       }
 
       const muscleSession = resolveMuscleSessionId(runId, sessionId);
-      const response = await fetch(
+      const response = await fetchWithTimeout(
         `${GitController.getMuscleBaseUrl(env)}/?session=${encodeURIComponent(muscleSession)}`,
         {
           method: "POST",
@@ -233,6 +238,7 @@ export class GitController {
             },
           }),
         },
+        MUSCLE_GIT_TIMEOUT_MS,
       );
 
       await assertMuscleResponseOk(response, "commit");
@@ -573,6 +579,36 @@ function errorResponse(
       ...getCorsHeaders(req, env),
     },
   });
+}
+
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, {
+      ...init,
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (isAbortError(error)) {
+      throw new Error(`Git request timed out after ${timeoutMs}ms`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function isAbortError(error: unknown): boolean {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+  const candidate = error as { name?: unknown };
+  return candidate.name === "AbortError";
 }
 
 async function assertMuscleResponseOk(
