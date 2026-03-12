@@ -35,8 +35,14 @@ interface NormalizedRepositoryContext {
   baseUrl?: string;
 }
 
+interface WorkspaceSyncCacheEntry {
+  lastSyncedAt: number;
+}
+
 const SAFE_REPOSITORY_SEGMENT_REGEX = /^[A-Za-z0-9._-]{1,100}$/;
 const SAFE_BRANCH_REGEX = /^[A-Za-z0-9._/-]{1,200}$/;
+const DEFAULT_SYNC_TTL_MS = 2 * 60 * 1000;
+const CACHE_RETENTION_MULTIPLIER = 10;
 const AUTH_FAILURE_PATTERNS = [
   /authentication failed/i,
   /could not read username/i,
@@ -57,9 +63,13 @@ const NO_TRACKING_PATTERNS = [/there is no tracking information/i];
 const CLONE_DESTINATION_NOT_EMPTY_PATTERNS = [
   /destination path .* already exists and is not an empty directory/i,
 ];
+const workspaceSyncCache = new Map<string, WorkspaceSyncCacheEntry>();
 
 export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
-  constructor(private executionClient: GitExecutionClient) {}
+  constructor(
+    private executionClient: GitExecutionClient,
+    private syncTtlMs: number = DEFAULT_SYNC_TTL_MS,
+  ) {}
 
   static fromEnv(
     env: Env,
@@ -74,6 +84,7 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
   async bootstrap(
     request: WorkspaceBootstrapRequest,
   ): Promise<WorkspaceBootstrapResult> {
+    pruneWorkspaceSyncCache(this.syncTtlMs);
     const normalized = normalizeRepositoryContext(request.repositoryContext);
     if (!normalized) {
       return {
@@ -92,6 +103,11 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
       };
     }
 
+    const cacheKey = buildWorkspaceSyncCacheKey(request.runId, normalized);
+    if (isWorkspaceSyncCacheFresh(cacheKey, this.syncTtlMs)) {
+      return { status: "ready" };
+    }
+
     const statusResult = await this.executeGit("git_status", {});
     if (!statusResult.success) {
       const statusError = statusResult.error ?? "Unable to check git status.";
@@ -108,7 +124,7 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
             replaceExisting: true,
           });
           if (forcedCloneResult.success) {
-            return await this.syncBranch(normalized.branch);
+            return await this.syncBranch(cacheKey, normalized.branch);
           }
           return mapGitFailure(
             forcedCloneResult.error ??
@@ -119,12 +135,17 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
           cloneError,
         );
       }
+
+      return await this.syncBranch(cacheKey, normalized.branch);
     }
 
-    return await this.syncBranch(normalized.branch);
+    return await this.syncBranch(cacheKey, normalized.branch);
   }
 
-  private async syncBranch(branch: string): Promise<WorkspaceBootstrapResult> {
+  private async syncBranch(
+    cacheKey: string,
+    branch: string,
+  ): Promise<WorkspaceBootstrapResult> {
     const fetchResult = await this.executeGit("git_fetch", { remote: "origin" });
     if (!fetchResult.success) {
       const fetchError = fetchResult.error ?? "Failed to fetch from origin.";
@@ -159,11 +180,13 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
         matchesAny(pullError, REMOTE_MISSING_PATTERNS) ||
         matchesAny(pullError, NO_TRACKING_PATTERNS)
       ) {
+        setWorkspaceSyncCache(cacheKey);
         return { status: "ready" };
       }
       return mapGitFailure(pullError);
     }
 
+    setWorkspaceSyncCache(cacheKey);
     return { status: "ready" };
   }
 
@@ -173,6 +196,41 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
   ): Promise<GitPluginResult> {
     const result = await this.executionClient.execute("git", action, payload);
     return toGitPluginResult(result);
+  }
+}
+
+function buildWorkspaceSyncCacheKey(
+  runId: string,
+  context: NormalizedRepositoryContext,
+): string {
+  return [
+    runId,
+    context.owner,
+    context.repo,
+    context.branch,
+    context.baseUrl ?? "",
+  ].join(":");
+}
+
+function isWorkspaceSyncCacheFresh(cacheKey: string, ttlMs: number): boolean {
+  const cached = workspaceSyncCache.get(cacheKey);
+  if (!cached) {
+    return false;
+  }
+  return Date.now() - cached.lastSyncedAt < ttlMs;
+}
+
+function setWorkspaceSyncCache(cacheKey: string): void {
+  workspaceSyncCache.set(cacheKey, { lastSyncedAt: Date.now() });
+}
+
+function pruneWorkspaceSyncCache(ttlMs: number): void {
+  const maxAgeMs = ttlMs * CACHE_RETENTION_MULTIPLIER;
+  const now = Date.now();
+  for (const [key, entry] of workspaceSyncCache.entries()) {
+    if (now - entry.lastSyncedAt > maxAgeMs) {
+      workspaceSyncCache.delete(key);
+    }
   }
 }
 
