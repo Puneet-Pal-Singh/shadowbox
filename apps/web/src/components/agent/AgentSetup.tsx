@@ -207,9 +207,15 @@ export function AgentSetup({
           workspaceBootstrapKeyRef.current = bootstrapKey;
         }
         if (result.status !== "ready" && result.message) {
-          console.warn(
-            `[agent-setup/git-bootstrap] ${result.status}: ${result.message}`,
-          );
+          if (result.status === "sync-failed") {
+            console.debug(
+              `[agent-setup/git-bootstrap] ${result.status}: ${result.message}`,
+            );
+          } else {
+            console.warn(
+              `[agent-setup/git-bootstrap] ${result.status}: ${result.message}`,
+            );
+          }
         }
       } catch (error) {
         console.warn("[agent-setup/git-bootstrap] failed", error);

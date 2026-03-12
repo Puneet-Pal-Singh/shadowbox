@@ -138,9 +138,15 @@ export function Workspace({
           workspaceBootstrapKeyRef.current = bootstrapKey;
         }
         if (result.status !== "ready" && result.message) {
-          console.warn(
-            `[workspace/git-bootstrap] ${result.status}: ${result.message}`,
-          );
+          if (result.status === "sync-failed") {
+            console.debug(
+              `[workspace/git-bootstrap] ${result.status}: ${result.message}`,
+            );
+          } else {
+            console.warn(
+              `[workspace/git-bootstrap] ${result.status}: ${result.message}`,
+            );
+          }
         }
       } catch (error) {
         console.warn("[workspace/git-bootstrap] failed", error);
