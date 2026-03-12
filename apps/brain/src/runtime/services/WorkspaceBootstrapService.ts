@@ -84,69 +84,114 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
   async bootstrap(
     request: WorkspaceBootstrapRequest,
   ): Promise<WorkspaceBootstrapResult> {
+    const bootstrapStartedAt = Date.now();
+    let bootstrapResult: WorkspaceBootstrapResult | null = null;
     pruneWorkspaceSyncCache(this.syncTtlMs);
     const normalized = normalizeRepositoryContext(request.repositoryContext);
     if (!normalized) {
-      return {
+      bootstrapResult = {
         status: "invalid-context",
         message:
           "Repository context is missing or invalid. Select a repository and branch, then retry.",
       };
+      this.logBootstrapTiming(request.runId, bootstrapResult, bootstrapStartedAt);
+      return bootstrapResult;
     }
 
     const cloneUrl = resolveCloneUrl(normalized);
     if (!cloneUrl) {
-      return {
+      bootstrapResult = {
         status: "invalid-context",
         message:
           "Repository URL is invalid. Re-select the repository and branch, then retry.",
       };
+      this.logBootstrapTiming(request.runId, bootstrapResult, bootstrapStartedAt);
+      return bootstrapResult;
     }
 
     const cacheKey = buildWorkspaceSyncCacheKey(request.runId, normalized);
     if (isWorkspaceSyncCacheFresh(cacheKey, this.syncTtlMs)) {
-      return { status: "ready" };
+      bootstrapResult = { status: "ready" };
+      this.logBootstrapTiming(request.runId, bootstrapResult, bootstrapStartedAt);
+      return bootstrapResult;
     }
 
-    const statusResult = await this.executeGit("git_status", {});
+    const statusResult = await this.executeGit("git_status", {}, request.runId);
     if (!statusResult.success) {
       const statusError = statusResult.error ?? "Unable to check git status.";
       if (!matchesAny(statusError, NOT_GIT_REPOSITORY_PATTERNS)) {
-        return mapGitFailure(statusError);
+        bootstrapResult = mapGitFailure(statusError);
+        this.logBootstrapTiming(request.runId, bootstrapResult, bootstrapStartedAt);
+        return bootstrapResult;
       }
 
-      const cloneResult = await this.executeGit("git_clone", { url: cloneUrl });
+      const cloneResult = await this.executeGit(
+        "git_clone",
+        { url: cloneUrl },
+        request.runId,
+      );
       if (!cloneResult.success) {
         const cloneError = cloneResult.error ?? "Failed to clone repository into workspace.";
         if (matchesAny(cloneError, CLONE_DESTINATION_NOT_EMPTY_PATTERNS)) {
           const forcedCloneResult = await this.executeGit("git_clone", {
             url: cloneUrl,
             replaceExisting: true,
-          });
+          }, request.runId);
           if (forcedCloneResult.success) {
-            return await this.syncBranch(cacheKey, normalized.branch);
+            bootstrapResult = await this.syncBranch(
+              cacheKey,
+              normalized.branch,
+              request.runId,
+            );
+            this.logBootstrapTiming(
+              request.runId,
+              bootstrapResult,
+              bootstrapStartedAt,
+            );
+            return bootstrapResult;
           }
-          return mapGitFailure(
+          bootstrapResult = mapGitFailure(
             forcedCloneResult.error ??
               "Failed to replace existing workspace contents for repository clone.",
           );
+          this.logBootstrapTiming(request.runId, bootstrapResult, bootstrapStartedAt);
+          return bootstrapResult;
         }
-        return mapGitFailure(
+        bootstrapResult = mapGitFailure(
           cloneError,
         );
+        this.logBootstrapTiming(request.runId, bootstrapResult, bootstrapStartedAt);
+        return bootstrapResult;
       }
 
-      return await this.syncBranch(cacheKey, normalized.branch);
+      bootstrapResult = await this.syncBranch(
+        cacheKey,
+        normalized.branch,
+        request.runId,
+      );
+      this.logBootstrapTiming(request.runId, bootstrapResult, bootstrapStartedAt);
+      return bootstrapResult;
     }
 
-    return await this.syncBranch(cacheKey, normalized.branch);
+    bootstrapResult = await this.syncBranch(
+      cacheKey,
+      normalized.branch,
+      request.runId,
+    );
+    this.logBootstrapTiming(request.runId, bootstrapResult, bootstrapStartedAt);
+    return bootstrapResult;
   }
 
   private async syncBranch(
     cacheKey: string,
     branch: string,
+    runId: string,
   ): Promise<WorkspaceBootstrapResult> {
-    const fetchResult = await this.executeGit("git_fetch", { remote: "origin" });
+    const fetchResult = await this.executeGit(
+      "git_fetch",
+      { remote: "origin" },
+      runId,
+    );
     if (!fetchResult.success) {
       const fetchError = fetchResult.error ?? "Failed to fetch from origin.";
       if (!matchesAny(fetchError, REMOTE_MISSING_PATTERNS)) {
@@ -154,14 +199,22 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
       }
     }
 
-    const switchResult = await this.executeGit("git_branch_switch", { branch });
+    const switchResult = await this.executeGit(
+      "git_branch_switch",
+      { branch },
+      runId,
+    );
     if (!switchResult.success) {
       const switchError = switchResult.error ?? "Failed to switch branch.";
       if (!matchesAny(switchError, BRANCH_MISSING_PATTERNS)) {
         return mapGitFailure(switchError);
       }
 
-      const createResult = await this.executeGit("git_branch_create", { branch });
+      const createResult = await this.executeGit(
+        "git_branch_create",
+        { branch },
+        runId,
+      );
       if (!createResult.success) {
         return mapGitFailure(
           createResult.error ?? `Failed to create branch ${branch}.`,
@@ -172,7 +225,7 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
     const pullResult = await this.executeGit("git_pull", {
       remote: "origin",
       branch,
-    });
+    }, runId);
     if (!pullResult.success) {
       const pullError = pullResult.error ?? "Failed to pull latest branch changes.";
       if (
@@ -193,9 +246,39 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
   private async executeGit(
     action: GitAction,
     payload: Record<string, unknown>,
+    runId: string,
   ): Promise<GitPluginResult> {
-    const result = await this.executionClient.execute("git", action, payload);
-    return toGitPluginResult(result);
+    const startedAt = Date.now();
+    try {
+      const result = await this.executionClient.execute("git", action, payload);
+      const parsedResult = toGitPluginResult(result);
+      console.log(
+        `[workspace/bootstrap/timing] run=${runId} action=${action} success=${parsedResult.success} elapsedMs=${Date.now() - startedAt}`,
+      );
+      return parsedResult;
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error && error.message.trim().length > 0
+          ? error.message
+          : "Workspace git execution failed.";
+      console.log(
+        `[workspace/bootstrap/timing] run=${runId} action=${action} success=false elapsedMs=${Date.now() - startedAt} error=${errorMessage}`,
+      );
+      return {
+        success: false,
+        error: errorMessage,
+      };
+    }
+  }
+
+  private logBootstrapTiming(
+    runId: string,
+    result: WorkspaceBootstrapResult,
+    startedAt: number,
+  ): void {
+    console.log(
+      `[workspace/bootstrap/timing] run=${runId} status=${result.status} elapsedMs=${Date.now() - startedAt}`,
+    );
   }
 }
 

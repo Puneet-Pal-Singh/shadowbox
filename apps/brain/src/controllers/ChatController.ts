@@ -79,6 +79,7 @@ interface ChatRequest {
 export class ChatController {
   static async handle(req: Request, env: Env): Promise<Response> {
     const correlationId = Math.random().toString(36).substring(7);
+    const requestStartedAt = Date.now();
     console.log(`[chat/request] ${correlationId} received`);
 
     try {
@@ -130,7 +131,15 @@ export class ChatController {
       };
 
       console.log(`[chat/request] ${correlationId} routing to RunEngine`);
-      return await ChatController.handleWithRunEngine(req, chatRequest, env);
+      const response = await ChatController.handleWithRunEngine(
+        req,
+        chatRequest,
+        env,
+      );
+      console.log(
+        `[chat/timing] ${correlationId} totalMs=${Date.now() - requestStartedAt} status=${response.status}`,
+      );
+      return response;
     } catch (error: unknown) {
       if (isDomainError(error)) {
         const errorCorrelationId = error.correlationId ?? correlationId;
@@ -138,6 +147,9 @@ export class ChatController {
           `[chat/validation] ${errorCorrelationId}: ${error.code} - ${error.message}`,
         );
         const { status, code, message, metadata } = mapDomainErrorToHttp(error);
+        console.log(
+          `[chat/timing] ${errorCorrelationId} totalMs=${Date.now() - requestStartedAt} status=${status} code=${code}`,
+        );
         return errorResponse(req, env, message, status, code, metadata);
       }
       logErrorRateLimited(
@@ -148,6 +160,9 @@ export class ChatController {
       );
       const errorMessage =
         error instanceof Error ? error.message : "Internal Server Error";
+      console.log(
+        `[chat/timing] ${correlationId} totalMs=${Date.now() - requestStartedAt} status=500`,
+      );
       return errorResponse(req, env, errorMessage, 500);
     }
   }
@@ -209,8 +224,10 @@ export class ChatController {
     const prompt = extractPromptFromMessages(coreMessages, correlationId);
 
     try {
+      const executionStartedAt = Date.now();
       const useCase = new HandleChatRequest(env);
 
+      const useCaseStartedAt = Date.now();
       const useCaseResult = await useCase.execute(
         {
           sessionId,
@@ -236,11 +253,17 @@ export class ChatController {
         },
         req.headers.get("Origin") || undefined,
       );
+      const useCaseElapsedMs = Date.now() - useCaseStartedAt;
 
+      const runEngineStartedAt = Date.now();
       const doResponse = await executeViaRunEngineDurableObject(
         env,
         runId,
         useCaseResult.executionPayload,
+      );
+      const runEngineElapsedMs = Date.now() - runEngineStartedAt;
+      console.log(
+        `[chat/timing] ${correlationId} useCaseMs=${useCaseElapsedMs} runEngineMs=${runEngineElapsedMs} handleMs=${Date.now() - executionStartedAt}`,
       );
 
       return withEngineHeaders(req, env, doResponse, runId);
