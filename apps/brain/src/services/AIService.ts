@@ -21,6 +21,7 @@ import {
   type GenerateTextResult,
   createChatStream,
   getSDKModelConfig,
+  type SDKModelConfig,
   type GenerateStructuredResult,
 } from "./ai";
 import { resolveSelectionWithPreferences } from "./ai/preference-selection";

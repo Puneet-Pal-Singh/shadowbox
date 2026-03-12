@@ -1,4 +1,4 @@
-import { type GenerateTextResult } from "./types";
+import { type GenerateTextResult } from "./TextGenerationService";
 
 export function normalizeFinishCallback(
   providerId: string | undefined,
