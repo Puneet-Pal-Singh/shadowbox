@@ -528,7 +528,10 @@ function isTransientGitServiceError(message: string): boolean {
     /service unavailable/i.test(message) ||
     /timed out/i.test(message) ||
     /econnrefused/i.test(message) ||
-    /upstream connect error/i.test(message)
+    /upstream connect error/i.test(message) ||
+    /sandboxerror:\s*http error!\s*status:\s*5\d\d/i.test(message) ||
+    /http error!\s*status:\s*5\d\d/i.test(message) ||
+    /failed with http 5\d\d/i.test(message)
   );
 }
 
