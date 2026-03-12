@@ -244,6 +244,57 @@ describe("RunEngine", () => {
     expect(persisted?.metadata.agenticLoop?.toolExecutionCount).toBe(1);
   });
 
+  it("uses an extended timeout budget for conversational responses", async () => {
+    const generateText = vi.fn(async () => ({
+      text: "Longer budget applied.",
+      usage: {
+        provider: "mock",
+        model: "mock-model",
+        promptTokens: 1,
+        completionTokens: 1,
+        totalTokens: 2,
+      },
+    }));
+    const generateStructured = vi.fn(async () => ({
+      object: { mode: "chat", rationale: "simple greeting" },
+      usage: {
+        provider: "mock",
+        model: "mock-model",
+        promptTokens: 1,
+        completionTokens: 1,
+        totalTokens: 2,
+      },
+    }));
+    const llmGateway: ILLMGateway = {
+      generateText,
+      generateStructured,
+      generateStream: async () =>
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.close();
+          },
+        }),
+    };
+    const runEngine = createRunEngine({ llmGateway });
+
+    const response = await runEngine.execute(
+      {
+        agentType: "coding",
+        prompt: "hello",
+        sessionId: "session-1",
+      },
+      [{ role: "user", content: "hello" }],
+      {},
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe("Longer budget applied.");
+    const synthesisRequest = generateText.mock.calls[0]?.[0] as {
+      timeoutMs?: number;
+    };
+    expect(synthesisRequest.timeoutMs).toBe(60_000);
+  });
+
   it("completes the golden-flow tool roundtrip in one agentic run", async () => {
     const generateText = vi
       .fn()

@@ -122,6 +122,8 @@ export interface RunEngineDependencies {
   workspaceBootstrapper?: WorkspaceBootstrapper;
 }
 
+const CONVERSATIONAL_RESPONSE_TIMEOUT_MS = 60_000;
+
 export class RunEngine implements IRunEngine {
   private runRepo: RunRepository;
   private taskRepo: TaskRepository;
@@ -783,7 +785,7 @@ export class RunEngine implements IRunEngine {
         model: input.modelId,
         providerId: input.providerId,
         temperature: 0.7,
-        timeoutMs: 15_000,
+        timeoutMs: CONVERSATIONAL_RESPONSE_TIMEOUT_MS,
       });
       return this.completeRunWithAssistantMessage(run, result.text);
     } catch (error) {
