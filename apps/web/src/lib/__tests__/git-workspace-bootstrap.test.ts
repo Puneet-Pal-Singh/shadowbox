@@ -43,7 +43,7 @@ describe("bootstrapGitWorkspace", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("clears in-flight cache after completion so future calls can refetch", async () => {
+  it("reuses successful bootstrap response within TTL", async () => {
     const fetchMock = vi
       .spyOn(globalThis, "fetch")
       .mockImplementation(async () =>
@@ -56,7 +56,7 @@ describe("bootstrapGitWorkspace", () => {
     await bootstrapGitWorkspace(request);
     await bootstrapGitWorkspace(request);
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("surfaces server error payload when bootstrap fails", async () => {

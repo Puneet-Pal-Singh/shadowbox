@@ -13,7 +13,6 @@ import { useGitHubTree } from "./workspace/useGitHubTree";
 import { useFileLoader } from "./workspace/useFileLoader";
 import { SidebarHeader } from "./workspace/SidebarHeader";
 import { SidebarContent } from "./workspace/SidebarContent";
-import { SessionStateService } from "../../services/SessionStateService";
 import { bootstrapGitWorkspace } from "../../lib/git-workspace-bootstrap";
 
 interface WorkspaceProps {
@@ -77,17 +76,10 @@ export function Workspace({
   );
   const { fetch: fetchDiff, diff } = useGitDiff(activeRunId, sessionId);
   const changesCount = status?.files?.length ?? 0;
-  const sessionGitHubContext = SessionStateService.loadSessionGitHubContext(sessionId);
-  const storedOwner = sessionGitHubContext?.repoOwner?.trim() ?? "";
-  const storedRepo = sessionGitHubContext?.repoName?.trim() ?? "";
-  const storedBranch = sessionGitHubContext?.branch?.trim() ?? "";
-  const storedBaseUrl = sessionGitHubContext?.fullName
-    ? `https://github.com/${sessionGitHubContext.fullName}`
-    : undefined;
-  const repositoryOwner = repo?.owner?.login?.trim() || storedOwner;
-  const repositoryName = repo?.name?.trim() || storedRepo;
-  const repositoryBranch = (branch || repo?.default_branch || storedBranch || "main").trim();
-  const repositoryBaseUrl = repo?.html_url || storedBaseUrl;
+  const repositoryOwner = repo?.owner?.login?.trim() ?? "";
+  const repositoryName = repo?.name?.trim() ?? "";
+  const repositoryBranch = (branch || repo?.default_branch || "main").trim();
+  const repositoryBaseUrl = repo?.html_url;
 
   const { handleFileClick, handleGitHubFileSelect } = useFileLoader({
     sandboxId,
@@ -113,6 +105,10 @@ export function Workspace({
       return;
     }
 
+    if (!isGitHubLoaded) {
+      return;
+    }
+
     if (!repositoryOwner || !repositoryName) {
       return;
     }
@@ -127,6 +123,7 @@ export function Workspace({
 
     workspaceBootstrapInFlightRef.current = bootstrapKey;
     const bootstrap = async (): Promise<void> => {
+      let bootstrapReady = false;
       try {
         const result = await bootstrapGitWorkspace({
           runId: activeRunId,
@@ -137,6 +134,7 @@ export function Workspace({
           repositoryBaseUrl,
         });
         if (result.status === "ready") {
+          bootstrapReady = true;
           workspaceBootstrapKeyRef.current = bootstrapKey;
         }
         if (result.status !== "ready" && result.message) {
@@ -150,13 +148,16 @@ export function Workspace({
         if (workspaceBootstrapInFlightRef.current === bootstrapKey) {
           workspaceBootstrapInFlightRef.current = null;
         }
-        await refetchGitStatus(true);
+        if (bootstrapReady) {
+          await refetchGitStatus();
+        }
       }
     };
 
     void bootstrap();
   }, [
     activeRunId,
+    isGitHubLoaded,
     refetchGitStatus,
     repositoryBaseUrl,
     repositoryBranch,

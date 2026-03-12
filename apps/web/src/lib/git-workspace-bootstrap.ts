@@ -37,12 +37,24 @@ const bootstrapInFlight = new Map<
   string,
   Promise<GitWorkspaceBootstrapResponse>
 >();
+const bootstrapSuccessCache = new Map<
+  string,
+  { result: GitWorkspaceBootstrapResponse; cachedAt: number }
+>();
+const BOOTSTRAP_SUCCESS_TTL_MS = 2 * 60 * 1000;
 
 export async function bootstrapGitWorkspace(
   request: GitWorkspaceBootstrapRequest,
 ): Promise<GitWorkspaceBootstrapResponse> {
   const validatedRequest = GitWorkspaceBootstrapRequestSchema.parse(request);
   const requestKey = getBootstrapRequestKey(validatedRequest);
+  pruneBootstrapSuccessCache();
+
+  const cached = bootstrapSuccessCache.get(requestKey);
+  if (cached && Date.now() - cached.cachedAt < BOOTSTRAP_SUCCESS_TTL_MS) {
+    return cached.result;
+  }
+
   const inFlight = bootstrapInFlight.get(requestKey);
   if (inFlight) {
     return inFlight;
@@ -52,7 +64,14 @@ export async function bootstrapGitWorkspace(
   bootstrapInFlight.set(requestKey, promise);
 
   try {
-    return await promise;
+    const result = await promise;
+    if (result.status === "ready") {
+      bootstrapSuccessCache.set(requestKey, {
+        result,
+        cachedAt: Date.now(),
+      });
+    }
+    return result;
   } finally {
     if (bootstrapInFlight.get(requestKey) === promise) {
       bootstrapInFlight.delete(requestKey);
@@ -103,6 +122,16 @@ function getBootstrapRequestKey(request: GitWorkspaceBootstrapRequest): string {
   ].join(":");
 }
 
+function pruneBootstrapSuccessCache(): void {
+  const now = Date.now();
+  for (const [key, entry] of bootstrapSuccessCache.entries()) {
+    if (now - entry.cachedAt >= BOOTSTRAP_SUCCESS_TTL_MS) {
+      bootstrapSuccessCache.delete(key);
+    }
+  }
+}
+
 export function _resetGitBootstrapInFlightForTests(): void {
   bootstrapInFlight.clear();
+  bootstrapSuccessCache.clear();
 }
