@@ -21,14 +21,16 @@ export class DefaultAdapterService {
     try {
       return createDefaultAdapter(env);
     } catch (error) {
-      const errorKey =
-        error instanceof Error ? error.message : "unknown-default-adapter-error";
-      logWarnRateLimited(
-        `ai/adapter:default-unavailable:${errorKey}`,
-        "[ai/adapter] default adapter unavailable; using error adapter",
-        error,
-        30_000,
-      );
+      if (!shouldSuppressMissingDefaultAdapterWarning(env)) {
+        const errorKey =
+          error instanceof Error ? error.message : "unknown-default-adapter-error";
+        logWarnRateLimited(
+          `ai/adapter:default-unavailable:${errorKey}`,
+          "[ai/adapter] default adapter unavailable; using error adapter",
+          undefined,
+          5 * 60_000,
+        );
+      }
       return new MissingProviderConfigAdapter(env);
     }
   }
@@ -64,4 +66,8 @@ class MissingProviderConfigAdapter implements ProviderAdapter {
   ): AsyncGenerator<StreamChunk, GenerationResult, unknown> {
     throw this.configurationError;
   }
+}
+
+function shouldSuppressMissingDefaultAdapterWarning(env: Env): boolean {
+  return Boolean(env.AXIS_OPENROUTER_API_KEY?.trim());
 }

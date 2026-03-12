@@ -97,6 +97,36 @@ describe("LLMGateway provider capabilities", () => {
     expect(deps.aiService.generateText).toHaveBeenCalledTimes(1);
   });
 
+  it("uses explicit providerId when estimating usage for preflight", async () => {
+    const deps = createDependencies({
+      getCapabilities: () => ({
+        streaming: true,
+        tools: true,
+        structuredOutputs: true,
+        jsonMode: true,
+      }),
+      isModelAllowed: () => true,
+    });
+    const gateway = new LLMGateway(deps);
+
+    await gateway.generateText({
+      ...baseRequest,
+      providerId: "axis",
+      model: "z-ai/glm-4.5-air:free",
+    });
+
+    expect(deps.budgetPolicy.preflight).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runId: "run-1",
+        sessionId: "session-1",
+      }),
+      expect.objectContaining({
+        provider: "axis",
+        model: "z-ai/glm-4.5-air:free",
+      }),
+    );
+  });
+
   it("propagates normalized tool calls when provider returns tool calls", async () => {
     const deps = createDependencies({
       getCapabilities: () => ({

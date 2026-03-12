@@ -52,7 +52,11 @@ export class LLMGateway implements ILLMGateway {
 
   async generateText(req: LLMTextRequest): Promise<LLMTextResponse> {
     this.assertProviderCapabilities(req);
-    const estimatedUsage = this.estimateUsage(req.messages, req.model);
+    const estimatedUsage = this.estimateUsage(
+      req.messages,
+      req.model,
+      req.providerId,
+    );
     await this.preflight(req, estimatedUsage);
     this.assertPricingAllowed(req.context, estimatedUsage);
     const requestWithIdempotency = this.withIdempotencyKey(
@@ -90,7 +94,11 @@ export class LLMGateway implements ILLMGateway {
     req: LLMStructuredRequest<T>,
   ): Promise<LLMStructuredResponse<T>> {
     this.assertProviderCapabilities(req);
-    const estimatedUsage = this.estimateUsage(req.messages, req.model);
+    const estimatedUsage = this.estimateUsage(
+      req.messages,
+      req.model,
+      req.providerId,
+    );
     await this.preflight(req, estimatedUsage);
     this.assertPricingAllowed(req.context, estimatedUsage);
     const requestWithIdempotency = this.withIdempotencyKey(
@@ -167,7 +175,11 @@ export class LLMGateway implements ILLMGateway {
 
   async generateStream(req: LLMTextRequest): Promise<ReadableStream<Uint8Array>> {
     this.assertProviderCapabilities(req);
-    const estimatedUsage = this.estimateUsage(req.messages, req.model);
+    const estimatedUsage = this.estimateUsage(
+      req.messages,
+      req.model,
+      req.providerId,
+    );
     await this.preflight(req, estimatedUsage);
     this.assertPricingAllowed(req.context, estimatedUsage);
     const requestWithIdempotency = this.withIdempotencyKey(
@@ -264,7 +276,11 @@ export class LLMGateway implements ILLMGateway {
     await this.deps.budgetPolicy.preflight(req.context, usage);
   }
 
-  private estimateUsage(messages: CoreMessage[], model?: string): LLMUsage {
+  private estimateUsage(
+    messages: CoreMessage[],
+    model?: string,
+    providerId?: string,
+  ): LLMUsage {
     const charCount = messages.reduce((sum, message) => {
       return sum + this.getMessageLength(message.content);
     }, 0);
@@ -272,7 +288,7 @@ export class LLMGateway implements ILLMGateway {
     const completionTokens = DEFAULT_COMPLETION_TOKENS;
 
     return {
-      provider: this.deps.aiService.getProvider(),
+      provider: providerId ?? this.deps.aiService.getProvider(),
       model: model ?? this.deps.aiService.getDefaultModel(),
       promptTokens,
       completionTokens,

@@ -93,14 +93,25 @@ export class AIService {
       this.env,
       this.providerConfigService,
     );
-
-    return generateText(selectedAdapter, {
+    const result = await generateText(selectedAdapter, {
       messages,
       system,
       tools,
       temperature,
       model: selection.model,
     });
+
+    if (providerId && result.usage.provider !== providerId) {
+      return {
+        ...result,
+        usage: {
+          ...result.usage,
+          provider: providerId,
+        },
+      };
+    }
+
+    return result;
   }
 
   async generateStructured<T>({
@@ -212,6 +223,25 @@ export class AIService {
       this.providerConfigService,
     );
 
+    const normalizedOnFinish = onFinish
+      ? async (result: GenerateTextResult) => {
+          if (
+            providerId &&
+            result.usage.provider !== providerId
+          ) {
+            await onFinish({
+              ...result,
+              usage: {
+                ...result.usage,
+                provider: providerId,
+              },
+            });
+            return;
+          }
+          await onFinish(result);
+        }
+      : undefined;
+
     return createChatStream(
       selectedAdapter,
       {
@@ -222,7 +252,7 @@ export class AIService {
         model: selection.model,
       },
       {
-        onFinish,
+        onFinish: normalizedOnFinish,
         onChunk,
       },
     );
