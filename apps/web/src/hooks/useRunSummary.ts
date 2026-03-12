@@ -13,7 +13,7 @@ interface UseRunSummaryResult {
   summary: RunSummary | null;
 }
 
-const POLL_INTERVAL_MS = 3000;
+const POLL_INTERVAL_MS = 8000;
 const TERMINAL_RUN_STATUSES = new Set(["COMPLETED", "FAILED", "CANCELLED"]);
 
 export function useRunSummary(runId: string, shouldPoll: boolean): UseRunSummaryResult {
@@ -47,12 +47,11 @@ export function useRunSummary(runId: string, shouldPoll: boolean): UseRunSummary
   }, [runId]);
 
   useEffect(() => {
-    const timeoutId = window.setTimeout(() => {
-      void fetchSummary();
-    }, 0);
-
-    return () => window.clearTimeout(timeoutId);
-  }, [fetchSummary]);
+    if (!runId || !shouldPoll) {
+      return;
+    }
+    void fetchSummary();
+  }, [fetchSummary, runId, shouldPoll]);
 
   useEffect(() => {
     const isTerminal = Boolean(summary?.status && TERMINAL_RUN_STATUSES.has(summary.status));
@@ -60,6 +59,9 @@ export function useRunSummary(runId: string, shouldPoll: boolean): UseRunSummary
       return;
     }
     const intervalId = window.setInterval(() => {
+      if (document.visibilityState !== "visible") {
+        return;
+      }
       void fetchSummary();
     }, POLL_INTERVAL_MS);
     return () => window.clearInterval(intervalId);
