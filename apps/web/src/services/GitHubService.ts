@@ -41,6 +41,23 @@ export interface Branch {
 }
 
 const BRAIN_API_URL = getBrainHttpBase();
+const REQUEST_CACHE_TTL_MS = 15_000;
+
+interface CacheEntry<T> {
+  value: T;
+  timestamp: number;
+}
+
+const branchesCache = new Map<string, CacheEntry<Branch[]>>();
+const branchesInFlight = new Map<string, Promise<Branch[]>>();
+const treeCache = new Map<
+  string,
+  CacheEntry<Array<{ path: string; type: string; sha: string }>>
+>();
+const treeInFlight = new Map<
+  string,
+  Promise<Array<{ path: string; type: string; sha: string }>>
+>();
 
 /**
  * Helper to get fetch options with optional session token
@@ -131,17 +148,41 @@ export async function listBranches(
   owner: string,
   repo: string,
 ): Promise<Branch[]> {
-  const response = await fetch(
-    `${BRAIN_API_URL}/api/github/branches?owner=${owner}&repo=${repo}`,
-    getFetchOptions(),
-  );
-
-  if (!response.ok) {
-    throw new Error("Failed to fetch branches");
+  const cacheKey = `${owner}:${repo}`;
+  const cachedBranches = readFreshCache(branchesCache, cacheKey);
+  if (cachedBranches) {
+    return cachedBranches;
   }
 
-  const data = await response.json();
-  return data.branches;
+  const inFlightBranches = branchesInFlight.get(cacheKey);
+  if (inFlightBranches) {
+    return inFlightBranches;
+  }
+
+  const request = (async (): Promise<Branch[]> => {
+    const response = await fetch(
+      `${BRAIN_API_URL}/api/github/branches?owner=${owner}&repo=${repo}`,
+      getFetchOptions(),
+    );
+
+    if (!response.ok) {
+      throw new Error("Failed to fetch branches");
+    }
+
+    const data = await response.json();
+    const branches = data.branches as Branch[];
+    writeCache(branchesCache, cacheKey, branches);
+    return branches;
+  })();
+
+  branchesInFlight.set(cacheKey, request);
+  try {
+    return await request;
+  } finally {
+    if (branchesInFlight.get(cacheKey) === request) {
+      branchesInFlight.delete(cacheKey);
+    }
+  }
 }
 
 /**
@@ -152,25 +193,52 @@ export async function getRepositoryTree(
   repo: string,
   sha: string = "HEAD",
 ): Promise<Array<{ path: string; type: string; sha: string }>> {
-  const response = await fetch(
-    `${BRAIN_API_URL}/api/github/tree?owner=${encodeURIComponent(owner)}&repo=${encodeURIComponent(repo)}&sha=${encodeURIComponent(sha)}`,
-    getFetchOptions(),
-  );
-
-  if (!response.ok) {
-    const message = await readGitHubErrorMessage(response);
-    if (response.status >= 500 || message.includes("not a git repository")) {
-      console.warn(
-        "[github/tree] falling back to empty tree due to server error",
-        { status: response.status, message },
-      );
-      return [];
-    }
-    throw new Error(message || "Failed to fetch tree");
+  const cacheKey = `${owner}:${repo}:${sha}`;
+  const cachedTree = readFreshCache(treeCache, cacheKey);
+  if (cachedTree) {
+    return cachedTree;
   }
 
-  const data = await response.json();
-  return data.tree;
+  const inFlightTree = treeInFlight.get(cacheKey);
+  if (inFlightTree) {
+    return inFlightTree;
+  }
+
+  const request = (async (): Promise<
+    Array<{ path: string; type: string; sha: string }>
+  > => {
+    const response = await fetch(
+      `${BRAIN_API_URL}/api/github/tree?owner=${encodeURIComponent(owner)}&repo=${encodeURIComponent(repo)}&sha=${encodeURIComponent(sha)}`,
+      getFetchOptions(),
+    );
+
+    if (!response.ok) {
+      const message = await readGitHubErrorMessage(response);
+      if (response.status >= 500 || message.includes("not a git repository")) {
+        console.warn(
+          "[github/tree] falling back to empty tree due to server error",
+          { status: response.status, message },
+        );
+        writeCache(treeCache, cacheKey, []);
+        return [];
+      }
+      throw new Error(message || "Failed to fetch tree");
+    }
+
+    const data = await response.json();
+    const tree = data.tree as Array<{ path: string; type: string; sha: string }>;
+    writeCache(treeCache, cacheKey, tree);
+    return tree;
+  })();
+
+  treeInFlight.set(cacheKey, request);
+  try {
+    return await request;
+  } finally {
+    if (treeInFlight.get(cacheKey) === request) {
+      treeInFlight.delete(cacheKey);
+    }
+  }
 }
 
 async function readGitHubErrorMessage(response: Response): Promise<string> {
@@ -180,6 +248,34 @@ async function readGitHubErrorMessage(response: Response): Promise<string> {
   } catch {
     return `Failed to fetch tree: HTTP ${response.status}`;
   }
+}
+
+function readFreshCache<T>(
+  cache: Map<string, CacheEntry<T>>,
+  key: string,
+): T | null {
+  const entry = cache.get(key);
+  if (!entry) {
+    return null;
+  }
+
+  if (Date.now() - entry.timestamp > REQUEST_CACHE_TTL_MS) {
+    cache.delete(key);
+    return null;
+  }
+
+  return entry.value;
+}
+
+function writeCache<T>(
+  cache: Map<string, CacheEntry<T>>,
+  key: string,
+  value: T,
+): void {
+  cache.set(key, {
+    value,
+    timestamp: Date.now(),
+  });
 }
 
 /**

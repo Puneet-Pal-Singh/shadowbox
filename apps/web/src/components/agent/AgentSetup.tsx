@@ -215,7 +215,7 @@ export function AgentSetup({
         if (workspaceBootstrapInFlightRef.current === bootstrapKey) {
           workspaceBootstrapInFlightRef.current = null;
         }
-        await refetchGitStatus();
+        await refetchGitStatus(true);
       }
     };
 

@@ -150,7 +150,7 @@ export function Workspace({
         if (workspaceBootstrapInFlightRef.current === bootstrapKey) {
           workspaceBootstrapInFlightRef.current = null;
         }
-        await refetchGitStatus();
+        await refetchGitStatus(true);
       }
     };
 
@@ -172,15 +172,6 @@ export function Workspace({
       setIsViewingContent(true);
     }
   }, [diff, activeTab, setSelectedDiff, setIsViewingContent]);
-
-  // Git availability can be stale if status is fetched before workspace bootstrap
-  // completes. Refresh after each chat turn to surface newly-initialized repos.
-  useEffect(() => {
-    if (isLoading) {
-      return;
-    }
-    void refetchGitStatus();
-  }, [isLoading, messages.length, refetchGitStatus]);
 
   // Restore selected file on mount if we were viewing one
   useEffect(() => {

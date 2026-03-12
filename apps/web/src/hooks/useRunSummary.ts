@@ -16,10 +16,12 @@ interface UseRunSummaryResult {
 
 const TERMINAL_RUN_STATUSES = new Set(["COMPLETED", "FAILED", "CANCELLED"]);
 const SUMMARY_ERROR_LOG_WINDOW_MS = 30_000;
+const RUN_SUMMARY_MIN_FETCH_INTERVAL_MS = 1_200;
 
 export function useRunSummary(runId: string, shouldPoll: boolean): UseRunSummaryResult {
   const [summary, setSummary] = useState<RunSummary | null>(null);
   const inFlightRef = useRef(false);
+  const lastFetchAtRef = useRef(0);
   const lastSummaryErrorLogRef = useRef<{
     timestamp: number;
     message: string;
@@ -33,9 +35,14 @@ export function useRunSummary(runId: string, shouldPoll: boolean): UseRunSummary
     if (inFlightRef.current) {
       return;
     }
+    const now = Date.now();
+    if (now - lastFetchAtRef.current < RUN_SUMMARY_MIN_FETCH_INTERVAL_MS) {
+      return;
+    }
 
     try {
       inFlightRef.current = true;
+      lastFetchAtRef.current = Date.now();
       const response = await fetch(
         `${getBrainHttpBase()}/api/run/summary?runId=${encodeURIComponent(runId)}`,
       );
