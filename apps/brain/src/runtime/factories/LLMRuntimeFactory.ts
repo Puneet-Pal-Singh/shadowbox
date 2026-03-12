@@ -42,6 +42,7 @@ export function buildLLMGateway(
   ctx: unknown,
   env: Env,
   providerScope: ProviderStoreScopeInput,
+  activeProviderId: string | undefined,
   budgetingComponents: {
     pricingRegistry: PricingRegistry;
     costLedger: CostLedger;
@@ -54,7 +55,9 @@ export function buildLLMGateway(
   llmGateway: LLMGateway;
 } {
   // Preflight validation: fail fast with actionable errors
-  const validationResult = ProviderValidationService.validate(env);
+  const validationResult = ProviderValidationService.validate(env, {
+    activeProviderId,
+  });
   if (!validationResult.valid) {
     const errorMessage = ProviderValidationService.formatErrors(
       validationResult,
@@ -79,7 +82,7 @@ export function buildLLMGateway(
           .map((w) => `⚠ [${w.code}] ${w.message}`)
           .join("\n"),
       undefined,
-      30_000,
+      5 * 60_000,
     );
   }
 
