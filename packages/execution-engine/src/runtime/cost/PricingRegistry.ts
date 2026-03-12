@@ -22,6 +22,8 @@ export interface IPricingRegistry {
 export class PricingRegistry implements IPricingRegistry {
   private prices = new Map<string, PricingEntry>();
   private readonly options: Required<PricingRegistryOptions>;
+  private static lastSeedLoadLogAt = 0;
+  private static readonly SEED_LOAD_LOG_WINDOW_MS = 5 * 60 * 1000;
 
   constructor(
     initialPricing?: Record<string, PricingEntry>,
@@ -111,9 +113,7 @@ export class PricingRegistry implements IPricingRegistry {
     try {
       const parsedSeed = this.parsePricingData(DEFAULT_SEED_PRICING);
       const loadedCount = this.loadPricingEntries(parsedSeed, !failClosed);
-      console.log(
-        `[cost/pricing] Loaded ${loadedCount} seeded prices`,
-      );
+      this.logSeedLoadOnce(loadedCount);
       if (loadedCount === 0 && failClosed) {
         throw new PricingError("No valid entries found in default seed pricing");
       }
@@ -210,6 +210,18 @@ export class PricingRegistry implements IPricingRegistry {
       }
     }
     return loadedCount;
+  }
+
+  private logSeedLoadOnce(loadedCount: number): void {
+    const now = Date.now();
+    if (
+      now - PricingRegistry.lastSeedLoadLogAt <
+      PricingRegistry.SEED_LOAD_LOG_WINDOW_MS
+    ) {
+      return;
+    }
+    PricingRegistry.lastSeedLoadLogAt = now;
+    console.log(`[cost/pricing] Loaded ${loadedCount} seeded prices`);
   }
 
   private parsePricingData(pricingData: unknown): Record<string, PricingEntry> {

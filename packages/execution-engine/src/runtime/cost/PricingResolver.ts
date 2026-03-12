@@ -19,6 +19,7 @@ export interface IPricingResolver {
 export class PricingResolver implements IPricingResolver {
   private readonly unknownPricingMode: "warn" | "block";
   private readonly unknownWarningTimestampByKey = new Map<string, number>();
+  private static readonly UNKNOWN_WARNING_WINDOW_MS = 10 * 60 * 1000;
 
   constructor(
     private readonly pricingRegistry: IPricingRegistry,
@@ -77,7 +78,10 @@ export class PricingResolver implements IPricingResolver {
     const key = `${provider}:${model}:${this.unknownPricingMode}`;
     const now = Date.now();
     const lastTimestamp = this.unknownWarningTimestampByKey.get(key);
-    if (typeof lastTimestamp === "number" && now - lastTimestamp < 30_000) {
+    if (
+      typeof lastTimestamp === "number" &&
+      now - lastTimestamp < PricingResolver.UNKNOWN_WARNING_WINDOW_MS
+    ) {
       return false;
     }
     this.unknownWarningTimestampByKey.set(key, now);
