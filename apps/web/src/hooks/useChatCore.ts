@@ -1,6 +1,7 @@
 import { useChat as useVercelChat, type Message } from "@ai-sdk/react";
 import { useCallback, useMemo, useRef, useState, type FormEvent } from "react";
 import { chatStreamPath, getBrainHttpBase } from "../lib/platform-endpoints.js";
+import { dispatchRunSummaryRefresh } from "../lib/run-summary-events.js";
 import { useProviderStore } from "./useProviderStore.js";
 import type { ChatDebugEvent } from "../types/chat-debug.js";
 import { SessionStateService } from "../services/SessionStateService";
@@ -103,6 +104,7 @@ export function useChatCore(
     initialMessages: [],
     id: instanceKey,
     onResponse: (response: Response) => {
+      dispatchRunSummaryRefresh(runId);
       pushDebugEvent({
         phase: "response",
         summary: `HTTP ${response.status} ${response.statusText}`,
@@ -114,6 +116,7 @@ export function useChatCore(
       });
     },
     onFinish: (message, details) => {
+      dispatchRunSummaryRefresh(runId);
       pushDebugEvent({
         phase: "finish",
         summary: "Stream finished",
@@ -124,6 +127,7 @@ export function useChatCore(
       });
     },
     onError: (error: Error) => {
+      dispatchRunSummaryRefresh(runId);
       const message = normalizeChatErrorMessage(error);
       setError(message);
       pushDebugEvent({
@@ -195,6 +199,7 @@ export function useChatCore(
           },
         },
       });
+      dispatchRunSummaryRefresh(runId);
 
       await append(
         { role: "user", content },

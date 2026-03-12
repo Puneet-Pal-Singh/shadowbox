@@ -190,6 +190,32 @@ describe("LLMGateway provider capabilities", () => {
       }),
     ).rejects.toBeInstanceOf(LLMTimeoutError);
   });
+
+  it("persists fallback structured usage when timeout occurs", async () => {
+    const deps = createDependencies({
+      getCapabilities: () => ({
+        streaming: true,
+        tools: true,
+        structuredOutputs: true,
+        jsonMode: true,
+      }),
+      isModelAllowed: () => true,
+    });
+    deps.aiService.generateStructured.mockImplementationOnce(
+      () => new Promise(() => {}),
+    );
+    const gateway = new LLMGateway(deps);
+
+    await expect(
+      gateway.generateStructured({
+        ...baseRequest,
+        schema: z.object({ ok: z.boolean() }),
+        timeoutMs: 5,
+      }),
+    ).rejects.toBeInstanceOf(LLMTimeoutError);
+
+    expect(deps.costLedger.append).toHaveBeenCalledTimes(1);
+  });
 });
 
 function createDependencies(

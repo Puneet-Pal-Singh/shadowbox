@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getBrainHttpBase } from "../lib/platform-endpoints.js";
+import { RUN_SUMMARY_REFRESH_EVENT } from "../lib/run-summary-events.js";
 
 interface RunSummary {
   runId: string;
@@ -13,12 +14,16 @@ interface UseRunSummaryResult {
   summary: RunSummary | null;
 }
 
-const POLL_INTERVAL_MS = 8000;
 const TERMINAL_RUN_STATUSES = new Set(["COMPLETED", "FAILED", "CANCELLED"]);
+const SUMMARY_ERROR_LOG_WINDOW_MS = 30_000;
 
 export function useRunSummary(runId: string, shouldPoll: boolean): UseRunSummaryResult {
   const [summary, setSummary] = useState<RunSummary | null>(null);
   const inFlightRef = useRef(false);
+  const lastSummaryErrorLogRef = useRef<{
+    timestamp: number;
+    message: string;
+  } | null>(null);
 
   const fetchSummary = useCallback(async () => {
     if (!runId) {
@@ -39,8 +44,23 @@ export function useRunSummary(runId: string, shouldPoll: boolean): UseRunSummary
       }
       const payload = (await response.json()) as RunSummary;
       setSummary(payload);
-    } catch {
-      // Ignore non-critical summary fetch errors; chat remains functional.
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const now = Date.now();
+      const previous = lastSummaryErrorLogRef.current;
+      const shouldLog =
+        !previous ||
+        previous.message !== message ||
+        now - previous.timestamp >= SUMMARY_ERROR_LOG_WINDOW_MS;
+      if (shouldLog) {
+        console.warn(
+          `[run/summary] failed to fetch summary for runId=${runId}: ${message}`,
+        );
+        lastSummaryErrorLogRef.current = {
+          timestamp: now,
+          message,
+        };
+      }
     } finally {
       inFlightRef.current = false;
     }
@@ -54,17 +74,29 @@ export function useRunSummary(runId: string, shouldPoll: boolean): UseRunSummary
   }, [fetchSummary, runId, shouldPoll]);
 
   useEffect(() => {
-    const isTerminal = Boolean(summary?.status && TERMINAL_RUN_STATUSES.has(summary.status));
-    if (!shouldPoll || !runId || isTerminal) {
+    if (!runId) {
       return;
     }
-    const intervalId = window.setInterval(() => {
-      if (document.visibilityState !== "visible") {
+
+    const handleRefreshEvent = (event: Event) => {
+      const customEvent = event as CustomEvent<{ runId?: string }>;
+      if (customEvent.detail?.runId !== runId) {
+        return;
+      }
+
+      const isTerminal = Boolean(
+        summary?.status && TERMINAL_RUN_STATUSES.has(summary.status),
+      );
+      if (!shouldPoll || isTerminal || document.visibilityState !== "visible") {
         return;
       }
       void fetchSummary();
-    }, POLL_INTERVAL_MS);
-    return () => window.clearInterval(intervalId);
+    };
+
+    window.addEventListener(RUN_SUMMARY_REFRESH_EVENT, handleRefreshEvent);
+    return () => {
+      window.removeEventListener(RUN_SUMMARY_REFRESH_EVENT, handleRefreshEvent);
+    };
   }, [fetchSummary, runId, shouldPoll, summary?.status]);
 
   return { summary };

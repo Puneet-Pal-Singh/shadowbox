@@ -324,7 +324,25 @@ export class RunEngine implements IRunEngine {
         );
       }
 
-      const turnMode = await this.determineTurnMode(run, input.prompt);
+      let turnMode: TurnMode;
+      try {
+        turnMode = await this.determineTurnMode(
+          run,
+          input.prompt,
+          messages,
+          input.repositoryContext,
+        );
+      } catch (turnModeError) {
+        const recoveryResponse = await this.tryHandlePlanningError(
+          run,
+          runId,
+          turnModeError,
+        );
+        if (recoveryResponse) {
+          return recoveryResponse;
+        }
+        throw turnModeError;
+      }
       if (turnMode === "chat") {
         console.log(
           `[run/engine] Model-selected conversational mode for run ${runId}`,
@@ -893,7 +911,14 @@ export class RunEngine implements IRunEngine {
   private async determineTurnMode(
     run: Run,
     prompt: string,
+    messages: CoreMessage[],
+    repositoryContext?: RepositoryContext,
   ): Promise<TurnMode> {
+    const classifierMessages = this.buildTurnModeMessages(
+      prompt,
+      messages,
+      repositoryContext,
+    );
     const result = await this.llmGateway.generateStructured({
       context: {
         runId: run.id,
@@ -902,21 +927,7 @@ export class RunEngine implements IRunEngine {
         phase: "planning",
       },
       schema: TURN_MODE_SCHEMA,
-      messages: [
-        {
-          role: "system",
-          content: [
-            "Classify the user's latest request into a turn mode.",
-            'Return "chat" when the request is conversational (greeting, Q&A, general explanation, capability question) and does not require repository/tool execution.',
-            'Return "action" when the request requires reading/modifying repository files, running commands, or any tool execution.',
-            "Respond strictly with schema-compliant JSON.",
-          ].join(" "),
-        },
-        {
-          role: "user",
-          content: prompt,
-        },
-      ],
+      messages: classifierMessages,
       model: run.input.modelId,
       providerId: run.input.providerId,
       temperature: 0,
@@ -924,6 +935,81 @@ export class RunEngine implements IRunEngine {
 
     const mode = result.object.mode;
     return mode === "chat" ? "chat" : "action";
+  }
+
+  private buildTurnModeMessages(
+    prompt: string,
+    messages: CoreMessage[],
+    repositoryContext?: RepositoryContext,
+  ): Array<{ role: "system" | "user"; content: string }> {
+    const recentTurns = messages
+      .slice(-8)
+      .map((message) => this.formatTurnModeMessage(message))
+      .filter((line) => line.length > 0);
+    const repositoryLine = repositoryContext?.owner && repositoryContext?.repo
+      ? `Repository selection: ${repositoryContext.owner}/${repositoryContext.repo}${repositoryContext.branch ? `@${repositoryContext.branch}` : ""}.`
+      : "Repository selection: none.";
+
+    return [
+      {
+        role: "system",
+        content: [
+          "Classify the user's latest request into a turn mode.",
+          'Return "chat" when the request is conversational (greeting, Q&A, general explanation, capability question) and does not require repository/tool execution.',
+          'Return "action" when the request requires reading/modifying repository files, running commands, or any tool execution.',
+          "Use the recent conversation and repository selection for context when the latest request is brief (for example: continue, do it, same repo).",
+          "Respond strictly with schema-compliant JSON.",
+        ].join(" "),
+      },
+      {
+        role: "user",
+        content: [
+          repositoryLine,
+          "Recent conversation:",
+          recentTurns.join("\n") || "(none)",
+          "Latest user request:",
+          prompt,
+        ].join("\n"),
+      },
+    ];
+  }
+
+  private formatTurnModeMessage(message: CoreMessage): string {
+    const role = message.role.toUpperCase();
+    const content = this.extractTurnModeMessageContent(message.content);
+    if (!content) {
+      return "";
+    }
+    return `${role}: ${content}`;
+  }
+
+  private extractTurnModeMessageContent(content: CoreMessage["content"]): string {
+    if (typeof content === "string") {
+      return content.trim();
+    }
+    if (!Array.isArray(content)) {
+      return "";
+    }
+    return content
+      .map((part) => {
+        if (typeof part === "string") {
+          return part;
+        }
+        if (!part || typeof part !== "object") {
+          return "";
+        }
+        const candidate = part as unknown as Record<string, unknown>;
+        if (typeof candidate.text === "string") {
+          return candidate.text;
+        }
+        if (typeof candidate.content === "string") {
+          return candidate.content;
+        }
+        return "";
+      })
+      .filter((text) => text.trim().length > 0)
+      .join("\n")
+      .trim();
   }
 
   private async synthesizeResult(

@@ -66,4 +66,15 @@ describe("brain cors policy", () => {
       "http://localhost:5173",
     );
   });
+
+  it("allows IPv6 loopback origin by default when Brain request host is IPv6 loopback", () => {
+    const request = new Request("http://[::1]:8788/chat", {
+      headers: { Origin: "http://[::1]:5173" },
+    });
+
+    const headers = getCorsHeaders(request, {
+      CORS_ALLOWED_ORIGINS: "https://app.shadowbox.dev",
+    });
+    expect(headers["Access-Control-Allow-Origin"]).toBe("http://[::1]:5173");
+  });
 });

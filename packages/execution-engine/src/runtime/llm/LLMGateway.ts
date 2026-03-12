@@ -99,20 +99,35 @@ export class LLMGateway implements ILLMGateway {
         this.createIdempotencyKey(req.context, estimatedUsage),
     );
 
-    const result = await this.withTimeout(
-      this.deps.aiService.generateStructured({
-        messages: req.messages,
-        schema: req.schema,
-        model: req.model,
-        providerId: req.providerId,
-        temperature: req.temperature,
-      }),
-      {
-        timeoutMs: req.timeoutMs ?? DEFAULT_STRUCTURED_TIMEOUT_MS,
-        phase: req.context.phase,
-        operation: "structured",
-      },
-    );
+    let result: { object: T; usage: LLMUsage };
+    try {
+      result = await this.withTimeout(
+        this.deps.aiService.generateStructured({
+          messages: req.messages,
+          schema: req.schema,
+          model: req.model,
+          providerId: req.providerId,
+          temperature: req.temperature,
+        }),
+        {
+          timeoutMs: req.timeoutMs ?? DEFAULT_STRUCTURED_TIMEOUT_MS,
+          phase: req.context.phase,
+          operation: "structured",
+        },
+      );
+    } catch (error) {
+      if (error instanceof LLMTimeoutError) {
+        try {
+          await this.persistCostEvent(requestWithIdempotency, estimatedUsage);
+        } catch (persistError) {
+          console.error(
+            "[llm/gateway] failed to persist fallback structured cost after timeout",
+            persistError,
+          );
+        }
+      }
+      throw error;
+    }
 
     const usage = this.normalizeUsage(result.usage, req.model);
     await this.persistCostEvent(requestWithIdempotency, usage);

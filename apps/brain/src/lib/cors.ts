@@ -118,11 +118,7 @@ function normalizeOrigin(value: string): string | null {
 function isLocalDevOrigin(origin: string): boolean {
   try {
     const url = new URL(origin);
-    return (
-      url.hostname === "localhost" ||
-      url.hostname === "127.0.0.1" ||
-      url.hostname === "::1"
-    );
+    return isLoopbackHostname(url.hostname);
   } catch {
     return false;
   }
@@ -131,12 +127,17 @@ function isLocalDevOrigin(origin: string): boolean {
 function isLocalDevRequest(urlValue: string): boolean {
   try {
     const url = new URL(urlValue);
-    return (
-      url.hostname === "localhost" ||
-      url.hostname === "127.0.0.1" ||
-      url.hostname === "::1"
-    );
+    return isLoopbackHostname(url.hostname);
   } catch {
     return false;
   }
+}
+
+function isLoopbackHostname(hostname: string): boolean {
+  const normalized = hostname.replace(/^\[(.*)\]$/, "$1");
+  return (
+    normalized === "localhost" ||
+    normalized === "127.0.0.1" ||
+    normalized === "::1"
+  );
 }

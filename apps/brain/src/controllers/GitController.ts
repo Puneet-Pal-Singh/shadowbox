@@ -470,7 +470,12 @@ function handleGitControllerError(
       ERROR_LOG_WINDOW_MS,
     );
   } else {
-    logErrorRateLimited(logKey, logMessage, error, ERROR_LOG_WINDOW_MS);
+    logErrorRateLimited(
+      logKey,
+      logMessage,
+      sanitizeUnknownError(error),
+      ERROR_LOG_WINDOW_MS,
+    );
   }
 
   return errorResponse(

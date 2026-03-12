@@ -135,6 +135,20 @@ describe("ModelPickerPopover", () => {
       );
     });
 
+    it("falls back to axis default label when persisted explicit selection is no longer valid", () => {
+      render(
+        <ModelPickerPopover
+          {...defaultProps}
+          selectedProviderId="openai"
+          selectedModelId="removed-model"
+        />
+      );
+
+      expect(screen.getByRole("button", { name: /open model picker/i })).toHaveTextContent(
+        "Axis (Free): z-ai/glm-4.5-air:free"
+      );
+    });
+
     it("opens popover on button click", async () => {
       render(
         <ModelPickerPopover

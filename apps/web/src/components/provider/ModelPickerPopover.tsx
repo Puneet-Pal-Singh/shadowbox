@@ -96,45 +96,76 @@ function resolveEffectiveSelection(
   selectedModelId: string | null
 ): EffectiveSelection {
   if (selectedProviderId && selectedModelId) {
+    if (
+      isValidExplicitSelection(
+        providerModels,
+        selectedProviderId,
+        selectedModelId
+      )
+    ) {
+      return { providerId: selectedProviderId, modelId: selectedModelId };
+    }
+    return resolveAxisDefaultSelection(catalog, providerModels);
+  }
+
+  if (
+    isValidExplicitSelection(
+      providerModels,
+      selectedProviderId,
+      selectedModelId
+    )
+  ) {
+    return { providerId: selectedProviderId, modelId: selectedModelId };
+  }
+
+  if (selectedProviderId && hasProvider(catalog, selectedProviderId)) {
     return {
       providerId: selectedProviderId,
-      modelId: selectedModelId,
+      modelId: null,
     };
   }
 
-  if (selectedProviderId) {
-    return {
-      providerId: selectedProviderId,
-      modelId: selectedModelId,
-    };
-  }
+  return resolveAxisDefaultSelection(catalog, providerModels);
+}
 
+function isValidExplicitSelection(
+  providerModels: Record<string, ProviderModelOption[]>,
+  selectedProviderId: string | null,
+  selectedModelId: string | null
+): boolean {
+  if (!selectedProviderId || !selectedModelId) {
+    return false;
+  }
+  const models = providerModels[selectedProviderId] ?? [];
+  return models.some((model) => model.id === selectedModelId);
+}
+
+function hasProvider(
+  catalog: ProviderRegistryEntry[],
+  providerId: string
+): boolean {
+  return catalog.some((entry) => entry.providerId === providerId);
+}
+
+function resolveAxisDefaultSelection(
+  catalog: ProviderRegistryEntry[],
+  providerModels: Record<string, ProviderModelOption[]>
+): EffectiveSelection {
   const axisProvider = catalog.find((entry) => entry.providerId === "axis");
   const axisModels = providerModels.axis ?? [];
   if (!axisProvider || axisModels.length === 0) {
-    return {
-      providerId: selectedProviderId,
-      modelId: selectedModelId,
-    };
+    return { providerId: null, modelId: null };
   }
 
   const defaultModelId = axisProvider.defaultModelId ?? axisModels[0]?.id;
   if (!defaultModelId) {
-    return {
-      providerId: selectedProviderId,
-      modelId: selectedModelId,
-    };
+    return { providerId: null, modelId: null };
   }
-
   const matchedModel = axisModels.find((model) => model.id === defaultModelId);
   const effectiveModelId = matchedModel?.id ?? axisModels[0]?.id ?? null;
   if (!effectiveModelId) {
-    return {
-      providerId: selectedProviderId,
-      modelId: selectedModelId,
-    };
+    return { providerId: null, modelId: null };
   }
-
   return {
     providerId: "axis",
     modelId: effectiveModelId,

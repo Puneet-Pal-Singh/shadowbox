@@ -201,7 +201,5 @@ function isPlanningSchemaMismatchError(error: unknown): boolean {
 }
 
 function isPlanningTimeoutError(error: unknown): boolean {
-  return error instanceof Error
-    ? error.name === "LLMTimeoutError" && error.message.includes("(phase=planning)")
-    : false;
+  return error instanceof Error ? error.name === "LLMTimeoutError" : false;
 }

@@ -261,11 +261,18 @@ export class RunEngineRuntime extends DurableObject {
           {},
         );
 
-        await this.persistAssistantMessage(
-          payload.sessionId,
-          payload.runId,
-          payload.correlationId,
-          executionResponse,
+        this.ctx.waitUntil(
+          this.persistAssistantMessage(
+            payload.sessionId,
+            payload.runId,
+            payload.correlationId,
+            executionResponse,
+          ).catch((error) => {
+            console.warn(
+              `[run/engine-runtime] ${payload.correlationId}: Failed to persist assistant message`,
+              error,
+            );
+          }),
         );
 
         return executionResponse;

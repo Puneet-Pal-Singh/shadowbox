@@ -1,7 +1,12 @@
 const DEFAULT_WINDOW_MS = 60_000;
 const PRUNE_WINDOW_MULTIPLIER = 10;
 
-const lastLogTimestampByKey = new Map<string, number>();
+interface RateLimitedLogEntry {
+  timestamp: number;
+  windowMs: number;
+}
+
+const lastLogByKey = new Map<string, RateLimitedLogEntry>();
 
 export function logWarnRateLimited(
   key: string,
@@ -36,22 +41,25 @@ export function logErrorRateLimited(
 }
 
 function shouldLog(key: string, windowMs: number): boolean {
-  pruneRateLimitedEntries(windowMs);
+  pruneRateLimitedEntries();
   const now = Date.now();
-  const lastTimestamp = lastLogTimestampByKey.get(key);
-  if (typeof lastTimestamp === "number" && now - lastTimestamp < windowMs) {
+  const entry = lastLogByKey.get(key);
+  if (entry && now - entry.timestamp < windowMs) {
     return false;
   }
-  lastLogTimestampByKey.set(key, now);
+  lastLogByKey.set(key, {
+    timestamp: now,
+    windowMs,
+  });
   return true;
 }
 
-function pruneRateLimitedEntries(windowMs: number): void {
-  const maxAgeMs = windowMs * PRUNE_WINDOW_MULTIPLIER;
+function pruneRateLimitedEntries(): void {
   const now = Date.now();
-  for (const [key, timestamp] of lastLogTimestampByKey.entries()) {
-    if (now - timestamp > maxAgeMs) {
-      lastLogTimestampByKey.delete(key);
+  for (const [key, entry] of lastLogByKey.entries()) {
+    const maxAgeMs = entry.windowMs * PRUNE_WINDOW_MULTIPLIER;
+    if (now - entry.timestamp > maxAgeMs) {
+      lastLogByKey.delete(key);
     }
   }
 }

@@ -45,6 +45,13 @@ export function ChatMessage({ message, onArtifactOpen }: ChatMessageProps) {
       }
     }
 
+    if (message.role !== "assistant") {
+      return {
+        content: extractedText.trim(),
+        thinkingBlocks: [],
+      };
+    }
+
     const parsedText = parseThinkingTags(extractedText);
     const dedupedThinking = Array.from(
       new Set(
@@ -58,7 +65,7 @@ export function ChatMessage({ message, onArtifactOpen }: ChatMessageProps) {
       content: parsedText.visibleContent.trim(),
       thinkingBlocks: dedupedThinking,
     };
-  }, [message.content]);
+  }, [message.content, message.role]);
 
   // Extract file references from assistant answer content (simple regex)
   const fileRefs =
