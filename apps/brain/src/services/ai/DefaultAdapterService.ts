@@ -10,6 +10,7 @@ import type {
 } from "../providers";
 import { createDefaultAdapter } from "./ProviderAdapterFactory";
 import { ValidationError } from "../../domain/errors";
+import { logWarnRateLimited } from "../../lib/rate-limited-log";
 
 /**
  * DefaultAdapterService - SRP: Create and manage default adapter with error handling
@@ -20,9 +21,13 @@ export class DefaultAdapterService {
     try {
       return createDefaultAdapter(env);
     } catch (error) {
-      console.warn(
+      const errorKey =
+        error instanceof Error ? error.message : "unknown-default-adapter-error";
+      logWarnRateLimited(
+        `ai/adapter:default-unavailable:${errorKey}`,
         "[ai/adapter] default adapter unavailable; using error adapter",
         error,
+        30_000,
       );
       return new MissingProviderConfigAdapter(env);
     }

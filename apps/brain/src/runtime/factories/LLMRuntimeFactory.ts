@@ -16,6 +16,7 @@ import { ProviderValidationService } from "../../services/ProviderValidationServ
 import { DurableProviderStore } from "../../services/providers/DurableProviderStore";
 import { readByokEncryptionKey } from "../../services/providers/provider-encryption-key";
 import type { ProviderStoreScopeInput } from "../../types/provider-scope";
+import { logErrorRateLimited, logWarnRateLimited } from "../../lib/rate-limited-log";
 import type {
   LLMRuntimeAIService,
   LLMGateway,
@@ -58,7 +59,12 @@ export function buildLLMGateway(
     const errorMessage = ProviderValidationService.formatErrors(
       validationResult,
     );
-    console.error("[runtime/llm-factory] Provider validation failed:\n" + errorMessage);
+    logErrorRateLimited(
+      "runtime/llm-factory:provider-validation-failed",
+      "[runtime/llm-factory] Provider validation failed:\n" + errorMessage,
+      undefined,
+      30_000,
+    );
     throw new Error(
       "Provider configuration validation failed. Check logs for details.",
     );
@@ -66,11 +72,14 @@ export function buildLLMGateway(
 
   // Log warnings (optional, non-blocking)
   if (validationResult.warnings.length > 0) {
-    console.warn(
+    logWarnRateLimited(
+      `runtime/llm-factory:provider-warnings:${validationResult.warnings.map((w) => w.code).sort().join(",")}`,
       "[runtime/llm-factory] Provider warnings:\n" +
         validationResult.warnings
           .map((w) => `⚠ [${w.code}] ${w.message}`)
           .join("\n"),
+      undefined,
+      30_000,
     );
   }
 
