@@ -45,6 +45,8 @@ export function ChatInterface({
     debugEvents = [],
   } = chatProps;
   const scrollRef = useRef<HTMLDivElement>(null);
+  const thinkingStartAtRef = useRef<number | null>(null);
+  const [thinkingElapsedMs, setThinkingElapsedMs] = useState(0);
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {
@@ -53,6 +55,30 @@ export function ChatInterface({
       behavior: "smooth",
     });
   }, [messages, isLoading]);
+
+  useEffect(() => {
+    if (!isLoading) {
+      thinkingStartAtRef.current = null;
+      setThinkingElapsedMs(0);
+      return;
+    }
+
+    if (thinkingStartAtRef.current === null) {
+      thinkingStartAtRef.current = Date.now();
+    }
+
+    const intervalId = window.setInterval(() => {
+      const startedAt = thinkingStartAtRef.current;
+      if (startedAt === null) {
+        return;
+      }
+      setThinkingElapsedMs(Date.now() - startedAt);
+    }, 100);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [isLoading]);
 
   const { summary } = useRunSummary(runId, isLoading);
   const showDebugPanel =
@@ -147,7 +173,7 @@ export function ChatInterface({
           {isLoading && (
             <div className="flex items-center gap-2 px-4 py-2 text-xs text-zinc-500 font-medium bg-zinc-900/30 w-fit rounded-full border border-zinc-800/50 animate-pulse">
               <div className="w-1.5 h-1.5 bg-zinc-500 rounded-full animate-bounce" />
-              <span>Thinking...</span>
+              <span>{`Thinking... ${formatThinkingDuration(thinkingElapsedMs)}`}</span>
             </div>
           )}
         </div>
@@ -178,6 +204,13 @@ export function ChatInterface({
       />
     </div>
   );
+}
+
+function formatThinkingDuration(elapsedMs: number): string {
+  const totalSeconds = Math.floor(elapsedMs / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
 }
 
 function formatDebugPayload(payload: unknown): string {
