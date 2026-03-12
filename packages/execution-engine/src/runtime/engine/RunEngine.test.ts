@@ -143,7 +143,7 @@ describe("RunEngine", () => {
     const persisted = await (runEngine as unknown as {
       getRun(runId: string): Promise<Run | null>;
     }).getRun(TEST_RUN_ID);
-    expect(persisted?.status).toBe("FAILED");
+    expect(persisted?.status).toBe("COMPLETED");
     expect(persisted?.metadata.error).toContain(
       "Planner response did not match required schema",
     );

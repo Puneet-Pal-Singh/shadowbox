@@ -8,6 +8,7 @@ import type { MemoryContext } from "../memory/index.js";
 
 const STRUCTURED_SCHEMA_MISMATCH_SENTINEL =
   "No object generated: response did not match schema";
+const PLANNING_TIMEOUT_MS = 12_000;
 
 export interface IPlannerService {
   plan(run: Run, prompt: string, memoryContext?: MemoryContext): Promise<Plan>;
@@ -157,6 +158,7 @@ Generate a plan to accomplish this request.`;
         model: run.input.modelId,
         providerId: run.input.providerId,
         temperature: 0.2, // Deterministic planning
+        timeoutMs: PLANNING_TIMEOUT_MS,
       });
       return result.object as Plan;
     } catch (error) {

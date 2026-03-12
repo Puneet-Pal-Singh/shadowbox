@@ -30,6 +30,7 @@ import type {
 import type { Plan, PlannedTask } from "../planner/index.js";
 import {
   LLMGateway,
+  LLMTimeoutError,
   type ILLMGateway,
   type LLMRuntimeAIService,
 } from "../llm/index.js";
@@ -251,6 +252,7 @@ export class RunEngine implements IRunEngine {
     tools: Record<string, CoreTool>,
   ): Promise<Response> {
     const { runId, sessionId } = this.options;
+    const runStartedAt = Date.now();
     try {
       await this.sessionCostsLoaded;
       const run = await this.getOrCreateRun(input, runId, sessionId);
@@ -297,6 +299,7 @@ export class RunEngine implements IRunEngine {
 
       let turnMode: TurnMode;
       try {
+        const turnModeStartedAt = Date.now();
         turnMode = await determineTurnModePolicy({
           llmGateway: this.llmGateway,
           run,
@@ -304,6 +307,9 @@ export class RunEngine implements IRunEngine {
           messages,
           repositoryContext: input.repositoryContext,
         });
+        console.log(
+          `[run/timing] run=${runId} step=turn_mode elapsedMs=${Date.now() - turnModeStartedAt} mode=${turnMode}`,
+        );
       } catch (turnModeError) {
         const recoveryResponse = await this.tryHandlePlanningError(
           run,
@@ -319,7 +325,15 @@ export class RunEngine implements IRunEngine {
         console.log(
           `[run/engine] Model-selected conversational mode for run ${runId}`,
         );
-        return await this.executeConversationalTurn(run, input, messages);
+        const conversationalStartedAt = Date.now();
+        const response = await this.executeConversationalTurn(run, input, messages);
+        console.log(
+          `[run/timing] run=${runId} step=conversational elapsedMs=${Date.now() - conversationalStartedAt}`,
+        );
+        console.log(
+          `[run/timing] run=${runId} step=total elapsedMs=${Date.now() - runStartedAt} status=${run.status} mode=chat`,
+        );
+        return response;
       }
 
       if (isPlatformApprovalOwner(run.metadata.manifest)) {
@@ -371,6 +385,7 @@ export class RunEngine implements IRunEngine {
       }
 
       console.log(`[run/engine] Planning phase for run ${runId}`);
+      const planningStartedAt = Date.now();
       try {
         run.transition("PLANNING");
         recordPhaseSelectionSnapshot(run, "planning");
@@ -410,8 +425,12 @@ export class RunEngine implements IRunEngine {
         await this.runRepo.update(run);
         throw planError;
       }
+      console.log(
+        `[run/timing] run=${runId} step=planning elapsedMs=${Date.now() - planningStartedAt}`,
+      );
 
       console.log(`[run/engine] Execution phase for run ${runId}`);
+      const executionStartedAt = Date.now();
       run.transition("RUNNING");
       recordPhaseSelectionSnapshot(run, "execution");
       recordLifecycleStep(run, "TASK_EXECUTING");
@@ -467,8 +486,12 @@ export class RunEngine implements IRunEngine {
           ),
         }),
       );
+      console.log(
+        `[run/timing] run=${runId} step=execution elapsedMs=${Date.now() - executionStartedAt}`,
+      );
 
       console.log(`[run/engine] Synthesis phase for run ${runId}`);
+      const synthesisStartedAt = Date.now();
       recordPhaseSelectionSnapshot(run, "synthesis");
       recordLifecycleStep(run, "SYNTHESIS");
       const finalOutputRaw = await this.generateSynthesis(
@@ -502,6 +525,9 @@ export class RunEngine implements IRunEngine {
           taskStatuses: {},
         }),
       );
+      console.log(
+        `[run/timing] run=${runId} step=synthesis elapsedMs=${Date.now() - synthesisStartedAt}`,
+      );
 
       await this.safeMemoryOperation(() =>
         this.persistConversationMessages(
@@ -517,9 +543,15 @@ export class RunEngine implements IRunEngine {
       run.output = { content: finalOutput };
       await this.runRepo.update(run);
       console.log(`[run/engine] Completed run ${runId}`);
+      console.log(
+        `[run/timing] run=${runId} step=total elapsedMs=${Date.now() - runStartedAt} status=${finalRunStatus} mode=task`,
+      );
       return this.createStreamResponse(finalOutput);
     } catch (error) {
       await this.handleExecutionError(runId, error);
+      console.warn(
+        `[run/timing] run=${runId} step=total elapsedMs=${Date.now() - runStartedAt} status=FAILED`,
+      );
       throw error;
     }
   }
@@ -761,20 +793,32 @@ export class RunEngine implements IRunEngine {
     run.transition("RUNNING");
     await this.runRepo.update(run);
 
-    const result = await this.llmGateway.generateText({
-      context: {
-        runId: run.id,
-        sessionId: run.sessionId,
-        agentType: run.agentType,
-        phase: "synthesis",
-      },
-      messages,
-      system: buildConversationalSystemPrompt(),
-      model: input.modelId,
-      providerId: input.providerId,
-      temperature: 0.7,
-    });
-    return this.completeRunWithAssistantMessage(run, result.text);
+    try {
+      const result = await this.llmGateway.generateText({
+        context: {
+          runId: run.id,
+          sessionId: run.sessionId,
+          agentType: run.agentType,
+          phase: "synthesis",
+        },
+        messages,
+        system: buildConversationalSystemPrompt(),
+        model: input.modelId,
+        providerId: input.providerId,
+        temperature: 0.7,
+        timeoutMs: 15_000,
+      });
+      return this.completeRunWithAssistantMessage(run, result.text);
+    } catch (error) {
+      if (error instanceof LLMTimeoutError && error.phase === "synthesis") {
+        return this.completeRunWithRecoveredAssistantMessage(
+          run,
+          "The model took too long to respond. Please retry, or switch to a faster model for quick chat turns.",
+          error.message,
+        );
+      }
+      throw error;
+    }
   }
 
   private createStreamResponse(content: string): Response {
@@ -841,7 +885,7 @@ export class RunEngine implements IRunEngine {
     return this.createStreamResponse(sanitizedText);
   }
 
-  private async completeRunWithFailedAssistantMessage(
+  private async completeRunWithRecoveredAssistantMessage(
     run: Run,
     text: string,
     technicalError?: string,
@@ -868,17 +912,17 @@ export class RunEngine implements IRunEngine {
       ),
     );
 
-    transitionRunToFailed(run, run.id);
+    transitionRunToCompleted(run, run.id);
     if (technicalError) {
       run.metadata.error = technicalError;
     }
-    recordLifecycleStep(run, "TERMINAL", "status=FAILED");
+    recordLifecycleStep(run, "TERMINAL", "status=COMPLETED:recoverable");
     recordOrchestrationTerminal(run);
     run.output = { content: sanitizedText };
     await this.runRepo.update(run);
 
-    console.warn(
-      `[run/engine] Completed run ${run.id} with recoverable planning failure`,
+    console.log(
+      `[run/engine] Completed run ${run.id} with recoverable error`,
     );
     return this.createStreamResponse(sanitizedText);
   }
@@ -895,11 +939,11 @@ export class RunEngine implements IRunEngine {
       return null;
     }
 
-    console.warn(
+    console.log(
       `[run/engine] Recoverable planning error for run ${runId}: ${technicalMessage}`,
     );
 
-    return this.completeRunWithFailedAssistantMessage(
+    return this.completeRunWithRecoveredAssistantMessage(
       run,
       userMessage,
       technicalMessage,

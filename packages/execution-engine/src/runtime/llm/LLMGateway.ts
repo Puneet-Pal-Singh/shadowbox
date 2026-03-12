@@ -16,6 +16,7 @@ import type {
 
 const TOKEN_CHAR_RATIO = 4;
 const DEFAULT_COMPLETION_TOKENS = 500;
+const DEFAULT_TEXT_TIMEOUT_MS = 20_000;
 const DEFAULT_STRUCTURED_TIMEOUT_MS = 45_000;
 
 export interface LLMGatewayDependencies {
@@ -65,14 +66,21 @@ export class LLMGateway implements ILLMGateway {
         this.createIdempotencyKey(req.context, estimatedUsage),
     );
 
-    const result = await this.deps.aiService.generateText({
-      messages: req.messages,
-      model: req.model,
-      providerId: req.providerId,
-      temperature: req.temperature,
-      system: req.system,
-      tools: req.tools,
-    });
+    const result = await this.withTimeout(
+      this.deps.aiService.generateText({
+        messages: req.messages,
+        model: req.model,
+        providerId: req.providerId,
+        temperature: req.temperature,
+        system: req.system,
+        tools: req.tools,
+      }),
+      {
+        timeoutMs: req.timeoutMs ?? DEFAULT_TEXT_TIMEOUT_MS,
+        phase: req.context.phase,
+        operation: "text",
+      },
+    );
 
     const usage = this.normalizeUsage(result.usage, req.model);
     await this.persistCostEvent(requestWithIdempotency, usage);

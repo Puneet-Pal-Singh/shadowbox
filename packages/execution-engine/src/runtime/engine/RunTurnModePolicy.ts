@@ -7,7 +7,10 @@ import type { ILLMGateway } from "../llm/index.js";
 const TURN_MODE_SCHEMA = z.object({
   mode: z.enum(["chat", "action"]),
   rationale: z.string().max(400).optional(),
+  confidence: z.number().min(0).max(1),
 });
+const TURN_MODE_TIMEOUT_MS = 8_000;
+const ACTION_CONFIDENCE_THRESHOLD = 0.8;
 
 export type TurnMode = z.infer<typeof TURN_MODE_SCHEMA>["mode"];
 
@@ -44,9 +47,18 @@ export async function determineTurnMode({
     model: run.input.modelId,
     providerId: run.input.providerId,
     temperature: 0,
+    timeoutMs: TURN_MODE_TIMEOUT_MS,
   });
 
-  return result.object.mode === "chat" ? "chat" : "action";
+  const mode = result.object.mode === "chat" ? "chat" : "action";
+  const confidence =
+    typeof result.object.confidence === "number"
+      ? result.object.confidence
+      : 1;
+  if (mode === "action" && confidence < ACTION_CONFIDENCE_THRESHOLD) {
+    return "chat";
+  }
+  return mode;
 }
 
 function buildTurnModeMessages(
@@ -70,6 +82,8 @@ function buildTurnModeMessages(
         "Classify the user's latest request into a turn mode.",
         'Return "chat" when the request is conversational (greeting, Q&A, general explanation, capability question) and does not require repository/tool execution.',
         'Return "action" when the request requires reading/modifying repository files, running commands, or any tool execution.',
+        'Set confidence to a decimal between 0 and 1. Use >=0.8 only when the request clearly requires tools/files/commands.',
+        "For single-word greetings or conversational pleasantries, choose chat with high confidence.",
         "Use the recent conversation and repository selection for context when the latest request is brief (for example: continue, do it, same repo).",
         "Respond strictly with schema-compliant JSON.",
       ].join(" "),
