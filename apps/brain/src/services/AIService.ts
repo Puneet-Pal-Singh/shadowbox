@@ -1,4 +1,6 @@
 import { generateObject, type CoreMessage, type CoreTool } from "ai";
+import { createOpenAI } from "@ai-sdk/openai";
+import { createAnthropic } from "@ai-sdk/anthropic";
 import type { ZodSchema } from "zod";
 import type { Env } from "../types/ai";
 import type {
@@ -24,9 +26,9 @@ import {
 import { resolveSelectionWithPreferences } from "./ai/preference-selection";
 import { DefaultAdapterService } from "./ai/DefaultAdapterService";
 import { inferUsageProvider } from "./ai/usage-provider";
-import { createSDKModel } from "./ai/sdk-model";
 import { consumeAxisQuotaIfNeeded } from "./ai/axis-quota";
 import { AXIS_PROVIDER_ID } from "./providers/axis";
+import { normalizeFinishCallback } from "./ai/normalize-finish-callback";
 
 export class AIService {
   private adapter: ProviderAdapter;
@@ -150,7 +152,7 @@ export class AIService {
       selection.providerId,
     );
 
-    const sdkModel = createSDKModel(sdkModelConfig);
+    const sdkModel = this.createSDKModel(sdkModelConfig);
 
     const result = await generateObject({
       model: sdkModel,
@@ -222,24 +224,7 @@ export class AIService {
       this.providerConfigService,
     );
 
-    const normalizedOnFinish = onFinish
-      ? async (result: GenerateTextResult) => {
-          if (
-            providerId &&
-            result.usage.provider !== providerId
-          ) {
-            await onFinish({
-              ...result,
-              usage: {
-                ...result.usage,
-                provider: providerId,
-              },
-            });
-            return;
-          }
-          await onFinish(result);
-        }
-      : undefined;
+    const normalizedOnFinish = normalizeFinishCallback(providerId, onFinish);
 
     return createChatStream(
       selectedAdapter,
@@ -259,6 +244,25 @@ export class AIService {
 
   getProviderAdapter(): ProviderAdapter {
     return this.adapter;
+  }
+
+  private createSDKModel(config: SDKModelConfig) {
+    const { provider, apiKey, baseURL, model } = config;
+
+    if (provider === "anthropic-native") {
+      const client = createAnthropic({
+        apiKey,
+        baseURL,
+      });
+      return client(model);
+    }
+
+    const client = createOpenAI({
+      baseURL,
+      apiKey,
+    });
+
+    return client(model);
   }
 }
 
