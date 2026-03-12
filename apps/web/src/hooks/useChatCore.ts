@@ -385,6 +385,15 @@ function mapKnownChatErrorMessage(
   if (payload?.code === "PLAN_GENERATION_TIMEOUT") {
     return "Planning timed out before executable tasks were generated. Retry with a narrower request.";
   }
+  if (payload?.code === "PROVIDER_UNAVAILABLE") {
+    return "Provider request failed after retries. Check provider health/model availability or switch providers and retry.";
+  }
+  if (payload?.code === "RATE_LIMITED") {
+    return "Provider rate limit reached. Retry after cooldown or switch to another connected provider.";
+  }
+  if (payload?.code === "AUTH_FAILED") {
+    return "Provider authentication failed. Reconnect credentials in Provider Settings and retry.";
+  }
   if (containsMissingDefaultKeyError(message)) {
     return "No explicit provider configuration is available. Connect a provider key in Settings. If you are in private/incognito mode, persistence may be reset.";
   }
@@ -393,6 +402,9 @@ function mapKnownChatErrorMessage(
   }
   if (containsToolChoiceUnsupportedError(message)) {
     return "The selected model does not support required tool-calling/structured planning. Choose a different model.";
+  }
+  if (containsProviderRetryFailure(message)) {
+    return "Provider request failed after retries. Check provider health/model availability or switch providers and retry.";
   }
   if (containsTransientNetworkError(message)) {
     return "Temporary network/service issue while streaming chat. Please retry in a few seconds.";
@@ -423,6 +435,13 @@ function containsTransientNetworkError(message: string): boolean {
     message.includes("NetworkError") ||
     message.includes("Network connection lost") ||
     message.includes("Service Unavailable")
+  );
+}
+
+function containsProviderRetryFailure(message: string): boolean {
+  return (
+    message.includes("Failed after 3 attempts") ||
+    message.includes("Provider returned error")
   );
 }
 
