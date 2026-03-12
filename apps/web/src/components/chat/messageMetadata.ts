@@ -1,0 +1,227 @@
+import type { Message } from "@ai-sdk/react";
+import type { ChatDebugEvent } from "../../types/chat-debug.js";
+
+export interface ChatMessageMetadata {
+  modeLabel: string;
+  modelLabel?: string;
+  durationLabel?: string;
+  timeLabel?: string;
+}
+
+interface RequestTiming {
+  modelId?: string;
+  startedAtMs: number;
+  finishedAtMs?: number;
+}
+
+interface TurnMetadata {
+  userMessageId?: string;
+  assistantMessageId?: string;
+  userAtMs?: number;
+  assistantAtMs?: number;
+  request?: RequestTiming;
+}
+
+export function buildChatMessageMetadata(
+  messages: Message[],
+  debugEvents: ChatDebugEvent[],
+  resolveModelLabel: (modelId: string) => string,
+  modeLabel = "Build",
+): Record<string, ChatMessageMetadata> {
+  const turns = buildTurns(messages);
+  const requests = buildRequestTimings(debugEvents);
+  assignRequestsToTurns(turns, requests);
+  return mapTurnsToMessageMetadata(turns, resolveModelLabel, modeLabel);
+}
+
+function buildTurns(messages: Message[]): TurnMetadata[] {
+  const turns: TurnMetadata[] = [];
+  for (const message of messages) {
+    const messageAtMs = resolveMessageTimestamp(message);
+    if (message.role === "user") {
+      turns.push({
+        userMessageId: message.id,
+        userAtMs: messageAtMs,
+      });
+      continue;
+    }
+    if (message.role !== "assistant") {
+      continue;
+    }
+    const pendingTurn = findPendingTurn(turns);
+    if (pendingTurn) {
+      pendingTurn.assistantMessageId = message.id;
+      pendingTurn.assistantAtMs = messageAtMs;
+      continue;
+    }
+    turns.push({
+      assistantMessageId: message.id,
+      assistantAtMs: messageAtMs,
+    });
+  }
+  return turns;
+}
+
+function findPendingTurn(turns: TurnMetadata[]): TurnMetadata | undefined {
+  for (let i = turns.length - 1; i >= 0; i -= 1) {
+    if (turns[i]?.userMessageId && !turns[i]?.assistantMessageId) {
+      return turns[i];
+    }
+  }
+  return undefined;
+}
+
+function buildRequestTimings(debugEvents: ChatDebugEvent[]): RequestTiming[] {
+  const chronological = [...debugEvents].sort(
+    (a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp),
+  );
+  const requests: RequestTiming[] = [];
+  const finishes: number[] = [];
+
+  for (const event of chronological) {
+    if (event.phase === "request") {
+      requests.push({
+        modelId: extractModelIdFromDebugPayload(event.payload),
+        startedAtMs: Date.parse(event.timestamp),
+      });
+      continue;
+    }
+    if (event.phase === "finish") {
+      finishes.push(Date.parse(event.timestamp));
+    }
+  }
+
+  for (let index = 0; index < requests.length; index += 1) {
+    const request = requests[index];
+    const finishAtMs = finishes[index];
+    if (!request || !finishAtMs || Number.isNaN(finishAtMs)) {
+      continue;
+    }
+    request.finishedAtMs = finishAtMs;
+  }
+
+  return requests;
+}
+
+function extractModelIdFromDebugPayload(payload: unknown): string | undefined {
+  if (!payload || typeof payload !== "object") {
+    return undefined;
+  }
+  const record = payload as Record<string, unknown>;
+  const resolvedConfig =
+    record.resolvedConfig && typeof record.resolvedConfig === "object"
+      ? (record.resolvedConfig as Record<string, unknown>)
+      : null;
+  const requestBody =
+    record.requestBody && typeof record.requestBody === "object"
+      ? (record.requestBody as Record<string, unknown>)
+      : null;
+
+  const resolvedModelId = resolvedConfig?.modelId;
+  if (typeof resolvedModelId === "string" && resolvedModelId.trim()) {
+    return resolvedModelId;
+  }
+
+  const requestModelId = requestBody?.modelId;
+  if (typeof requestModelId === "string" && requestModelId.trim()) {
+    return requestModelId;
+  }
+
+  return undefined;
+}
+
+function assignRequestsToTurns(
+  turns: TurnMetadata[],
+  requests: RequestTiming[],
+): void {
+  let requestIndex = 0;
+  for (const turn of turns) {
+    if (!turn.userMessageId) {
+      continue;
+    }
+    const request = requests[requestIndex];
+    if (request) {
+      turn.request = request;
+      requestIndex += 1;
+    }
+  }
+}
+
+function mapTurnsToMessageMetadata(
+  turns: TurnMetadata[],
+  resolveModelLabel: (modelId: string) => string,
+  modeLabel: string,
+): Record<string, ChatMessageMetadata> {
+  const metadata: Record<string, ChatMessageMetadata> = {};
+  for (const turn of turns) {
+    const modelLabel = turn.request?.modelId
+      ? resolveModelLabel(turn.request.modelId)
+      : undefined;
+    const userTimeLabel = formatTimestamp(turn.userAtMs);
+    const assistantTimeLabel = formatTimestamp(turn.assistantAtMs);
+    const durationLabel = formatDuration(resolveTurnDurationMs(turn));
+
+    if (turn.userMessageId) {
+      metadata[turn.userMessageId] = {
+        modeLabel,
+        modelLabel,
+        timeLabel: userTimeLabel,
+      };
+    }
+    if (turn.assistantMessageId) {
+      metadata[turn.assistantMessageId] = {
+        modeLabel,
+        modelLabel,
+        durationLabel,
+        timeLabel: assistantTimeLabel,
+      };
+    }
+  }
+  return metadata;
+}
+
+function resolveTurnDurationMs(turn: TurnMetadata): number | undefined {
+  if (turn.userAtMs && turn.assistantAtMs && turn.assistantAtMs >= turn.userAtMs) {
+    return turn.assistantAtMs - turn.userAtMs;
+  }
+  if (
+    turn.request?.finishedAtMs &&
+    turn.request.startedAtMs &&
+    turn.request.finishedAtMs >= turn.request.startedAtMs
+  ) {
+    return turn.request.finishedAtMs - turn.request.startedAtMs;
+  }
+  return undefined;
+}
+
+function resolveMessageTimestamp(message: Message): number | undefined {
+  const createdAt = message.createdAt;
+  if (createdAt instanceof Date && !Number.isNaN(createdAt.getTime())) {
+    return createdAt.getTime();
+  }
+  if (typeof createdAt === "string") {
+    const parsed = Date.parse(createdAt);
+    if (!Number.isNaN(parsed)) {
+      return parsed;
+    }
+  }
+  return undefined;
+}
+
+function formatTimestamp(timestampMs?: number): string | undefined {
+  if (!timestampMs) {
+    return undefined;
+  }
+  return new Date(timestampMs).toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function formatDuration(durationMs?: number): string | undefined {
+  if (!durationMs || durationMs <= 0) {
+    return undefined;
+  }
+  const seconds = Math.max(1, Math.round(durationMs / 1000));
+  return `${seconds}s`;
+}
