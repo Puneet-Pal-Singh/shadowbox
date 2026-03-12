@@ -15,9 +15,20 @@ describe("TaskInputContract", () => {
 
   it("rejects vague descriptions as executable input", () => {
     expect(isConcretePathInput("Analyze the current workspace")).toBe(false);
+    expect(isConcretePathInput("the repository")).toBe(false);
+    expect(isConcretePathInput("my repo")).toBe(false);
+    expect(isConcretePathInput("this")).toBe(false);
     expect(isConcreteCommandInput("check if node exists")).toBe(false);
     expect(hasValidTaskInput("analyze", { path: "read the file" })).toBe(false);
     expect(hasValidTaskInput("shell", { command: "if tests fail, fix them" })).toBe(false);
+  });
+
+  it("rejects punctuation-only or degenerate path candidates", () => {
+    expect(isConcretePathInput("?")).toBe(false);
+    expect(isConcretePathInput("...")).toBe(false);
+    expect(isConcretePathInput("@")).toBe(false);
+    expect(isConcretePathInput("\"README.md\"")).toBe(true);
+    expect(isConcretePathInput("README.md?")).toBe(true);
   });
 
   it("allows concrete shell commands and 500-char boundary inputs", () => {

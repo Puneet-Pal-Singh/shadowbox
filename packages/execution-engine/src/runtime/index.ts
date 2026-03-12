@@ -9,10 +9,4 @@ export * from "./agents/index.js";
 export * from "./engine/index.js";
 export * from "./memory/index.js";
 export * from "./scale/index.js";
-export {
-  RoutingDetector,
-  type RoutingDecision,
-  type RoutingIntent,
-  type RoutingReasonCode,
-} from "./lib/RoutingDetector.js";
 export * from "./types.js";

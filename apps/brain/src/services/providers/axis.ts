@@ -7,8 +7,9 @@ export const AXIS_PROVIDER_ID = "axis";
 export const AXIS_DAILY_LIMIT = 5;
 
 export const AXIS_CURATED_MODEL_IDS = [
-  "openai/gpt-oss-120b:free",
   "z-ai/glm-4.5-air:free",
+  "nvidia/nemotron-3-nano-30b-a3b:free",
+  "nvidia/nemotron-3-super-120b-a12b:free",
   "arcee-ai/trinity-large-preview:free",
   "stepfun/step-3.5-flash:free",
 ] as const;
@@ -28,4 +29,3 @@ export function getAxisDiscoveredModels(): BYOKDiscoveredProviderModel[] {
     providerId: AXIS_PROVIDER_ID,
   }));
 }
-

@@ -67,4 +67,59 @@ export const DEFAULT_SEED_PRICING: Record<string, PricingEntry> = {
       version: "2026-02-26",
     },
   },
+  "axis:z-ai/glm-4.5-air:free": {
+    inputPrice: 0,
+    outputPrice: 0,
+    currency: "USD",
+    effectiveDate: "2026-03-12",
+    lastUpdated: "2026-03-12",
+    metadata: {
+      source: "axis-curated-free-tier",
+      version: "2026-03-12",
+    },
+  },
+  "axis:nvidia/nemotron-3-nano-30b-a3b:free": {
+    inputPrice: 0,
+    outputPrice: 0,
+    currency: "USD",
+    effectiveDate: "2026-03-12",
+    lastUpdated: "2026-03-12",
+    metadata: {
+      source: "axis-curated-free-tier",
+      version: "2026-03-12",
+    },
+  },
+  "axis:nvidia/nemotron-3-super-120b-a12b:free": {
+    inputPrice: 0,
+    outputPrice: 0,
+    currency: "USD",
+    effectiveDate: "2026-03-12",
+    lastUpdated: "2026-03-12",
+    metadata: {
+      source: "axis-curated-free-tier",
+      version: "2026-03-12",
+    },
+  },
+  "axis:arcee-ai/trinity-large-preview:free": {
+    inputPrice: 0,
+    outputPrice: 0,
+    currency: "USD",
+    effectiveDate: "2026-03-12",
+    lastUpdated: "2026-03-12",
+    metadata: {
+      source: "axis-curated-free-tier",
+      version: "2026-03-12",
+    },
+  },
+  "axis:stepfun/step-3.5-flash:free": {
+    inputPrice: 0,
+    outputPrice: 0,
+    currency: "USD",
+    effectiveDate: "2026-03-12",
+    lastUpdated: "2026-03-12",
+    metadata: {
+      source: "axis-curated-free-tier",
+      version: "2026-03-12",
+    },
+  },
 };

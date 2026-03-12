@@ -8,15 +8,17 @@ interface UseGitStatusResult {
   gitAvailable: boolean;
   loading: boolean;
   error: string | null;
-  refetch: () => Promise<void>;
+  refetch: (force?: boolean) => Promise<void>;
 }
 
 const statusCacheByRunId = new Map<string, GitStatusResponse>();
+const statusCacheTimestampByRunId = new Map<string, number>();
 const inflightByRunId = new Map<string, Promise<GitStatusResponse>>();
 const retryAfterByRunId = new Map<string, number>();
 const lastLoggedErrorByRunId = new Map<string, string>();
 
 const RETRY_DELAY_MS = 5000;
+const STATUS_CACHE_TTL_MS = 10_000;
 
 export function useGitStatus(
   explicitRunId?: string,
@@ -31,7 +33,7 @@ export function useGitStatus(
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchStatus = useCallback(async () => {
+  const fetchStatus = useCallback(async (force = false) => {
     if (!runId || !sessionId || !cacheKey) {
       setLoading(false);
       setStatus(null);
@@ -41,10 +43,16 @@ export function useGitStatus(
     }
 
     const cachedStatus = statusCacheByRunId.get(cacheKey);
+    const cachedAt = statusCacheTimestampByRunId.get(cacheKey) ?? 0;
     if (cachedStatus) {
       setStatus(cachedStatus);
       setGitAvailable(cachedStatus.gitAvailable);
       setError(null);
+      const cacheAgeMs = Date.now() - cachedAt;
+      if (!force && cacheAgeMs < STATUS_CACHE_TTL_MS) {
+        setLoading(false);
+        return;
+      }
     } else {
       setStatus(null);
       setGitAvailable(true);
@@ -65,6 +73,7 @@ export function useGitStatus(
       const data = await request;
 
       statusCacheByRunId.set(cacheKey, data);
+      statusCacheTimestampByRunId.set(cacheKey, Date.now());
       retryAfterByRunId.delete(cacheKey);
       setStatus(data);
       setGitAvailable(data.gitAvailable);

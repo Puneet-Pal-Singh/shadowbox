@@ -3,12 +3,10 @@ import { Run, RunRepository, RunStateMachine } from "../run/index.js";
 import { Task, TaskRepository } from "../task/index.js";
 import {
   BudgetManager,
-  BudgetExceededError,
   CostLedger,
   CostTracker,
   PricingRegistry,
   PricingResolver,
-  SessionBudgetExceededError,
   type BudgetPolicy,
   type IBudgetManager,
   type ICostLedger,
@@ -32,6 +30,7 @@ import type {
 import type { Plan, PlannedTask } from "../planner/index.js";
 import {
   LLMGateway,
+  LLMTimeoutError,
   type ILLMGateway,
   type LLMRuntimeAIService,
 } from "../llm/index.js";
@@ -45,7 +44,7 @@ import { PermissionApprovalStore } from "./PermissionApprovalStore.js";
 import {
   getPermissionPolicyMessage,
   getWorkspaceBootstrapMessage,
-  processPermissionDirectives,
+  processPermissionDirectives as processPermissionDirectivesPolicy,
 } from "./RunPermissionWorkspacePolicy.js";
 import {
   createRunManifest,
@@ -53,8 +52,6 @@ import {
 } from "./RunManifestPolicy.js";
 import {
   buildConversationalSystemPrompt,
-  getActionClarificationMessage,
-  shouldBypassPlanning,
 } from "./ConversationPolicy.js";
 import { sanitizeUserFacingOutput } from "./RunOutputSanitizer.js";
 import {
@@ -78,6 +75,13 @@ import {
 } from "./RunMetadataPolicy.js";
 import { resetRecyclableRun } from "./RunRecyclableResetPolicy.js";
 import { applyReviewerPassIfEnabled } from "./RunReviewerPassPolicy.js";
+import {
+  determineTurnMode as determineTurnModePolicy,
+  type TurnMode,
+} from "./RunTurnModePolicy.js";
+import { buildPlanningRecoveryMessage } from "./RunPlanningRecoveryPolicy.js";
+import { synthesizeResultFromTasks } from "./RunSynthesisPolicy.js";
+
 export interface IRunEngine {
   execute(
     input: RunInput,
@@ -248,6 +252,7 @@ export class RunEngine implements IRunEngine {
     tools: Record<string, CoreTool>,
   ): Promise<Response> {
     const { runId, sessionId } = this.options;
+    const runStartedAt = Date.now();
     try {
       await this.sessionCostsLoaded;
       const run = await this.getOrCreateRun(input, runId, sessionId);
@@ -269,9 +274,8 @@ export class RunEngine implements IRunEngine {
       recordLifecycleStep(run, "CONTEXT_PREPARED");
 
       if (isPlatformApprovalOwner(run.metadata.manifest)) {
-        const approvalDirectiveMessage = await processPermissionDirectives(
+        const approvalDirectiveMessage = await this.processPermissionDirectives(
           input.prompt,
-          this.permissionApprovalStore,
         );
         if (approvalDirectiveMessage) {
           recordLifecycleStep(
@@ -293,24 +297,35 @@ export class RunEngine implements IRunEngine {
         );
       }
 
-      const bypassPlanning = shouldBypassPlanning(input.prompt);
-      if (bypassPlanning) {
-        console.log(`[run/engine] Conversational bypass for run ${runId}`);
-        return await this.executeConversationalTurn(run, input, messages);
-      }
-
-      const clarificationMessage = getActionClarificationMessage(
-        input.prompt,
-        input.repositoryContext,
-      );
-      if (clarificationMessage) {
-        console.log(
-          `[run/engine] Clarification required before action planning for run ${runId}`,
-        );
-        return await this.completeRunWithAssistantMessage(
+      let turnMode: TurnMode;
+      try {
+        turnMode = await determineTurnModePolicy({
+          llmGateway: this.llmGateway,
           run,
-          clarificationMessage,
+          prompt: input.prompt,
+          messages,
+          repositoryContext: input.repositoryContext,
+        });
+      } catch (turnModeError) {
+        const recoveryResponse = await this.tryHandlePlanningError(
+          run,
+          runId,
+          turnModeError,
         );
+        if (recoveryResponse) {
+          return recoveryResponse;
+        }
+        throw turnModeError;
+      }
+      if (turnMode === "chat") {
+        console.log(
+          `[run/engine] Model-selected conversational mode for run ${runId}`,
+        );
+        const response = await this.executeConversationalTurn(run, input, messages);
+        console.log(
+          `[run/timing] run=${runId} step=total elapsedMs=${Date.now() - runStartedAt} status=${run.status} mode=chat`,
+        );
+        return response;
       }
 
       if (isPlatformApprovalOwner(run.metadata.manifest)) {
@@ -385,6 +400,14 @@ export class RunEngine implements IRunEngine {
           }),
         );
       } catch (planError) {
+        const recoveryResponse = await this.tryHandlePlanningError(
+          run,
+          runId,
+          planError,
+        );
+        if (recoveryResponse) {
+          return recoveryResponse;
+        }
         transitionRunToFailed(run, runId);
         run.metadata.error =
           planError instanceof Error
@@ -500,6 +523,9 @@ export class RunEngine implements IRunEngine {
       run.output = { content: finalOutput };
       await this.runRepo.update(run);
       console.log(`[run/engine] Completed run ${runId}`);
+      console.log(
+        `[run/timing] run=${runId} step=total elapsedMs=${Date.now() - runStartedAt} status=${finalRunStatus} mode=task`,
+      );
       return this.createStreamResponse(finalOutput);
     } catch (error) {
       await this.handleExecutionError(runId, error);
@@ -726,7 +752,14 @@ export class RunEngine implements IRunEngine {
         providerId: run.input.providerId,
       });
     }
-    return this.synthesizeResult(run, originalPrompt, memoryContext);
+    return synthesizeResultFromTasks({
+      run,
+      originalPrompt,
+      memoryContext,
+      taskRepo: this.taskRepo,
+      memoryCoordinator: this.memoryCoordinator,
+      llmGateway: this.llmGateway,
+    });
   }
 
   private async executeConversationalTurn(
@@ -737,49 +770,6 @@ export class RunEngine implements IRunEngine {
     run.transition("RUNNING");
     await this.runRepo.update(run);
 
-    const result = await this.llmGateway.generateText({
-      context: {
-        runId: run.id,
-        sessionId: run.sessionId,
-        agentType: run.agentType,
-        phase: "synthesis",
-      },
-      messages,
-      system: buildConversationalSystemPrompt(),
-      model: input.modelId,
-      providerId: input.providerId,
-      temperature: 0.7,
-    });
-    return this.completeRunWithAssistantMessage(run, result.text);
-  }
-
-  private async synthesizeResult(
-    run: Run,
-    originalPrompt: string,
-    memoryContext?: MemoryContext,
-  ): Promise<string> {
-    const tasks = await this.taskRepo.getByRun(run.id);
-    const taskResults = tasks
-      .map(
-        (task) =>
-          `- [${task.status}] ${task.type}: ${task.input.description}\n  Result: ${task.output?.content || task.error?.message || "N/A"}`,
-      )
-      .join("\n");
-
-    const memorySection = memoryContext
-      ? this.memoryCoordinator.formatContextForPrompt(memoryContext)
-      : "";
-
-    const synthesisPrompt = `Based on the following task outcomes, provide a final summary:
-
-Original Request: ${originalPrompt}
-
-${memorySection ? `Memory Context:\n${memorySection}\n\n` : ""}Completed Tasks:
-${taskResults}
-
-Provide a concise summary of what actually happened.
-If any task failed or was cancelled, clearly say so and do not claim full completion.`;
-
     try {
       const result = await this.llmGateway.generateText({
         context: {
@@ -788,35 +778,23 @@ If any task failed or was cancelled, clearly say so and do not claim full comple
           agentType: run.agentType,
           phase: "synthesis",
         },
-        messages: [
-          {
-            role: "system",
-          content:
-            "You are a helpful assistant summarizing task execution results accurately.",
-          },
-          {
-            role: "user",
-            content: synthesisPrompt,
-          },
-        ],
-        model: run.input.modelId,
-        providerId: run.input.providerId,
+        messages,
+        system: buildConversationalSystemPrompt(),
+        model: input.modelId,
+        providerId: input.providerId,
         temperature: 0.7,
+        timeoutMs: 15_000,
       });
-
-      return result.text;
+      return this.completeRunWithAssistantMessage(run, result.text);
     } catch (error) {
-      if (
-        error instanceof BudgetExceededError ||
-        error instanceof SessionBudgetExceededError
-      ) {
-        console.error(`[run/engine] Budget exceeded for run ${run.id}`);
-        const completedTasks = tasks.filter((task) => task.status === "DONE").length;
-        return `## Summary\n\nBudget limit reached for this run.\n\nCompleted ${completedTasks}/${tasks.length} tasks for your request.\n\n${taskResults}`;
+      if (error instanceof LLMTimeoutError && error.phase === "synthesis") {
+        return this.completeRunWithRecoveredAssistantMessage(
+          run,
+          "The model took too long to respond. Please retry, or switch to a faster model for quick chat turns.",
+          error.message,
+        );
       }
-      console.error("[run/engine] Synthesis failed:", error);
-      const completedTasks = tasks.filter((task) => task.status === "DONE").length;
-      return `## Summary\n\nCompleted ${completedTasks}/${tasks.length} tasks for your request.\n\n${taskResults}`;
+      throw error;
     }
   }
 
@@ -884,10 +862,78 @@ If any task failed or was cancelled, clearly say so and do not claim full comple
     return this.createStreamResponse(sanitizedText);
   }
 
+  private async completeRunWithRecoveredAssistantMessage(
+    run: Run,
+    text: string,
+    technicalError?: string,
+  ): Promise<Response> {
+    const sanitizedText = sanitizeUserFacingOutput(text);
+    recordLifecycleStep(run, "SYNTHESIS", "planning_recovery");
+
+    await this.safeMemoryOperation(() =>
+      this.memoryCoordinator.extractAndPersist({
+        runId: run.id,
+        sessionId: run.sessionId,
+        source: "synthesis",
+        content: sanitizedText,
+        phase: "synthesis",
+      }),
+    );
+
+    await this.safeMemoryOperation(() =>
+      this.persistConversationMessages(
+        run.id,
+        run.sessionId,
+        [{ role: "assistant", content: sanitizedText }],
+        "assistant",
+      ),
+    );
+
+    transitionRunToCompleted(run, run.id);
+    if (technicalError) {
+      run.metadata.error = technicalError;
+    }
+    recordLifecycleStep(run, "TERMINAL", "status=COMPLETED:recoverable");
+    recordOrchestrationTerminal(run);
+    run.output = { content: sanitizedText };
+    await this.runRepo.update(run);
+
+    console.log(
+      `[run/engine] Completed run ${run.id} with recoverable error`,
+    );
+    return this.createStreamResponse(sanitizedText);
+  }
+
+  private async tryHandlePlanningError(
+    run: Run,
+    runId: string,
+    error: unknown,
+  ): Promise<Response | null> {
+    const technicalMessage =
+      error instanceof Error ? error.message : "Planning phase failed";
+    const userMessage = buildPlanningRecoveryMessage(error);
+    if (!userMessage) {
+      return null;
+    }
+
+    console.log(
+      `[run/engine] Recoverable planning error for run ${runId}: ${technicalMessage}`,
+    );
+
+    return this.completeRunWithRecoveredAssistantMessage(
+      run,
+      userMessage,
+      technicalMessage,
+    );
+  }
+
   private async processPermissionDirectives(
     prompt: string,
   ): Promise<string | null> {
-    return processPermissionDirectives(prompt, this.permissionApprovalStore);
+    return processPermissionDirectivesPolicy(
+      prompt,
+      this.permissionApprovalStore,
+    );
   }
 
   private async getPermissionPolicyMessage(

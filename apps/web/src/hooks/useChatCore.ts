@@ -1,6 +1,7 @@
 import { useChat as useVercelChat, type Message } from "@ai-sdk/react";
-import { useCallback, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useMemo, useRef, useState, type FormEvent } from "react";
 import { chatStreamPath, getBrainHttpBase } from "../lib/platform-endpoints.js";
+import { dispatchRunSummaryRefresh } from "../lib/run-summary-events.js";
 import { useProviderStore } from "./useProviderStore.js";
 import type { ChatDebugEvent } from "../types/chat-debug.js";
 import { SessionStateService } from "../services/SessionStateService";
@@ -54,6 +55,10 @@ export function useChatCore(
   );
   const [error, setError] = useState<string | null>(null);
   const [debugEvents, setDebugEvents] = useState<ChatDebugEvent[]>([]);
+  const lastLoggedStreamErrorRef = useRef<{
+    message: string;
+    timestamp: number;
+  } | null>(null);
   const runId = externalRunId || internalRunId;
   const apiPath = chatStreamPath();
 
@@ -99,6 +104,7 @@ export function useChatCore(
     initialMessages: [],
     id: instanceKey,
     onResponse: (response: Response) => {
+      dispatchRunSummaryRefresh(runId);
       pushDebugEvent({
         phase: "response",
         summary: `HTTP ${response.status} ${response.statusText}`,
@@ -110,6 +116,7 @@ export function useChatCore(
       });
     },
     onFinish: (message, details) => {
+      dispatchRunSummaryRefresh(runId);
       pushDebugEvent({
         phase: "finish",
         summary: "Stream finished",
@@ -120,6 +127,7 @@ export function useChatCore(
       });
     },
     onError: (error: Error) => {
+      dispatchRunSummaryRefresh(runId);
       const message = normalizeChatErrorMessage(error);
       setError(message);
       pushDebugEvent({
@@ -130,7 +138,13 @@ export function useChatCore(
           normalizedError: message,
         },
       });
-      console.error("🧬 [Shadowbox] Chat Stream Error:", message);
+      if (shouldLogStreamError(lastLoggedStreamErrorRef.current, message)) {
+        console.error("🧬 [Shadowbox] Chat Stream Error:", message);
+        lastLoggedStreamErrorRef.current = {
+          message,
+          timestamp: Date.now(),
+        };
+      }
     },
   });
 
@@ -185,6 +199,7 @@ export function useChatCore(
           },
         },
       });
+      dispatchRunSummaryRefresh(runId);
 
       await append(
         { role: "user", content },
@@ -364,6 +379,21 @@ function mapKnownChatErrorMessage(
     }
     return "Axis free-tier limit reached. Connect a BYOK provider or retry after reset.";
   }
+  if (payload?.code === "PLAN_SCHEMA_MISMATCH") {
+    return "The model could not build a valid structured plan for this request. Retry with a concrete file path or command, or switch to a stronger model.";
+  }
+  if (payload?.code === "PLAN_GENERATION_TIMEOUT") {
+    return "Planning timed out before executable tasks were generated. Retry with a narrower request.";
+  }
+  if (payload?.code === "PROVIDER_UNAVAILABLE") {
+    return "Provider request failed after retries. Check provider health/model availability or switch providers and retry.";
+  }
+  if (payload?.code === "RATE_LIMITED") {
+    return "Provider rate limit reached. Retry after cooldown or switch to another connected provider.";
+  }
+  if (payload?.code === "AUTH_FAILED") {
+    return "Provider authentication failed. Reconnect credentials in Provider Settings and retry.";
+  }
   if (containsMissingDefaultKeyError(message)) {
     return "No explicit provider configuration is available. Connect a provider key in Settings. If you are in private/incognito mode, persistence may be reset.";
   }
@@ -372,6 +402,12 @@ function mapKnownChatErrorMessage(
   }
   if (containsToolChoiceUnsupportedError(message)) {
     return "The selected model does not support required tool-calling/structured planning. Choose a different model.";
+  }
+  if (containsProviderRetryFailure(message)) {
+    return "Provider request failed after retries. Check provider health/model availability or switch providers and retry.";
+  }
+  if (containsTransientNetworkError(message)) {
+    return "Temporary network/service issue while streaming chat. Please retry in a few seconds.";
   }
   return null;
 }
@@ -391,6 +427,35 @@ function containsOpenRouterKeyLimitError(message: string): boolean {
 
 function containsToolChoiceUnsupportedError(message: string): boolean {
   return message.includes("support the provided 'tool_choice' value");
+}
+
+function containsTransientNetworkError(message: string): boolean {
+  return (
+    message.includes("Failed to fetch") ||
+    message.includes("NetworkError") ||
+    message.includes("Network connection lost") ||
+    message.includes("Service Unavailable")
+  );
+}
+
+function containsProviderRetryFailure(message: string): boolean {
+  return (
+    message.includes("Failed after 3 attempts") ||
+    message.includes("Provider returned error")
+  );
+}
+
+function shouldLogStreamError(
+  previous: { message: string; timestamp: number } | null,
+  message: string,
+): boolean {
+  if (!previous) {
+    return true;
+  }
+  if (previous.message !== message) {
+    return true;
+  }
+  return Date.now() - previous.timestamp >= 30_000;
 }
 
 function resolveRuntimeHarnessId(sessionId: string): RuntimeHarnessId {

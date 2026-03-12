@@ -75,7 +75,7 @@ export function ChangesPanel({
           newSet.delete(path);
         }
         setStagedFiles(newSet);
-        await refetch();
+        await refetch(true);
       }
     } catch (err) {
       console.error("[ChangesPanel] Toggle staged error:", err);
@@ -90,7 +90,7 @@ export function ChangesPanel({
 
     await commit({ message: commitMessage });
     setCommitMessage("");
-    await refetch();
+    await refetch(true);
   };
 
   if (statusLoading && !status) {

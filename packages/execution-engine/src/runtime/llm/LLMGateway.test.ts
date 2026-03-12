@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import type { CoreMessage } from "ai";
-import { LLMGateway, ProviderCapabilityError } from "./LLMGateway.js";
+import { z } from "zod";
+import {
+  LLMGateway,
+  LLMTimeoutError,
+  ProviderCapabilityError,
+} from "./LLMGateway.js";
 import type { LLMGatewayDependencies } from "./LLMGateway.js";
 import type { ProviderCapabilityResolver } from "./types.js";
 
@@ -92,6 +97,36 @@ describe("LLMGateway provider capabilities", () => {
     expect(deps.aiService.generateText).toHaveBeenCalledTimes(1);
   });
 
+  it("uses explicit providerId when estimating usage for preflight", async () => {
+    const deps = createDependencies({
+      getCapabilities: () => ({
+        streaming: true,
+        tools: true,
+        structuredOutputs: true,
+        jsonMode: true,
+      }),
+      isModelAllowed: () => true,
+    });
+    const gateway = new LLMGateway(deps);
+
+    await gateway.generateText({
+      ...baseRequest,
+      providerId: "axis",
+      model: "z-ai/glm-4.5-air:free",
+    });
+
+    expect(deps.budgetPolicy.preflight).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runId: "run-1",
+        sessionId: "session-1",
+      }),
+      expect.objectContaining({
+        provider: "axis",
+        model: "z-ai/glm-4.5-air:free",
+      }),
+    );
+  });
+
   it("propagates normalized tool calls when provider returns tool calls", async () => {
     const deps = createDependencies({
       getCapabilities: () => ({
@@ -160,6 +195,56 @@ describe("LLMGateway provider capabilities", () => {
     ).rejects.toMatchObject({
       code: "TOOLS_NOT_SUPPORTED",
     });
+  });
+
+  it("fails fast for structured calls that exceed timeout", async () => {
+    const deps = createDependencies({
+      getCapabilities: () => ({
+        streaming: true,
+        tools: true,
+        structuredOutputs: true,
+        jsonMode: true,
+      }),
+      isModelAllowed: () => true,
+    });
+    deps.aiService.generateStructured.mockImplementationOnce(
+      () => new Promise(() => {}),
+    );
+    const gateway = new LLMGateway(deps);
+
+    await expect(
+      gateway.generateStructured({
+        ...baseRequest,
+        schema: z.object({ ok: z.boolean() }),
+        timeoutMs: 5,
+      }),
+    ).rejects.toBeInstanceOf(LLMTimeoutError);
+  });
+
+  it("persists fallback structured usage when timeout occurs", async () => {
+    const deps = createDependencies({
+      getCapabilities: () => ({
+        streaming: true,
+        tools: true,
+        structuredOutputs: true,
+        jsonMode: true,
+      }),
+      isModelAllowed: () => true,
+    });
+    deps.aiService.generateStructured.mockImplementationOnce(
+      () => new Promise(() => {}),
+    );
+    const gateway = new LLMGateway(deps);
+
+    await expect(
+      gateway.generateStructured({
+        ...baseRequest,
+        schema: z.object({ ok: z.boolean() }),
+        timeoutMs: 5,
+      }),
+    ).rejects.toBeInstanceOf(LLMTimeoutError);
+
+    expect(deps.costLedger.append).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -10,6 +10,7 @@ import type {
 } from "../providers";
 import { createDefaultAdapter } from "./ProviderAdapterFactory";
 import { ValidationError } from "../../domain/errors";
+import { logWarnRateLimited } from "../../lib/rate-limited-log";
 
 /**
  * DefaultAdapterService - SRP: Create and manage default adapter with error handling
@@ -20,10 +21,16 @@ export class DefaultAdapterService {
     try {
       return createDefaultAdapter(env);
     } catch (error) {
-      console.warn(
-        "[ai/adapter] default adapter unavailable; using error adapter",
-        error,
-      );
+      if (!shouldSuppressMissingDefaultAdapterWarning(env)) {
+        const errorKey =
+          error instanceof Error ? error.message : "unknown-default-adapter-error";
+        logWarnRateLimited(
+          `ai/adapter:default-unavailable:${errorKey}`,
+          "[ai/adapter] default adapter unavailable; using error adapter",
+          undefined,
+          5 * 60_000,
+        );
+      }
       return new MissingProviderConfigAdapter(env);
     }
   }
@@ -59,4 +66,8 @@ class MissingProviderConfigAdapter implements ProviderAdapter {
   ): AsyncGenerator<StreamChunk, GenerationResult, unknown> {
     throw this.configurationError;
   }
+}
+
+function shouldSuppressMissingDefaultAdapterWarning(env: Env): boolean {
+  return Boolean(env.AXIS_OPENROUTER_API_KEY?.trim());
 }

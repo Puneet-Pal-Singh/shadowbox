@@ -27,7 +27,9 @@ import {
 import { resolveSelectionWithPreferences } from "./ai/preference-selection";
 import { DefaultAdapterService } from "./ai/DefaultAdapterService";
 import { inferUsageProvider } from "./ai/usage-provider";
+import { consumeAxisQuotaIfNeeded } from "./ai/axis-quota";
 import { AXIS_PROVIDER_ID } from "./providers/axis";
+import { normalizeFinishCallback } from "./ai/normalize-finish-callback";
 
 export class AIService {
   private adapter: ProviderAdapter;
@@ -86,21 +88,32 @@ export class AIService {
       resolveSelection: (selectedProviderId, selectedModelId) =>
         this.resolveModelSelection(selectedProviderId, selectedModelId),
     });
-    await this.enforceAxisQuota(selection.providerId);
+    await consumeAxisQuotaIfNeeded(selection.providerId, this.providerConfigService);
     const selectedAdapter = await selectAdapter(
       selection,
       this.adapter,
       this.env,
       this.providerConfigService,
     );
-
-    return generateText(selectedAdapter, {
+    const result = await generateText(selectedAdapter, {
       messages,
       system,
       tools,
       temperature,
       model: selection.model,
     });
+
+    if (providerId && result.usage.provider !== providerId) {
+      return {
+        ...result,
+        usage: {
+          ...result.usage,
+          provider: providerId,
+        },
+      };
+    }
+
+    return result;
   }
 
   async generateStructured<T>({
@@ -123,13 +136,14 @@ export class AIService {
       resolveSelection: (selectedProviderId, selectedModelId) =>
         this.resolveModelSelection(selectedProviderId, selectedModelId),
     });
-    await this.enforceAxisQuota(selection.providerId);
+    await consumeAxisQuotaIfNeeded(selection.providerId, this.providerConfigService);
 
-    const overrideApiKey = selection.providerId
-      ? ((await this.providerConfigService?.getApiKey(
-          selection.providerId,
-        )) ?? undefined)
-      : undefined;
+    const overrideApiKey =
+      selection.providerId && selection.providerId !== AXIS_PROVIDER_ID
+        ? ((await this.providerConfigService?.getApiKey(
+            selection.providerId,
+          )) ?? undefined)
+        : undefined;
 
     const sdkModelConfig = getSDKModelConfig(
       selection.model,
@@ -203,13 +217,15 @@ export class AIService {
       resolveSelection: (selectedProviderId, selectedModelId) =>
         this.resolveModelSelection(selectedProviderId, selectedModelId),
     });
-    await this.enforceAxisQuota(selection.providerId);
+    await consumeAxisQuotaIfNeeded(selection.providerId, this.providerConfigService);
     const selectedAdapter = await selectAdapter(
       selection,
       this.adapter,
       this.env,
       this.providerConfigService,
     );
+
+    const normalizedOnFinish = normalizeFinishCallback(providerId, onFinish);
 
     return createChatStream(
       selectedAdapter,
@@ -221,7 +237,7 @@ export class AIService {
         model: selection.model,
       },
       {
-        onFinish,
+        onFinish: normalizedOnFinish,
         onChunk,
       },
     );
@@ -237,25 +253,17 @@ export class AIService {
     if (provider === "anthropic-native") {
       const client = createAnthropic({
         apiKey,
-        baseURL, // Support custom base URL for proxies/gateways
+        baseURL,
       });
       return client(model);
     }
 
-    // OpenAI-compatible providers (openai, openrouter, groq, litellm)
     const client = createOpenAI({
       baseURL,
       apiKey,
     });
 
     return client(model);
-  }
-
-  private async enforceAxisQuota(providerId?: string): Promise<void> {
-    if (providerId !== AXIS_PROVIDER_ID || !this.providerConfigService) {
-      return;
-    }
-    await this.providerConfigService.consumeAxisQuota();
   }
 }
 

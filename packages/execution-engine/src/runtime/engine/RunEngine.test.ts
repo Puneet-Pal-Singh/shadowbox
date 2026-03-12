@@ -1,10 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
 import { RunEngine, type RunEngineDependencies } from "./RunEngine.js";
-import {
-  buildConversationalSystemPrompt,
-  getActionClarificationMessage,
-  shouldBypassPlanning,
-} from "./ConversationPolicy.js";
 import { sanitizeUserFacingOutput } from "./RunOutputSanitizer.js";
 import type { PlannedTask } from "../planner/PlanSchema.js";
 import type {
@@ -42,40 +37,19 @@ describe("RunEngine", () => {
     expect(task.input.command).toBe("node --version");
   });
 
-  it("bypasses planning for conversational prompts with filler lead-ins", () => {
-    expect(shouldBypassPlanning("so? what is your name?")).toBe(true);
-    expect(shouldBypassPlanning("what can you do?")).toBe(true);
-    expect(shouldBypassPlanning("how?")).toBe(true);
-    expect(shouldBypassPlanning("great")).toBe(true);
-    expect(shouldBypassPlanning("sounds good")).toBe(true);
-    expect(shouldBypassPlanning("check README file")).toBe(false);
-    expect(shouldBypassPlanning("read this readme")).toBe(false);
-    expect(shouldBypassPlanning("fix this")).toBe(false);
-  });
-
-  it("uses model-generated conversational responses for greeting prompts", async () => {
-    const llmGateway = createMockLLMGateway();
-    const runEngine = createRunEngine({
-      llmGateway,
-    });
-
-    const response = await runEngine.execute(
-      {
-        agentType: "coding",
-        prompt: "hey",
-        sessionId: "session-1",
-      },
-      [{ role: "user", content: "hey" }],
-      {},
-    );
-
-    expect(response.status).toBe(200);
-    expect(await response.text()).toBe("ok");
-  });
-
-  it("keeps tools disabled in conversational bypass path", async () => {
+  it("uses model-selected chat mode for greeting prompts", async () => {
     const generateText = vi.fn(async () => ({
-      text: "conversational response",
+      text: "ok",
+      usage: {
+        provider: "mock",
+        model: "mock-model",
+        promptTokens: 1,
+        completionTokens: 1,
+        totalTokens: 2,
+      },
+    }));
+    const generateStructured = vi.fn(async () => ({
+      object: { mode: "chat", rationale: "simple greeting" },
       usage: {
         provider: "mock",
         model: "mock-model",
@@ -86,16 +60,7 @@ describe("RunEngine", () => {
     }));
     const llmGateway: ILLMGateway = {
       generateText,
-      generateStructured: async () => ({
-        object: { tasks: [], metadata: { estimatedSteps: 1 } },
-        usage: {
-          provider: "mock",
-          model: "mock-model",
-          promptTokens: 1,
-          completionTokens: 1,
-          totalTokens: 2,
-        },
-      }),
+      generateStructured,
       generateStream: async () =>
         new ReadableStream<Uint8Array>({
           start(controller) {
@@ -116,13 +81,72 @@ describe("RunEngine", () => {
     );
 
     expect(response.status).toBe(200);
+    expect(await response.text()).toBe("ok");
+    expect(generateStructured).toHaveBeenCalledTimes(1);
     expect(generateText).toHaveBeenCalledTimes(1);
-    const req = generateText.mock.calls[0]?.[0] as {
-      tools?: unknown;
-      system?: string;
+    const modeRequest = generateStructured.mock.calls[0]?.[0] as {
+      context?: { phase?: string };
     };
-    expect(req.tools).toBeUndefined();
-    expect(req.system).toContain("conversational chat mode");
+    expect(modeRequest.context?.phase).toBe("planning");
+  });
+
+  it("returns a user-facing recovery message when structured planning output is invalid", async () => {
+    const llmGateway: ILLMGateway = {
+      generateText: async () => ({
+        text: "unused",
+        usage: {
+          provider: "mock",
+          model: "mock-model",
+          promptTokens: 1,
+          completionTokens: 1,
+          totalTokens: 2,
+        },
+      }),
+      generateStructured: vi
+        .fn()
+        .mockResolvedValueOnce({
+          object: { mode: "action", rationale: "needs tools" },
+          usage: {
+            provider: "mock",
+            model: "mock-model",
+            promptTokens: 1,
+            completionTokens: 1,
+            totalTokens: 2,
+          },
+        })
+        .mockRejectedValueOnce(
+          new Error("No object generated: response did not match schema."),
+        ),
+      generateStream: async () =>
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.close();
+          },
+        }),
+    };
+    const runEngine = createRunEngine({ llmGateway });
+
+    const response = await runEngine.execute(
+      {
+        agentType: "coding",
+        prompt: "read my repo and summarize",
+        sessionId: "session-1",
+      },
+      [{ role: "user", content: "read my repo and summarize" }],
+      {},
+    );
+
+    expect(response.status).toBe(200);
+    const output = await response.text();
+    expect(output).toContain("couldn't generate a valid structured plan");
+
+    const persisted = await (runEngine as unknown as {
+      getRun(runId: string): Promise<Run | null>;
+    }).getRun(TEST_RUN_ID);
+    expect(persisted?.status).toBe("COMPLETED");
+    expect(persisted?.metadata.error).toContain(
+      "Planner response did not match required schema",
+    );
   });
 
   it("executes active agentic loop path when feature flag is enabled", async () => {
@@ -437,36 +461,6 @@ describe("RunEngine", () => {
       "The requested file was not found in the current workspace.",
     );
     expect(sanitized).toContain("[internal-url]");
-  });
-
-  it("asks for clarification on vague file-check prompts", () => {
-    expect(getActionClarificationMessage("can you check my file?")).toContain(
-      "select a repository first",
-    );
-    expect(
-      getActionClarificationMessage("can you check my file?", {
-        owner: "sourcegraph",
-        repo: "shadowbox",
-      }),
-    ).toBeNull();
-    expect(
-      getActionClarificationMessage("check README.md", {
-        owner: "sourcegraph",
-        repo: "shadowbox",
-      }),
-    ).toBeNull();
-    expect(
-      getActionClarificationMessage("check this file", {
-        owner: "sourcegraph",
-        repo: "shadowbox",
-      }),
-    ).toBeNull();
-    expect(
-      getActionClarificationMessage("check my repo?", {
-        owner: "sourcegraph",
-        repo: "shadowbox",
-      }),
-    ).toBeNull();
   });
 
   it("marks CREATED runs as FAILED when execution error handling runs", async () => {
@@ -994,13 +988,6 @@ describe("RunEngine", () => {
       lifecycles.every((steps) => steps?.includes("RUN_CREATED")),
     ).toBe(true);
     expect(wakeups).toEqual([1, 1, 1]);
-  });
-
-  it("builds conversational system prompt with direct-answer style guidance", () => {
-    const prompt = buildConversationalSystemPrompt();
-    expect(prompt).toContain("Answer the user directly in the first sentence");
-    expect(prompt).toContain("Avoid robotic report phrasing");
-    expect(prompt).toContain("Do not fabricate tool execution");
   });
 
   it("returns a clear auth message when workspace bootstrap needs authorization", async () => {

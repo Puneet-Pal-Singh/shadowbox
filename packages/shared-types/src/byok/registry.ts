@@ -129,7 +129,7 @@ export const BUILTIN_PROVIDERS: Record<string, ProviderRegistryEntry> = {
     },
     adapterFamily: "openai-compatible",
     modelSource: "static",
-    defaultModelId: "openai/gpt-oss-120b:free",
+    defaultModelId: "z-ai/glm-4.5-air:free",
   },
 
   openai: {

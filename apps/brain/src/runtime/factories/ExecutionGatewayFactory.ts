@@ -50,6 +50,7 @@ export function buildRuntimeDependencies(
       userId: payload.userId,
       workspaceId: payload.workspaceId,
     },
+    payload.input.providerId,
     budgetingComponents,
   );
 

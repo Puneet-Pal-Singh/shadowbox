@@ -43,6 +43,7 @@ const GitPayloadSchema = z.object({
   runId: z.string().optional(),
   url: z.string().optional(),
   token: z.string().optional(),
+  replaceExisting: z.boolean().optional(),
   message: z.string().optional(),
   branch: z.string().optional(),
   path: z.string().optional(),
@@ -54,6 +55,8 @@ const GitPayloadSchema = z.object({
 type GitPayload = z.infer<typeof GitPayloadSchema>;
 
 const SAFE_GIT_REF_REGEX = /^[A-Za-z0-9._/-]{1,200}$/;
+const CLONE_DESTINATION_NOT_EMPTY_PATTERN =
+  /destination path .* already exists and is not an empty directory/i;
 
 export class GitPlugin implements IPlugin {
   name = "git";
@@ -111,6 +114,7 @@ export class GitPlugin implements IPlugin {
             worktree,
             parsed.url,
             parsed.token,
+            parsed.replaceExisting,
             onLog,
           );
         case "git_pull":
@@ -163,6 +167,7 @@ export class GitPlugin implements IPlugin {
     worktree: string,
     url: string | undefined,
     token: string | undefined,
+    replaceExisting: boolean | undefined,
     onLog?: LogCallback,
   ): Promise<PluginResult> {
     const safeUrl = validateCloneUrl(url);
@@ -172,12 +177,55 @@ export class GitPlugin implements IPlugin {
       onLog(`[git/plugin] Cloning repository into ${worktree}\n`);
     }
 
-    const result = await runSafeCommand(
+    const result = await this.runCloneCommand(
+      sandbox,
+      authArgs,
+      safeUrl,
+      worktree,
+    );
+    if (
+      result.exitCode !== 0 &&
+      replaceExisting === true &&
+      CLONE_DESTINATION_NOT_EMPTY_PATTERN.test(result.stderr)
+    ) {
+      const clearResult = await runSafeCommand(
+        sandbox,
+        { command: "rm", args: ["-rf", worktree] },
+        ["rm"],
+      );
+      if (clearResult.exitCode !== 0) {
+        return {
+          success: false,
+          error:
+            clearResult.stderr || "Failed to clear existing workspace before clone.",
+        };
+      }
+      const retryResult = await this.runCloneCommand(
+        sandbox,
+        authArgs,
+        safeUrl,
+        worktree,
+      );
+      return buildGitResult(retryResult, "Repository cloned successfully");
+    }
+    return buildGitResult(result, "Repository cloned successfully");
+  }
+
+  private async runCloneCommand(
+    sandbox: Sandbox,
+    authArgs: string[],
+    safeUrl: string,
+    worktree: string,
+  ): Promise<{
+    exitCode: number;
+    stdout: string;
+    stderr: string;
+  }> {
+    return await runSafeCommand(
       sandbox,
       { command: "git", args: [...authArgs, "clone", safeUrl, worktree] },
       ["git"],
     );
-    return buildGitResult(result, "Repository cloned successfully");
   }
 
   private async getStatus(

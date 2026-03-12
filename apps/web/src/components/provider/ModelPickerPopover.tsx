@@ -77,11 +77,99 @@ interface ProviderGroup {
   models: ProviderModelOption[];
 }
 
+interface EffectiveSelection {
+  providerId: string | null;
+  modelId: string | null;
+}
+
 function formatProviderDisplayName(
   providerId: string,
   displayName: string
 ): string {
   return providerId === "axis" ? "Axis (Free)" : displayName;
+}
+
+function resolveEffectiveSelection(
+  catalog: ProviderRegistryEntry[],
+  providerModels: Record<string, ProviderModelOption[]>,
+  selectedProviderId: string | null,
+  selectedModelId: string | null
+): EffectiveSelection {
+  if (selectedProviderId && selectedModelId) {
+    if (
+      isValidExplicitSelection(
+        providerModels,
+        selectedProviderId,
+        selectedModelId
+      )
+    ) {
+      return { providerId: selectedProviderId, modelId: selectedModelId };
+    }
+    return resolveAxisDefaultSelection(catalog, providerModels);
+  }
+
+  if (
+    isValidExplicitSelection(
+      providerModels,
+      selectedProviderId,
+      selectedModelId
+    )
+  ) {
+    return { providerId: selectedProviderId, modelId: selectedModelId };
+  }
+
+  if (selectedProviderId && hasProvider(catalog, selectedProviderId)) {
+    return {
+      providerId: selectedProviderId,
+      modelId: null,
+    };
+  }
+
+  return resolveAxisDefaultSelection(catalog, providerModels);
+}
+
+function isValidExplicitSelection(
+  providerModels: Record<string, ProviderModelOption[]>,
+  selectedProviderId: string | null,
+  selectedModelId: string | null
+): boolean {
+  if (!selectedProviderId || !selectedModelId) {
+    return false;
+  }
+  const models = providerModels[selectedProviderId] ?? [];
+  return models.some((model) => model.id === selectedModelId);
+}
+
+function hasProvider(
+  catalog: ProviderRegistryEntry[],
+  providerId: string
+): boolean {
+  return catalog.some((entry) => entry.providerId === providerId);
+}
+
+function resolveAxisDefaultSelection(
+  catalog: ProviderRegistryEntry[],
+  providerModels: Record<string, ProviderModelOption[]>
+): EffectiveSelection {
+  const axisProvider = catalog.find((entry) => entry.providerId === "axis");
+  const axisModels = providerModels.axis ?? [];
+  if (!axisProvider || axisModels.length === 0) {
+    return { providerId: null, modelId: null };
+  }
+
+  const defaultModelId = axisProvider.defaultModelId ?? axisModels[0]?.id;
+  if (!defaultModelId) {
+    return { providerId: null, modelId: null };
+  }
+  const matchedModel = axisModels.find((model) => model.id === defaultModelId);
+  const effectiveModelId = matchedModel?.id ?? axisModels[0]?.id ?? null;
+  if (!effectiveModelId) {
+    return { providerId: null, modelId: null };
+  }
+  return {
+    providerId: "axis",
+    modelId: effectiveModelId,
+  };
 }
 
 /**
@@ -118,6 +206,16 @@ export function ModelPickerPopover({
   const popoverRef = useRef<HTMLDivElement>(null);
   const triggerButtonRef = useRef<HTMLButtonElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const effectiveSelection = useMemo(
+    () =>
+      resolveEffectiveSelection(
+        catalog,
+        providerModels,
+        selectedProviderId,
+        selectedModelId
+      ),
+    [catalog, providerModels, selectedProviderId, selectedModelId]
+  );
 
   // Build provider groups from catalog and models
   const providerGroups = useMemo((): ProviderGroup[] => {
@@ -169,13 +267,15 @@ export function ModelPickerPopover({
 
   // Get currently selected model label
   const selectedModelLabel = useMemo((): string => {
-    if (!selectedProviderId || !selectedModelId) {
+    if (!effectiveSelection.providerId || !effectiveSelection.modelId) {
       return "Select Model";
     }
 
-    const provider = catalog.find((p) => p.providerId === selectedProviderId);
-    const model = providerModels[selectedProviderId]?.find(
-      (m) => m.id === selectedModelId
+    const provider = catalog.find(
+      (p) => p.providerId === effectiveSelection.providerId
+    );
+    const model = providerModels[effectiveSelection.providerId]?.find(
+      (m) => m.id === effectiveSelection.modelId
     );
 
     if (!provider || !model) {
@@ -183,7 +283,7 @@ export function ModelPickerPopover({
     }
 
     return `${formatProviderDisplayName(provider.providerId, provider.displayName)}: ${model.name}`;
-  }, [selectedProviderId, selectedModelId, catalog, providerModels]);
+  }, [effectiveSelection, catalog, providerModels]);
 
   // Handle model selection
   const handleSelectModel = async (
@@ -495,7 +595,7 @@ export function ModelPickerPopover({
                   <div className="border-b border-neutral-800/80">
                     <div className="sticky top-0 bg-neutral-900/95 px-3 py-2">
                       <h3 className="text-[10px] font-semibold text-neutral-500 uppercase tracking-wide">
-                        Included default models
+                        Shadowbox Axis
                       </h3>
                     </div>
                     <div className="py-1">
@@ -511,8 +611,8 @@ export function ModelPickerPopover({
                             w-full px-3 py-2 text-left text-xs
                             transition-colors disabled:opacity-50
                             ${
-                              selectedProviderId === axisDefaultGroup.providerId &&
-                              selectedModelId === model.id
+                              effectiveSelection.providerId === axisDefaultGroup.providerId &&
+                              effectiveSelection.modelId === model.id
                                 ? "bg-neutral-800 text-neutral-100"
                                 : "text-neutral-400 hover:bg-neutral-800/50"
                             }
@@ -521,8 +621,8 @@ export function ModelPickerPopover({
                         >
                           <div className="flex min-w-0 items-center gap-2">
                             <p className="truncate font-medium">{model.name}</p>
-                            {selectedProviderId === axisDefaultGroup.providerId &&
-                              selectedModelId === model.id && (
+                            {effectiveSelection.providerId === axisDefaultGroup.providerId &&
+                              effectiveSelection.modelId === model.id && (
                                 <span className="ml-auto text-neutral-200">✓</span>
                               )}
                           </div>
@@ -554,8 +654,8 @@ export function ModelPickerPopover({
                               w-full px-3 py-2 text-left text-xs
                               transition-colors disabled:opacity-50
                               ${
-                                selectedProviderId === group.providerId &&
-                                selectedModelId === model.id
+                                effectiveSelection.providerId === group.providerId &&
+                                effectiveSelection.modelId === model.id
                                   ? "bg-neutral-800 text-neutral-100"
                                   : "text-neutral-400 hover:bg-neutral-800/50"
                               }
@@ -564,8 +664,8 @@ export function ModelPickerPopover({
                           >
                             <div className="flex min-w-0 items-center gap-2">
                               <p className="truncate font-medium">{model.name}</p>
-                              {selectedProviderId === group.providerId &&
-                                selectedModelId === model.id && (
+                              {effectiveSelection.providerId === group.providerId &&
+                                effectiveSelection.modelId === model.id && (
                                   <span className="ml-auto text-neutral-200">✓</span>
                                 )}
                             </div>

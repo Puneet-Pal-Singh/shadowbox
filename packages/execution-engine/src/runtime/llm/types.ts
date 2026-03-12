@@ -21,6 +21,7 @@ export interface LLMTextRequest {
   temperature?: number;
   system?: string;
   tools?: Record<string, CoreTool>;
+  timeoutMs?: number;
 }
 
 export interface LLMStructuredRequest<T> {
@@ -30,6 +31,7 @@ export interface LLMStructuredRequest<T> {
   messages: CoreMessage[];
   schema: ZodSchema<T>;
   temperature?: number;
+  timeoutMs?: number;
 }
 
 export interface LLMTextResponse {

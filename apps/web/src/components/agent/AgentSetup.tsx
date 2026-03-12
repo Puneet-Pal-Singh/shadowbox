@@ -178,7 +178,7 @@ export function AgentSetup({
     const owner = repo?.owner?.login?.trim();
     const name = repo?.name?.trim();
     const targetBranch = (branch || repo?.default_branch || "main").trim();
-    if (!runId || !sessionId || !owner || !name) {
+    if (!isGitHubLoaded || !runId || !sessionId || !owner || !name) {
       return;
     }
 
@@ -192,6 +192,7 @@ export function AgentSetup({
     workspaceBootstrapInFlightRef.current = bootstrapKey;
 
     const bootstrap = async (): Promise<void> => {
+      let bootstrapReady = false;
       try {
         const result = await bootstrapGitWorkspace({
           runId,
@@ -202,12 +203,19 @@ export function AgentSetup({
           repositoryBaseUrl: repo?.html_url,
         });
         if (result.status === "ready") {
+          bootstrapReady = true;
           workspaceBootstrapKeyRef.current = bootstrapKey;
         }
         if (result.status !== "ready" && result.message) {
-          console.warn(
-            `[agent-setup/git-bootstrap] ${result.status}: ${result.message}`,
-          );
+          if (result.status === "sync-failed") {
+            console.debug(
+              `[agent-setup/git-bootstrap] ${result.status}: ${result.message}`,
+            );
+          } else {
+            console.warn(
+              `[agent-setup/git-bootstrap] ${result.status}: ${result.message}`,
+            );
+          }
         }
       } catch (error) {
         console.warn("[agent-setup/git-bootstrap] failed", error);
@@ -215,7 +223,9 @@ export function AgentSetup({
         if (workspaceBootstrapInFlightRef.current === bootstrapKey) {
           workspaceBootstrapInFlightRef.current = null;
         }
-        await refetchGitStatus();
+        if (bootstrapReady) {
+          await refetchGitStatus();
+        }
       }
     };
 
@@ -226,6 +236,7 @@ export function AgentSetup({
     repo?.html_url,
     repo?.name,
     repo?.owner?.login,
+    isGitHubLoaded,
     refetchGitStatus,
     runId,
     sessionId,

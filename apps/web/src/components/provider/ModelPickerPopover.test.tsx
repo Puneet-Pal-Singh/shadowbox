@@ -22,7 +22,7 @@ describe("ModelPickerPopover", () => {
         structuredOutputs: true,
       },
       modelSource: "static",
-      defaultModelId: "openai/gpt-oss-120b:free",
+      defaultModelId: "z-ai/glm-4.5-air:free",
     },
     {
       providerId: "openai",
@@ -57,10 +57,17 @@ describe("ModelPickerPopover", () => {
   const mockModels: Record<string, ProviderModelOption[]> = {
     axis: [
       {
-        id: "openai/gpt-oss-120b:free",
-        name: "openai/gpt-oss-120b:free",
+        id: "z-ai/glm-4.5-air:free",
+        name: "z-ai/glm-4.5-air:free",
       },
-      { id: "z-ai/glm-4.5-air:free", name: "z-ai/glm-4.5-air:free" },
+      {
+        id: "nvidia/nemotron-3-nano-30b-a3b:free",
+        name: "nvidia/nemotron-3-nano-30b-a3b:free",
+      },
+      {
+        id: "nvidia/nemotron-3-super-120b-a12b:free",
+        name: "nvidia/nemotron-3-super-120b-a12b:free",
+      },
     ],
     openai: [
       { id: "gpt-4", name: "GPT-4" },
@@ -102,7 +109,7 @@ describe("ModelPickerPopover", () => {
   });
 
   describe("Rendering", () => {
-    it("renders trigger button with default label", () => {
+    it("renders trigger button with axis default label", () => {
       render(
         <ModelPickerPopover
           {...defaultProps}
@@ -110,7 +117,7 @@ describe("ModelPickerPopover", () => {
       );
 
       expect(screen.getByRole("button", { name: /open model picker/i })).toHaveTextContent(
-        "Select Model"
+        "Axis (Free): z-ai/glm-4.5-air:free"
       );
     });
 
@@ -125,6 +132,20 @@ describe("ModelPickerPopover", () => {
 
       expect(screen.getByRole("button", { name: /open model picker/i })).toHaveTextContent(
         "OpenAI: GPT-4"
+      );
+    });
+
+    it("falls back to axis default label when persisted explicit selection is no longer valid", () => {
+      render(
+        <ModelPickerPopover
+          {...defaultProps}
+          selectedProviderId="openai"
+          selectedModelId="removed-model"
+        />
+      );
+
+      expect(screen.getByRole("button", { name: /open model picker/i })).toHaveTextContent(
+        "Axis (Free): z-ai/glm-4.5-air:free"
       );
     });
 
@@ -246,8 +267,8 @@ describe("ModelPickerPopover", () => {
       fireEvent.click(triggerButton);
 
       await waitFor(() => {
-        expect(screen.getByText("Included default models")).toBeInTheDocument();
-        expect(screen.getByText("openai/gpt-oss-120b:free")).toBeInTheDocument();
+        expect(screen.getByText("Shadowbox Axis")).toBeInTheDocument();
+        expect(screen.getByText("z-ai/glm-4.5-air:free")).toBeInTheDocument();
       });
     });
 
@@ -264,7 +285,7 @@ describe("ModelPickerPopover", () => {
       fireEvent.click(triggerButton);
 
       await waitFor(() => {
-        expect(screen.getByText("Included default models")).toBeInTheDocument();
+        expect(screen.getByText("Shadowbox Axis")).toBeInTheDocument();
         expect(screen.getByText("OpenAI")).toBeInTheDocument();
         expect(screen.getByText("Anthropic")).toBeInTheDocument();
         expect(screen.getByText("GPT-4")).toBeInTheDocument();

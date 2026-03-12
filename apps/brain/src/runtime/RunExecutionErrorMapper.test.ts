@@ -44,4 +44,76 @@ describe("RunExecutionErrorMapper", () => {
 
     expect(mapped).toBeNull();
   });
+
+  it("maps planning schema mismatch errors to typed validation failure", () => {
+    const mapped = mapRunExecutionErrorToDomain(
+      new Error("No object generated: response did not match schema."),
+      "corr-5",
+    );
+
+    expect(mapped).toMatchObject({
+      code: "PLAN_SCHEMA_MISMATCH",
+      status: 422,
+      retryable: false,
+      correlationId: "corr-5",
+    });
+  });
+
+  it("maps planning timeout errors to typed retryable timeout", () => {
+    const timeoutError = new Error(
+      "[llm/gateway] structured call timed out after 45000ms (phase=planning)",
+    );
+    timeoutError.name = "LLMTimeoutError";
+
+    const mapped = mapRunExecutionErrorToDomain(timeoutError, "corr-6");
+
+    expect(mapped).toMatchObject({
+      code: "PLAN_GENERATION_TIMEOUT",
+      status: 504,
+      retryable: true,
+      correlationId: "corr-6",
+    });
+  });
+
+  it("maps provider retry exhaustion to provider unavailable", () => {
+    const mapped = mapRunExecutionErrorToDomain(
+      new Error("Failed after 3 attempts. Last error: Provider returned error"),
+      "corr-7",
+    );
+
+    expect(mapped).toMatchObject({
+      code: "PROVIDER_UNAVAILABLE",
+      status: 503,
+      retryable: true,
+      correlationId: "corr-7",
+    });
+  });
+
+  it("maps provider rate limits to typed 429 error", () => {
+    const mapped = mapRunExecutionErrorToDomain(
+      new Error("Provider returned status code 429: Too Many Requests"),
+      "corr-8",
+    );
+
+    expect(mapped).toMatchObject({
+      code: "RATE_LIMITED",
+      status: 429,
+      retryable: true,
+      correlationId: "corr-8",
+    });
+  });
+
+  it("maps provider auth failures to typed 401 error", () => {
+    const mapped = mapRunExecutionErrorToDomain(
+      new Error("Provider returned status code 401: invalid api key"),
+      "corr-9",
+    );
+
+    expect(mapped).toMatchObject({
+      code: "AUTH_FAILED",
+      status: 401,
+      retryable: false,
+      correlationId: "corr-9",
+    });
+  });
 });

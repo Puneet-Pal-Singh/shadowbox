@@ -27,6 +27,10 @@ export interface ProviderValidationResult {
   warnings: ValidationError[];
 }
 
+interface ProviderValidationOptions {
+  activeProviderId?: string;
+}
+
 export class ProviderValidationService {
   /**
    * Validate provider configuration for the given environment
@@ -37,7 +41,10 @@ export class ProviderValidationService {
    * - Only truly critical configuration (security, encryption) blocks startup
    * - Provider selection must be explicit or use platform defaults
    */
-  static validate(env: Env): ProviderValidationResult {
+  static validate(
+    env: Env,
+    options?: ProviderValidationOptions,
+  ): ProviderValidationResult {
     const errors: ValidationError[] = [];
     const warnings: ValidationError[] = [];
 
@@ -45,10 +52,14 @@ export class ProviderValidationService {
     this.validateCriticalSecurity(env, errors);
 
     // Provider validation: known providers get specific checks, unknown get warnings
-    const provider = env.LLM_PROVIDER ?? "litellm";
+    const provider = (env.LLM_PROVIDER ?? "litellm").trim().toLowerCase();
+    const activeProviderId = options?.activeProviderId?.trim().toLowerCase();
+    const providerToValidate = activeProviderId && activeProviderId.length > 0
+      ? activeProviderId
+      : provider;
 
     // Check provider configuration
-    switch (provider) {
+    switch (providerToValidate) {
       case "litellm":
         this.validateLiteLLMOptional(env, errors, warnings);
         break;
@@ -58,10 +69,19 @@ export class ProviderValidationService {
       case "anthropic":
         this.validateAnthropicOptional(env, errors, warnings);
         break;
+      // BYOK/runtime-selected providers (for example axis/openrouter/groq)
+      // are validated when credentials are resolved; skip default-provider env warnings here.
+      case "axis":
+      case "openrouter":
+      case "groq":
+        break;
       default:
+        if (activeProviderId) {
+          break;
+        }
         errors.push({
           code: "UNKNOWN_PROVIDER",
-          message: `Unknown LLM_PROVIDER "${provider}"`,
+          message: `Unknown LLM_PROVIDER "${providerToValidate}"`,
           severity: "error",
           hint: `Supported providers: ${SUPPORTED_DEFAULT_PROVIDERS.join(", ")}. For other providers, use BYOK configuration.`,
         });

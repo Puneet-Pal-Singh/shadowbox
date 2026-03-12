@@ -48,11 +48,13 @@
   // Add these environment variables:
   // GITHUB_CLIENT_ID, GITHUB_REDIRECT_URI, FRONTEND_URL (public)
   // GITHUB_CLIENT_SECRET, GITHUB_TOKEN_ENCRYPTION_KEY, SESSION_SECRET (secret)
+  // AXIS_OPENROUTER_API_KEY (secret, required for platform-managed Axis provider)
   "vars": {
     // These should be set via wrangler secret put for production
     // GITHUB_CLIENT_SECRET
     // GITHUB_TOKEN_ENCRYPTION_KEY
     // SESSION_SECRET
+    // AXIS_OPENROUTER_API_KEY
   },
 
   // 4. KV Namespace for Session Storage

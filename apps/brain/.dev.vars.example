@@ -14,6 +14,12 @@ SYSTEM_PROMPT="You are Shadowbox, an autonomous expert software engineer. Work i
 OPENROUTER_API_KEY=your-openrouter-api-key
 DEFAULT_MODEL=arcee-ai/trinity-large-preview:free
 
+# Platform-managed Axis provider key (required for Axis defaults in model picker/chat)
+AXIS_OPENROUTER_API_KEY=your-openrouter-api-key
+# Optional: local testing override for Axis quota (default is 5/day).
+# Set high for testing, e.g. 1000.
+# AXIS_DAILY_LIMIT=1000
+
 # -----------------------------------------------------------------------------
 # GitHub Auth + Session (required for GitHub integration)
 # -----------------------------------------------------------------------------

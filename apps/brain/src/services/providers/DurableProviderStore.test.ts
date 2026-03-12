@@ -88,7 +88,7 @@ describe("DurableProviderStore", () => {
 
     const preferences = await store.getPreferences();
     expect(preferences.defaultProviderId).toBe("axis");
-    expect(preferences.defaultModelId).toBe("openai/gpt-oss-120b:free");
+    expect(preferences.defaultModelId).toBe("z-ai/glm-4.5-air:free");
     expect(preferences.updatedAt).toBeTypeOf("string");
   });
 

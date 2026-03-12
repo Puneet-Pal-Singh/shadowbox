@@ -2,6 +2,7 @@ interface CorsEnvConfig {
   CORS_ALLOWED_ORIGINS?: string;
   CORS_ALLOW_DEV_ORIGINS?: "true" | "false";
   FRONTEND_URL?: string;
+  NODE_ENV?: string;
 }
 
 const BASE_CORS_HEADERS = {
@@ -23,7 +24,7 @@ export function getCorsHeaders(
     return { ...BASE_CORS_HEADERS };
   }
 
-  const allowedOrigin = resolveAllowedOrigin(origin, env);
+  const allowedOrigin = resolveAllowedOrigin(origin, request, env);
   if (!allowedOrigin) {
     return { ...BASE_CORS_HEADERS };
   }
@@ -44,7 +45,7 @@ export function handleOptions(
   }
 
   const origin = request.headers.get("Origin");
-  if (origin && !resolveAllowedOrigin(origin, env)) {
+  if (origin && !resolveAllowedOrigin(origin, request, env)) {
     return new Response(JSON.stringify({ error: "Origin not allowed" }), {
       status: 403,
       headers: {
@@ -62,6 +63,7 @@ export function handleOptions(
 
 function resolveAllowedOrigin(
   origin: string,
+  request: Request,
   env?: CorsEnvConfig,
 ): string | null {
   const normalized = normalizeOrigin(origin);
@@ -75,6 +77,10 @@ function resolveAllowedOrigin(
   }
 
   if (env?.CORS_ALLOW_DEV_ORIGINS === "true" && isLocalDevOrigin(normalized)) {
+    return normalized;
+  }
+
+  if (isLocalDevOrigin(normalized) && isLocalDevRequest(request.url)) {
     return normalized;
   }
 
@@ -112,12 +118,26 @@ function normalizeOrigin(value: string): string | null {
 function isLocalDevOrigin(origin: string): boolean {
   try {
     const url = new URL(origin);
-    return (
-      url.hostname === "localhost" ||
-      url.hostname === "127.0.0.1" ||
-      url.hostname === "::1"
-    );
+    return isLoopbackHostname(url.hostname);
   } catch {
     return false;
   }
+}
+
+function isLocalDevRequest(urlValue: string): boolean {
+  try {
+    const url = new URL(urlValue);
+    return isLoopbackHostname(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
+function isLoopbackHostname(hostname: string): boolean {
+  const normalized = hostname.replace(/^\[(.*)\]$/, "$1");
+  return (
+    normalized === "localhost" ||
+    normalized === "127.0.0.1" ||
+    normalized === "::1"
+  );
 }

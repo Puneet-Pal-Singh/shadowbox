@@ -16,6 +16,8 @@ import type {
 
 const TOKEN_CHAR_RATIO = 4;
 const DEFAULT_COMPLETION_TOKENS = 500;
+const DEFAULT_TEXT_TIMEOUT_MS = 20_000;
+const DEFAULT_STRUCTURED_TIMEOUT_MS = 45_000;
 
 export interface LLMGatewayDependencies {
   aiService: LLMRuntimeAIService;
@@ -25,12 +27,37 @@ export interface LLMGatewayDependencies {
   providerCapabilityResolver?: ProviderCapabilityResolver;
 }
 
+export class LLMTimeoutError extends Error {
+  readonly timeoutMs: number;
+  readonly phase: LLMCallContext["phase"];
+  readonly operation: "structured" | "text";
+
+  constructor(input: {
+    timeoutMs: number;
+    phase: LLMCallContext["phase"];
+    operation: "structured" | "text";
+  }) {
+    const { timeoutMs, phase, operation } = input;
+    super(
+      `[llm/gateway] ${operation} call timed out after ${timeoutMs}ms (phase=${phase})`,
+    );
+    this.name = "LLMTimeoutError";
+    this.timeoutMs = timeoutMs;
+    this.phase = phase;
+    this.operation = operation;
+  }
+}
+
 export class LLMGateway implements ILLMGateway {
   constructor(private deps: LLMGatewayDependencies) {}
 
   async generateText(req: LLMTextRequest): Promise<LLMTextResponse> {
     this.assertProviderCapabilities(req);
-    const estimatedUsage = this.estimateUsage(req.messages, req.model);
+    const estimatedUsage = this.estimateUsage(
+      req.messages,
+      req.model,
+      req.providerId,
+    );
     await this.preflight(req, estimatedUsage);
     this.assertPricingAllowed(req.context, estimatedUsage);
     const requestWithIdempotency = this.withIdempotencyKey(
@@ -39,14 +66,21 @@ export class LLMGateway implements ILLMGateway {
         this.createIdempotencyKey(req.context, estimatedUsage),
     );
 
-    const result = await this.deps.aiService.generateText({
-      messages: req.messages,
-      model: req.model,
-      providerId: req.providerId,
-      temperature: req.temperature,
-      system: req.system,
-      tools: req.tools,
-    });
+    const result = await this.withTimeout(
+      this.deps.aiService.generateText({
+        messages: req.messages,
+        model: req.model,
+        providerId: req.providerId,
+        temperature: req.temperature,
+        system: req.system,
+        tools: req.tools,
+      }),
+      {
+        timeoutMs: req.timeoutMs ?? DEFAULT_TEXT_TIMEOUT_MS,
+        phase: req.context.phase,
+        operation: "text",
+      },
+    );
 
     const usage = this.normalizeUsage(result.usage, req.model);
     await this.persistCostEvent(requestWithIdempotency, usage);
@@ -68,7 +102,11 @@ export class LLMGateway implements ILLMGateway {
     req: LLMStructuredRequest<T>,
   ): Promise<LLMStructuredResponse<T>> {
     this.assertProviderCapabilities(req);
-    const estimatedUsage = this.estimateUsage(req.messages, req.model);
+    const estimatedUsage = this.estimateUsage(
+      req.messages,
+      req.model,
+      req.providerId,
+    );
     await this.preflight(req, estimatedUsage);
     this.assertPricingAllowed(req.context, estimatedUsage);
     const requestWithIdempotency = this.withIdempotencyKey(
@@ -77,13 +115,35 @@ export class LLMGateway implements ILLMGateway {
         this.createIdempotencyKey(req.context, estimatedUsage),
     );
 
-    const result = await this.deps.aiService.generateStructured({
-      messages: req.messages,
-      schema: req.schema,
-      model: req.model,
-      providerId: req.providerId,
-      temperature: req.temperature,
-    });
+    let result: { object: T; usage: LLMUsage };
+    try {
+      result = await this.withTimeout(
+        this.deps.aiService.generateStructured({
+          messages: req.messages,
+          schema: req.schema,
+          model: req.model,
+          providerId: req.providerId,
+          temperature: req.temperature,
+        }),
+        {
+          timeoutMs: req.timeoutMs ?? DEFAULT_STRUCTURED_TIMEOUT_MS,
+          phase: req.context.phase,
+          operation: "structured",
+        },
+      );
+    } catch (error) {
+      if (error instanceof LLMTimeoutError) {
+        try {
+          await this.persistCostEvent(requestWithIdempotency, estimatedUsage);
+        } catch (persistError) {
+          console.error(
+            "[llm/gateway] failed to persist fallback structured cost after timeout",
+            persistError,
+          );
+        }
+      }
+      throw error;
+    }
 
     const usage = this.normalizeUsage(result.usage, req.model);
     await this.persistCostEvent(requestWithIdempotency, usage);
@@ -94,9 +154,40 @@ export class LLMGateway implements ILLMGateway {
     };
   }
 
+  private async withTimeout<T>(
+    promise: Promise<T>,
+    input: {
+      timeoutMs: number;
+      phase: LLMCallContext["phase"];
+      operation: "structured" | "text";
+    },
+  ): Promise<T> {
+    const { timeoutMs, phase, operation } = input;
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+    try {
+      return await Promise.race([
+        promise,
+        new Promise<T>((_, reject) => {
+          timeoutId = setTimeout(() => {
+            reject(new LLMTimeoutError({ timeoutMs, phase, operation }));
+          }, timeoutMs);
+        }),
+      ]);
+    } finally {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    }
+  }
+
   async generateStream(req: LLMTextRequest): Promise<ReadableStream<Uint8Array>> {
     this.assertProviderCapabilities(req);
-    const estimatedUsage = this.estimateUsage(req.messages, req.model);
+    const estimatedUsage = this.estimateUsage(
+      req.messages,
+      req.model,
+      req.providerId,
+    );
     await this.preflight(req, estimatedUsage);
     this.assertPricingAllowed(req.context, estimatedUsage);
     const requestWithIdempotency = this.withIdempotencyKey(
@@ -193,7 +284,11 @@ export class LLMGateway implements ILLMGateway {
     await this.deps.budgetPolicy.preflight(req.context, usage);
   }
 
-  private estimateUsage(messages: CoreMessage[], model?: string): LLMUsage {
+  private estimateUsage(
+    messages: CoreMessage[],
+    model?: string,
+    providerId?: string,
+  ): LLMUsage {
     const charCount = messages.reduce((sum, message) => {
       return sum + this.getMessageLength(message.content);
     }, 0);
@@ -201,7 +296,7 @@ export class LLMGateway implements ILLMGateway {
     const completionTokens = DEFAULT_COMPLETION_TOKENS;
 
     return {
-      provider: this.deps.aiService.getProvider(),
+      provider: providerId ?? this.deps.aiService.getProvider(),
       model: model ?? this.deps.aiService.getDefaultModel(),
       promptTokens,
       completionTokens,

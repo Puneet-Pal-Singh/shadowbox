@@ -8,6 +8,12 @@ import type {
 } from "@repo/shared-types";
 import { z } from "zod";
 import { WorkspaceBootstrapService } from "../runtime/services/WorkspaceBootstrapService";
+import { sanitizeUnknownError } from "../core/security/LogSanitizer";
+import {
+  logErrorRateLimited,
+  logInfoRateLimited,
+  logWarnRateLimited,
+} from "../lib/rate-limited-log";
 
 const GitBootstrapRequestBodySchema = z.object({
   runId: z.string(),
@@ -23,6 +29,11 @@ type GitBootstrapResult = Awaited<
   ReturnType<WorkspaceBootstrapService["bootstrap"]>
 >;
 const bootstrapRequestsByWorkspace = new Map<string, Promise<GitBootstrapResult>>();
+const MUSCLE_BASE_URL_FALLBACK_LOG_KEY = "GitController:muscle-base-url-fallback";
+const ERROR_LOG_WINDOW_MS = 30_000;
+const WARNING_LOG_WINDOW_MS = 5 * 60 * 1000;
+const MUSCLE_STATUS_TIMEOUT_MS = 12_000;
+const MUSCLE_GIT_TIMEOUT_MS = 20_000;
 
 /**
  * GitController
@@ -45,8 +56,11 @@ export class GitController {
     }
 
     const localDevFallback = "http://localhost:8787";
-    console.warn(
+    logInfoRateLimited(
+      MUSCLE_BASE_URL_FALLBACK_LOG_KEY,
       `[GitController] MUSCLE_BASE_URL not configured, using dev fallback: ${localDevFallback}`,
+      undefined,
+      WARNING_LOG_WINDOW_MS,
     );
     return localDevFallback;
   }
@@ -65,7 +79,7 @@ export class GitController {
       }
 
       const muscleSession = resolveMuscleSessionId(runId, sessionId);
-      const response = await fetch(
+      const response = await fetchWithTimeout(
         `${GitController.getMuscleBaseUrl(env)}/?session=${encodeURIComponent(muscleSession)}`,
         {
           method: "POST",
@@ -80,6 +94,7 @@ export class GitController {
             },
           }),
         },
+        MUSCLE_STATUS_TIMEOUT_MS,
       );
 
       await assertMuscleResponseOk(response, "status");
@@ -95,13 +110,7 @@ export class GitController {
       ) {
         return corsJsonResponse(req, env, getRecoverableNotGitStatus());
       }
-      console.error("[GitController:getStatus] Error:", error);
-      return errorResponse(
-        req,
-        env,
-        error instanceof Error ? error.message : "Failed to get git status",
-        500,
-      );
+      return handleGitControllerError(req, env, error, "getStatus");
     }
   }
 
@@ -121,7 +130,7 @@ export class GitController {
       }
 
       const muscleSession = resolveMuscleSessionId(runId, sessionId);
-      const response = await fetch(
+      const response = await fetchWithTimeout(
        `${GitController.getMuscleBaseUrl(env)}/?session=${encodeURIComponent(muscleSession)}`,
        {
          method: "POST",
@@ -138,6 +147,7 @@ export class GitController {
             },
           }),
         },
+        MUSCLE_GIT_TIMEOUT_MS,
       );
 
       await assertMuscleResponseOk(response, "diff");
@@ -147,13 +157,7 @@ export class GitController {
 
       return corsJsonResponse(req, env, data);
     } catch (error) {
-      console.error("[GitController:getDiff] Error:", error);
-      return errorResponse(
-        req,
-        env,
-        error instanceof Error ? error.message : "Failed to get diff",
-        500,
-      );
+      return handleGitControllerError(req, env, error, "getDiff");
     }
   }
 
@@ -173,7 +177,7 @@ export class GitController {
       }
 
       const muscleSession = resolveMuscleSessionId(runId, sessionId);
-      const response = await fetch(
+      const response = await fetchWithTimeout(
         `${GitController.getMuscleBaseUrl(env)}/?session=${encodeURIComponent(muscleSession)}`,
         {
           method: "POST",
@@ -189,6 +193,7 @@ export class GitController {
             },
           }),
         },
+        MUSCLE_GIT_TIMEOUT_MS,
       );
 
       await assertMuscleResponseOk(response, unstage ? "unstage" : "stage");
@@ -196,13 +201,7 @@ export class GitController {
 
       return corsJsonResponse(req, env, { success: true });
     } catch (error) {
-      console.error("[GitController:stageFiles] Error:", error);
-      return errorResponse(
-        req,
-        env,
-        error instanceof Error ? error.message : "Failed to stage files",
-        500,
-      );
+      return handleGitControllerError(req, env, error, "stageFiles");
     }
   }
 
@@ -222,7 +221,7 @@ export class GitController {
       }
 
       const muscleSession = resolveMuscleSessionId(runId, sessionId);
-      const response = await fetch(
+      const response = await fetchWithTimeout(
         `${GitController.getMuscleBaseUrl(env)}/?session=${encodeURIComponent(muscleSession)}`,
         {
           method: "POST",
@@ -239,6 +238,7 @@ export class GitController {
             },
           }),
         },
+        MUSCLE_GIT_TIMEOUT_MS,
       );
 
       await assertMuscleResponseOk(response, "commit");
@@ -246,13 +246,7 @@ export class GitController {
 
       return corsJsonResponse(req, env, { success: true });
     } catch (error) {
-      console.error("[GitController:commit] Error:", error);
-      return errorResponse(
-        req,
-        env,
-        error instanceof Error ? error.message : "Failed to commit",
-        500,
-      );
+      return handleGitControllerError(req, env, error, "commit");
     }
   }
 
@@ -325,13 +319,7 @@ export class GitController {
 
       return corsJsonResponse(req, env, result);
     } catch (error) {
-      console.error("[GitController:bootstrap] Error:", error);
-      return errorResponse(
-        req,
-        env,
-        error instanceof Error ? error.message : "Failed to bootstrap git workspace",
-        500,
-      );
+      return handleGitControllerError(req, env, error, "bootstrap");
     }
   }
 }
@@ -344,16 +332,26 @@ async function parseGitBootstrapRequestBody(
   try {
     body = await req.json();
   } catch (error) {
-    console.warn("[GitController:bootstrap] Invalid JSON body", { error });
+    logWarnRateLimited(
+      "GitController:bootstrap:invalid-json",
+      "[GitController:bootstrap] Invalid JSON body",
+      { error: sanitizeUnknownError(error) },
+      ERROR_LOG_WINDOW_MS,
+    );
     return null;
   }
 
   const parsedBody = GitBootstrapRequestBodySchema.safeParse(body);
   if (!parsedBody.success) {
-    console.warn("[GitController:bootstrap] Body validation failed", {
-      issues: parsedBody.error.issues,
-      environment: env.NODE_ENV,
-    });
+    logWarnRateLimited(
+      "GitController:bootstrap:validation-failed",
+      "[GitController:bootstrap] Body validation failed",
+      {
+        issues: parsedBody.error.issues,
+        environment: env.NODE_ENV,
+      },
+      ERROR_LOG_WINDOW_MS,
+    );
     return null;
   }
 
@@ -464,14 +462,153 @@ function corsJsonResponse(
   });
 }
 
-function errorResponse(req: Request, env: Env, message: string, status: number): Response {
-  return new Response(JSON.stringify({ error: message }), {
+function handleGitControllerError(
+  req: Request,
+  env: Env,
+  error: unknown,
+  operation: "getStatus" | "getDiff" | "stageFiles" | "commit" | "bootstrap",
+): Response {
+  const mapped = mapGitControllerError(error, operation);
+  const logMessage = `[GitController:${operation}] ${mapped.code}: ${mapped.message}`;
+  const logKey = `GitController:${operation}:${mapped.code}:${mapped.message}`;
+
+  if (mapped.retryable) {
+    logWarnRateLimited(
+      logKey,
+      logMessage,
+      { error: sanitizeUnknownError(error) },
+      ERROR_LOG_WINDOW_MS,
+    );
+  } else {
+    logErrorRateLimited(
+      logKey,
+      logMessage,
+      sanitizeUnknownError(error),
+      ERROR_LOG_WINDOW_MS,
+    );
+  }
+
+  return errorResponse(
+    req,
+    env,
+    mapped.message,
+    mapped.status,
+    mapped.code,
+    mapped.retryable,
+  );
+}
+
+function mapGitControllerError(
+  error: unknown,
+  operation: "getStatus" | "getDiff" | "stageFiles" | "commit" | "bootstrap",
+): {
+  status: number;
+  code: string;
+  message: string;
+  retryable: boolean;
+} {
+  const fallbackMessage = getDefaultOperationError(operation);
+  const message = error instanceof Error ? error.message : fallbackMessage;
+  if (isTransientGitServiceError(message)) {
+    return {
+      status: 503,
+      code: "GIT_SERVICE_UNAVAILABLE",
+      message:
+        "Git service is temporarily unavailable. Please retry in a few seconds.",
+      retryable: true,
+    };
+  }
+
+  return {
+    status: 500,
+    code: "GIT_OPERATION_FAILED",
+    message,
+    retryable: false,
+  };
+}
+
+function isTransientGitServiceError(message: string): boolean {
+  return (
+    /network connection lost/i.test(message) ||
+    /failed to fetch/i.test(message) ||
+    /service unavailable/i.test(message) ||
+    /timed out/i.test(message) ||
+    /econnrefused/i.test(message) ||
+    /upstream connect error/i.test(message) ||
+    /sandboxerror:\s*http error!\s*status:\s*5\d\d/i.test(message) ||
+    /http error!\s*status:\s*5\d\d/i.test(message) ||
+    /failed with http 5\d\d/i.test(message)
+  );
+}
+
+function getDefaultOperationError(
+  operation: "getStatus" | "getDiff" | "stageFiles" | "commit" | "bootstrap",
+): string {
+  switch (operation) {
+    case "getStatus":
+      return "Failed to get git status";
+    case "getDiff":
+      return "Failed to get diff";
+    case "stageFiles":
+      return "Failed to stage files";
+    case "commit":
+      return "Failed to commit";
+    case "bootstrap":
+      return "Failed to bootstrap git workspace";
+  }
+}
+
+function errorResponse(
+  req: Request,
+  env: Env,
+  message: string,
+  status: number,
+  code?: string,
+  retryable?: boolean,
+): Response {
+  const payload = {
+    error: message,
+    ...(code ? { code } : {}),
+    ...(typeof retryable === "boolean" ? { retryable } : {}),
+  };
+
+  return new Response(JSON.stringify(payload), {
     status,
     headers: {
       "Content-Type": "application/json",
       ...getCorsHeaders(req, env),
     },
   });
+}
+
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, {
+      ...init,
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (isAbortError(error)) {
+      throw new Error(`Git request timed out after ${timeoutMs}ms`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function isAbortError(error: unknown): boolean {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+  const candidate = error as { name?: unknown };
+  return candidate.name === "AbortError";
 }
 
 async function assertMuscleResponseOk(
@@ -523,13 +660,19 @@ async function readErrorPreview(response: Response): Promise<string> {
       return text.slice(0, 200);
     }
   } catch {
-    console.warn(
+    logWarnRateLimited(
+      "git/controller:error-preview-read-failed",
       `[git/controller] Failed to read error preview body (status=${response.status})`,
+      undefined,
+      ERROR_LOG_WINDOW_MS,
     );
   }
 
-  console.warn(
+  logWarnRateLimited(
+    "git/controller:error-preview-empty",
     `[git/controller] Empty error preview for non-OK response (status=${response.status} ${response.statusText})`,
+    undefined,
+    ERROR_LOG_WINDOW_MS,
   );
   return "";
 }
