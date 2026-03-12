@@ -31,9 +31,16 @@ import {
 import { logErrorRateLimited } from "../lib/rate-limited-log";
 import { sanitizeUnknownError } from "../core/security/LogSanitizer";
 
+const SerializableToolDefinitionSchema = z.object({
+  description: z.string().optional(),
+  inputSchema: z.object({}).catchall(z.unknown()).optional(),
+  parameters: z.object({}).catchall(z.unknown()).optional(),
+});
+
 // Zod schema for request body validation
 const ChatRequestBodySchema = z.object({
   messages: z.array(z.unknown()).optional(),
+  tools: z.record(SerializableToolDefinitionSchema).optional(),
   sessionId: z.string().optional(),
   agentId: z.string().optional(),
   runId: z.string().optional(),
@@ -201,40 +208,49 @@ export class ChatController {
 
     const prompt = extractPromptFromMessages(coreMessages, correlationId);
 
-    const useCase = new HandleChatRequest(env);
+    try {
+      const useCase = new HandleChatRequest(env);
 
-    const useCaseResult = await useCase.execute(
-      {
-        sessionId,
+      const useCaseResult = await useCase.execute(
+        {
+          sessionId,
+          runId,
+          userId,
+          workspaceId,
+          correlationId,
+          agentType: mapAgentIdToType(body.agentId, correlationId),
+          prompt,
+          messages: coreMessages,
+          providerId: body.providerId,
+          modelId: body.modelId,
+          harnessId: body.harnessId,
+          orchestratorBackend: body.orchestratorBackend,
+          executionBackend: body.executionBackend,
+          harnessMode: body.harnessMode,
+          authMode: body.authMode,
+          repositoryOwner: body.repositoryOwner,
+          repositoryName: body.repositoryName,
+          repositoryBranch: body.repositoryBranch,
+          repositoryBaseUrl: body.repositoryBaseUrl,
+          tools: body.tools,
+        },
+        req.headers.get("Origin") || undefined,
+      );
+
+      const doResponse = await executeViaRunEngineDurableObject(
+        env,
         runId,
-        userId,
-        workspaceId,
-        correlationId,
-        agentType: mapAgentIdToType(body.agentId, correlationId),
-        prompt,
-        messages: coreMessages,
-        providerId: body.providerId,
-        modelId: body.modelId,
-        harnessId: body.harnessId,
-        orchestratorBackend: body.orchestratorBackend,
-        executionBackend: body.executionBackend,
-        harnessMode: body.harnessMode,
-        authMode: body.authMode,
-        repositoryOwner: body.repositoryOwner,
-        repositoryName: body.repositoryName,
-        repositoryBranch: body.repositoryBranch,
-        repositoryBaseUrl: body.repositoryBaseUrl,
-      },
-      req.headers.get("Origin") || undefined,
-    );
+        useCaseResult.executionPayload,
+      );
 
-    const doResponse = await executeViaRunEngineDurableObject(
-      env,
-      runId,
-      useCaseResult.executionPayload,
-    );
-
-    return withEngineHeaders(req, env, doResponse, runId);
+      return withEngineHeaders(req, env, doResponse, runId);
+    } catch (error) {
+      console.error(
+        `[chat/runtime] ${correlationId}: RunEngine execution failed:`,
+        error,
+      );
+      throw error;
+    }
   }
 
 }

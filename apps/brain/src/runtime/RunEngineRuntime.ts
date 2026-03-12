@@ -1,15 +1,22 @@
 import type { DurableObjectState as LegacyDurableObjectState } from "@cloudflare/workers-types";
-import type { CoreMessage } from "ai";
+import type { CoreMessage, CoreTool } from "ai";
 import { z } from "zod";
 import { DurableObject } from "cloudflare:workers";
-import { RunEngine } from "@shadowbox/execution-engine/runtime/engine";
+import {
+  RunEngine,
+  enforceGoldenFlowToolFloor,
+  getGoldenFlowToolRegistry,
+} from "@shadowbox/execution-engine/runtime/engine";
 import { tagRuntimeStateSemantics } from "@shadowbox/execution-engine/runtime";
 import { RunRepository } from "@shadowbox/execution-engine/runtime/run";
 import { TaskRepository } from "@shadowbox/execution-engine/runtime/task";
 import type { Env } from "../types/ai";
 import { parseExecuteRunRequest } from "./parsing/RunEngineRequestParser";
 import { buildRuntimeDependencies } from "./factories/ExecutionGatewayFactory";
-import type { ExecuteRunPayload } from "./parsing/ExecuteRunPayloadSchema";
+import {
+  SerializableToolDefinitionSchema,
+  type ExecuteRunPayload,
+} from "./parsing/ExecuteRunPayloadSchema";
 import { errorResponse, jsonResponse } from "../http/response";
 import {
   ValidationError,
@@ -254,11 +261,12 @@ export class RunEngineRuntime extends DurableObject {
           runEngineDeps,
         );
 
+        const runtimeTools = toRuntimeCoreTools(payload.tools);
         // Messages validated by zod schema in parser, cast to CoreMessage[] for type safety
         const executionResponse = await runEngine.execute(
           payload.input,
           payload.messages as CoreMessage[],
-          {},
+          runtimeTools,
         );
 
         this.ctx.waitUntil(
@@ -678,4 +686,26 @@ export class RunEngineRuntime extends DurableObject {
       release();
     }
   }
+}
+
+function toRuntimeCoreTools(
+  tools: ExecuteRunPayload["tools"],
+): Record<string, CoreTool> {
+  const parsedTools: Record<string, CoreTool> = {};
+  if (tools) {
+    for (const [toolName, definition] of Object.entries(tools)) {
+      const validatedDefinition =
+        SerializableToolDefinitionSchema.parse(definition);
+      parsedTools[toolName] = {
+        ...validatedDefinition,
+        parameters: validatedDefinition.parameters ?? {},
+      } as CoreTool;
+    }
+  }
+
+  if (Object.keys(parsedTools).length === 0) {
+    return getGoldenFlowToolRegistry();
+  }
+
+  return enforceGoldenFlowToolFloor(parsedTools);
 }

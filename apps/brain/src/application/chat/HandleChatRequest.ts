@@ -17,6 +17,7 @@ import type { CoreMessage } from "ai";
 import type { Env } from "../../types/ai";
 import { ValidationError } from "../../domain/errors";
 import { PersistenceService } from "../../services/PersistenceService";
+import type { SerializableToolDefinition } from "../../types/tools";
 import type {
   AgentType,
   RepositoryContext,
@@ -49,6 +50,7 @@ export interface HandleChatRequestInput {
   repositoryName?: string;
   repositoryBranch?: string;
   repositoryBaseUrl?: string;
+  tools?: Record<string, SerializableToolDefinition>;
 }
 
 export interface HandleChatRequestOutput {
@@ -78,6 +80,7 @@ export interface HandleChatRequestOutput {
       repositoryContext?: RepositoryContext;
     };
     messages: CoreMessage[];
+    tools?: Record<string, SerializableToolDefinition>;
   };
 }
 
@@ -192,6 +195,7 @@ export class HandleChatRequest {
               : undefined,
         },
         messages,
+        tools: input.tools,
       };
 
       console.log(
