@@ -140,9 +140,7 @@ export function ChatMessage({
               </div>
             )}
 
-            {content && (
-              <MarkdownMessageContent content={content} />
-            )}
+            {content && <MarkdownMessageContent content={content} />}
 
             {/* File references as pills */}
             {uniqueFileRefs.length > 0 && (
@@ -235,9 +233,11 @@ function formatMetadataText(
   }
   const trailing = isUser
     ? metadata.timeLabel
-    : metadata.durationLabel ?? metadata.timeLabel;
+    : (metadata.durationLabel ?? metadata.timeLabel);
   return [metadata.modeLabel, metadata.modelLabel, trailing]
-    .filter((value): value is string => Boolean(value && value.trim().length > 0))
+    .filter((value): value is string =>
+      Boolean(value && value.trim().length > 0),
+    )
     .join(" · ");
 }
 
