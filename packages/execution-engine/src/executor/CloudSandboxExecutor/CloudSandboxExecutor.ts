@@ -26,11 +26,18 @@ interface CloudSessionResponse {
 }
 
 interface CloudExecutionResponse {
-  exitCode: number
-  stdout: string
-  stderr: string
-  duration: number
-  status: 'success' | 'error' | 'timeout'
+  taskId: string
+  status: 'success' | 'failure' | 'timeout' | 'cancelled'
+  output?: string
+  error?: {
+    code: string
+    message: string
+    details?: unknown
+  }
+  metrics?: {
+    duration: number
+    memoryUsed?: number
+  }
 }
 
 interface CloudApiErrorPayload {
@@ -136,7 +143,8 @@ export class CloudSandboxExecutor extends EnvironmentManager {
         metadata: {
           sessionId: sessionResponse.sessionId,
           token: sessionResponse.token,
-          expiresAt: sessionResponse.expiresAt
+          expiresAt: sessionResponse.expiresAt,
+          runId: config.runId
         }
       }
     } catch (error) {
@@ -163,16 +171,21 @@ export class CloudSandboxExecutor extends EnvironmentManager {
       this.validateTask(task)
 
       const result = await this.retryWithBackoff(() =>
-        this.executeTaskInCloud(sessionId, sessionToken, task)
+        this.executeTaskInCloud(sessionId, sessionToken, env, task)
       )
 
       return {
-        exitCode: result.exitCode,
-        stdout: result.stdout,
-        stderr: result.stderr,
-        duration: result.duration,
+        exitCode: this.resolveExitCode(result),
+        stdout: result.status === 'success' ? result.output ?? '' : '',
+        stderr: result.status === 'success' ? '' : result.error?.message ?? '',
+        duration: result.metrics?.duration ?? 0,
         timestamp: Date.now(),
-        status: result.status
+        status:
+          result.status === 'success'
+            ? 'success'
+            : result.status === 'timeout'
+              ? 'timeout'
+              : 'error'
       }
     } catch (error) {
       const failure = this.buildExecutionFailure(error)
@@ -317,14 +330,6 @@ export class CloudSandboxExecutor extends EnvironmentManager {
     }
   }
 
-  private normalizeCwdForApi(cwd: string): string {
-    if (!cwd.startsWith('/')) {
-      return cwd
-    }
-    const trimmed = cwd.replace(/^\/+/, '')
-    return trimmed.length > 0 ? trimmed : '.'
-  }
-
   /**
    * Create a remote session
    * @throws If session creation fails
@@ -367,11 +372,13 @@ export class CloudSandboxExecutor extends EnvironmentManager {
   private async executeTaskInCloud(
     sessionId: string,
     sessionToken: string,
+    env: ExecutionEnvironment,
     task: ExecutionTask
   ): Promise<CloudExecutionResponse> {
     const url = `${this.apiUrl}/api/v1/execute`
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), TASK_EXEC_TIMEOUT)
+    const runId = typeof env.metadata?.runId === 'string' ? env.metadata.runId : null
 
     try {
       const response = await fetch(url, {
@@ -382,10 +389,14 @@ export class CloudSandboxExecutor extends EnvironmentManager {
         },
         body: JSON.stringify({
           sessionId,
-          command: task.command,
-          cwd: this.normalizeCwdForApi(task.cwd),
-          timeout: task.timeout,
-          env: task.env
+          taskId: task.id,
+          action: 'node.execute',
+          params: {
+            action: 'run',
+            command: task.command,
+            runId
+          },
+          timeout: task.timeout
         }),
         signal: controller.signal
       })
@@ -727,30 +738,77 @@ export class CloudSandboxExecutor extends EnvironmentManager {
     if (
       typeof data === 'object' &&
       data !== null &&
-      'exitCode' in data &&
-      'stdout' in data &&
-      'stderr' in data &&
-      'duration' in data &&
+      'taskId' in data &&
       'status' in data
     ) {
       const result = data as Record<string, unknown>
       if (
-        typeof result.exitCode === 'number' &&
-        typeof result.stdout === 'string' &&
-        typeof result.stderr === 'string' &&
-        typeof result.duration === 'number' &&
-        (result.status === 'success' || result.status === 'error' || result.status === 'timeout')
+        typeof result.taskId === 'string' &&
+        (result.status === 'success' ||
+          result.status === 'failure' ||
+          result.status === 'timeout' ||
+          result.status === 'cancelled')
       ) {
         return {
-          exitCode: result.exitCode,
-          stdout: result.stdout,
-          stderr: result.stderr,
-          duration: result.duration,
-          status: result.status as 'success' | 'error' | 'timeout'
+          taskId: result.taskId,
+          status: result.status as 'success' | 'failure' | 'timeout' | 'cancelled',
+          output: typeof result.output === 'string' ? result.output : undefined,
+          error: this.parseExecutionError(result.error),
+          metrics: this.parseExecutionMetrics(result.metrics)
         }
       }
     }
     throw new Error('Invalid execution response format')
+  }
+
+  private parseExecutionError(value: unknown): CloudExecutionResponse['error'] {
+    if (!value || typeof value !== 'object') {
+      return undefined
+    }
+
+    const candidate = value as Record<string, unknown>
+    if (typeof candidate.code !== 'string' || typeof candidate.message !== 'string') {
+      return undefined
+    }
+
+    return {
+      code: candidate.code,
+      message: candidate.message,
+      details: candidate.details
+    }
+  }
+
+  private parseExecutionMetrics(value: unknown): CloudExecutionResponse['metrics'] {
+    if (!value || typeof value !== 'object') {
+      return undefined
+    }
+
+    const candidate = value as Record<string, unknown>
+    if (typeof candidate.duration !== 'number') {
+      return undefined
+    }
+
+    return {
+      duration: candidate.duration,
+      memoryUsed:
+        typeof candidate.memoryUsed === 'number' ? candidate.memoryUsed : undefined
+    }
+  }
+
+  private resolveExitCode(result: CloudExecutionResponse): number {
+    if (result.status === 'success') {
+      return 0
+    }
+
+    if (result.status === 'timeout') {
+      return 124
+    }
+
+    if (result.status === 'cancelled') {
+      return 130
+    }
+
+    return 1
   }
 
   /**

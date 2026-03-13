@@ -71,12 +71,18 @@ class MockSecureAgentAPI {
       ok: true,
       status: 200,
       json: async () => ({
-        exitCode,
-        stdout,
-        stderr: '',
-        duration: 1234,
-        status: exitCode === 0 ? 'success' : 'error',
-        timestamp: Date.now()
+        taskId: 'step-1',
+        status: exitCode === 0 ? 'success' : 'failure',
+        output: exitCode === 0 ? stdout : undefined,
+        error: exitCode === 0
+          ? undefined
+          : {
+              code: 'PLUGIN_EXECUTION_FAILED',
+              message: stdout
+            },
+        metrics: {
+          duration: 1234
+        }
       })
     } as Response)
   }
@@ -205,7 +211,8 @@ describe('CloudSandboxExecutor Integration with secure-agent-api', () => {
         metadata: {
           sessionId: 'sess_test_123',
           token: 'tok_test_456',
-          expiresAt: Date.now() + 3600000
+          expiresAt: Date.now() + 3600000,
+          runId: 'run-123'
         }
       }
 
@@ -238,7 +245,8 @@ describe('CloudSandboxExecutor Integration with secure-agent-api', () => {
         metadata: {
           sessionId: 'sess_test_123',
           token: 'tok_test_456',
-          expiresAt: Date.now() + 3600000
+          expiresAt: Date.now() + 3600000,
+          runId: 'run-123'
         }
       }
 
@@ -281,7 +289,8 @@ describe('CloudSandboxExecutor Integration with secure-agent-api', () => {
         metadata: {
           sessionId: 'sess_test_123',
           token: 'tok_test_456',
-          expiresAt: Date.now() + 3600000
+          expiresAt: Date.now() + 3600000,
+          runId: 'run-123'
         }
       }
 
@@ -313,7 +322,8 @@ describe('CloudSandboxExecutor Integration with secure-agent-api', () => {
         metadata: {
           sessionId: 'sess_invalid',
           token: 'tok_invalid',
-          expiresAt: Date.now() + 3600000
+          expiresAt: Date.now() + 3600000,
+          runId: 'run-123'
         }
       }
 
@@ -333,7 +343,8 @@ describe('CloudSandboxExecutor Integration with secure-agent-api', () => {
         metadata: {
           sessionId: 'sess_test_123',
           token: 'tok_test_456',
-          expiresAt: Date.now() + 3600000
+          expiresAt: Date.now() + 3600000,
+          runId: 'run-123'
         }
       }
 
@@ -351,7 +362,8 @@ describe('CloudSandboxExecutor Integration with secure-agent-api', () => {
         metadata: {
           sessionId: 'sess_test_123',
           token: 'tok_test_456',
-          expiresAt: Date.now() + 3600000
+          expiresAt: Date.now() + 3600000,
+          runId: 'run-123'
         }
       }
 
@@ -371,7 +383,8 @@ describe('CloudSandboxExecutor Integration with secure-agent-api', () => {
         metadata: {
           sessionId: 'sess_test_123',
           token: 'tok_test_456',
-          expiresAt: Date.now() + 3600000
+          expiresAt: Date.now() + 3600000,
+          runId: 'run-123'
         }
       }
 
@@ -415,7 +428,8 @@ describe('CloudSandboxExecutor Integration with secure-agent-api', () => {
         metadata: {
           sessionId: 'sess_test_123',
           token: 'tok_test_456',
-          expiresAt: Date.now() + 3600000
+          expiresAt: Date.now() + 3600000,
+          runId: 'run-123'
         }
       }
 
@@ -436,8 +450,13 @@ describe('CloudSandboxExecutor Integration with secure-agent-api', () => {
 
       const parsed = JSON.parse(body as string)
       expect(parsed.sessionId).toBe('sess_test_123')
-      expect(parsed.command).toBe('npm test')
-      expect(parsed.cwd).toBe('workspace')
+      expect(parsed.taskId).toBe('step-1')
+      expect(parsed.action).toBe('node.execute')
+      expect(parsed.params).toMatchObject({
+        action: 'run',
+        command: 'npm test',
+        runId: 'run-123'
+      })
     })
 
     it('should handle 201 Created status for session creation', async () => {
@@ -457,7 +476,8 @@ describe('CloudSandboxExecutor Integration with secure-agent-api', () => {
         metadata: {
           sessionId: 'sess_test_123',
           token: 'tok_test_456',
-          expiresAt: Date.now() + 3600000
+          expiresAt: Date.now() + 3600000,
+          runId: 'run-123'
         }
       }
 
