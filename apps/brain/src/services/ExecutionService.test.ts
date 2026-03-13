@@ -63,7 +63,7 @@ describe("ExecutionService", () => {
     expect(fetchMock).toHaveBeenCalledTimes(3);
 
     const [sessionUrl, sessionInit] = fetchMock.mock.calls[0]!;
-    expect(sessionUrl).toBe("http://internal/api/v1/session");
+    expect(sessionUrl).toBe("http://internal/api/v1/session?session=session-123");
     expect(sessionInit?.method).toBe("POST");
     expect(JSON.parse(String(sessionInit?.body))).toMatchObject({
       runId: "run-456",
@@ -72,7 +72,7 @@ describe("ExecutionService", () => {
     });
 
     const [executeUrl, executeInit] = fetchMock.mock.calls[1]!;
-    expect(executeUrl).toBe("http://internal/api/v1/execute");
+    expect(executeUrl).toBe("http://internal/api/v1/execute?session=session-123");
     expect(executeInit?.headers).toMatchObject({
       Authorization: "Bearer tok-1",
       "Content-Type": "application/json",

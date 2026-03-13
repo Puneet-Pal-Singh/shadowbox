@@ -136,7 +136,6 @@ import { sanitizeUnknownError } from "./core/security/LogSanitizer";
 import {
   ChatHistoryQuerySchema,
   ChatAppendRequestSchema,
-  ExecutionBodySchema,
   validateQueryParams,
   validateRequestBody,
   errorResponse,
@@ -292,20 +291,6 @@ export default {
             } else {
               response = new Response(content, { status: 200 });
             }
-          }
-        } else if (request.method === "POST") {
-          // Command Execution
-          const validation = await validateRequestBody(
-            request,
-            ExecutionBodySchema,
-          );
-
-          if (!validation.valid) {
-            response = errorResponse(validation.error, "VALIDATION_ERROR", 400);
-          } else {
-            const { plugin, payload } = validation.data;
-            const result = await stub.run(plugin, payload);
-            response = Response.json(result);
           }
         } else {
           response = new Response("Route Not Found", { status: 404 });

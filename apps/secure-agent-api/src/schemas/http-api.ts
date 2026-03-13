@@ -249,13 +249,3 @@ export const ChatAppendRequestSchema = z
   );
 
 export type ChatAppendRequest = z.infer<typeof ChatAppendRequestSchema>;
-
-/**
- * Execution Schemas
- */
-export const ExecutionBodySchema = z.object({
-  plugin: z.string().min(1, "plugin required"),
-  payload: z.record(z.unknown()),
-});
-
-export type ExecutionBody = z.infer<typeof ExecutionBodySchema>;

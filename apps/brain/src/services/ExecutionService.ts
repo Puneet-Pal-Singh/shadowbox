@@ -83,7 +83,7 @@ export class ExecutionService {
       const executionSession = await this.getExecutionSession();
       const res = await fetchWithTimeout(
         this.env.SECURE_API,
-        "http://internal/api/v1/execute",
+        `http://internal/api/v1/execute?session=${encodeURIComponent(this.sessionId)}`,
         {
           method: "POST",
           headers: {
@@ -208,7 +208,7 @@ export class ExecutionService {
   private async createExecutionSession(): Promise<SecureExecutionSession> {
     const response = await fetchWithTimeout(
       this.env.SECURE_API,
-      "http://internal/api/v1/session",
+      `http://internal/api/v1/session?session=${encodeURIComponent(this.sessionId)}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },

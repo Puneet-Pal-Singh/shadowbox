@@ -3,7 +3,6 @@ import { DurableObject } from "cloudflare:workers";
 import { getSandbox, type Sandbox } from "@cloudflare/sandbox";
 import {
   IPlugin,
-  PluginResult,
   Message,
 } from "../interfaces/types";
 import { StreamHandler } from "./StreamHandler";
@@ -15,7 +14,6 @@ import { GitPlugin } from "../plugins/GitPlugin";
 import { NodePlugin } from "../plugins/NodePlugin";
 import { RustPlugin } from "../plugins/RustPlugin";
 import { Env } from "../index";
-import { sanitizeUnknownError } from "./security/LogSanitizer";
 import {
   composeRuntime,
   type ComposedRuntime,
@@ -139,23 +137,6 @@ export class AgentRuntime extends DurableObject {
     }
 
     return new Response("Not Found", { status: 404 });
-  }
-
-  // 4. SRP: Pure Execution Engine
-  async run(pluginName: string, payload: unknown): Promise<PluginResult> {
-    try {
-      const taskResult = await this.executeTask(
-        this.ctx.id.toString(),
-        buildLegacyTaskExecutionInput(pluginName, payload),
-      );
-      const result = toLegacyPluginResult(taskResult);
-      this.stream.broadcast("finish", { success: result.success });
-      return result;
-    } catch (e: unknown) {
-      const error = sanitizeUnknownError(e);
-      this.stream.broadcast("error", error);
-      return { success: false, error };
-    }
   }
 
   async executeTask(
@@ -422,54 +403,4 @@ export class AgentRuntime extends DurableObject {
   async getArtifact(key: string): Promise<string | null> {
     return await this.storageService.getArtifact(key);
   }
-}
-
-function buildLegacyTaskExecutionInput(
-  pluginName: string,
-  payload: unknown,
-): TaskExecutionInput {
-  const params = coercePayloadRecord(payload);
-  return {
-    taskId: resolveTaskId(params),
-    action: `${pluginName}.execute`,
-    params,
-    timeout: readOptionalPositiveInteger(params.timeout),
-    retryable: typeof params.retryable === "boolean" ? params.retryable : undefined,
-  };
-}
-
-function coercePayloadRecord(payload: unknown): Record<string, unknown> {
-  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-    throw new Error("Plugin payload must be an object");
-  }
-  return { ...(payload as Record<string, unknown>) };
-}
-
-function resolveTaskId(params: Record<string, unknown>): string {
-  const existingTaskId = params.taskId;
-  if (typeof existingTaskId === "string" && existingTaskId.trim().length > 0) {
-    return existingTaskId;
-  }
-
-  return `task-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
-function readOptionalPositiveInteger(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isInteger(value) && value > 0
-    ? value
-    : undefined;
-}
-
-function toLegacyPluginResult(result: TaskExecutionResult): PluginResult {
-  if (result.status === "success") {
-    return {
-      success: true,
-      output: result.output ?? "",
-    };
-  }
-
-  return {
-    success: false,
-    error: result.error?.message ?? `Task execution ended with status '${result.status}'`,
-  };
 }
