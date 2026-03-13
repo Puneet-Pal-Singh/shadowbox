@@ -1,4 +1,9 @@
 import type { CoreMessage } from "ai";
+import {
+  CloudflareAgentsRunRuntimeClient,
+  parseCloudflareAgentsFeatureFlag,
+  shouldActivateCloudflareAgentsAdapter,
+} from "@shadowbox/orchestrator-adapters-cloudflare-agents";
 import type {
   AgentType,
   RepositoryContext,
@@ -6,6 +11,7 @@ import type {
 import type { Env } from "../types/ai";
 import {
   DomainError,
+  PolicyError,
   ValidationError,
   isDomainError,
 } from "../domain/errors";
@@ -21,6 +27,7 @@ type RuntimeOrchestratorBackend = "execution-engine-v1" | "cloudflare_agents";
 type RuntimeExecutionBackend = "cloudflare_sandbox" | "e2b" | "daytona";
 type RuntimeHarnessMode = "platform_owned" | "delegated";
 type RuntimeAuthMode = "api_key" | "oauth";
+export type RuntimeExecutionTarget = "do" | "cloudflare_agents";
 
 export interface ExecutionScope {
   userId?: string;
@@ -183,16 +190,120 @@ export async function executeViaRunEngineDurableObject(
   runId: string,
   payload: RunEngineExecutionPayload,
 ): Promise<Response> {
+  return fetchRunRuntimeRoute(env, runId, payload.input.orchestratorBackend, {
+    method: "POST",
+    path: "/execute",
+    body: JSON.stringify(payload),
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+export async function fetchRunRuntimeRoute(
+  env: Env,
+  runId: string,
+  requestedBackend: RuntimeOrchestratorBackend,
+  requestInit: {
+    method: "GET" | "POST";
+    path: string;
+    body?: string;
+    headers?: Record<string, string>;
+  },
+): Promise<Response> {
+  const runtimeTarget = resolveRuntimeTarget(env, requestedBackend);
+  if (runtimeTarget === "cloudflare_agents") {
+    return fetchViaCloudflareAgentsRuntime(env, runId, requestInit);
+  }
+  return fetchViaRunEngineDurableObject(env, runId, requestInit);
+}
+
+export function resolveRuntimeTarget(
+  env: Env,
+  requestedBackend: RuntimeOrchestratorBackend,
+): RuntimeExecutionTarget {
+  const featureFlagEnabled = parseCloudflareAgentsFeatureFlag(
+    env.FEATURE_FLAG_CLOUDFLARE_AGENTS_V1,
+  );
+
+  if (
+    shouldActivateCloudflareAgentsAdapter({
+      requestedBackend,
+      featureFlagEnabled,
+    })
+  ) {
+    if (!env.RUN_ENGINE_AGENT) {
+      throw new Error("RUN_ENGINE_AGENT binding is unavailable");
+    }
+    return "cloudflare_agents";
+  }
+
+  if (requestedBackend === "cloudflare_agents") {
+    throw new PolicyError(
+      "cloudflare_agents backend is not enabled. Set FEATURE_FLAG_CLOUDFLARE_AGENTS_V1 and configure RUN_ENGINE_AGENT.",
+      "CLOUDFLARE_AGENTS_BACKEND_DISABLED",
+    );
+  }
+
+  return "do";
+}
+
+async function fetchViaRunEngineDurableObject(
+  env: Env,
+  runId: string,
+  requestInit: {
+    method: "GET" | "POST";
+    path: string;
+    body?: string;
+    headers?: Record<string, string>;
+  },
+): Promise<Response> {
   if (!env.RUN_ENGINE_RUNTIME) {
     throw new Error("RUN_ENGINE_RUNTIME binding is unavailable");
   }
 
   const id = env.RUN_ENGINE_RUNTIME.idFromName(runId);
   const stub = env.RUN_ENGINE_RUNTIME.get(id);
-  const runtimeResponse = await stub.fetch("https://run-engine/execute", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
+  const runtimeResponse = await stub.fetch(`https://run-engine${requestInit.path}`, {
+    method: requestInit.method,
+    headers: requestInit.headers,
+    body: requestInit.body,
   });
   return runtimeResponse as unknown as Response;
+}
+
+async function fetchViaCloudflareAgentsRuntime(
+  env: Env,
+  runId: string,
+  requestInit: {
+    method: "GET" | "POST";
+    path: string;
+    body?: string;
+    headers?: Record<string, string>;
+  },
+): Promise<Response> {
+  if (!env.RUN_ENGINE_AGENT) {
+    throw new Error("RUN_ENGINE_AGENT binding is unavailable");
+  }
+
+  const client = new CloudflareAgentsRunRuntimeClient({
+    namespace: env.RUN_ENGINE_AGENT,
+  });
+
+  if (requestInit.path === "/execute") {
+    return client.execute({
+      runId,
+      payload: requestInit.body ? JSON.parse(requestInit.body) : {},
+    });
+  }
+
+  if (requestInit.path.startsWith("/summary")) {
+    return client.getSummary({ runId });
+  }
+
+  if (requestInit.path === "/cancel") {
+    return client.cancel({ runId });
+  }
+
+  throw new Error(
+    `Unsupported Cloudflare Agents runtime route: ${requestInit.path}`,
+  );
 }

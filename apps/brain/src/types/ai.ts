@@ -51,6 +51,7 @@ export interface Env {
   CORS_ALLOW_DEV_ORIGINS?: "true" | "false";
   FEATURE_FLAG_CHAT_AGENTIC_LOOP_V1?: "true" | "false" | "1" | "0";
   FEATURE_FLAG_CHAT_REVIEWER_PASS_V1?: "true" | "false" | "1" | "0";
+  FEATURE_FLAG_CLOUDFLARE_AGENTS_V1?: "true" | "false" | "1" | "0";
 
   // Service URLs (environment-driven, not hardcoded)
   MUSCLE_BASE_URL?: string;
@@ -60,6 +61,7 @@ export interface Env {
 
   // Durable Object binding for RunEngine runtime state
   RUN_ENGINE_RUNTIME: DurableObjectNamespace;
+  RUN_ENGINE_AGENT?: DurableObjectNamespace;
 
   // Session Memory Runtime for cross-run memory storage (optional)
   SESSION_MEMORY_RUNTIME?: DurableObjectNamespace;

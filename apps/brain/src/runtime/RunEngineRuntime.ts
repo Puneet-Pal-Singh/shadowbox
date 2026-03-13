@@ -1,31 +1,14 @@
 import type { DurableObjectState as LegacyDurableObjectState } from "@cloudflare/workers-types";
-import type { CoreMessage, CoreTool } from "ai";
 import { z } from "zod";
 import { DurableObject } from "cloudflare:workers";
-import {
-  RunEngine,
-  enforceGoldenFlowToolFloor,
-  getGoldenFlowToolRegistry,
-} from "@shadowbox/execution-engine/runtime/engine";
-import { tagRuntimeStateSemantics } from "@shadowbox/execution-engine/runtime";
-import { RunRepository } from "@shadowbox/execution-engine/runtime/run";
-import { TaskRepository } from "@shadowbox/execution-engine/runtime/task";
 import type { Env } from "../types/ai";
-import { parseExecuteRunRequest } from "./parsing/RunEngineRequestParser";
-import { buildRuntimeDependencies } from "./factories/ExecutionGatewayFactory";
-import {
-  SerializableToolDefinitionSchema,
-  type ExecuteRunPayload,
-} from "./parsing/ExecuteRunPayloadSchema";
 import { errorResponse, jsonResponse } from "../http/response";
 import {
   ValidationError,
   isDomainError,
   mapDomainErrorToHttp,
 } from "../domain/errors";
-import { mapRunExecutionErrorToDomain } from "./RunExecutionErrorMapper";
 import { parseRequestBody, validateWithSchema } from "../http/validation";
-import { sanitizeUnknownError } from "../core/security/LogSanitizer";
 import {
   type BYOKDiscoveredProviderModelsQuery,
   BYOKDiscoveredProviderModelsQuerySchema,
@@ -47,18 +30,16 @@ import {
   ProviderConfigService,
   readByokEncryptionConfig,
 } from "../services/providers";
-import { PersistenceService } from "../services/PersistenceService";
 import { AXIS_PROVIDER_ID } from "../services/providers/axis";
 import {
   MAX_SCOPE_IDENTIFIER_LENGTH,
   SAFE_SCOPE_IDENTIFIER_REGEX,
   type ProviderStoreScopeInput,
 } from "../types/provider-scope";
+import { RunEngineRequestHandler } from "./RunEngineRequestHandler";
+import { persistAssistantMessageFromRunResponse } from "./RunEngineResponsePersistence";
 
 const RunIdSchema = z.string().uuid();
-const CancelRunRequestSchema = z.object({
-  runId: RunIdSchema,
-});
 const ScopeIdSchema = z
   .string()
   .min(1)
@@ -78,17 +59,34 @@ export class RunEngineRuntime extends DurableObject {
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
     const env = this.env as Env;
+    const requestHandler = this.createRequestHandler();
 
     if (url.pathname === "/execute" && request.method === "POST") {
-      return this.handleExecuteRequest(request);
+      return requestHandler.handleExecuteRequest(request, (result) => {
+        this.ctx.waitUntil(
+          persistAssistantMessageFromRunResponse(
+            this.ctx,
+            this.env as Env,
+            result.sessionId,
+            result.runId,
+            result.correlationId,
+            result.response,
+          ).catch((error) => {
+            console.warn(
+              `[run/engine-runtime] ${result.correlationId}: Failed to persist assistant message`,
+              error,
+            );
+          }),
+        );
+      });
     }
 
     if (url.pathname === "/summary" && request.method === "GET") {
-      return this.handleSummaryRequest(request);
+      return requestHandler.handleSummaryRequest(request);
     }
 
     if (url.pathname === "/cancel" && request.method === "POST") {
-      return this.handleCancelRequest(request);
+      return requestHandler.handleCancelRequest(request);
     }
 
     if (url.pathname.startsWith("/providers/")) {
@@ -96,224 +94,6 @@ export class RunEngineRuntime extends DurableObject {
     }
 
     return errorResponse(request, env, "Not Found", 404);
-  }
-
-  private async handleSummaryRequest(request: Request): Promise<Response> {
-    const env = this.env as Env;
-    const url = new URL(request.url);
-    const runIdRaw = url.searchParams.get("runId");
-
-    if (!runIdRaw) {
-      return errorResponse(request, env, "runId is required", 400);
-    }
-
-    let runId: string;
-    try {
-      runId = validateWithSchema<string>(
-        runIdRaw.trim(),
-        RunIdSchema,
-        "run-summary",
-      );
-    } catch {
-      return errorResponse(request, env, "Invalid runId", 400);
-    }
-
-    const runtimeState = tagRuntimeStateSemantics(
-      this.ctx as unknown as LegacyDurableObjectState,
-      "do",
-    );
-    const runRepo = new RunRepository(runtimeState);
-    const taskRepo = new TaskRepository(runtimeState);
-
-    const run = await runRepo.getById(runId);
-    const tasks = await taskRepo.getByRun(runId);
-
-    const completedTasks = tasks.filter((task) => task.status === "DONE").length;
-    const failedTasks = tasks.filter((task) => task.status === "FAILED").length;
-    const summary = {
-      runId,
-      status: run?.status ?? null,
-      totalTasks: tasks.length,
-      completedTasks,
-      failedTasks,
-      runningTasks: tasks.filter((task) => task.status === "RUNNING").length,
-      pendingTasks: tasks.filter((task) => task.status === "PENDING").length,
-      cancelledTasks: tasks.filter((task) => task.status === "CANCELLED").length,
-    };
-
-    return jsonResponse(request, env, summary);
-  }
-
-  private async handleCancelRequest(request: Request): Promise<Response> {
-    const env = this.env as Env;
-
-    let runId: string;
-    try {
-      const payload = await parseRequestBody(request, "run-cancel");
-      const validated = validateWithSchema<{ runId: string }>(
-        payload,
-        CancelRunRequestSchema,
-        "run-cancel",
-      );
-      runId = validated.runId;
-    } catch {
-      return errorResponse(request, env, "Invalid cancel payload", 400);
-    }
-
-    return this.withExecutionLock(async () => {
-      const runtimeState = tagRuntimeStateSemantics(
-        this.ctx as unknown as LegacyDurableObjectState,
-        "do",
-      );
-      const runRepo = new RunRepository(runtimeState);
-      const taskRepo = new TaskRepository(runtimeState);
-
-      const run = await runRepo.getById(runId);
-      if (!run) {
-        return jsonResponse(request, env, {
-          runId,
-          cancelled: false,
-          status: null,
-        });
-      }
-
-      const isTerminal =
-        run.status === "COMPLETED" ||
-        run.status === "FAILED" ||
-        run.status === "CANCELLED";
-      if (isTerminal) {
-        return jsonResponse(request, env, {
-          runId,
-          cancelled: false,
-          status: run.status,
-        });
-      }
-
-      run.transition("CANCELLED");
-      await runRepo.update(run);
-
-      const tasks = await taskRepo.getByRun(runId);
-      let cancelledTasks = 0;
-      for (const task of tasks) {
-        if (["PENDING", "READY", "RUNNING"].includes(task.status)) {
-          task.transition("CANCELLED");
-          await taskRepo.update(task);
-          cancelledTasks += 1;
-        }
-      }
-
-      return jsonResponse(request, env, {
-        runId,
-        cancelled: true,
-        status: "CANCELLED",
-        cancelledTasks,
-      });
-    });
-  }
-
-  private async handleExecuteRequest(request: Request): Promise<Response> {
-    let payload: ExecuteRunPayload;
-    try {
-      // Parse and validate request payload
-      payload = await parseExecuteRunRequest(request);
-    } catch (error: unknown) {
-      if (isDomainError(error)) {
-        const { status, code, message, metadata } = mapDomainErrorToHttp(error);
-        return errorResponse(
-          request,
-          this.env as Env,
-          message,
-          status,
-          code,
-          metadata,
-        );
-      }
-      const message =
-        error instanceof Error ? error.message : "Invalid payload";
-      return errorResponse(request, this.env as Env, message, 400);
-    }
-
-    try {
-      return await this.withExecutionLock(async () => {
-        const runtimeState = tagRuntimeStateSemantics(
-          this.ctx as unknown as LegacyDurableObjectState,
-          "do",
-        );
-
-        // Build all runtime dependencies from factories
-        const { agent, runEngineDeps } = buildRuntimeDependencies(
-          this.ctx,
-          this.env as Env,
-          payload,
-          { strict: true }, // Strict mode: fail on unsupported agent types
-        );
-
-        const runEngine = new RunEngine(
-          runtimeState,
-          {
-            env: this.env as Env,
-            sessionId: payload.sessionId,
-            runId: payload.runId,
-            correlationId: payload.correlationId,
-            requestOrigin: payload.requestOrigin,
-          },
-          agent,
-          undefined,
-          runEngineDeps,
-        );
-
-        const runtimeTools = toRuntimeCoreTools(payload.tools);
-        // Messages validated by zod schema in parser, cast to CoreMessage[] for type safety
-        const executionResponse = await runEngine.execute(
-          payload.input,
-          payload.messages as CoreMessage[],
-          runtimeTools,
-        );
-
-        this.ctx.waitUntil(
-          this.persistAssistantMessage(
-            payload.sessionId,
-            payload.runId,
-            payload.correlationId,
-            executionResponse,
-          ).catch((error) => {
-            console.warn(
-              `[run/engine-runtime] ${payload.correlationId}: Failed to persist assistant message`,
-              error,
-            );
-          }),
-        );
-
-        return executionResponse;
-      });
-    } catch (error: unknown) {
-      const domainError = mapRunExecutionErrorToDomain(
-        error,
-        payload.correlationId,
-      );
-      if (domainError) {
-        console.warn(
-          `[run/engine-runtime] ${payload.correlationId}: mapped runtime error code=${domainError.code} status=${domainError.status}`,
-        );
-        const { status, code, message, metadata } = mapDomainErrorToHttp(domainError);
-        return errorResponse(
-          request,
-          this.env as Env,
-          message,
-          status,
-          code,
-          metadata,
-        );
-      }
-      console.error(
-        `[run/engine-runtime] ${payload.correlationId}: untyped runtime failure: ${sanitizeUnknownError(error)}`,
-      );
-      const message =
-        error instanceof Error
-          ? error.message
-          : "RunEngine DO execution failed";
-      return errorResponse(request, this.env as Env, message, 500);
-    }
   }
 
   private async handleProviderRequest(
@@ -600,85 +380,6 @@ export class RunEngineRuntime extends DurableObject {
     }
   }
 
-  private async persistAssistantMessage(
-    sessionId: string,
-    runId: string,
-    correlationId: string,
-    response: Response,
-  ): Promise<void> {
-    if (!response.ok) {
-      return;
-    }
-
-    const persistedOutput = await this.persistAssistantMessageFromRunOutput(
-      sessionId,
-      runId,
-      correlationId,
-    );
-    if (persistedOutput) {
-      return;
-    }
-
-    const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
-    if (!contentType.includes("text/plain")) {
-      return;
-    }
-
-    let assistantText = "";
-    try {
-      assistantText = (await response.clone().text()).trim();
-    } catch (error) {
-      console.warn(
-        `[run/engine-runtime] ${correlationId}: Failed to capture assistant stream for history persistence`,
-        error,
-      );
-      return;
-    }
-
-    if (!assistantText) {
-      return;
-    }
-
-    const persistenceService = new PersistenceService(this.env as Env);
-    await persistenceService.persistUserMessage(sessionId, runId, {
-      role: "assistant",
-      content: assistantText,
-    });
-  }
-
-  private async persistAssistantMessageFromRunOutput(
-    sessionId: string,
-    runId: string,
-    correlationId: string,
-  ): Promise<boolean> {
-    try {
-      const runtimeState = tagRuntimeStateSemantics(
-        this.ctx as unknown as LegacyDurableObjectState,
-        "do",
-      );
-      const runRepository = new RunRepository(runtimeState);
-      const run = await runRepository.getById(runId);
-      const outputContent = run?.output?.content?.trim();
-
-      if (!outputContent) {
-        return false;
-      }
-
-      const persistenceService = new PersistenceService(this.env as Env);
-      await persistenceService.persistUserMessage(sessionId, runId, {
-        role: "assistant",
-        content: outputContent,
-      });
-      return true;
-    } catch (error) {
-      console.warn(
-        `[run/engine-runtime] ${correlationId}: Failed to persist assistant output from run state`,
-        error,
-      );
-      return false;
-    }
-  }
-
   private async withExecutionLock<T>(operation: () => Promise<T>): Promise<T> {
     const previous = this.executionQueue;
     let release: () => void = () => {};
@@ -693,26 +394,12 @@ export class RunEngineRuntime extends DurableObject {
       release();
     }
   }
-}
 
-function toRuntimeCoreTools(
-  tools: ExecuteRunPayload["tools"],
-): Record<string, CoreTool> {
-  const parsedTools: Record<string, CoreTool> = {};
-  if (tools) {
-    for (const [toolName, definition] of Object.entries(tools)) {
-      const validatedDefinition =
-        SerializableToolDefinitionSchema.parse(definition);
-      parsedTools[toolName] = {
-        ...validatedDefinition,
-        parameters: validatedDefinition.parameters ?? {},
-      } as CoreTool;
-    }
+  private createRequestHandler(): RunEngineRequestHandler {
+    return new RunEngineRequestHandler(
+      this.ctx,
+      this.env as Env,
+      this.withExecutionLock.bind(this),
+    );
   }
-
-  if (Object.keys(parsedTools).length === 0) {
-    return getGoldenFlowToolRegistry();
-  }
-
-  return enforceGoldenFlowToolFloor(parsedTools);
 }

@@ -88,11 +88,12 @@ export function withEngineHeaders(
   env: Env,
   response: Response,
   runId: string,
+  runtime: string = response.headers.get("X-Run-Engine-Runtime") ?? "do",
 ): Response {
   const headers = new Headers(response.headers);
   headers.set("X-Engine-Version", "3.0");
   headers.set("X-Run-Id", runId);
-  headers.set("X-Run-Engine-Runtime", "do");
+  headers.set("X-Run-Engine-Runtime", runtime);
 
   const corsHeaders = getCorsHeaders(request, env);
   Object.entries(corsHeaders).forEach(([key, value]) => {

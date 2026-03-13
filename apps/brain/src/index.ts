@@ -8,9 +8,10 @@ import { ProviderController } from "./controllers/ProviderController";
 import { handleOptions, getCorsHeaders } from "./lib/cors";
 import { Env } from "./types/ai";
 import { RunEngineRuntime } from "./runtime/RunEngineRuntime";
+import { RunEngineAgent } from "./runtime/RunEngineAgent";
 import { SessionMemoryRuntime } from "./runtime/SessionMemoryRuntime";
 
-export { RunEngineRuntime, SessionMemoryRuntime };
+export { RunEngineRuntime, RunEngineAgent, SessionMemoryRuntime };
 
 /**
  * Route configuration type with HTTP method support
