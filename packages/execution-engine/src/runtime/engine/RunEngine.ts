@@ -27,7 +27,7 @@ import type {
   RuntimeDurableObjectState,
   WorkspaceBootstrapper,
 } from "../types.js";
-import type { Plan, PlannedTask } from "../planner/index.js";
+import type { Plan } from "../planner/index.js";
 import {
   LLMGateway,
   LLMTimeoutError,
@@ -78,6 +78,11 @@ import {
 } from "./RunTurnModePolicy.js";
 import { buildPlanningRecoveryMessage } from "./RunPlanningRecoveryPolicy.js";
 import { synthesizeResultFromTasks } from "./RunSynthesisPolicy.js";
+import {
+  buildDirectExecutionPlan,
+  type ExecutablePlan,
+  type ExecutablePlannedTask,
+} from "./RunDirectPlanPolicy.js";
 
 export interface IRunEngine {
   execute(
@@ -410,7 +415,11 @@ export class RunEngine implements IRunEngine {
           this.currentMemoryContext,
         );
         await this.createTasksFromPlan(run.id, plan);
-        recordLifecycleStep(run, "PLAN_VALIDATED");
+        recordLifecycleStep(
+          run,
+          "PLAN_VALIDATED",
+          plan.metadata.reasoning ?? undefined,
+        );
 
         await this.safeMemoryOperation(() =>
           this.memoryCoordinator.createCheckpoint({
@@ -720,7 +729,10 @@ export class RunEngine implements IRunEngine {
     );
   }
 
-  private async createTasksFromPlan(runId: string, plan: Plan): Promise<void> {
+  private async createTasksFromPlan(
+    runId: string,
+    plan: ExecutablePlan,
+  ): Promise<void> {
     for (const plannedTask of plan.tasks) {
       const task = this.createTaskFromPlanned(runId, plannedTask);
       await this.taskRepo.create(task);
@@ -731,7 +743,10 @@ export class RunEngine implements IRunEngine {
     );
   }
 
-  private createTaskFromPlanned(runId: string, planned: PlannedTask): Task {
+  private createTaskFromPlanned(
+    runId: string,
+    planned: ExecutablePlannedTask,
+  ): Task {
     return new Task(
       planned.id,
       runId,
@@ -750,7 +765,14 @@ export class RunEngine implements IRunEngine {
     run: Run,
     prompt: string,
     memoryContext?: MemoryContext,
-  ): Promise<Plan> {
+  ): Promise<ExecutablePlan> {
+    const directPlan = buildDirectExecutionPlan(prompt);
+    if (directPlan) {
+      console.log(
+        `[run/engine] Direct single-step plan selected for run ${run.id}: task=${directPlan.tasks[0]?.type ?? "unknown"}`,
+      );
+      return directPlan;
+    }
     if (this.agent) {
       return this.agent.plan({ run, prompt, history: undefined });
     }

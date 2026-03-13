@@ -161,6 +161,42 @@ describe("RunEngine", () => {
     );
   });
 
+  it("skips planner decomposition for direct read-file requests", async () => {
+    const planner = {
+      plan: vi.fn(async () => {
+        throw new Error(
+          "planner should not be called for direct read requests",
+        );
+      }),
+    } as unknown as RunEngineDependencies["planner"];
+    const runEngine = createRunEngine({ planner });
+
+    const response = await runEngine.execute(
+      {
+        agentType: "coding",
+        prompt: "read README.md",
+        sessionId: "session-1",
+      },
+      [{ role: "user", content: "read README.md" }],
+      {},
+    );
+
+    expect(response.status).toBe(200);
+    expect(planner.plan).not.toHaveBeenCalled();
+
+    const privateApi = runEngine as unknown as {
+      taskRepo: {
+        getByRun(
+          runId: string,
+        ): Promise<Array<{ type: string; input: Record<string, unknown> }>>;
+      };
+    };
+    const tasks = await privateApi.taskRepo.getByRun(TEST_RUN_ID);
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0]?.type).toBe("read_file");
+    expect(tasks[0]?.input.path).toBe("README.md");
+  });
+
   it("executes active agentic loop path when feature flag is enabled", async () => {
     const generateText = vi
       .fn()
