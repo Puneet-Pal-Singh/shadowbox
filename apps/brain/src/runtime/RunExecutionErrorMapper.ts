@@ -1,4 +1,5 @@
 import { DomainError, isDomainError } from "../domain/errors";
+import { ProviderCapabilityError } from "@shadowbox/execution-engine/runtime";
 
 const RUN_MANIFEST_IMMUTABLE_CODE = "RUN_MANIFEST_IMMUTABLE";
 const RUN_MANIFEST_IMMUTABLE_STATUS = 409;
@@ -30,6 +31,31 @@ const PROVIDER_AUTH_FAILED_CODE = "AUTH_FAILED";
 const PROVIDER_AUTH_FAILED_STATUS = 401;
 const PROVIDER_AUTH_FAILED_MESSAGE =
   "Provider authentication failed. Reconnect credentials in Provider Settings and retry.";
+const TOOLS_NOT_SUPPORTED_CODE = "TOOLS_NOT_SUPPORTED";
+const TOOLS_NOT_SUPPORTED_STATUS = 422;
+const TOOLS_NOT_SUPPORTED_MESSAGE =
+  "The selected model cannot use tools for this request. Switch to a tool-capable model and retry.";
+const STRUCTURED_OUTPUTS_NOT_SUPPORTED_CODE =
+  "STRUCTURED_OUTPUTS_NOT_SUPPORTED";
+const STRUCTURED_OUTPUTS_NOT_SUPPORTED_STATUS = 422;
+const STRUCTURED_OUTPUTS_NOT_SUPPORTED_MESSAGE =
+  "The selected model cannot produce the structured output required for planning. Switch to a structured-output model and retry.";
+const EXECUTION_LANE_UNSUPPORTED_CODE = "EXECUTION_LANE_UNSUPPORTED";
+const EXECUTION_LANE_UNSUPPORTED_STATUS = 422;
+const EXECUTION_LANE_UNSUPPORTED_ACTION_MESSAGE =
+  "The selected model is not approved for execution-critical action turns. Switch to a stronger action model or keep the request conversational.";
+const EXECUTION_LANE_UNSUPPORTED_PLANNING_MESSAGE =
+  "The selected model is not approved for structured planning. Switch to a stronger planning model or narrow the request.";
+const EXECUTION_LANE_UNSUPPORTED_DEFAULT_MESSAGE =
+  "The selected provider/model pair is not allowed for this execution path. Choose a supported model and retry.";
+const INVALID_PROVIDER_SELECTION_CODE = "INVALID_PROVIDER_SELECTION";
+const INVALID_PROVIDER_SELECTION_STATUS = 400;
+const INVALID_PROVIDER_SELECTION_MESSAGE =
+  "Provider or model selection is invalid for runtime execution. Choose a registered provider and concrete model, then retry.";
+const MODEL_NOT_ALLOWED_CODE = "MODEL_NOT_ALLOWED";
+const MODEL_NOT_ALLOWED_STATUS = 400;
+const MODEL_NOT_ALLOWED_MESSAGE =
+  "The selected model is not allowed for the chosen provider. Pick an allowed model and retry.";
 
 /**
  * Maps runtime execution failures to typed domain errors when possible.
@@ -50,6 +76,11 @@ export function mapRunExecutionErrorToDomain(
       false,
       correlationId,
     );
+  }
+
+  const providerCapabilityError = getProviderCapabilityError(error);
+  if (providerCapabilityError) {
+    return mapProviderCapabilityError(providerCapabilityError, correlationId);
   }
 
   if (isPlanSchemaMismatch(error)) {
@@ -105,6 +136,60 @@ export function mapRunExecutionErrorToDomain(
   return null;
 }
 
+function mapProviderCapabilityError(
+  error: ProviderCapabilityError,
+  correlationId?: string,
+): DomainError {
+  const metadata = buildProviderCapabilityMetadata(error);
+  switch (error.code) {
+    case "INVALID_PROVIDER_SELECTION":
+      return new DomainError(
+        INVALID_PROVIDER_SELECTION_CODE,
+        INVALID_PROVIDER_SELECTION_MESSAGE,
+        INVALID_PROVIDER_SELECTION_STATUS,
+        false,
+        correlationId,
+        metadata,
+      );
+    case "MODEL_NOT_ALLOWED":
+      return new DomainError(
+        MODEL_NOT_ALLOWED_CODE,
+        MODEL_NOT_ALLOWED_MESSAGE,
+        MODEL_NOT_ALLOWED_STATUS,
+        false,
+        correlationId,
+        metadata,
+      );
+    case "TOOLS_NOT_SUPPORTED":
+      return new DomainError(
+        TOOLS_NOT_SUPPORTED_CODE,
+        TOOLS_NOT_SUPPORTED_MESSAGE,
+        TOOLS_NOT_SUPPORTED_STATUS,
+        false,
+        correlationId,
+        metadata,
+      );
+    case "STRUCTURED_OUTPUTS_NOT_SUPPORTED":
+      return new DomainError(
+        STRUCTURED_OUTPUTS_NOT_SUPPORTED_CODE,
+        STRUCTURED_OUTPUTS_NOT_SUPPORTED_MESSAGE,
+        STRUCTURED_OUTPUTS_NOT_SUPPORTED_STATUS,
+        false,
+        correlationId,
+        metadata,
+      );
+    case "EXECUTION_LANE_UNSUPPORTED":
+      return new DomainError(
+        EXECUTION_LANE_UNSUPPORTED_CODE,
+        getExecutionLaneUnsupportedMessage(error),
+        EXECUTION_LANE_UNSUPPORTED_STATUS,
+        false,
+        correlationId,
+        metadata,
+      );
+  }
+}
+
 function isRunManifestMismatch(error: unknown): boolean {
   if (!(error instanceof Error)) {
     return false;
@@ -114,6 +199,15 @@ function isRunManifestMismatch(error: unknown): boolean {
     error.name === "RunManifestMismatchError" &&
     error.message.includes(RUN_MANIFEST_MISMATCH_SENTINEL)
   );
+}
+
+function getProviderCapabilityError(
+  error: unknown,
+): ProviderCapabilityError | null {
+  if (error instanceof ProviderCapabilityError) {
+    return error;
+  }
+  return null;
 }
 
 function isPlanSchemaMismatch(error: unknown): boolean {
@@ -133,7 +227,8 @@ function isPlanGenerationTimeout(error: unknown): boolean {
   }
   const signalText = getErrorSignalText(error);
   return (
-    (error.name === "LLMTimeoutError" && signalText.includes("(phase=planning)")) ||
+    (error.name === "LLMTimeoutError" &&
+      signalText.includes("(phase=planning)")) ||
     signalText.includes(PLAN_TIMEOUT_SENTINEL.toLowerCase())
   );
 }
@@ -211,4 +306,25 @@ function getErrorSignalText(error: Error): string {
   }
 
   return segments.join(" | ").toLowerCase();
+}
+
+function getExecutionLaneUnsupportedMessage(
+  error: ProviderCapabilityError,
+): string {
+  if (error.lane === "single_agent_action") {
+    return EXECUTION_LANE_UNSUPPORTED_ACTION_MESSAGE;
+  }
+  if (error.lane === "structured_planning_required") {
+    return EXECUTION_LANE_UNSUPPORTED_PLANNING_MESSAGE;
+  }
+  return EXECUTION_LANE_UNSUPPORTED_DEFAULT_MESSAGE;
+}
+
+function buildProviderCapabilityMetadata(
+  error: ProviderCapabilityError,
+): Record<string, unknown> {
+  return {
+    lane: error.lane,
+    reason: error.reason,
+  };
 }

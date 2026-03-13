@@ -536,8 +536,8 @@ export class ProviderCapabilityError extends Error {
       | "TOOLS_NOT_SUPPORTED"
       | "STRUCTURED_OUTPUTS_NOT_SUPPORTED"
       | "EXECUTION_LANE_UNSUPPORTED",
-    providerId: string,
-    modelId: string,
+    public readonly providerId: string,
+    public readonly modelId: string,
     public readonly lane?: LLMExecutionLane,
     public readonly reason?: string,
   ) {

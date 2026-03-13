@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { DomainError } from "../domain/errors";
 import { mapRunExecutionErrorToDomain } from "./RunExecutionErrorMapper";
+import { ProviderCapabilityError } from "@shadowbox/execution-engine/runtime";
 
 describe("RunExecutionErrorMapper", () => {
   it("passes through existing domain errors", () => {
@@ -115,5 +116,50 @@ describe("RunExecutionErrorMapper", () => {
       retryable: false,
       correlationId: "corr-9",
     });
+  });
+
+  it("maps structured output policy failures to typed runtime errors", () => {
+    const mapped = mapRunExecutionErrorToDomain(
+      new ProviderCapabilityError(
+        "STRUCTURED_OUTPUTS_NOT_SUPPORTED",
+        "groq",
+        "llama-3.3-70b-versatile",
+      ),
+      "corr-10",
+    );
+
+    expect(mapped).toMatchObject({
+      code: "STRUCTURED_OUTPUTS_NOT_SUPPORTED",
+      status: 422,
+      retryable: false,
+      correlationId: "corr-10",
+      metadata: {
+        lane: undefined,
+      },
+    });
+  });
+
+  it("maps execution lane policy failures with actionable planning guidance", () => {
+    const mapped = mapRunExecutionErrorToDomain(
+      new ProviderCapabilityError(
+        "EXECUTION_LANE_UNSUPPORTED",
+        "axis",
+        "z-ai/glm-4.5-air:free",
+        "structured_planning_required",
+        "Free-tier models are blocked from structured planning until explicitly approved.",
+      ),
+      "corr-11",
+    );
+
+    expect(mapped).toMatchObject({
+      code: "EXECUTION_LANE_UNSUPPORTED",
+      status: 422,
+      retryable: false,
+      correlationId: "corr-11",
+      metadata: {
+        lane: "structured_planning_required",
+      },
+    });
+    expect(mapped?.message).toContain("structured planning");
   });
 });
