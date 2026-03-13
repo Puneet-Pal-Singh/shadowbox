@@ -9,7 +9,6 @@ const TURN_MODE_SCHEMA = z.object({
   rationale: z.string().max(400).optional(),
   confidence: z.number().min(0).max(1),
 });
-const TURN_MODE_TIMEOUT_MS = 8_000;
 const ACTION_CONFIDENCE_THRESHOLD = 0.8;
 
 export type TurnMode = z.infer<typeof TURN_MODE_SCHEMA>["mode"];
@@ -47,7 +46,6 @@ export async function determineTurnMode({
     model: run.input.modelId,
     providerId: run.input.providerId,
     temperature: 0,
-    timeoutMs: TURN_MODE_TIMEOUT_MS,
   });
 
   const mode = result.object.mode === "chat" ? "chat" : "action";
