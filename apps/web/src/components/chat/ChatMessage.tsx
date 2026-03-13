@@ -293,6 +293,7 @@ function MarkdownMessageContent({
     >
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
+        disallowedElements={["img"]}
         components={{
           a: ({ className, ...props }) => (
             <a

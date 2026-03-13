@@ -905,7 +905,6 @@ export class RunEngine implements IRunEngine {
     );
     return this.createStreamResponse(sanitizedText);
   }
-
   private async tryHandlePlanningError(
     run: Run,
     runId: string,
@@ -948,7 +947,6 @@ export class RunEngine implements IRunEngine {
       this.permissionApprovalStore,
     );
   }
-
   private async getWorkspaceBootstrapMessage(
     runId: string,
     repositoryContext?: RepositoryContext,
@@ -959,7 +957,6 @@ export class RunEngine implements IRunEngine {
       this.workspaceBootstrapper,
     );
   }
-
   private async handleExecutionError(
     runId: string,
     error: unknown,
@@ -995,18 +992,11 @@ export class RunEngine implements IRunEngine {
       return undefined;
     }
   }
-
   async getCostSnapshot(runId: string): Promise<CostSnapshot> {
     return this.costLedger.aggregate(runId);
   }
-
-  async getTasksForRun(runId: string) {
-    return this.taskRepo.getByRun(runId);
-  }
-
-  async getRun(runId: string) {
-    return this.runRepo.getById(runId);
-  }
+  async getTasksForRun(runId: string) { return this.taskRepo.getByRun(runId); }
+  async getRun(runId: string) { return this.runRepo.getById(runId); }
 
   private getUnknownPricingMode(env: RunEngineEnv): "warn" | "block" {
     const configuredMode = env.COST_UNKNOWN_PRICING_MODE as unknown;

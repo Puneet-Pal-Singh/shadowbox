@@ -31,4 +31,16 @@ describe("ChatMessage", () => {
     const link = screen.getByRole("link", { name: "README" });
     expect(link).toHaveAttribute("href", "https://example.com");
   });
+
+  it("does not render markdown images", () => {
+    const message = {
+      id: "assistant-image",
+      role: "assistant",
+      content: "![remote](https://example.com/remote.png)",
+    } as Message;
+
+    const { container } = render(<ChatMessage message={message} />);
+
+    expect(container.querySelector("img")).toBeNull();
+  });
 });
