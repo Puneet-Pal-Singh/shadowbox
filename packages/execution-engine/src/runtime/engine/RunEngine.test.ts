@@ -197,6 +197,99 @@ describe("RunEngine", () => {
     expect(tasks[0]?.input.path).toBe("README.md");
   });
 
+  it("executes direct run-command requests through CodingAgent without planner decomposition", async () => {
+    const planner = {
+      plan: vi.fn(async () => {
+        throw new Error(
+          "planner should not be called for direct command requests",
+        );
+      }),
+    } as unknown as RunEngineDependencies["planner"];
+    const executionService: RuntimeExecutionService = {
+      execute: vi.fn(async () => ({
+        success: true,
+        output: "test suite passed",
+      })),
+    };
+    const llmGateway = createMockLLMGateway();
+    const runEngine = new RunEngine(
+      new MockRuntimeState(),
+      {
+        env: { NODE_ENV: "test" } as unknown,
+        sessionId: "session-1",
+        runId: TEST_RUN_ID,
+      },
+      new CodingAgent(llmGateway, executionService),
+      undefined,
+      { llmGateway, planner },
+    );
+
+    const response = await runEngine.execute(
+      {
+        agentType: "coding",
+        prompt: "run pnpm test -- src/runtime/engine",
+        sessionId: "session-1",
+      },
+      [{ role: "user", content: "run pnpm test -- src/runtime/engine" }],
+      {},
+    );
+
+    expect(response.status).toBe(200);
+    expect(planner.plan).not.toHaveBeenCalled();
+    expect(executionService.execute).toHaveBeenCalledWith("node", "run", {
+      command: "pnpm test -- src/runtime/engine",
+    });
+  });
+
+  it("executes direct write-file requests through CodingAgent without planner decomposition", async () => {
+    const planner = {
+      plan: vi.fn(async () => {
+        throw new Error(
+          "planner should not be called for direct write requests",
+        );
+      }),
+    } as unknown as RunEngineDependencies["planner"];
+    const executionService: RuntimeExecutionService = {
+      execute: vi.fn(async () => ({
+        success: true,
+        output: "Wrote 11 bytes to README.md",
+      })),
+    };
+    const llmGateway = createMockLLMGateway();
+    const runEngine = new RunEngine(
+      new MockRuntimeState(),
+      {
+        env: { NODE_ENV: "test" } as unknown,
+        sessionId: "session-1",
+        runId: TEST_RUN_ID,
+      },
+      new CodingAgent(llmGateway, executionService),
+      undefined,
+      { llmGateway, planner },
+    );
+
+    const response = await runEngine.execute(
+      {
+        agentType: "coding",
+        prompt: "write README.md\n```md\n# Shadowbox\n```",
+        sessionId: "session-1",
+      },
+      [{ role: "user", content: "write README.md\n```md\n# Shadowbox\n```" }],
+      {},
+    );
+
+    expect(response.status).toBe(200);
+    expect(planner.plan).not.toHaveBeenCalled();
+    expect(executionService.execute).toHaveBeenCalledWith(
+      "filesystem",
+      "write_file",
+      {
+        path: "README.md",
+        content: "# Shadowbox",
+      },
+    );
+  });
+
   it("executes active agentic loop path when feature flag is enabled", async () => {
     const generateText = vi
       .fn()
