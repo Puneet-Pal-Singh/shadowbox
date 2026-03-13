@@ -46,13 +46,8 @@ import {
   getWorkspaceBootstrapMessage,
   processPermissionDirectives as processPermissionDirectivesPolicy,
 } from "./RunPermissionWorkspacePolicy.js";
-import {
-  createRunManifest,
-  ensureManifestMatch,
-} from "./RunManifestPolicy.js";
-import {
-  buildConversationalSystemPrompt,
-} from "./ConversationPolicy.js";
+import { createRunManifest, ensureManifestMatch } from "./RunManifestPolicy.js";
+import { buildConversationalSystemPrompt } from "./ConversationPolicy.js";
 import { sanitizeUserFacingOutput } from "./RunOutputSanitizer.js";
 import {
   applyFinalRunStatus,
@@ -72,11 +67,13 @@ import {
   recordOrchestrationActivation,
   recordOrchestrationTerminal,
   recordPhaseSelectionSnapshot,
+  recordTurnModeDecision,
 } from "./RunMetadataPolicy.js";
 import { resetRecyclableRun } from "./RunRecyclableResetPolicy.js";
 import { applyReviewerPassIfEnabled } from "./RunReviewerPassPolicy.js";
 import {
   determineTurnMode as determineTurnModePolicy,
+  type TurnModeDecision,
   type TurnMode,
 } from "./RunTurnModePolicy.js";
 import { buildPlanningRecoveryMessage } from "./RunPlanningRecoveryPolicy.js";
@@ -227,7 +224,8 @@ export class RunEngine implements IRunEngine {
         )
       : new DefaultTaskExecutor();
     this.scheduler =
-      dependencies.scheduler ?? new TaskScheduler(this.taskRepo, this.taskExecutor);
+      dependencies.scheduler ??
+      new TaskScheduler(this.taskRepo, this.taskExecutor);
 
     if (dependencies.memoryCoordinator) {
       this.memoryCoordinator = dependencies.memoryCoordinator;
@@ -259,14 +257,13 @@ export class RunEngine implements IRunEngine {
       recordOrchestrationActivation(run);
       await this.runRepo.update(run);
       console.log(`[run/engine] Retrieving memory context for run ${runId}`);
-      this.currentMemoryContext = await this.safeMemoryOperation(
-        () =>
-          this.memoryCoordinator.retrieveContext({
-            runId,
-            sessionId,
-            prompt: input.prompt,
-            phase: "planning",
-          }),
+      this.currentMemoryContext = await this.safeMemoryOperation(() =>
+        this.memoryCoordinator.retrieveContext({
+          runId,
+          sessionId,
+          prompt: input.prompt,
+          phase: "planning",
+        }),
       );
       await this.safeMemoryOperation(() =>
         this.persistConversationMessages(runId, sessionId, messages, "user"),
@@ -299,14 +296,29 @@ export class RunEngine implements IRunEngine {
 
       let turnMode: TurnMode;
       try {
-        turnMode = await determineTurnModePolicy({
+        const turnDecision = await determineTurnModePolicy({
           llmGateway: this.llmGateway,
           run,
           prompt: input.prompt,
           messages,
           repositoryContext: input.repositoryContext,
         });
+        turnMode = turnDecision.mode;
+        recordTurnModeDecision(run, turnDecision);
+        await this.runRepo.update(run);
+        console.log(
+          `[run/engine] Turn mode selected for run ${runId}: mode=${turnDecision.mode} source=${turnDecision.source}`,
+        );
       } catch (turnModeError) {
+        recordTurnModeDecision(
+          run,
+          buildRecoveredTurnModeDecision(turnModeError),
+        );
+        await this.runRepo.update(run);
+        console.warn(
+          `[run/engine] Turn mode classification failed for run ${runId}; source=recovered`,
+          turnModeError,
+        );
         const recoveryResponse = await this.tryHandlePlanningError(
           run,
           runId,
@@ -321,7 +333,11 @@ export class RunEngine implements IRunEngine {
         console.log(
           `[run/engine] Model-selected conversational mode for run ${runId}`,
         );
-        const response = await this.executeConversationalTurn(run, input, messages);
+        const response = await this.executeConversationalTurn(
+          run,
+          input,
+          messages,
+        );
         console.log(
           `[run/timing] run=${runId} step=total elapsedMs=${Date.now() - runStartedAt} status=${run.status} mode=chat`,
         );
@@ -343,7 +359,10 @@ export class RunEngine implements IRunEngine {
           console.log(
             `[run/engine] Permission check blocked action planning for run ${runId}`,
           );
-          return await this.completeRunWithAssistantMessage(run, permissionMessage);
+          return await this.completeRunWithAssistantMessage(
+            run,
+            permissionMessage,
+          );
         }
       } else {
         console.log(
@@ -360,7 +379,10 @@ export class RunEngine implements IRunEngine {
         console.log(
           `[run/engine] Workspace bootstrap blocked action planning for run ${runId}`,
         );
-        return await this.completeRunWithAssistantMessage(run, bootstrapMessage);
+        return await this.completeRunWithAssistantMessage(
+          run,
+          bootstrapMessage,
+        );
       }
 
       const agenticLoopTools = resolveAgenticLoopTools(
@@ -898,9 +920,7 @@ export class RunEngine implements IRunEngine {
     run.output = { content: sanitizedText };
     await this.runRepo.update(run);
 
-    console.log(
-      `[run/engine] Completed run ${run.id} with recoverable error`,
-    );
+    console.log(`[run/engine] Completed run ${run.id} with recoverable error`);
     return this.createStreamResponse(sanitizedText);
   }
 
@@ -1046,4 +1066,16 @@ export class RunEngineError extends Error {
     super(`[run/engine] ${message}`);
     this.name = "RunEngineError";
   }
+}
+
+function buildRecoveredTurnModeDecision(error: unknown): TurnModeDecision {
+  return {
+    mode: "action",
+    source: "recovered",
+    rationale:
+      error instanceof Error
+        ? error.message
+        : "Turn mode classification failed before planning.",
+    confidence: 0,
+  };
 }

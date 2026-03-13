@@ -129,10 +129,20 @@ describe("RunEngine", () => {
     const response = await runEngine.execute(
       {
         agentType: "coding",
-        prompt: "read my repo and summarize",
+        prompt: "continue with that",
         sessionId: "session-1",
       },
-      [{ role: "user", content: "read my repo and summarize" }],
+      [
+        {
+          role: "assistant",
+          content:
+            "I can inspect the repository and summarize the current state.",
+        },
+        {
+          role: "user",
+          content: "continue with that",
+        },
+      ],
       {},
     );
 
@@ -140,9 +150,11 @@ describe("RunEngine", () => {
     const output = await response.text();
     expect(output).toContain("couldn't generate a valid structured plan");
 
-    const persisted = await (runEngine as unknown as {
-      getRun(runId: string): Promise<Run | null>;
-    }).getRun(TEST_RUN_ID);
+    const persisted = await (
+      runEngine as unknown as {
+        getRun(runId: string): Promise<Run | null>;
+      }
+    ).getRun(TEST_RUN_ID);
     expect(persisted?.status).toBe("COMPLETED");
     expect(persisted?.metadata.error).toContain(
       "Planner response did not match required schema",
@@ -236,9 +248,11 @@ describe("RunEngine", () => {
     expect(Object.keys(firstRequest.tools ?? {})).toContain("read_file");
     expect(planner.plan).not.toHaveBeenCalled();
 
-    const persisted = await (runEngine as unknown as {
-      getRun(runId: string): Promise<Run | null>;
-    }).getRun(TEST_RUN_ID);
+    const persisted = await (
+      runEngine as unknown as {
+        getRun(runId: string): Promise<Run | null>;
+      }
+    ).getRun(TEST_RUN_ID);
     expect(persisted?.metadata.agenticLoop?.enabled).toBe(true);
     expect(persisted?.metadata.agenticLoop?.stopReason).toBe("llm_stop");
     expect(persisted?.metadata.agenticLoop?.toolExecutionCount).toBe(1);
@@ -324,7 +338,10 @@ describe("RunEngine", () => {
             return { success: true, output: "test suite passed\n" };
           }
           if (plugin === "git" && action === "git_diff") {
-            return { success: true, output: "diff --git a/README.md b/README.md" };
+            return {
+              success: true,
+              output: "diff --git a/README.md b/README.md",
+            };
           }
           return {
             success: false,
@@ -384,9 +401,11 @@ describe("RunEngine", () => {
     });
     expect(executeSpy).toHaveBeenCalledWith("git", "git_diff", {});
 
-    const persisted = await (runEngine as unknown as {
-      getRun(runId: string): Promise<Run | null>;
-    }).getRun(TEST_RUN_ID);
+    const persisted = await (
+      runEngine as unknown as {
+        getRun(runId: string): Promise<Run | null>;
+      }
+    ).getRun(TEST_RUN_ID);
     expect(persisted?.metadata.agenticLoop?.stopReason).toBe("llm_stop");
     expect(persisted?.metadata.agenticLoop?.toolExecutionCount).toBe(5);
     expect(persisted?.metadata.agenticLoop?.failedToolCount).toBe(0);
@@ -435,7 +454,9 @@ describe("RunEngine", () => {
       },
       [{ role: "user", content: "inspect repository" }],
       {
-        web_search: { description: "not in scope" } as unknown as import("ai").CoreTool,
+        web_search: {
+          description: "not in scope",
+        } as unknown as import("ai").CoreTool,
       },
     );
 
@@ -451,7 +472,7 @@ describe("RunEngine", () => {
 
   it("sanitizes internal runtime paths in user-facing output", () => {
     const leaked =
-      'cat: /home/sandbox/runs/5212f17b-eb1f-463f-a41f-2c4c6b9d4ba6/README.md: No such file or directory\nSee https://internal/debug';
+      "cat: /home/sandbox/runs/5212f17b-eb1f-463f-a41f-2c4c6b9d4ba6/README.md: No such file or directory\nSee https://internal/debug";
     const sanitized = sanitizeUserFacingOutput(leaked);
 
     expect(sanitized).not.toContain(
@@ -502,7 +523,11 @@ describe("RunEngine", () => {
         sessionId: string,
       ): Promise<Run>;
       taskRepo: {
-        create(task: { id: string; runId: string; toJSON(): unknown }): Promise<void>;
+        create(task: {
+          id: string;
+          runId: string;
+          toJSON(): unknown;
+        }): Promise<void>;
       };
     };
 
@@ -665,7 +690,11 @@ describe("RunEngine", () => {
         update(run: Run): Promise<void>;
       };
       taskRepo: {
-        create(task: { id: string; runId: string; toJSON(): unknown }): Promise<void>;
+        create(task: {
+          id: string;
+          runId: string;
+          toJSON(): unknown;
+        }): Promise<void>;
         getByRun(runId: string): Promise<Array<{ id: string }>>;
       };
     };
@@ -756,9 +785,11 @@ describe("RunEngine", () => {
 
     expect(response.status).toBe(200);
 
-    const persisted = await (runEngine as unknown as {
-      getRun(runId: string): Promise<Run | null>;
-    }).getRun(TEST_RUN_ID);
+    const persisted = await (
+      runEngine as unknown as {
+        getRun(runId: string): Promise<Run | null>;
+      }
+    ).getRun(TEST_RUN_ID);
 
     const manifest = persisted?.metadata.manifest;
     const snapshots = persisted?.metadata.phaseSelectionSnapshots;
@@ -858,9 +889,11 @@ describe("RunEngine", () => {
     const output = await response.text();
     expect(output).toContain("Reviewer Note (request_changes)");
 
-    const persisted = await (runEngine as unknown as {
-      getRun(runId: string): Promise<Run | null>;
-    }).getRun(TEST_RUN_ID);
+    const persisted = await (
+      runEngine as unknown as {
+        getRun(runId: string): Promise<Run | null>;
+      }
+    ).getRun(TEST_RUN_ID);
     expect(persisted?.metadata.reviewerPass?.enabled).toBe(true);
     expect(persisted?.metadata.reviewerPass?.verdict).toBe("request_changes");
   });
@@ -885,7 +918,11 @@ describe("RunEngine", () => {
         update(run: Run): Promise<void>;
       };
       taskRepo: {
-        create(task: { id: string; runId: string; toJSON(): unknown }): Promise<void>;
+        create(task: {
+          id: string;
+          runId: string;
+          toJSON(): unknown;
+        }): Promise<void>;
       };
       getRun(runId: string): Promise<Run | null>;
     };
@@ -946,7 +983,11 @@ describe("RunEngine", () => {
       "44444444-4444-4444-8444-444444444444",
       "55555555-5555-4555-8555-555555555555",
     ];
-    const sessionIds = ["session-matrix-a", "session-matrix-a", "session-matrix-b"];
+    const sessionIds = [
+      "session-matrix-a",
+      "session-matrix-a",
+      "session-matrix-b",
+    ];
 
     const engines = runIds.map((runId, index) =>
       createRunEngineForRun({
@@ -984,9 +1025,9 @@ describe("RunEngine", () => {
     expect(new Set(runs.map((run) => run?.id)).size).toBe(3);
     expect(new Set(runs.map((run) => run?.sessionId)).size).toBe(2);
     expect(manifests.every((manifest) => manifest !== undefined)).toBe(true);
-    expect(
-      lifecycles.every((steps) => steps?.includes("RUN_CREATED")),
-    ).toBe(true);
+    expect(lifecycles.every((steps) => steps?.includes("RUN_CREATED"))).toBe(
+      true,
+    );
     expect(wakeups).toEqual([1, 1, 1]);
   });
 
@@ -1106,16 +1147,23 @@ describe("RunEngine", () => {
           repo: "shadowbox",
         },
       },
-      [{ role: "user", content: "check repository acme/platform-core README.md" }],
+      [
+        {
+          role: "user",
+          content: "check repository acme/platform-core README.md",
+        },
+      ],
       {},
     );
 
     expect(response.status).toBe(200);
     const output = await response.text();
 
-    const persisted = await (runEngine as unknown as {
-      getRun(runId: string): Promise<Run | null>;
-    }).getRun(TEST_RUN_ID);
+    const persisted = await (
+      runEngine as unknown as {
+        getRun(runId: string): Promise<Run | null>;
+      }
+    ).getRun(TEST_RUN_ID);
 
     const lifecycleSteps = persisted?.metadata.lifecycleSteps?.map(
       (entry) => entry.step,
@@ -1146,15 +1194,22 @@ describe("RunEngine", () => {
           repo: "shadowbox",
         },
       },
-      [{ role: "user", content: "check repository acme/platform-core README.md" }],
+      [
+        {
+          role: "user",
+          content: "check repository acme/platform-core README.md",
+        },
+      ],
       {},
     );
 
     expect(response.status).toBe(200);
 
-    const persisted = await (runEngine as unknown as {
-      getRun(runId: string): Promise<Run | null>;
-    }).getRun(TEST_RUN_ID);
+    const persisted = await (
+      runEngine as unknown as {
+        getRun(runId: string): Promise<Run | null>;
+      }
+    ).getRun(TEST_RUN_ID);
 
     const lifecycleSteps = persisted?.metadata.lifecycleSteps?.map(
       (entry) => entry.step,
