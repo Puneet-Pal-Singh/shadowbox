@@ -10,6 +10,7 @@ import { getCorsHeaders } from "../lib/cors";
 import { Env } from "../types/ai";
 import { getGitHubClient } from "../services/AuthService";
 import type { CreatePullRequestParams } from "@shadowbox/github-bridge";
+import { getBrainRuntimeHeaders } from "../core/observability/runtime";
 
 /**
  * JSON response helper with env-aware CORS policy
@@ -24,6 +25,7 @@ function envJsonResponse(
     status,
     headers: {
       "Content-Type": "application/json",
+      ...getBrainRuntimeHeaders(env),
       ...getCorsHeaders(request, env),
     },
   });
@@ -95,7 +97,12 @@ export class GitHubController {
       const repo = url.searchParams.get("repo");
 
       if (!owner || !repo) {
-        return errorResponse(request, env, "Missing owner or repo parameter", 400);
+        return errorResponse(
+          request,
+          env,
+          "Missing owner or repo parameter",
+          400,
+        );
       }
 
       const branches = await client.listBranches(owner, repo);
@@ -129,7 +136,12 @@ export class GitHubController {
       const ref = url.searchParams.get("ref") || undefined;
 
       if (!owner || !repo) {
-        return errorResponse(request, env, "Missing owner or repo parameter", 400);
+        return errorResponse(
+          request,
+          env,
+          "Missing owner or repo parameter",
+          400,
+        );
       }
 
       const contents = await client.getContents(owner, repo, path, ref);
@@ -162,7 +174,12 @@ export class GitHubController {
       const sha = url.searchParams.get("sha") || "HEAD";
 
       if (!owner || !repo) {
-        return errorResponse(request, env, "Missing owner or repo parameter", 400);
+        return errorResponse(
+          request,
+          env,
+          "Missing owner or repo parameter",
+          400,
+        );
       }
 
       const tree = await client.getTree(owner, repo, sha);
@@ -196,7 +213,12 @@ export class GitHubController {
         (url.searchParams.get("state") as "open" | "closed" | "all") || "open";
 
       if (!owner || !repo) {
-        return errorResponse(request, env, "Missing owner or repo parameter", 400);
+        return errorResponse(
+          request,
+          env,
+          "Missing owner or repo parameter",
+          400,
+        );
       }
 
       const pullRequests = await client.listPullRequests(owner, repo, state);
@@ -231,7 +253,12 @@ export class GitHubController {
       const number = numberStr ? parseInt(numberStr, 10) : NaN;
 
       if (!owner || !repo || isNaN(number)) {
-        return errorResponse(request, env, "Missing or invalid parameters", 400);
+        return errorResponse(
+          request,
+          env,
+          "Missing or invalid parameters",
+          400,
+        );
       }
 
       const pullRequest = await client.getPullRequest(owner, repo, number);

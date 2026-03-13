@@ -51,6 +51,7 @@ export interface Env {
   CORS_ALLOW_DEV_ORIGINS?: "true" | "false";
   FEATURE_FLAG_CHAT_AGENTIC_LOOP_V1?: "true" | "false" | "1" | "0";
   FEATURE_FLAG_CHAT_REVIEWER_PASS_V1?: "true" | "false" | "1" | "0";
+  RUNTIME_GIT_SHA?: string;
 
   // Service URLs (environment-driven, not hardcoded)
   MUSCLE_BASE_URL?: string;

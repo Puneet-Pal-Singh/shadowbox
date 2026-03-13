@@ -7,6 +7,7 @@
 
 import { getCorsHeaders } from "../lib/cors";
 import type { Env } from "../types/ai";
+import { getBrainRuntimeHeaders } from "../core/observability/runtime";
 
 /**
  * Build a successful JSON response with CORS headers.
@@ -31,6 +32,7 @@ export function jsonResponse(
     headers: {
       "Content-Type": "application/json",
       ...customHeaders,
+      ...getBrainRuntimeHeaders(env),
       // CORS headers take precedence to prevent caller override of security headers
       ...getCorsHeaders(request, env),
     },
@@ -69,6 +71,7 @@ export function errorResponse(
     status,
     headers: {
       "Content-Type": "application/json",
+      ...getBrainRuntimeHeaders(env),
       ...getCorsHeaders(request, env),
     },
   });
@@ -93,6 +96,10 @@ export function withEngineHeaders(
   headers.set("X-Engine-Version", "3.0");
   headers.set("X-Run-Id", runId);
   headers.set("X-Run-Engine-Runtime", "do");
+  const runtimeHeaders = getBrainRuntimeHeaders(env);
+  Object.entries(runtimeHeaders).forEach(([key, value]) => {
+    headers.set(key, value);
+  });
 
   const corsHeaders = getCorsHeaders(request, env);
   Object.entries(corsHeaders).forEach(([key, value]) => {

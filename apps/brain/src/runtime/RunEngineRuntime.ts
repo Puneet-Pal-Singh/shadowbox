@@ -19,6 +19,10 @@ import {
 } from "./parsing/ExecuteRunPayloadSchema";
 import { errorResponse, jsonResponse } from "../http/response";
 import {
+  buildRunEngineRuntimeDebugPayload,
+  getRunEngineRuntimeHeaders,
+} from "../core/observability/runtime";
+import {
   ValidationError,
   isDomainError,
   mapDomainErrorToHttp,
@@ -79,23 +83,33 @@ export class RunEngineRuntime extends DurableObject {
     const url = new URL(request.url);
     const env = this.env as Env;
 
+    if (url.pathname === "/debug/runtime" && request.method === "GET") {
+      return this.withRuntimeHeaders(
+        jsonResponse(request, env, buildRunEngineRuntimeDebugPayload(env)),
+      );
+    }
+
     if (url.pathname === "/execute" && request.method === "POST") {
-      return this.handleExecuteRequest(request);
+      return this.withRuntimeHeaders(await this.handleExecuteRequest(request));
     }
 
     if (url.pathname === "/summary" && request.method === "GET") {
-      return this.handleSummaryRequest(request);
+      return this.withRuntimeHeaders(await this.handleSummaryRequest(request));
     }
 
     if (url.pathname === "/cancel" && request.method === "POST") {
-      return this.handleCancelRequest(request);
+      return this.withRuntimeHeaders(await this.handleCancelRequest(request));
     }
 
     if (url.pathname.startsWith("/providers/")) {
-      return this.handleProviderRequest(request, url);
+      return this.withRuntimeHeaders(
+        await this.handleProviderRequest(request, url),
+      );
     }
 
-    return errorResponse(request, env, "Not Found", 404);
+    return this.withRuntimeHeaders(
+      errorResponse(request, env, "Not Found", 404),
+    );
   }
 
   private async handleSummaryRequest(request: Request): Promise<Response> {
@@ -128,7 +142,9 @@ export class RunEngineRuntime extends DurableObject {
     const run = await runRepo.getById(runId);
     const tasks = await taskRepo.getByRun(runId);
 
-    const completedTasks = tasks.filter((task) => task.status === "DONE").length;
+    const completedTasks = tasks.filter(
+      (task) => task.status === "DONE",
+    ).length;
     const failedTasks = tasks.filter((task) => task.status === "FAILED").length;
     const summary = {
       runId,
@@ -138,7 +154,8 @@ export class RunEngineRuntime extends DurableObject {
       failedTasks,
       runningTasks: tasks.filter((task) => task.status === "RUNNING").length,
       pendingTasks: tasks.filter((task) => task.status === "PENDING").length,
-      cancelledTasks: tasks.filter((task) => task.status === "CANCELLED").length,
+      cancelledTasks: tasks.filter((task) => task.status === "CANCELLED")
+        .length,
     };
 
     return jsonResponse(request, env, summary);
@@ -295,7 +312,8 @@ export class RunEngineRuntime extends DurableObject {
         console.warn(
           `[run/engine-runtime] ${payload.correlationId}: mapped runtime error code=${domainError.code} status=${domainError.status}`,
         );
-        const { status, code, message, metadata } = mapDomainErrorToHttp(domainError);
+        const { status, code, message, metadata } =
+          mapDomainErrorToHttp(domainError);
         return errorResponse(
           request,
           this.env as Env,
@@ -391,15 +409,16 @@ export class RunEngineRuntime extends DurableObject {
           url.searchParams.has("limit") ||
           url.searchParams.has("cursor");
         if (isDiscoveryQuery) {
-          const discoveryQuery = validateWithSchema<BYOKDiscoveredProviderModelsQuery>(
-            {
-              view: url.searchParams.get("view") ?? undefined,
-              limit: url.searchParams.get("limit") ?? undefined,
-              cursor: url.searchParams.get("cursor") ?? undefined,
-            },
-            BYOKDiscoveredProviderModelsQuerySchema,
-            correlationId,
-          );
+          const discoveryQuery =
+            validateWithSchema<BYOKDiscoveredProviderModelsQuery>(
+              {
+                view: url.searchParams.get("view") ?? undefined,
+                limit: url.searchParams.get("limit") ?? undefined,
+                cursor: url.searchParams.get("cursor") ?? undefined,
+              },
+              BYOKDiscoveredProviderModelsQuerySchema,
+              correlationId,
+            );
           const discovered = await configService.getDiscoveredModels(
             providerId,
             discoveryQuery,
@@ -590,7 +609,11 @@ export class RunEngineRuntime extends DurableObject {
     }
 
     try {
-      return validateWithSchema<string>(value.trim(), ScopeIdSchema, correlationId);
+      return validateWithSchema<string>(
+        value.trim(),
+        ScopeIdSchema,
+        correlationId,
+      );
     } catch {
       throw new ValidationError(
         `Invalid ${fieldName} header`,
@@ -619,7 +642,8 @@ export class RunEngineRuntime extends DurableObject {
       return;
     }
 
-    const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
+    const contentType =
+      response.headers.get("content-type")?.toLowerCase() ?? "";
     if (!contentType.includes("text/plain")) {
       return;
     }
@@ -692,6 +716,20 @@ export class RunEngineRuntime extends DurableObject {
     } finally {
       release();
     }
+  }
+
+  private withRuntimeHeaders(response: Response): Response {
+    const headers = new Headers(response.headers);
+    const runtimeHeaders = getRunEngineRuntimeHeaders(this.env as Env);
+    Object.entries(runtimeHeaders).forEach(([key, value]) => {
+      headers.set(key, value);
+    });
+
+    return new Response(response.body, {
+      headers,
+      status: response.status,
+      statusText: response.statusText,
+    });
   }
 }
 

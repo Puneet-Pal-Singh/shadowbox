@@ -18,6 +18,12 @@ describe("ChatController DO runtime migration", () => {
     expect(runtime.get).toHaveBeenCalledTimes(1);
     expect(runtime.fetch).toHaveBeenCalledTimes(1);
     expect(response.headers.get("X-Run-Engine-Runtime")).toBe("do");
+    expect(response.headers.get("X-Shadowbox-Runtime-Name")).toBe(
+      "brain-worker",
+    );
+    expect(response.headers.get("X-Shadowbox-Runtime-Fingerprint")).toContain(
+      "brain-worker:",
+    );
   });
 
   it("fails fast when RUN_ENGINE_RUNTIME binding is unavailable", async () => {
@@ -41,25 +47,22 @@ describe("ChatController DO runtime migration", () => {
   it("forwards provider/model override fields to runtime payload", async () => {
     const runtime = createMockRuntimeNamespace();
     const env = createEnv(runtime.namespace);
-    const requestWithProviderModel = new Request(
-      "https://brain.local/chat",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sessionId: "session-1",
-          runId: VALID_RUN_ID,
-          providerId: "openai",
-          modelId: "gpt-4",
-          messages: [
-            {
-              role: "user",
-              content: "hello",
-            },
-          ],
-        }),
-      }
-    );
+    const requestWithProviderModel = new Request("https://brain.local/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sessionId: "session-1",
+        runId: VALID_RUN_ID,
+        providerId: "openai",
+        modelId: "gpt-4",
+        messages: [
+          {
+            role: "user",
+            content: "hello",
+          },
+        ],
+      }),
+    });
 
     const response = await ChatController.handle(requestWithProviderModel, env);
 
@@ -203,9 +206,7 @@ describe("ChatController DO runtime migration", () => {
         messages: [
           {
             role: "user",
-            content: [
-              { type: "text", text: "so? what is your name?" },
-            ],
+            content: [{ type: "text", text: "so? what is your name?" }],
           },
         ],
       }),
@@ -328,12 +329,13 @@ describe("ChatController DO runtime migration", () => {
   });
 });
 
-function createChatRequest(overrides: {
-  runId?: string;
-  agentId?: string;
-} = {}): Request {
-  const runIdValue =
-    "runId" in overrides ? overrides.runId : VALID_RUN_ID;
+function createChatRequest(
+  overrides: {
+    runId?: string;
+    agentId?: string;
+  } = {},
+): Request {
+  const runIdValue = "runId" in overrides ? overrides.runId : VALID_RUN_ID;
   return new Request("https://brain.local/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -404,7 +406,10 @@ function createEnv(runEngineRuntime: Env["RUN_ENGINE_RUNTIME"]): Env {
   };
 }
 
-async function createSessionToken(userId: string, secret: string): Promise<string> {
+async function createSessionToken(
+  userId: string,
+  secret: string,
+): Promise<string> {
   const timestamp = Date.now().toString();
   const data = `${userId}:${timestamp}`;
   const encoder = new TextEncoder();

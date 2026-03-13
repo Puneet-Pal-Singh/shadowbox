@@ -137,6 +137,17 @@ export {
   type ChatResponseEventUnion,
 } from "./chat-response-events.js";
 
+// Runtime debug metadata
+export {
+  buildRuntimeFingerprint,
+  buildRuntimeHeaders,
+  collectFeatureFlagSnapshot,
+  createRuntimeIdentity,
+  resolveRuntimeGitSha,
+  type RuntimeHeaders,
+  type RuntimeIdentity,
+} from "./runtime-debug.js";
+
 // Chat response contract (v1 frozen DTOs for provider parity)
 export {
   CHAT_RESPONSE_PROTOCOL_VERSION,
