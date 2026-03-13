@@ -5,12 +5,14 @@ import type { ICostLedger } from "../cost/CostLedger.js";
 import type { IPricingResolver } from "../cost/PricingResolver.js";
 import type {
   ILLMGateway,
+  LLMExecutionLane,
   LLMCallContext,
   LLMRuntimeAIService,
   LLMTextRequest,
   LLMTextResponse,
   LLMStructuredRequest,
   LLMStructuredResponse,
+  ProviderCapabilityFlags,
   ProviderCapabilityResolver,
 } from "./types.js";
 
@@ -181,7 +183,9 @@ export class LLMGateway implements ILLMGateway {
     }
   }
 
-  async generateStream(req: LLMTextRequest): Promise<ReadableStream<Uint8Array>> {
+  async generateStream(
+    req: LLMTextRequest,
+  ): Promise<ReadableStream<Uint8Array>> {
     this.assertProviderCapabilities(req);
     const estimatedUsage = this.estimateUsage(
       req.messages,
@@ -335,7 +339,8 @@ export class LLMGateway implements ILLMGateway {
   ): Promise<void> {
     const resolved = this.deps.pricingResolver.resolve(usage, usage.raw);
     const idempotencyKey =
-      req.context.idempotencyKey ?? this.createIdempotencyKey(req.context, usage);
+      req.context.idempotencyKey ??
+      this.createIdempotencyKey(req.context, usage);
 
     const event: CostEvent = {
       eventId: crypto.randomUUID(),
@@ -410,21 +415,82 @@ export class LLMGateway implements ILLMGateway {
       );
     }
 
+    this.assertToolSupport(req, capabilities);
+    this.assertStructuredOutputSupport(req, capabilities);
+    this.assertExecutionLaneSupport(req, resolver, req.providerId, req.model);
+  }
+
+  private assertToolSupport(
+    req: LLMTextRequest | LLMStructuredRequest<unknown>,
+    capabilities: ProviderCapabilityFlags,
+  ): void {
     if ("tools" in req && req.tools && Object.keys(req.tools).length > 0) {
       if (!capabilities.tools) {
         throw new ProviderCapabilityError(
           "TOOLS_NOT_SUPPORTED",
-          req.providerId,
-          req.model,
+          req.providerId ?? "unset",
+          req.model ?? "unset",
         );
       }
     }
   }
 
-  private withIdempotencyKey<T extends LLMTextRequest | LLMStructuredRequest<unknown>>(
-    req: T,
-    idempotencyKey: string,
-  ): T {
+  private assertStructuredOutputSupport(
+    req: LLMTextRequest | LLMStructuredRequest<unknown>,
+    capabilities: ProviderCapabilityFlags,
+  ): void {
+    if (!isStructuredRequest(req)) {
+      return;
+    }
+    if (capabilities.structuredOutputs) {
+      return;
+    }
+    throw new ProviderCapabilityError(
+      "STRUCTURED_OUTPUTS_NOT_SUPPORTED",
+      req.providerId ?? "unset",
+      req.model ?? "unset",
+    );
+  }
+
+  private assertExecutionLaneSupport(
+    req: LLMTextRequest | LLMStructuredRequest<unknown>,
+    resolver: ProviderCapabilityResolver,
+    providerId: string,
+    modelId: string,
+  ): void {
+    const executionLane = resolveExecutionLane(req);
+    if (executionLane === "chat_only") {
+      return;
+    }
+
+    const profile = resolver.getExecutionProfile(providerId, modelId);
+    if (!profile) {
+      throw new ProviderCapabilityError(
+        "EXECUTION_LANE_UNSUPPORTED",
+        providerId,
+        modelId,
+        executionLane,
+        "Missing execution profile for selected provider/model.",
+      );
+    }
+
+    const laneSupport = profile.supportedLanes[executionLane];
+    if (laneSupport.supported) {
+      return;
+    }
+
+    throw new ProviderCapabilityError(
+      "EXECUTION_LANE_UNSUPPORTED",
+      providerId,
+      modelId,
+      executionLane,
+      laneSupport.reason,
+    );
+  }
+
+  private withIdempotencyKey<
+    T extends LLMTextRequest | LLMStructuredRequest<unknown>,
+  >(req: T, idempotencyKey: string): T {
     return {
       ...req,
       context: {
@@ -467,15 +533,63 @@ export class ProviderCapabilityError extends Error {
     public readonly code:
       | "MODEL_NOT_ALLOWED"
       | "INVALID_PROVIDER_SELECTION"
-      | "TOOLS_NOT_SUPPORTED",
+      | "TOOLS_NOT_SUPPORTED"
+      | "STRUCTURED_OUTPUTS_NOT_SUPPORTED"
+      | "EXECUTION_LANE_UNSUPPORTED",
     providerId: string,
     modelId: string,
+    public readonly lane?: LLMExecutionLane,
+    public readonly reason?: string,
   ) {
     super(
-      `[llm/gateway] ${code} for provider=${providerId} model=${modelId}. Explicit providerId and model are required.`,
+      buildProviderCapabilityErrorMessage(
+        code,
+        providerId,
+        modelId,
+        lane,
+        reason,
+      ),
     );
     this.name = "ProviderCapabilityError";
   }
+}
+
+function resolveExecutionLane(
+  req: LLMTextRequest | LLMStructuredRequest<unknown>,
+): LLMExecutionLane {
+  if (isStructuredRequest(req) && req.context.phase === "planning") {
+    return "structured_planning_required";
+  }
+  if (req.context.phase === "task") {
+    return "single_agent_action";
+  }
+  if ("tools" in req && req.tools && Object.keys(req.tools).length > 0) {
+    return "single_agent_action";
+  }
+  return "chat_only";
+}
+
+function isStructuredRequest(
+  req: LLMTextRequest | LLMStructuredRequest<unknown>,
+): req is LLMStructuredRequest<unknown> {
+  return "schema" in req;
+}
+
+function buildProviderCapabilityErrorMessage(
+  code:
+    | "MODEL_NOT_ALLOWED"
+    | "INVALID_PROVIDER_SELECTION"
+    | "TOOLS_NOT_SUPPORTED"
+    | "STRUCTURED_OUTPUTS_NOT_SUPPORTED"
+    | "EXECUTION_LANE_UNSUPPORTED",
+  providerId: string,
+  modelId: string,
+  lane?: LLMExecutionLane,
+  reason?: string,
+): string {
+  const laneSegment = lane ? ` lane=${lane}` : "";
+  const reasonSegment = reason ? ` reason=${reason}` : "";
+  return `[llm/gateway] ${code} for provider=${providerId} model=${modelId}${laneSegment}.${reasonSegment}`.trim();
 }
 
 function normalizeToolArgs(args: unknown): Record<string, unknown> {
