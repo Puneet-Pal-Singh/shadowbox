@@ -37,6 +37,30 @@ interface RuntimeStoreMock extends Record<string, unknown> {
     since?: number,
   ) => Promise<SessionLogEntry[]>;
   deleteExecutionSession: (sessionId: string) => Promise<void>;
+  executionPort: {
+    executeTask: (
+      sessionId: string,
+      input: {
+        taskId: string;
+        action: string;
+        params: Record<string, unknown>;
+        timeout?: number;
+        retryable?: boolean;
+      },
+    ) => Promise<{
+      taskId: string;
+      status: "success" | "failure" | "timeout" | "cancelled";
+      output?: string;
+      error?: {
+        code: string;
+        message: string;
+        details?: unknown;
+      };
+      metrics?: {
+        duration: number;
+      };
+    }>;
+  };
 }
 
 function createRuntimeStoreMock(): RuntimeStoreMock {
@@ -66,6 +90,16 @@ function createRuntimeStoreMock(): RuntimeStoreMock {
     async deleteExecutionSession(sessionId) {
       sessions.delete(sessionId);
       logs.delete(sessionId);
+    },
+    executionPort: {
+      async executeTask(sessionId, input) {
+        return {
+          taskId: input.taskId,
+          status: "success",
+          output: `executed ${input.action} for ${sessionId}`,
+          metrics: { duration: 12 },
+        };
+      },
     },
   };
 }
@@ -123,8 +157,13 @@ function createExecuteRequest(sessionId: string, authHeader?: string): Request {
     headers,
     body: JSON.stringify({
       sessionId,
-      command: "echo hello",
-      cwd: "workspace/repo",
+      taskId: "task-execute-auth",
+      action: "node.execute",
+      params: {
+        action: "run",
+        command: "echo hello",
+        runId: "run-auth-1",
+      },
     }),
   });
 }
@@ -168,7 +207,7 @@ describe("session auth hardening", () => {
     expect(body.code).toBe("UNAUTHORIZED");
   });
 
-  it("returns explicit non-implemented error for authorized execute requests", async () => {
+  it("executes authorized requests through the runtime execution port", async () => {
     const runtime = createRuntimeStoreMock();
     const { sessionId, token } = await createSession(runtime);
     const response = await handleExecuteTask(
@@ -176,9 +215,15 @@ describe("session auth hardening", () => {
       runtime,
     );
 
-    expect(response.status).toBe(501);
-    const body = (await response.json()) as ErrorBody;
-    expect(body.code).toBe("EXECUTION_NOT_IMPLEMENTED");
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      taskId: string;
+      status: string;
+      output?: string;
+    };
+    expect(body.taskId).toBe("task-execute-auth");
+    expect(body.status).toBe("success");
+    expect(body.output).toContain("node.execute");
   });
 
   it("rejects logs without authorization header", async () => {

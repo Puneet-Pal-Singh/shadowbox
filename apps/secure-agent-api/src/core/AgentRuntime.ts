@@ -4,7 +4,6 @@ import { getSandbox, type Sandbox } from "@cloudflare/sandbox";
 import {
   IPlugin,
   PluginResult,
-  LogCallback,
   Message,
 } from "../interfaces/types";
 import { StreamHandler } from "./StreamHandler";
@@ -16,7 +15,17 @@ import { GitPlugin } from "../plugins/GitPlugin";
 import { NodePlugin } from "../plugins/NodePlugin";
 import { RustPlugin } from "../plugins/RustPlugin";
 import { Env } from "../index";
-import { sanitizeLogText, sanitizeUnknownError } from "./security/LogSanitizer";
+import { sanitizeUnknownError } from "./security/LogSanitizer";
+import {
+  composeRuntime,
+  type ComposedRuntime,
+  type ComposeRuntimeInput,
+} from "../factories/RuntimeCompositionFactory";
+import type {
+  TaskExecutionInput,
+  TaskExecutionResult,
+} from "../ports/SandboxExecutionPort";
+import type { DurableObjectState as LegacyDurableObjectState } from "@cloudflare/workers-types";
 
 interface RuntimeSessionRecord {
   runId: string;
@@ -39,12 +48,15 @@ const EXECUTION_LOG_KEY_PREFIX = "execution:logs:";
 
 export class AgentRuntime extends DurableObject {
   private sandbox: Sandbox | null = null;
+  private composedRuntime: ComposedRuntime | null = null;
   private plugins: Map<string, IPlugin> = new Map();
   private stream = new StreamHandler();
   private storageService: StorageService;
+  private readonly artifactBucket: ComposeRuntimeInput["r2Bucket"];
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
+    this.artifactBucket = env.ARTIFACTS as unknown as ComposeRuntimeInput["r2Bucket"];
     this.storageService = new StorageService(env.ARTIFACTS);
     this.setupRegistry();
   }
@@ -71,6 +83,21 @@ export class AgentRuntime extends DurableObject {
       this.bootPlugins();
     }
     return this.sandbox;
+  }
+
+  private async ensureComposedRuntime(): Promise<ComposedRuntime> {
+    if (this.composedRuntime) {
+      return this.composedRuntime;
+    }
+
+    const sandbox = await this.ensureSandbox();
+    this.composedRuntime = composeRuntime({
+      durableObjectState: this.ctx as unknown as LegacyDurableObjectState,
+      sandbox,
+      plugins: this.plugins,
+      r2Bucket: this.artifactBucket,
+    });
+    return this.composedRuntime;
   }
 
   private async bootPlugins() {
@@ -116,20 +143,12 @@ export class AgentRuntime extends DurableObject {
 
   // 4. SRP: Pure Execution Engine
   async run(pluginName: string, payload: unknown): Promise<PluginResult> {
-    const sb = await this.ensureSandbox();
-    const plugin = this.plugins.get(pluginName);
-
-    if (!plugin) return { success: false, error: "Plugin not found" };
-
-    const onLog: LogCallback = (text) => {
-      this.stream.broadcast("log", sanitizeLogText(text));
-    };
-
     try {
-      // Optional: don't broadcast "start" unless you want a UI spinner
-      const result = await plugin.execute(sb, payload, onLog);
-
-      // Crucial: The "finish" event tells the UI to return the prompt
+      const taskResult = await this.executeTask(
+        this.ctx.id.toString(),
+        buildLegacyTaskExecutionInput(pluginName, payload),
+      );
+      const result = toLegacyPluginResult(taskResult);
       this.stream.broadcast("finish", { success: result.success });
       return result;
     } catch (e: unknown) {
@@ -137,6 +156,14 @@ export class AgentRuntime extends DurableObject {
       this.stream.broadcast("error", error);
       return { success: false, error };
     }
+  }
+
+  async executeTask(
+    sessionId: string,
+    input: TaskExecutionInput,
+  ): Promise<TaskExecutionResult> {
+    const runtime = await this.ensureComposedRuntime();
+    return runtime.executionPort.executeTask(sessionId, input);
   }
 
   getManifest() {
@@ -395,4 +422,54 @@ export class AgentRuntime extends DurableObject {
   async getArtifact(key: string): Promise<string | null> {
     return await this.storageService.getArtifact(key);
   }
+}
+
+function buildLegacyTaskExecutionInput(
+  pluginName: string,
+  payload: unknown,
+): TaskExecutionInput {
+  const params = coercePayloadRecord(payload);
+  return {
+    taskId: resolveTaskId(params),
+    action: `${pluginName}.execute`,
+    params,
+    timeout: readOptionalPositiveInteger(params.timeout),
+    retryable: typeof params.retryable === "boolean" ? params.retryable : undefined,
+  };
+}
+
+function coercePayloadRecord(payload: unknown): Record<string, unknown> {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    throw new Error("Plugin payload must be an object");
+  }
+  return { ...(payload as Record<string, unknown>) };
+}
+
+function resolveTaskId(params: Record<string, unknown>): string {
+  const existingTaskId = params.taskId;
+  if (typeof existingTaskId === "string" && existingTaskId.trim().length > 0) {
+    return existingTaskId;
+  }
+
+  return `task-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function readOptionalPositiveInteger(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isInteger(value) && value > 0
+    ? value
+    : undefined;
+}
+
+function toLegacyPluginResult(result: TaskExecutionResult): PluginResult {
+  if (result.status === "success") {
+    return {
+      success: true,
+      output: result.output ?? "",
+    };
+  }
+
+  return {
+    success: false,
+    error: result.error?.message ?? `Task execution ended with status '${result.status}'`,
+  };
 }
