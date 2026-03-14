@@ -162,4 +162,36 @@ describe("RunExecutionErrorMapper", () => {
     });
     expect(mapped?.message).toContain("structured planning");
   });
+
+  it("handles self-referential error causes without infinite loop", () => {
+    const cyclicError = new Error("cyclic error") as Error & { cause: Error };
+    cyclicError.cause = cyclicError;
+
+    const mapped = mapRunExecutionErrorToDomain(cyclicError, "corr-cyclic");
+
+    expect(mapped).toBeNull();
+  });
+
+  it("finds ProviderCapabilityError wrapped in non-cyclic cause chain", () => {
+    const innerError = new ProviderCapabilityError(
+      "MODEL_NOT_ALLOWED",
+      "openai",
+      "gpt-4",
+    );
+    const middleError = new Error("middle error") as Error & {
+      cause: Error | ProviderCapabilityError;
+    };
+    middleError.cause = innerError;
+    const outerError = new Error("outer error") as Error & { cause: Error };
+    outerError.cause = middleError;
+
+    const mapped = mapRunExecutionErrorToDomain(outerError, "corr-chain");
+
+    expect(mapped).not.toBeNull();
+    expect(mapped?.code).toBe("MODEL_NOT_ALLOWED");
+    expect(mapped?.metadata).toMatchObject({
+      lane: undefined,
+      reason: undefined,
+    });
+  });
 });

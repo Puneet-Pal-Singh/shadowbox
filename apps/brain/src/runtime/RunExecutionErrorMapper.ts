@@ -102,6 +102,17 @@ const PROVIDER_CAPABILITY_MAPPINGS: Record<
   },
 };
 
+export function isProviderCapabilityError(error: unknown): boolean {
+  return getProviderCapabilityError(error) !== null;
+}
+
+export function buildProviderCapabilityErrorMapping(
+  error: ProviderCapabilityError,
+  correlationId?: string,
+): DomainError {
+  return mapProviderCapabilityError(error, correlationId);
+}
+
 /**
  * Maps runtime execution failures to typed domain errors when possible.
  */
@@ -232,14 +243,17 @@ function getProviderCapabilityError(
   error: unknown,
 ): ProviderCapabilityError | null {
   let current: unknown = error;
+  let depth = 0;
+  const maxDepth = 6;
 
-  while (current !== null && current !== undefined) {
+  while (current !== null && current !== undefined && depth < maxDepth) {
     if (current instanceof ProviderCapabilityError) {
       return current;
     }
 
     if (current instanceof Error && current.cause !== undefined) {
       current = current.cause;
+      depth += 1;
     } else {
       break;
     }
