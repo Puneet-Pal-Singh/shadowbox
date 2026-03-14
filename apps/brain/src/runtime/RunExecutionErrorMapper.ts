@@ -187,6 +187,20 @@ function mapProviderCapabilityError(
         correlationId,
         metadata,
       );
+    default: {
+      const exhaustiveCheck: never = error.code;
+      console.warn(
+        `[run/error-mapper] Unknown provider capability error code: ${exhaustiveCheck}`,
+      );
+      return new DomainError(
+        "PROVIDER_CAPABILITY_ERROR",
+        `Unknown provider capability error: ${error.code}`,
+        500,
+        false,
+        correlationId,
+        metadata,
+      );
+    }
   }
 }
 
