@@ -13,6 +13,8 @@ interface RunSummaryResponse {
   runningTasks: number;
   pendingTasks: number;
   cancelledTasks: number;
+  eventCount?: number;
+  lastEventType?: string | null;
 }
 
 export class RunController {
