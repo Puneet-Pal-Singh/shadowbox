@@ -335,6 +335,9 @@ importers:
 
   packages/execution-engine:
     dependencies:
+      '@repo/shared-types':
+        specifier: workspace:*
+        version: link:../shared-types
       '@shadowbox/orchestrator-core':
         specifier: workspace:*
         version: link:../orchestrator-core
