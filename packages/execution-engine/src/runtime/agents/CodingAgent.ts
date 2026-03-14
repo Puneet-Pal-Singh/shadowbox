@@ -31,6 +31,7 @@ import {
   formatExecutionResult,
   formatTaskOutput,
 } from "./ResultFormatter.js";
+import { buildGroundedTaskSummary } from "../engine/RunGroundedSummary.js";
 
 type LineMatcherPatternSource = "external_user_input" | "deriveGrepPatternFromHint";
 
@@ -95,35 +96,41 @@ export class CodingAgent extends BaseAgent {
       `[agents/coding] Synthesizing results for run ${context.runId}`,
     );
 
-    const taskSummaries = context.completedTasks
-      .map(
-        (t) =>
-          `- Task ${t.id}: ${t.status} — ${formatTaskOutput(t.output?.content)}`,
-      )
-      .join("\n");
+    const groundedSummary = buildGroundedTaskSummary(
+      context.originalPrompt,
+      context.completedTasks,
+    );
 
-    const result = await this.llmGateway.generateText({
-      context: {
-        runId: context.runId,
-        sessionId: context.sessionId,
-        agentType: this.type,
-        phase: "synthesis",
-      },
-      messages: [
-        {
-          role: "system",
-          content:
-            "Summarize the completed coding tasks into a concise final report.",
+    try {
+      const result = await this.llmGateway.generateText({
+        context: {
+          runId: context.runId,
+          sessionId: context.sessionId,
+          agentType: this.type,
+          phase: "synthesis",
         },
-        {
-          role: "user",
-          content: `Original request: ${context.originalPrompt}\n\nCompleted tasks:\n${taskSummaries}`,
-        },
-      ],
-      model: context.modelId,
-      providerId: context.providerId,
-    });
-    return result.text;
+        messages: [
+          {
+            role: "system",
+            content:
+              "Summarize coding run results using only the provided execution evidence.",
+          },
+          {
+            role: "user",
+            content: groundedSummary.evidencePrompt,
+          },
+        ],
+        model: context.modelId,
+        providerId: context.providerId,
+      });
+      return result.text;
+    } catch (error) {
+      console.warn(
+        `[agents/coding] Falling back to grounded summary for run ${context.runId}`,
+        error,
+      );
+      return groundedSummary.fallbackSummary;
+    }
   }
 
   getCapabilities(): AgentCapability[] {

@@ -9,6 +9,7 @@ interface ResetRecyclableRunInput {
   previousStatus: RunStatus;
   taskRepo: Pick<TaskRepository, "getByRun" | "deleteByRun" | "create">;
   runRepo: Pick<RunRepository, "update">;
+  clearRunEvents?: () => Promise<void>;
   createFreshRun: (runId: string, sessionId: string, input: RunInput) => Run;
 }
 
@@ -21,6 +22,9 @@ export async function resetRecyclableRun(
 
   try {
     await taskRepo.deleteByRun(runId);
+    if (params.clearRunEvents) {
+      await params.clearRunEvents();
+    }
     await runRepo.update(resetRun);
   } catch (error) {
     await restoreTaskSnapshot(runId, taskSnapshot, taskRepo, error);
