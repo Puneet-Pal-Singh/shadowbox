@@ -9,7 +9,6 @@ const TURN_MODE_SCHEMA = z.object({
   rationale: z.string().max(400).optional(),
   confidence: z.number().min(0).max(1),
 });
-const TURN_MODE_TIMEOUT_MS = 8_000;
 const ACTION_CONFIDENCE_THRESHOLD = 0.8;
 const ACTION_HEURISTIC_PATTERNS = [
   /\b(read|open|show|inspect|diff|grep|search|find|list|ls|tree)\b.*\b(file|files|repo|repository|directory|folder|path)\b/i,
@@ -65,7 +64,6 @@ export async function determineTurnMode({
     model: run.input.modelId,
     providerId: run.input.providerId,
     temperature: 0,
-    timeoutMs: TURN_MODE_TIMEOUT_MS,
   });
 
   const mode = result.object.mode === "chat" ? "chat" : "action";

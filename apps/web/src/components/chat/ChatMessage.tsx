@@ -1,5 +1,7 @@
 import { useCallback, useMemo, useState } from "react";
 import type { Message } from "@ai-sdk/react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { ArtifactPreview } from "./ArtifactPreview";
 import { cn } from "../../lib/utils";
 import { FilePill } from "./FilePill";
@@ -107,7 +109,7 @@ export function ChatMessage({
         {/* User message bubble */}
         {isUser && content && (
           <div className="inline-block bg-[#262626] text-white px-4 py-2.5 rounded-2xl text-sm leading-relaxed">
-            {content}
+            <MarkdownMessageContent content={content} isUser />
           </div>
         )}
 
@@ -139,9 +141,7 @@ export function ChatMessage({
             )}
 
             {content && (
-              <div className="text-sm text-zinc-300 leading-relaxed whitespace-pre-wrap">
-                {content}
-              </div>
+              <MarkdownMessageContent content={content} />
             )}
 
             {/* File references as pills */}
@@ -258,6 +258,62 @@ function CopyIcon() {
       <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
       <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
     </svg>
+  );
+}
+
+interface MarkdownMessageContentProps {
+  content: string;
+  isUser?: boolean;
+}
+
+function MarkdownMessageContent({
+  content,
+  isUser = false,
+}: MarkdownMessageContentProps) {
+  return (
+    <div
+      className={cn(
+        "break-words text-sm leading-relaxed",
+        "[&_p]:m-0 [&_p+*]:mt-3",
+        "[&_ul]:my-3 [&_ul]:list-disc [&_ul]:pl-5",
+        "[&_ol]:my-3 [&_ol]:list-decimal [&_ol]:pl-5",
+        "[&_li]:my-1",
+        "[&_hr]:my-4 [&_hr]:border-zinc-700/60",
+        "[&_blockquote]:my-3 [&_blockquote]:border-l-2 [&_blockquote]:pl-3 [&_blockquote]:italic",
+        "[&_code]:rounded [&_code]:px-1 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-[0.85em]",
+        "[&_pre]:my-3 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:p-3",
+        "[&_pre_code]:bg-transparent [&_pre_code]:p-0",
+        "[&_table]:my-3 [&_table]:w-full [&_table]:border-collapse [&_table]:text-left",
+        "[&_th]:border [&_th]:px-2 [&_th]:py-1 [&_th]:font-semibold",
+        "[&_td]:border [&_td]:px-2 [&_td]:py-1",
+        isUser
+          ? "text-white [&_blockquote]:border-zinc-400/60 [&_code]:bg-zinc-800/80 [&_pre]:bg-zinc-900/70 [&_th]:border-zinc-500/70 [&_td]:border-zinc-500/60"
+          : "text-zinc-300 [&_blockquote]:border-zinc-600/80 [&_code]:bg-zinc-900/80 [&_pre]:bg-zinc-950/80 [&_th]:border-zinc-700/80 [&_td]:border-zinc-800/80",
+      )}
+    >
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        disallowedElements={["img"]}
+        components={{
+          a: ({ className, ...props }) => (
+            <a
+              {...props}
+              target="_blank"
+              rel="noreferrer noopener"
+              className={cn(
+                "underline decoration-dotted underline-offset-2 transition-colors",
+                isUser
+                  ? "text-zinc-100 hover:text-white"
+                  : "text-emerald-300 hover:text-emerald-200",
+                className,
+              )}
+            />
+          ),
+        }}
+      >
+        {content}
+      </ReactMarkdown>
+    </div>
   );
 }
 

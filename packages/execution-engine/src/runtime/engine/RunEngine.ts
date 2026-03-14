@@ -27,17 +27,13 @@ import type {
   RuntimeDurableObjectState,
   WorkspaceBootstrapper,
 } from "../types.js";
-import type { Plan } from "../planner/index.js";
+import type { Plan, PlannedTask } from "../planner/index.js";
 import {
   LLMGateway,
   LLMTimeoutError,
   type ILLMGateway,
   type LLMRuntimeAIService,
 } from "../llm/index.js";
-import {
-  RunEventRecorder,
-  RunEventRepository,
-} from "../events/index.js";
 import {
   MemoryCoordinator,
   MemoryRepository,
@@ -50,8 +46,13 @@ import {
   getWorkspaceBootstrapMessage,
   processPermissionDirectives as processPermissionDirectivesPolicy,
 } from "./RunPermissionWorkspacePolicy.js";
-import { createRunManifest, ensureManifestMatch } from "./RunManifestPolicy.js";
-import { buildConversationalSystemPrompt } from "./ConversationPolicy.js";
+import {
+  createRunManifest,
+  ensureManifestMatch,
+} from "./RunManifestPolicy.js";
+import {
+  buildConversationalSystemPrompt,
+} from "./ConversationPolicy.js";
 import { sanitizeUserFacingOutput } from "./RunOutputSanitizer.js";
 import {
   applyFinalRunStatus,
@@ -71,22 +72,15 @@ import {
   recordOrchestrationActivation,
   recordOrchestrationTerminal,
   recordPhaseSelectionSnapshot,
-  recordTurnModeDecision,
 } from "./RunMetadataPolicy.js";
 import { resetRecyclableRun } from "./RunRecyclableResetPolicy.js";
 import { applyReviewerPassIfEnabled } from "./RunReviewerPassPolicy.js";
 import {
   determineTurnMode as determineTurnModePolicy,
-  type TurnModeDecision,
   type TurnMode,
 } from "./RunTurnModePolicy.js";
 import { buildPlanningRecoveryMessage } from "./RunPlanningRecoveryPolicy.js";
 import { synthesizeResultFromTasks } from "./RunSynthesisPolicy.js";
-import {
-  buildDirectExecutionPlan,
-  type ExecutablePlan,
-  type ExecutablePlannedTask,
-} from "./RunDirectPlanPolicy.js";
 
 export interface IRunEngine {
   execute(
@@ -128,6 +122,8 @@ export interface RunEngineDependencies {
   workspaceBootstrapper?: WorkspaceBootstrapper;
 }
 
+const CONVERSATIONAL_RESPONSE_TIMEOUT_MS = 60_000;
+
 export class RunEngine implements IRunEngine {
   private runRepo: RunRepository;
   private taskRepo: TaskRepository;
@@ -141,7 +137,6 @@ export class RunEngine implements IRunEngine {
   private aiService?: LLMRuntimeAIService;
   private llmGateway: ILLMGateway;
   private agent?: IAgent;
-  private eventRepository: RunEventRepository;
   private memoryCoordinator: MemoryCoordinator;
   private currentMemoryContext?: MemoryContext;
   private readonly sessionCostsLoaded: Promise<void>;
@@ -157,7 +152,6 @@ export class RunEngine implements IRunEngine {
   ) {
     this.runRepo = new RunRepository(ctx);
     this.taskRepo = new TaskRepository(ctx);
-    this.eventRepository = new RunEventRepository(ctx);
 
     this.pricingRegistry =
       dependencies.pricingRegistry ??
@@ -235,8 +229,7 @@ export class RunEngine implements IRunEngine {
         )
       : new DefaultTaskExecutor();
     this.scheduler =
-      dependencies.scheduler ??
-      new TaskScheduler(this.taskRepo, this.taskExecutor);
+      dependencies.scheduler ?? new TaskScheduler(this.taskRepo, this.taskExecutor);
 
     if (dependencies.memoryCoordinator) {
       this.memoryCoordinator = dependencies.memoryCoordinator;
@@ -262,26 +255,24 @@ export class RunEngine implements IRunEngine {
   ): Promise<Response> {
     const { runId, sessionId } = this.options;
     const runStartedAt = Date.now();
-    const eventRecorder = this.createEventRecorder(runId, sessionId);
     try {
       await this.sessionCostsLoaded;
       const run = await this.getOrCreateRun(input, runId, sessionId);
-      await eventRecorder.ensureRunStarted(run.status);
       recordOrchestrationActivation(run);
       await this.runRepo.update(run);
       console.log(`[run/engine] Retrieving memory context for run ${runId}`);
-      this.currentMemoryContext = await this.safeMemoryOperation(() =>
-        this.memoryCoordinator.retrieveContext({
-          runId,
-          sessionId,
-          prompt: input.prompt,
-          phase: "planning",
-        }),
+      this.currentMemoryContext = await this.safeMemoryOperation(
+        () =>
+          this.memoryCoordinator.retrieveContext({
+            runId,
+            sessionId,
+            prompt: input.prompt,
+            phase: "planning",
+          }),
       );
       await this.safeMemoryOperation(() =>
         this.persistConversationMessages(runId, sessionId, messages, "user"),
       );
-      await this.recordConversationEvents(eventRecorder, messages, "user");
       recordLifecycleStep(run, "CONTEXT_PREPARED");
 
       if (isPlatformApprovalOwner(run.metadata.manifest)) {
@@ -300,8 +291,6 @@ export class RunEngine implements IRunEngine {
           return await this.completeRunWithAssistantMessage(
             run,
             approvalDirectiveMessage,
-            eventRecorder,
-            runStartedAt,
           );
         }
       } else {
@@ -312,35 +301,18 @@ export class RunEngine implements IRunEngine {
 
       let turnMode: TurnMode;
       try {
-        const turnDecision = await determineTurnModePolicy({
+        turnMode = await determineTurnModePolicy({
           llmGateway: this.llmGateway,
           run,
           prompt: input.prompt,
           messages,
           repositoryContext: input.repositoryContext,
         });
-        turnMode = turnDecision.mode;
-        recordTurnModeDecision(run, turnDecision);
-        await this.runRepo.update(run);
-        console.log(
-          `[run/engine] Turn mode selected for run ${runId}: mode=${turnDecision.mode} source=${turnDecision.source}`,
-        );
       } catch (turnModeError) {
-        recordTurnModeDecision(
-          run,
-          buildRecoveredTurnModeDecision(turnModeError),
-        );
-        await this.runRepo.update(run);
-        console.warn(
-          `[run/engine] Turn mode classification failed for run ${runId}; source=recovered`,
-          turnModeError,
-        );
         const recoveryResponse = await this.tryHandlePlanningError(
           run,
           runId,
           turnModeError,
-          eventRecorder,
-          runStartedAt,
         );
         if (recoveryResponse) {
           return recoveryResponse;
@@ -351,13 +323,7 @@ export class RunEngine implements IRunEngine {
         console.log(
           `[run/engine] Model-selected conversational mode for run ${runId}`,
         );
-        const response = await this.executeConversationalTurn(
-          run,
-          input,
-          messages,
-          eventRecorder,
-          runStartedAt,
-        );
+        const response = await this.executeConversationalTurn(run, input, messages);
         console.log(
           `[run/timing] run=${runId} step=total elapsedMs=${Date.now() - runStartedAt} status=${run.status} mode=chat`,
         );
@@ -379,12 +345,7 @@ export class RunEngine implements IRunEngine {
           console.log(
             `[run/engine] Permission check blocked action planning for run ${runId}`,
           );
-          return await this.completeRunWithAssistantMessage(
-            run,
-            permissionMessage,
-            eventRecorder,
-            runStartedAt,
-          );
+          return await this.completeRunWithAssistantMessage(run, permissionMessage);
         }
       } else {
         console.log(
@@ -401,12 +362,7 @@ export class RunEngine implements IRunEngine {
         console.log(
           `[run/engine] Workspace bootstrap blocked action planning for run ${runId}`,
         );
-        return await this.completeRunWithAssistantMessage(
-          run,
-          bootstrapMessage,
-          eventRecorder,
-          runStartedAt,
-        );
+        return await this.completeRunWithAssistantMessage(run, bootstrapMessage);
       }
 
       const agenticLoopTools = resolveAgenticLoopTools(
@@ -419,19 +375,14 @@ export class RunEngine implements IRunEngine {
           input,
           messages,
           agenticLoopTools,
-          eventRecorder,
-          runStartedAt,
         );
       }
 
       console.log(`[run/engine] Planning phase for run ${runId}`);
       try {
-        await this.transitionRun(
-          run,
-          "PLANNING",
-          eventRecorder,
-          "planning",
-        );
+        run.transition("PLANNING");
+        recordPhaseSelectionSnapshot(run, "planning");
+        await this.runRepo.update(run);
 
         const plan = await this.generatePlan(
           run,
@@ -439,12 +390,7 @@ export class RunEngine implements IRunEngine {
           this.currentMemoryContext,
         );
         await this.createTasksFromPlan(run.id, plan);
-        await this.recordPlannedTasks(eventRecorder, run.id);
-        recordLifecycleStep(
-          run,
-          "PLAN_VALIDATED",
-          plan.metadata.reasoning ?? undefined,
-        );
+        recordLifecycleStep(run, "PLAN_VALIDATED");
 
         await this.safeMemoryOperation(() =>
           this.memoryCoordinator.createCheckpoint({
@@ -460,8 +406,6 @@ export class RunEngine implements IRunEngine {
           run,
           runId,
           planError,
-          eventRecorder,
-          runStartedAt,
         );
         if (recoveryResponse) {
           return recoveryResponse;
@@ -476,39 +420,23 @@ export class RunEngine implements IRunEngine {
       }
 
       console.log(`[run/engine] Execution phase for run ${runId}`);
-      await this.transitionRun(run, "RUNNING", eventRecorder, "execution");
+      run.transition("RUNNING");
+      recordPhaseSelectionSnapshot(run, "execution");
       recordLifecycleStep(run, "TASK_EXECUTING");
       await this.runRepo.update(run);
 
       const taskResults: Array<{ taskId: string; content: string }> = [];
-      const taskStartedAt = new Map<string, number>();
 
       await this.scheduler.execute(run.id, {
         beforeTask: async (task) => {
           console.log(
             `[task/scheduler] beforeTask run=${run.id} task=${task.id} phase=task`,
           );
-          taskStartedAt.set(task.id, Date.now());
-          await eventRecorder.recordToolStarted(task.toJSON());
         },
         afterTask: async (task, result) => {
           console.log(
             `[task/scheduler] afterTask run=${run.id} task=${task.id} status=${result.status}`,
           );
-          const durationMs = getTaskDurationMs(taskStartedAt, task.id);
-          if (result.status === "DONE") {
-            await eventRecorder.recordToolCompleted(
-              task.toJSON(),
-              result.output?.content ?? null,
-              durationMs,
-            );
-          } else {
-            await eventRecorder.recordToolFailed(
-              task.toJSON(),
-              result.error?.message ?? `Task failed with status ${result.status}`,
-              durationMs,
-            );
-          }
           if (result.output?.content) {
             taskResults.push({
               taskId: task.id,
@@ -596,28 +524,13 @@ export class RunEngine implements IRunEngine {
       recordOrchestrationTerminal(run);
       run.output = { content: finalOutput };
       await this.runRepo.update(run);
-      await eventRecorder.recordMessageEmitted("assistant", finalOutput, {
-        phase: "synthesis",
-      });
-      await eventRecorder.recordRunStatusChanged("RUNNING", finalRunStatus);
-      if (finalRunStatus === "COMPLETED") {
-        await eventRecorder.recordRunCompleted(
-          Date.now() - runStartedAt,
-          allTasks.length,
-        );
-      } else {
-        await eventRecorder.recordRunFailed(
-          run.metadata.error ?? "Run completed with a non-success terminal status",
-          Date.now() - runStartedAt,
-        );
-      }
       console.log(`[run/engine] Completed run ${runId}`);
       console.log(
         `[run/timing] run=${runId} step=total elapsedMs=${Date.now() - runStartedAt} status=${finalRunStatus} mode=task`,
       );
       return this.createStreamResponse(finalOutput);
     } catch (error) {
-      await this.handleExecutionError(runId, error, runStartedAt);
+      await this.handleExecutionError(runId, error);
       throw error;
     }
   }
@@ -627,11 +540,10 @@ export class RunEngine implements IRunEngine {
     input: RunInput,
     messages: CoreMessage[],
     tools: Record<string, CoreTool>,
-    eventRecorder: RunEventRecorder,
-    runStartedAt: number,
   ): Promise<Response> {
     console.log(`[run/engine] Agentic loop execution active for run ${run.id}`);
-    await this.transitionRun(run, "RUNNING", eventRecorder, "execution");
+    run.transition("RUNNING");
+    recordPhaseSelectionSnapshot(run, "execution");
     recordLifecycleStep(run, "TASK_EXECUTING", "agentic_loop");
     await this.runRepo.update(run);
 
@@ -645,52 +557,11 @@ export class RunEngine implements IRunEngine {
       this.llmGateway,
       this.taskExecutor,
     );
-    const toolStartedAt = new Map<string, number>();
     const loopResult = await loop.execute(messages, tools, {
       agentType: run.agentType,
       modelId: input.modelId,
       providerId: input.providerId,
       temperature: 0.2,
-      onAssistantMessage: async (content) => {
-        await eventRecorder.recordMessageEmitted("assistant", content, {
-          phase: "execution",
-          lane: "agentic_loop",
-        });
-      },
-      onToolRequested: async (toolCall) => {
-        await eventRecorder.recordToolRequested({
-          id: toolCall.id,
-          type: toolCall.toolName,
-          input: toolCall.args,
-        });
-      },
-      onToolStarted: async (toolCall) => {
-        toolStartedAt.set(toolCall.id, Date.now());
-        await eventRecorder.recordToolStarted({
-          id: toolCall.id,
-          type: toolCall.toolName,
-        });
-      },
-      onToolCompleted: async (toolCall, result) => {
-        await eventRecorder.recordToolCompleted(
-          {
-            id: toolCall.id,
-            type: toolCall.toolName,
-          },
-          result,
-          getTaskDurationMs(toolStartedAt, toolCall.id),
-        );
-      },
-      onToolFailed: async (toolCall, error) => {
-        await eventRecorder.recordToolFailed(
-          {
-            id: toolCall.id,
-            type: toolCall.toolName,
-          },
-          error,
-          getTaskDurationMs(toolStartedAt, toolCall.id),
-        );
-      },
     });
 
     recordAgenticLoopMetadata(run, loopResult);
@@ -701,12 +572,7 @@ export class RunEngine implements IRunEngine {
       synthesisOutput: sanitizeUserFacingOutput(loopOutput),
       llmGateway: this.llmGateway,
     });
-    return this.completeRunWithAssistantMessage(
-      run,
-      finalOutput,
-      eventRecorder,
-      runStartedAt,
-    );
+    return this.completeRunWithAssistantMessage(run, finalOutput);
   }
 
   private async persistConversationMessages(
@@ -743,13 +609,10 @@ export class RunEngine implements IRunEngine {
     ) {
       return false;
     }
-    const eventRecorder = this.createEventRecorder(runId, run.sessionId);
-    const previousStatus = run.status;
     run.transition("CANCELLED");
     recordLifecycleStep(run, "TERMINAL", "status=CANCELLED");
     recordOrchestrationTerminal(run);
     await this.runRepo.update(run);
-    await eventRecorder.recordRunStatusChanged(previousStatus, run.status);
     const tasks = await this.taskRepo.getByRun(runId);
     for (const task of tasks) {
       if (["PENDING", "READY", "RUNNING"].includes(task.status)) {
@@ -788,7 +651,6 @@ export class RunEngine implements IRunEngine {
           previousStatus: existing.status,
           taskRepo: this.taskRepo,
           runRepo: this.runRepo,
-          clearRunEvents: () => this.eventRepository.clear(runId),
           createFreshRun: this.createFreshRun.bind(this),
         });
       }
@@ -838,10 +700,7 @@ export class RunEngine implements IRunEngine {
     );
   }
 
-  private async createTasksFromPlan(
-    runId: string,
-    plan: ExecutablePlan,
-  ): Promise<void> {
+  private async createTasksFromPlan(runId: string, plan: Plan): Promise<void> {
     for (const plannedTask of plan.tasks) {
       const task = this.createTaskFromPlanned(runId, plannedTask);
       await this.taskRepo.create(task);
@@ -852,10 +711,7 @@ export class RunEngine implements IRunEngine {
     );
   }
 
-  private createTaskFromPlanned(
-    runId: string,
-    planned: ExecutablePlannedTask,
-  ): Task {
+  private createTaskFromPlanned(runId: string, planned: PlannedTask): Task {
     return new Task(
       planned.id,
       runId,
@@ -874,14 +730,7 @@ export class RunEngine implements IRunEngine {
     run: Run,
     prompt: string,
     memoryContext?: MemoryContext,
-  ): Promise<ExecutablePlan> {
-    const directPlan = buildDirectExecutionPlan(prompt);
-    if (directPlan) {
-      console.log(
-        `[run/engine] Direct single-step plan selected for run ${run.id}: task=${directPlan.tasks[0]?.type ?? "unknown"}`,
-      );
-      return directPlan;
-    }
+  ): Promise<Plan> {
     if (this.agent) {
       return this.agent.plan({ run, prompt, history: undefined });
     }
@@ -919,10 +768,9 @@ export class RunEngine implements IRunEngine {
     run: Run,
     input: RunInput,
     messages: CoreMessage[],
-    eventRecorder: RunEventRecorder,
-    runStartedAt: number,
   ): Promise<Response> {
-    await this.transitionRun(run, "RUNNING", eventRecorder);
+    run.transition("RUNNING");
+    await this.runRepo.update(run);
 
     try {
       const result = await this.llmGateway.generateText({
@@ -937,22 +785,15 @@ export class RunEngine implements IRunEngine {
         model: input.modelId,
         providerId: input.providerId,
         temperature: 0.7,
-        timeoutMs: 15_000,
+        timeoutMs: CONVERSATIONAL_RESPONSE_TIMEOUT_MS,
       });
-      return this.completeRunWithAssistantMessage(
-        run,
-        result.text,
-        eventRecorder,
-        runStartedAt,
-      );
+      return this.completeRunWithAssistantMessage(run, result.text);
     } catch (error) {
       if (error instanceof LLMTimeoutError && error.phase === "synthesis") {
         return this.completeRunWithRecoveredAssistantMessage(
           run,
           "The model took too long to respond. Please retry, or switch to a faster model for quick chat turns.",
           error.message,
-          eventRecorder,
-          runStartedAt,
         );
       }
       throw error;
@@ -980,8 +821,6 @@ export class RunEngine implements IRunEngine {
   private async completeRunWithAssistantMessage(
     run: Run,
     text: string,
-    eventRecorder: RunEventRecorder,
-    runStartedAt: number,
   ): Promise<Response> {
     const sanitizedText = sanitizeUserFacingOutput(text);
     recordLifecycleStep(run, "SYNTHESIS");
@@ -1014,18 +853,12 @@ export class RunEngine implements IRunEngine {
         taskStatuses: {},
       }),
     );
-    const previousStatus = run.status;
     transitionRunToCompleted(run, run.id);
     recordLifecycleStep(run, "TERMINAL", "status=COMPLETED");
     recordPhaseSelectionSnapshot(run, "synthesis");
     recordOrchestrationTerminal(run);
     run.output = { content: sanitizedText };
     await this.runRepo.update(run);
-    await eventRecorder.recordMessageEmitted("assistant", sanitizedText, {
-      phase: "synthesis",
-    });
-    await eventRecorder.recordRunStatusChanged(previousStatus, run.status);
-    await eventRecorder.recordRunCompleted(Date.now() - runStartedAt, 0);
     console.log(`[run/engine] Completed conversational run ${run.id}`);
 
     return this.createStreamResponse(sanitizedText);
@@ -1035,8 +868,6 @@ export class RunEngine implements IRunEngine {
     run: Run,
     text: string,
     technicalError?: string,
-    eventRecorder?: RunEventRecorder,
-    runStartedAt?: number,
   ): Promise<Response> {
     const sanitizedText = sanitizeUserFacingOutput(text);
     recordLifecycleStep(run, "SYNTHESIS", "planning_recovery");
@@ -1060,7 +891,6 @@ export class RunEngine implements IRunEngine {
       ),
     );
 
-    const previousStatus = run.status;
     transitionRunToCompleted(run, run.id);
     if (technicalError) {
       run.metadata.error = technicalError;
@@ -1069,28 +899,16 @@ export class RunEngine implements IRunEngine {
     recordOrchestrationTerminal(run);
     run.output = { content: sanitizedText };
     await this.runRepo.update(run);
-    if (eventRecorder) {
-      await eventRecorder.recordMessageEmitted("assistant", sanitizedText, {
-        phase: "synthesis",
-        recovery: true,
-      });
-      await eventRecorder.recordRunStatusChanged(previousStatus, run.status);
-      await eventRecorder.recordRunCompleted(
-        runStartedAt ? Date.now() - runStartedAt : 0,
-        0,
-      );
-    }
 
-    console.log(`[run/engine] Completed run ${run.id} with recoverable error`);
+    console.log(
+      `[run/engine] Completed run ${run.id} with recoverable error`,
+    );
     return this.createStreamResponse(sanitizedText);
   }
-
   private async tryHandlePlanningError(
     run: Run,
     runId: string,
     error: unknown,
-    eventRecorder?: RunEventRecorder,
-    runStartedAt?: number,
   ): Promise<Response | null> {
     const technicalMessage =
       error instanceof Error ? error.message : "Planning phase failed";
@@ -1107,8 +925,6 @@ export class RunEngine implements IRunEngine {
       run,
       userMessage,
       technicalMessage,
-      eventRecorder,
-      runStartedAt,
     );
   }
 
@@ -1131,7 +947,6 @@ export class RunEngine implements IRunEngine {
       this.permissionApprovalStore,
     );
   }
-
   private async getWorkspaceBootstrapMessage(
     runId: string,
     repositoryContext?: RepositoryContext,
@@ -1142,80 +957,20 @@ export class RunEngine implements IRunEngine {
       this.workspaceBootstrapper,
     );
   }
-
-  private createEventRecorder(
-    runId: string,
-    sessionId: string,
-  ): RunEventRecorder {
-    return new RunEventRecorder(this.eventRepository, runId, sessionId);
-  }
-
-  private async transitionRun(
-    run: Run,
-    newStatus: RunStatus,
-    eventRecorder: RunEventRecorder,
-    phase?: "planning" | "execution" | "synthesis",
-    reason?: string,
-  ): Promise<void> {
-    const previousStatus = run.status;
-    run.transition(newStatus);
-    if (phase) {
-      recordPhaseSelectionSnapshot(run, phase);
-    }
-    await this.runRepo.update(run);
-    await eventRecorder.recordRunStatusChanged(
-      previousStatus,
-      newStatus,
-      reason,
-    );
-  }
-
-  private async recordConversationEvents(
-    eventRecorder: RunEventRecorder,
-    messages: CoreMessage[],
-    role: "user" | "assistant",
-  ): Promise<void> {
-    for (const message of messages) {
-      if (typeof message.content === "string") {
-        await eventRecorder.recordMessageEmitted(role, message.content, {
-          phase: role === "user" ? "planning" : "synthesis",
-        });
-      }
-    }
-  }
-
-  private async recordPlannedTasks(
-    eventRecorder: RunEventRecorder,
-    runId: string,
-  ): Promise<void> {
-    const tasks = await this.taskRepo.getByRun(runId);
-    for (const task of tasks) {
-      await eventRecorder.recordToolRequested(task.toJSON());
-    }
-  }
-
   private async handleExecutionError(
     runId: string,
     error: unknown,
-    runStartedAt: number,
   ): Promise<void> {
     const errorMessage =
       error instanceof Error ? error.message : "Unknown execution error";
     try {
       const run = await this.runRepo.getById(runId);
       if (run) {
-        const eventRecorder = this.createEventRecorder(runId, run.sessionId);
-        const previousStatus = run.status;
         transitionRunToFailed(run, runId);
         recordLifecycleStep(run, "TERMINAL", "status=FAILED");
         recordOrchestrationTerminal(run);
         run.metadata.error = errorMessage;
         await this.runRepo.update(run);
-        await eventRecorder.recordRunStatusChanged(previousStatus, run.status);
-        await eventRecorder.recordRunFailed(
-          errorMessage,
-          Date.now() - runStartedAt,
-        );
       }
     } catch (handlerError) {
       console.error(
@@ -1237,22 +992,11 @@ export class RunEngine implements IRunEngine {
       return undefined;
     }
   }
-
   async getCostSnapshot(runId: string): Promise<CostSnapshot> {
     return this.costLedger.aggregate(runId);
   }
-
-  async getTasksForRun(runId: string) {
-    return this.taskRepo.getByRun(runId);
-  }
-
-  async getEventsForRun(runId: string) {
-    return this.eventRepository.getByRun(runId);
-  }
-
-  async getRun(runId: string) {
-    return this.runRepo.getById(runId);
-  }
+  async getTasksForRun(runId: string) { return this.taskRepo.getByRun(runId); }
+  async getRun(runId: string) { return this.runRepo.getById(runId); }
 
   private getUnknownPricingMode(env: RunEngineEnv): "warn" | "block" {
     const configuredMode = env.COST_UNKNOWN_PRICING_MODE as unknown;
@@ -1289,33 +1033,9 @@ function parseOptionalNumber(value?: string): number | undefined {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
-function getTaskDurationMs(
-  startedAtByTaskId: Map<string, number>,
-  taskId: string,
-): number {
-  const startedAt = startedAtByTaskId.get(taskId);
-  if (!startedAt) {
-    return 0;
-  }
-  startedAtByTaskId.delete(taskId);
-  return Math.max(0, Date.now() - startedAt);
-}
-
 export class RunEngineError extends Error {
   constructor(message: string) {
     super(`[run/engine] ${message}`);
     this.name = "RunEngineError";
   }
-}
-
-function buildRecoveredTurnModeDecision(error: unknown): TurnModeDecision {
-  return {
-    mode: "action",
-    source: "recovered",
-    rationale:
-      error instanceof Error
-        ? error.message
-        : "Turn mode classification failed before planning.",
-    confidence: 0,
-  };
 }

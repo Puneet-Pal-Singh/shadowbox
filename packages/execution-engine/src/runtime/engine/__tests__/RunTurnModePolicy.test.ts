@@ -142,7 +142,7 @@ describe("RunTurnModePolicy", () => {
     );
   });
 
-  it("requests turn-mode classification with bounded timeout budget", async () => {
+  it("relies on the gateway default structured timeout budget", async () => {
     const generateStructured = vi.fn(async () => ({
       object: {
         mode: "chat" as const,
@@ -168,6 +168,6 @@ describe("RunTurnModePolicy", () => {
     const request = generateStructured.mock.calls[0]?.[0] as {
       timeoutMs?: number;
     };
-    expect(request.timeoutMs).toBe(8000);
+    expect(request.timeoutMs).toBeUndefined();
   });
 });
