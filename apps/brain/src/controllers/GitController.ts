@@ -9,9 +9,9 @@ import type {
 import { z } from "zod";
 import { WorkspaceBootstrapService } from "../runtime/services/WorkspaceBootstrapService";
 import { sanitizeUnknownError } from "../core/security/LogSanitizer";
+import { getBrainRuntimeHeaders } from "../core/observability/runtime";
 import {
   logErrorRateLimited,
-  logInfoRateLimited,
   logWarnRateLimited,
 } from "../lib/rate-limited-log";
 
@@ -28,8 +28,10 @@ type GitBootstrapRequestBody = z.infer<typeof GitBootstrapRequestBodySchema>;
 type GitBootstrapResult = Awaited<
   ReturnType<WorkspaceBootstrapService["bootstrap"]>
 >;
-const bootstrapRequestsByWorkspace = new Map<string, Promise<GitBootstrapResult>>();
-const MUSCLE_BASE_URL_FALLBACK_LOG_KEY = "GitController:muscle-base-url-fallback";
+const bootstrapRequestsByWorkspace = new Map<
+  string,
+  Promise<GitBootstrapResult>
+>();
 const ERROR_LOG_WINDOW_MS = 30_000;
 const WARNING_LOG_WINDOW_MS = 5 * 60 * 1000;
 const MUSCLE_STATUS_TIMEOUT_MS = 12_000;
@@ -51,18 +53,9 @@ export class GitController {
       return configuredBaseUrl.replace(/\/+$/, "");
     }
 
-    if (env.NODE_ENV === "production") {
-      throw new Error("MUSCLE_BASE_URL is required in production");
-    }
-
-    const localDevFallback = "http://localhost:8787";
-    logInfoRateLimited(
-      MUSCLE_BASE_URL_FALLBACK_LOG_KEY,
-      `[GitController] MUSCLE_BASE_URL not configured, using dev fallback: ${localDevFallback}`,
-      undefined,
-      WARNING_LOG_WINDOW_MS,
+    throw new Error(
+      "MUSCLE_BASE_URL is required. Set it explicitly to the secure-agent-api origin for the active localhost stack.",
     );
-    return localDevFallback;
   }
 
   /**
@@ -104,10 +97,7 @@ export class GitController {
 
       return corsJsonResponse(req, env, data);
     } catch (error) {
-      if (
-        error instanceof Error &&
-        isNotGitRepositoryMessage(error.message)
-      ) {
+      if (error instanceof Error && isNotGitRepositoryMessage(error.message)) {
         return corsJsonResponse(req, env, getRecoverableNotGitStatus());
       }
       return handleGitControllerError(req, env, error, "getStatus");
@@ -131,16 +121,16 @@ export class GitController {
 
       const muscleSession = resolveMuscleSessionId(runId, sessionId);
       const response = await fetchWithTimeout(
-       `${GitController.getMuscleBaseUrl(env)}/?session=${encodeURIComponent(muscleSession)}`,
-       {
-         method: "POST",
-         headers: {
-           "Content-Type": "application/json",
-         },
-         body: JSON.stringify({
-           plugin: "git",
-           payload: {
-             action: "diff",
+        `${GitController.getMuscleBaseUrl(env)}/?session=${encodeURIComponent(muscleSession)}`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            plugin: "git",
+            payload: {
+              action: "diff",
               runId,
               path: filePath,
               staged,
@@ -173,7 +163,12 @@ export class GitController {
       const { runId, sessionId, files, unstage = false } = body;
 
       if (!runId || !files || !Array.isArray(files)) {
-        return errorResponse(req, env, "runId and files array are required", 400);
+        return errorResponse(
+          req,
+          env,
+          "runId and files array are required",
+          400,
+        );
       }
 
       const muscleSession = resolveMuscleSessionId(runId, sessionId);
@@ -258,7 +253,12 @@ export class GitController {
     try {
       const body = await parseGitBootstrapRequestBody(req, env);
       if (!body) {
-        return errorResponse(req, env, "Invalid git bootstrap request body", 400);
+        return errorResponse(
+          req,
+          env,
+          "Invalid git bootstrap request body",
+          400,
+        );
       }
       const {
         runId,
@@ -312,7 +312,9 @@ export class GitController {
       try {
         result = await bootstrapRequest;
       } finally {
-        if (bootstrapRequestsByWorkspace.get(workspaceKey) === bootstrapRequest) {
+        if (
+          bootstrapRequestsByWorkspace.get(workspaceKey) === bootstrapRequest
+        ) {
           bootstrapRequestsByWorkspace.delete(workspaceKey);
         }
       }
@@ -363,7 +365,10 @@ interface PluginSuccessPayload {
   output?: unknown;
 }
 
-function resolveMuscleSessionId(runId: string, sessionId?: string | null): string {
+function resolveMuscleSessionId(
+  runId: string,
+  sessionId?: string | null,
+): string {
   const normalizedSessionId = sessionId?.trim();
   if (normalizedSessionId && normalizedSessionId.length > 0) {
     return normalizedSessionId;
@@ -385,10 +390,7 @@ function isPluginPayload(
   return "success" in payload;
 }
 
-function parseGitPayload<T>(
-  payload: unknown,
-  operation: "status" | "diff",
-): T {
+function parseGitPayload<T>(payload: unknown, operation: "status" | "diff"): T {
   if (isPluginPayload(payload)) {
     if (payload.success === false) {
       const details =
@@ -428,10 +430,7 @@ function getRecoverableNotGitStatus(): GitStatusResponse {
   };
 }
 
-function parseGitOutput<T>(
-  output: unknown,
-  operation: "status" | "diff",
-): T {
+function parseGitOutput<T>(output: unknown, operation: "status" | "diff"): T {
   if (typeof output === "string") {
     try {
       return JSON.parse(output) as T;
@@ -576,6 +575,7 @@ function errorResponse(
     status,
     headers: {
       "Content-Type": "application/json",
+      ...getBrainRuntimeHeaders(env),
       ...getCorsHeaders(req, env),
     },
   });

@@ -24,8 +24,39 @@ describe("secure-agent-api chat history routing", () => {
     };
 
     expect(response.status).toBe(200);
-    expect(runtimeStub.getHistory).toHaveBeenCalledWith("run/123", "cursor-1", 25);
+    expect(response.headers.get("X-Shadowbox-Runtime-Name")).toBe(
+      "secure-agent-api-worker",
+    );
+    expect(runtimeStub.getHistory).toHaveBeenCalledWith(
+      "run/123",
+      "cursor-1",
+      25,
+    );
     expect(body.messages).toHaveLength(1);
+  });
+
+  it("serves runtime debug metadata", async () => {
+    const runtimeStub = createRuntimeStub();
+    const env = createEnv(runtimeStub);
+    const response = await worker.fetch(
+      new Request("https://secure.local/api/debug/runtime", {
+        method: "GET",
+      }),
+      env,
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("X-Shadowbox-Runtime-Name")).toBe(
+      "secure-agent-api-worker",
+    );
+
+    const body = (await response.json()) as {
+      runtime: { name: string; gitSha: string };
+      bindings: { agentRuntimeBound: boolean };
+    };
+    expect(body.runtime.name).toBe("secure-agent-api-worker");
+    expect(body.runtime.gitSha).toBe("test-sha");
+    expect(body.bindings.agentRuntimeBound).toBe(true);
   });
 
   it("keeps legacy /chat route behavior compatible", async () => {
@@ -163,5 +194,6 @@ function createEnv(runtimeStub: { getHistory: unknown }): Env {
     AGENT_RUNTIME: namespace as unknown as Env["AGENT_RUNTIME"],
     Sandbox: {} as Env["Sandbox"],
     ARTIFACTS: {} as Env["ARTIFACTS"],
+    RUNTIME_GIT_SHA: "test-sha",
   };
 }

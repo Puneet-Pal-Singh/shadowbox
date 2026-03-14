@@ -134,6 +134,10 @@ import {
 import { getCorsHeaders, handleCorsPreflight } from "./lib/cors";
 import { sanitizeUnknownError } from "./core/security/LogSanitizer";
 import {
+  buildSecureRuntimeDebugPayload,
+  getSecureRuntimeHeaders,
+} from "./core/observability/runtime";
+import {
   ChatHistoryQuerySchema,
   ChatAppendRequestSchema,
   ExecutionBodySchema,
@@ -154,6 +158,7 @@ export interface Env {
   ARTIFACTS: R2Bucket;
   CORS_ALLOWED_ORIGINS?: string;
   CORS_ALLOW_DEV_ORIGINS?: "true" | "false";
+  RUNTIME_GIT_SHA?: string;
 }
 
 /**
@@ -204,8 +209,13 @@ export default {
       // 3. Route to proper Durable Object methods
       let response: Response;
 
-      // NEW: HTTP API Routes for CloudSandboxExecutor Integration
-      if (url.pathname === "/api/v1/session" && request.method === "POST") {
+      if (url.pathname === "/api/debug/runtime" && request.method === "GET") {
+        response = Response.json(buildSecureRuntimeDebugPayload(env));
+      } else if (
+        url.pathname === "/api/v1/session" &&
+        request.method === "POST"
+      ) {
+        // NEW: HTTP API Routes for CloudSandboxExecutor Integration
         response = await handleCreateSession(request, stub);
       } else if (
         url.pathname === "/api/v1/execute" &&
@@ -231,7 +241,9 @@ export default {
         const tools = await stub.getManifest();
         response = Response.json({ tools });
       } else {
-        const historyMatch = url.pathname.match(/^\/api\/chat\/history\/([^/]+)$/);
+        const historyMatch = url.pathname.match(
+          /^\/api\/chat\/history\/([^/]+)$/,
+        );
         if (historyMatch) {
           // CANONICAL: GET /api/chat/history/:runId and POST /api/chat/history/:runId
           const runId = decodeURIComponent(historyMatch[1]!);
@@ -318,13 +330,18 @@ export default {
       for (const [k, v] of Object.entries(corsHeaders)) {
         finalResponse.headers.set(k, v);
       }
+      const runtimeHeaders = getSecureRuntimeHeaders(env);
+      for (const [k, v] of Object.entries(runtimeHeaders)) {
+        finalResponse.headers.set(k, v);
+      }
       return finalResponse;
     } catch (e: unknown) {
       const error = sanitizeUnknownError(e);
-      return Response.json(
-        { error },
-        { status: 500, headers: getCorsHeaders(request, env) },
-      );
+      const headers = {
+        ...getCorsHeaders(request, env),
+        ...getSecureRuntimeHeaders(env),
+      };
+      return Response.json({ error }, { status: 500, headers });
     }
   },
 };

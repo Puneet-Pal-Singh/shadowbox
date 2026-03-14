@@ -15,3 +15,7 @@ CORS_ALLOWED_ORIGINS=
 # Local development web origin (if deviating from http://localhost:5173)
 # If using a different port or hostname, add it here:
 # CORS_ALLOWED_ORIGINS=http://localhost:3000
+
+# Optional runtime fingerprint metadata for debug endpoints/headers.
+# Recommended value: git rev-parse --short HEAD
+# RUNTIME_GIT_SHA=9673a9b

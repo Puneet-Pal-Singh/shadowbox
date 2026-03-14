@@ -36,6 +36,28 @@ pnpm --filter @shadowbox/brain dev
 pnpm --filter @shadowbox/secure-agent-api dev
 ```
 
+For reliable local runtime debugging, start one explicit localhost stack and verify the
+runtime fingerprints before testing:
+
+```bash
+pnpm --filter @shadowbox/secure-agent-api dev
+pnpm --filter @shadowbox/brain dev
+pnpm --filter @shadowbox/web dev
+```
+
+Local runtime checks:
+
+```bash
+curl http://localhost:8787/api/debug/runtime
+curl http://localhost:8788/api/debug/runtime
+curl "http://localhost:8788/api/debug/runtime?runId=<RUN_ID>"
+```
+
+Set `MUSCLE_BASE_URL=http://localhost:8787` in `apps/brain/.dev.vars` so Brain never
+guesses which secure-agent-api process owns your local ports. If `RUNTIME_GIT_SHA` is
+set in the app `.dev.vars`, the debug endpoints and response headers will expose it
+alongside startup timestamps and boot IDs.
+
 ## Local Verification Workflow
 
 Run the same baseline gates we enforce in CI:

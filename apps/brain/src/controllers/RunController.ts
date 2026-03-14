@@ -1,5 +1,6 @@
 import type { Env } from "../types/ai";
 import { getCorsHeaders } from "../lib/cors";
+import { getBrainRuntimeHeaders } from "../core/observability/runtime";
 
 interface RunSummaryResponse {
   runId: string;
@@ -49,9 +50,9 @@ export class RunController {
 
   static async cancel(req: Request, env: Env): Promise<Response> {
     try {
-      const body = (await req.json().catch(() => null)) as
-        | { runId?: string }
-        | null;
+      const body = (await req.json().catch(() => null)) as {
+        runId?: string;
+      } | null;
       const runId = body?.runId?.trim();
       if (!runId) {
         return errorResponse(req, env, "runId is required", 400);
@@ -123,14 +124,11 @@ async function fetchFromRuntime(
 
   const id = env.RUN_ENGINE_RUNTIME.idFromName(runId);
   const stub = env.RUN_ENGINE_RUNTIME.get(id);
-  return (await stub.fetch(
-    `https://run-engine${requestInit.path}`,
-    {
-      method: requestInit.method,
-      headers: requestInit.headers,
-      body: requestInit.body,
-    },
-  )) as unknown as Response;
+  return (await stub.fetch(`https://run-engine${requestInit.path}`, {
+    method: requestInit.method,
+    headers: requestInit.headers,
+    body: requestInit.body,
+  })) as unknown as Response;
 }
 
 function jsonResponse(
@@ -143,6 +141,7 @@ function jsonResponse(
     status,
     headers: {
       "Content-Type": "application/json",
+      ...getBrainRuntimeHeaders(env),
       ...getCorsHeaders(req, env),
     },
   });

@@ -49,5 +49,11 @@ BYOK_CREDENTIAL_ENCRYPTION_KEY_VERSION=v1
 # BYOK_CREDENTIAL_ENCRYPTION_KEY_PREVIOUS_VERSION=v0
 
 # Optional service URL override (mainly production/staging)
-# MUSCLE_BASE_URL=http://localhost:8787
+# Required for local git/runtime proxy routes. Point this at the one secure-agent-api
+# process you intend to test against.
+MUSCLE_BASE_URL=http://localhost:8787
+
+# Optional runtime fingerprint metadata for debug endpoints/headers.
+# Recommended value: git rev-parse --short HEAD
+# RUNTIME_GIT_SHA=9673a9b
 # NODE_ENV=development
