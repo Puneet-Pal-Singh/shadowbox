@@ -3,8 +3,6 @@ import { DurableObject } from "cloudflare:workers";
 import { getSandbox, type Sandbox } from "@cloudflare/sandbox";
 import {
   IPlugin,
-  PluginResult,
-  LogCallback,
   Message,
 } from "../interfaces/types";
 import { StreamHandler } from "./StreamHandler";
@@ -16,7 +14,16 @@ import { GitPlugin } from "../plugins/GitPlugin";
 import { NodePlugin } from "../plugins/NodePlugin";
 import { RustPlugin } from "../plugins/RustPlugin";
 import { Env } from "../index";
-import { sanitizeLogText, sanitizeUnknownError } from "./security/LogSanitizer";
+import {
+  composeRuntime,
+  type ComposedRuntime,
+  type ComposeRuntimeInput,
+} from "../factories/RuntimeCompositionFactory";
+import type {
+  TaskExecutionInput,
+  TaskExecutionResult,
+} from "../ports/SandboxExecutionPort";
+import type { DurableObjectState as LegacyDurableObjectState } from "@cloudflare/workers-types";
 
 interface RuntimeSessionRecord {
   runId: string;
@@ -39,12 +46,15 @@ const EXECUTION_LOG_KEY_PREFIX = "execution:logs:";
 
 export class AgentRuntime extends DurableObject {
   private sandbox: Sandbox | null = null;
+  private composedRuntime: ComposedRuntime | null = null;
   private plugins: Map<string, IPlugin> = new Map();
   private stream = new StreamHandler();
   private storageService: StorageService;
+  private readonly artifactBucket: ComposeRuntimeInput["r2Bucket"];
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
+    this.artifactBucket = env.ARTIFACTS as unknown as ComposeRuntimeInput["r2Bucket"];
     this.storageService = new StorageService(env.ARTIFACTS);
     this.setupRegistry();
   }
@@ -71,6 +81,21 @@ export class AgentRuntime extends DurableObject {
       this.bootPlugins();
     }
     return this.sandbox;
+  }
+
+  private async ensureComposedRuntime(): Promise<ComposedRuntime> {
+    if (this.composedRuntime) {
+      return this.composedRuntime;
+    }
+
+    const sandbox = await this.ensureSandbox();
+    this.composedRuntime = composeRuntime({
+      durableObjectState: this.ctx as unknown as LegacyDurableObjectState,
+      sandbox,
+      plugins: this.plugins,
+      r2Bucket: this.artifactBucket,
+    });
+    return this.composedRuntime;
   }
 
   private async bootPlugins() {
@@ -114,29 +139,12 @@ export class AgentRuntime extends DurableObject {
     return new Response("Not Found", { status: 404 });
   }
 
-  // 4. SRP: Pure Execution Engine
-  async run(pluginName: string, payload: unknown): Promise<PluginResult> {
-    const sb = await this.ensureSandbox();
-    const plugin = this.plugins.get(pluginName);
-
-    if (!plugin) return { success: false, error: "Plugin not found" };
-
-    const onLog: LogCallback = (text) => {
-      this.stream.broadcast("log", sanitizeLogText(text));
-    };
-
-    try {
-      // Optional: don't broadcast "start" unless you want a UI spinner
-      const result = await plugin.execute(sb, payload, onLog);
-
-      // Crucial: The "finish" event tells the UI to return the prompt
-      this.stream.broadcast("finish", { success: result.success });
-      return result;
-    } catch (e: unknown) {
-      const error = sanitizeUnknownError(e);
-      this.stream.broadcast("error", error);
-      return { success: false, error };
-    }
+  async executeTask(
+    sessionId: string,
+    input: TaskExecutionInput,
+  ): Promise<TaskExecutionResult> {
+    const runtime = await this.ensureComposedRuntime();
+    return runtime.executionPort.executeTask(sessionId, input);
   }
 
   getManifest() {

@@ -15,6 +15,10 @@ import {
   type ExecuteTaskRequest,
   type ExecuteTaskResponse,
 } from "../schemas/http-api";
+import type {
+  SandboxExecutionPort,
+  TaskExecutionInput,
+} from "../ports/SandboxExecutionPort";
 
 type RuntimeStub = Record<string, unknown>;
 
@@ -43,10 +47,6 @@ interface SessionLogEntry {
   level: "info" | "warn" | "error" | "debug";
   message: string;
   source?: "stdout" | "stderr";
-}
-
-interface RuntimeExecuteTaskHandler {
-  (request: ExecuteTaskRequest): Promise<unknown>;
 }
 
 interface RuntimeSessionStore {
@@ -245,13 +245,34 @@ async function fetchManifest(runtime: RuntimeStub): Promise<unknown> {
   }
 }
 
-function getRuntimeExecuteTaskHandler(
+function getRuntimeExecutionPort(
   runtime: RuntimeStub,
-): RuntimeExecuteTaskHandler | null {
-  const candidate = (runtime as Record<string, unknown>).executeTask;
-  return typeof candidate === "function"
-    ? (candidate as RuntimeExecuteTaskHandler)
-    : null;
+): Pick<SandboxExecutionPort, "executeTask"> | null {
+  const candidate = runtime as Record<string, unknown>;
+  const executionPort = candidate.executionPort;
+  if (
+    executionPort &&
+    typeof executionPort === "object" &&
+    typeof (executionPort as SandboxExecutionPort).executeTask === "function"
+  ) {
+    return executionPort as Pick<SandboxExecutionPort, "executeTask">;
+  }
+
+  const executeTask = candidate.executeTask;
+  if (typeof executeTask !== "function") {
+    return null;
+  }
+
+  return {
+    executeTask: (
+      sessionId: string,
+      input: TaskExecutionInput,
+    ) =>
+      (executeTask as (
+        sessionIdArg: string,
+        inputArg: TaskExecutionInput,
+      ) => Promise<ExecuteTaskResponse>)(sessionId, input),
+  };
 }
 
 function extractSessionIdFromPath(pathname: string): string | null {
@@ -262,6 +283,50 @@ function extractSessionIdFromPath(pathname: string): string | null {
 function parseExecutionResponse(result: unknown): ExecuteTaskResponse | null {
   const parsed = ExecuteTaskResponseSchema.safeParse(result);
   return parsed.success ? parsed.data : null;
+}
+
+function toTaskExecutionInput(
+  request: ExecuteTaskRequest,
+): TaskExecutionInput {
+  return {
+    taskId: request.taskId,
+    action: request.action,
+    params: request.params,
+    timeout: request.timeout,
+    retryable: request.retryable,
+  };
+}
+
+function getExecutionLogLevel(
+  result: ExecuteTaskResponse,
+): SessionLogEntry["level"] {
+  return result.status === "success" ? "info" : "error";
+}
+
+function getExecutionLogMessage(result: ExecuteTaskResponse): string {
+  if (result.status === "success") {
+    return "Task executed successfully";
+  }
+
+  if (result.error?.message) {
+    return result.error.message;
+  }
+
+  if (result.status === "timeout") {
+    return "Task execution timed out";
+  }
+
+  if (result.status === "cancelled") {
+    return "Task execution was cancelled";
+  }
+
+  return "Task execution failed";
+}
+
+function getExecutionLogSource(
+  result: ExecuteTaskResponse,
+): SessionLogEntry["source"] {
+  return result.status === "success" ? "stdout" : "stderr";
 }
 
 export async function handleCreateSession(
@@ -335,8 +400,8 @@ export async function handleExecuteTask(
       return auth.response;
     }
 
-    const executeTask = getRuntimeExecuteTaskHandler(runtime);
-    if (!executeTask) {
+    const executionPort = getRuntimeExecutionPort(runtime);
+    if (!executionPort) {
       await recordLog(
         runtime,
         sessionId,
@@ -351,7 +416,10 @@ export async function handleExecuteTask(
       );
     }
 
-    const runtimeResult = await executeTask(validation.data);
+    const runtimeResult = await executionPort.executeTask(
+      sessionId,
+      toTaskExecutionInput(validation.data),
+    );
     const executionResult = parseExecutionResponse(runtimeResult);
     if (!executionResult) {
       return errorResponse(
@@ -364,11 +432,9 @@ export async function handleExecuteTask(
     await recordLog(
       runtime,
       sessionId,
-      executionResult.exitCode === 0 ? "info" : "error",
-      executionResult.exitCode === 0
-        ? "Task executed successfully"
-        : executionResult.stderr || "Task failed",
-      executionResult.exitCode === 0 ? "stdout" : "stderr",
+      getExecutionLogLevel(executionResult),
+      getExecutionLogMessage(executionResult),
+      getExecutionLogSource(executionResult),
     );
 
     return jsonResponse(executionResult, 200);

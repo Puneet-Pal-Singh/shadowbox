@@ -1,0 +1,177 @@
+import { describe, expect, it } from "vitest";
+import {
+  Run,
+  RunEventRepository,
+  RunRepository,
+  type RuntimeDurableObjectState,
+  type RuntimeStorage,
+  createToolCompletedEvent,
+  createToolRequestedEvent,
+  createToolStartedEvent,
+  tagRuntimeStateSemantics,
+} from "@shadowbox/execution-engine/runtime";
+import type { DurableObjectState } from "@cloudflare/workers-types";
+import type { Env } from "../types/ai";
+import { RunEngineRequestHandler } from "./RunEngineRequestHandler";
+
+describe("RunEngineRequestHandler", () => {
+  it("projects summary counts from canonical runtime events", async () => {
+    const ctx = new MockDurableObjectState();
+    const runtimeState = tagRuntimeStateSemantics(ctx, "do");
+    const runRepo = new RunRepository(runtimeState);
+    const eventRepo = new RunEventRepository(runtimeState);
+
+    await runRepo.create(
+      new Run(
+        "123e4567-e89b-42d3-a456-426614174000",
+        "session-1",
+        "RUNNING",
+        "coding",
+        {
+          agentType: "coding",
+          prompt: "read README.md and run tests",
+          sessionId: "session-1",
+        },
+      ),
+    );
+
+    const toolInput = {
+      runId: "123e4567-e89b-42d3-a456-426614174000",
+      sessionId: "session-1",
+    };
+    await eventRepo.append(
+      toolInput.runId,
+      createToolRequestedEvent(
+        {
+          ...toolInput,
+          taskId: "task-1",
+          toolName: "read_file",
+        },
+        { path: "README.md" },
+      ),
+    );
+    await eventRepo.append(
+      toolInput.runId,
+      createToolStartedEvent({
+        ...toolInput,
+        taskId: "task-1",
+        toolName: "read_file",
+      }),
+    );
+    await eventRepo.append(
+      toolInput.runId,
+      createToolCompletedEvent(
+        {
+          ...toolInput,
+          taskId: "task-1",
+          toolName: "read_file",
+        },
+        "README contents",
+        8,
+      ),
+    );
+    await eventRepo.append(
+      toolInput.runId,
+      createToolRequestedEvent(
+        {
+          ...toolInput,
+          taskId: "task-2",
+          toolName: "run_command",
+        },
+        { command: "pnpm test" },
+      ),
+    );
+
+    const handler = new RunEngineRequestHandler(
+      ctx as unknown as DurableObjectState,
+      {} as Env,
+      async (operation) => operation(),
+    );
+
+    const response = await handler.handleSummaryRequest(
+      new Request(
+        "https://brain.local/summary?runId=123e4567-e89b-42d3-a456-426614174000",
+      ),
+    );
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      totalTasks: number;
+      completedTasks: number;
+      failedTasks: number;
+      runningTasks: number;
+      pendingTasks: number;
+      eventCount: number;
+      lastEventType: string | null;
+    };
+
+    expect(body.totalTasks).toBe(2);
+    expect(body.completedTasks).toBe(1);
+    expect(body.runningTasks).toBe(0);
+    expect(body.pendingTasks).toBe(1);
+    expect(body.failedTasks).toBe(0);
+    expect(body.eventCount).toBe(4);
+    expect(body.lastEventType).toBe("tool.requested");
+  });
+});
+
+class InMemoryStorage implements RuntimeStorage {
+  private readonly values = new Map<string, unknown>();
+
+  async get<T>(key: string): Promise<T | undefined> {
+    return this.values.get(key) as T | undefined;
+  }
+
+  async put<T>(key: string, value: T): Promise<void> {
+    this.values.set(key, value);
+  }
+
+  async delete(key: string | string[]): Promise<boolean | number> {
+    if (Array.isArray(key)) {
+      let deleted = 0;
+      for (const entry of key) {
+        if (this.values.delete(entry)) {
+          deleted += 1;
+        }
+      }
+      return deleted;
+    }
+    return this.values.delete(key);
+  }
+
+  async list<T>(options?: {
+    prefix?: string;
+    start?: string;
+    end?: string;
+    limit?: number;
+  }): Promise<Map<string, T>> {
+    const results = new Map<string, T>();
+
+    for (const [key, value] of this.values.entries()) {
+      if (options?.prefix && !key.startsWith(options.prefix)) {
+        continue;
+      }
+      if (options?.start && key < options.start) {
+        continue;
+      }
+      if (options?.end && key >= options.end) {
+        continue;
+      }
+
+      results.set(key, value as T);
+      if (options?.limit && results.size >= options.limit) {
+        break;
+      }
+    }
+
+    return results;
+  }
+}
+
+class MockDurableObjectState implements RuntimeDurableObjectState {
+  storage = new InMemoryStorage();
+
+  async blockConcurrencyWhile<T>(operation: () => Promise<T>): Promise<T> {
+    return operation();
+  }
+}

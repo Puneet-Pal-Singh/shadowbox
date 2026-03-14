@@ -197,6 +197,76 @@ describe("LLMGateway provider capabilities", () => {
     });
   });
 
+  it("throws EXECUTION_LANE_UNSUPPORTED when task execution uses a chat-only model", async () => {
+    const gateway = new LLMGateway(
+      createDependencies({
+        getCapabilities: () => ({
+          streaming: true,
+          tools: true,
+          structuredOutputs: true,
+          jsonMode: true,
+        }),
+        isModelAllowed: () => true,
+        getExecutionProfile: () => ({
+          latencyTier: "slow",
+          reliabilityTier: "experimental",
+          supportedLanes: {
+            chat_only: { supported: true },
+            single_agent_action: {
+              supported: false,
+              reason:
+                "Execution-critical action turns require an approved model.",
+            },
+            structured_planning_required: {
+              supported: false,
+              reason: "Structured planning is not approved for this model.",
+            },
+          },
+        }),
+      }),
+    );
+
+    await expect(
+      gateway.generateText({
+        ...baseRequest,
+        context: {
+          ...baseRequest.context,
+          phase: "task",
+        },
+      }),
+    ).rejects.toMatchObject({
+      code: "EXECUTION_LANE_UNSUPPORTED",
+      lane: "single_agent_action",
+    });
+  });
+
+  it("throws STRUCTURED_OUTPUTS_NOT_SUPPORTED before structured planning on incompatible providers", async () => {
+    const gateway = new LLMGateway(
+      createDependencies({
+        getCapabilities: () => ({
+          streaming: true,
+          tools: true,
+          structuredOutputs: false,
+          jsonMode: false,
+        }),
+        isModelAllowed: () => true,
+      }),
+    );
+
+    await expect(
+      gateway.generateStructured({
+        ...baseRequest,
+        schema: z.object({ ok: z.boolean() }),
+        context: {
+          ...baseRequest.context,
+          phase: "planning",
+        },
+      }),
+    ).rejects.toMatchObject({
+      code: "STRUCTURED_OUTPUTS_NOT_SUPPORTED",
+    });
+  });
+
   it("fails fast for structured calls that exceed timeout", async () => {
     const deps = createDependencies({
       getCapabilities: () => ({
@@ -293,6 +363,17 @@ function createDependencies(
     providerCapabilityResolver: {
       getCapabilities: resolver.getCapabilities,
       isModelAllowed: resolver.isModelAllowed,
+      getExecutionProfile:
+        resolver.getExecutionProfile ??
+        (() => ({
+          latencyTier: "standard",
+          reliabilityTier: "hardened",
+          supportedLanes: {
+            chat_only: { supported: true },
+            single_agent_action: { supported: true },
+            structured_planning_required: { supported: true },
+          },
+        })),
     },
   };
 }

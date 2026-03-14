@@ -5,6 +5,12 @@
     "module": "esnext",
     "moduleResolution": "bundler",
     "paths": {
+      "@shadowbox/execution-engine/runtime": [
+        "../../packages/execution-engine/src/runtime/index.ts"
+      ],
+      "@shadowbox/execution-engine/runtime/*": [
+        "../../packages/execution-engine/src/runtime/*"
+      ],
       "@repo/shared-types": ["../../packages/shared-types/src/index.ts"],
       "@repo/shared-types/*": ["../../packages/shared-types/src/*"]
     },

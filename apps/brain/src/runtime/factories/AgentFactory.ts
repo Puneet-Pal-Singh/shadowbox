@@ -5,8 +5,14 @@
  * Encapsulates agent instantiation and type resolution.
  */
 
-import type { LLMGateway, IAgent, AgentType } from "@shadowbox/execution-engine/runtime";
-import { AgentRegistry, CodingAgent, ReviewAgent } from "@shadowbox/execution-engine/runtime/agents";
+import {
+  AgentRegistry,
+  CodingAgent,
+  ReviewAgent,
+  type LLMGateway,
+  type IAgent,
+  type AgentType,
+} from "@shadowbox/execution-engine/runtime";
 import { resolveAgentType } from "../policies/AgentTypePolicy";
 import { ExecutionService } from "../../services/ExecutionService";
 import type { Env } from "../../types/ai";

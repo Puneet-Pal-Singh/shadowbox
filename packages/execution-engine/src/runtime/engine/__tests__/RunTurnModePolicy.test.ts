@@ -23,7 +23,9 @@ function createMessages(prompt: string): CoreMessage[] {
   return [{ role: "user", content: prompt }];
 }
 
-function createGateway(generateStructured: ILLMGateway["generateStructured"]): ILLMGateway {
+function createGateway(
+  generateStructured: ILLMGateway["generateStructured"],
+): ILLMGateway {
   return {
     generateStructured,
     generateText: vi.fn(async () => ({
@@ -36,17 +38,49 @@ function createGateway(generateStructured: ILLMGateway["generateStructured"]): I
         totalTokens: 2,
       },
     })),
-    generateStream: vi.fn(async () =>
-      new ReadableStream<Uint8Array>({
-        start(controller) {
-          controller.close();
-        },
-      }),
+    generateStream: vi.fn(
+      async () =>
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.close();
+          },
+        }),
     ),
   };
 }
 
 describe("RunTurnModePolicy", () => {
+  it("routes obvious repository actions through the heuristic path", async () => {
+    const generateStructured = vi.fn(async () => ({
+      object: {
+        mode: "chat" as const,
+        rationale: "unused",
+        confidence: 0.1,
+      },
+      usage: {
+        provider: "mock",
+        model: "mock-model",
+        promptTokens: 1,
+        completionTokens: 1,
+        totalTokens: 2,
+      },
+    }));
+    const mode = await determineTurnMode({
+      llmGateway: createGateway(generateStructured),
+      run: createRun(),
+      prompt: "read README.md",
+      messages: createMessages("read README.md"),
+    });
+
+    expect(mode).toEqual(
+      expect.objectContaining({
+        mode: "action",
+        source: "heuristic",
+      }),
+    );
+    expect(generateStructured).not.toHaveBeenCalled();
+  });
+
   it("downgrades low-confidence action classification to chat", async () => {
     const generateStructured = vi.fn(async () => ({
       object: {
@@ -69,7 +103,13 @@ describe("RunTurnModePolicy", () => {
       messages: createMessages("hey"),
     });
 
-    expect(mode).toBe("chat");
+    expect(mode).toEqual(
+      expect.objectContaining({
+        mode: "chat",
+        source: "llm",
+        confidence: 0.4,
+      }),
+    );
   });
 
   it("preserves high-confidence action classification", async () => {
@@ -94,7 +134,12 @@ describe("RunTurnModePolicy", () => {
       messages: createMessages("read README.md"),
     });
 
-    expect(mode).toBe("action");
+    expect(mode).toEqual(
+      expect.objectContaining({
+        mode: "action",
+        source: "heuristic",
+      }),
+    );
   });
 
   it("requests turn-mode classification with bounded timeout budget", async () => {
@@ -115,8 +160,8 @@ describe("RunTurnModePolicy", () => {
     await determineTurnMode({
       llmGateway: createGateway(generateStructured),
       run: createRun(),
-      prompt: "hello there",
-      messages: createMessages("hello there"),
+      prompt: "hello there friend",
+      messages: createMessages("hello there friend"),
     });
 
     expect(generateStructured).toHaveBeenCalledTimes(1);

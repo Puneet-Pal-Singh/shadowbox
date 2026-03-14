@@ -1,45 +1,90 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GitController } from "./GitController";
 import type { Env } from "../types/ai";
 
 describe("GitController", () => {
-  it("fails fast when MUSCLE_BASE_URL is not configured", async () => {
-    const fetchSpy = vi.spyOn(globalThis, "fetch");
+  const originalFetch = global.fetch;
+
+  beforeEach(() => {
+    global.fetch = vi.fn();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    global.fetch = originalFetch;
+  });
+
+  it("routes git status through the canonical session-authenticated API", async () => {
+    const fetchMock = vi.mocked(global.fetch);
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            sessionId: "sess-git-1",
+            token: "tok-git-1",
+            expiresAt: Date.now() + 60_000,
+          }),
+          { status: 201, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            taskId: "git-status-task",
+            status: "success",
+            output: JSON.stringify({
+              files: [],
+              ahead: 0,
+              behind: 0,
+              branch: "main",
+              hasStaged: false,
+              hasUnstaged: false,
+              gitAvailable: true,
+            }),
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+
     const response = await GitController.getStatus(
-      new Request("https://brain.local/api/git/status?runId=run-123"),
-      createEnv(),
+      new Request("https://brain.local/api/git/status?runId=run-1&sessionId=session-1"),
+      {
+        MUSCLE_BASE_URL: "http://muscle.local",
+        NODE_ENV: "test",
+      } as Env,
     );
 
-    expect(response.status).toBe(500);
-    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      branch: "main",
+      gitAvailable: true,
+    });
 
-    const body = (await response.json()) as { error: string };
-    expect(body.error).toContain("MUSCLE_BASE_URL is required");
-    fetchSpy.mockRestore();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    const [sessionUrl, sessionInit] = fetchMock.mock.calls[0]!;
+    expect(sessionUrl).toBe("http://muscle.local/api/v1/session?session=session-1");
+    expect(sessionInit?.method).toBe("POST");
+    expect(JSON.parse(String(sessionInit?.body))).toMatchObject({
+      runId: "run-1",
+      taskId: "git-status-run-1",
+      repoPath: ".",
+    });
+
+    const [executeUrl, executeInit] = fetchMock.mock.calls[1]!;
+    expect(executeUrl).toBe("http://muscle.local/api/v1/execute?session=session-1");
+    expect(executeInit?.headers).toMatchObject({
+      Authorization: "Bearer tok-git-1",
+      "Content-Type": "application/json",
+    });
+    expect(JSON.parse(String(executeInit?.body))).toMatchObject({
+      sessionId: "sess-git-1",
+      action: "git.execute",
+      params: {
+        action: "status",
+        runId: "run-1",
+      },
+      timeout: 12000,
+    });
   });
 });
-
-function createEnv(): Env {
-  return {
-    AI: {} as Env["AI"],
-    SECURE_API: {
-      fetch: vi.fn(async () => new Response(JSON.stringify({ success: true }))),
-    } as unknown as Env["SECURE_API"],
-    GITHUB_CLIENT_ID: "x",
-    GITHUB_CLIENT_SECRET: "x",
-    GITHUB_REDIRECT_URI: "x",
-    GITHUB_TOKEN_ENCRYPTION_KEY: "x",
-    SESSION_SECRET: "x",
-    FRONTEND_URL: "http://localhost:5173",
-    RUNTIME_GIT_SHA: "test-sha",
-    SESSIONS: {
-      get: async () => null,
-      put: async () => undefined,
-      delete: async () => undefined,
-    } as unknown as Env["SESSIONS"],
-    RUN_ENGINE_RUNTIME: {
-      idFromName: vi.fn(),
-      get: vi.fn(),
-    } as unknown as Env["RUN_ENGINE_RUNTIME"],
-  };
-}

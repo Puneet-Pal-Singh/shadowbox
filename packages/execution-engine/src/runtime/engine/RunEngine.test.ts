@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { RUN_EVENT_TYPES } from "@repo/shared-types";
 import { RunEngine, type RunEngineDependencies } from "./RunEngine.js";
 import { sanitizeUserFacingOutput } from "./RunOutputSanitizer.js";
 import type { PlannedTask } from "../planner/PlanSchema.js";
@@ -11,6 +12,7 @@ import type { Task } from "../task/index.js";
 import type { ILLMGateway } from "../llm/types.js";
 import { Run } from "../run/index.js";
 import { CodingAgent } from "../agents/CodingAgent.js";
+import { RunEventRepository } from "../events/index.js";
 
 const TEST_RUN_ID = "f462a003-5c36-4c86-a95d-367b92bf46c9";
 
@@ -129,10 +131,20 @@ describe("RunEngine", () => {
     const response = await runEngine.execute(
       {
         agentType: "coding",
-        prompt: "read my repo and summarize",
+        prompt: "continue with that",
         sessionId: "session-1",
       },
-      [{ role: "user", content: "read my repo and summarize" }],
+      [
+        {
+          role: "assistant",
+          content:
+            "I can inspect the repository and summarize the current state.",
+        },
+        {
+          role: "user",
+          content: "continue with that",
+        },
+      ],
       {},
     );
 
@@ -140,12 +152,174 @@ describe("RunEngine", () => {
     const output = await response.text();
     expect(output).toContain("couldn't generate a valid structured plan");
 
-    const persisted = await (runEngine as unknown as {
-      getRun(runId: string): Promise<Run | null>;
-    }).getRun(TEST_RUN_ID);
+    const persisted = await (
+      runEngine as unknown as {
+        getRun(runId: string): Promise<Run | null>;
+      }
+    ).getRun(TEST_RUN_ID);
     expect(persisted?.status).toBe("COMPLETED");
     expect(persisted?.metadata.error).toContain(
       "Planner response did not match required schema",
+    );
+  });
+
+  it("skips planner decomposition for direct read-file requests", async () => {
+    const planner = {
+      plan: vi.fn(async () => {
+        throw new Error(
+          "planner should not be called for direct read requests",
+        );
+      }),
+    } as unknown as RunEngineDependencies["planner"];
+    const runEngine = createRunEngine({ planner });
+
+    const response = await runEngine.execute(
+      {
+        agentType: "coding",
+        prompt: "read README.md",
+        sessionId: "session-1",
+      },
+      [{ role: "user", content: "read README.md" }],
+      {},
+    );
+
+    expect(response.status).toBe(200);
+    expect(planner.plan).not.toHaveBeenCalled();
+
+    const privateApi = runEngine as unknown as {
+      taskRepo: {
+        getByRun(
+          runId: string,
+        ): Promise<Array<{ type: string; input: Record<string, unknown> }>>;
+      };
+    };
+    const tasks = await privateApi.taskRepo.getByRun(TEST_RUN_ID);
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0]?.type).toBe("read_file");
+    expect(tasks[0]?.input.path).toBe("README.md");
+  });
+
+  it("executes direct run-command requests through CodingAgent without planner decomposition", async () => {
+    const planner = {
+      plan: vi.fn(async () => {
+        throw new Error(
+          "planner should not be called for direct command requests",
+        );
+      }),
+    } as unknown as RunEngineDependencies["planner"];
+    const executionService: RuntimeExecutionService = {
+      execute: vi.fn(async () => ({
+        success: true,
+        output: "test suite passed",
+      })),
+    };
+    const llmGateway = createMockLLMGateway();
+    const runEngine = new RunEngine(
+      new MockRuntimeState(),
+      {
+        env: { NODE_ENV: "test" } as unknown,
+        sessionId: "session-1",
+        runId: TEST_RUN_ID,
+      },
+      new CodingAgent(llmGateway, executionService),
+      undefined,
+      { llmGateway, planner },
+    );
+
+    const response = await runEngine.execute(
+      {
+        agentType: "coding",
+        prompt: "run pnpm test -- src/runtime/engine",
+        sessionId: "session-1",
+      },
+      [{ role: "user", content: "run pnpm test -- src/runtime/engine" }],
+      {},
+    );
+
+    expect(response.status).toBe(200);
+    expect(planner.plan).not.toHaveBeenCalled();
+    expect(executionService.execute).toHaveBeenCalledWith("node", "run", {
+      command: "pnpm test -- src/runtime/engine",
+    });
+  });
+
+  it("emits canonical run and tool lifecycle events for direct execution runs", async () => {
+    const state = new MockRuntimeState();
+    const runEngine = createRunEngineForRun({ state });
+
+    const response = await runEngine.execute(
+      {
+        agentType: "coding",
+        prompt: "read README.md",
+        sessionId: "session-1",
+      },
+      [{ role: "user", content: "read README.md" }],
+      {},
+    );
+
+    expect(response.status).toBe(200);
+
+    const events = await new RunEventRepository(state).getByRun(TEST_RUN_ID);
+    expect(events.map((event) => event.type)).toEqual([
+      RUN_EVENT_TYPES.RUN_STARTED,
+      RUN_EVENT_TYPES.MESSAGE_EMITTED,
+      RUN_EVENT_TYPES.RUN_STATUS_CHANGED,
+      RUN_EVENT_TYPES.TOOL_REQUESTED,
+      RUN_EVENT_TYPES.RUN_STATUS_CHANGED,
+      RUN_EVENT_TYPES.TOOL_STARTED,
+      RUN_EVENT_TYPES.TOOL_COMPLETED,
+      RUN_EVENT_TYPES.MESSAGE_EMITTED,
+      RUN_EVENT_TYPES.RUN_STATUS_CHANGED,
+      RUN_EVENT_TYPES.RUN_COMPLETED,
+    ]);
+  });
+
+  it("executes direct write-file requests through CodingAgent without planner decomposition", async () => {
+    const planner = {
+      plan: vi.fn(async () => {
+        throw new Error(
+          "planner should not be called for direct write requests",
+        );
+      }),
+    } as unknown as RunEngineDependencies["planner"];
+    const executionService: RuntimeExecutionService = {
+      execute: vi.fn(async () => ({
+        success: true,
+        output: "Wrote 11 bytes to README.md",
+      })),
+    };
+    const llmGateway = createMockLLMGateway();
+    const runEngine = new RunEngine(
+      new MockRuntimeState(),
+      {
+        env: { NODE_ENV: "test" } as unknown,
+        sessionId: "session-1",
+        runId: TEST_RUN_ID,
+      },
+      new CodingAgent(llmGateway, executionService),
+      undefined,
+      { llmGateway, planner },
+    );
+
+    const response = await runEngine.execute(
+      {
+        agentType: "coding",
+        prompt: "write README.md\n```md\n# Shadowbox\n```",
+        sessionId: "session-1",
+      },
+      [{ role: "user", content: "write README.md\n```md\n# Shadowbox\n```" }],
+      {},
+    );
+
+    expect(response.status).toBe(200);
+    expect(planner.plan).not.toHaveBeenCalled();
+    expect(executionService.execute).toHaveBeenCalledWith(
+      "filesystem",
+      "write_file",
+      {
+        path: "README.md",
+        content: "# Shadowbox",
+      },
     );
   });
 
@@ -236,9 +410,11 @@ describe("RunEngine", () => {
     expect(Object.keys(firstRequest.tools ?? {})).toContain("read_file");
     expect(planner.plan).not.toHaveBeenCalled();
 
-    const persisted = await (runEngine as unknown as {
-      getRun(runId: string): Promise<Run | null>;
-    }).getRun(TEST_RUN_ID);
+    const persisted = await (
+      runEngine as unknown as {
+        getRun(runId: string): Promise<Run | null>;
+      }
+    ).getRun(TEST_RUN_ID);
     expect(persisted?.metadata.agenticLoop?.enabled).toBe(true);
     expect(persisted?.metadata.agenticLoop?.stopReason).toBe("llm_stop");
     expect(persisted?.metadata.agenticLoop?.toolExecutionCount).toBe(1);
@@ -324,7 +500,10 @@ describe("RunEngine", () => {
             return { success: true, output: "test suite passed\n" };
           }
           if (plugin === "git" && action === "git_diff") {
-            return { success: true, output: "diff --git a/README.md b/README.md" };
+            return {
+              success: true,
+              output: "diff --git a/README.md b/README.md",
+            };
           }
           return {
             success: false,
@@ -384,9 +563,11 @@ describe("RunEngine", () => {
     });
     expect(executeSpy).toHaveBeenCalledWith("git", "git_diff", {});
 
-    const persisted = await (runEngine as unknown as {
-      getRun(runId: string): Promise<Run | null>;
-    }).getRun(TEST_RUN_ID);
+    const persisted = await (
+      runEngine as unknown as {
+        getRun(runId: string): Promise<Run | null>;
+      }
+    ).getRun(TEST_RUN_ID);
     expect(persisted?.metadata.agenticLoop?.stopReason).toBe("llm_stop");
     expect(persisted?.metadata.agenticLoop?.toolExecutionCount).toBe(5);
     expect(persisted?.metadata.agenticLoop?.failedToolCount).toBe(0);
@@ -435,7 +616,9 @@ describe("RunEngine", () => {
       },
       [{ role: "user", content: "inspect repository" }],
       {
-        web_search: { description: "not in scope" } as unknown as import("ai").CoreTool,
+        web_search: {
+          description: "not in scope",
+        } as unknown as import("ai").CoreTool,
       },
     );
 
@@ -451,7 +634,7 @@ describe("RunEngine", () => {
 
   it("sanitizes internal runtime paths in user-facing output", () => {
     const leaked =
-      'cat: /home/sandbox/runs/5212f17b-eb1f-463f-a41f-2c4c6b9d4ba6/README.md: No such file or directory\nSee https://internal/debug';
+      "cat: /home/sandbox/runs/5212f17b-eb1f-463f-a41f-2c4c6b9d4ba6/README.md: No such file or directory\nSee https://internal/debug";
     const sanitized = sanitizeUserFacingOutput(leaked);
 
     expect(sanitized).not.toContain(
@@ -502,7 +685,11 @@ describe("RunEngine", () => {
         sessionId: string,
       ): Promise<Run>;
       taskRepo: {
-        create(task: { id: string; runId: string; toJSON(): unknown }): Promise<void>;
+        create(task: {
+          id: string;
+          runId: string;
+          toJSON(): unknown;
+        }): Promise<void>;
       };
     };
 
@@ -665,7 +852,11 @@ describe("RunEngine", () => {
         update(run: Run): Promise<void>;
       };
       taskRepo: {
-        create(task: { id: string; runId: string; toJSON(): unknown }): Promise<void>;
+        create(task: {
+          id: string;
+          runId: string;
+          toJSON(): unknown;
+        }): Promise<void>;
         getByRun(runId: string): Promise<Array<{ id: string }>>;
       };
     };
@@ -756,9 +947,11 @@ describe("RunEngine", () => {
 
     expect(response.status).toBe(200);
 
-    const persisted = await (runEngine as unknown as {
-      getRun(runId: string): Promise<Run | null>;
-    }).getRun(TEST_RUN_ID);
+    const persisted = await (
+      runEngine as unknown as {
+        getRun(runId: string): Promise<Run | null>;
+      }
+    ).getRun(TEST_RUN_ID);
 
     const manifest = persisted?.metadata.manifest;
     const snapshots = persisted?.metadata.phaseSelectionSnapshots;
@@ -858,9 +1051,11 @@ describe("RunEngine", () => {
     const output = await response.text();
     expect(output).toContain("Reviewer Note (request_changes)");
 
-    const persisted = await (runEngine as unknown as {
-      getRun(runId: string): Promise<Run | null>;
-    }).getRun(TEST_RUN_ID);
+    const persisted = await (
+      runEngine as unknown as {
+        getRun(runId: string): Promise<Run | null>;
+      }
+    ).getRun(TEST_RUN_ID);
     expect(persisted?.metadata.reviewerPass?.enabled).toBe(true);
     expect(persisted?.metadata.reviewerPass?.verdict).toBe("request_changes");
   });
@@ -885,7 +1080,11 @@ describe("RunEngine", () => {
         update(run: Run): Promise<void>;
       };
       taskRepo: {
-        create(task: { id: string; runId: string; toJSON(): unknown }): Promise<void>;
+        create(task: {
+          id: string;
+          runId: string;
+          toJSON(): unknown;
+        }): Promise<void>;
       };
       getRun(runId: string): Promise<Run | null>;
     };
@@ -946,7 +1145,11 @@ describe("RunEngine", () => {
       "44444444-4444-4444-8444-444444444444",
       "55555555-5555-4555-8555-555555555555",
     ];
-    const sessionIds = ["session-matrix-a", "session-matrix-a", "session-matrix-b"];
+    const sessionIds = [
+      "session-matrix-a",
+      "session-matrix-a",
+      "session-matrix-b",
+    ];
 
     const engines = runIds.map((runId, index) =>
       createRunEngineForRun({
@@ -984,9 +1187,9 @@ describe("RunEngine", () => {
     expect(new Set(runs.map((run) => run?.id)).size).toBe(3);
     expect(new Set(runs.map((run) => run?.sessionId)).size).toBe(2);
     expect(manifests.every((manifest) => manifest !== undefined)).toBe(true);
-    expect(
-      lifecycles.every((steps) => steps?.includes("RUN_CREATED")),
-    ).toBe(true);
+    expect(lifecycles.every((steps) => steps?.includes("RUN_CREATED"))).toBe(
+      true,
+    );
     expect(wakeups).toEqual([1, 1, 1]);
   });
 
@@ -1106,16 +1309,23 @@ describe("RunEngine", () => {
           repo: "shadowbox",
         },
       },
-      [{ role: "user", content: "check repository acme/platform-core README.md" }],
+      [
+        {
+          role: "user",
+          content: "check repository acme/platform-core README.md",
+        },
+      ],
       {},
     );
 
     expect(response.status).toBe(200);
     const output = await response.text();
 
-    const persisted = await (runEngine as unknown as {
-      getRun(runId: string): Promise<Run | null>;
-    }).getRun(TEST_RUN_ID);
+    const persisted = await (
+      runEngine as unknown as {
+        getRun(runId: string): Promise<Run | null>;
+      }
+    ).getRun(TEST_RUN_ID);
 
     const lifecycleSteps = persisted?.metadata.lifecycleSteps?.map(
       (entry) => entry.step,
@@ -1146,15 +1356,22 @@ describe("RunEngine", () => {
           repo: "shadowbox",
         },
       },
-      [{ role: "user", content: "check repository acme/platform-core README.md" }],
+      [
+        {
+          role: "user",
+          content: "check repository acme/platform-core README.md",
+        },
+      ],
       {},
     );
 
     expect(response.status).toBe(200);
 
-    const persisted = await (runEngine as unknown as {
-      getRun(runId: string): Promise<Run | null>;
-    }).getRun(TEST_RUN_ID);
+    const persisted = await (
+      runEngine as unknown as {
+        getRun(runId: string): Promise<Run | null>;
+      }
+    ).getRun(TEST_RUN_ID);
 
     const lifecycleSteps = persisted?.metadata.lifecycleSteps?.map(
       (entry) => entry.step,

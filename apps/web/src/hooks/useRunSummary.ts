@@ -8,6 +8,8 @@ interface RunSummary {
   totalTasks: number;
   completedTasks: number;
   failedTasks: number;
+  eventCount?: number;
+  lastEventType?: string | null;
 }
 
 interface UseRunSummaryResult {

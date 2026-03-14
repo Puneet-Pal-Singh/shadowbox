@@ -33,10 +33,7 @@ export type RunPhase = WorkflowStep;
 
 export type AgentType = "coding" | "review" | "ci" | (string & {});
 export type RuntimeHarnessId = "cloudflare-sandbox" | "local-sandbox";
-export type RuntimeExecutionBackend =
-  | "cloudflare_sandbox"
-  | "e2b"
-  | "daytona";
+export type RuntimeExecutionBackend = "cloudflare_sandbox" | "e2b" | "daytona";
 export type RuntimeHarnessMode = "platform_owned" | "delegated";
 export type RuntimeAuthMode = "api_key" | "oauth";
 
@@ -95,11 +92,11 @@ export interface RunOutput {
  *
  * This manifest is frozen at run creation and enforced to remain immutable
  * throughout the run lifecycle. Mid-run changes to any field are invalid.
- * 
+ *
  * Selection fields follow deterministic precedence:
  * 1. Explicit selection from run creation input
  * 2. Policy defaults in RunManifestPolicy
- * 
+ *
  * Once set, backend cannot change. Mismatch errors fail fast with typed errors.
  */
 export interface RunManifest {
@@ -120,9 +117,21 @@ export interface RunManifest {
 export interface RunMetadata {
   prompt: string;
   manifest?: RunManifest;
+  turnMode?: {
+    mode: "chat" | "action";
+    source: "heuristic" | "llm" | "recovered";
+    rationale?: string;
+    confidence?: number;
+    recordedAt: string;
+  };
   agenticLoop?: {
     enabled: boolean;
-    stopReason?: "max_steps_reached" | "budget_exceeded" | "llm_stop" | "tool_error" | "cancelled";
+    stopReason?:
+      | "max_steps_reached"
+      | "budget_exceeded"
+      | "llm_stop"
+      | "tool_error"
+      | "cancelled";
     stepsExecuted?: number;
     toolExecutionCount?: number;
     failedToolCount?: number;
@@ -273,7 +282,10 @@ export interface IAgent {
   plan(
     context: import("./planner/index.js").PlanContext,
   ): Promise<import("./planner/PlanSchema.js").Plan>;
-  executeTask(task: RuntimeTask, context: ExecutionContext): Promise<TaskResult>;
+  executeTask(
+    task: RuntimeTask,
+    context: ExecutionContext,
+  ): Promise<TaskResult>;
   synthesize(context: SynthesisContext): Promise<string>;
   getCapabilities(): AgentCapability[];
 }

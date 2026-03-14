@@ -9,9 +9,9 @@ import type {
 import { z } from "zod";
 import { WorkspaceBootstrapService } from "../runtime/services/WorkspaceBootstrapService";
 import { sanitizeUnknownError } from "../core/security/LogSanitizer";
-import { getBrainRuntimeHeaders } from "../core/observability/runtime";
 import {
   logErrorRateLimited,
+  logInfoRateLimited,
   logWarnRateLimited,
 } from "../lib/rate-limited-log";
 
@@ -28,14 +28,29 @@ type GitBootstrapRequestBody = z.infer<typeof GitBootstrapRequestBodySchema>;
 type GitBootstrapResult = Awaited<
   ReturnType<WorkspaceBootstrapService["bootstrap"]>
 >;
-const bootstrapRequestsByWorkspace = new Map<
-  string,
-  Promise<GitBootstrapResult>
->();
+const bootstrapRequestsByWorkspace = new Map<string, Promise<GitBootstrapResult>>();
+const MUSCLE_BASE_URL_FALLBACK_LOG_KEY = "GitController:muscle-base-url-fallback";
 const ERROR_LOG_WINDOW_MS = 30_000;
 const WARNING_LOG_WINDOW_MS = 5 * 60 * 1000;
 const MUSCLE_STATUS_TIMEOUT_MS = 12_000;
 const MUSCLE_GIT_TIMEOUT_MS = 20_000;
+const GIT_SESSION_TIMEOUT_MS = 10_000;
+
+interface SecureMuscleSession {
+  sessionId: string;
+  token: string;
+}
+
+interface CanonicalExecutionResponse {
+  taskId: string;
+  status: "success" | "failure" | "timeout" | "cancelled";
+  output?: string;
+  error?: {
+    code: string;
+    message: string;
+    details?: unknown;
+  };
+}
 
 /**
  * GitController
@@ -47,15 +62,24 @@ export class GitController {
    * Get Muscle base URL from environment
    * Ensures no hardcoded localhost in production paths
    */
-  private static getMuscleBaseUrl(env: Env): string {
+  static getMuscleBaseUrl(env: Env): string {
     const configuredBaseUrl = env.MUSCLE_BASE_URL?.trim();
     if (configuredBaseUrl) {
       return configuredBaseUrl.replace(/\/+$/, "");
     }
 
-    throw new Error(
-      "MUSCLE_BASE_URL is required. Set it explicitly to the secure-agent-api origin for the active localhost stack.",
+    if (env.NODE_ENV === "production") {
+      throw new Error("MUSCLE_BASE_URL is required in production");
+    }
+
+    const localDevFallback = "http://localhost:8787";
+    logInfoRateLimited(
+      MUSCLE_BASE_URL_FALLBACK_LOG_KEY,
+      `[GitController] MUSCLE_BASE_URL not configured, using dev fallback: ${localDevFallback}`,
+      undefined,
+      WARNING_LOG_WINDOW_MS,
     );
+    return localDevFallback;
   }
 
   /**
@@ -72,32 +96,22 @@ export class GitController {
       }
 
       const muscleSession = resolveMuscleSessionId(runId, sessionId);
-      const response = await fetchWithTimeout(
-        `${GitController.getMuscleBaseUrl(env)}/?session=${encodeURIComponent(muscleSession)}`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            plugin: "git",
-            payload: {
-              action: "status",
-              runId,
-            },
-          }),
-        },
+      const rawPayload = await executeGitViaCanonicalApi(
+        env,
+        muscleSession,
+        runId,
+        "status",
+        {},
         MUSCLE_STATUS_TIMEOUT_MS,
       );
-
-      await assertMuscleResponseOk(response, "status");
-
-      const rawPayload = (await response.json()) as unknown;
       const data = parseGitPayload<GitStatusResponse>(rawPayload, "status");
 
       return corsJsonResponse(req, env, data);
     } catch (error) {
-      if (error instanceof Error && isNotGitRepositoryMessage(error.message)) {
+      if (
+        error instanceof Error &&
+        isNotGitRepositoryMessage(error.message)
+      ) {
         return corsJsonResponse(req, env, getRecoverableNotGitStatus());
       }
       return handleGitControllerError(req, env, error, "getStatus");
@@ -120,29 +134,17 @@ export class GitController {
       }
 
       const muscleSession = resolveMuscleSessionId(runId, sessionId);
-      const response = await fetchWithTimeout(
-        `${GitController.getMuscleBaseUrl(env)}/?session=${encodeURIComponent(muscleSession)}`,
+      const rawPayload = await executeGitViaCanonicalApi(
+        env,
+        muscleSession,
+        runId,
+        "diff",
         {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            plugin: "git",
-            payload: {
-              action: "diff",
-              runId,
-              path: filePath,
-              staged,
-            },
-          }),
+          path: filePath,
+          staged,
         },
         MUSCLE_GIT_TIMEOUT_MS,
       );
-
-      await assertMuscleResponseOk(response, "diff");
-
-      const rawPayload = (await response.json()) as unknown;
       const data = parseGitPayload<DiffContent>(rawPayload, "diff");
 
       return corsJsonResponse(req, env, data);
@@ -163,36 +165,19 @@ export class GitController {
       const { runId, sessionId, files, unstage = false } = body;
 
       if (!runId || !files || !Array.isArray(files)) {
-        return errorResponse(
-          req,
-          env,
-          "runId and files array are required",
-          400,
-        );
+        return errorResponse(req, env, "runId and files array are required", 400);
       }
 
       const muscleSession = resolveMuscleSessionId(runId, sessionId);
-      const response = await fetchWithTimeout(
-        `${GitController.getMuscleBaseUrl(env)}/?session=${encodeURIComponent(muscleSession)}`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            plugin: "git",
-            payload: {
-              action: unstage ? "unstage" : "stage",
-              runId,
-              files,
-            },
-          }),
-        },
+      const rawPayload = await executeGitViaCanonicalApi(
+        env,
+        muscleSession,
+        runId,
+        unstage ? "unstage" : "stage",
+        { files },
         MUSCLE_GIT_TIMEOUT_MS,
       );
-
-      await assertMuscleResponseOk(response, unstage ? "unstage" : "stage");
-      await assertPluginResultSuccess(response, unstage ? "unstage" : "stage");
+      assertPluginResultSuccess(rawPayload, unstage ? "unstage" : "stage");
 
       return corsJsonResponse(req, env, { success: true });
     } catch (error) {
@@ -216,28 +201,18 @@ export class GitController {
       }
 
       const muscleSession = resolveMuscleSessionId(runId, sessionId);
-      const response = await fetchWithTimeout(
-        `${GitController.getMuscleBaseUrl(env)}/?session=${encodeURIComponent(muscleSession)}`,
+      const rawPayload = await executeGitViaCanonicalApi(
+        env,
+        muscleSession,
+        runId,
+        "commit",
         {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            plugin: "git",
-            payload: {
-              action: "commit",
-              runId,
-              message,
-              files,
-            },
-          }),
+          message,
+          files,
         },
         MUSCLE_GIT_TIMEOUT_MS,
       );
-
-      await assertMuscleResponseOk(response, "commit");
-      await assertPluginResultSuccess(response, "commit");
+      assertPluginResultSuccess(rawPayload, "commit");
 
       return corsJsonResponse(req, env, { success: true });
     } catch (error) {
@@ -253,12 +228,7 @@ export class GitController {
     try {
       const body = await parseGitBootstrapRequestBody(req, env);
       if (!body) {
-        return errorResponse(
-          req,
-          env,
-          "Invalid git bootstrap request body",
-          400,
-        );
+        return errorResponse(req, env, "Invalid git bootstrap request body", 400);
       }
       const {
         runId,
@@ -312,9 +282,7 @@ export class GitController {
       try {
         result = await bootstrapRequest;
       } finally {
-        if (
-          bootstrapRequestsByWorkspace.get(workspaceKey) === bootstrapRequest
-        ) {
+        if (bootstrapRequestsByWorkspace.get(workspaceKey) === bootstrapRequest) {
           bootstrapRequestsByWorkspace.delete(workspaceKey);
         }
       }
@@ -365,10 +333,7 @@ interface PluginSuccessPayload {
   output?: unknown;
 }
 
-function resolveMuscleSessionId(
-  runId: string,
-  sessionId?: string | null,
-): string {
+function resolveMuscleSessionId(runId: string, sessionId?: string | null): string {
   const normalizedSessionId = sessionId?.trim();
   if (normalizedSessionId && normalizedSessionId.length > 0) {
     return normalizedSessionId;
@@ -381,6 +346,196 @@ interface PluginErrorPayload {
   error?: string;
 }
 
+async function executeGitViaCanonicalApi(
+  env: Env,
+  muscleSession: string,
+  runId: string,
+  action: "status" | "diff" | "stage" | "unstage" | "commit",
+  payload: Record<string, unknown>,
+  timeoutMs: number,
+): Promise<PluginSuccessPayload | PluginErrorPayload> {
+  const baseUrl = GitController.getMuscleBaseUrl(env);
+  const secureSession = await createSecureMuscleSession(
+    baseUrl,
+    muscleSession,
+    runId,
+    action,
+  );
+
+  const response = await fetchWithTimeout(
+    buildMuscleUrl(baseUrl, muscleSession, "/api/v1/execute"),
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${secureSession.token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        sessionId: secureSession.sessionId,
+        taskId: createGitTaskId(action),
+        action: "git.execute",
+        params: {
+          action,
+          runId,
+          ...payload,
+        },
+        timeout: timeoutMs,
+      }),
+    },
+    timeoutMs,
+  );
+
+  await assertMuscleResponseOk(response, action);
+  const canonicalResponse = parseCanonicalExecutionResponse(
+    (await response.json()) as unknown,
+  );
+  return normalizeCanonicalGitResponse(canonicalResponse);
+}
+
+async function createSecureMuscleSession(
+  baseUrl: string,
+  muscleSession: string,
+  runId: string,
+  action: string,
+): Promise<SecureMuscleSession> {
+  const response = await fetchWithTimeout(
+    buildMuscleUrl(baseUrl, muscleSession, "/api/v1/session"),
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        runId,
+        taskId: `git-${action}-${runId}`,
+        repoPath: ".",
+      }),
+    },
+    GIT_SESSION_TIMEOUT_MS,
+  );
+
+  if (!response.ok) {
+    const details = await readErrorPreview(response);
+    const suffix = details ? `: ${details}` : "";
+    throw new Error(
+      `Git ${action} failed to create execution session with HTTP ${response.status}${suffix}`,
+    );
+  }
+
+  const payload = (await response.json()) as unknown;
+  if (!payload || typeof payload !== "object") {
+    throw new Error("Git execution session returned an invalid response");
+  }
+
+  const candidate = payload as {
+    sessionId?: unknown;
+    token?: unknown;
+  };
+  if (
+    typeof candidate.sessionId !== "string" ||
+    typeof candidate.token !== "string"
+  ) {
+    throw new Error("Git execution session response is missing credentials");
+  }
+
+  return {
+    sessionId: candidate.sessionId,
+    token: candidate.token,
+  };
+}
+
+function buildMuscleUrl(
+  baseUrl: string,
+  muscleSession: string,
+  pathname: string,
+): string {
+  const url = new URL(pathname, `${baseUrl}/`);
+  url.searchParams.set("session", muscleSession);
+  return url.toString();
+}
+
+function parseCanonicalExecutionResponse(
+  payload: unknown,
+): CanonicalExecutionResponse {
+  if (!payload || typeof payload !== "object") {
+    throw new Error("Git execution returned an invalid response payload");
+  }
+
+  const candidate = payload as {
+    taskId?: unknown;
+    status?: unknown;
+    output?: unknown;
+    error?: unknown;
+  };
+  if (
+    typeof candidate.taskId !== "string" ||
+    (candidate.status !== "success" &&
+      candidate.status !== "failure" &&
+      candidate.status !== "timeout" &&
+      candidate.status !== "cancelled")
+  ) {
+    throw new Error("Git execution returned an invalid canonical response");
+  }
+
+  const error = parseCanonicalExecutionError(candidate.error);
+  return {
+    taskId: candidate.taskId,
+    status: candidate.status,
+    output: typeof candidate.output === "string" ? candidate.output : undefined,
+    error,
+  };
+}
+
+function parseCanonicalExecutionError(
+  payload: unknown,
+): CanonicalExecutionResponse["error"] {
+  if (!payload || typeof payload !== "object") {
+    return undefined;
+  }
+
+  const candidate = payload as {
+    code?: unknown;
+    message?: unknown;
+    details?: unknown;
+  };
+  if (
+    typeof candidate.code !== "string" ||
+    typeof candidate.message !== "string"
+  ) {
+    return undefined;
+  }
+
+  return {
+    code: candidate.code,
+    message: candidate.message,
+    details: candidate.details,
+  };
+}
+
+function normalizeCanonicalGitResponse(
+  payload: CanonicalExecutionResponse,
+): PluginSuccessPayload | PluginErrorPayload {
+  if (payload.status === "success") {
+    return {
+      success: true,
+      output: payload.output,
+    };
+  }
+
+  return {
+    success: false,
+    error:
+      payload.error?.message ??
+      `Git task ended with status '${payload.status}'`,
+  };
+}
+
+function createGitTaskId(
+  action: "status" | "diff" | "stage" | "unstage" | "commit",
+): string {
+  return `git-${action}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
 function isPluginPayload(
   payload: unknown,
 ): payload is PluginSuccessPayload | PluginErrorPayload {
@@ -390,7 +545,10 @@ function isPluginPayload(
   return "success" in payload;
 }
 
-function parseGitPayload<T>(payload: unknown, operation: "status" | "diff"): T {
+function parseGitPayload<T>(
+  payload: unknown,
+  operation: "status" | "diff",
+): T {
   if (isPluginPayload(payload)) {
     if (payload.success === false) {
       const details =
@@ -430,7 +588,10 @@ function getRecoverableNotGitStatus(): GitStatusResponse {
   };
 }
 
-function parseGitOutput<T>(output: unknown, operation: "status" | "diff"): T {
+function parseGitOutput<T>(
+  output: unknown,
+  operation: "status" | "diff",
+): T {
   if (typeof output === "string") {
     try {
       return JSON.parse(output) as T;
@@ -575,7 +736,6 @@ function errorResponse(
     status,
     headers: {
       "Content-Type": "application/json",
-      ...getBrainRuntimeHeaders(env),
       ...getCorsHeaders(req, env),
     },
   });
@@ -625,11 +785,10 @@ async function assertMuscleResponseOk(
   );
 }
 
-async function assertPluginResultSuccess(
-  response: Response,
+function assertPluginResultSuccess(
+  payload: unknown,
   operation: "stage" | "unstage" | "commit",
-): Promise<void> {
-  const payload = (await response.clone().json()) as unknown;
+): void {
   if (!isPluginPayload(payload)) {
     return;
   }
