@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { RUN_EVENT_TYPES } from "@repo/shared-types";
 import { RunEngine, type RunEngineDependencies } from "./RunEngine.js";
 import { sanitizeUserFacingOutput } from "./RunOutputSanitizer.js";
 import type { PlannedTask } from "../planner/PlanSchema.js";
@@ -11,6 +12,7 @@ import type { Task } from "../task/index.js";
 import type { ILLMGateway } from "../llm/types.js";
 import { Run } from "../run/index.js";
 import { CodingAgent } from "../agents/CodingAgent.js";
+import { RunEventRepository } from "../events/index.js";
 
 const TEST_RUN_ID = "f462a003-5c36-4c86-a95d-367b92bf46c9";
 
@@ -239,6 +241,37 @@ describe("RunEngine", () => {
     expect(executionService.execute).toHaveBeenCalledWith("node", "run", {
       command: "pnpm test -- src/runtime/engine",
     });
+  });
+
+  it("emits canonical run and tool lifecycle events for direct execution runs", async () => {
+    const state = new MockRuntimeState();
+    const runEngine = createRunEngineForRun({ state });
+
+    const response = await runEngine.execute(
+      {
+        agentType: "coding",
+        prompt: "read README.md",
+        sessionId: "session-1",
+      },
+      [{ role: "user", content: "read README.md" }],
+      {},
+    );
+
+    expect(response.status).toBe(200);
+
+    const events = await new RunEventRepository(state).getByRun(TEST_RUN_ID);
+    expect(events.map((event) => event.type)).toEqual([
+      RUN_EVENT_TYPES.RUN_STARTED,
+      RUN_EVENT_TYPES.MESSAGE_EMITTED,
+      RUN_EVENT_TYPES.RUN_STATUS_CHANGED,
+      RUN_EVENT_TYPES.TOOL_REQUESTED,
+      RUN_EVENT_TYPES.RUN_STATUS_CHANGED,
+      RUN_EVENT_TYPES.TOOL_STARTED,
+      RUN_EVENT_TYPES.TOOL_COMPLETED,
+      RUN_EVENT_TYPES.MESSAGE_EMITTED,
+      RUN_EVENT_TYPES.RUN_STATUS_CHANGED,
+      RUN_EVENT_TYPES.RUN_COMPLETED,
+    ]);
   });
 
   it("executes direct write-file requests through CodingAgent without planner decomposition", async () => {
