@@ -57,6 +57,51 @@ const MODEL_NOT_ALLOWED_STATUS = 400;
 const MODEL_NOT_ALLOWED_MESSAGE =
   "The selected model is not allowed for the chosen provider. Pick an allowed model and retry.";
 
+type MessageResolver = string | ((error: ProviderCapabilityError) => string);
+
+interface ProviderCapabilityMapping {
+  domainCode: string;
+  status: number;
+  retryable: boolean;
+  message: MessageResolver;
+}
+
+const PROVIDER_CAPABILITY_MAPPINGS: Record<
+  ProviderCapabilityError["code"],
+  ProviderCapabilityMapping
+> = {
+  INVALID_PROVIDER_SELECTION: {
+    domainCode: INVALID_PROVIDER_SELECTION_CODE,
+    status: INVALID_PROVIDER_SELECTION_STATUS,
+    retryable: false,
+    message: INVALID_PROVIDER_SELECTION_MESSAGE,
+  },
+  MODEL_NOT_ALLOWED: {
+    domainCode: MODEL_NOT_ALLOWED_CODE,
+    status: MODEL_NOT_ALLOWED_STATUS,
+    retryable: false,
+    message: MODEL_NOT_ALLOWED_MESSAGE,
+  },
+  TOOLS_NOT_SUPPORTED: {
+    domainCode: TOOLS_NOT_SUPPORTED_CODE,
+    status: TOOLS_NOT_SUPPORTED_STATUS,
+    retryable: false,
+    message: TOOLS_NOT_SUPPORTED_MESSAGE,
+  },
+  STRUCTURED_OUTPUTS_NOT_SUPPORTED: {
+    domainCode: STRUCTURED_OUTPUTS_NOT_SUPPORTED_CODE,
+    status: STRUCTURED_OUTPUTS_NOT_SUPPORTED_STATUS,
+    retryable: false,
+    message: STRUCTURED_OUTPUTS_NOT_SUPPORTED_MESSAGE,
+  },
+  EXECUTION_LANE_UNSUPPORTED: {
+    domainCode: EXECUTION_LANE_UNSUPPORTED_CODE,
+    status: EXECUTION_LANE_UNSUPPORTED_STATUS,
+    retryable: false,
+    message: getExecutionLaneUnsupportedMessage,
+  },
+};
+
 /**
  * Maps runtime execution failures to typed domain errors when possible.
  */
@@ -141,67 +186,35 @@ function mapProviderCapabilityError(
   correlationId?: string,
 ): DomainError {
   const metadata = buildProviderCapabilityMetadata(error);
-  switch (error.code) {
-    case "INVALID_PROVIDER_SELECTION":
-      return new DomainError(
-        INVALID_PROVIDER_SELECTION_CODE,
-        INVALID_PROVIDER_SELECTION_MESSAGE,
-        INVALID_PROVIDER_SELECTION_STATUS,
-        false,
-        correlationId,
-        metadata,
-      );
-    case "MODEL_NOT_ALLOWED":
-      return new DomainError(
-        MODEL_NOT_ALLOWED_CODE,
-        MODEL_NOT_ALLOWED_MESSAGE,
-        MODEL_NOT_ALLOWED_STATUS,
-        false,
-        correlationId,
-        metadata,
-      );
-    case "TOOLS_NOT_SUPPORTED":
-      return new DomainError(
-        TOOLS_NOT_SUPPORTED_CODE,
-        TOOLS_NOT_SUPPORTED_MESSAGE,
-        TOOLS_NOT_SUPPORTED_STATUS,
-        false,
-        correlationId,
-        metadata,
-      );
-    case "STRUCTURED_OUTPUTS_NOT_SUPPORTED":
-      return new DomainError(
-        STRUCTURED_OUTPUTS_NOT_SUPPORTED_CODE,
-        STRUCTURED_OUTPUTS_NOT_SUPPORTED_MESSAGE,
-        STRUCTURED_OUTPUTS_NOT_SUPPORTED_STATUS,
-        false,
-        correlationId,
-        metadata,
-      );
-    case "EXECUTION_LANE_UNSUPPORTED":
-      return new DomainError(
-        EXECUTION_LANE_UNSUPPORTED_CODE,
-        getExecutionLaneUnsupportedMessage(error),
-        EXECUTION_LANE_UNSUPPORTED_STATUS,
-        false,
-        correlationId,
-        metadata,
-      );
-    default: {
-      const exhaustiveCheck: never = error.code;
-      console.warn(
-        `[run/error-mapper] Unknown provider capability error code: ${exhaustiveCheck}`,
-      );
-      return new DomainError(
-        "PROVIDER_CAPABILITY_ERROR",
-        `Unknown provider capability error: ${error.code}`,
-        500,
-        false,
-        correlationId,
-        metadata,
-      );
-    }
+  const mapping = PROVIDER_CAPABILITY_MAPPINGS[error.code];
+
+  if (mapping) {
+    const message =
+      typeof mapping.message === "function"
+        ? mapping.message(error)
+        : mapping.message;
+
+    return new DomainError(
+      mapping.domainCode,
+      message,
+      mapping.status,
+      mapping.retryable,
+      correlationId,
+      metadata,
+    );
   }
+
+  console.warn(
+    `[run/error-mapper] Unknown provider capability error code: ${error.code}`,
+  );
+  return new DomainError(
+    "PROVIDER_CAPABILITY_ERROR",
+    `Unknown provider capability error: ${error.code}`,
+    500,
+    false,
+    correlationId,
+    metadata,
+  );
 }
 
 function isRunManifestMismatch(error: unknown): boolean {
@@ -218,9 +231,20 @@ function isRunManifestMismatch(error: unknown): boolean {
 function getProviderCapabilityError(
   error: unknown,
 ): ProviderCapabilityError | null {
-  if (error instanceof ProviderCapabilityError) {
-    return error;
+  let current: unknown = error;
+
+  while (current !== null && current !== undefined) {
+    if (current instanceof ProviderCapabilityError) {
+      return current;
+    }
+
+    if (current instanceof Error && current.cause !== undefined) {
+      current = current.cause;
+    } else {
+      break;
+    }
   }
+
   return null;
 }
 
