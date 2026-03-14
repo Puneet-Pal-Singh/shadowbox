@@ -1,6 +1,8 @@
 import type { DurableObjectState as LegacyDurableObjectState } from "@cloudflare/workers-types";
-import { tagRuntimeStateSemantics } from "@shadowbox/execution-engine/runtime";
-import { RunRepository } from "@shadowbox/execution-engine/runtime/run";
+import {
+  RunRepository,
+  tagRuntimeStateSemantics,
+} from "@shadowbox/execution-engine/runtime";
 import { PersistenceService } from "../services/PersistenceService";
 import type { Env } from "../types/ai";
 

@@ -3,6 +3,8 @@ import type { CoreMessage, CoreTool } from "ai";
 import { z } from "zod";
 import {
   RunEngine,
+  RunEventRepository,
+  projectRunSummaryFromEvents,
   tagRuntimeStateSemantics,
   RunRepository,
   TaskRepository,
@@ -25,7 +27,7 @@ import { sanitizeUnknownError } from "../core/security/LogSanitizer";
 import {
   enforceGoldenFlowToolFloor,
   getGoldenFlowToolRegistry,
-} from "@shadowbox/execution-engine/runtime/engine";
+} from "@shadowbox/execution-engine/runtime";
 
 const RunIdSchema = z.string().uuid();
 const CancelRunRequestSchema = z.object({
@@ -71,21 +73,13 @@ export class RunEngineRequestHandler {
 
     const runtimeState = this.createRuntimeState();
     const runRepo = new RunRepository(runtimeState);
-    const taskRepo = new TaskRepository(runtimeState);
+    const eventRepo = new RunEventRepository(runtimeState);
 
     const run = await runRepo.getById(runId);
-    const tasks = await taskRepo.getByRun(runId);
+    const events = await eventRepo.getByRun(runId);
+    const summary = projectRunSummaryFromEvents(runId, run?.status ?? null, events);
 
-    return jsonResponse(request, this.env, {
-      runId,
-      status: run?.status ?? null,
-      totalTasks: tasks.length,
-      completedTasks: tasks.filter((task) => task.status === "DONE").length,
-      failedTasks: tasks.filter((task) => task.status === "FAILED").length,
-      runningTasks: tasks.filter((task) => task.status === "RUNNING").length,
-      pendingTasks: tasks.filter((task) => task.status === "PENDING").length,
-      cancelledTasks: tasks.filter((task) => task.status === "CANCELLED").length,
-    });
+    return jsonResponse(request, this.env, summary);
   }
 
   async handleCancelRequest(request: Request): Promise<Response> {
