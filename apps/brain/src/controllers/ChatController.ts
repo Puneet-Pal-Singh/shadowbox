@@ -26,6 +26,7 @@ import {
   executeViaRunEngineDurableObject,
   extractPromptFromMessages,
   resolveExecutionScope,
+  resolveRuntimeTarget,
   type ExecutionScope,
 } from "./chat-runtime-helpers";
 import { logErrorRateLimited } from "../lib/rate-limited-log";
@@ -261,12 +262,16 @@ export class ChatController {
         runId,
         useCaseResult.executionPayload,
       );
+      const runtimeTarget = resolveRuntimeTarget(
+        env,
+        useCaseResult.executionPayload.input.orchestratorBackend,
+      );
       const runEngineElapsedMs = Date.now() - runEngineStartedAt;
       console.log(
         `[chat/timing] ${correlationId} useCaseMs=${useCaseElapsedMs} runEngineMs=${runEngineElapsedMs} handleMs=${Date.now() - executionStartedAt}`,
       );
 
-      return withEngineHeaders(req, env, doResponse, runId);
+      return withEngineHeaders(req, env, doResponse, runId, runtimeTarget);
     } catch (error) {
       console.error(
         `[chat/runtime] ${correlationId}: RunEngine execution failed:`,

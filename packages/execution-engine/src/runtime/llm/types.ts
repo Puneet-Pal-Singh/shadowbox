@@ -3,6 +3,15 @@ import type { ZodSchema } from "zod";
 import type { LLMUsage } from "../cost/index.js";
 
 export type LLMPhase = "planning" | "task" | "synthesis" | "memory";
+export type LLMExecutionLane =
+  | "chat_only"
+  | "single_agent_action"
+  | "structured_planning_required";
+export type LLMExecutionReliabilityTier =
+  | "experimental"
+  | "baseline"
+  | "hardened";
+export type LLMExecutionLatencyTier = "slow" | "standard" | "fast";
 
 export interface LLMCallContext {
   runId: string;
@@ -54,9 +63,24 @@ export interface ProviderCapabilityFlags {
   jsonMode: boolean;
 }
 
+export interface ProviderExecutionLaneSupport {
+  supported: boolean;
+  reason?: string;
+}
+
+export interface ProviderExecutionProfile {
+  latencyTier: LLMExecutionLatencyTier;
+  reliabilityTier: LLMExecutionReliabilityTier;
+  supportedLanes: Record<LLMExecutionLane, ProviderExecutionLaneSupport>;
+}
+
 export interface ProviderCapabilityResolver {
   getCapabilities(providerId: string): ProviderCapabilityFlags | undefined;
   isModelAllowed(providerId: string, modelId: string): boolean;
+  getExecutionProfile(
+    providerId: string,
+    modelId: string,
+  ): ProviderExecutionProfile | undefined;
 }
 
 export interface ILLMGateway {

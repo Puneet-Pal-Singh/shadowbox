@@ -1,0 +1,267 @@
+import type { DurableObjectState as LegacyDurableObjectState } from "@cloudflare/workers-types";
+import type { CoreMessage, CoreTool } from "ai";
+import { z } from "zod";
+import {
+  RunEngine,
+  RunEventRepository,
+  projectRunSummaryFromEvents,
+  tagRuntimeStateSemantics,
+  RunRepository,
+  TaskRepository,
+} from "@shadowbox/execution-engine/runtime";
+import type { Env } from "../types/ai";
+import { parseExecuteRunRequest } from "./parsing/RunEngineRequestParser";
+import {
+  SerializableToolDefinitionSchema,
+  type ExecuteRunPayload,
+} from "./parsing/ExecuteRunPayloadSchema";
+import { buildRuntimeDependencies } from "./factories/ExecutionGatewayFactory";
+import { errorResponse, jsonResponse } from "../http/response";
+import {
+  isDomainError,
+  mapDomainErrorToHttp,
+} from "../domain/errors";
+import { parseRequestBody, validateWithSchema } from "../http/validation";
+import { mapRunExecutionErrorToDomain } from "./RunExecutionErrorMapper";
+import { sanitizeUnknownError } from "../core/security/LogSanitizer";
+import {
+  enforceGoldenFlowToolFloor,
+  getGoldenFlowToolRegistry,
+} from "@shadowbox/execution-engine/runtime";
+
+const RunIdSchema = z.string().uuid();
+const CancelRunRequestSchema = z.object({
+  runId: RunIdSchema,
+});
+
+export interface RunEngineRequestLock {
+  <T>(operation: () => Promise<T>): Promise<T>;
+}
+
+export interface RunEngineExecuteResult {
+  correlationId: string;
+  runId: string;
+  sessionId: string;
+  response: Response;
+}
+
+export class RunEngineRequestHandler {
+  constructor(
+    private readonly ctx: DurableObjectState,
+    private readonly env: Env,
+    private readonly withExecutionLock: RunEngineRequestLock,
+  ) {}
+
+  async handleSummaryRequest(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+    const runIdRaw = url.searchParams.get("runId");
+
+    if (!runIdRaw) {
+      return errorResponse(request, this.env, "runId is required", 400);
+    }
+
+    let runId: string;
+    try {
+      runId = validateWithSchema<string>(
+        runIdRaw.trim(),
+        RunIdSchema,
+        "run-summary",
+      );
+    } catch {
+      return errorResponse(request, this.env, "Invalid runId", 400);
+    }
+
+    const runtimeState = this.createRuntimeState();
+    const runRepo = new RunRepository(runtimeState);
+    const eventRepo = new RunEventRepository(runtimeState);
+
+    const run = await runRepo.getById(runId);
+    const events = await eventRepo.getByRun(runId);
+    const summary = projectRunSummaryFromEvents(runId, run?.status ?? null, events);
+
+    return jsonResponse(request, this.env, summary);
+  }
+
+  async handleCancelRequest(request: Request): Promise<Response> {
+    let runId: string;
+    try {
+      const payload = await parseRequestBody(request, "run-cancel");
+      const validated = validateWithSchema<{ runId: string }>(
+        payload,
+        CancelRunRequestSchema,
+        "run-cancel",
+      );
+      runId = validated.runId;
+    } catch {
+      return errorResponse(request, this.env, "Invalid cancel payload", 400);
+    }
+
+    return this.withExecutionLock(async () => {
+      const runtimeState = this.createRuntimeState();
+      const runRepo = new RunRepository(runtimeState);
+      const taskRepo = new TaskRepository(runtimeState);
+
+      const run = await runRepo.getById(runId);
+      if (!run) {
+        return jsonResponse(request, this.env, {
+          runId,
+          cancelled: false,
+          status: null,
+        });
+      }
+
+      const isTerminal =
+        run.status === "COMPLETED" ||
+        run.status === "FAILED" ||
+        run.status === "CANCELLED";
+      if (isTerminal) {
+        return jsonResponse(request, this.env, {
+          runId,
+          cancelled: false,
+          status: run.status,
+        });
+      }
+
+      run.transition("CANCELLED");
+      await runRepo.update(run);
+
+      let cancelledTasks = 0;
+      const tasks = await taskRepo.getByRun(runId);
+      for (const task of tasks) {
+        if (["PENDING", "READY", "RUNNING"].includes(task.status)) {
+          task.transition("CANCELLED");
+          await taskRepo.update(task);
+          cancelledTasks += 1;
+        }
+      }
+
+      return jsonResponse(request, this.env, {
+        runId,
+        cancelled: true,
+        status: "CANCELLED",
+        cancelledTasks,
+      });
+    });
+  }
+
+  async handleExecuteRequest(
+    request: Request,
+    onExecuteResult?: (result: RunEngineExecuteResult) => Promise<void> | void,
+  ): Promise<Response> {
+    let payload: ExecuteRunPayload;
+    try {
+      payload = await parseExecuteRunRequest(request);
+    } catch (error: unknown) {
+      if (isDomainError(error)) {
+        const { status, code, message, metadata } = mapDomainErrorToHttp(error);
+        return errorResponse(
+          request,
+          this.env,
+          message,
+          status,
+          code,
+          metadata,
+        );
+      }
+      const message =
+        error instanceof Error ? error.message : "Invalid payload";
+      return errorResponse(request, this.env, message, 400);
+    }
+
+    try {
+      return await this.withExecutionLock(async () => {
+        const runtimeState = this.createRuntimeState();
+        const { agent, runEngineDeps } = buildRuntimeDependencies(
+          this.ctx,
+          this.env,
+          payload,
+          { strict: true },
+        );
+
+        const runEngine = new RunEngine(
+          runtimeState,
+          {
+            env: this.env,
+            sessionId: payload.sessionId,
+            runId: payload.runId,
+            correlationId: payload.correlationId,
+            requestOrigin: payload.requestOrigin,
+          },
+          agent,
+          undefined,
+          runEngineDeps,
+        );
+
+        const executionResponse = await runEngine.execute(
+          payload.input,
+          payload.messages as CoreMessage[],
+          toRuntimeCoreTools(payload.tools),
+        );
+
+        if (onExecuteResult) {
+          await onExecuteResult({
+            correlationId: payload.correlationId,
+            runId: payload.runId,
+            sessionId: payload.sessionId,
+            response: executionResponse,
+          });
+        }
+
+        return executionResponse;
+      });
+    } catch (error: unknown) {
+      const domainError = mapRunExecutionErrorToDomain(
+        error,
+        payload.correlationId,
+      );
+      if (domainError) {
+        const { status, code, message, metadata } = mapDomainErrorToHttp(
+          domainError,
+        );
+        return errorResponse(
+          request,
+          this.env,
+          message,
+          status,
+          code,
+          metadata,
+        );
+      }
+      console.error(
+        `[run/engine-runtime] ${payload.correlationId}: untyped runtime failure: ${sanitizeUnknownError(error)}`,
+      );
+      const message =
+        error instanceof Error ? error.message : "RunEngine DO execution failed";
+      return errorResponse(request, this.env, message, 500);
+    }
+  }
+
+  private createRuntimeState() {
+    return tagRuntimeStateSemantics(
+      this.ctx as unknown as LegacyDurableObjectState,
+      "do",
+    );
+  }
+}
+
+function toRuntimeCoreTools(
+  tools: ExecuteRunPayload["tools"],
+): Record<string, CoreTool> {
+  const parsedTools: Record<string, CoreTool> = {};
+  if (tools) {
+    for (const [toolName, definition] of Object.entries(tools)) {
+      const validatedDefinition =
+        SerializableToolDefinitionSchema.parse(definition);
+      parsedTools[toolName] = {
+        ...validatedDefinition,
+        parameters: validatedDefinition.parameters ?? {},
+      } as CoreTool;
+    }
+  }
+
+  if (Object.keys(parsedTools).length === 0) {
+    return getGoldenFlowToolRegistry();
+  }
+
+  return enforceGoldenFlowToolFloor(parsedTools);
+}

@@ -1,5 +1,9 @@
 import type { Env } from "../types/ai";
 import { getCorsHeaders } from "../lib/cors";
+import { getBrainRuntimeHeaders } from "../core/observability/runtime";
+import { fetchRunRuntimeRoute } from "./chat-runtime-helpers";
+
+type RuntimeOrchestratorBackend = "execution-engine-v1" | "cloudflare_agents";
 
 interface RunSummaryResponse {
   runId: string;
@@ -10,6 +14,8 @@ interface RunSummaryResponse {
   runningTasks: number;
   pendingTasks: number;
   cancelledTasks: number;
+  eventCount?: number;
+  lastEventType?: string | null;
 }
 
 export class RunController {
@@ -17,12 +23,19 @@ export class RunController {
     try {
       const url = new URL(req.url);
       const runId = url.searchParams.get("runId")?.trim();
+      const requestedBackend = parseRequestedBackend(
+        url.searchParams.get("backend"),
+      );
 
       if (!runId) {
         return errorResponse(req, env, "runId is required", 400);
       }
 
-      const response = await fetchRunSummaryFromRuntime(env, runId);
+      const response = await fetchRunSummaryFromRuntime(
+        env,
+        runId,
+        requestedBackend,
+      );
       if (!response.ok) {
         const details = await readErrorPreview(response);
         const suffix = details ? `: ${details}` : "";
@@ -49,15 +62,22 @@ export class RunController {
 
   static async cancel(req: Request, env: Env): Promise<Response> {
     try {
-      const body = (await req.json().catch(() => null)) as
-        | { runId?: string }
-        | null;
+      const body = (await req.json().catch(() => null)) as {
+        runId?: string;
+        orchestratorBackend?: RuntimeOrchestratorBackend;
+      } | null;
       const runId = body?.runId?.trim();
+      const requestedBackend =
+        body?.orchestratorBackend ?? "execution-engine-v1";
       if (!runId) {
         return errorResponse(req, env, "runId is required", 400);
       }
 
-      const response = await fetchRunCancelFromRuntime(env, runId);
+      const response = await fetchRunCancelFromRuntime(
+        env,
+        runId,
+        requestedBackend,
+      );
       if (!response.ok) {
         const details = await readErrorPreview(response);
         const suffix = details ? `: ${details}` : "";
@@ -86,8 +106,9 @@ export class RunController {
 async function fetchRunSummaryFromRuntime(
   env: Env,
   runId: string,
+  requestedBackend: RuntimeOrchestratorBackend,
 ): Promise<Response> {
-  return fetchFromRuntime(env, runId, {
+  return fetchRunRuntimeRoute(env, runId, requestedBackend, {
     method: "GET",
     path: `/summary?runId=${encodeURIComponent(runId)}`,
   });
@@ -96,8 +117,9 @@ async function fetchRunSummaryFromRuntime(
 async function fetchRunCancelFromRuntime(
   env: Env,
   runId: string,
+  requestedBackend: RuntimeOrchestratorBackend,
 ): Promise<Response> {
-  return fetchFromRuntime(env, runId, {
+  return fetchRunRuntimeRoute(env, runId, requestedBackend, {
     method: "POST",
     path: "/cancel",
     body: JSON.stringify({ runId }),
@@ -107,30 +129,13 @@ async function fetchRunCancelFromRuntime(
   });
 }
 
-async function fetchFromRuntime(
-  env: Env,
-  runId: string,
-  requestInit: {
-    method: "GET" | "POST";
-    path: string;
-    body?: string;
-    headers?: Record<string, string>;
-  },
-): Promise<Response> {
-  if (!env.RUN_ENGINE_RUNTIME) {
-    throw new Error("RUN_ENGINE_RUNTIME binding is unavailable");
+function parseRequestedBackend(
+  value: string | null,
+): RuntimeOrchestratorBackend {
+  if (value === "cloudflare_agents") {
+    return value;
   }
-
-  const id = env.RUN_ENGINE_RUNTIME.idFromName(runId);
-  const stub = env.RUN_ENGINE_RUNTIME.get(id);
-  return (await stub.fetch(
-    `https://run-engine${requestInit.path}`,
-    {
-      method: requestInit.method,
-      headers: requestInit.headers,
-      body: requestInit.body,
-    },
-  )) as unknown as Response;
+  return "execution-engine-v1";
 }
 
 function jsonResponse(
@@ -143,6 +148,7 @@ function jsonResponse(
     status,
     headers: {
       "Content-Type": "application/json",
+      ...getBrainRuntimeHeaders(env),
       ...getCorsHeaders(req, env),
     },
   });

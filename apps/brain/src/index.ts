@@ -5,12 +5,15 @@ import { GitHubController } from "./controllers/GitHubController";
 import { GitController } from "./controllers/GitController";
 import { RunController } from "./controllers/RunController";
 import { ProviderController } from "./controllers/ProviderController";
+import { RuntimeController } from "./controllers/RuntimeController";
 import { handleOptions, getCorsHeaders } from "./lib/cors";
 import { Env } from "./types/ai";
 import { RunEngineRuntime } from "./runtime/RunEngineRuntime";
+import { RunEngineAgent } from "./runtime/RunEngineAgent";
 import { SessionMemoryRuntime } from "./runtime/SessionMemoryRuntime";
+import { getBrainRuntimeHeaders } from "./core/observability/runtime";
 
-export { RunEngineRuntime, SessionMemoryRuntime };
+export { RunEngineRuntime, RunEngineAgent, SessionMemoryRuntime };
 
 /**
  * Route configuration type with HTTP method support
@@ -59,8 +62,17 @@ function createRouter(): Router {
   const router = new Router();
 
   // Chat routes
-  router.add(/^\/api\/chat(?:\/.*)?$/, ChatController.handleLegacyRoute, "POST");
+  router.add(
+    /^\/api\/chat(?:\/.*)?$/,
+    ChatController.handleLegacyRoute,
+    "POST",
+  );
   router.add(/\/chat/, ChatController.handle, "POST");
+  router.add(
+    /^\/api\/debug\/runtime$/,
+    RuntimeController.getRuntimeDebug,
+    "GET",
+  );
 
   // Auth routes - OAuth flow
   router.add(/\/auth\/github\/login/, AuthController.handleLogin);
@@ -173,6 +185,7 @@ export default {
           status: 404,
           headers: {
             ...getCorsHeaders(request, env),
+            ...getBrainRuntimeHeaders(env),
             "Content-Type": "application/json",
           },
         },
@@ -186,6 +199,7 @@ export default {
         status: 500,
         headers: {
           ...getCorsHeaders(request, env),
+          ...getBrainRuntimeHeaders(env),
           "Content-Type": "application/json",
         },
       });

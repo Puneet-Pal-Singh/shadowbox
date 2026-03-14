@@ -8,6 +8,37 @@ import {
 const DEFAULT_EXECUTION_TIMEOUT_MS = 120_000;
 const GIT_STATUS_TIMEOUT_MS = 12_000;
 const GIT_MUTATION_TIMEOUT_MS = 20_000;
+const EXECUTION_SESSION_REPO_PATH = ".";
+
+interface SecureExecutionSession {
+  sessionId: string;
+  token: string;
+}
+
+interface SecureExecutionSessionResponse extends SecureExecutionSession {
+  expiresAt: number;
+}
+
+interface SecureExecutionTaskResponse {
+  taskId: string;
+  status: "success" | "failure" | "timeout" | "cancelled";
+  output?: string;
+  error?: {
+    code: string;
+    message: string;
+    details?: unknown;
+  };
+  metrics?: {
+    duration: number;
+    memoryUsed?: number;
+  };
+}
+
+interface LegacyExecutionResult {
+  success: boolean;
+  output?: string;
+  error?: string;
+}
 
 /**
  * ExecutionService - Handles plugin execution with secure token pass-through
@@ -18,6 +49,8 @@ const GIT_MUTATION_TIMEOUT_MS = 20_000;
  * - Tokens are passed securely from Brain to Muscle
  */
 export class ExecutionService {
+  private executionSessionPromise: Promise<SecureExecutionSession> | null = null;
+
   constructor(
     private env: Env,
     private sessionId: string,
@@ -47,30 +80,37 @@ export class ExecutionService {
       }
 
       const timeoutMs = resolveExecutionTimeoutMs(plugin, action);
+      const executionSession = await this.getExecutionSession();
       const res = await fetchWithTimeout(
         this.env.SECURE_API,
-        `http://internal/?session=${this.sessionId}`,
+        `http://internal/api/v1/execute?session=${encodeURIComponent(this.sessionId)}`,
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            Authorization: `Bearer ${executionSession.token}`,
+            "Content-Type": "application/json",
+          },
           body: JSON.stringify({
-            plugin,
-            payload: { action, runId: this.runId, ...payload },
+            sessionId: executionSession.sessionId,
+            taskId: createExecutionTaskId(plugin, action),
+            action: `${plugin}.execute`,
+            params: { action, runId: this.runId, ...payload },
+            timeout: timeoutMs,
           }),
         },
         timeoutMs,
       );
 
-      const text = await res.text();
       if (!res.ok) {
-        throw new Error(text || `Failed to execute ${action}`);
+        throw new Error(
+          (await res.text()) || `Failed to execute ${plugin}:${action}`,
+        );
       }
 
-      try {
-        return JSON.parse(text);
-      } catch {
-        return text;
-      }
+      const executionResult = await parseJsonResponse<SecureExecutionTaskResponse>(
+        res,
+      );
+      return toLegacyExecutionResult(executionResult);
     } catch (error) {
       console.error(
         `[ExecutionService] Error:`,
@@ -151,6 +191,50 @@ export class ExecutionService {
     if (!res.ok) return "[Error: Artifact not found]";
     return await res.text();
   }
+
+  private async getExecutionSession(): Promise<SecureExecutionSession> {
+    if (!this.executionSessionPromise) {
+      this.executionSessionPromise = this.createExecutionSession();
+    }
+
+    try {
+      return await this.executionSessionPromise;
+    } catch (error) {
+      this.executionSessionPromise = null;
+      throw error;
+    }
+  }
+
+  private async createExecutionSession(): Promise<SecureExecutionSession> {
+    const response = await fetchWithTimeout(
+      this.env.SECURE_API,
+      `http://internal/api/v1/session?session=${encodeURIComponent(this.sessionId)}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          runId: this.runId,
+          taskId: createSessionTaskId(this.sessionId),
+          repoPath: EXECUTION_SESSION_REPO_PATH,
+        }),
+      },
+      DEFAULT_EXECUTION_TIMEOUT_MS,
+    );
+
+    if (!response.ok) {
+      throw new Error(
+        (await response.text()) || "Failed to create secure execution session",
+      );
+    }
+
+    const session = await parseJsonResponse<SecureExecutionSessionResponse>(
+      response,
+    );
+    return {
+      sessionId: session.sessionId,
+      token: session.token,
+    };
+  }
 }
 
 function resolveExecutionTimeoutMs(plugin: string, action: string): number {
@@ -163,6 +247,47 @@ function resolveExecutionTimeoutMs(plugin: string, action: string): number {
   }
 
   return GIT_MUTATION_TIMEOUT_MS;
+}
+
+function createSessionTaskId(sessionId: string): string {
+  return `brain-session-${sessionId}`;
+}
+
+function createExecutionTaskId(plugin: string, action: string): string {
+  return `${plugin}-${action}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+async function parseJsonResponse<T>(
+  response: Awaited<ReturnType<Env["SECURE_API"]["fetch"]>>,
+): Promise<T> {
+  const text = await response.text();
+  try {
+    return JSON.parse(text) as T;
+  } catch (error) {
+    throw new Error(
+      `Expected JSON response from secure execution API: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
+}
+
+function toLegacyExecutionResult(
+  result: SecureExecutionTaskResponse,
+): LegacyExecutionResult {
+  if (result.status === "success") {
+    return {
+      success: true,
+      output: result.output ?? "",
+    };
+  }
+
+  return {
+    success: false,
+    error:
+      result.error?.message ??
+      `Task execution ended with status '${result.status}'`,
+  };
 }
 
 async function fetchWithTimeout(

@@ -6,6 +6,9 @@ export {
   type LLMGatewayDependencies,
 } from "./LLMGateway.js";
 export type {
+  LLMExecutionLane,
+  LLMExecutionLatencyTier,
+  LLMExecutionReliabilityTier,
   ILLMGateway,
   LLMRuntimeAIService,
   LLMPhase,
@@ -14,5 +17,7 @@ export type {
   LLMStructuredRequest,
   LLMTextResponse,
   LLMStructuredResponse,
+  ProviderExecutionProfile,
+  ProviderExecutionLaneSupport,
   ProviderCapabilityResolver,
 } from "./types.js";

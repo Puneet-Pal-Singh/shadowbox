@@ -1,6 +1,7 @@
 import { Sandbox } from "@cloudflare/sandbox";
 import { IPlugin, PluginResult, LogCallback } from "../interfaces/types";
 import { RustTool } from "../schemas/rust";
+import { runSafeCommand } from "./security/SafeCommand";
 
 export class RustPlugin implements IPlugin {
   name = "rust";
@@ -14,7 +15,15 @@ export class RustPlugin implements IPlugin {
 
     // 1. Compile Phase
     if (onLog) onLog(`[Rust] Compiling ${fileName}...\n`);
-    const compile = await sandbox.exec(`rustc ${fileName} -o ${binaryName}`);
+    const compile = await runSafeCommand(
+      sandbox,
+      {
+        command: "rustc",
+        args: [fileName, "-o", binaryName],
+        toolName: "rust.compile",
+      },
+      ["rustc"],
+    );
 
     if (compile.exitCode !== 0) {
       if (onLog) onLog(`\x1b[31m[Build Error]\n${compile.stderr}\x1b[0m`);
@@ -28,7 +37,14 @@ export class RustPlugin implements IPlugin {
 
     // 2. Execution Phase
     if (onLog) onLog(`[Rust] Successfully compiled. Executing...\n`);
-    const result = await sandbox.exec(`./${binaryName}`);
+    const result = await runSafeCommand(
+      sandbox,
+      {
+        command: `./${binaryName}`,
+        toolName: "rust.execute",
+      },
+      [`./${binaryName}`],
+    );
 
     if (onLog) {
       if (result.stdout) onLog(result.stdout);

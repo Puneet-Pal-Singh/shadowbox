@@ -4,6 +4,7 @@ import type {
   RunOrchestrationTelemetry,
 } from "../types.js";
 import type { Run } from "../run/index.js";
+import type { TurnModeDecision } from "./RunTurnModePolicy.js";
 
 export class MissingManifestError extends Error {
   constructor(message: string) {
@@ -53,6 +54,19 @@ export function recordLifecycleStep(
       detail,
     },
   ];
+}
+
+export function recordTurnModeDecision(
+  run: Run,
+  decision: TurnModeDecision,
+): void {
+  run.metadata.turnMode = {
+    mode: decision.mode,
+    source: decision.source,
+    rationale: decision.rationale,
+    confidence: decision.confidence,
+    recordedAt: new Date().toISOString(),
+  };
 }
 
 export function recordOrchestrationActivation(run: Run): void {

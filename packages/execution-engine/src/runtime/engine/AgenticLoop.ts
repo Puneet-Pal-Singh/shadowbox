@@ -22,6 +22,12 @@ export interface AgenticLoopConfig {
   budget?: IBudgetManager;
 }
 
+interface AgenticLoopToolCall {
+  id: string;
+  toolName: string;
+  args: Record<string, unknown>;
+}
+
 export type StopReason =
   | "max_steps_reached"
   | "budget_exceeded"
@@ -35,6 +41,20 @@ export interface AgenticLoopResult {
   toolExecutionCount: number;
   failedToolCount: number;
   stepsExecuted: number;
+}
+
+interface AgenticLoopHooks {
+  onAssistantMessage?: (content: string) => Promise<void>;
+  onToolRequested?: (toolCall: AgenticLoopToolCall) => Promise<void>;
+  onToolStarted?: (toolCall: AgenticLoopToolCall) => Promise<void>;
+  onToolCompleted?: (
+    toolCall: AgenticLoopToolCall,
+    result: unknown,
+  ) => Promise<void>;
+  onToolFailed?: (
+    toolCall: AgenticLoopToolCall,
+    error: string,
+  ) => Promise<void>;
 }
 
 /**
@@ -74,7 +94,7 @@ export class AgenticLoop {
       modelId?: string;
       providerId?: string;
       temperature?: number;
-    },
+    } & AgenticLoopHooks,
   ): Promise<AgenticLoopResult> {
     const messages: CoreMessage[] = [...initialMessages];
     let stopReason: StopReason = "llm_stop";
@@ -142,6 +162,7 @@ export class AgenticLoop {
         role: "assistant",
         content: response.text,
       });
+      await context.onAssistantMessage?.(response.text);
 
       // Check if LLM requested tool calls
       if (!response.toolCalls || response.toolCalls.length === 0) {
@@ -162,6 +183,7 @@ export class AgenticLoop {
 
       for (const toolCall of response.toolCalls) {
         this.toolExecutionCount++;
+        await context.onToolRequested?.(toolCall);
 
         // Check budget before tool execution
          try {
@@ -195,6 +217,7 @@ export class AgenticLoop {
             console.warn(
               `[agentic-loop] ${message} (call: ${toolCall.id})`,
             );
+            await context.onToolFailed?.(toolCall, message);
             toolResults.push({
               toolId: toolCall.id,
               toolName: toolCall.toolName,
@@ -209,10 +232,15 @@ export class AgenticLoop {
           );
 
           const toolTask = this.createToolTask(toolCall.id, toolCall);
+          await context.onToolStarted?.(toolCall);
 
           const result = await this.executor.execute(toolTask);
 
           if (result.status === "DONE") {
+            await context.onToolCompleted?.(
+              toolCall,
+              result.output?.content ?? null,
+            );
             toolResults.push({
               toolId: toolCall.id,
               toolName: toolCall.toolName,
@@ -220,17 +248,20 @@ export class AgenticLoop {
             });
           } else {
             this.failedToolCount++;
+            const toolError = result.error?.message || "Tool execution failed";
+            await context.onToolFailed?.(toolCall, toolError);
             toolResults.push({
               toolId: toolCall.id,
               toolName: toolCall.toolName,
               result: null,
-              error: result.error?.message || "Tool execution failed",
+              error: toolError,
             });
           }
         } catch (error) {
           this.failedToolCount++;
           const errorMessage =
             error instanceof Error ? error.message : "Unknown error";
+          await context.onToolFailed?.(toolCall, errorMessage);
           console.error(
             `[agentic-loop] Tool execution failed: ${toolCall.toolName}`,
             error,
@@ -311,10 +342,7 @@ export class AgenticLoop {
 
   private createToolTask(
     id: string,
-    toolCall: {
-      toolName: string;
-      args: Record<string, unknown>;
-    },
+    toolCall: Pick<AgenticLoopToolCall, "toolName" | "args">,
   ): Task {
     return new Task(id, this.config.runId, toolCall.toolName, "PENDING", [], {
       description: `Execute ${toolCall.toolName}`,

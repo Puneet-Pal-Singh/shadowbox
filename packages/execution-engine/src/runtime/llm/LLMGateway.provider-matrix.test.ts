@@ -15,13 +15,21 @@ interface ProviderMatrixCase {
 }
 
 const PROVIDER_MATRIX: ProviderMatrixCase[] = [
-  { providerId: "openai", allowedModel: "gpt-4o", blockedModel: "gpt-3-legacy" },
+  {
+    providerId: "openai",
+    allowedModel: "gpt-4o",
+    blockedModel: "gpt-3-legacy",
+  },
   {
     providerId: "anthropic",
     allowedModel: "claude-3-5-sonnet-20241022",
     blockedModel: "claude-1",
   },
-  { providerId: "groq", allowedModel: "llama-3.3-70b-versatile", blockedModel: "mixtral-8x7b" },
+  {
+    providerId: "groq",
+    allowedModel: "llama-3.3-70b-versatile",
+    blockedModel: "mixtral-8x7b",
+  },
   {
     providerId: "openrouter",
     allowedModel: "arcee-ai/trinity-large-preview:free",
@@ -58,7 +66,10 @@ describe("LLMGateway provider behavior matrix", () => {
         messages: BASE_MESSAGES,
         schema: {
           parse: (value: unknown) => value as { ok: true },
-          safeParse: (value: unknown) => ({ success: true, data: value as { ok: true } }),
+          safeParse: (value: unknown) => ({
+            success: true,
+            data: value as { ok: true },
+          }),
         },
       });
 
@@ -120,7 +131,9 @@ describe("LLMGateway provider behavior matrix", () => {
         messages: BASE_MESSAGES,
       });
       await expect(outcome).rejects.toBeInstanceOf(ProviderCapabilityError);
-      await expect(outcome).rejects.toMatchObject({ code: "MODEL_NOT_ALLOWED" });
+      await expect(outcome).rejects.toMatchObject({
+        code: "MODEL_NOT_ALLOWED",
+      });
       report.push({
         providerId: matrixCase.providerId,
         scenario: "blocked-model",
@@ -175,9 +188,7 @@ describe("LLMGateway provider behavior matrix", () => {
   });
 });
 
-function createMatrixGateway(
-  providerMatrix: ProviderMatrixCase[],
-): LLMGateway {
+function createMatrixGateway(providerMatrix: ProviderMatrixCase[]): LLMGateway {
   const capabilities = buildCapabilities(providerMatrix);
   const allowedModels = buildAllowedModelMap(providerMatrix);
 
@@ -205,6 +216,15 @@ function createMatrixGateway(
       getCapabilities: (providerId: string) => capabilities[providerId],
       isModelAllowed: (providerId: string, modelId: string) =>
         allowedModels[providerId]?.has(modelId) ?? false,
+      getExecutionProfile: () => ({
+        latencyTier: "standard",
+        reliabilityTier: "baseline",
+        supportedLanes: {
+          chat_only: { supported: true },
+          single_agent_action: { supported: true },
+          structured_planning_required: { supported: true },
+        },
+      }),
     },
   } satisfies LLMGatewayDependencies);
 }
@@ -275,7 +295,9 @@ function createStream(text: string): ReadableStream<Uint8Array> {
   });
 }
 
-async function collectStreamText(stream: ReadableStream<Uint8Array>): Promise<string> {
+async function collectStreamText(
+  stream: ReadableStream<Uint8Array>,
+): Promise<string> {
   const decoder = new TextDecoder();
   const reader = stream.getReader();
   let buffer = "";

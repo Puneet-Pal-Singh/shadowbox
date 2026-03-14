@@ -46,32 +46,32 @@ export type SessionCreateResponse = z.infer<typeof SessionCreateResponseSchema>;
 
 export const ExecuteTaskRequestSchema = z.object({
   sessionId: z.string().min(1, "sessionId required"),
-  command: z.string().min(1, "command required"),
-  cwd: z
-    .string()
-    .min(1, "cwd required")
-    .refine(
-      (path) => !path.startsWith("/"),
-      "cwd must be relative, not absolute",
-    )
-    .refine(
-      (path) => !path.includes(".."),
-      "cwd must not contain path traversal",
-    )
-    .refine((path) => !path.includes("\\"), "cwd must use unix-style paths"),
+  taskId: z.string().min(1, "taskId required"),
+  action: z.string().min(1, "action required"),
+  params: z.record(z.unknown()),
   timeout: z.number().int().positive().optional(),
-  env: z.record(z.string()).optional(),
+  retryable: z.boolean().optional(),
 });
 
 export type ExecuteTaskRequest = z.infer<typeof ExecuteTaskRequestSchema>;
 
 export const ExecuteTaskResponseSchema = z.object({
-  exitCode: z.number().int().nonnegative(),
-  stdout: z.string(),
-  stderr: z.string(),
-  duration: z.number().int().nonnegative(),
-  status: z.enum(["success", "error", "timeout"]),
-  timestamp: z.number().int().positive(),
+  taskId: z.string().min(1),
+  status: z.enum(["success", "failure", "timeout", "cancelled"]),
+  output: z.string().optional(),
+  error: z
+    .object({
+      code: z.string().min(1),
+      message: z.string().min(1),
+      details: z.unknown().optional(),
+    })
+    .optional(),
+  metrics: z
+    .object({
+      duration: z.number().int().nonnegative(),
+      memoryUsed: z.number().nonnegative().optional(),
+    })
+    .optional(),
 });
 
 export type ExecuteTaskResponse = z.infer<typeof ExecuteTaskResponseSchema>;
@@ -249,13 +249,3 @@ export const ChatAppendRequestSchema = z
   );
 
 export type ChatAppendRequest = z.infer<typeof ChatAppendRequestSchema>;
-
-/**
- * Execution Schemas
- */
-export const ExecutionBodySchema = z.object({
-  plugin: z.string().min(1, "plugin required"),
-  payload: z.record(z.unknown()),
-});
-
-export type ExecutionBody = z.infer<typeof ExecutionBodySchema>;

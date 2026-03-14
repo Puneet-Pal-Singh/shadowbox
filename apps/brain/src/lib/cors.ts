@@ -9,8 +9,18 @@ const BASE_CORS_HEADERS = {
   "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
   "Access-Control-Allow-Headers":
     "Content-Type, Authorization, X-Run-Id, x-vercel-ai-data-stream, x-ai-sdk-data-stream",
-  "Access-Control-Expose-Headers":
-    "x-vercel-ai-data-stream, x-ai-sdk-data-stream",
+  "Access-Control-Expose-Headers": [
+    "x-vercel-ai-data-stream",
+    "x-ai-sdk-data-stream",
+    "X-Engine-Version",
+    "X-Run-Id",
+    "X-Run-Engine-Runtime",
+    "X-Shadowbox-Runtime-Name",
+    "X-Shadowbox-Runtime-Git-Sha",
+    "X-Shadowbox-Runtime-Started-At",
+    "X-Shadowbox-Runtime-Boot-Id",
+    "X-Shadowbox-Runtime-Fingerprint",
+  ].join(", "),
   "X-Content-Type-Options": "nosniff",
   Vary: "Origin",
 } as const;

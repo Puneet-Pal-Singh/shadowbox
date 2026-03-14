@@ -14,9 +14,11 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@shadowbox/orchestrator-core": "workspace:*"
+    "@shadowbox/orchestrator-core": "workspace:*",
+    "agents": "^0.7.6"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^4.20240208.0",
     "@repo/typescript-config": "workspace:*",
     "@types/node": "^20.10.0",
     "typescript": "^5.3.3",

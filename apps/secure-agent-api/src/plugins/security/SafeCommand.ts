@@ -1,15 +1,27 @@
 import { Sandbox } from "@cloudflare/sandbox";
+import { CloudflareToolboxAdapter } from "../../toolbox/adapters/CloudflareToolboxAdapter";
+import { ToolboxSessionService } from "../../toolbox/services/ToolboxSessionService";
 
 export interface SafeCommandSpec {
   command: string;
   args?: string[];
   cwd?: string;
+  runId?: string;
+  toolName?: string;
+  callId?: string;
+  timeoutMs?: number;
 }
 
 interface CommandResult {
   exitCode: number;
   stdout: string;
   stderr: string;
+  sessionId?: string;
+  callId?: string;
+  toolName?: string;
+  runId?: string;
+  status?: "completed" | "failed" | "timeout";
+  durationMs?: number;
 }
 
 export async function runSafeCommand(
@@ -17,45 +29,61 @@ export async function runSafeCommand(
   spec: SafeCommandSpec,
   allowlist: readonly string[],
 ): Promise<CommandResult> {
-  validateCommandSpec(spec, allowlist);
-
-  const args = spec.args ?? [];
-  const escapedCommand = escapeShellArg(spec.command);
-  const escapedArgs = args.map((arg) => escapeShellArg(arg));
-  const commandExpr = [escapedCommand, ...escapedArgs].join(" ");
-
-  const finalCommand = spec.cwd
-    ? `cd ${escapeShellArg(spec.cwd)} && ${commandExpr}`
-    : commandExpr;
-
-  const result = (await sandbox.exec(finalCommand)) as CommandResult;
-  return result;
+  const service = new ToolboxSessionService(
+    new CloudflareToolboxAdapter(sandbox),
+  );
+  const result = await service.execute(
+    {
+      runId: resolveToolboxRunId(spec),
+      toolName: spec.toolName ?? spec.command,
+      callId: spec.callId ?? createToolCallId(spec.command),
+      command: spec.command,
+      args: spec.args,
+      cwd: spec.cwd,
+      timeoutMs: spec.timeoutMs,
+    },
+    allowlist,
+  );
+  return {
+    exitCode: result.exitCode,
+    stdout: result.stdout,
+    stderr: result.stderr,
+    sessionId: result.sessionId,
+    callId: result.callId,
+    toolName: result.toolName,
+    runId: result.runId,
+    status: result.status,
+    durationMs: result.durationMs,
+  };
 }
 
-function validateCommandSpec(
-  spec: SafeCommandSpec,
-  allowlist: readonly string[],
-): void {
-  const command = spec.command.trim();
-  if (!/^[A-Za-z0-9._-]+$/.test(command)) {
-    throw new Error("Invalid command");
-  }
-  if (!allowlist.includes(command)) {
-    throw new Error(`Command not allowed: ${command}`);
-  }
-
-  const args = spec.args ?? [];
-  for (const arg of args) {
-    if (/[\0\r\n]/.test(arg)) {
-      throw new Error("Invalid command argument");
-    }
-  }
-
-  if (spec.cwd && /[\0\r\n]/.test(spec.cwd)) {
-    throw new Error("Invalid command cwd");
-  }
+function createToolCallId(command: string): string {
+  return `${command}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-export function escapeShellArg(value: string): string {
-  return `'${value.replace(/'/g, `'\"'\"'`)}'`;
+function resolveToolboxRunId(spec: SafeCommandSpec): string {
+  if (spec.runId) {
+    return spec.runId;
+  }
+
+  const candidate = spec.cwd ?? findWorkspacePathInArgs(spec.args);
+  if (!candidate) {
+    return "default";
+  }
+
+  const match = candidate.match(/\/home\/sandbox\/runs\/([A-Za-z0-9_-]{1,128})/);
+  return match?.[1] ?? "default";
+}
+
+function findWorkspacePathInArgs(args: string[] | undefined): string | null {
+  if (!args) {
+    return null;
+  }
+
+  const cwdIndex = args.findIndex((arg) => arg === "-C");
+  if (cwdIndex >= 0) {
+    return args[cwdIndex + 1] ?? null;
+  }
+
+  return args.find((arg) => arg.startsWith("/home/sandbox/runs/")) ?? null;
 }

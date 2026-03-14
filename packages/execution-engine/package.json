@@ -78,6 +78,7 @@
     "test:coverage": "vitest --coverage"
   },
   "dependencies": {
+    "@repo/shared-types": "workspace:*",
     "@shadowbox/orchestrator-core": "workspace:*",
     "safe-regex": "^2.1.1",
     "zod": "^3.22.0"
