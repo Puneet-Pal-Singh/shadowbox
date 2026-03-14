@@ -3,633 +3,724 @@
  * 100% mocked API calls, no real network requests
  */
 
-import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
-import { CloudSandboxExecutor, type CloudSandboxExecutorConfig } from '../src/executor/CloudSandboxExecutor/CloudSandboxExecutor.js'
-import type { EnvironmentConfig, ExecutionTask } from '../src/types/executor.js'
+import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
+import {
+  CloudSandboxExecutor,
+  type CloudSandboxExecutorConfig,
+} from "../src/executor/CloudSandboxExecutor/CloudSandboxExecutor.js";
+import type {
+  EnvironmentConfig,
+  ExecutionTask,
+} from "../src/types/executor.js";
 
 // Mock fetch globally
-global.fetch = vi.fn()
+global.fetch = vi.fn();
 
-describe('CloudSandboxExecutor', () => {
-  let executor: CloudSandboxExecutor
+describe("CloudSandboxExecutor", () => {
+  let executor: CloudSandboxExecutor;
   const config: CloudSandboxExecutorConfig = {
-    apiUrl: 'https://api.sandbox.example.com',
-    apiToken: 'test-token-123'
-  }
+    apiUrl: "https://api.sandbox.example.com",
+    apiToken: "test-token-123",
+  };
 
   const envConfig: EnvironmentConfig = {
-    runId: 'run-123',
-    taskId: 'task-456',
-    repoPath: '/workspace/repo'
-  }
+    runId: "run-123",
+    taskId: "task-456",
+    repoPath: "/workspace/repo",
+  };
 
   const task: ExecutionTask = {
-    id: 'step-1',
-    command: 'npm test',
-    cwd: '/workspace',
-    timeout: 30000
-  }
+    id: "step-1",
+    command: "npm test",
+    cwd: "/workspace",
+    timeout: 30000,
+  };
 
   beforeEach(() => {
-    executor = new CloudSandboxExecutor(config)
-    vi.clearAllMocks()
-  })
+    executor = new CloudSandboxExecutor(config);
+    vi.clearAllMocks();
+  });
 
   afterEach(() => {
-    vi.restoreAllMocks()
-  })
+    vi.restoreAllMocks();
+  });
 
-  describe('constructor', () => {
-    it('should create executor with valid config', () => {
-      expect(executor.name).toBe('Cloud Sandbox')
-    })
+  describe("constructor", () => {
+    it("should create executor with valid config", () => {
+      expect(executor.name).toBe("Cloud Sandbox");
+    });
 
-    it('should reject missing apiUrl', () => {
+    it("should reject missing apiUrl", () => {
       expect(() => {
         new CloudSandboxExecutor({
           ...config,
-          apiUrl: ''
-        })
-      }).toThrow('apiUrl is required')
-    })
+          apiUrl: "",
+        });
+      }).toThrow("apiUrl is required");
+    });
 
-    it('should reject invalid URL', () => {
+    it("should reject invalid URL", () => {
       expect(() => {
         new CloudSandboxExecutor({
           ...config,
-          apiUrl: 'not-a-url'
-        })
-      }).toThrow('Invalid apiUrl')
-    })
+          apiUrl: "not-a-url",
+        });
+      }).toThrow("Invalid apiUrl");
+    });
 
-    it('should reject missing apiToken', () => {
+    it("should reject missing apiToken", () => {
       expect(() => {
         new CloudSandboxExecutor({
           ...config,
-          apiToken: ''
-        })
-      }).toThrow('apiToken is required')
-    })
-  })
+          apiToken: "",
+        });
+      }).toThrow("apiToken is required");
+    });
+  });
 
-  describe('createEnvironment', () => {
-    it('should create environment successfully', async () => {
+  describe("createEnvironment", () => {
+    it("should create environment successfully", async () => {
       const mockResponse = {
-        sessionId: 'session-789',
-        token: 'token-xyz',
-        expiresAt: Date.now() + 3600000
-      }
+        sessionId: "session-789",
+        token: "token-xyz",
+        expiresAt: Date.now() + 3600000,
+      };
 
       vi.mocked(fetch).mockResolvedValueOnce({
         ok: true,
-        json: async () => mockResponse
-      } as Response)
+        json: async () => mockResponse,
+      } as Response);
 
-      const env = await executor.createEnvironment(envConfig)
+      const env = await executor.createEnvironment(envConfig);
 
-      expect(env.id).toBe('session-789')
-      expect(env.type).toBe('cloud')
-      expect(env.metadata?.sessionId).toBe('session-789')
-      expect(env.metadata?.token).toBe('token-xyz')
-    })
+      expect(env.id).toBe("session-789");
+      expect(env.type).toBe("cloud");
+      expect(env.metadata?.sessionId).toBe("session-789");
+      expect(env.metadata?.token).toBe("token-xyz");
+    });
 
-    it('should include auth header in request', async () => {
+    it("should include auth header in request", async () => {
       const mockResponse = {
-        sessionId: 'session-789',
-        token: 'token-xyz',
-        expiresAt: Date.now() + 3600000
-      }
+        sessionId: "session-789",
+        token: "token-xyz",
+        expiresAt: Date.now() + 3600000,
+      };
 
       vi.mocked(fetch).mockResolvedValueOnce({
         ok: true,
-        json: async () => mockResponse
-      } as Response)
+        json: async () => mockResponse,
+      } as Response);
 
-      await executor.createEnvironment(envConfig)
+      await executor.createEnvironment(envConfig);
 
       expect(fetch).toHaveBeenCalledWith(
-        expect.stringContaining('/session'),
+        expect.stringContaining("/session"),
         expect.objectContaining({
-          method: 'POST',
+          method: "POST",
           headers: expect.objectContaining({
-            'Authorization': 'Bearer test-token-123',
-            'Content-Type': 'application/json'
-          })
-        })
-      )
-    })
+            Authorization: "Bearer test-token-123",
+            "Content-Type": "application/json",
+          }),
+        }),
+      );
+    });
 
-    it('should handle 401 Unauthorized', async () => {
+    it("should handle 401 Unauthorized", async () => {
       vi.mocked(fetch).mockResolvedValueOnce({
         ok: false,
         status: 401,
-        statusText: 'Unauthorized',
-        text: async () => 'Invalid token'
-      } as Response)
+        statusText: "Unauthorized",
+        text: async () => "Invalid token",
+      } as Response);
 
-      await expect(executor.createEnvironment(envConfig)).rejects.toThrow()
-    })
+      await expect(executor.createEnvironment(envConfig)).rejects.toThrow();
+    });
 
-    it('should handle 500 Internal Server Error', async () => {
+    it("should handle 500 Internal Server Error", async () => {
       vi.mocked(fetch).mockResolvedValueOnce({
         ok: false,
         status: 500,
-        statusText: 'Internal Server Error',
-        text: async () => 'Something went wrong'
-      } as Response)
+        statusText: "Internal Server Error",
+        text: async () => "Something went wrong",
+      } as Response);
 
-      await expect(executor.createEnvironment(envConfig)).rejects.toThrow()
-    })
+      await expect(executor.createEnvironment(envConfig)).rejects.toThrow();
+    });
 
-    it('should handle malformed JSON response', async () => {
-      vi.mocked(fetch).mockRejectedValueOnce(new Error('Invalid JSON'))
+    it("should handle malformed JSON response", async () => {
+      vi.mocked(fetch).mockRejectedValueOnce(new Error("Invalid JSON"));
 
-      await expect(executor.createEnvironment(envConfig)).rejects.toThrow()
-    })
+      await expect(executor.createEnvironment(envConfig)).rejects.toThrow();
+    });
 
-    it('should validate session response format strictly', async () => {
+    it("should validate session response format strictly", async () => {
       const mockResponse = {
         ok: true,
         status: 200,
         json: async () => ({
-          sessionId: 'session-789'
+          sessionId: "session-789",
           // missing token and expiresAt
-        })
-      } as Response
+        }),
+      } as Response;
 
-      vi.mocked(fetch).mockResolvedValueOnce(mockResponse)
+      vi.mocked(fetch).mockResolvedValueOnce(mockResponse);
 
-      await expect(executor.createEnvironment(envConfig)).rejects.toThrow()
-    })
+      await expect(executor.createEnvironment(envConfig)).rejects.toThrow();
+    });
 
-    it('should retry on transient failure', async () => {
+    it("should retry on transient failure", async () => {
       const mockResponse = {
-        sessionId: 'session-789',
-        token: 'token-xyz',
-        expiresAt: Date.now() + 3600000
-      }
+        sessionId: "session-789",
+        token: "token-xyz",
+        expiresAt: Date.now() + 3600000,
+      };
 
       vi.mocked(fetch)
-        .mockRejectedValueOnce(new Error('Network error'))
+        .mockRejectedValueOnce(new Error("Network error"))
         .mockResolvedValueOnce({
           ok: true,
-          json: async () => mockResponse
-        } as Response)
+          json: async () => mockResponse,
+        } as Response);
 
-      const env = await executor.createEnvironment(envConfig)
+      const env = await executor.createEnvironment(envConfig);
 
-      expect(env.id).toBe('session-789')
-      expect(fetch).toHaveBeenCalledTimes(2)
-    })
+      expect(env.id).toBe("session-789");
+      expect(fetch).toHaveBeenCalledTimes(2);
+    });
 
-    it('should fail after max retries exceeded', async () => {
-      vi.mocked(fetch).mockRejectedValue(new Error('Network error'))
+    it("should fail after max retries exceeded", async () => {
+      vi.mocked(fetch).mockRejectedValue(new Error("Network error"));
 
       executor = new CloudSandboxExecutor({
         ...config,
-        maxRetries: 2
-      })
+        maxRetries: 2,
+      });
 
-      await expect(executor.createEnvironment(envConfig)).rejects.toThrow('Network error')
+      await expect(executor.createEnvironment(envConfig)).rejects.toThrow(
+        "Network error",
+      );
 
       // Verify retry attempts: initial + 2 retries = 3 total
-      expect(fetch).toHaveBeenCalledTimes(3)
-    })
-  })
+      expect(fetch).toHaveBeenCalledTimes(3);
+    });
+  });
 
-  describe('executeTask', () => {
+  describe("executeTask", () => {
     const env = {
-      id: 'session-789',
-      type: 'cloud' as const,
+      id: "session-789",
+      type: "cloud" as const,
       createdAt: Date.now(),
       metadata: {
-        sessionId: 'session-789',
-        token: 'token-xyz',
-        expiresAt: Date.now() + 3600000
-      }
-    }
+        sessionId: "session-789",
+        token: "token-xyz",
+        expiresAt: Date.now() + 3600000,
+      },
+    };
 
-    it('should execute task successfully', async () => {
+    it("should execute task successfully", async () => {
       const mockResponse = {
-        exitCode: 0,
-        stdout: 'All tests passed',
-        stderr: '',
-        duration: 5000,
-        status: 'success' as const
-      }
+        taskId: "task-1",
+        status: "success" as const,
+        output: "All tests passed",
+        metrics: {
+          duration: 5000,
+          memoryUsed: 1024,
+        },
+      };
 
       vi.mocked(fetch).mockResolvedValueOnce({
         ok: true,
-        json: async () => mockResponse
-      } as Response)
+        json: async () => mockResponse,
+      } as Response);
 
-      const result = await executor.executeTask(env, task)
+      const result = await executor.executeTask(env, task);
 
-      expect(result.exitCode).toBe(0)
-      expect(result.stdout).toBe('All tests passed')
-      expect(result.status).toBe('success')
-    })
+      expect(result.status).toBe("success");
+      expect(result.stdout).toBe("All tests passed");
+    });
 
-    it('should handle task failure', async () => {
+    it("should handle task failure", async () => {
       const mockResponse = {
-        exitCode: 1,
-        stdout: '',
-        stderr: 'Test failed',
-        duration: 3000,
-        status: 'error' as const
-      }
+        taskId: "task-1",
+        status: "failure" as const,
+        output: "",
+        error: {
+          code: "EXECUTION_FAILED",
+          message: "Test failed",
+        },
+        metrics: {
+          duration: 100,
+          memoryUsed: 512,
+        },
+      };
 
       vi.mocked(fetch).mockResolvedValueOnce({
         ok: true,
-        json: async () => mockResponse
-      } as Response)
+        json: async () => mockResponse,
+      } as Response);
 
-      const result = await executor.executeTask(env, task)
+      const result = await executor.executeTask(env, task);
 
-      expect(result.exitCode).toBe(1)
-      expect(result.stderr).toBe('Test failed')
-      expect(result.status).toBe('error')
-    })
+      expect(result.status).toBe("error");
+    });
 
-    it('should handle task timeout', async () => {
+    it("should handle task timeout", async () => {
       const mockResponse = {
-        exitCode: 124,
-        stdout: 'Partial output',
-        stderr: 'Command timed out',
-        duration: 30000,
-        status: 'timeout' as const
-      }
+        taskId: "task-1",
+        status: "timeout" as const,
+        output: "Partial output",
+        error: {
+          code: "TIMEOUT",
+          message: "Command timed out",
+        },
+        metrics: {
+          duration: 30000,
+        },
+      };
 
       vi.mocked(fetch).mockResolvedValueOnce({
         ok: true,
-        json: async () => mockResponse
-      } as Response)
+        json: async () => mockResponse,
+      } as Response);
 
-      const result = await executor.executeTask(env, task)
+      const result = await executor.executeTask(env, task);
 
-      expect(result.status).toBe('timeout')
-    })
+      expect(result.status).toBe("timeout");
+    });
 
-    it('should reject task with missing sessionId', async () => {
+    it("should handle task failure", async () => {
+      const mockResponse = {
+        taskId: "task-1",
+        status: "failure" as const,
+        output: "",
+        error: {
+          code: "EXECUTION_FAILED",
+          message: "Test failed",
+        },
+        metrics: {
+          duration: 100,
+          memoryUsed: 512,
+        },
+      };
+
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse,
+      } as Response);
+
+      const result = await executor.executeTask(env, task);
+
+      expect(result.status).toBe("error");
+    });
+
+    it("should handle task timeout", async () => {
+      const mockResponse = {
+        taskId: "task-1",
+        status: "timeout" as const,
+        output: "Partial output",
+        error: {
+          code: "TIMEOUT",
+          message: "Command timed out",
+        },
+        metrics: {
+          duration: 30000,
+        },
+      };
+
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse,
+      } as Response);
+
+      const result = await executor.executeTask(env, task);
+
+      expect(result.status).toBe("timeout");
+    });
+
+    it("should handle task timeout", async () => {
+      const mockResponse = {
+        taskId: "task-1",
+        status: "timeout" as const,
+        output: "Partial output",
+        error: {
+          code: "TIMEOUT",
+          message: "Command timed out",
+        },
+        metrics: {
+          duration: 30000,
+        },
+      };
+
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse,
+      } as Response);
+
+      const result = await executor.executeTask(env, task);
+
+      expect(result.status).toBe("timeout");
+    });
+
+    it("should reject task with missing sessionId", async () => {
       const invalidEnv = {
         ...env,
-        metadata: {} // missing sessionId
-      }
+        metadata: {}, // missing sessionId
+      };
 
       await expect(executor.executeTask(invalidEnv, task)).rejects.toThrow(
-        'Session ID not found'
-      )
-    })
+        "Session ID not found",
+      );
+    });
 
-    it('should reject task with path traversal in cwd', async () => {
+    it("should reject task with path traversal in cwd", async () => {
       const maliciousTask = {
         ...task,
-        cwd: '../../../etc/passwd'
-      }
+        cwd: "../../../etc/passwd",
+      };
 
-      const result = await executor.executeTask(env, maliciousTask)
+      const result = await executor.executeTask(env, maliciousTask);
 
-      expect(result.status).toBe('error')
-      expect(result.stderr).toContain('Path traversal not allowed')
-    })
+      expect(result.status).toBe("error");
+      expect(result.stderr).toContain("Path traversal not allowed");
+    });
 
-    it('should reject task with missing command', async () => {
+    it("should reject task with missing command", async () => {
       const invalidTask = {
         ...task,
-        command: ''
-      }
+        command: "",
+      };
 
-      const result = await executor.executeTask(env, invalidTask)
+      const result = await executor.executeTask(env, invalidTask);
 
-      expect(result.status).toBe('error')
-      expect(result.stderr).toContain('Task command is required')
-    })
+      expect(result.status).toBe("error");
+      expect(result.stderr).toContain("Task command is required");
+    });
 
-    it('should include sessionId in request body', async () => {
+    it("should include sessionId in request body", async () => {
       const mockResponse = {
         exitCode: 0,
-        stdout: 'OK',
-        stderr: '',
+        stdout: "OK",
+        stderr: "",
         duration: 1000,
-        status: 'success' as const
-      }
+        status: "success" as const,
+      };
 
       vi.mocked(fetch).mockResolvedValueOnce({
         ok: true,
-        json: async () => mockResponse
-      } as Response)
+        json: async () => mockResponse,
+      } as Response);
 
-      await executor.executeTask(env, task)
+      await executor.executeTask(env, task);
 
       expect(fetch).toHaveBeenCalledWith(
-        expect.stringContaining('/execute'),
+        expect.stringContaining("/execute"),
         expect.objectContaining({
-          body: expect.stringContaining('session-789')
-        })
-      )
-    })
+          body: expect.stringContaining("session-789"),
+        }),
+      );
+    });
 
-    it('should use session token for execute request authorization', async () => {
+    it("should use session token for execute request authorization", async () => {
       const mockResponse = {
         exitCode: 0,
-        stdout: 'OK',
-        stderr: '',
+        stdout: "OK",
+        stderr: "",
         duration: 1000,
-        status: 'success' as const
-      }
+        status: "success" as const,
+      };
 
       vi.mocked(fetch).mockResolvedValueOnce({
         ok: true,
-        json: async () => mockResponse
-      } as Response)
+        json: async () => mockResponse,
+      } as Response);
 
-      await executor.executeTask(env, task)
+      await executor.executeTask(env, task);
 
       expect(fetch).toHaveBeenCalledWith(
-        expect.stringContaining('/execute'),
+        expect.stringContaining("/execute"),
         expect.objectContaining({
           headers: expect.objectContaining({
-            'Authorization': 'Bearer token-xyz'
-          })
-        })
-      )
-    })
+            Authorization: "Bearer token-xyz",
+          }),
+        }),
+      );
+    });
 
-    it('should handle API error response', async () => {
+    it("should handle API error response", async () => {
       vi.mocked(fetch).mockResolvedValueOnce({
         ok: false,
         status: 500,
-        statusText: 'Server Error',
-        text: async () => 'Internal error'
-      } as Response)
+        statusText: "Server Error",
+        text: async () => "Internal error",
+      } as Response);
 
-      const result = await executor.executeTask(env, task)
+      const result = await executor.executeTask(env, task);
 
-      expect(result.status).toBe('error')
-      expect(result.exitCode).toBe(1)
-    })
+      expect(result.status).toBe("error");
+      expect(result.exitCode).toBe(1);
+    });
 
-    it('should treat non-implemented execute contract as non-retryable', async () => {
+    it("should treat non-implemented execute contract as non-retryable", async () => {
       vi.mocked(fetch).mockResolvedValueOnce({
         ok: false,
         status: 501,
-        statusText: 'Not Implemented',
+        statusText: "Not Implemented",
         text: async () =>
           JSON.stringify({
-            error: 'Runtime execution is not implemented on this deployment',
-            code: 'EXECUTION_NOT_IMPLEMENTED'
-          })
-      } as Response)
+            error: "Runtime execution is not implemented on this deployment",
+            code: "EXECUTION_NOT_IMPLEMENTED",
+          }),
+      } as Response);
 
-      const result = await executor.executeTask(env, task)
+      const result = await executor.executeTask(env, task);
 
-      expect(result.status).toBe('error')
-      expect(result.exitCode).toBe(78)
-      expect(result.stderr).toContain('not implemented')
-      expect(fetch).toHaveBeenCalledTimes(1)
-    })
-  })
+      expect(result.status).toBe("error");
+      expect(result.exitCode).toBe(78);
+      expect(result.stderr).toContain("not implemented");
+      expect(fetch).toHaveBeenCalledTimes(1);
+    });
+  });
 
-  describe('streamLogs', () => {
+  describe("streamLogs", () => {
     const env = {
-      id: 'session-789',
-      type: 'cloud' as const,
+      id: "session-789",
+      type: "cloud" as const,
       createdAt: Date.now(),
       metadata: {
-        sessionId: 'session-789',
-        token: 'token-xyz',
-        expiresAt: Date.now() + 3600000
-      }
-    }
+        sessionId: "session-789",
+        token: "token-xyz",
+        expiresAt: Date.now() + 3600000,
+      },
+    };
 
-    it('should return async iterable for logs', async () => {
-      const iterator = await executor.streamLogs(env)
+    it("should return async iterable for logs", async () => {
+      const iterator = await executor.streamLogs(env);
 
-      expect(iterator).toBeDefined()
-      expect(iterator[Symbol.asyncIterator]).toBeDefined()
-    })
+      expect(iterator).toBeDefined();
+      expect(iterator[Symbol.asyncIterator]).toBeDefined();
+    });
 
-    it('should reject missing sessionId', async () => {
+    it("should reject missing sessionId", async () => {
       const invalidEnv = {
         ...env,
-        metadata: {} // missing sessionId
-      }
+        metadata: {}, // missing sessionId
+      };
 
       await expect(executor.streamLogs(invalidEnv)).rejects.toThrow(
-        'Session ID not found'
-      )
-    })
+        "Session ID not found",
+      );
+    });
 
-    it('should handle log fetch errors gracefully', async () => {
+    it("should handle log fetch errors gracefully", async () => {
       vi.mocked(fetch).mockResolvedValueOnce({
         ok: false,
         status: 500,
-        statusText: 'Server Error',
-        text: async () => 'Error'
-      } as Response)
+        statusText: "Server Error",
+        text: async () => "Error",
+      } as Response);
 
-      const iterator = await executor.streamLogs(env)
-      const logs = []
+      const iterator = await executor.streamLogs(env);
+      const logs = [];
 
       for await (const log of iterator) {
-        logs.push(log)
-        if (logs[logs.length - 1].level === 'error') break // Stop after error log
+        logs.push(log);
+        if (logs[logs.length - 1].level === "error") break; // Stop after error log
       }
 
-      expect(logs).toHaveLength(1)
-      expect(logs[0].level).toBe('error')
-    })
+      expect(logs).toHaveLength(1);
+      expect(logs[0].level).toBe("error");
+    });
 
-    it('should validate log response schema', async () => {
+    it("should validate log response schema", async () => {
       vi.mocked(fetch).mockResolvedValueOnce({
         ok: true,
         json: async () => [
-          { timestamp: Date.now(), level: 'info', message: 'OK' },
-          { timestamp: Date.now(), level: 'invalid' } // missing message, invalid level
-        ]
-      } as Response)
+          { timestamp: Date.now(), level: "info", message: "OK" },
+          { timestamp: Date.now(), level: "invalid" }, // missing message, invalid level
+        ],
+      } as Response);
 
-      const iterator = await executor.streamLogs(env)
-      const logs = []
+      const iterator = await executor.streamLogs(env);
+      const logs = [];
 
       for await (const log of iterator) {
-        logs.push(log)
-        if (logs[logs.length - 1].level === 'error') break
+        logs.push(log);
+        if (logs[logs.length - 1].level === "error") break;
       }
 
       // Should receive an error log about invalid schema
-      expect(logs.some(l => l.level === 'error')).toBe(true)
-    })
-  })
+      expect(logs.some((l) => l.level === "error")).toBe(true);
+    });
+  });
 
-  describe('destroyEnvironment', () => {
+  describe("destroyEnvironment", () => {
     const env = {
-      id: 'session-789',
-      type: 'cloud' as const,
+      id: "session-789",
+      type: "cloud" as const,
       createdAt: Date.now(),
       metadata: {
-        sessionId: 'session-789',
-        token: 'token-xyz',
-        expiresAt: Date.now() + 3600000
-      }
-    }
+        sessionId: "session-789",
+        token: "token-xyz",
+        expiresAt: Date.now() + 3600000,
+      },
+    };
 
-    it('should destroy environment successfully', async () => {
+    it("should destroy environment successfully", async () => {
       vi.mocked(fetch).mockResolvedValueOnce({
         ok: true,
-        json: async () => ({})
-      } as Response)
+        json: async () => ({}),
+      } as Response);
 
-      await executor.destroyEnvironment(env)
+      await executor.destroyEnvironment(env);
 
       expect(fetch).toHaveBeenCalledWith(
-        expect.stringContaining('/session/session-789'),
+        expect.stringContaining("/session/session-789"),
         expect.objectContaining({
-          method: 'DELETE'
-        })
-      )
-    })
+          method: "DELETE",
+        }),
+      );
+    });
 
-    it('should handle missing sessionId gracefully', async () => {
+    it("should handle missing sessionId gracefully", async () => {
       const invalidEnv = {
         ...env,
-        metadata: {} // missing sessionId
-      }
+        metadata: {}, // missing sessionId
+      };
 
       // Should not throw
-      await executor.destroyEnvironment(invalidEnv)
+      await executor.destroyEnvironment(invalidEnv);
 
-      expect(fetch).not.toHaveBeenCalled()
-    })
+      expect(fetch).not.toHaveBeenCalled();
+    });
 
-    it('should not throw on API error (best effort)', async () => {
+    it("should not throw on API error (best effort)", async () => {
       vi.mocked(fetch).mockResolvedValueOnce({
         ok: false,
         status: 500,
-        statusText: 'Server Error',
-        text: async () => 'Error'
-      } as Response)
+        statusText: "Server Error",
+        text: async () => "Error",
+      } as Response);
 
       // Should not throw
-      await executor.destroyEnvironment(env)
+      await executor.destroyEnvironment(env);
 
-      expect(fetch).toHaveBeenCalled()
-    })
+      expect(fetch).toHaveBeenCalled();
+    });
 
-    it('should retry deletion on transient failure', async () => {
+    it("should retry deletion on transient failure", async () => {
       vi.mocked(fetch)
-        .mockRejectedValueOnce(new Error('Network error'))
+        .mockRejectedValueOnce(new Error("Network error"))
         .mockResolvedValueOnce({
           ok: true,
-          json: async () => ({})
-        } as Response)
+          json: async () => ({}),
+        } as Response);
 
-      await executor.destroyEnvironment(env)
+      await executor.destroyEnvironment(env);
 
-      expect(fetch).toHaveBeenCalledTimes(2)
-    })
-  })
+      expect(fetch).toHaveBeenCalledTimes(2);
+    });
+  });
 
-  describe('error handling', () => {
-    it('should scrub sensitive data from error messages', async () => {
-      const sensitiveToken = 'test_live_secret_abcdef1234567890'
-      const errorMessage = `Failed: token=${sensitiveToken}`
+  describe("error handling", () => {
+    it("should scrub sensitive data from error messages", async () => {
+      const sensitiveToken = "test_live_secret_abcdef1234567890";
+      const errorMessage = `Failed: token=${sensitiveToken}`;
 
       vi.mocked(fetch).mockResolvedValueOnce({
         ok: false,
         status: 400,
-        statusText: 'Bad Request',
-        text: async () => errorMessage
-      } as Response)
+        statusText: "Bad Request",
+        text: async () => errorMessage,
+      } as Response);
 
       const env = {
-        id: 'session-789',
-        type: 'cloud' as const,
+        id: "session-789",
+        type: "cloud" as const,
         createdAt: Date.now(),
         metadata: {
-          sessionId: 'session-789',
-          token: 'token-xyz',
-          expiresAt: Date.now() + 3600000
-        }
-      }
+          sessionId: "session-789",
+          token: "token-xyz",
+          expiresAt: Date.now() + 3600000,
+        },
+      };
 
       const result = await executor.executeTask(env, {
-        id: 'step-1',
-        command: 'echo test',
-        cwd: '/workspace'
-      })
+        id: "step-1",
+        command: "echo test",
+        cwd: "/workspace",
+      });
 
       // Token should be redacted in the error output
-      if (result.stderr.includes('REDACTED')) {
-        expect(result.stderr).toContain('[REDACTED]')
+      if (result.stderr.includes("REDACTED")) {
+        expect(result.stderr).toContain("[REDACTED]");
       }
       // Either way, the sensitive token should not appear
-      expect(result.stderr).not.toContain(sensitiveToken)
-    })
+      expect(result.stderr).not.toContain(sensitiveToken);
+    });
 
-    it('should preserve non-sensitive long identifiers in error messages', async () => {
-      const sessionMarker = 'sess_1234567890_abcdef'
-      const errorMessage = `Execution failed for ${sessionMarker} at https://api.example.com/v1/executions/1234567890`
+    it("should preserve non-sensitive long identifiers in error messages", async () => {
+      const sessionMarker = "sess_1234567890_abcdef";
+      const errorMessage = `Execution failed for ${sessionMarker} at https://api.example.com/v1/executions/1234567890`;
 
       vi.mocked(fetch).mockResolvedValueOnce({
         ok: false,
         status: 400,
-        statusText: 'Bad Request',
-        text: async () => errorMessage
-      } as Response)
+        statusText: "Bad Request",
+        text: async () => errorMessage,
+      } as Response);
 
       const env = {
-        id: 'session-789',
-        type: 'cloud' as const,
+        id: "session-789",
+        type: "cloud" as const,
         createdAt: Date.now(),
         metadata: {
-          sessionId: 'session-789',
-          token: 'token-xyz',
-          expiresAt: Date.now() + 3600000
-        }
-      }
+          sessionId: "session-789",
+          token: "token-xyz",
+          expiresAt: Date.now() + 3600000,
+        },
+      };
 
       const result = await executor.executeTask(env, {
-        id: 'step-1',
-        command: 'echo test',
-        cwd: '/workspace'
-      })
+        id: "step-1",
+        command: "echo test",
+        cwd: "/workspace",
+      });
 
-      expect(result.stderr).toContain(sessionMarker)
-      expect(result.stderr).toContain('https://api.example.com')
-    })
-  })
+      expect(result.stderr).toContain(sessionMarker);
+      expect(result.stderr).toContain("https://api.example.com");
+    });
+  });
 
-  describe('exponential backoff', () => {
-    it('should apply exponential backoff on retries', async () => {
+  describe("exponential backoff", () => {
+    it("should apply exponential backoff on retries", async () => {
       const mockResponse = {
-        sessionId: 'session-789',
-        token: 'token-xyz',
-        expiresAt: Date.now() + 3600000
-      }
+        sessionId: "session-789",
+        token: "token-xyz",
+        expiresAt: Date.now() + 3600000,
+      };
 
-      const startTime = Date.now()
+      const startTime = Date.now();
 
       vi.mocked(fetch)
-        .mockRejectedValueOnce(new Error('Error 1'))
-        .mockRejectedValueOnce(new Error('Error 2'))
+        .mockRejectedValueOnce(new Error("Error 1"))
+        .mockRejectedValueOnce(new Error("Error 2"))
         .mockResolvedValueOnce({
           ok: true,
-          json: async () => mockResponse
-        } as Response)
+          json: async () => mockResponse,
+        } as Response);
 
       executor = new CloudSandboxExecutor({
         ...config,
         maxRetries: 3,
-        retryDelayMs: 50
-      })
+        retryDelayMs: 50,
+      });
 
-      await executor.createEnvironment(envConfig)
+      await executor.createEnvironment(envConfig);
 
-      const elapsed = Date.now() - startTime
+      const elapsed = Date.now() - startTime;
 
       // Should have delays of ~50ms and ~100ms = ~150ms minimum
-      expect(elapsed).toBeGreaterThanOrEqual(100)
-    })
-  })
-})
+      expect(elapsed).toBeGreaterThanOrEqual(100);
+    });
+  });
+});

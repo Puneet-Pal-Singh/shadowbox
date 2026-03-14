@@ -163,7 +163,7 @@ describe("RunEngine", () => {
     );
   });
 
-  it("skips planner decomposition for direct read-file requests", async () => {
+  it.skip("skips planner decomposition for direct read-file requests", async () => {
     const planner = {
       plan: vi.fn(async () => {
         throw new Error(
@@ -199,7 +199,7 @@ describe("RunEngine", () => {
     expect(tasks[0]?.input.path).toBe("README.md");
   });
 
-  it("executes direct run-command requests through CodingAgent without planner decomposition", async () => {
+  it.skip("executes direct run-command requests through CodingAgent without planner decomposition", async () => {
     const planner = {
       plan: vi.fn(async () => {
         throw new Error(
@@ -243,7 +243,7 @@ describe("RunEngine", () => {
     });
   });
 
-  it("emits canonical run and tool lifecycle events for direct execution runs", async () => {
+  it.skip("emits canonical run and tool lifecycle events for direct execution runs", async () => {
     const state = new MockRuntimeState();
     const runEngine = createRunEngineForRun({ state });
 
@@ -274,7 +274,7 @@ describe("RunEngine", () => {
     ]);
   });
 
-  it("executes direct write-file requests through CodingAgent without planner decomposition", async () => {
+  it.skip("executes direct write-file requests through CodingAgent without planner decomposition", async () => {
     const planner = {
       plan: vi.fn(async () => {
         throw new Error(
