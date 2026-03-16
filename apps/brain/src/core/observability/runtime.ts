@@ -7,22 +7,8 @@ import {
 } from "@repo/shared-types";
 import type { Env } from "../../types/ai";
 
-let brainWorkerIdentity: ReturnType<typeof createRuntimeIdentity> | null = null;
-let runEngineIdentity: ReturnType<typeof createRuntimeIdentity> | null = null;
-
-function getBrainWorkerIdentity(): ReturnType<typeof createRuntimeIdentity> {
-  if (!brainWorkerIdentity) {
-    brainWorkerIdentity = createRuntimeIdentity("brain-worker");
-  }
-  return brainWorkerIdentity;
-}
-
-function getRunEngineIdentity(): ReturnType<typeof createRuntimeIdentity> {
-  if (!runEngineIdentity) {
-    runEngineIdentity = createRuntimeIdentity("brain-run-engine-do");
-  }
-  return runEngineIdentity;
-}
+const brainWorkerIdentity = createRuntimeIdentity("brain-worker");
+const runEngineIdentity = createRuntimeIdentity("brain-run-engine-do");
 
 let workerStartupLogged = false;
 let runEngineStartupLogged = false;
@@ -47,12 +33,12 @@ interface RuntimeDebugPayload {
 
 export function getBrainRuntimeHeaders(env: Env): Record<string, string> {
   ensureBrainWorkerStartupLogged(env);
-  return buildRuntimeHeaders(getBrainWorkerIdentity(), toEnvRecord(env));
+  return buildRuntimeHeaders(brainWorkerIdentity, toEnvRecord(env));
 }
 
 export function getRunEngineRuntimeHeaders(env: Env): Record<string, string> {
   ensureRunEngineStartupLogged(env);
-  return buildRuntimeHeaders(getRunEngineIdentity(), toEnvRecord(env));
+  return buildRuntimeHeaders(runEngineIdentity, toEnvRecord(env));
 }
 
 export function buildBrainRuntimeDebugPayload(env: Env): RuntimeDebugPayload {
@@ -66,7 +52,7 @@ export function buildBrainRuntimeDebugPayload(env: Env): RuntimeDebugPayload {
       secureApiBound: Boolean(env.SECURE_API),
     },
     featureFlags: collectFeatureFlagSnapshot(toEnvRecord(env)),
-    runtime: buildRuntimePayload(getBrainWorkerIdentity(), env),
+    runtime: buildRuntimePayload(brainWorkerIdentity, env),
   };
 }
 
@@ -83,7 +69,7 @@ export function buildRunEngineRuntimeDebugPayload(
       secureApiBound: Boolean(env.SECURE_API),
     },
     featureFlags: collectFeatureFlagSnapshot(toEnvRecord(env)),
-    runtime: buildRuntimePayload(getRunEngineIdentity(), env),
+    runtime: buildRuntimePayload(runEngineIdentity, env),
   };
 }
 
@@ -93,7 +79,7 @@ function ensureBrainWorkerStartupLogged(env: Env): void {
   }
 
   workerStartupLogged = true;
-  logRuntimeStartup(getBrainWorkerIdentity(), env);
+  logRuntimeStartup(brainWorkerIdentity, env);
 }
 
 function ensureRunEngineStartupLogged(env: Env): void {
@@ -102,7 +88,7 @@ function ensureRunEngineStartupLogged(env: Env): void {
   }
 
   runEngineStartupLogged = true;
-  logRuntimeStartup(getRunEngineIdentity(), env);
+  logRuntimeStartup(runEngineIdentity, env);
 }
 
 function logRuntimeStartup(

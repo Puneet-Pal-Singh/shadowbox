@@ -7,21 +7,13 @@ import {
 } from "@repo/shared-types";
 import type { Env } from "../../index";
 
-let secureWorkerIdentity: ReturnType<typeof createRuntimeIdentity> | null =
-  null;
-
-function getSecureWorkerIdentity(): ReturnType<typeof createRuntimeIdentity> {
-  if (!secureWorkerIdentity) {
-    secureWorkerIdentity = createRuntimeIdentity("secure-agent-api-worker");
-  }
-  return secureWorkerIdentity;
-}
+const secureWorkerIdentity = createRuntimeIdentity("secure-agent-api-worker");
 
 let startupLogged = false;
 
 export function getSecureRuntimeHeaders(env: Env): Record<string, string> {
   ensureRuntimeStartupLogged(env);
-  return buildRuntimeHeaders(getSecureWorkerIdentity(), toEnvRecord(env));
+  return buildRuntimeHeaders(secureWorkerIdentity, toEnvRecord(env));
 }
 
 export function buildSecureRuntimeDebugPayload(
@@ -30,7 +22,6 @@ export function buildSecureRuntimeDebugPayload(
   ensureRuntimeStartupLogged(env);
 
   const gitSha = resolveRuntimeGitSha(toEnvRecord(env));
-  const identity = getSecureWorkerIdentity();
 
   return {
     bindings: {
@@ -44,11 +35,11 @@ export function buildSecureRuntimeDebugPayload(
     },
     featureFlags: collectFeatureFlagSnapshot(toEnvRecord(env)),
     runtime: {
-      bootId: identity.bootId,
-      fingerprint: buildRuntimeFingerprint(identity, gitSha),
+      bootId: secureWorkerIdentity.bootId,
+      fingerprint: buildRuntimeFingerprint(secureWorkerIdentity, gitSha),
       gitSha,
-      name: identity.name,
-      startedAt: identity.startedAt,
+      name: secureWorkerIdentity.name,
+      startedAt: secureWorkerIdentity.startedAt,
     },
   };
 }
@@ -59,13 +50,12 @@ function ensureRuntimeStartupLogged(env: Env): void {
   }
 
   startupLogged = true;
-  const identity = getSecureWorkerIdentity();
   const gitSha = resolveRuntimeGitSha(toEnvRecord(env));
-  const fingerprint = buildRuntimeFingerprint(identity, gitSha);
+  const fingerprint = buildRuntimeFingerprint(secureWorkerIdentity, gitSha);
   const featureFlags = collectFeatureFlagSnapshot(toEnvRecord(env));
 
   console.log(
-    `[runtime/startup] name=${identity.name} gitSha=${gitSha} startedAt=${identity.startedAt} bootId=${identity.bootId} fingerprint=${fingerprint} featureFlags=${JSON.stringify(featureFlags)}`,
+    `[runtime/startup] name=${secureWorkerIdentity.name} gitSha=${gitSha} startedAt=${secureWorkerIdentity.startedAt} bootId=${secureWorkerIdentity.bootId} fingerprint=${fingerprint} featureFlags=${JSON.stringify(featureFlags)}`,
   );
 }
 
