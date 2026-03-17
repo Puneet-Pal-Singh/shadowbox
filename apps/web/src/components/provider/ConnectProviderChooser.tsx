@@ -48,7 +48,7 @@ export function ConnectProviderChooser({
   const [view, setView] = useState<"providers" | "credentials">("providers");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedProviderId, setSelectedProviderId] = useState<string | null>(null);
-  const [apiSecret, setApiSecret] = useState("");
+  const[apiSecret, setApiSecret] = useState("");
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   const providerOptions = useMemo((): ProviderOption[] => {
@@ -135,7 +135,7 @@ export function ConnectProviderChooser({
 
   return (
     <div className={rootClassName}>
-      {showTitle && (
+      {showTitle && view === "providers" && (
         <div className="flex items-center justify-between">
           <h3 className="text-base font-semibold">Connect provider</h3>
         </div>
@@ -221,33 +221,41 @@ export function ConnectProviderChooser({
       )}
 
       {view === "credentials" && selectedProvider && (
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="flex items-center justify-between">
+        <form onSubmit={handleSubmit} className="flex flex-col">
+          <div className="mb-6 flex items-center">
             <button
               type="button"
               onClick={handleBackToProviders}
-              className="inline-flex items-center gap-2 text-sm text-neutral-400 hover:text-neutral-200"
+              className="text-neutral-400 transition-colors hover:text-neutral-200"
               aria-label="Back to providers"
             >
-              <ArrowLeft size={14} />
-              Back
+              <ArrowLeft size={20} strokeWidth={1.5} />
             </button>
           </div>
 
-          <div>
-            <h4 className="text-xl font-semibold text-neutral-100">
+          <div className="mb-6">
+            <h4 className="flex items-center gap-3 text-base font-medium text-neutral-100">
+              {(() => {
+                const provider = selectedProvider as { icon?: unknown };
+                if (!provider.icon) return null;
+                
+                if (typeof provider.icon === "function" || typeof provider.icon === "object") {
+                  const Icon = provider.icon as React.ElementType;
+                  return <Icon className="h-5 w-5" />;
+                }
+                return null;
+              })()}
               Connect {selectedProvider.displayName}
             </h4>
-            <p className="mt-3 text-sm text-neutral-400">
-              {selectedProvider.keyFormat?.description ??
-                `Enter your ${selectedProvider.displayName} API key to connect this provider.`}
+            <p className="mt-4 text-sm leading-relaxed text-neutral-200">
+              Enter your {selectedProvider.displayName} API key to connect your account and use {selectedProvider.displayName} models.
             </p>
           </div>
 
-          <div>
+          <div className="mb-6">
             <label
               htmlFor={keyInputId}
-              className="mb-2 block text-sm font-medium text-neutral-200"
+              className="mb-2 block text-sm text-neutral-300"
             >
               {selectedProvider.displayName} API key
             </label>
@@ -265,27 +273,19 @@ export function ConnectProviderChooser({
               required
               disabled={isConnecting}
               className={`
-                w-full rounded-lg border border-neutral-700 bg-neutral-800/80 px-3 py-2 text-sm
-                transition-colors disabled:opacity-50 disabled:cursor-not-allowed
-                ${error ? "border-red-700 bg-red-950/20" : ""}
-                focus:outline-none focus:ring-2 focus:ring-blue-500
+                w-full rounded-md border border-neutral-700 bg-[#161616] px-3 py-2.5 text-sm
+                text-neutral-100 placeholder:text-neutral-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed
+                ${error ? "border-red-700 focus:ring-red-500" : "focus:border-neutral-500 focus:ring-1 focus:ring-neutral-500"}
+                focus:outline-none
               `}
             />
           </div>
 
-          <div className="flex gap-2 pt-2">
+          <div>
             <button
               type="submit"
               disabled={isConnecting || !apiSecret.trim()}
-              className={`
-                inline-flex px-4 py-2 rounded-lg font-medium text-sm
-                transition-colors disabled:opacity-50 disabled:cursor-not-allowed
-                ${
-                  isConnecting || !apiSecret.trim()
-                    ? "bg-neutral-700 text-neutral-400"
-                    : "bg-blue-600 text-white hover:bg-blue-700"
-                }
-              `}
+              className="inline-flex items-center justify-center rounded-md bg-white px-4 py-2 text-sm font-medium text-black transition-colors hover:bg-neutral-200 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isConnecting ? "Submitting..." : "Submit"}
             </button>
