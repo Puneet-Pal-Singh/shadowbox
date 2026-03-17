@@ -42,7 +42,11 @@ export type ProviderAuthMode = z.infer<typeof ProviderAuthModeSchema>;
  */
 export const ProviderRegistryEntrySchema = z.object({
   /** Unique provider identifier (slug format: `openai`, `groq`, `anthropic`, etc.) */
-  providerId: z.string().min(1).max(64).regex(/^[a-z0-9-]+$/),
+  providerId: z
+    .string()
+    .min(1)
+    .max(64)
+    .regex(/^[a-z0-9-]+$/),
 
   /** Display name for UI */
   displayName: z.string().min(1).max(256),
@@ -92,9 +96,7 @@ export const ProviderRegistryEntrySchema = z.object({
   defaultModelId: z.string().optional(),
 });
 
-export type ProviderRegistryEntry = z.infer<
-  typeof ProviderRegistryEntrySchema
->;
+export type ProviderRegistryEntry = z.infer<typeof ProviderRegistryEntrySchema>;
 
 /**
  * ProviderRegistry - Catalog of all available providers
@@ -180,6 +182,30 @@ export const BUILTIN_PROVIDERS: Record<string, ProviderRegistryEntry> = {
       authMode: "bearer",
     },
     defaultModelId: "mixtral-8x7b-32768",
+  },
+
+  cerebras: {
+    providerId: "cerebras",
+    displayName: "Cerebras",
+    authModes: ["api_key"],
+    baseUrl: "https://api.cerebras.ai/v1",
+    keyFormat: {
+      prefix: "csk-",
+      description: "Cerebras API key (starts with csk-)",
+    },
+    capabilities: {
+      streaming: true,
+      tools: true,
+      jsonMode: true,
+      structuredOutputs: true,
+    },
+    adapterFamily: "openai-compatible",
+    modelSource: "remote",
+    modelsEndpoint: "https://api.cerebras.ai/v1/models",
+    validation: {
+      endpoint: "https://api.cerebras.ai/v1/models",
+      authMode: "bearer",
+    },
   },
 
   openrouter: {
