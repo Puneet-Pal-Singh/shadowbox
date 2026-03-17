@@ -222,24 +222,23 @@ export class ProviderVaultRepository {
   }
 
   /**
-   * List credentials for a workspace
+   * List all credentials for a user (user-global, not workspace-scoped).
    *
    * @param userId User ID
-   * @param workspaceId Workspace ID
    * @returns List of credential DTOs (no plaintext)
    */
-  async listByWorkspace(userId: string, workspaceId: string): Promise<BYOKCredentialDTO[]> {
+  async listByUser(userId: string): Promise<BYOKCredentialDTO[]> {
     const query = `
       SELECT
         credential_id, user_id, workspace_id, provider_id, label,
         key_fingerprint, status, last_validated_at, last_error_code,
         last_error_message, created_at, updated_at, deleted_at
       FROM byok_credentials
-      WHERE user_id = ? AND workspace_id = ? AND deleted_at IS NULL
+      WHERE user_id = ? AND deleted_at IS NULL
       ORDER BY created_at DESC
     `;
 
-    const stmt = this.db.prepare(query).bind(userId, workspaceId);
+    const stmt = this.db.prepare(query).bind(userId);
     const rows = await stmt.all<CredentialListRow>();
 
     return rows.results.map((row) => this.toDTO(row));

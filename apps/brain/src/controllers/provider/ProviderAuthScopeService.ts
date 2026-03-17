@@ -28,12 +28,20 @@ export interface AuthorizedProviderScope extends ProviderStoreScopeInput {
   workspaceId: string;
 }
 
+export interface AuthorizedCredentialScope {
+  runId: string;
+  userId: string;
+}
+
 interface SessionClaims {
   userId: string;
   workspaceIds: string[];
   defaultWorkspaceId: string;
 }
 
+/**
+ * Resolve scope for workspace-scoped operations (preferences, model defaults).
+ */
 export async function resolveAuthorizedProviderScope(
   request: Request,
   env: Env,
@@ -60,6 +68,37 @@ export async function resolveAuthorizedProviderScope(
 
   const workspaceId = resolveWorkspaceScope(request, claims, correlationId);
   return { runId, userId: claims.userId, workspaceId };
+}
+
+/**
+ * Resolve scope for credential operations (user-global, no workspace needed).
+ * API keys are user-scoped and work across all workspaces.
+ */
+export async function resolveAuthorizedCredentialScope(
+  request: Request,
+  env: Env,
+  correlationId: string,
+): Promise<AuthorizedCredentialScope> {
+  rejectLegacyQueryScope(request, correlationId);
+  const runId = parseRequiredRunId(request, correlationId);
+  const claims = await loadSessionClaims(request, env, correlationId);
+
+  const requestedUserId = parseOptionalScopeHeader(
+    request.headers.get("X-User-Id"),
+    "X-User-Id",
+    correlationId,
+  );
+  if (requestedUserId && requestedUserId !== claims.userId) {
+    throw new DomainError(
+      "AUTH_FAILED",
+      "Forbidden: requested user scope does not match authenticated user.",
+      403,
+      false,
+      correlationId,
+    );
+  }
+
+  return { runId, userId: claims.userId };
 }
 
 function rejectLegacyQueryScope(request: Request, correlationId: string): void {

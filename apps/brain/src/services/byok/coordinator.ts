@@ -2,10 +2,13 @@
  * Provider Vault Coordinator Durable Object
  *
  * Provides serialized mutation control for BYOK operations.
- * Ensures only one mutation per workspace happens at a time.
+ * Ensures only one mutation per user happens at a time.
  * Also handles cache invalidation and audit event emission.
  *
- * Key: `vault:{userId}:{workspaceId}`
+ * Key: `vault:{userId}`
+ *
+ * Credentials are user-scoped (not workspace-scoped) so the coordinator
+ * serializes by user identity only.
  */
 
 import { DurableObjectState } from "@cloudflare/workers-types";
@@ -51,7 +54,7 @@ interface PendingMutation {
  * ProviderVaultCoordinatorDO
  *
  * Durable Object for BYOK mutation coordination.
- * Serializes mutations by workspace to prevent race conditions.
+ * Serializes mutations by user to prevent race conditions.
  */
 export class ProviderVaultCoordinatorDO {
   private idempotencyMap: Map<string, IdempotencyKey> = new Map();

@@ -111,8 +111,8 @@ describe("ProviderVaultRepository", () => {
     });
   });
 
-  describe("listByWorkspace", () => {
-    it("lists credentials for workspace", async () => {
+  describe("listByUser", () => {
+    it("lists credentials for user", async () => {
       const mockPrepare = vi.fn().mockReturnValue({
         bind: vi.fn().mockReturnValue({
           all: vi.fn().mockResolvedValue({
@@ -153,7 +153,7 @@ describe("ProviderVaultRepository", () => {
         "v1",
       );
 
-      const list = await repository.listByWorkspace("user-123", "ws-123");
+      const list = await repository.listByUser("user-123");
 
       expect(list).toHaveLength(2);
       expect(list[0].credentialId).toBe("cred-1");
@@ -174,7 +174,7 @@ describe("ProviderVaultRepository", () => {
         "v1",
       );
 
-      const list = await repository.listByWorkspace("user-123", "ws-123");
+      const list = await repository.listByUser("user-123");
 
       expect(list).toHaveLength(0);
       // Verify the query includes WHERE deleted_at IS NULL

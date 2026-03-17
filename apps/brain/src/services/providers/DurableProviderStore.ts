@@ -143,7 +143,7 @@ export class DurableProviderStore {
   ): Promise<void> {
     await this.storeScopedCredential(providerId, apiKey, new Date().toISOString());
     console.log(
-      `[provider/durable] Stored encrypted credential for ${providerId} (scope=${this.scope.userId}/${this.scope.workspaceId})`,
+      `[provider/durable] Stored encrypted credential for ${providerId} (user=${this.scope.userId})`,
     );
   }
 
@@ -152,19 +152,20 @@ export class DurableProviderStore {
    * Returns null if not found.
    */
   async getProvider(providerId: ProviderId): Promise<ProviderCredential | null> {
-    const scopedData = await this.readScopedProviderRaw(providerId);
-    return await this.parseScopedCredential(
-      providerId,
-      scopedData,
-    );
+    const data = await this.readCredentialRaw(providerId);
+    const credential = await this.parseScopedCredential(providerId, data);
+    if (credential) {
+      return credential;
+    }
+    return this.migrateFromLegacyScope(providerId);
   }
 
-  private async readScopedProviderRaw(providerId: ProviderId): Promise<unknown> {
+  private async readCredentialRaw(providerId: ProviderId): Promise<unknown> {
     try {
-      return await this.state.storage?.get(this.getScopedKey(providerId));
+      return await this.state.storage?.get(this.getCredentialKey(providerId));
     } catch (error) {
       console.error(
-        `[provider/durable] Failed to read scoped credential for ${providerId}:`,
+        `[provider/durable] Failed to read credential for ${providerId}:`,
         error,
       );
       return undefined;
@@ -192,23 +193,42 @@ export class DurableProviderStore {
    * Delete a provider credential
    */
   async deleteProvider(providerId: ProviderId): Promise<void> {
-    await this.state.storage?.delete(this.getScopedKey(providerId));
+    await this.state.storage?.delete(this.getCredentialKey(providerId));
+    const legacyKey = `${this.getLegacyWorkspaceScopedPrefix()}${providerId}`;
+    await this.state.storage?.delete(legacyKey);
     console.log(`[provider/durable] Deleted credential for ${providerId}`);
   }
 
   /**
-   * Get all connected providers
+   * Get all connected providers (user-scoped).
+   * Also scans legacy workspace-scoped keys and migrates them.
    */
   async getAllProviders(): Promise<ProviderId[]> {
-    const scopedPrefix = this.getScopedPrefix();
-    const entries = await this.state.storage?.list({ prefix: scopedPrefix });
+    const credentialPrefix = this.getCredentialPrefix();
+    const entries = await this.state.storage?.list({ prefix: credentialPrefix });
 
     const providerIds = new Set<ProviderId>();
     for (const key of entries?.keys() ?? []) {
-      const providerId = key.substring(scopedPrefix.length);
-      const parseResult = ProviderIdSchema.safeParse(providerId);
+      const suffix = key.substring(credentialPrefix.length);
+      if (suffix.startsWith("pref:")) {
+        continue;
+      }
+      const parseResult = ProviderIdSchema.safeParse(suffix);
       if (parseResult.success) {
         providerIds.add(parseResult.data);
+      }
+    }
+
+    const legacyPrefix = this.getLegacyWorkspaceScopedPrefix();
+    const legacyEntries = await this.state.storage?.list({ prefix: legacyPrefix });
+    for (const key of legacyEntries?.keys() ?? []) {
+      const suffix = key.substring(legacyPrefix.length);
+      const parseResult = ProviderIdSchema.safeParse(suffix);
+      if (parseResult.success && !providerIds.has(parseResult.data)) {
+        const migrated = await this.migrateFromLegacyScope(parseResult.data);
+        if (migrated) {
+          providerIds.add(parseResult.data);
+        }
       }
     }
 
@@ -360,7 +380,9 @@ export class DurableProviderStore {
       );
     }
 
-    await this.deleteEntriesByPrefix(this.getScopedPrefix());
+    await this.deleteEntriesByPrefix(this.getCredentialPrefix());
+    await this.deleteEntriesByPrefix(this.getLegacyWorkspaceScopedPrefix());
+    await this.deleteEntriesByPrefix(this.getPreferencePrefix());
     await this.deleteEntriesByPrefix(this.getAuditPrefix());
     await this.deleteEntriesByPrefix(this.getModelCachePrefix());
     await this.deleteEntriesByPrefix(this.getAxisQuotaPrefix());
@@ -455,8 +477,27 @@ export class DurableProviderStore {
     }
   }
 
-  private getScopedPrefix(): string {
+  /**
+   * Credential prefix: user-scoped (no workspaceId).
+   * Keys are user-global so they work across all workspaces.
+   */
+  private getCredentialPrefix(): string {
+    return `${PROVIDER_STORE_V2_PREFIX}${sanitizeScopeSegment(this.scope.userId)}:`;
+  }
+
+  /**
+   * Legacy prefix that included workspaceId.
+   * Used only for migration reads from old-format entries.
+   */
+  private getLegacyWorkspaceScopedPrefix(): string {
     return `${PROVIDER_STORE_V2_PREFIX}${sanitizeScopeSegment(this.scope.userId)}:${sanitizeScopeSegment(this.scope.workspaceId)}:`;
+  }
+
+  /**
+   * Preference prefix: workspace-scoped (model defaults can differ per workspace).
+   */
+  private getPreferencePrefix(): string {
+    return `${PROVIDER_STORE_V2_PREFIX}${sanitizeScopeSegment(this.scope.userId)}:pref:${sanitizeScopeSegment(this.scope.workspaceId)}:`;
   }
 
   private async storeScopedCredential(
@@ -476,20 +517,20 @@ export class DurableProviderStore {
       keyFingerprint: createKeyFingerprint(apiKey),
       connectedAt,
       userId: this.scope.userId,
-      workspaceId: this.scope.workspaceId,
+      workspaceId: "global",
     };
     await this.state.storage?.put(
-      this.getScopedKey(providerId),
+      this.getCredentialKey(providerId),
       JSON.stringify(credential),
     );
   }
 
-  private getScopedKey(providerId: ProviderId): string {
-    return `${this.getScopedPrefix()}${providerId}`;
+  private getCredentialKey(providerId: ProviderId): string {
+    return `${this.getCredentialPrefix()}${providerId}`;
   }
 
   private getPreferencesKey(): string {
-    return `${this.getScopedPrefix()}${PROVIDER_PREFERENCES_SUFFIX}`;
+    return `${this.getPreferencePrefix()}${PROVIDER_PREFERENCES_SUFFIX}`;
   }
 
   private getAuditPrefix(): string {
@@ -514,6 +555,37 @@ export class DurableProviderStore {
 
   private getAxisQuotaPrefix(): string {
     return `${AXIS_QUOTA_PREFIX}${sanitizeScopeSegment(this.scope.userId)}:${sanitizeScopeSegment(this.scope.workspaceId)}:`;
+  }
+
+  /**
+   * Migrate a single credential from old workspace-scoped key to user-scoped key.
+   * Called lazily when a credential is not found under the new prefix.
+   */
+  private async migrateFromLegacyScope(
+    providerId: ProviderId,
+  ): Promise<ProviderCredential | null> {
+    const legacyKey = `${this.getLegacyWorkspaceScopedPrefix()}${providerId}`;
+    const legacyData = await this.state.storage?.get(legacyKey);
+    if (!legacyData || typeof legacyData !== "string") {
+      return null;
+    }
+
+    const credential = await this.parseScopedCredential(providerId, legacyData);
+    if (!credential) {
+      return null;
+    }
+
+    await this.storeScopedCredential(
+      providerId,
+      credential.apiKey,
+      credential.connectedAt,
+    );
+    await this.state.storage?.delete(legacyKey);
+    console.log(
+      `[provider/durable] Migrated credential for ${providerId} from workspace-scoped to user-scoped`,
+    );
+
+    return credential;
   }
 
   private getAuditEventKey(): string {

@@ -123,6 +123,30 @@ ADD COLUMN visible_model_ids_json TEXT DEFAULT '{}'
 `;
 
 /**
+ * D1 Migration: Move credential indexes from workspace-scoped to user-scoped.
+ *
+ * Credentials are user-global: the same API key works across all workspaces.
+ * Old indexes used (user_id, workspace_id, provider_id) composite keys.
+ * New indexes scope by (user_id, provider_id) only.
+ * The workspace_id column is retained for audit trail but is no longer part
+ * of uniqueness constraints.
+ */
+export const USER_SCOPED_CREDENTIAL_INDEXES_SCHEMA = `
+DROP INDEX IF EXISTS uq_byok_cred_scope_label;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_byok_cred_user_provider_label
+  ON byok_credentials(user_id, provider_id, label)
+  WHERE deleted_at IS NULL;
+
+DROP INDEX IF EXISTS ix_byok_cred_scope_provider;
+CREATE INDEX IF NOT EXISTS ix_byok_cred_user_provider
+  ON byok_credentials(user_id, provider_id);
+
+DROP INDEX IF EXISTS ix_byok_cred_scope_status;
+CREATE INDEX IF NOT EXISTS ix_byok_cred_user_status
+  ON byok_credentials(user_id, status);
+`;
+
+/**
  * All migrations to run on D1 initialization
  */
 export const ALL_BYOK_MIGRATIONS = [
@@ -131,4 +155,5 @@ export const ALL_BYOK_MIGRATIONS = [
   BYOK_AUDIT_EVENTS_SCHEMA,
   PROVIDER_REGISTRY_CACHE_SCHEMA,
   ADD_VISIBLE_MODEL_IDS_TO_PREFERENCES_SCHEMA,
+  USER_SCOPED_CREDENTIAL_INDEXES_SCHEMA,
 ];

@@ -1,8 +1,11 @@
 /**
  * Provider scope helpers.
  *
- * Single Responsibility: Normalize provider credential scope values for
- * storage key generation and migration compatibility.
+ * Single Responsibility: Normalize provider scope values for
+ * storage key generation.
+ *
+ * Credentials are user-scoped (same key works across all workspaces).
+ * Preferences are workspace-scoped (model defaults can differ per workspace).
  */
 
 import type { ProviderStoreScopeInput } from "../../types/provider-scope";

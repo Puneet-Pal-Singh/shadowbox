@@ -52,7 +52,7 @@ describe("DurableProviderStore", () => {
 
     const apiKey = await store.getApiKey(providerId);
     expect(apiKey).toBeNull();
-    expect(storage.get("provider:v2:user-1:workspace-1:groq")).toBeUndefined();
+    expect(storage.get("provider:v2:user-1:groq")).toBeUndefined();
     expect(storage.has(`provider:${runId}:${providerId}`)).toBe(true);
   });
 
@@ -148,18 +148,13 @@ describe("DurableProviderStore", () => {
 
   it("does not include legacy run-scoped records in provider list", async () => {
     const { state, storage } = createMockDurableState();
-    storage.set(
-      "provider:v2:user-1:workspace-1:openai",
-      JSON.stringify({
-        version: "v2",
-        providerId: "openai",
-        encryptedApiKey: { encrypted: "x", nonce: "n" },
-        keyFingerprint: "sk-****7890",
-        connectedAt: "2026-02-20T00:00:00.000Z",
-        userId: "user-1",
-        workspaceId: "workspace-1",
-      }),
+    const setupStore = new DurableProviderStore(
+      state,
+      { runId: "run-dedupe", userId: "user-1", workspaceId: "workspace-1" },
+      "test-encryption-key",
     );
+    await setupStore.setProvider("openai", "sk-test-dedupe-key-1234567890");
+
     storage.set(
       "provider:run-dedupe:openai",
       JSON.stringify({
@@ -199,7 +194,35 @@ describe("DurableProviderStore", () => {
     await store.setProvider("openai", "sk_scoped_key_1234567890");
     await store.deleteProvider("openai");
 
-    expect(storage.get("provider:v2:user-1:workspace-1:openai")).toBeUndefined();
+    expect(storage.get("provider:v2:user-1:openai")).toBeUndefined();
+  });
+
+  it("migrates legacy workspace-scoped credentials to user-scoped on read", async () => {
+    const { state, storage } = createMockDurableState();
+    const scope = {
+      runId: "run-migrate",
+      userId: "user-1",
+      workspaceId: "workspace-1",
+    };
+
+    const legacyStore = new DurableProviderStore(state, scope, "test-encryption-key");
+    await legacyStore.setProvider("cerebras", "sk-cerebras-key-1234567890");
+
+    const userScopedData = storage.get("provider:v2:user-1:cerebras");
+    expect(userScopedData).toBeDefined();
+
+    storage.set(
+      "provider:v2:user-1:workspace-1:cerebras",
+      userScopedData!,
+    );
+    storage.delete("provider:v2:user-1:cerebras");
+
+    const newStore = new DurableProviderStore(state, scope, "test-encryption-key");
+    const apiKey = await newStore.getApiKey("cerebras");
+    expect(apiKey).toBe("sk-cerebras-key-1234567890");
+
+    expect(storage.has("provider:v2:user-1:cerebras")).toBe(true);
+    expect(storage.has("provider:v2:user-1:workspace-1:cerebras")).toBe(false);
   });
 
   it("decrypts with previous key version and re-encrypts to current key", async () => {
@@ -223,7 +246,7 @@ describe("DurableProviderStore", () => {
       "sk_rotation_key_1234567890",
     );
 
-    const raw = storage.get("provider:v2:user-1:workspace-1:openai");
+    const raw = storage.get("provider:v2:user-1:openai");
     expect(raw).toBeDefined();
     const parsed = JSON.parse(raw ?? "{}") as { keyVersion?: string };
     expect(parsed.keyVersion).toBe("v2");
