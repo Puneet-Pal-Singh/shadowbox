@@ -4,12 +4,16 @@ import type {
   DurableObjectNamespace,
   Fetcher,
   KVNamespace,
+  D1Database,
 } from "@cloudflare/workers-types";
 
 export interface Env {
   // Existing bindings
   AI: Ai;
   SECURE_API: Fetcher;
+
+  // ✅ D1 Database for BYOK (Plan 81)
+  BYOK_DB: D1Database;
 
   // ✅ New Keys required for Vercel AI SDK
   GOOGLE_GENERATIVE_AI_API_KEY?: string;
