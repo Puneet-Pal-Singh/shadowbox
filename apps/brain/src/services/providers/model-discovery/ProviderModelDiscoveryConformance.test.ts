@@ -3,7 +3,7 @@ import {
   BYOKDiscoveredProviderModelsResponseSchema,
   type ProviderId,
 } from "@repo/shared-types";
-import type { DurableProviderStore } from "../DurableProviderStore";
+import type { ProviderModelCacheStore } from "../stores/ProviderModelCacheStore";
 import type { ProviderCredentialService } from "../ProviderCredentialService";
 import type { ProviderModelCatalogPort } from "./ProviderModelCatalogPort";
 import { ProviderModelDiscoveryService } from "./ProviderModelDiscoveryService";
@@ -32,8 +32,16 @@ function createStoreStub() {
 function createAdapter(providerId: ProviderId): ProviderModelCatalogPort {
   return {
     fetchAll: vi.fn(async () => [
-      { id: `${providerId}/model-1`, name: `${providerId} model 1`, providerId },
-      { id: `${providerId}/model-2`, name: `${providerId} model 2`, providerId },
+      {
+        id: `${providerId}/model-1`,
+        name: `${providerId} model 1`,
+        providerId,
+      },
+      {
+        id: `${providerId}/model-2`,
+        name: `${providerId} model 2`,
+        providerId,
+      },
     ]),
     fetchPage: vi.fn(),
   };
@@ -46,7 +54,7 @@ describe("ProviderModelDiscovery Conformance", () => {
       getApiKey: vi.fn(async () => "api-key"),
     } as unknown as ProviderCredentialService;
     const service = new ProviderModelDiscoveryService(
-      store as unknown as DurableProviderStore,
+      store as unknown as ProviderModelCacheStore,
       credentialService,
       {
         openrouter: createAdapter("openrouter"),
@@ -59,8 +67,12 @@ describe("ProviderModelDiscovery Conformance", () => {
       service.getDiscoveredModels("google", { view: "all", limit: 2 }),
     ]);
 
-    expect(BYOKDiscoveredProviderModelsResponseSchema.parse(openrouter)).toBeDefined();
-    expect(BYOKDiscoveredProviderModelsResponseSchema.parse(google)).toBeDefined();
+    expect(
+      BYOKDiscoveredProviderModelsResponseSchema.parse(openrouter),
+    ).toBeDefined();
+    expect(
+      BYOKDiscoveredProviderModelsResponseSchema.parse(google),
+    ).toBeDefined();
     expect(Object.keys(openrouter.page).sort()).toEqual(
       Object.keys(google.page).sort(),
     );
@@ -75,7 +87,7 @@ describe("ProviderModelDiscovery Conformance", () => {
       getApiKey: vi.fn(async () => null),
     } as unknown as ProviderCredentialService;
     const service = new ProviderModelDiscoveryService(
-      store as unknown as DurableProviderStore,
+      store as unknown as ProviderModelCacheStore,
       credentialService,
       { openrouter: createAdapter("openrouter") },
     );
@@ -95,7 +107,7 @@ describe("ProviderModelDiscovery Conformance", () => {
       getApiKey: vi.fn(async () => "api-key"),
     } as unknown as ProviderCredentialService;
     const service = new ProviderModelDiscoveryService(
-      store as unknown as DurableProviderStore,
+      store as unknown as ProviderModelCacheStore,
       credentialService,
       { openrouter: createAdapter("openrouter") },
     );
@@ -114,7 +126,7 @@ describe("ProviderModelDiscovery Conformance", () => {
       getApiKey: vi.fn(async () => "api-key"),
     } as unknown as ProviderCredentialService;
     const service = new ProviderModelDiscoveryService(
-      store as unknown as DurableProviderStore,
+      store as unknown as ProviderModelCacheStore,
       credentialService,
       { openrouter: createAdapter("openrouter") },
     );
