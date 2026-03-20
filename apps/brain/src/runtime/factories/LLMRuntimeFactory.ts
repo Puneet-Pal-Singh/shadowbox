@@ -5,7 +5,6 @@
  * Encapsulates provider validation, AI service setup, and LLM gateway construction.
  */
 
-import type { DurableObjectState as LegacyDurableObjectState } from "@cloudflare/workers-types";
 import type { Env } from "../../types/ai";
 import { AIService } from "../../services/AIService";
 import {
@@ -13,8 +12,13 @@ import {
   ProviderRegistryService,
 } from "../../services/providers";
 import { ProviderValidationService } from "../../services/ProviderValidationService";
-import { DurableProviderStore } from "../../services/providers/DurableProviderStore";
 import { readByokEncryptionKey } from "../../services/providers/provider-encryption-key";
+import {
+  createD1Stores,
+  getEncryptionConfig,
+} from "../../services/providers/stores/D1StoreFactory";
+import { D1AuditService } from "../../services/providers/D1AuditService";
+import { D1AxisQuotaService } from "../../services/providers/D1AxisQuotaService";
 import type { ProviderStoreScopeInput } from "../../types/provider-scope";
 import {
   logErrorRateLimited,
@@ -34,7 +38,8 @@ import { LLMGateway as LLMGatewayImpl } from "@shadowbox/execution-engine/runtim
 /**
  * Build LLM gateway and AI service for runtime execution.
  *
- * @param ctx - Durable Object state context
+ * Uses D1-backed stores for provider configuration.
+ *
  * @param env - Cloudflare environment
  * @param providerScope - Scope for provider credential store keying
  * @param budgetingComponents - Pre-built pricing/budgeting components from BudgetingFactory
@@ -42,7 +47,6 @@ import { LLMGateway as LLMGatewayImpl } from "@shadowbox/execution-engine/runtim
  * @throws Error if provider validation fails
  */
 export function buildLLMGateway(
-  ctx: unknown,
   env: Env,
   providerScope: ProviderStoreScopeInput,
   activeProviderId: string | undefined,
@@ -57,50 +61,19 @@ export function buildLLMGateway(
   llmRuntimeService: LLMRuntimeAIService;
   llmGateway: LLMGateway;
 } {
-  // Preflight validation: fail fast with actionable errors
-  const validationResult = ProviderValidationService.validate(env, {
-    activeProviderId,
-  });
-  if (!validationResult.valid) {
-    const errorMessage =
-      ProviderValidationService.formatErrors(validationResult);
-    logErrorRateLimited(
-      "runtime/llm-factory:provider-validation-failed",
-      "[runtime/llm-factory] Provider validation failed:\n" + errorMessage,
-      undefined,
-      30_000,
-    );
+  const userId = providerScope.userId;
+  const workspaceId = providerScope.workspaceId;
+
+  if (!userId || !workspaceId) {
     throw new Error(
-      "Provider configuration validation failed. Check logs for details.",
+      `Invalid provider scope: userId="${userId}", workspaceId="${workspaceId}". Both are required.`,
     );
   }
 
-  // Log warnings (optional, non-blocking)
-  if (validationResult.warnings.length > 0) {
-    logWarnRateLimited(
-      `runtime/llm-factory:provider-warnings:${validationResult.warnings
-        .map((w) => w.code)
-        .sort()
-        .join(",")}`,
-      "[runtime/llm-factory] Provider warnings:\n" +
-        validationResult.warnings
-          .map((w) => `⚠ [${w.code}] ${w.message}`)
-          .join("\n"),
-      undefined,
-      5 * 60_000,
-    );
-  }
-
-  // Create durable provider store scoped to runId for cross-isolate state persistence
-  const durableProviderStore = new DurableProviderStore(
-    ctx as unknown as LegacyDurableObjectState,
-    providerScope,
-    resolveProviderEncryptionKey(env),
-  );
-
-  const providerConfigService = new ProviderConfigService(
+  const providerConfigService = createProviderConfigService(
     env,
-    durableProviderStore,
+    userId,
+    workspaceId,
   );
   const providerRegistryService = new ProviderRegistryService();
   const aiService = new AIService(env, providerConfigService);
@@ -113,7 +86,6 @@ export function buildLLMGateway(
     createChatStream: (input) => aiService.createChatStream(input),
   };
 
-  // Use pre-built budgeting components to ensure unified cost tracking
   const llmGateway = new LLMGatewayImpl({
     aiService: llmRuntimeService,
     budgetPolicy: budgetingComponents.budgetManager,
@@ -136,12 +108,39 @@ export function buildLLMGateway(
   return { llmRuntimeService, llmGateway };
 }
 
-function resolveProviderEncryptionKey(env: Env): string {
-  const key = readByokEncryptionKey(env);
-  if (!key) {
-    throw new Error(
-      "Missing dedicated BYOK credential encryption key (BYOK_CREDENTIAL_ENCRYPTION_KEY)",
-    );
+function createProviderConfigService(
+  env: Env,
+  userId: string,
+  workspaceId: string,
+): ProviderConfigService {
+  const db = env.BYOK_DB;
+  if (!db) {
+    throw new Error("BYOK_DB D1 binding is required");
   }
-  return key;
+
+  const encryptionConfig = getEncryptionConfig(
+    env as unknown as Record<string, unknown>,
+  );
+
+  const stores = createD1Stores(db, {
+    userId,
+    workspaceId,
+    masterKey: encryptionConfig.masterKey,
+    keyVersion: encryptionConfig.keyVersion,
+    previousKeyVersion: encryptionConfig.previousKeyVersion,
+  });
+
+  const auditLog = new D1AuditService(db, userId, workspaceId);
+  const quotaStore = new D1AxisQuotaService(db, userId, workspaceId);
+
+  return new ProviderConfigService({
+    env,
+    userId,
+    workspaceId,
+    credentialStore: stores.credentialStore,
+    preferenceStore: stores.preferenceStore,
+    modelCacheStore: stores.modelCacheStore,
+    auditLog,
+    quotaStore,
+  });
 }

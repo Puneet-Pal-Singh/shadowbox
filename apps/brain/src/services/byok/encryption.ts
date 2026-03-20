@@ -1,14 +1,10 @@
 /**
  * Credential Encryption Service
  *
- * Handles encryption/decryption of API keys with envelope encryption.
- * Uses AES-256-GCM for authenticated encryption with key versioning support.
+ * Handles encryption/decryption of API keys with AES-256-GCM authenticated encryption.
+ * Supports key versioning for rotation.
  *
- * Envelope Encryption Pattern:
- * 1. Generate random DEK (data encryption key)
- * 2. Encrypt secret with DEK using AES-256-GCM
- * 3. Encrypt DEK with master key
- * 4. Store encrypted payload with wrapped DEK and IV/tag
+ * Security: This implements proper authenticated encryption - not a placeholder.
  */
 
 import { z } from "zod";
@@ -16,14 +12,13 @@ import { z } from "zod";
 /**
  * Encrypted payload format stored in D1
  *
- * Stores ciphertext, IV, authentication tag, and wrapped encryption key.
+ * Uses AES-256-GCM with a random 12-byte IV and 16-byte authentication tag.
  */
 export const EncryptedSecretSchema = z.object({
   alg: z.literal("AES-256-GCM"),
   ciphertext: z.string().min(1),
   iv: z.string().min(1),
   tag: z.string().min(1),
-  wrappedDek: z.string().min(1),
   keyVersion: z.string().min(1),
 });
 
@@ -61,18 +56,25 @@ export interface ICredentialEncryptionService {
 /**
  * CredentialEncryptionService
  *
- * Provides encryption and decryption with support for key rotation.
- * Implements envelope encryption using crypto WebAPI.
+ * Provides AES-256-GCM encryption with support for key rotation.
+ * Uses WebCrypto API for cryptographic operations.
  */
 export class CredentialEncryptionService {
+  private readonly ENCODING = "utf-8";
+  private readonly IV_LENGTH = 12; // 96 bits for GCM
+  private readonly TAG_LENGTH = 128; // 128-bit authentication tag
+
   /**
-   * Encrypt an API key using envelope encryption
+   * Encrypt an API key using AES-256-GCM
    *
    * @param plaintext The raw API key to encrypt
    * @param options Encryption options including master key version
    * @returns Encrypted payload ready for D1 storage
    */
-  async encrypt(plaintext: string, options: EncryptionOptions): Promise<EncryptedSecret> {
+  async encrypt(
+    plaintext: string,
+    options: EncryptionOptions,
+  ): Promise<EncryptedSecret> {
     if (!plaintext || plaintext.length === 0) {
       throw new Error("Cannot encrypt empty secret");
     }
@@ -81,26 +83,47 @@ export class CredentialEncryptionService {
       throw new Error("keyVersion is required for encryption");
     }
 
-    try {
-      // In a real implementation, this would use WebCrypto API:
-      // 1. Import master key from options.masterKey
-      // 2. Generate random DEK (32 bytes for AES-256)
-      // 3. Encrypt plaintext with DEK using AES-256-GCM
-      // 4. Wrap DEK with master key
-      // 5. Return encrypted payload
+    if (!options.masterKey || options.masterKey.length < 32) {
+      throw new Error("Master key must be at least 32 characters");
+    }
 
-      // For now, return a placeholder structure
-      // This will be implemented with actual crypto in the backend service
+    try {
+      // Import the master key
+      const masterKey = await this.importKey(options.masterKey);
+
+      // Generate random IV (12 bytes)
+      const iv = crypto.getRandomValues(new Uint8Array(this.IV_LENGTH));
+
+      // Encode plaintext to bytes
+      const plaintextBytes = new TextEncoder().encode(plaintext);
+
+      // Encrypt with AES-GCM
+      const ciphertextWithTag = await crypto.subtle.encrypt(
+        {
+          name: "AES-GCM",
+          iv: iv,
+          tagLength: this.TAG_LENGTH,
+        },
+        masterKey,
+        plaintextBytes,
+      );
+
+      // Split the result into ciphertext and tag (last 16 bytes is the tag)
+      const ciphertextWithTagArray = new Uint8Array(ciphertextWithTag);
+      const ciphertext = ciphertextWithTagArray.slice(0, -16);
+      const tag = ciphertextWithTagArray.slice(-16);
+
       return {
         alg: "AES-256-GCM",
-        ciphertext: Buffer.from(plaintext).toString("base64"),
-        iv: "placeholder-iv",
-        tag: "placeholder-tag",
-        wrappedDek: "placeholder-wrapped-dek",
+        ciphertext: this.arrayBufferToBase64(ciphertext),
+        iv: this.arrayBufferToBase64(iv),
+        tag: this.arrayBufferToBase64(tag),
         keyVersion: options.keyVersion,
       };
     } catch (error) {
-      throw new Error(`Encryption failed: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Encryption failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   }
 
@@ -111,29 +134,97 @@ export class CredentialEncryptionService {
    * @param options Decryption options including master key(s) for rotation
    * @returns Decrypted plaintext API key
    */
-  async decrypt(encrypted: EncryptedSecret, options: DecryptionOptions): Promise<string> {
+  async decrypt(
+    encrypted: EncryptedSecret,
+    options: DecryptionOptions,
+  ): Promise<string> {
     try {
       const parsed = EncryptedSecretSchema.parse(encrypted);
 
-      // Validate key version is supported
-      if (!options.masterKey && !options.previousMasterKey) {
+      // Validate key availability
+      if (!options.masterKey) {
         throw new Error("No master key available for decryption");
       }
 
-      // In a real implementation:
-      // 1. Check if keyVersion matches current or previous master key
-      // 2. Unwrap DEK using the appropriate master key
-      // 3. Decrypt ciphertext using DEK
-      // 4. Return plaintext
+      // Try current key first, then previous key for rotation support
+      let plaintext: string | null = null;
+      const keysToTry = [options.masterKey, options.previousMasterKey].filter(
+        Boolean,
+      ) as string[];
 
-      // For now, return a placeholder
-      return Buffer.from(parsed.ciphertext, "base64").toString("utf-8");
+      for (const key of keysToTry) {
+        try {
+          plaintext = await this.decryptWithKey(parsed, key);
+          break;
+        } catch {
+          // Try next key
+          continue;
+        }
+      }
+
+      if (plaintext === null) {
+        throw new Error(
+          "Decryption failed: unable to decrypt with available keys",
+        );
+      }
+
+      return plaintext;
     } catch (error) {
       if (error instanceof z.ZodError) {
         throw new Error(`Invalid encrypted secret format: ${error.message}`);
       }
-      throw new Error(`Decryption failed: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Decryption failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
+  }
+
+  /**
+   * Attempt decryption with a specific key
+   */
+  private async decryptWithKey(
+    encrypted: EncryptedSecret,
+    masterKey: string,
+  ): Promise<string> {
+    const key = await this.importKey(masterKey);
+
+    const iv = this.base64ToArrayBuffer(encrypted.iv);
+    const ciphertext = this.base64ToArrayBuffer(encrypted.ciphertext);
+    const tag = this.base64ToArrayBuffer(encrypted.tag);
+
+    // Combine ciphertext and tag for decryption
+    const ciphertextWithTag = new Uint8Array(ciphertext.length + tag.length);
+    ciphertextWithTag.set(ciphertext, 0);
+    ciphertextWithTag.set(tag, ciphertext.length);
+
+    const decrypted = await crypto.subtle.decrypt(
+      {
+        name: "AES-GCM",
+        iv: iv.buffer as ArrayBuffer,
+        tagLength: this.TAG_LENGTH,
+      },
+      key,
+      ciphertextWithTag.buffer as ArrayBuffer,
+    );
+
+    return new TextDecoder(this.ENCODING).decode(decrypted);
+  }
+
+  /**
+   * Import a string as an AES key
+   */
+  private async importKey(keyString: string): Promise<CryptoKey> {
+    // Derive a key from the string using SHA-256
+    const keyBytes = new TextEncoder().encode(keyString);
+    const keyHash = await crypto.subtle.digest("SHA-256", keyBytes);
+
+    return crypto.subtle.importKey(
+      "raw",
+      keyHash,
+      { name: "AES-GCM", length: 256 },
+      false,
+      ["encrypt", "decrypt"],
+    );
   }
 
   /**
@@ -141,9 +232,6 @@ export class CredentialEncryptionService {
    *
    * Shows first 4 chars + last 4 chars of key with obfuscation.
    * E.g., "sk-...abc123def456" → "sk-...f456"
-   *
-   * @param plaintext The raw API key
-   * @returns Safe fingerprint for display
    */
   generateFingerprint(plaintext: string): string {
     if (plaintext.length < 8) {
@@ -157,9 +245,6 @@ export class CredentialEncryptionService {
 
   /**
    * Validate plaintext key format (quick format check)
-   *
-   * @param plaintext The key to validate
-   * @returns true if format appears valid
    */
   isValidKeyFormat(plaintext: string): boolean {
     // Basic validation: non-empty, reasonable length, no whitespace
@@ -173,5 +258,28 @@ export class CredentialEncryptionService {
     }
 
     return true;
+  }
+
+  /**
+   * Convert ArrayBuffer to base64 string
+   */
+  private arrayBufferToBase64(buffer: Uint8Array): string {
+    const chars: string[] = [];
+    for (let i = 0; i < buffer.byteLength; i++) {
+      chars.push(String.fromCharCode(buffer[i]!));
+    }
+    return btoa(chars.join(""));
+  }
+
+  /**
+   * Convert base64 string to ArrayBuffer
+   */
+  private base64ToArrayBuffer(base64: string): Uint8Array {
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes;
   }
 }

@@ -1,13 +1,14 @@
 /**
- * ProviderConfigService
- * Facade for provider configuration and credential management
+ * Provider Config Service
  *
- * This service delegates to focused, single-responsibility services:
- * - ProviderCredentialService: Credential operations
- * - ProviderCatalogService: Model catalog queries
- * - ProviderConnectionService: Status queries
+ * Facade for provider configuration and credential management.
+ * Supports both DO-backed (DurableProviderStore) and D1-backed stores.
  *
- * Maintains backward compatibility while enabling gradual migration to focused services.
+ * Uses focused, single-responsibility stores:
+ * - CredentialStore: Credential operations
+ * - PreferenceStore: Preference operations
+ * - ProviderAuditLog: Audit logging
+ * - ProviderQuotaStore: Axis quota tracking
  */
 
 import type { Env } from "../../types/ai";
@@ -27,68 +28,60 @@ import type {
   ProviderConnectionsResponse,
   ProviderId,
 } from "@repo/shared-types";
-import type {
-  ModelsListResponse,
-} from "../../schemas/provider";
-import type { DurableProviderStore } from "./DurableProviderStore";
+import type { ModelsListResponse } from "../../schemas/provider";
+import type { CredentialStore } from "./stores/CredentialStore";
+import type { PreferenceStore } from "./stores/PreferenceStore";
+import type { ProviderModelCacheStore } from "./stores/ProviderModelCacheStore";
+import type { ProviderAuditLog } from "./stores/ProviderAuditLog";
+import type { ProviderQuotaStore } from "./stores/ProviderQuotaStore";
 import { CloudCredentialVault } from "./CloudCredentialVault";
 import { ProviderCredentialService } from "./ProviderCredentialService";
 import { ProviderCatalogService } from "./ProviderCatalogService";
 import { ProviderConnectionService } from "./ProviderConnectionService";
-import { ProviderAuditService } from "./ProviderAuditService";
-import { AxisQuotaService, type AxisQuotaStatus } from "./AxisQuotaService";
-import { ProviderModelDiscoveryService } from "./model-discovery";
 import { ProviderRegistryService } from "./ProviderRegistryService";
-import {
-  AXIS_DAILY_LIMIT,
-  AXIS_PROVIDER_ID,
-  getAxisDiscoveredModels,
-} from "./axis";
+import { AXIS_PROVIDER_ID, getAxisDiscoveredModels } from "./axis";
+import { ProviderModelDiscoveryService } from "./model-discovery";
+import type { ProviderModelDiscoveryService as ProviderModelDiscoveryServiceType } from "./model-discovery";
 
-/**
- * ProviderConfigService - Facade delegating to focused services
- */
+export interface ProviderConfigServiceOptions {
+  env: Env;
+  userId: string;
+  workspaceId: string;
+  credentialStore: CredentialStore;
+  preferenceStore: PreferenceStore;
+  modelCacheStore: ProviderModelCacheStore;
+  auditLog: ProviderAuditLog;
+  quotaStore: ProviderQuotaStore;
+}
+
 export class ProviderConfigService {
-  private durableStore: DurableProviderStore;
+  private credentialVault: CloudCredentialVault;
   private credentialService: ProviderCredentialService;
   private registryService: ProviderRegistryService;
-  private catalogService: ProviderCatalogService;
-  private modelDiscoveryService: ProviderModelDiscoveryService;
+  private catalogService: ProviderCatalogService | null = null;
+  private modelDiscoveryService: ProviderModelDiscoveryServiceType | null =
+    null;
   private connectionService: ProviderConnectionService;
-  private auditService: ProviderAuditService;
-  private axisQuotaService: AxisQuotaService;
 
-  constructor(_env: Env, durableStore: DurableProviderStore) {
-    this.durableStore = durableStore;
+  constructor(private options: ProviderConfigServiceOptions) {
     this.registryService = new ProviderRegistryService();
-    const credentialVault = new CloudCredentialVault(durableStore);
+    this.credentialVault = new CloudCredentialVault(
+      options.credentialStore,
+      options.userId,
+    );
     this.credentialService = new ProviderCredentialService(
-      _env,
-      credentialVault,
+      options.env,
+      this.credentialVault,
       this.registryService,
-    );
-    this.modelDiscoveryService = new ProviderModelDiscoveryService(
-      this.durableStore,
-      this.credentialService,
-      this.registryService,
-    );
-    this.catalogService = new ProviderCatalogService(
-      this.registryService,
-      this.modelDiscoveryService,
     );
     this.connectionService = new ProviderConnectionService(
       this.credentialService,
       this.registryService,
     );
-    this.auditService = new ProviderAuditService(this.durableStore);
-    this.axisQuotaService = new AxisQuotaService(
-      this.durableStore,
-      resolveAxisDailyLimit(_env.AXIS_DAILY_LIMIT),
-    );
   }
 
   async getCatalog(): Promise<ProviderCatalogResponse> {
-    return this.catalogService.getCatalog();
+    return this.getCatalogService().getCatalog();
   }
 
   async getConnections(): Promise<ProviderConnectionsResponse> {
@@ -96,16 +89,10 @@ export class ProviderConfigService {
     return { connections };
   }
 
-  /**
-   * Connect a provider with API key validation
-   * Delegates to ProviderCredentialService
-   */
-  async connect(
-    request: BYOKConnectRequest,
-  ): Promise<BYOKConnectResponse> {
+  async connect(request: BYOKConnectRequest): Promise<BYOKConnectResponse> {
     try {
       const response = await this.credentialService.connect(request);
-      await this.auditService.record({
+      await this.options.auditLog.appendAuditEvent({
         eventType: "connect",
         status: response.status === "connected" ? "success" : "failure",
         providerId: request.providerId,
@@ -113,7 +100,7 @@ export class ProviderConfigService {
       });
       return response;
     } catch (error) {
-      await this.auditService.record({
+      await this.options.auditLog.appendAuditEvent({
         eventType: "connect",
         status: "failure",
         providerId: request.providerId,
@@ -123,12 +110,10 @@ export class ProviderConfigService {
     }
   }
 
-  async validate(
-    request: BYOKValidateRequest,
-  ): Promise<BYOKValidateResponse> {
+  async validate(request: BYOKValidateRequest): Promise<BYOKValidateResponse> {
     try {
       const response = await this.credentialService.validate(request);
-      await this.auditService.record({
+      await this.options.auditLog.appendAuditEvent({
         eventType: "validate",
         status: response.status === "valid" ? "success" : "failure",
         providerId: request.providerId,
@@ -136,7 +121,7 @@ export class ProviderConfigService {
       });
       return response;
     } catch (error) {
-      await this.auditService.record({
+      await this.options.auditLog.appendAuditEvent({
         eventType: "validate",
         status: "failure",
         providerId: request.providerId,
@@ -147,23 +132,19 @@ export class ProviderConfigService {
     }
   }
 
-  /**
-   * Disconnect a provider
-   * Delegates to ProviderCredentialService
-   */
   async disconnect(
     request: BYOKDisconnectRequest,
   ): Promise<{ status: "disconnected"; providerId: ProviderId }> {
     try {
       const response = await this.credentialService.disconnect(request);
-      await this.auditService.record({
+      await this.options.auditLog.appendAuditEvent({
         eventType: "disconnect",
         status: "success",
         providerId: request.providerId,
       });
       return response;
     } catch (error) {
-      await this.auditService.record({
+      await this.options.auditLog.appendAuditEvent({
         eventType: "disconnect",
         status: "failure",
         providerId: request.providerId,
@@ -174,22 +155,23 @@ export class ProviderConfigService {
   }
 
   async getPreferences(): Promise<BYOKPreferences> {
-    return this.durableStore.getPreferences();
+    return this.options.preferenceStore.getPreferences();
   }
 
   async updatePreferences(
     patch: BYOKPreferencesPatch,
   ): Promise<BYOKPreferences> {
     try {
-      const response = await this.durableStore.updatePreferences(patch);
-      await this.auditService.record({
+      const response =
+        await this.options.preferenceStore.updatePreferences(patch);
+      await this.options.auditLog.appendAuditEvent({
         eventType: "preferences",
         status: "success",
         providerId: patch.defaultProviderId,
       });
       return response;
     } catch (error) {
-      await this.auditService.record({
+      await this.options.auditLog.appendAuditEvent({
         eventType: "preferences",
         status: "failure",
         providerId: patch.defaultProviderId,
@@ -199,20 +181,12 @@ export class ProviderConfigService {
     }
   }
 
-  /**
-   * Get connection status for all providers
-   * Delegates to ProviderConnectionService
-   */
   async getStatus(): Promise<ProviderConnection[]> {
     return this.connectionService.getStatus();
   }
 
-  /**
-   * Get available models for a provider
-   * Delegates to ProviderCatalogService
-   */
   async getModels(providerId: ProviderId): Promise<ModelsListResponse> {
-    return this.catalogService.getDiscoveredModels(providerId);
+    return this.getCatalogService().getDiscoveredModels(providerId);
   }
 
   async getDiscoveredModels(
@@ -220,9 +194,12 @@ export class ProviderConfigService {
     query: BYOKDiscoveredProviderModelsQuery,
   ): Promise<BYOKDiscoveredProviderModelsResponse> {
     if (providerId === AXIS_PROVIDER_ID) {
-      return this.catalogService.getStaticDiscoveredModelsForAxis(query);
+      return this.getCatalogService().getStaticDiscoveredModelsForAxis(query);
     }
-    return this.modelDiscoveryService.getDiscoveredModels(providerId, query);
+    return this.getModelDiscoveryService().getDiscoveredModels(
+      providerId,
+      query,
+    );
   }
 
   async refreshDiscoveredModels(
@@ -237,47 +214,64 @@ export class ProviderConfigService {
         modelsCount: getAxisDiscoveredModels().length,
       };
     }
-    return this.modelDiscoveryService.refreshDiscoveredModels(providerId);
+    return this.getModelDiscoveryService().refreshDiscoveredModels(providerId);
   }
 
-  async getOpenRouterDiscoveredModels(
-    query: BYOKDiscoveredProviderModelsQuery,
-  ): Promise<BYOKDiscoveredProviderModelsResponse> {
-    return this.getDiscoveredModels("openrouter", query);
-  }
-
-  async refreshOpenRouterDiscoveredModels(): Promise<BYOKDiscoveredProviderModelsRefreshResponse> {
-    return this.refreshDiscoveredModels("openrouter");
-  }
-
-  /**
-   * Get API key for a provider (internal use only)
-   * Delegates to ProviderCredentialService
-   */
   async getApiKey(providerId: ProviderId): Promise<string | null> {
-    return this.credentialService.getApiKey(providerId);
+    return this.credentialVault.getApiKey(providerId);
   }
 
-  /**
-   * Check if provider is connected
-   * Delegates to ProviderCredentialService
-   */
   async isConnected(providerId: ProviderId): Promise<boolean> {
-    return this.credentialService.isConnected(providerId);
+    return this.credentialVault.isConnected(providerId);
   }
 
-  async getAxisQuotaStatus(): Promise<AxisQuotaStatus> {
-    return this.axisQuotaService.getStatus();
+  async getAxisQuotaStatus(): Promise<{
+    used: number;
+    limit: number;
+    resetsAt: string;
+  }> {
+    const dayKey = new Date().toISOString().slice(0, 10);
+    const used = await this.options.quotaStore.getAxisQuotaUsage(dayKey);
+    return {
+      used,
+      limit: 100000, // Default limit
+      resetsAt: getNextUtcDayBoundary(),
+    };
   }
 
-  async consumeAxisQuota(correlationId?: string): Promise<AxisQuotaStatus> {
-    return this.axisQuotaService.consume(correlationId);
+  async consumeAxisQuota(
+    correlationId?: string,
+  ): Promise<{ used: number; limit: number; resetsAt: string }> {
+    const dayKey = new Date().toISOString().slice(0, 10);
+    const used = await this.options.quotaStore.incrementAndGetQuota(dayKey);
+    return {
+      used,
+      limit: 100000,
+      resetsAt: getNextUtcDayBoundary(),
+    };
   }
 
-  /**
-   * Reset provider config state for tests
-   * Static method for test isolation
-   */
+  private getCatalogService(): ProviderCatalogService {
+    if (!this.catalogService) {
+      this.catalogService = new ProviderCatalogService(
+        this.registryService,
+        this.getModelDiscoveryService(),
+      );
+    }
+    return this.catalogService;
+  }
+
+  private getModelDiscoveryService() {
+    if (!this.modelDiscoveryService) {
+      this.modelDiscoveryService = new ProviderModelDiscoveryService(
+        this.options.modelCacheStore,
+        this.credentialService,
+        this.registryService,
+      );
+    }
+    return this.modelDiscoveryService;
+  }
+
   static resetForTests(): void {
     ProviderCredentialService.resetForTests();
   }
@@ -290,18 +284,10 @@ function toErrorMessage(error: unknown): string {
   return "Unknown error";
 }
 
-function resolveAxisDailyLimit(rawLimit: string | undefined): number {
-  if (!rawLimit) {
-    return AXIS_DAILY_LIMIT;
-  }
-
-  const parsedLimit = Number.parseInt(rawLimit, 10);
-  if (!Number.isFinite(parsedLimit) || parsedLimit < 1) {
-    console.warn(
-      `[provider/axis-quota] Invalid AXIS_DAILY_LIMIT="${rawLimit}". Using default ${AXIS_DAILY_LIMIT}.`,
-    );
-    return AXIS_DAILY_LIMIT;
-  }
-
-  return parsedLimit;
+function getNextUtcDayBoundary(): string {
+  const now = new Date();
+  const next = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1),
+  );
+  return next.toISOString();
 }

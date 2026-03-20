@@ -72,4 +72,13 @@
       "id": "your_sessions_kv_namespace_id_here",
     },
   ],
+
+  // 5. D1 Database for BYOK (Plan 81 - User-Global Credentials)
+  "d1_databases": [
+    {
+      "binding": "BYOK_DB",
+      "database_name": "shadowbox-byok",
+      "database_id": "your_byok_d1_database_id_here",
+    },
+  ],
 }

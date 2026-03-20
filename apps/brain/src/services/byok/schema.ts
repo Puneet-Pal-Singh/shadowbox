@@ -10,6 +10,9 @@
  *
  * Stores encrypted API keys with metadata for lifecycle management.
  * Uses soft deletes (deletedAt) to support recovery and auditing.
+ *
+ * IMPORTANT: Credentials are user-global (keyed by user_id, not workspace_id).
+ * workspace_id is kept as metadata for backward compatibility.
  */
 export const BYOK_CREDENTIALS_SCHEMA = `
 CREATE TABLE IF NOT EXISTS byok_credentials (
@@ -31,18 +34,33 @@ CREATE TABLE IF NOT EXISTS byok_credentials (
   deleted_at TEXT
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS uq_byok_cred_scope_label
-  ON byok_credentials(user_id, workspace_id, provider_id, label)
+-- User-global unique index: (user_id, provider_id, label)
+-- This replaces the old workspace-scoped index
+CREATE UNIQUE INDEX IF NOT EXISTS uq_byok_cred_user_provider_label
+  ON byok_credentials(user_id, provider_id, label)
   WHERE deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS ix_byok_cred_scope_provider
-  ON byok_credentials(user_id, workspace_id, provider_id);
+-- Indexes for common queries
+CREATE INDEX IF NOT EXISTS ix_byok_cred_user_provider
+  ON byok_credentials(user_id, provider_id);
 
-CREATE INDEX IF NOT EXISTS ix_byok_cred_scope_status
-  ON byok_credentials(user_id, workspace_id, status);
+CREATE INDEX IF NOT EXISTS ix_byok_cred_user_status
+  ON byok_credentials(user_id, status);
 
 CREATE INDEX IF NOT EXISTS ix_byok_cred_created_at
   ON byok_credentials(created_at DESC);
+`;
+
+/**
+ * Migration to replace workspace-scoped index with user-global index
+ * Only needed for existing databases, new installs get the index from BYOK_CREDENTIALS_SCHEMA
+ */
+export const MIGRATION_USER_GLOBAL_CREDENTIAL_INDEX = `
+-- Drop old workspace-scoped index if it exists
+DROP INDEX IF EXISTS uq_byok_cred_scope_label;
+
+-- User-global unique index already created in BYOK_CREDENTIALS_SCHEMA
+-- This migration file exists for reference only
 `;
 
 /**
@@ -106,8 +124,23 @@ CREATE TABLE IF NOT EXISTS provider_registry_cache (
   capabilities_json TEXT NOT NULL,
   models_json TEXT NOT NULL,
   source_version TEXT NOT NULL,
+  fetched_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
   refreshed_at TEXT NOT NULL
 );
+`;
+
+/**
+ * D1 Migration: Add fetched_at and expires_at to provider registry cache
+ *
+ * Adds columns for tracking cache freshness and TTL.
+ */
+export const ADD_FETCH_EXPIRY_TO_CACHE_SCHEMA = `
+ALTER TABLE provider_registry_cache
+ADD COLUMN fetched_at TEXT NOT NULL DEFAULT '1970-01-01T00:00:00.000Z';
+
+ALTER TABLE provider_registry_cache
+ADD COLUMN expires_at TEXT NOT NULL DEFAULT '1970-01-01T00:00:00.000Z';
 `;
 
 /**
@@ -123,12 +156,40 @@ ADD COLUMN visible_model_ids_json TEXT DEFAULT '{}'
 `;
 
 /**
+ * D1 Migration: Add credential labels to preferences
+ *
+ * Adds column to persist per-credential labels for BYOK UI.
+ * Maps credential_id -> label for display purposes.
+ * Default: empty JSON object for new preferences.
+ */
+export const ADD_CREDENTIAL_LABELS_TO_PREFERENCES_SCHEMA = `
+ALTER TABLE byok_preferences
+ADD COLUMN credential_labels_json TEXT DEFAULT '{}'
+`;
+
+/**
+ * D1 Migration: Schema migration ledger
+ *
+ * Tracks which migrations have been applied to prevent re-running.
+ */
+export const BYOK_SCHEMA_MIGRATIONS_SCHEMA = `
+CREATE TABLE IF NOT EXISTS byok_schema_migrations (
+  migration_id TEXT PRIMARY KEY,
+  applied_at TEXT NOT NULL
+);
+`;
+
+/**
  * All migrations to run on D1 initialization
  */
 export const ALL_BYOK_MIGRATIONS = [
+  BYOK_SCHEMA_MIGRATIONS_SCHEMA,
   BYOK_CREDENTIALS_SCHEMA,
+  MIGRATION_USER_GLOBAL_CREDENTIAL_INDEX,
   BYOK_PREFERENCES_SCHEMA,
   BYOK_AUDIT_EVENTS_SCHEMA,
   PROVIDER_REGISTRY_CACHE_SCHEMA,
+  ADD_FETCH_EXPIRY_TO_CACHE_SCHEMA,
   ADD_VISIBLE_MODEL_IDS_TO_PREFERENCES_SCHEMA,
+  ADD_CREDENTIAL_LABELS_TO_PREFERENCES_SCHEMA,
 ];

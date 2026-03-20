@@ -27,9 +27,15 @@ import {
 import {
   DurableProviderStore,
   ProviderRateLimitService,
-  ProviderConfigService,
   readByokEncryptionConfig,
 } from "../services/providers";
+import { ProviderConfigService } from "../services/providers/ProviderConfigService";
+import {
+  createD1Stores,
+  getEncryptionConfig,
+} from "../services/providers/stores/D1StoreFactory";
+import { D1AuditService } from "../services/providers/D1AuditService";
+import { D1AxisQuotaService } from "../services/providers/D1AxisQuotaService";
 import { AXIS_PROVIDER_ID } from "../services/providers/axis";
 import {
   MAX_SCOPE_IDENTIFIER_LENGTH,
@@ -171,15 +177,16 @@ export class RunEngineRuntime extends DurableObject {
           url.searchParams.has("limit") ||
           url.searchParams.has("cursor");
         if (isDiscoveryQuery) {
-          const discoveryQuery = validateWithSchema<BYOKDiscoveredProviderModelsQuery>(
-            {
-              view: url.searchParams.get("view") ?? undefined,
-              limit: url.searchParams.get("limit") ?? undefined,
-              cursor: url.searchParams.get("cursor") ?? undefined,
-            },
-            BYOKDiscoveredProviderModelsQuerySchema,
-            correlationId,
-          );
+          const discoveryQuery =
+            validateWithSchema<BYOKDiscoveredProviderModelsQuery>(
+              {
+                view: url.searchParams.get("view") ?? undefined,
+                limit: url.searchParams.get("limit") ?? undefined,
+                cursor: url.searchParams.get("cursor") ?? undefined,
+              },
+              BYOKDiscoveredProviderModelsQuerySchema,
+              correlationId,
+            );
           const discovered = await configService.getDiscoveredModels(
             providerId,
             discoveryQuery,
@@ -309,14 +316,41 @@ export class RunEngineRuntime extends DurableObject {
 
   private createProviderConfigService(
     scope: ProviderStoreScopeInput,
-    correlationId: string,
+    _correlationId: string,
   ): ProviderConfigService {
-    const durableProviderStore = new DurableProviderStore(
-      this.ctx as unknown as LegacyDurableObjectState,
-      scope,
-      this.resolveProviderEncryptionConfig(correlationId),
+    const env = this.env as Env;
+    const db = env.BYOK_DB;
+    if (!db) {
+      throw new Error("BYOK_DB D1 binding is required");
+    }
+
+    const userId = scope.userId || "anonymous";
+    const workspaceId = scope.workspaceId || "default";
+    const encryptionConfig = getEncryptionConfig(
+      env as unknown as Record<string, unknown>,
     );
-    return new ProviderConfigService(this.env as Env, durableProviderStore);
+
+    const stores = createD1Stores(db, {
+      userId,
+      workspaceId,
+      masterKey: encryptionConfig.masterKey,
+      keyVersion: encryptionConfig.keyVersion,
+      previousKeyVersion: encryptionConfig.previousKeyVersion,
+    });
+
+    const auditLog = new D1AuditService(db, userId, workspaceId);
+    const quotaStore = new D1AxisQuotaService(db, userId, workspaceId);
+
+    return new ProviderConfigService({
+      env,
+      userId,
+      workspaceId,
+      credentialStore: stores.credentialStore,
+      preferenceStore: stores.preferenceStore,
+      modelCacheStore: stores.modelCacheStore,
+      auditLog,
+      quotaStore,
+    });
   }
 
   private createProviderRateLimitService(
@@ -370,7 +404,11 @@ export class RunEngineRuntime extends DurableObject {
     }
 
     try {
-      return validateWithSchema<string>(value.trim(), ScopeIdSchema, correlationId);
+      return validateWithSchema<string>(
+        value.trim(),
+        ScopeIdSchema,
+        correlationId,
+      );
     } catch {
       throw new ValidationError(
         `Invalid ${fieldName} header`,

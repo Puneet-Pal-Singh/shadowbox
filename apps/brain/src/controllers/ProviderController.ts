@@ -47,14 +47,8 @@ import {
   BYOKProviderSlugSchema,
 } from "@repo/shared-types";
 import type { Env } from "../types/ai";
-import {
-  jsonResponse,
-  withEngineHeaders,
-} from "../http/response";
-import {
-  parseRequestBody,
-  validateWithSchema,
-} from "../http/validation";
+import { jsonResponse, withEngineHeaders } from "../http/response";
+import { parseRequestBody, validateWithSchema } from "../http/validation";
 import {
   NotFoundError,
   ProviderNotConnectedError,
@@ -90,8 +84,15 @@ export class ProviderController {
   static async byokProviderModels(req: Request, env: Env): Promise<Response> {
     const correlationId = Math.random().toString(36).substring(7);
     try {
-      const scope = await resolveAuthorizedProviderScope(req, env, correlationId);
-      const providerId = extractProviderIdFromModelsPath(req.url, correlationId);
+      const scope = await resolveAuthorizedProviderScope(
+        req,
+        env,
+        correlationId,
+      );
+      const providerId = extractProviderIdFromModelsPath(
+        req.url,
+        correlationId,
+      );
       const discoveryQuery = buildDiscoveryQueryParams(req.url);
       const hasDiscoveryParams = hasDiscoveryQuery(discoveryQuery);
       const runtimePath = buildRuntimeModelsPath(
@@ -113,10 +114,11 @@ export class ProviderController {
           BYOKDiscoveredProviderModelsResponseSchema,
           correlationId,
         );
-        const payload = await readResponseJson<BYOKDiscoveredProviderModelsResponse>(
-          response,
-          correlationId,
-        );
+        const payload =
+          await readResponseJson<BYOKDiscoveredProviderModelsResponse>(
+            response,
+            correlationId,
+          );
         return withScopeJson(req, env, scope, payload);
       }
 
@@ -156,7 +158,11 @@ export class ProviderController {
   ): Promise<Response> {
     const correlationId = Math.random().toString(36).substring(7);
     try {
-      const scope = await resolveAuthorizedProviderScope(req, env, correlationId);
+      const scope = await resolveAuthorizedProviderScope(
+        req,
+        env,
+        correlationId,
+      );
       const providerId = extractProviderIdFromModelsRefreshPath(
         req.url,
         correlationId,
@@ -173,10 +179,11 @@ export class ProviderController {
         BYOKDiscoveredProviderModelsRefreshResponseSchema,
         correlationId,
       );
-      const payload = await readResponseJson<BYOKDiscoveredProviderModelsRefreshResponse>(
-        response,
-        correlationId,
-      );
+      const payload =
+        await readResponseJson<BYOKDiscoveredProviderModelsRefreshResponse>(
+          response,
+          correlationId,
+        );
       return withScopeJson(req, env, scope, payload);
     } catch (error) {
       return handleByokError(req, env, error, correlationId);
@@ -186,7 +193,11 @@ export class ProviderController {
   static async byokProviders(req: Request, env: Env): Promise<Response> {
     const correlationId = Math.random().toString(36).substring(7);
     try {
-      const scope = await resolveAuthorizedProviderScope(req, env, correlationId);
+      const scope = await resolveAuthorizedProviderScope(
+        req,
+        env,
+        correlationId,
+      );
       const catalog = await fetchRuntimeCatalog(req, env, scope, correlationId);
       const providers = catalog.providers.map((provider) =>
         mapCatalogEntryToRegistry(provider),
@@ -200,7 +211,11 @@ export class ProviderController {
   static async byokCredentials(req: Request, env: Env): Promise<Response> {
     const correlationId = Math.random().toString(36).substring(7);
     try {
-      const scope = await resolveAuthorizedProviderScope(req, env, correlationId);
+      const scope = await resolveAuthorizedProviderScope(
+        req,
+        env,
+        correlationId,
+      );
       const credentials = await loadConnectedCredentials(
         req,
         env,
@@ -213,10 +228,17 @@ export class ProviderController {
     }
   }
 
-  static async byokConnectCredential(req: Request, env: Env): Promise<Response> {
+  static async byokConnectCredential(
+    req: Request,
+    env: Env,
+  ): Promise<Response> {
     const correlationId = Math.random().toString(36).substring(7);
     try {
-      const scope = await resolveAuthorizedProviderScope(req, env, correlationId);
+      const scope = await resolveAuthorizedProviderScope(
+        req,
+        env,
+        correlationId,
+      );
       const body = await parseRequestBody(req, correlationId);
       const request = validateWithSchema<BYOKCredentialConnectRequest>(
         body,
@@ -278,8 +300,16 @@ export class ProviderController {
   static async byokUpdateCredential(req: Request, env: Env): Promise<Response> {
     const correlationId = Math.random().toString(36).substring(7);
     try {
-      const scope = await resolveAuthorizedProviderScope(req, env, correlationId);
-      const credentialId = extractCredentialIdFromPath(req.url, false, correlationId);
+      const scope = await resolveAuthorizedProviderScope(
+        req,
+        env,
+        correlationId,
+      );
+      const credentialId = extractCredentialIdFromPath(
+        req.url,
+        false,
+        correlationId,
+      );
       const body = await parseRequestBody(req, correlationId);
       const patch = validateWithSchema<BYOKCredentialUpdateRequest>(
         body,
@@ -319,8 +349,16 @@ export class ProviderController {
   ): Promise<Response> {
     const correlationId = Math.random().toString(36).substring(7);
     try {
-      const scope = await resolveAuthorizedProviderScope(req, env, correlationId);
-      const credentialId = extractCredentialIdFromPath(req.url, false, correlationId);
+      const scope = await resolveAuthorizedProviderScope(
+        req,
+        env,
+        correlationId,
+      );
+      const credentialId = extractCredentialIdFromPath(
+        req.url,
+        false,
+        correlationId,
+      );
       const credentials = await loadConnectedCredentials(
         req,
         env,
@@ -363,11 +401,22 @@ export class ProviderController {
     }
   }
 
-  static async byokValidateCredential(req: Request, env: Env): Promise<Response> {
+  static async byokValidateCredential(
+    req: Request,
+    env: Env,
+  ): Promise<Response> {
     const correlationId = Math.random().toString(36).substring(7);
     try {
-      const scope = await resolveAuthorizedProviderScope(req, env, correlationId);
-      const credentialId = extractCredentialIdFromPath(req.url, true, correlationId);
+      const scope = await resolveAuthorizedProviderScope(
+        req,
+        env,
+        correlationId,
+      );
+      const credentialId = extractCredentialIdFromPath(
+        req.url,
+        true,
+        correlationId,
+      );
       const body = await parseRequestBody(req, correlationId);
       const request = validateWithSchema<BYOKCredentialValidateRequest>(
         body,
@@ -421,7 +470,11 @@ export class ProviderController {
   static async byokGetPreferencesV3(req: Request, env: Env): Promise<Response> {
     const correlationId = Math.random().toString(36).substring(7);
     try {
-      const scope = await resolveAuthorizedProviderScope(req, env, correlationId);
+      const scope = await resolveAuthorizedProviderScope(
+        req,
+        env,
+        correlationId,
+      );
       const preference = await loadWorkspacePreference(
         req,
         env,
@@ -437,7 +490,11 @@ export class ProviderController {
   static async byokPreferencesV3(req: Request, env: Env): Promise<Response> {
     const correlationId = Math.random().toString(36).substring(7);
     try {
-      const scope = await resolveAuthorizedProviderScope(req, env, correlationId);
+      const scope = await resolveAuthorizedProviderScope(
+        req,
+        env,
+        correlationId,
+      );
       const body = await parseRequestBody(req, correlationId);
       const patch = validateWithSchema<BYOKPreferencesUpdateRequest>(
         body,
@@ -468,7 +525,12 @@ export class ProviderController {
         updatedAt: string;
       };
       if (Object.keys(runtimePatchWithVisibility).length === 0) {
-        runtimePreference = await fetchRuntimePreferences(req, env, scope, correlationId);
+        runtimePreference = await fetchRuntimePreferences(
+          req,
+          env,
+          scope,
+          correlationId,
+        );
       } else {
         const runtimeResponse = await proxyByokOperation(
           req,
@@ -482,7 +544,10 @@ export class ProviderController {
           BYOKPreferencesSchema,
           correlationId,
         );
-        runtimePreference = await readResponseJson(runtimeResponse, correlationId);
+        runtimePreference = await readResponseJson(
+          runtimeResponse,
+          correlationId,
+        );
       }
 
       const preference: BYOKPreference = {
@@ -505,7 +570,11 @@ export class ProviderController {
   static async byokResolve(req: Request, env: Env): Promise<Response> {
     const correlationId = Math.random().toString(36).substring(7);
     try {
-      const scope = await resolveAuthorizedProviderScope(req, env, correlationId);
+      const scope = await resolveAuthorizedProviderScope(
+        req,
+        env,
+        correlationId,
+      );
       const body = await parseRequestBody(req, correlationId);
       const request = validateWithSchema<BYOKResolveRequest>(
         body,
@@ -554,7 +623,11 @@ export class ProviderController {
     const correlationId = Math.random().toString(36).substring(7);
     console.log(`[provider/byok-catalog] ${correlationId} request received`);
     try {
-      const scope = await resolveAuthorizedProviderScope(req, env, correlationId);
+      const scope = await resolveAuthorizedProviderScope(
+        req,
+        env,
+        correlationId,
+      );
       return await proxyByokOperation(
         req,
         env,
@@ -573,9 +646,15 @@ export class ProviderController {
 
   static async byokConnections(req: Request, env: Env): Promise<Response> {
     const correlationId = Math.random().toString(36).substring(7);
-    console.log(`[provider/byok-connections] ${correlationId} request received`);
+    console.log(
+      `[provider/byok-connections] ${correlationId} request received`,
+    );
     try {
-      const scope = await resolveAuthorizedProviderScope(req, env, correlationId);
+      const scope = await resolveAuthorizedProviderScope(
+        req,
+        env,
+        correlationId,
+      );
       return await proxyByokOperation(
         req,
         env,
@@ -596,7 +675,11 @@ export class ProviderController {
     const correlationId = Math.random().toString(36).substring(7);
     console.log(`[provider/byok-connect] ${correlationId} request received`);
     try {
-      const scope = await resolveAuthorizedProviderScope(req, env, correlationId);
+      const scope = await resolveAuthorizedProviderScope(
+        req,
+        env,
+        correlationId,
+      );
       const body = await parseRequestBody(req, correlationId);
       const validatedRequest = validateWithSchema(
         body,
@@ -624,7 +707,11 @@ export class ProviderController {
     const correlationId = Math.random().toString(36).substring(7);
     console.log(`[provider/byok-validate] ${correlationId} request received`);
     try {
-      const scope = await resolveAuthorizedProviderScope(req, env, correlationId);
+      const scope = await resolveAuthorizedProviderScope(
+        req,
+        env,
+        correlationId,
+      );
       const body = await parseRequestBody(req, correlationId);
       const validatedRequest = validateWithSchema(
         body,
@@ -652,7 +739,11 @@ export class ProviderController {
     const correlationId = Math.random().toString(36).substring(7);
     console.log(`[provider/byok-disconnect] ${correlationId} request received`);
     try {
-      const scope = await resolveAuthorizedProviderScope(req, env, correlationId);
+      const scope = await resolveAuthorizedProviderScope(
+        req,
+        env,
+        correlationId,
+      );
       const body = await parseRequestBody(req, correlationId);
       const validatedRequest = validateWithSchema(
         body,
@@ -678,9 +769,15 @@ export class ProviderController {
 
   static async byokPreferences(req: Request, env: Env): Promise<Response> {
     const correlationId = Math.random().toString(36).substring(7);
-    console.log(`[provider/byok-preferences] ${correlationId} request received`);
+    console.log(
+      `[provider/byok-preferences] ${correlationId} request received`,
+    );
     try {
-      const scope = await resolveAuthorizedProviderScope(req, env, correlationId);
+      const scope = await resolveAuthorizedProviderScope(
+        req,
+        env,
+        correlationId,
+      );
       const body = await parseRequestBody(req, correlationId);
       const validatedPatch = validateWithSchema(
         body,
@@ -706,9 +803,15 @@ export class ProviderController {
 
   static async byokGetPreferences(req: Request, env: Env): Promise<Response> {
     const correlationId = Math.random().toString(36).substring(7);
-    console.log(`[provider/byok-preferences] ${correlationId} request received`);
+    console.log(
+      `[provider/byok-preferences] ${correlationId} request received`,
+    );
     try {
-      const scope = await resolveAuthorizedProviderScope(req, env, correlationId);
+      const scope = await resolveAuthorizedProviderScope(
+        req,
+        env,
+        correlationId,
+      );
       return await proxyByokOperation(
         req,
         env,
@@ -740,7 +843,10 @@ function extractProviderIdFromModelsPath(
       correlationId,
     );
   }
-  return parseProviderSlug(decodeProviderSlug(providerId, correlationId), correlationId);
+  return parseProviderSlug(
+    decodeProviderSlug(providerId, correlationId),
+    correlationId,
+  );
 }
 
 function buildDiscoveryQueryParams(urlValue: string): {
@@ -826,7 +932,10 @@ function extractProviderIdFromModelsRefreshPath(
       correlationId,
     );
   }
-  return parseProviderSlug(decodeProviderSlug(providerId, correlationId), correlationId);
+  return parseProviderSlug(
+    decodeProviderSlug(providerId, correlationId),
+    correlationId,
+  );
 }
 
 function parseProviderSlug(providerId: string, correlationId: string): string {
@@ -954,12 +1063,12 @@ async function normalizeByokRuntimeError(
   const normalized = new Response(
     JSON.stringify(
       ProviderErrorEnvelopeSchema.parse({
-      error: {
-        code,
-        message,
-        retryable,
-        correlationId,
-      },
+        error: {
+          code,
+          message,
+          retryable,
+          correlationId,
+        },
       }),
     ),
     {
@@ -985,18 +1094,20 @@ async function parseErrorLikeBody(
       raw.error && typeof raw.error === "object"
         ? (raw.error as Record<string, unknown>)
         : undefined;
-    const code = typeof raw.code === "string"
-      ? raw.code
-      : typeof nestedError?.code === "string"
-      ? nestedError.code
-      : undefined;
-    const message = typeof raw.error === "string"
-      ? raw.error
-      : typeof raw.message === "string"
-      ? raw.message
-      : typeof nestedError?.message === "string"
-      ? nestedError.message
-      : undefined;
+    const code =
+      typeof raw.code === "string"
+        ? raw.code
+        : typeof nestedError?.code === "string"
+          ? nestedError.code
+          : undefined;
+    const message =
+      typeof raw.error === "string"
+        ? raw.error
+        : typeof raw.message === "string"
+          ? raw.message
+          : typeof nestedError?.message === "string"
+            ? nestedError.message
+            : undefined;
     return { code, message };
   } catch {
     return {};
@@ -1037,7 +1148,8 @@ function buildByokErrorResponse(
   },
 ): Response {
   const code = normalizeProviderErrorCode(input.code, input.status);
-  const retryable = input.retryable || input.status >= 500 || code === "RATE_LIMITED";
+  const retryable =
+    input.retryable || input.status >= 500 || code === "RATE_LIMITED";
   const envelope = ProviderErrorEnvelopeSchema.parse({
     error: {
       code,
@@ -1046,12 +1158,7 @@ function buildByokErrorResponse(
       correlationId: input.correlationId,
     },
   });
-  return jsonResponse(
-    req,
-    env,
-    envelope,
-    { status: input.status },
-  );
+  return jsonResponse(req, env, envelope, { status: input.status });
 }
 
 function withScopeJson(
@@ -1070,7 +1177,7 @@ async function readResponseJson<T>(
   correlationId: string,
 ): Promise<T> {
   try {
-    return await response.clone().json() as T;
+    return (await response.clone().json()) as T;
   } catch {
     throw new ValidationError(
       "Provider runtime returned invalid JSON payload.",
@@ -1240,8 +1347,7 @@ function resolveCredentialLabel(
     return metadata.credentialLabels[credentialId] ?? "Axis (Free)";
   }
   return (
-    metadata.credentialLabels[credentialId] ??
-    `${connection.providerId} key`
+    metadata.credentialLabels[credentialId] ?? `${connection.providerId} key`
   );
 }
 
@@ -1313,7 +1419,11 @@ function resolveSelection(
       credentials,
     );
     if (axisCredentialError) {
-      throw new ValidationError(axisCredentialError, "AUTH_FAILED", correlationId);
+      throw new ValidationError(
+        axisCredentialError,
+        "AUTH_FAILED",
+        correlationId,
+      );
     }
     throw new ProviderNotConnectedError(
       request.providerId ?? preference.defaultProviderId ?? "provider",
@@ -1371,7 +1481,10 @@ function resolveCredentialSelection(
   }
 
   if (request.providerId) {
-    const credential = resolveCredentialForProvider(credentials, request.providerId);
+    const credential = resolveCredentialForProvider(
+      credentials,
+      request.providerId,
+    );
     if (!credential) {
       throw new ProviderNotConnectedError(request.providerId, correlationId);
     }
@@ -1396,7 +1509,10 @@ function resolveCredentialSelection(
     }
   }
 
-  const axisCredential = resolveCredentialForProvider(credentials, AXIS_PROVIDER_ID);
+  const axisCredential = resolveCredentialForProvider(
+    credentials,
+    AXIS_PROVIDER_ID,
+  );
   if (axisCredential) {
     return {
       selectedCredential: axisCredential,
@@ -1422,7 +1538,8 @@ function resolveAxisPlatformCredentialErrorMessage(
     return null;
   }
 
-  const preferredProviderId = request.providerId ?? preference.defaultProviderId;
+  const preferredProviderId =
+    request.providerId ?? preference.defaultProviderId;
   const canResolveToAxisByDefault = preferredProviderId === undefined;
   const usesAxisPath =
     preferredProviderId === AXIS_PROVIDER_ID || canResolveToAxisByDefault;
@@ -1488,7 +1605,9 @@ function resolveDefaultModel(
   catalog: ProviderCatalogResponse,
   correlationId: string,
 ): string {
-  const provider = catalog.providers.find((entry) => entry.providerId === providerId);
+  const provider = catalog.providers.find(
+    (entry) => entry.providerId === providerId,
+  );
   const modelId = provider?.models[0]?.id;
   if (modelId) {
     return modelId;
@@ -1593,27 +1712,63 @@ async function loadWorkspaceByokMetadata(
   env: Env,
   scope: AuthorizedProviderScope,
 ): Promise<WorkspaceByokMetadata> {
-  const raw = await env.SESSIONS.get(buildWorkspaceByokMetadataKey(scope));
-  if (!raw) {
-    return {
-      credentialLabels: {},
-    };
-  }
-
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    const result = WorkspaceByokMetadataSchema.safeParse(parsed);
-    if (!result.success) {
+  if (!env.BYOK_DB) {
+    const raw = await env.SESSIONS.get(buildWorkspaceByokMetadataKey(scope));
+    if (!raw) {
       return {
         credentialLabels: {},
       };
     }
-    return result.data;
-  } catch {
-    return {
-      credentialLabels: {},
-    };
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      const result = WorkspaceByokMetadataSchema.safeParse(parsed);
+      if (!result.success) {
+        return {
+          credentialLabels: {},
+        };
+      }
+      return result.data;
+    } catch {
+      return {
+        credentialLabels: {},
+      };
+    }
   }
+
+  const query = `
+    SELECT credential_labels_json FROM byok_preferences
+    WHERE user_id = ? AND workspace_id = ?
+  `;
+  const stmt = env.BYOK_DB.prepare(query).bind(scope.userId, scope.workspaceId);
+  const row = await stmt.first<{ credential_labels_json: string | null }>();
+
+  if (row?.credential_labels_json) {
+    try {
+      const credentialLabels = JSON.parse(row.credential_labels_json);
+      return { credentialLabels };
+    } catch {
+      return { credentialLabels: {} };
+    }
+  }
+
+  const raw = await env.SESSIONS.get(buildWorkspaceByokMetadataKey(scope));
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      const result = WorkspaceByokMetadataSchema.safeParse(parsed);
+      if (
+        result.success &&
+        Object.keys(result.data.credentialLabels).length > 0
+      ) {
+        await saveWorkspaceByokMetadata(env, scope, result.data);
+        return result.data;
+      }
+    } catch {
+      // Fall through to empty
+    }
+  }
+
+  return { credentialLabels: {} };
 }
 
 async function saveWorkspaceByokMetadata(
@@ -1621,10 +1776,38 @@ async function saveWorkspaceByokMetadata(
   scope: AuthorizedProviderScope,
   metadata: WorkspaceByokMetadata,
 ): Promise<void> {
-  await env.SESSIONS.put(
-    buildWorkspaceByokMetadataKey(scope),
-    JSON.stringify(metadata),
-  );
+  if (!env.BYOK_DB) {
+    await env.SESSIONS.put(
+      buildWorkspaceByokMetadataKey(scope),
+      JSON.stringify(metadata),
+    );
+    return;
+  }
+
+  const query = `
+    INSERT INTO byok_preferences (
+      user_id, workspace_id, default_provider_id, default_model_id,
+      fallback_mode, fallback_json, visible_model_ids_json, credential_labels_json, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(user_id, workspace_id)
+    DO UPDATE SET
+      credential_labels_json = excluded.credential_labels_json,
+      updated_at = excluded.updated_at
+  `;
+
+  await env.BYOK_DB.prepare(query)
+    .bind(
+      scope.userId,
+      scope.workspaceId,
+      AXIS_PROVIDER_ID,
+      "meta-llama/llama-4-scout-17b-16e-instruct",
+      "strict",
+      null,
+      "{}",
+      JSON.stringify(metadata.credentialLabels),
+      new Date().toISOString(),
+    )
+    .run();
 }
 
 function buildWorkspaceByokMetadataKey(scope: AuthorizedProviderScope): string {
