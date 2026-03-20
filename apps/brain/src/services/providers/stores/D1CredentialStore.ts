@@ -191,7 +191,7 @@ export class D1CredentialStore implements CredentialStore {
   async updateCredentialMetadata(
     providerId: ProviderId,
     updates: {
-      status?: string;
+      status?: "connected" | "failed" | "revoked";
       lastValidatedAt?: string;
       lastErrorCode?: string;
       lastErrorMessage?: string;

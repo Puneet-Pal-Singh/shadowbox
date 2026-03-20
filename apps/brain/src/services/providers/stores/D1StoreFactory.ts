@@ -44,11 +44,10 @@ export function createPreferenceStore(
   db: D1Database,
   options: D1StoreFactoryOptions,
 ): PreferenceStore {
-  return new D1PreferenceStore(
-    db,
-    options.userId,
-    options.workspaceId || "default",
-  );
+  if (!options.workspaceId) {
+    throw new Error("workspaceId is required for PreferenceStore");
+  }
+  return new D1PreferenceStore(db, options.userId, options.workspaceId);
 }
 
 /**

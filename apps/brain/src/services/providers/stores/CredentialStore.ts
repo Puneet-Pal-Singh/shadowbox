@@ -71,7 +71,7 @@ export interface CredentialStore {
   updateCredentialMetadata(
     providerId: ProviderId,
     updates: {
-      status?: string;
+      status?: "connected" | "failed" | "revoked";
       lastValidatedAt?: string;
       lastErrorCode?: string;
       lastErrorMessage?: string;

@@ -80,12 +80,14 @@ export class D1ProviderModelCacheStore implements IProviderModelCacheStore {
     const query = `
       INSERT INTO provider_registry_cache (
         provider_id, display_name, auth_modes_json, capabilities_json,
-        models_json, source_version, refreshed_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        models_json, source_version, fetched_at, expires_at, refreshed_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(provider_id)
       DO UPDATE SET
         models_json = excluded.models_json,
         source_version = excluded.source_version,
+        fetched_at = excluded.fetched_at,
+        expires_at = excluded.expires_at,
         refreshed_at = excluded.refreshed_at
     `;
 
@@ -97,6 +99,8 @@ export class D1ProviderModelCacheStore implements IProviderModelCacheStore {
       JSON.stringify(record.models),
       record.source,
       record.fetchedAt,
+      record.expiresAt,
+      record.fetchedAt, // Use fetchedAt as refreshed_at
     );
 
     const result = await stmt.run();
