@@ -12,7 +12,7 @@
  * Uses soft deletes (deletedAt) to support recovery and auditing.
  *
  * IMPORTANT: Credentials are user-global (keyed by user_id, not workspace_id).
- * workspace_id is kept as metadata for backward compatibility.
+ * workspace_id is retained as descriptive metadata for workspace-aware UX.
  */
 export const BYOK_CREDENTIALS_SCHEMA = `
 CREATE TABLE IF NOT EXISTS byok_credentials (
@@ -66,7 +66,7 @@ DROP INDEX IF EXISTS uq_byok_cred_scope_label;
 /**
  * D1 Migration: Create BYOK preferences table
  *
- * Stores workspace-level default provider and fallback chain configuration.
+ * Stores workspace-level provider selection state and related UI metadata.
  * Primary key is (user_id, workspace_id) for one set of prefs per workspace.
  */
 export const BYOK_PREFERENCES_SCHEMA = `
@@ -130,7 +130,7 @@ CREATE INDEX IF NOT EXISTS ix_provider_axis_quota_updated_at
  * D1 Migration: Create provider registry cache table
  *
  * Caches provider metadata to reduce remote fetches.
- * Not strictly required in Phase 1 (builtin providers), but prepared for Phase 2.
+ * Used to cache discovered provider metadata and reduce repeated remote fetches.
  */
 export const PROVIDER_REGISTRY_CACHE_SCHEMA = `
 CREATE TABLE IF NOT EXISTS provider_registry_cache (
@@ -163,7 +163,7 @@ ADD COLUMN expires_at TEXT NOT NULL DEFAULT '1970-01-01T00:00:00.000Z';
  * D1 Migration: Add visible model IDs to preferences
  *
  * Adds column to persist per-provider model visibility curation.
- * New column is nullable for backward compatibility.
+ * New column is nullable for existing rows that predate this migration.
  * Default: empty JSON object for new preferences.
  */
 export const ADD_VISIBLE_MODEL_IDS_TO_PREFERENCES_SCHEMA = `

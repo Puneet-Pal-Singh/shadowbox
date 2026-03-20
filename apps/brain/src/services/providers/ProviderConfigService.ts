@@ -2,7 +2,6 @@
  * Provider Config Service
  *
  * Facade for provider configuration and credential management.
- * Supports both DO-backed (DurableProviderStore) and D1-backed stores.
  *
  * Uses focused, single-responsibility stores:
  * - CredentialStore: Credential operations
