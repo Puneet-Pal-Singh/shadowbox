@@ -156,6 +156,18 @@ ADD COLUMN visible_model_ids_json TEXT DEFAULT '{}'
 `;
 
 /**
+ * D1 Migration: Add credential labels to preferences
+ *
+ * Adds column to persist per-credential labels for BYOK UI.
+ * Maps credential_id -> label for display purposes.
+ * Default: empty JSON object for new preferences.
+ */
+export const ADD_CREDENTIAL_LABELS_TO_PREFERENCES_SCHEMA = `
+ALTER TABLE byok_preferences
+ADD COLUMN credential_labels_json TEXT DEFAULT '{}'
+`;
+
+/**
  * D1 Migration: Schema migration ledger
  *
  * Tracks which migrations have been applied to prevent re-running.
@@ -178,4 +190,5 @@ export const ALL_BYOK_MIGRATIONS = [
   PROVIDER_REGISTRY_CACHE_SCHEMA,
   ADD_FETCH_EXPIRY_TO_CACHE_SCHEMA,
   ADD_VISIBLE_MODEL_IDS_TO_PREFERENCES_SCHEMA,
+  ADD_CREDENTIAL_LABELS_TO_PREFERENCES_SCHEMA,
 ];

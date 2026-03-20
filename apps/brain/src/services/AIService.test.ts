@@ -199,6 +199,7 @@ function createMockPreferenceStore() {
   const prefs = {
     defaultProviderId: "axis",
     defaultModelId: "meta-llama/llama-4-scout-17b-16e-instruct",
+    credentialLabels: {} as Record<string, string>,
   };
   return {
     getPreferences: vi
@@ -214,6 +215,8 @@ function createMockPreferenceStore() {
           return Promise.resolve({ ...prefs });
         },
       ),
+    setCredentialLabel: vi.fn().mockResolvedValue(undefined),
+    deleteCredentialLabel: vi.fn().mockResolvedValue(undefined),
   };
 }
 

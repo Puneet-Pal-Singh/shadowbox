@@ -7,7 +7,13 @@ const PROVIDER_ID_REGEX = new RegExp(PROVIDER_ID_PATTERN);
  * Seed providers for bootstrap/fixtures.
  * These are not contract authority; runtime accepts any slug-matching provider id.
  */
-export const PROVIDER_IDS = ["axis", "openrouter", "openai", "groq", "google"] as const;
+export const PROVIDER_IDS = [
+  "axis",
+  "openrouter",
+  "openai",
+  "groq",
+  "google",
+] as const;
 
 export const ProviderIdSchema = z
   .string()
@@ -124,7 +130,9 @@ export const BYOKDisconnectResponseSchema = z.object({
   status: z.literal("disconnected"),
   providerId: ProviderIdSchema,
 });
-export type BYOKDisconnectResponse = z.infer<typeof BYOKDisconnectResponseSchema>;
+export type BYOKDisconnectResponse = z.infer<
+  typeof BYOKDisconnectResponseSchema
+>;
 
 export const BYOKValidationModeSchema = z.enum(["format", "live"]);
 export type BYOKValidationMode = z.infer<typeof BYOKValidationModeSchema>;
@@ -149,7 +157,9 @@ export const BYOKPreferencesPatchSchema = z
     defaultModelId: z.string().min(1).optional(),
   })
   .refine(
-    (value) => value.defaultProviderId !== undefined || value.defaultModelId !== undefined,
+    (value) =>
+      value.defaultProviderId !== undefined ||
+      value.defaultModelId !== undefined,
     {
       message: "At least one preference field is required",
     },
@@ -160,6 +170,7 @@ export const BYOKPreferencesSchema = z.object({
   defaultProviderId: ProviderIdSchema.optional(),
   defaultModelId: z.string().min(1).optional(),
   visibleModelIds: z.record(z.string(), z.array(z.string())).optional(),
+  credentialLabels: z.record(z.string(), z.string()).optional(),
   updatedAt: z.string().datetime(),
 });
 export type BYOKPreferences = z.infer<typeof BYOKPreferencesSchema>;

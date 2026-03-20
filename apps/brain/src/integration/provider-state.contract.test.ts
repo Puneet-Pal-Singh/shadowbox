@@ -547,7 +547,7 @@ function resetCredentialStore(): void {
 function createMockPreferenceStore() {
   return {
     getPreferences: vi.fn().mockImplementation(async () => {
-      return { ...sharedPreferences };
+      return { ...sharedPreferences, credentialLabels: {} };
     }),
     updatePreferences: vi
       .fn()
@@ -561,9 +561,11 @@ function createMockPreferenceStore() {
           sharedPreferences.defaultModelId =
             patch.defaultModelId ?? sharedPreferences.defaultModelId;
           sharedPreferences.updatedAt = new Date().toISOString();
-          return { ...sharedPreferences };
+          return { ...sharedPreferences, credentialLabels: {} };
         },
       ),
+    setCredentialLabel: vi.fn().mockResolvedValue(undefined),
+    deleteCredentialLabel: vi.fn().mockResolvedValue(undefined),
   };
 }
 

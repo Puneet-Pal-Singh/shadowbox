@@ -17,4 +17,14 @@ export interface PreferenceStore {
    * Update preferences (partial update)
    */
   updatePreferences(patch: BYOKPreferencesPatch): Promise<BYOKPreferences>;
+
+  /**
+   * Set a credential label for display purposes
+   */
+  setCredentialLabel(credentialId: string, label: string): Promise<void>;
+
+  /**
+   * Delete a credential label
+   */
+  deleteCredentialLabel(credentialId: string): Promise<void>;
 }

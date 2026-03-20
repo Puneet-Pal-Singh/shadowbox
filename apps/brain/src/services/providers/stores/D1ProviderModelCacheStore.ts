@@ -30,7 +30,7 @@ interface CacheRow {
   models_json: string;
   fetched_at: string;
   expires_at: string;
-  source: string;
+  source_version: string;
 }
 
 /**
@@ -45,7 +45,7 @@ export class D1ProviderModelCacheStore implements IProviderModelCacheStore {
     providerId: string,
   ): Promise<ProviderModelCacheRecord | null> {
     const query = `
-      SELECT provider_id, models_json, fetched_at, expires_at, source
+      SELECT provider_id, models_json, fetched_at, expires_at, source_version
       FROM provider_registry_cache
       WHERE provider_id = ?
     `;

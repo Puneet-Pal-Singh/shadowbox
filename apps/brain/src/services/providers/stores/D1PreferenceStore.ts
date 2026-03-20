@@ -22,6 +22,7 @@ interface PreferenceRow {
   fallback_mode: string;
   fallback_json: string | null;
   visible_model_ids_json: string | null;
+  credential_labels_json: string | null;
   updated_at: string;
 }
 
@@ -63,20 +64,21 @@ export class D1PreferenceStore implements PreferenceStore {
       defaultProviderId: patch.defaultProviderId ?? current.defaultProviderId,
       defaultModelId: patch.defaultModelId ?? current.defaultModelId,
       visibleModelIds: current.visibleModelIds,
+      credentialLabels: current.credentialLabels,
       updatedAt: now,
     };
 
-    // Use upsert pattern
     const query = `
       INSERT INTO byok_preferences (
         user_id, workspace_id, default_provider_id, default_model_id,
-        fallback_mode, fallback_json, visible_model_ids_json, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        fallback_mode, fallback_json, visible_model_ids_json, credential_labels_json, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(user_id, workspace_id)
       DO UPDATE SET
         default_provider_id = COALESCE(excluded.default_provider_id, byok_preferences.default_provider_id),
         default_model_id = COALESCE(excluded.default_model_id, byok_preferences.default_model_id),
         visible_model_ids_json = excluded.visible_model_ids_json,
+        credential_labels_json = excluded.credential_labels_json,
         updated_at = excluded.updated_at
     `;
 
@@ -90,6 +92,9 @@ export class D1PreferenceStore implements PreferenceStore {
         "strict",
         null,
         merged.visibleModelIds ? JSON.stringify(merged.visibleModelIds) : "{}",
+        merged.credentialLabels
+          ? JSON.stringify(merged.credentialLabels)
+          : "{}",
         now,
       );
 
@@ -101,11 +106,61 @@ export class D1PreferenceStore implements PreferenceStore {
     return merged;
   }
 
+  async setCredentialLabel(credentialId: string, label: string): Promise<void> {
+    const current = await this.getPreferences();
+    const credentialLabels = current.credentialLabels ?? {};
+    credentialLabels[credentialId] = label;
+    await this.updateCredentialLabels(credentialLabels);
+  }
+
+  async deleteCredentialLabel(credentialId: string): Promise<void> {
+    const current = await this.getPreferences();
+    const credentialLabels = current.credentialLabels ?? {};
+    delete credentialLabels[credentialId];
+    await this.updateCredentialLabels(credentialLabels);
+  }
+
+  private async updateCredentialLabels(
+    credentialLabels: Record<string, string>,
+  ): Promise<void> {
+    const now = new Date().toISOString();
+    const query = `
+      INSERT INTO byok_preferences (
+        user_id, workspace_id, default_provider_id, default_model_id,
+        fallback_mode, fallback_json, visible_model_ids_json, credential_labels_json, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(user_id, workspace_id)
+      DO UPDATE SET
+        credential_labels_json = excluded.credential_labels_json,
+        updated_at = excluded.updated_at
+    `;
+
+    const stmt = this.db
+      .prepare(query)
+      .bind(
+        this.userId,
+        this.workspaceId,
+        AXIS_PROVIDER_ID,
+        AXIS_DEFAULT_MODEL_ID,
+        "strict",
+        null,
+        "{}",
+        JSON.stringify(credentialLabels),
+        now,
+      );
+
+    const result = await stmt.run();
+    if (!result.success) {
+      throw new Error("Failed to update credential labels");
+    }
+  }
+
   private createDefaultPreferences(): BYOKPreferences {
     return {
       defaultProviderId: AXIS_PROVIDER_ID,
       defaultModelId: AXIS_DEFAULT_MODEL_ID,
       visibleModelIds: {},
+      credentialLabels: {},
       updatedAt: new Date().toISOString(),
     };
   }
@@ -115,8 +170,25 @@ export class D1PreferenceStore implements PreferenceStore {
     if (row.visible_model_ids_json) {
       try {
         visibleModelIds = JSON.parse(row.visible_model_ids_json);
-      } catch {
+      } catch (error) {
+        console.error(
+          "[D1PreferenceStore/rowToPreferences] Failed to parse visible_model_ids_json",
+          error,
+        );
         visibleModelIds = {};
+      }
+    }
+
+    let credentialLabels: Record<string, string> = {};
+    if (row.credential_labels_json) {
+      try {
+        credentialLabels = JSON.parse(row.credential_labels_json);
+      } catch (error) {
+        console.error(
+          "[D1PreferenceStore/rowToPreferences] Failed to parse credential_labels_json",
+          error,
+        );
+        credentialLabels = {};
       }
     }
 
@@ -125,6 +197,7 @@ export class D1PreferenceStore implements PreferenceStore {
         (row.default_provider_id as string | undefined) ?? AXIS_PROVIDER_ID,
       defaultModelId: row.default_model_id ?? AXIS_DEFAULT_MODEL_ID,
       visibleModelIds,
+      credentialLabels,
       updatedAt: row.updated_at,
     };
   }
