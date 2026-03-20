@@ -1,264 +1,133 @@
 /**
  * D1 Provider Config Service
  *
- * D1-backed provider configuration and credential management.
- * This is the D1 replacement for ProviderConfigService (DO-backed).
+ * D1-backed provider configuration service.
+ * This is the D1 replacement for the DO-backed ProviderConfigService.
  *
- * This service delegates to focused, single-responsibility services:
- * - CredentialStore: Credential operations (D1-backed)
- * - PreferenceStore: Preference operations (D1-backed)
- * - ProviderCatalogService: Model catalog queries
- * - ProviderConnectionService: Status queries
- * - ProviderAuditService: Audit logging
- * - AxisQuotaService: Quota tracking
- * - ProviderModelDiscoveryService: Model discovery
+ * Uses focused D1 stores instead of DurableProviderStore:
+ * - CredentialStore: user-global credentials
+ * - PreferenceStore: workspace-scoped preferences
+ * - ProviderAuditLog: append-only audit
+ * - ProviderQuotaStore: Axis quota tracking
  */
 
-import type { Env } from "../../types/ai";
+import type { D1Database } from "@cloudflare/workers-types";
 import type {
   BYOKConnectRequest,
   BYOKConnectResponse,
-  BYOKDiscoveredProviderModelsQuery,
-  BYOKDiscoveredProviderModelsRefreshResponse,
-  BYOKDiscoveredProviderModelsResponse,
   BYOKDisconnectRequest,
   BYOKPreferences,
   BYOKPreferencesPatch,
   BYOKValidateRequest,
   BYOKValidateResponse,
-  ProviderCatalogResponse,
-  ProviderConnection,
-  ProviderConnectionsResponse,
   ProviderId,
 } from "@repo/shared-types";
-import type { ModelsListResponse } from "../../schemas/provider";
 import type { CredentialStore } from "./stores/CredentialStore";
 import type { PreferenceStore } from "./stores/PreferenceStore";
 import type { ProviderModelCacheStore } from "./stores/ProviderModelCacheStore";
-import { D1CredentialVault } from "./D1CredentialVault";
-import { ProviderCredentialService } from "./ProviderCredentialService";
-import { ProviderCatalogService } from "./ProviderCatalogService";
-import { ProviderConnectionService } from "./ProviderConnectionService";
-import { ProviderAuditService } from "./ProviderAuditService";
-import { AxisQuotaService, type AxisQuotaStatus } from "./AxisQuotaService";
-import { ProviderModelDiscoveryService } from "./model-discovery";
 import { ProviderRegistryService } from "./ProviderRegistryService";
-import {
-  AXIS_DAILY_LIMIT,
-  AXIS_PROVIDER_ID,
-  getAxisDiscoveredModels,
-} from "./axis";
+import { AXIS_PROVIDER_ID, getAxisDiscoveredModels } from "./axis";
+import { CredentialEncryptionService } from "../byok/encryption.js";
 
-/**
- * D1ProviderConfigService - D1-backed provider configuration
- */
+export interface D1ProviderConfigServiceOptions {
+  db: D1Database;
+  userId: string;
+  workspaceId: string;
+  encryptionKey: string;
+  encryptionKeyVersion: string;
+  previousEncryptionKey?: string;
+}
+
 export class D1ProviderConfigService {
-  private credentialVault: D1CredentialVault;
-  private credentialService: ProviderCredentialService;
+  private credentialStore: CredentialStore;
+  private preferenceStore: PreferenceStore;
+  private modelCacheStore: ProviderModelCacheStore;
   private registryService: ProviderRegistryService;
-  private catalogService: ProviderCatalogService;
-  private modelDiscoveryService: ProviderModelDiscoveryService;
-  private connectionService: ProviderConnectionService;
-  private auditService: ProviderAuditService;
-  private axisQuotaService: AxisQuotaService;
+  private encryption: CredentialEncryptionService;
 
-  constructor(
-    env: Env,
-    credentialStore: CredentialStore,
-    preferenceStore: PreferenceStore,
-    modelCacheStore: ProviderModelCacheStore,
-    userId: string,
-    workspaceId: string,
-  ) {
+  constructor(options: D1ProviderConfigServiceOptions) {
     this.registryService = new ProviderRegistryService();
-    this.credentialVault = new D1CredentialVault(credentialStore, userId);
-    this.credentialService = new ProviderCredentialService(
-      env,
-      this.credentialVault,
-      this.registryService,
-    );
-    this.modelDiscoveryService = new ProviderModelDiscoveryService(
-      modelCacheStore,
-      this.credentialService,
-      this.registryService,
-    );
-    this.catalogService = new ProviderCatalogService(
-      this.registryService,
-      this.modelDiscoveryService,
-    );
-    this.connectionService = new ProviderConnectionService(
-      this.credentialService,
-      this.registryService,
-    );
-    this.auditService = new ProviderAuditService();
-    this.axisQuotaService = new AxisQuotaService(
-      resolveAxisDailyLimit(env.AXIS_DAILY_LIMIT),
-    );
+    this.encryption = new CredentialEncryptionService();
+
+    const {
+      db,
+      userId,
+      encryptionKey,
+      encryptionKeyVersion,
+      previousEncryptionKey,
+    } = options;
+
+    this.credentialStore =
+      new (require("./stores/D1CredentialStore").D1CredentialStore)(
+        db,
+        userId,
+        encryptionKey,
+        encryptionKeyVersion,
+        previousEncryptionKey,
+      );
+    this.preferenceStore =
+      new (require("./stores/D1PreferenceStore").D1PreferenceStore)(
+        db,
+        userId,
+        options.workspaceId,
+      );
+    this.modelCacheStore =
+      new (require("./stores/D1ProviderModelCacheStore").D1ProviderModelCacheStore)(
+        db,
+      );
   }
 
-  async getCatalog(): Promise<ProviderCatalogResponse> {
-    return this.catalogService.getCatalog();
+  async getCredentialStore(): Promise<CredentialStore> {
+    return this.credentialStore;
   }
 
-  async getConnections(): Promise<ProviderConnectionsResponse> {
-    const connections = await this.connectionService.getConnections();
-    return { connections };
+  async getPreferenceStore(): Promise<PreferenceStore> {
+    return this.preferenceStore;
   }
 
-  async connect(request: BYOKConnectRequest): Promise<BYOKConnectResponse> {
-    try {
-      const response = await this.credentialService.connect(request);
-      await this.auditService.record({
-        eventType: "connect",
-        status: response.status === "connected" ? "success" : "failure",
-        providerId: request.providerId,
-        message: response.errorMessage,
-      });
-      return response;
-    } catch (error) {
-      await this.auditService.record({
-        eventType: "connect",
-        status: "failure",
-        providerId: request.providerId,
-        message: toErrorMessage(error),
-      });
-      throw error;
-    }
-  }
-
-  async validate(request: BYOKValidateRequest): Promise<BYOKValidateResponse> {
-    try {
-      const response = await this.credentialService.validate(request);
-      await this.auditService.record({
-        eventType: "validate",
-        status: response.status === "valid" ? "success" : "failure",
-        providerId: request.providerId,
-        validationMode: response.validationMode,
-      });
-      return response;
-    } catch (error) {
-      await this.auditService.record({
-        eventType: "validate",
-        status: "failure",
-        providerId: request.providerId,
-        validationMode: request.mode,
-        message: toErrorMessage(error),
-      });
-      throw error;
-    }
-  }
-
-  async disconnect(
-    request: BYOKDisconnectRequest,
-  ): Promise<{ status: "disconnected"; providerId: ProviderId }> {
-    try {
-      const response = await this.credentialService.disconnect(request);
-      await this.auditService.record({
-        eventType: "disconnect",
-        status: "success",
-        providerId: request.providerId,
-      });
-      return response;
-    } catch (error) {
-      await this.auditService.record({
-        eventType: "disconnect",
-        status: "failure",
-        providerId: request.providerId,
-        message: toErrorMessage(error),
-      });
-      throw error;
-    }
+  async getModelCacheStore(): Promise<ProviderModelCacheStore> {
+    return this.modelCacheStore;
   }
 
   async getPreferences(): Promise<BYOKPreferences> {
-    return {} as BYOKPreferences;
+    return this.preferenceStore.getPreferences();
   }
 
   async updatePreferences(
-    _patch: BYOKPreferencesPatch,
+    patch: BYOKPreferencesPatch,
   ): Promise<BYOKPreferences> {
-    return {} as BYOKPreferences;
-  }
-
-  async getStatus(): Promise<ProviderConnection[]> {
-    return this.connectionService.getStatus();
-  }
-
-  async getModels(providerId: ProviderId): Promise<ModelsListResponse> {
-    return this.catalogService.getDiscoveredModels(providerId);
-  }
-
-  async getDiscoveredModels(
-    providerId: ProviderId,
-    query: BYOKDiscoveredProviderModelsQuery,
-  ): Promise<BYOKDiscoveredProviderModelsResponse> {
-    if (providerId === AXIS_PROVIDER_ID) {
-      return this.catalogService.getStaticDiscoveredModelsForAxis(query);
-    }
-    return this.modelDiscoveryService.getDiscoveredModels(providerId, query);
-  }
-
-  async refreshDiscoveredModels(
-    providerId: ProviderId,
-  ): Promise<BYOKDiscoveredProviderModelsRefreshResponse> {
-    if (providerId === AXIS_PROVIDER_ID) {
-      return {
-        providerId: AXIS_PROVIDER_ID,
-        refreshedAt: new Date().toISOString(),
-        source: "provider_api",
-        cacheInvalidated: false,
-        modelsCount: getAxisDiscoveredModels().length,
-      };
-    }
-    return this.modelDiscoveryService.refreshDiscoveredModels(providerId);
-  }
-
-  async getOpenRouterDiscoveredModels(
-    query: BYOKDiscoveredProviderModelsQuery,
-  ): Promise<BYOKDiscoveredProviderModelsResponse> {
-    return this.getDiscoveredModels("openrouter", query);
-  }
-
-  async refreshOpenRouterDiscoveredModels(): Promise<BYOKDiscoveredProviderModelsRefreshResponse> {
-    return this.refreshDiscoveredModels("openrouter");
-  }
-
-  async getApiKey(providerId: ProviderId): Promise<string | null> {
-    return this.credentialVault.getApiKey(providerId);
+    return this.preferenceStore.updatePreferences(patch);
   }
 
   async isConnected(providerId: ProviderId): Promise<boolean> {
-    return this.credentialVault.isConnected(providerId);
+    const cred = await this.credentialStore.getCredential(providerId);
+    return cred !== null && cred.status === "connected";
   }
 
-  async getAxisQuotaStatus(): Promise<AxisQuotaStatus> {
-    return this.axisQuotaService.getStatus();
+  async getApiKey(providerId: ProviderId): Promise<string | null> {
+    const result = await this.credentialStore.getCredentialWithKey(providerId);
+    return result?.apiKey ?? null;
   }
 
-  async consumeAxisQuota(correlationId?: string): Promise<AxisQuotaStatus> {
-    return this.axisQuotaService.consume(correlationId);
-  }
-}
-
-function toErrorMessage(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return "Unknown error";
-}
-
-function resolveAxisDailyLimit(rawLimit: string | undefined): number {
-  if (!rawLimit) {
-    return AXIS_DAILY_LIMIT;
+  async listConnectedProviders(): Promise<ProviderId[]> {
+    return this.credentialStore.listCredentialProviders();
   }
 
-  const parsedLimit = Number.parseInt(rawLimit, 10);
-  if (!Number.isFinite(parsedLimit) || parsedLimit < 1) {
-    console.warn(
-      `[provider/axis-quota] Invalid AXIS_DAILY_LIMIT="${rawLimit}". Using default ${AXIS_DAILY_LIMIT}.`,
-    );
-    return AXIS_DAILY_LIMIT;
+  async deleteCredential(providerId: ProviderId): Promise<void> {
+    await this.credentialStore.deleteCredential(providerId);
   }
 
-  return parsedLimit;
+  async setCredential(
+    providerId: ProviderId,
+    apiKey: string,
+    label: string = "default",
+  ): Promise<void> {
+    await this.credentialStore.setCredential({
+      credentialId: crypto.randomUUID(),
+      userId: "", // Will be injected by store
+      providerId,
+      label,
+      apiKey,
+    });
+  }
 }
