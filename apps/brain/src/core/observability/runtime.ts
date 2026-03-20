@@ -8,6 +8,8 @@ import {
 } from "@repo/shared-types";
 import type { Env } from "../../types/ai";
 
+const MODULE_STARTED_AT = new Date().toISOString();
+
 let workerStartupLogged = false;
 let runEngineStartupLogged = false;
 let brainWorkerIdentity: RuntimeIdentity | null = null;
@@ -78,8 +80,8 @@ function ensureBrainWorkerStartupLogged(env: Env): void {
     return;
   }
 
-  workerStartupLogged = true;
   logRuntimeStartup(getBrainWorkerIdentity(), env);
+  workerStartupLogged = true;
 }
 
 function ensureRunEngineStartupLogged(env: Env): void {
@@ -87,13 +89,16 @@ function ensureRunEngineStartupLogged(env: Env): void {
     return;
   }
 
-  runEngineStartupLogged = true;
   logRuntimeStartup(getRunEngineIdentity(), env);
+  runEngineStartupLogged = true;
 }
 
 function getBrainWorkerIdentity(): RuntimeIdentity {
   if (!brainWorkerIdentity) {
-    brainWorkerIdentity = createRuntimeIdentity("brain-worker");
+    brainWorkerIdentity = createRuntimeIdentity(
+      "brain-worker",
+      MODULE_STARTED_AT,
+    );
   }
 
   return brainWorkerIdentity;
@@ -101,7 +106,10 @@ function getBrainWorkerIdentity(): RuntimeIdentity {
 
 function getRunEngineIdentity(): RuntimeIdentity {
   if (!runEngineIdentity) {
-    runEngineIdentity = createRuntimeIdentity("brain-run-engine-do");
+    runEngineIdentity = createRuntimeIdentity(
+      "brain-run-engine-do",
+      MODULE_STARTED_AT,
+    );
   }
 
   return runEngineIdentity;

@@ -8,6 +8,8 @@ import {
 } from "@repo/shared-types";
 import type { Env } from "../../index";
 
+const MODULE_STARTED_AT = new Date().toISOString();
+
 let startupLogged = false;
 let secureWorkerIdentity: RuntimeIdentity | null = null;
 
@@ -50,7 +52,6 @@ function ensureRuntimeStartupLogged(env: Env): void {
     return;
   }
 
-  startupLogged = true;
   const identity = getSecureWorkerIdentity();
   const gitSha = resolveRuntimeGitSha(toEnvRecord(env));
   const fingerprint = buildRuntimeFingerprint(identity, gitSha);
@@ -59,11 +60,15 @@ function ensureRuntimeStartupLogged(env: Env): void {
   console.log(
     `[runtime/startup] name=${identity.name} gitSha=${gitSha} startedAt=${identity.startedAt} bootId=${identity.bootId} fingerprint=${fingerprint} featureFlags=${JSON.stringify(featureFlags)}`,
   );
+  startupLogged = true;
 }
 
 function getSecureWorkerIdentity(): RuntimeIdentity {
   if (!secureWorkerIdentity) {
-    secureWorkerIdentity = createRuntimeIdentity("secure-agent-api-worker");
+    secureWorkerIdentity = createRuntimeIdentity(
+      "secure-agent-api-worker",
+      MODULE_STARTED_AT,
+    );
   }
 
   return secureWorkerIdentity;
