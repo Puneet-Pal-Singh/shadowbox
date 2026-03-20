@@ -391,21 +391,32 @@ function performMutation(
 
   if (normalized.startsWith("INSERT INTO byok_credentials (")) {
     assertTableExists(state, "byok_credentials");
-    const mappedParams = params.map(String);
+    const mappedParams = params.map((param) => toNullableString(param));
     const [
-      credentialId = "",
-      userId = "",
-      workspaceId = "",
-      providerId = "",
-      label = "",
-      keyFingerprint = "",
-      encryptedSecretJson = "",
-      keyVersion = "",
-      status = "",
-      createdBy = "",
-      createdAt = "",
-      updatedAt = "",
+      credentialIdValue = null,
+      userIdValue = null,
+      workspaceIdValue = null,
+      providerIdValue = null,
+      labelValue = null,
+      keyFingerprintValue = null,
+      encryptedSecretJsonValue = null,
+      keyVersionValue = null,
+      statusValue = null,
+      createdBy = null,
+      createdAtValue = null,
+      updatedAtValue = null,
     ] = mappedParams;
+    const credentialId = credentialIdValue ?? "";
+    const userId = userIdValue ?? "";
+    const workspaceId = workspaceIdValue ?? "";
+    const providerId = providerIdValue ?? "";
+    const label = labelValue ?? "";
+    const keyFingerprint = keyFingerprintValue ?? "";
+    const encryptedSecretJson = encryptedSecretJsonValue ?? "";
+    const keyVersion = keyVersionValue ?? "";
+    const status = statusValue ?? "";
+    const createdAt = createdAtValue ?? "";
+    const updatedAt = updatedAtValue ?? "";
     const credentialKey = buildCredentialKey(userId, providerId, label);
     const existing = state.credentials.get(credentialKey);
     if (existing) {
