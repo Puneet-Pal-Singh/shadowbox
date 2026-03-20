@@ -4,7 +4,6 @@ import type { Env } from "../types/ai";
 import type { ProviderAdapter } from "./providers";
 import { AIService } from "./AIService";
 import { ProviderConfigService } from "./providers";
-import { DurableProviderStore } from "./providers/DurableProviderStore";
 
 const BASE_MESSAGES: CoreMessage[] = [{ role: "user", content: "hello" }];
 

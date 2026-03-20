@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { DurableProviderStore } from "../DurableProviderStore";
+import type { ProviderModelCacheStore } from "../stores/ProviderModelCacheStore";
 import type { ProviderCredentialService } from "../ProviderCredentialService";
 import type { ProviderModelCatalogPort } from "./ProviderModelCatalogPort";
 import { ProviderModelDiscoveryService } from "./ProviderModelDiscoveryService";
@@ -39,13 +39,16 @@ describe("ProviderModelDiscoveryService", () => {
     };
 
     const service = new ProviderModelDiscoveryService(
-      store as unknown as DurableProviderStore,
+      store as unknown as ProviderModelCacheStore,
       credentialService,
       { openrouter: adapter },
     );
 
     const first = await service.getOpenRouterModels({ view: "all", limit: 50 });
-    const second = await service.getOpenRouterModels({ view: "all", limit: 50 });
+    const second = await service.getOpenRouterModels({
+      view: "all",
+      limit: 50,
+    });
 
     expect(first.models).toHaveLength(1);
     expect(second.models).toHaveLength(1);
@@ -58,7 +61,9 @@ describe("ProviderModelDiscoveryService", () => {
     const now = Date.now();
     await store.setModelCache({
       providerId: "openrouter",
-      models: [{ id: "openrouter/auto", name: "Auto", providerId: "openrouter" }],
+      models: [
+        { id: "openrouter/auto", name: "Auto", providerId: "openrouter" },
+      ],
       fetchedAt: new Date(now - 120_000).toISOString(),
       expiresAt: new Date(now - 1_000).toISOString(),
       source: "provider_api",
@@ -74,11 +79,14 @@ describe("ProviderModelDiscoveryService", () => {
     };
 
     const service = new ProviderModelDiscoveryService(
-      store as unknown as DurableProviderStore,
+      store as unknown as ProviderModelCacheStore,
       credentialService,
       { openrouter: adapter },
     );
-    const result = await service.getOpenRouterModels({ view: "all", limit: 50 });
+    const result = await service.getOpenRouterModels({
+      view: "all",
+      limit: 50,
+    });
     expect(result.metadata.stale).toBe(true);
     expect(result.metadata.source).toBe("cache");
     expect(result.metadata.staleReason).toBe("provider_api_unavailable");
@@ -89,7 +97,9 @@ describe("ProviderModelDiscoveryService", () => {
     const now = Date.now();
     await store.setModelCache({
       providerId: "openrouter",
-      models: [{ id: "openrouter/auto", name: "Auto", providerId: "openrouter" }],
+      models: [
+        { id: "openrouter/auto", name: "Auto", providerId: "openrouter" },
+      ],
       fetchedAt: new Date(now - 1000).toISOString(),
       expiresAt: new Date(now + 60_000).toISOString(),
       source: "provider_api",
@@ -102,7 +112,7 @@ describe("ProviderModelDiscoveryService", () => {
       fetchPage: vi.fn(),
     };
     const service = new ProviderModelDiscoveryService(
-      store as unknown as DurableProviderStore,
+      store as unknown as ProviderModelCacheStore,
       credentialService,
       { openrouter: adapter },
     );
@@ -110,8 +120,8 @@ describe("ProviderModelDiscoveryService", () => {
     await service.getDiscoveredModels("openrouter", { view: "all", limit: 50 });
     const metrics = service.getObservabilityMetrics();
     expect(metrics.model_discovery_cache_hits_total.openrouter).toBe(1);
-    expect(metrics.model_discovery_requests_total.openrouter_provider_api_success).toBe(
-      1,
-    );
+    expect(
+      metrics.model_discovery_requests_total.openrouter_provider_api_success,
+    ).toBe(1);
   });
 });
