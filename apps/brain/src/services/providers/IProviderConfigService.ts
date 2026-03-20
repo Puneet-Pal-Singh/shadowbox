@@ -38,6 +38,11 @@ export interface IProviderConfigService {
   ): Promise<{ status: "disconnected"; providerId: ProviderId }>;
   getPreferences(): Promise<BYOKPreferences>;
   updatePreferences(patch: BYOKPreferencesPatch): Promise<BYOKPreferences>;
+  setCredentialLabel(
+    credentialId: string,
+    label: string,
+  ): Promise<BYOKPreferences>;
+  deleteCredentialLabel(credentialId: string): Promise<BYOKPreferences>;
   getStatus(): Promise<ProviderConnection[]>;
   getModels(providerId: ProviderId): Promise<ModelsListResponse>;
   getDiscoveredModels(

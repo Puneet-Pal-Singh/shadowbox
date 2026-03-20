@@ -189,6 +189,29 @@ export class ProviderConfigService {
     }
   }
 
+  async setCredentialLabel(
+    credentialId: string,
+    label: string,
+  ): Promise<BYOKPreferences> {
+    await this.ensureStorageReady();
+    try {
+      await this.options.preferenceStore.setCredentialLabel(credentialId, label);
+      return await this.options.preferenceStore.getPreferences();
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  async deleteCredentialLabel(credentialId: string): Promise<BYOKPreferences> {
+    await this.ensureStorageReady();
+    try {
+      await this.options.preferenceStore.deleteCredentialLabel(credentialId);
+      return await this.options.preferenceStore.getPreferences();
+    } catch (error) {
+      throw error;
+    }
+  }
+
   async getStatus(): Promise<ProviderConnection[]> {
     await this.ensureStorageReady();
     return this.connectionService.getStatus();

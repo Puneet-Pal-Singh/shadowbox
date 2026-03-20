@@ -34,6 +34,7 @@ import {
   BYOKDisconnectRequestSchema,
   BYOKDisconnectResponseSchema,
   BYOKPreferencesPatchSchema,
+  type BYOKPreferences,
   BYOKPreferencesSchema,
   BYOKValidateRequestSchema,
   BYOKValidateResponseSchema,
@@ -61,8 +62,6 @@ import {
   resolveAuthorizedProviderScope,
   type AuthorizedProviderScope,
 } from "./provider/ProviderAuthScopeService";
-import { ensureByokSchemaReady } from "../services/byok/ByokSchemaService.js";
-import { D1PreferenceStore } from "../services/providers/stores/D1PreferenceStore.js";
 
 const AXIS_PROVIDER_ID = "axis" as const;
 
@@ -273,7 +272,14 @@ export class ProviderController {
 
       const credentialId = buildVirtualCredentialId(request.providerId);
       if (request.label) {
-        await persistCredentialLabel(env, scope, credentialId, request.label);
+        await persistCredentialLabel(
+          req,
+          env,
+          scope,
+          credentialId,
+          request.label,
+          correlationId,
+        );
       }
 
       const credentials = await loadConnectedCredentials(
@@ -319,7 +325,14 @@ export class ProviderController {
       );
 
       if (patch.label) {
-        await persistCredentialLabel(env, scope, credentialId, patch.label);
+        await persistCredentialLabel(
+          req,
+          env,
+          scope,
+          credentialId,
+          patch.label,
+          correlationId,
+        );
       }
 
       const credentials = await loadConnectedCredentials(
@@ -389,7 +402,7 @@ export class ProviderController {
         BYOKDisconnectResponseSchema,
         correlationId,
       );
-      await deleteCredentialLabel(env, scope, credentialId);
+      await deleteCredentialLabel(req, env, scope, credentialId, correlationId);
 
       return withEngineHeaders(
         req,
@@ -968,7 +981,7 @@ async function proxyProviderOperation(
   env: Env,
   operation: {
     scope: AuthorizedProviderScope;
-    method: "GET" | "POST" | "PATCH";
+    method: "GET" | "POST" | "PATCH" | "DELETE";
     path: string;
     body?: unknown;
   },
@@ -1006,7 +1019,7 @@ async function proxyByokOperation(
   env: Env,
   operation: {
     scope: AuthorizedProviderScope;
-    method: "GET" | "POST" | "PATCH";
+    method: "GET" | "POST" | "PATCH" | "DELETE";
     path: string;
     body?: unknown;
   },
@@ -1233,12 +1246,7 @@ async function fetchRuntimePreferences(
   env: Env,
   scope: AuthorizedProviderScope,
   correlationId: string,
-): Promise<{
-  defaultProviderId?: string;
-  defaultModelId?: string;
-  visibleModelIds?: Record<string, string[]>;
-  updatedAt: string;
-}> {
+): Promise<BYOKPreferences> {
   const response = await proxyByokOperation(
     req,
     env,
@@ -1307,7 +1315,7 @@ async function loadConnectedCredentials(
   correlationId: string,
 ): Promise<BYOKCredential[]> {
   const runtime = await fetchRuntimeConnections(req, env, scope, correlationId);
-  const metadata = await loadWorkspaceByokMetadata(env, scope);
+  const metadata = await loadWorkspaceByokMetadata(req, env, scope, correlationId);
   const now = new Date().toISOString();
   const credentials: BYOKCredential[] = [];
 
@@ -1677,44 +1685,58 @@ async function ensureDefaultPreferenceConfigured(
 }
 
 async function persistCredentialLabel(
+  req: Request,
   env: Env,
   scope: AuthorizedProviderScope,
   credentialId: string,
   label: string,
+  correlationId: string,
 ): Promise<void> {
-  const preferenceStore = await createWorkspacePreferenceStore(env, scope);
-  await preferenceStore.setCredentialLabel(credentialId, label);
+  await proxyByokOperation(
+    req,
+    env,
+    {
+      scope,
+      method: "POST",
+      path: "/providers/preferences/credential-labels",
+      body: {
+        credentialId,
+        label,
+      },
+    },
+    BYOKPreferencesSchema,
+    correlationId,
+  );
 }
 
 async function deleteCredentialLabel(
+  req: Request,
   env: Env,
   scope: AuthorizedProviderScope,
   credentialId: string,
+  correlationId: string,
 ): Promise<void> {
-  const preferenceStore = await createWorkspacePreferenceStore(env, scope);
-  await preferenceStore.deleteCredentialLabel(credentialId);
+  await proxyByokOperation(
+    req,
+    env,
+    {
+      scope,
+      method: "DELETE",
+      path: `/providers/preferences/credential-labels/${encodeURIComponent(credentialId)}`,
+    },
+    BYOKPreferencesSchema,
+    correlationId,
+  );
 }
 
 async function loadWorkspaceByokMetadata(
+  req: Request,
   env: Env,
   scope: AuthorizedProviderScope,
+  correlationId: string,
 ): Promise<WorkspaceByokMetadata> {
-  const preferenceStore = await createWorkspacePreferenceStore(env, scope);
-  const preferences = await preferenceStore.getPreferences();
+  const preferences = await fetchRuntimePreferences(req, env, scope, correlationId);
   return {
     credentialLabels: preferences.credentialLabels ?? {},
   };
-}
-
-async function createWorkspacePreferenceStore(
-  env: Env,
-  scope: AuthorizedProviderScope,
-): Promise<D1PreferenceStore> {
-  const db = env.BYOK_DB;
-  if (!db) {
-    throw new Error("BYOK_DB D1 binding is required");
-  }
-
-  await ensureByokSchemaReady(db);
-  return new D1PreferenceStore(db, scope.userId, scope.workspaceId);
 }

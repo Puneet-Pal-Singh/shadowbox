@@ -14,7 +14,12 @@ function createMockEnv(options?: { axisConnected?: boolean }): Env {
   const providerState = new Map<string, Set<ProviderId>>();
   const preferencesState = new Map<
     string,
-    { defaultProviderId?: ProviderId; defaultModelId?: string; updatedAt: string }
+    {
+      defaultProviderId?: ProviderId;
+      defaultModelId?: string;
+      credentialLabels?: Record<string, string>;
+      updatedAt: string;
+    }
   >();
   const sessions = new Map<string, string>();
   sessions.set(
@@ -237,6 +242,7 @@ function createMockEnv(options?: { axisConnected?: boolean }): Env {
           request.method === "GET"
         ) {
           const current = preferencesState.get(scopeKey) ?? {
+            credentialLabels: {},
             updatedAt: new Date().toISOString(),
           };
           return jsonOk(current);
@@ -251,11 +257,61 @@ function createMockEnv(options?: { axisConnected?: boolean }): Env {
             defaultModelId?: string;
           };
           const current = preferencesState.get(scopeKey) ?? {
+            credentialLabels: {},
             updatedAt: new Date().toISOString(),
           };
           const next = {
             defaultProviderId: body.defaultProviderId ?? current.defaultProviderId,
             defaultModelId: body.defaultModelId ?? current.defaultModelId,
+            credentialLabels: current.credentialLabels ?? {},
+            updatedAt: new Date().toISOString(),
+          };
+          preferencesState.set(scopeKey, next);
+          return jsonOk(next);
+        }
+
+        if (
+          url.pathname === "/providers/preferences/credential-labels" &&
+          request.method === "POST"
+        ) {
+          const body = (await request.json()) as {
+            credentialId: string;
+            label: string;
+          };
+          const current = preferencesState.get(scopeKey) ?? {
+            credentialLabels: {},
+            updatedAt: new Date().toISOString(),
+          };
+          const next = {
+            defaultProviderId: current.defaultProviderId,
+            defaultModelId: current.defaultModelId,
+            credentialLabels: {
+              ...(current.credentialLabels ?? {}),
+              [body.credentialId]: body.label,
+            },
+            updatedAt: new Date().toISOString(),
+          };
+          preferencesState.set(scopeKey, next);
+          return jsonOk(next);
+        }
+
+        if (
+          url.pathname.startsWith("/providers/preferences/credential-labels/") &&
+          request.method === "DELETE"
+        ) {
+          const credentialId = decodeURIComponent(
+            url.pathname.split("/").pop() ?? "",
+          );
+          const current = preferencesState.get(scopeKey) ?? {
+            credentialLabels: {},
+            updatedAt: new Date().toISOString(),
+          };
+          const credentialLabels = { ...(current.credentialLabels ?? {}) };
+          delete credentialLabels[credentialId];
+          const next = {
+            defaultProviderId: current.defaultProviderId,
+            defaultModelId: current.defaultModelId,
+            credentialLabels,
             updatedAt: new Date().toISOString(),
           };
           preferencesState.set(scopeKey, next);

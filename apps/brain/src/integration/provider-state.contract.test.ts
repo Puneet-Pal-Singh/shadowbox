@@ -462,6 +462,30 @@ async function handleProviderRuntimeRoute(
     return json(await configService.updatePreferences(body), 200);
   }
 
+  if (
+    url.pathname === "/providers/preferences/credential-labels" &&
+    request.method === "POST"
+  ) {
+    const body = (await request.json()) as {
+      credentialId: string;
+      label: string;
+    };
+    return json(
+      await configService.setCredentialLabel(body.credentialId, body.label),
+      200,
+    );
+  }
+
+  if (
+    url.pathname.startsWith("/providers/preferences/credential-labels/") &&
+    request.method === "DELETE"
+  ) {
+    const credentialId = decodeURIComponent(
+      url.pathname.split("/").pop() ?? "",
+    );
+    return json(await configService.deleteCredentialLabel(credentialId), 200);
+  }
+
   if (url.pathname === "/providers/axis/quota" && request.method === "GET") {
     return json(await configService.getAxisQuotaStatus(), 200);
   }
