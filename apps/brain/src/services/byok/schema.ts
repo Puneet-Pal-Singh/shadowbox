@@ -124,8 +124,23 @@ CREATE TABLE IF NOT EXISTS provider_registry_cache (
   capabilities_json TEXT NOT NULL,
   models_json TEXT NOT NULL,
   source_version TEXT NOT NULL,
+  fetched_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
   refreshed_at TEXT NOT NULL
 );
+`;
+
+/**
+ * D1 Migration: Add fetched_at and expires_at to provider registry cache
+ *
+ * Adds columns for tracking cache freshness and TTL.
+ */
+export const ADD_FETCH_EXPIRY_TO_CACHE_SCHEMA = `
+ALTER TABLE provider_registry_cache
+ADD COLUMN fetched_at TEXT NOT NULL DEFAULT '1970-01-01T00:00:00.000Z';
+
+ALTER TABLE provider_registry_cache
+ADD COLUMN expires_at TEXT NOT NULL DEFAULT '1970-01-01T00:00:00.000Z';
 `;
 
 /**
@@ -161,5 +176,6 @@ export const ALL_BYOK_MIGRATIONS = [
   BYOK_PREFERENCES_SCHEMA,
   BYOK_AUDIT_EVENTS_SCHEMA,
   PROVIDER_REGISTRY_CACHE_SCHEMA,
+  ADD_FETCH_EXPIRY_TO_CACHE_SCHEMA,
   ADD_VISIBLE_MODEL_IDS_TO_PREFERENCES_SCHEMA,
 ];

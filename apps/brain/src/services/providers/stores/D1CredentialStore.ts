@@ -124,6 +124,9 @@ export class D1CredentialStore implements CredentialStore {
         key_version = excluded.key_version,
         key_fingerprint = excluded.key_fingerprint,
         status = 'connected',
+        last_validated_at = NULL,
+        last_error_code = NULL,
+        last_error_message = NULL,
         updated_at = excluded.updated_at,
         deleted_at = NULL
     `;
@@ -192,9 +195,9 @@ export class D1CredentialStore implements CredentialStore {
     providerId: ProviderId,
     updates: {
       status?: "connected" | "failed" | "revoked";
-      lastValidatedAt?: string;
-      lastErrorCode?: string;
-      lastErrorMessage?: string;
+      lastValidatedAt?: string | null;
+      lastErrorCode?: string | null;
+      lastErrorMessage?: string | null;
     },
   ): Promise<void> {
     const setClauses: string[] = ["updated_at = ?"];
@@ -204,7 +207,7 @@ export class D1CredentialStore implements CredentialStore {
       setClauses.push("status = ?");
       params.push(updates.status);
     }
-    if (updates.lastValidatedAt) {
+    if (updates.lastValidatedAt !== undefined) {
       setClauses.push("last_validated_at = ?");
       params.push(updates.lastValidatedAt);
     }

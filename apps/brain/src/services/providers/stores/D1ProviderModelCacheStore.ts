@@ -71,7 +71,11 @@ export class D1ProviderModelCacheStore implements IProviderModelCacheStore {
         expiresAt: row.expires_at,
         source: "cache" as const, // Stored as cache in this implementation
       };
-    } catch {
+    } catch (error) {
+      console.error(
+        `[D1ProviderModelCacheStore/getModelCache] Failed to parse cache for provider: ${providerId}`,
+        error,
+      );
       return null;
     }
   }

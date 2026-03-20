@@ -72,9 +72,9 @@ export interface CredentialStore {
     providerId: ProviderId,
     updates: {
       status?: "connected" | "failed" | "revoked";
-      lastValidatedAt?: string;
-      lastErrorCode?: string;
-      lastErrorMessage?: string;
+      lastValidatedAt?: string | null;
+      lastErrorCode?: string | null;
+      lastErrorMessage?: string | null;
     },
   ): Promise<void>;
 }

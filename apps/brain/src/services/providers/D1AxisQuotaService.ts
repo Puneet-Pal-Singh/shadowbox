@@ -43,10 +43,10 @@ export class D1AxisQuotaService implements ProviderQuotaStore {
       const row = await stmt.first<{ value: number }>();
       return row?.value ?? 0;
     } catch (error) {
-      console.error(
-        `[provider/quota] Failed to get quota usage for ${key}`,
+      console.error("[provider/quota] Failed to get quota usage", {
+        dayKey,
         error,
-      );
+      });
       return 0;
     }
   }
