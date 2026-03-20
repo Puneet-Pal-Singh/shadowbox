@@ -97,16 +97,109 @@ function createEnv(): Env {
     GROQ_API_KEY: "test-groq-key",
     AXIS_OPENROUTER_API_KEY: "sk-or-axis-managed-key",
     OPENAI_API_KEY: "sk-env-openai-key",
+    BYOK_DB: {} as Env["BYOK_DB"],
+    BYOK_CREDENTIAL_ENCRYPTION_KEY: "test-master-key-32-chars-minimum",
   };
 }
 
 function createProviderConfigService(): ProviderConfigService {
-  const durableStore = new DurableProviderStore(
-    createMockDurableObjectState() as any,
-    { runId: crypto.randomUUID() },
-    "test-byok-encryption-key",
-  );
-  return new ProviderConfigService(createEnv(), durableStore);
+  const env = createEnv();
+  const mockCredentialStore = createMockCredentialStore();
+  const mockPreferenceStore = createMockPreferenceStore();
+  const mockModelCacheStore = createMockModelCacheStore();
+  const mockAuditLog = createMockAuditLog();
+  const mockQuotaStore = createMockQuotaStore();
+
+  return new ProviderConfigService({
+    env,
+    userId: "test-user",
+    workspaceId: "test-workspace",
+    credentialStore: mockCredentialStore,
+    preferenceStore: mockPreferenceStore,
+    modelCacheStore: mockModelCacheStore,
+    auditLog: mockAuditLog,
+    quotaStore: mockQuotaStore,
+  });
+}
+
+function createMockCredentialStore() {
+  const connectedProviders = new Set<string>();
+  const credentials = new Map<string, { status: string }>();
+
+  return {
+    getCredential: vi.fn().mockImplementation((providerId: string) => {
+      return Promise.resolve(credentials.get(providerId) || null);
+    }),
+    getCredentialWithKey: vi.fn().mockResolvedValue(null),
+    setCredential: vi
+      .fn()
+      .mockImplementation((input: { providerId: string }) => {
+        connectedProviders.add(input.providerId);
+        credentials.set(input.providerId, { status: "connected" });
+        return Promise.resolve({
+          credentialId: "test-cred",
+          userId: "test-user",
+          workspaceId: "test-workspace",
+          providerId: input.providerId,
+          label: "default",
+          keyFingerprint: "sk-...test",
+          status: "connected" as const,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          deletedAt: null,
+        });
+      }),
+    deleteCredential: vi.fn().mockResolvedValue(undefined),
+    listCredentialProviders: vi.fn().mockImplementation(() => {
+      return Promise.resolve(Array.from(connectedProviders));
+    }),
+    updateCredentialMetadata: vi.fn().mockResolvedValue(undefined),
+  };
+}
+
+function createMockPreferenceStore() {
+  const prefs = {
+    defaultProviderId: "axis",
+    defaultModelId: "meta-llama/llama-4-scout-17b-16e-instruct",
+  };
+  return {
+    getPreferences: vi
+      .fn()
+      .mockImplementation(() => Promise.resolve({ ...prefs })),
+    updatePreferences: vi
+      .fn()
+      .mockImplementation(
+        (patch: { defaultProviderId?: string; defaultModelId?: string }) => {
+          if (patch.defaultProviderId)
+            prefs.defaultProviderId = patch.defaultProviderId;
+          if (patch.defaultModelId) prefs.defaultModelId = patch.defaultModelId;
+          return Promise.resolve({ ...prefs });
+        },
+      ),
+  };
+}
+
+function createMockModelCacheStore() {
+  return {
+    getModelCache: vi.fn().mockResolvedValue(null),
+    setModelCache: vi.fn().mockResolvedValue(undefined),
+    invalidateModelCache: vi.fn().mockResolvedValue(undefined),
+  };
+}
+
+function createMockAuditLog() {
+  return {
+    appendAuditEvent: vi.fn().mockResolvedValue(undefined),
+    record: vi.fn().mockResolvedValue(undefined),
+  };
+}
+
+function createMockQuotaStore() {
+  return {
+    getAxisQuotaUsage: vi.fn().mockResolvedValue(0),
+    setAxisQuotaUsage: vi.fn().mockResolvedValue(undefined),
+    incrementAndGetQuota: vi.fn().mockResolvedValue(1),
+  };
 }
 
 function createMockDurableObjectState(): {

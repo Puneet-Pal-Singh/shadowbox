@@ -1,6 +1,6 @@
 import type { DurableObjectState } from "@cloudflare/workers-types";
 import type { CoreMessage } from "ai";
-import { afterEach, describe, it, expect, vi } from "vitest";
+import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
 
 // NOTE: This contract test intentionally lives in src/integration because the
 // PR3 readiness gate executes the exact path:
@@ -11,8 +11,7 @@ import type { ProviderId } from "@repo/shared-types";
 import type { Env } from "../types/ai";
 import { ProviderController } from "../controllers/ProviderController";
 import { AIService } from "../services/AIService";
-import { ProviderConfigService } from "../services/providers";
-import { DurableProviderStore } from "../services/providers/DurableProviderStore";
+import { ProviderConfigService } from "../services/providers/ProviderConfigService";
 import { OpenAICompatibleAdapter } from "../services/providers/adapters/OpenAICompatibleAdapter";
 import {
   getRuntimeProviderFromAdapter,
@@ -26,9 +25,9 @@ interface MockDurableObjectState {
     put: (key: string, value: string) => Promise<void>;
     get: (key: string) => Promise<string | undefined>;
     delete: (key: string) => Promise<void>;
-    list: (
-      options?: { prefix: string },
-    ) => Promise<Map<string, string> | undefined>;
+    list: (options?: {
+      prefix: string;
+    }) => Promise<Map<string, string> | undefined>;
   };
 }
 
@@ -38,9 +37,13 @@ const TEST_WORKSPACE_ID = "workspace-main";
 const TEST_SESSION_SECRET = "test-session-secret";
 
 describe("Provider State Contract: Controller/Runtime Shared Ownership", () => {
+  beforeEach(() => {
+    resetCredentialStore();
+  });
+
   afterEach(() => {
     setCompatModeOverride(false);
-    vi.restoreAllMocks();
+    resetCredentialStore();
   });
 
   it("uses one durable provider-state owner path across controller and runtime services", async () => {
@@ -238,27 +241,29 @@ describe("Provider State Contract: Controller/Runtime Shared Ownership", () => {
     expect(selection.model).toBe("llama-3.3-70b-versatile");
     expect(selection.fallback).toBe(false);
 
-    expectDomainError(() =>
-      resolveModelSelection(
-        "invalid-provider",
-        "gpt-4o",
-        "litellm",
-        "llama-3.3-70b-versatile",
-        mapProviderIdToRuntimeProvider,
-        getRuntimeProviderFromAdapter,
-      ),
+    expectDomainError(
+      () =>
+        resolveModelSelection(
+          "invalid-provider",
+          "gpt-4o",
+          "litellm",
+          "llama-3.3-70b-versatile",
+          mapProviderIdToRuntimeProvider,
+          getRuntimeProviderFromAdapter,
+        ),
       "INVALID_PROVIDER_SELECTION",
     );
 
-    expectDomainError(() =>
-      resolveModelSelection(
-        "openai",
-        undefined,
-        "litellm",
-        "llama-3.3-70b-versatile",
-        mapProviderIdToRuntimeProvider,
-        getRuntimeProviderFromAdapter,
-      ),
+    expectDomainError(
+      () =>
+        resolveModelSelection(
+          "openai",
+          undefined,
+          "litellm",
+          "llama-3.3-70b-versatile",
+          mapProviderIdToRuntimeProvider,
+          getRuntimeProviderFromAdapter,
+        ),
       "INVALID_PROVIDER_SELECTION",
     );
   });
@@ -296,7 +301,10 @@ function createEnvWithRunNamespace(
         }
         if (userId !== TEST_USER_ID || workspaceId !== TEST_WORKSPACE_ID) {
           return new Response(
-            JSON.stringify({ error: "Invalid BYOK scope", code: "AUTH_FAILED" }),
+            JSON.stringify({
+              error: "Invalid BYOK scope",
+              code: "AUTH_FAILED",
+            }),
             {
               status: 403,
               headers: { "Content-Type": "application/json" },
@@ -304,11 +312,16 @@ function createEnvWithRunNamespace(
           );
         }
 
-        const configService = createRuntimeProviderConfigService(
+        const configService = new ProviderConfigService({
           env,
-          storageByRunId,
-          runId,
-        );
+          userId: TEST_USER_ID,
+          workspaceId: TEST_WORKSPACE_ID,
+          credentialStore: sharedCredentialStore,
+          preferenceStore: createMockPreferenceStore(),
+          modelCacheStore: createMockModelCacheStore(),
+          auditLog: createMockAuditLog(),
+          quotaStore: createMockQuotaStore(),
+        });
         const url = new URL(request.url);
         return handleProviderRuntimeRoute(request, url, configService);
       },
@@ -388,22 +401,192 @@ async function handleProviderRuntimeRoute(
   return new Response("Not Found", { status: 404 });
 }
 
+import type { ProviderCredentialRecord } from "../services/providers/stores/CredentialStore";
+
+interface MockCredential extends Omit<
+  ProviderCredentialRecord,
+  "keyFingerprint" | "encryptedSecretJson" | "keyVersion"
+> {
+  apiKey: string;
+}
+
+const sharedCredentials = new Map<ProviderId, MockCredential>();
+
+interface MockPreferences {
+  defaultProviderId: string;
+  defaultModelId: string;
+  updatedAt: string;
+}
+
+const sharedPreferences: MockPreferences = {
+  defaultProviderId: "axis",
+  defaultModelId: "meta-llama/llama-4-scout-17b-16e-instruct",
+  updatedAt: new Date().toISOString(),
+};
+
+function createMockCredentialStore() {
+  return {
+    getCredential: async (
+      providerId: ProviderId,
+    ): Promise<ProviderCredentialRecord | null> => {
+      const cred = sharedCredentials.get(providerId);
+      if (!cred) return null;
+      return {
+        credentialId: cred.credentialId,
+        userId: cred.userId,
+        workspaceId: "test-workspace",
+        providerId: cred.providerId,
+        label: cred.label,
+        keyFingerprint: "mock-fingerprint",
+        encryptedSecretJson: "mock-encrypted",
+        keyVersion: "1",
+        status: cred.status as "connected" | "failed" | "revoked",
+        lastValidatedAt: null,
+        lastErrorCode: null,
+        lastErrorMessage: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      };
+    },
+    getCredentialWithKey: async (providerId: ProviderId) => {
+      const cred = sharedCredentials.get(providerId);
+      if (!cred) return null;
+      const record: ProviderCredentialRecord = {
+        credentialId: cred.credentialId,
+        userId: cred.userId,
+        workspaceId: "test-workspace",
+        providerId: cred.providerId,
+        label: cred.label,
+        keyFingerprint: "mock-fingerprint",
+        encryptedSecretJson: "mock-encrypted",
+        keyVersion: "1",
+        status: cred.status as "connected" | "failed" | "revoked",
+        lastValidatedAt: null,
+        lastErrorCode: null,
+        lastErrorMessage: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      };
+      return { record, apiKey: cred.apiKey };
+    },
+    setCredential: async (params: {
+      credentialId: string;
+      userId: string;
+      providerId: ProviderId;
+      label: string;
+      apiKey: string;
+    }) => {
+      const now = new Date().toISOString();
+      const record: ProviderCredentialRecord = {
+        credentialId: params.credentialId,
+        userId: params.userId,
+        workspaceId: "test-workspace",
+        providerId: params.providerId,
+        label: params.label,
+        keyFingerprint: "mock-fingerprint",
+        encryptedSecretJson: "mock-encrypted",
+        keyVersion: "1",
+        status: "connected",
+        lastValidatedAt: now,
+        lastErrorCode: null,
+        lastErrorMessage: null,
+        createdAt: now,
+        updatedAt: now,
+        deletedAt: null,
+      };
+      sharedCredentials.set(params.providerId, {
+        ...record,
+        apiKey: params.apiKey,
+      });
+      return record;
+    },
+    deleteCredential: async (providerId: ProviderId) => {
+      sharedCredentials.delete(providerId);
+    },
+    listCredentialProviders: async () => {
+      return Array.from(sharedCredentials.values())
+        .filter((c) => c.status === "connected")
+        .map((c) => c.providerId);
+    },
+    updateCredentialMetadata: async () => {
+      return undefined;
+    },
+  };
+}
+
+const sharedCredentialStore = createMockCredentialStore();
+
 function createRuntimeProviderConfigService(
   env: Env,
-  storageByRunId: Map<string, Map<string, string>>,
+  _storageByRunId: Map<string, Map<string, string>>,
   runId: string,
 ): ProviderConfigService {
-  const state = createDurableState(storageByRunId, runId);
-  const durableStore = new DurableProviderStore(
-    state as unknown as DurableObjectState,
-    {
-      runId,
-      userId: TEST_USER_ID,
-      workspaceId: TEST_WORKSPACE_ID,
-    },
-    env.BYOK_CREDENTIAL_ENCRYPTION_KEY,
-  );
-  return new ProviderConfigService(env, durableStore);
+  return new ProviderConfigService({
+    env,
+    userId: TEST_USER_ID,
+    workspaceId: TEST_WORKSPACE_ID,
+    credentialStore: sharedCredentialStore,
+    preferenceStore: createMockPreferenceStore(),
+    modelCacheStore: createMockModelCacheStore(),
+    auditLog: createMockAuditLog(),
+    quotaStore: createMockQuotaStore(),
+  });
+}
+
+function resetCredentialStore(): void {
+  sharedCredentials.clear();
+  sharedPreferences.defaultProviderId = "axis";
+  sharedPreferences.defaultModelId =
+    "meta-llama/llama-4-scout-17b-16e-instruct";
+  sharedPreferences.updatedAt = new Date().toISOString();
+}
+
+function createMockPreferenceStore() {
+  return {
+    getPreferences: vi.fn().mockImplementation(async () => {
+      return { ...sharedPreferences };
+    }),
+    updatePreferences: vi
+      .fn()
+      .mockImplementation(
+        async (patch: {
+          defaultProviderId?: string;
+          defaultModelId?: string;
+        }) => {
+          sharedPreferences.defaultProviderId =
+            patch.defaultProviderId ?? sharedPreferences.defaultProviderId;
+          sharedPreferences.defaultModelId =
+            patch.defaultModelId ?? sharedPreferences.defaultModelId;
+          sharedPreferences.updatedAt = new Date().toISOString();
+          return { ...sharedPreferences };
+        },
+      ),
+  };
+}
+
+function createMockModelCacheStore() {
+  return {
+    getModelCache: vi.fn().mockResolvedValue(null),
+    setModelCache: vi.fn().mockResolvedValue(undefined),
+    invalidateModelCache: vi.fn().mockResolvedValue(undefined),
+  };
+}
+
+function createMockAuditLog() {
+  return {
+    appendAuditEvent: vi.fn().mockResolvedValue(undefined),
+    record: vi.fn().mockResolvedValue(undefined),
+  };
+}
+
+function createMockQuotaStore() {
+  return {
+    getAxisQuotaUsage: vi.fn().mockResolvedValue(0),
+    setAxisQuotaUsage: vi.fn().mockResolvedValue(undefined),
+    incrementAndGetQuota: vi.fn().mockResolvedValue(1),
+  };
 }
 
 async function createByokHeaders(
@@ -428,7 +611,10 @@ async function createByokHeaders(
   return headers;
 }
 
-async function createSessionToken(userId: string, secret: string): Promise<string> {
+async function createSessionToken(
+  userId: string,
+  secret: string,
+): Promise<string> {
   const timestamp = Date.now().toString();
   const data = `${userId}:${timestamp}`;
   const encoder = new TextEncoder();
@@ -490,10 +676,7 @@ function json(payload: unknown, status: number): Response {
   });
 }
 
-function expectDomainError(
-  run: () => unknown,
-  expectedCode: string,
-): void {
+function expectDomainError(run: () => unknown, expectedCode: string): void {
   try {
     run();
     throw new Error(`Expected error with code ${expectedCode}`);
