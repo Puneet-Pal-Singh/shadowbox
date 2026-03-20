@@ -111,6 +111,22 @@ CREATE INDEX IF NOT EXISTS ix_byok_audit_operation
 `;
 
 /**
+ * D1 Migration: Create Axis quota table
+ *
+ * Stores per-scope daily quota usage in D1 instead of DO-local provider state.
+ */
+export const PROVIDER_AXIS_QUOTA_SCHEMA = `
+CREATE TABLE IF NOT EXISTS provider_axis_quota (
+  quota_key TEXT PRIMARY KEY,
+  value INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS ix_provider_axis_quota_updated_at
+  ON provider_axis_quota(updated_at DESC);
+`;
+
+/**
  * D1 Migration: Create provider registry cache table
  *
  * Caches provider metadata to reduce remote fetches.
@@ -188,6 +204,7 @@ export const ALL_BYOK_MIGRATIONS = [
   MIGRATION_USER_GLOBAL_CREDENTIAL_INDEX,
   BYOK_PREFERENCES_SCHEMA,
   BYOK_AUDIT_EVENTS_SCHEMA,
+  PROVIDER_AXIS_QUOTA_SCHEMA,
   PROVIDER_REGISTRY_CACHE_SCHEMA,
   ADD_FETCH_EXPIRY_TO_CACHE_SCHEMA,
   ADD_VISIBLE_MODEL_IDS_TO_PREFERENCES_SCHEMA,

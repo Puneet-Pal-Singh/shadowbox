@@ -88,6 +88,9 @@ export class ByokSchemaService {
 
     for (const sql of statements) {
       if (!sql.trim()) continue;
+      if (await this.isStatementAlreadySatisfied(sql)) {
+        continue;
+      }
 
       const stmt = this.db.prepare(sql);
       const result = await stmt.run();
@@ -110,6 +113,24 @@ export class ByokSchemaService {
     }
 
     console.log(`[byok/schema] Migration ${migration.id} applied successfully`);
+  }
+
+  private async isStatementAlreadySatisfied(sql: string): Promise<boolean> {
+    const addColumnMatch = sql.match(
+      /^\s*ALTER\s+TABLE\s+([a-zA-Z0-9_]+)\s+ADD\s+COLUMN\s+([a-zA-Z0-9_]+)/i,
+    );
+    if (!addColumnMatch) {
+      return false;
+    }
+
+    const [, tableName, columnName] = addColumnMatch;
+    try {
+      const stmt = this.db.prepare(`PRAGMA table_info(${tableName})`);
+      const result = await stmt.all<{ name: string }>();
+      return result.results.some((column) => column.name === columnName);
+    } catch {
+      return false;
+    }
   }
 
   /**
@@ -168,6 +189,29 @@ export class ByokSchemaService {
  */
 export function createByokSchemaService(d1: D1Database): ByokSchemaService {
   return new ByokSchemaService(wrapD1Database(d1));
+}
+
+let schemaReadyCache = new WeakMap<D1Database, Promise<void>>();
+
+export function ensureByokSchemaReady(d1: D1Database): Promise<void> {
+  const cached = schemaReadyCache.get(d1);
+  if (cached) {
+    return cached;
+  }
+
+  const pending = createByokSchemaService(d1)
+    .ensureReady()
+    .catch((error) => {
+      schemaReadyCache.delete(d1);
+      throw error;
+    });
+
+  schemaReadyCache.set(d1, pending);
+  return pending;
+}
+
+export function resetByokSchemaReadyCacheForTests(): void {
+  schemaReadyCache = new WeakMap<D1Database, Promise<void>>();
 }
 
 /**

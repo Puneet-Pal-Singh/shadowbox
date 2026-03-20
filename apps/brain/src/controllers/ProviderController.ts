@@ -61,6 +61,8 @@ import {
   resolveAuthorizedProviderScope,
   type AuthorizedProviderScope,
 } from "./provider/ProviderAuthScopeService";
+import { ensureByokSchemaReady } from "../services/byok/ByokSchemaService.js";
+import { D1PreferenceStore } from "../services/providers/stores/D1PreferenceStore.js";
 
 const AXIS_PROVIDER_ID = "axis" as const;
 
@@ -72,7 +74,6 @@ const AxisQuotaMetadataSchema = z.object({
   limit: z.number().int().positive(),
   resetsAt: z.string().datetime(),
 });
-const BYOK_WORKSPACE_METADATA_PREFIX = "byok:workspace-meta:";
 type WorkspaceByokMetadata = z.infer<typeof WorkspaceByokMetadataSchema>;
 
 /**
@@ -1681,14 +1682,8 @@ async function persistCredentialLabel(
   credentialId: string,
   label: string,
 ): Promise<void> {
-  const metadata = await loadWorkspaceByokMetadata(env, scope);
-  await saveWorkspaceByokMetadata(env, scope, {
-    ...metadata,
-    credentialLabels: {
-      ...metadata.credentialLabels,
-      [credentialId]: label,
-    },
-  });
+  const preferenceStore = await createWorkspacePreferenceStore(env, scope);
+  await preferenceStore.setCredentialLabel(credentialId, label);
 }
 
 async function deleteCredentialLabel(
@@ -1696,120 +1691,30 @@ async function deleteCredentialLabel(
   scope: AuthorizedProviderScope,
   credentialId: string,
 ): Promise<void> {
-  const metadata = await loadWorkspaceByokMetadata(env, scope);
-  if (!metadata.credentialLabels[credentialId]) {
-    return;
-  }
-  const nextLabels = { ...metadata.credentialLabels };
-  delete nextLabels[credentialId];
-  await saveWorkspaceByokMetadata(env, scope, {
-    ...metadata,
-    credentialLabels: nextLabels,
-  });
+  const preferenceStore = await createWorkspacePreferenceStore(env, scope);
+  await preferenceStore.deleteCredentialLabel(credentialId);
 }
 
 async function loadWorkspaceByokMetadata(
   env: Env,
   scope: AuthorizedProviderScope,
 ): Promise<WorkspaceByokMetadata> {
-  if (!env.BYOK_DB) {
-    const raw = await env.SESSIONS.get(buildWorkspaceByokMetadataKey(scope));
-    if (!raw) {
-      return {
-        credentialLabels: {},
-      };
-    }
-    try {
-      const parsed = JSON.parse(raw) as unknown;
-      const result = WorkspaceByokMetadataSchema.safeParse(parsed);
-      if (!result.success) {
-        return {
-          credentialLabels: {},
-        };
-      }
-      return result.data;
-    } catch {
-      return {
-        credentialLabels: {},
-      };
-    }
-  }
-
-  const query = `
-    SELECT credential_labels_json FROM byok_preferences
-    WHERE user_id = ? AND workspace_id = ?
-  `;
-  const stmt = env.BYOK_DB.prepare(query).bind(scope.userId, scope.workspaceId);
-  const row = await stmt.first<{ credential_labels_json: string | null }>();
-
-  if (row?.credential_labels_json) {
-    try {
-      const credentialLabels = JSON.parse(row.credential_labels_json);
-      return { credentialLabels };
-    } catch {
-      return { credentialLabels: {} };
-    }
-  }
-
-  const raw = await env.SESSIONS.get(buildWorkspaceByokMetadataKey(scope));
-  if (raw) {
-    try {
-      const parsed = JSON.parse(raw) as unknown;
-      const result = WorkspaceByokMetadataSchema.safeParse(parsed);
-      if (
-        result.success &&
-        Object.keys(result.data.credentialLabels).length > 0
-      ) {
-        await saveWorkspaceByokMetadata(env, scope, result.data);
-        return result.data;
-      }
-    } catch {
-      // Fall through to empty
-    }
-  }
-
-  return { credentialLabels: {} };
+  const preferenceStore = await createWorkspacePreferenceStore(env, scope);
+  const preferences = await preferenceStore.getPreferences();
+  return {
+    credentialLabels: preferences.credentialLabels ?? {},
+  };
 }
 
-async function saveWorkspaceByokMetadata(
+async function createWorkspacePreferenceStore(
   env: Env,
   scope: AuthorizedProviderScope,
-  metadata: WorkspaceByokMetadata,
-): Promise<void> {
-  if (!env.BYOK_DB) {
-    await env.SESSIONS.put(
-      buildWorkspaceByokMetadataKey(scope),
-      JSON.stringify(metadata),
-    );
-    return;
+): Promise<D1PreferenceStore> {
+  const db = env.BYOK_DB;
+  if (!db) {
+    throw new Error("BYOK_DB D1 binding is required");
   }
 
-  const query = `
-    INSERT INTO byok_preferences (
-      user_id, workspace_id, default_provider_id, default_model_id,
-      fallback_mode, fallback_json, visible_model_ids_json, credential_labels_json, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(user_id, workspace_id)
-    DO UPDATE SET
-      credential_labels_json = excluded.credential_labels_json,
-      updated_at = excluded.updated_at
-  `;
-
-  await env.BYOK_DB.prepare(query)
-    .bind(
-      scope.userId,
-      scope.workspaceId,
-      AXIS_PROVIDER_ID,
-      "meta-llama/llama-4-scout-17b-16e-instruct",
-      "strict",
-      null,
-      "{}",
-      JSON.stringify(metadata.credentialLabels),
-      new Date().toISOString(),
-    )
-    .run();
-}
-
-function buildWorkspaceByokMetadataKey(scope: AuthorizedProviderScope): string {
-  return `${BYOK_WORKSPACE_METADATA_PREFIX}${scope.userId}:${scope.workspaceId}`;
+  await ensureByokSchemaReady(db);
+  return new D1PreferenceStore(db, scope.userId, scope.workspaceId);
 }
