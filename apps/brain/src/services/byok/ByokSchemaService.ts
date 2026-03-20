@@ -104,7 +104,10 @@ export class ByokSchemaService {
       )
       .bind(migration.id, new Date().toISOString());
 
-    await insertStmt.run();
+    const ledgerResult = await insertStmt.run();
+    if (!ledgerResult.success) {
+      throw new Error(`Failed to record migration ${migration.id} in ledger`);
+    }
 
     console.log(`[byok/schema] Migration ${migration.id} applied successfully`);
   }
@@ -126,6 +129,7 @@ export class ByokSchemaService {
       if (!inString && (char === "'" || char === '"')) {
         inString = true;
         stringChar = char;
+        current += char;
       } else if (inString && char === stringChar) {
         // Check for escaped quote
         if (sql[i + 1] === char) {
@@ -133,6 +137,7 @@ export class ByokSchemaService {
           i++;
         } else {
           inString = false;
+          current += char;
         }
         continue;
       }
