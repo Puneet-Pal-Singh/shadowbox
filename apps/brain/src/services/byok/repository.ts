@@ -83,7 +83,7 @@ export interface BoundStatement {
  * - Read (with decryption)
  * - Update metadata (status, last validated)
  * - Delete (soft delete)
- * - List (by scope)
+ * - List (by user)
  */
 export class ProviderVaultRepository {
   private encryption: CredentialEncryptionService;
@@ -222,24 +222,79 @@ export class ProviderVaultRepository {
   }
 
   /**
-   * List credentials for a workspace
+   * Retrieve a credential by user + provider identity
    *
    * @param userId User ID
-   * @param workspaceId Workspace ID
+   * @param providerId Provider ID
+   * @param options Options including plaintext decryption
+   * @returns Credential DTO or null
+   */
+  async retrieveByUserProvider(
+    userId: string,
+    providerId: string,
+    options?: { includePlaintext?: boolean },
+  ): Promise<BYOKCredentialDTO | CredentialWithPlaintext | null> {
+    const query = `
+      SELECT * FROM byok_credentials
+      WHERE user_id = ? AND provider_id = ? AND deleted_at IS NULL
+      ORDER BY updated_at DESC
+      LIMIT 1
+    `;
+
+    const stmt = this.db.prepare(query).bind(userId, providerId);
+    const row = await stmt.first<CredentialRow>();
+
+    if (!row) {
+      return null;
+    }
+
+    if (options?.includePlaintext) {
+      const encrypted = JSON.parse(row.encrypted_secret_json) as EncryptedSecret;
+      const plaintext = await this.encryption.decrypt(encrypted, {
+        masterKey: this.masterKey,
+      });
+
+      return {
+        credentialId: row.credential_id,
+        userId: row.user_id,
+        workspaceId: row.workspace_id,
+        providerId: row.provider_id,
+        label: row.label,
+        keyFingerprint: row.key_fingerprint,
+        encryptedSecretJson: row.encrypted_secret_json,
+        keyVersion: row.key_version,
+        status: row.status as "connected" | "failed" | "revoked",
+        lastValidatedAt: row.last_validated_at,
+        lastErrorCode: row.last_error_code,
+        lastErrorMessage: row.last_error_message,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+        deletedAt: row.deleted_at,
+        plaintext,
+      } as CredentialWithPlaintext;
+    }
+
+    return this.toDTO(row);
+  }
+
+  /**
+   * List credentials for a user
+   *
+   * @param userId User ID
    * @returns List of credential DTOs (no plaintext)
    */
-  async listByWorkspace(userId: string, workspaceId: string): Promise<BYOKCredentialDTO[]> {
+  async listByUser(userId: string): Promise<BYOKCredentialDTO[]> {
     const query = `
       SELECT
         credential_id, user_id, workspace_id, provider_id, label,
         key_fingerprint, status, last_validated_at, last_error_code,
         last_error_message, created_at, updated_at, deleted_at
       FROM byok_credentials
-      WHERE user_id = ? AND workspace_id = ? AND deleted_at IS NULL
+      WHERE user_id = ? AND deleted_at IS NULL
       ORDER BY created_at DESC
     `;
 
-    const stmt = this.db.prepare(query).bind(userId, workspaceId);
+    const stmt = this.db.prepare(query).bind(userId);
     const rows = await stmt.all<CredentialListRow>();
 
     return rows.results.map((row) => this.toDTO(row));
@@ -258,10 +313,11 @@ export class ProviderVaultRepository {
       lastValidatedAt?: string;
       lastErrorCode?: string;
       lastErrorMessage?: string;
+      updatedAt: string;
     },
   ): Promise<void> {
     const setClauses: string[] = ["updated_at = ?"];
-    const params: unknown[] = [new Date().toISOString()];
+    const params: unknown[] = [updates.updatedAt];
 
     if (updates.status) {
       setClauses.push("status = ?");
@@ -301,15 +357,47 @@ export class ProviderVaultRepository {
    *
    * @param credentialId The credential to delete
    */
-  async delete(credentialId: string): Promise<void> {
+  async delete(
+    credentialId: string,
+    timestamps?: { deletedAt: string; updatedAt: string },
+  ): Promise<void> {
     const query = `
       UPDATE byok_credentials
       SET deleted_at = ?, updated_at = ?
       WHERE credential_id = ? AND deleted_at IS NULL
     `;
 
-    const now = new Date().toISOString();
-    const stmt = this.db.prepare(query).bind(now, now, credentialId);
+    const deletedAt = timestamps?.deletedAt ?? new Date().toISOString();
+    const updatedAt = timestamps?.updatedAt ?? deletedAt;
+    const stmt = this.db
+      .prepare(query)
+      .bind(deletedAt, updatedAt, credentialId);
+    const result = await stmt.run();
+
+    if (!result.success) {
+      throw new Error("Failed to delete credential");
+    }
+  }
+
+  async softDeleteByUserProvider(
+    userId: string,
+    providerId: string,
+    timestamps: { deletedAt: string; updatedAt: string },
+  ): Promise<void> {
+    const query = `
+      UPDATE byok_credentials
+      SET deleted_at = ?, updated_at = ?
+      WHERE user_id = ? AND provider_id = ? AND deleted_at IS NULL
+    `;
+
+    const stmt = this.db
+      .prepare(query)
+      .bind(
+        timestamps.deletedAt,
+        timestamps.updatedAt,
+        userId,
+        providerId,
+      );
     const result = await stmt.run();
 
     if (!result.success) {

@@ -109,8 +109,47 @@ describe("ProviderVaultRepository", () => {
     });
   });
 
-  describe("listByWorkspace", () => {
-    it("lists credentials for workspace", async () => {
+  describe("retrieveByUserProvider", () => {
+    it("retrieves credentials by user-global provider identity", async () => {
+      const mockPrepare = vi.fn().mockReturnValue({
+        bind: vi.fn().mockReturnValue({
+          first: vi.fn().mockResolvedValue({
+            credential_id: "cred-1",
+            user_id: "user-123",
+            workspace_id: "ws-123",
+            provider_id: "openai",
+            label: "Key 1",
+            key_fingerprint: "sk-...1",
+            encrypted_secret_json:
+              '{"alg":"AES-256-GCM","ciphertext":"","iv":"","tag":"","keyVersion":"v1"}',
+            key_version: "v1",
+            status: "connected",
+            last_validated_at: null,
+            last_error_code: null,
+            last_error_message: null,
+            created_at: "2025-01-01T00:00:00Z",
+            updated_at: "2025-01-02T00:00:00Z",
+            deleted_at: null,
+          }),
+        }),
+      });
+
+      mockDb.prepare = mockPrepare;
+      repository = new ProviderVaultRepository(mockDb, TEST_MASTER_KEY, "v1");
+
+      const credential = await repository.retrieveByUserProvider(
+        "user-123",
+        "openai",
+      );
+
+      expect(credential?.credentialId).toBe("cred-1");
+      expect(mockPrepare.mock.calls[0]?.[0]).toContain("provider_id = ?");
+      expect(mockPrepare.mock.calls[0]?.[0]).not.toContain("workspace_id = ?");
+    });
+  });
+
+  describe("listByUser", () => {
+    it("lists credentials for user across workspaces", async () => {
       const mockPrepare = vi.fn().mockReturnValue({
         bind: vi.fn().mockReturnValue({
           all: vi.fn().mockResolvedValue({
@@ -153,11 +192,12 @@ describe("ProviderVaultRepository", () => {
       mockDb.prepare = mockPrepare;
       repository = new ProviderVaultRepository(mockDb, TEST_MASTER_KEY, "v1");
 
-      const list = await repository.listByWorkspace("user-123", "ws-123");
+      const list = await repository.listByUser("user-123");
 
       expect(list).toHaveLength(2);
       expect(list[0]!.credentialId).toBe("cred-1");
       expect(list[1]!.credentialId).toBe("cred-2");
+      expect(mockPrepare.mock.calls[0]?.[0]).not.toContain("workspace_id = ?");
     });
 
     it("excludes soft-deleted credentials", async () => {
@@ -170,7 +210,7 @@ describe("ProviderVaultRepository", () => {
       mockDb.prepare = mockPrepare;
       repository = new ProviderVaultRepository(mockDb, TEST_MASTER_KEY, "v1");
 
-      const list = await repository.listByWorkspace("user-123", "ws-123");
+      const list = await repository.listByUser("user-123");
 
       expect(list).toHaveLength(0);
       const prepareCall = mockPrepare.mock.calls[0];
@@ -194,6 +234,7 @@ describe("ProviderVaultRepository", () => {
       await repository.updateMetadata("cred-123", {
         status: "connected",
         lastValidatedAt: new Date().toISOString(),
+        updatedAt: "2025-01-02T00:00:00Z",
       });
 
       expect(mockRun).toHaveBeenCalled();
@@ -204,8 +245,8 @@ describe("ProviderVaultRepository", () => {
     });
   });
 
-  describe("delete", () => {
-    it("soft deletes credential", async () => {
+  describe("softDeleteByUserProvider", () => {
+    it("soft deletes credential by user-global provider identity", async () => {
       const mockRun = vi.fn().mockResolvedValue({ success: true });
       const mockBind = vi.fn().mockReturnValue({
         run: mockRun,
@@ -217,12 +258,16 @@ describe("ProviderVaultRepository", () => {
       mockDb.prepare = mockPrepare;
       repository = new ProviderVaultRepository(mockDb, TEST_MASTER_KEY, "v1");
 
-      await repository.delete("cred-123");
+      await repository.softDeleteByUserProvider("user-123", "openai", {
+        deletedAt: "2025-01-02T00:00:00Z",
+        updatedAt: "2025-01-02T00:00:00Z",
+      });
 
       expect(mockRun).toHaveBeenCalled();
       const query = mockPrepare.mock.calls[0]![0];
       expect(query).toContain("deleted_at");
-      expect(query).toContain("WHERE");
+      expect(query).toContain("user_id = ?");
+      expect(query).toContain("provider_id = ?");
     });
 
     it("throws on failed delete", async () => {
@@ -237,9 +282,12 @@ describe("ProviderVaultRepository", () => {
       mockDb.prepare = mockPrepare;
       repository = new ProviderVaultRepository(mockDb, TEST_MASTER_KEY, "v1");
 
-      await expect(repository.delete("cred-123")).rejects.toThrow(
-        "Failed to delete credential",
-      );
+      await expect(
+        repository.softDeleteByUserProvider("user-123", "openai", {
+          deletedAt: "2025-01-02T00:00:00Z",
+          updatedAt: "2025-01-02T00:00:00Z",
+        }),
+      ).rejects.toThrow("Failed to delete credential");
     });
   });
 });
