@@ -16,9 +16,7 @@ import {
   isDomainError,
 } from "../domain/errors";
 import type { SerializableToolDefinition } from "../types/tools";
-import {
-  parseOptionalScopeIdentifier,
-} from "./chat-request-helpers";
+import { parseOptionalScopeIdentifier } from "./chat-request-helpers";
 import { extractSessionToken } from "../services/AuthService";
 import { resolveAuthorizedProviderScope } from "./provider/ProviderAuthScopeService";
 
@@ -30,8 +28,8 @@ type RuntimeAuthMode = "api_key" | "oauth";
 export type RuntimeExecutionTarget = "do" | "cloudflare_agents";
 
 export interface ExecutionScope {
-  userId?: string;
-  workspaceId?: string;
+  userId: string;
+  workspaceId: string;
 }
 
 export interface RunEngineExecutionPayload {
@@ -135,23 +133,15 @@ export async function resolveExecutionScope(
   runId: string,
   correlationId: string,
 ): Promise<ExecutionScope> {
-  // Keep chat usable for non-auth local/dev flows.
-  const unauthenticatedScope = {
-    userId: parseOptionalScopeIdentifier(
-      req.headers.get("X-User-Id"),
-      "X-User-Id",
-      correlationId,
-    ),
-    workspaceId: parseOptionalScopeIdentifier(
-      req.headers.get("X-Workspace-Id"),
-      "X-Workspace-Id",
-      correlationId,
-    ),
-  };
-
   const sessionToken = extractSessionToken(req);
   if (!sessionToken) {
-    return unauthenticatedScope;
+    throw new DomainError(
+      "AUTH_FAILED",
+      "Unauthorized: missing authentication token.",
+      401,
+      false,
+      correlationId,
+    );
   }
 
   const scopeHeaders = new Headers(req.headers);
@@ -262,11 +252,14 @@ async function fetchViaRunEngineDurableObject(
 
   const id = env.RUN_ENGINE_RUNTIME.idFromName(runId);
   const stub = env.RUN_ENGINE_RUNTIME.get(id);
-  const runtimeResponse = await stub.fetch(`https://run-engine${requestInit.path}`, {
-    method: requestInit.method,
-    headers: requestInit.headers,
-    body: requestInit.body,
-  });
+  const runtimeResponse = await stub.fetch(
+    `https://run-engine${requestInit.path}`,
+    {
+      method: requestInit.method,
+      headers: requestInit.headers,
+      body: requestInit.body,
+    },
+  );
   return runtimeResponse as unknown as Response;
 }
 
