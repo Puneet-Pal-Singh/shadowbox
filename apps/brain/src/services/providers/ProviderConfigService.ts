@@ -41,6 +41,7 @@ import { ProviderConnectionService } from "./ProviderConnectionService";
 import { ProviderRegistryService } from "./ProviderRegistryService";
 import { AXIS_PROVIDER_ID, getAxisDiscoveredModels } from "./axis";
 import { ProviderModelDiscoveryService } from "./model-discovery";
+import type { ProviderModelDiscoveryService as ProviderModelDiscoveryServiceType } from "./model-discovery";
 
 export interface ProviderConfigServiceOptions {
   env: Env;
@@ -58,7 +59,8 @@ export class ProviderConfigService {
   private credentialService: ProviderCredentialService;
   private registryService: ProviderRegistryService;
   private catalogService: ProviderCatalogService | null = null;
-  private modelDiscoveryService: any = null;
+  private modelDiscoveryService: ProviderModelDiscoveryServiceType | null =
+    null;
   private connectionService: ProviderConnectionService;
 
   constructor(private options: ProviderConfigServiceOptions) {

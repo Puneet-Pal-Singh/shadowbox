@@ -76,6 +76,7 @@ export class D1PreferenceStore implements PreferenceStore {
       DO UPDATE SET
         default_provider_id = COALESCE(excluded.default_provider_id, byok_preferences.default_provider_id),
         default_model_id = COALESCE(excluded.default_model_id, byok_preferences.default_model_id),
+        visible_model_ids_json = excluded.visible_model_ids_json,
         updated_at = excluded.updated_at
     `;
 

@@ -6,6 +6,7 @@
  */
 
 import type { D1Database } from "@cloudflare/workers-types";
+import { ValidationError } from "../../../domain/errors";
 import type { CredentialStore } from "./CredentialStore";
 import type { PreferenceStore } from "./PreferenceStore";
 import type { ProviderModelCacheStore } from "./ProviderModelCacheStore";
@@ -91,7 +92,10 @@ export function getEncryptionConfig(env: Record<string, unknown>): {
     env.BYOK_CREDENTIAL_ENCRYPTION_KEY_PREVIOUS_VERSION as string | undefined;
 
   if (!masterKey) {
-    throw new Error("BYOK_CREDENTIAL_ENCRYPTION_KEY is not configured");
+    throw new ValidationError(
+      "Missing dedicated BYOK credential encryption key",
+      "BYOK_ENCRYPTION_KEY_MISSING",
+    );
   }
 
   return {

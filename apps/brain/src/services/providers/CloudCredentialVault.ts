@@ -41,6 +41,14 @@ export class CloudCredentialVault implements CredentialVault {
   }
 
   async listConnectedProviders(): Promise<ProviderId[]> {
-    return this.credentialStore.listCredentialProviders();
+    const allProviders = await this.credentialStore.listCredentialProviders();
+    const connectedProviders: ProviderId[] = [];
+    for (const providerId of allProviders) {
+      const cred = await this.credentialStore.getCredential(providerId);
+      if (cred && cred.status === "connected") {
+        connectedProviders.push(providerId);
+      }
+    }
+    return connectedProviders;
   }
 }
