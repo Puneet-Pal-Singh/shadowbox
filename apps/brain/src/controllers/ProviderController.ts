@@ -1742,18 +1742,33 @@ async function loadWorkspaceByokMetadata(
   const stmt = env.BYOK_DB.prepare(query).bind(scope.userId, scope.workspaceId);
   const row = await stmt.first<{ credential_labels_json: string | null }>();
 
-  if (!row || !row.credential_labels_json) {
-    return {
-      credentialLabels: {},
-    };
+  if (row?.credential_labels_json) {
+    try {
+      const credentialLabels = JSON.parse(row.credential_labels_json);
+      return { credentialLabels };
+    } catch {
+      return { credentialLabels: {} };
+    }
   }
 
-  try {
-    const credentialLabels = JSON.parse(row.credential_labels_json);
-    return { credentialLabels };
-  } catch {
-    return { credentialLabels: {} };
+  const raw = await env.SESSIONS.get(buildWorkspaceByokMetadataKey(scope));
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      const result = WorkspaceByokMetadataSchema.safeParse(parsed);
+      if (
+        result.success &&
+        Object.keys(result.data.credentialLabels).length > 0
+      ) {
+        await saveWorkspaceByokMetadata(env, scope, result.data);
+        return result.data;
+      }
+    } catch {
+      // Fall through to empty
+    }
   }
+
+  return { credentialLabels: {} };
 }
 
 async function saveWorkspaceByokMetadata(
