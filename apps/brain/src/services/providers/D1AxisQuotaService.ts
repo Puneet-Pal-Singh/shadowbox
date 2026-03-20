@@ -42,7 +42,11 @@ export class D1AxisQuotaService implements ProviderQuotaStore {
       const stmt = this.db.prepare(query).bind(key);
       const row = await stmt.first<{ value: number }>();
       return row?.value ?? 0;
-    } catch {
+    } catch (error) {
+      console.error(
+        `[provider/quota] Failed to get quota usage for ${key}`,
+        error,
+      );
       return 0;
     }
   }
@@ -62,10 +66,19 @@ export class D1AxisQuotaService implements ProviderQuotaStore {
   }
 
   async incrementAndGetQuota(dayKey: string): Promise<number> {
-    const current = await this.getAxisQuotaUsage(dayKey);
-    const next = current + 1;
-    await this.setAxisQuotaUsage(dayKey, next);
-    return next;
+    const key = `quota:${this.userId}:${this.workspaceId}:${dayKey}`;
+    const query = `
+      INSERT INTO provider_axis_quota (quota_key, value, updated_at)
+      VALUES (?, 1, ?)
+      ON CONFLICT(quota_key) DO UPDATE SET 
+        value = provider_axis_quota.value + 1,
+        updated_at = excluded.updated_at
+      RETURNING value
+    `;
+
+    const stmt = this.db.prepare(query).bind(key, new Date().toISOString());
+    const row = await stmt.first<{ value: number }>();
+    return row?.value ?? 1;
   }
 
   async getStatus(now: Date = new Date()): Promise<AxisQuotaStatus> {
@@ -81,16 +94,22 @@ export class D1AxisQuotaService implements ProviderQuotaStore {
   async consume(correlationId?: string): Promise<AxisQuotaStatus> {
     const now = new Date();
     const dayKey = getUtcDayKey(now);
-    const status = await this.getStatus(now);
 
-    if (status.used >= status.limit) {
+    // Atomically increment first
+    const nextUsed = await this.incrementAndGetQuota(dayKey);
+    const resetsAt = getNextUtcDayBoundary(now);
+
+    // Check after increment - if over limit, the increment already happened
+    // but we reject the request. This is safer than allowing bypass.
+    if (nextUsed > this.dailyLimit) {
+      const status = { used: nextUsed, limit: this.dailyLimit, resetsAt };
       throw new AxisDailyLimitExceededError(status, correlationId);
     }
 
-    const nextUsed = await this.incrementAndGetQuota(dayKey);
     return {
-      ...status,
       used: nextUsed,
+      limit: this.dailyLimit,
+      resetsAt,
     };
   }
 }
