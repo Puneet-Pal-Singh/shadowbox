@@ -5,7 +5,12 @@
  * Orchestrates LLM gateway, budgeting, agents, and session memory assembly.
  */
 
-import type { RunEngineDependencies, AgentType, IAgent, LLMGateway } from "@shadowbox/execution-engine/runtime";
+import type {
+  RunEngineDependencies,
+  AgentType,
+  IAgent,
+  LLMGateway,
+} from "@shadowbox/execution-engine/runtime";
 import type { Env } from "../../types/ai";
 import { buildLLMGateway } from "./LLMRuntimeFactory";
 import { buildPricingAndBudgeting } from "./BudgetingFactory";
@@ -43,7 +48,6 @@ export function buildRuntimeDependencies(
 
   // Build LLM runtime with shared budgeting components
   const { llmRuntimeService, llmGateway } = buildLLMGateway(
-    ctx,
     env,
     {
       runId: payload.runId,
@@ -78,10 +82,7 @@ export function buildRuntimeDependencies(
   );
 
   // Build session memory client
-  const sessionMemoryClient = buildSessionMemoryClient(
-    env,
-    payload.sessionId,
-  );
+  const sessionMemoryClient = buildSessionMemoryClient(env, payload.sessionId);
   const workspaceBootstrapper = WorkspaceBootstrapService.fromEnv(
     env,
     payload.sessionId,

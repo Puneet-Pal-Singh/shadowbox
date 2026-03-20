@@ -1,32 +1,46 @@
-import type { CredentialVault, ProviderId } from "@repo/shared-types";
-import type { DurableProviderStore } from "./DurableProviderStore";
-
 /**
- * CloudCredentialVault
- * Provider-neutral credential vault backed by DurableProviderStore.
+ * Cloud Credential Vault
+ *
+ * Provider-neutral credential vault using focused store interfaces.
+ * Can be backed by D1CredentialStore or other implementations.
  */
+
+import type { CredentialVault, ProviderId } from "@repo/shared-types";
+import type { CredentialStore } from "./stores/CredentialStore";
+
 export class CloudCredentialVault implements CredentialVault {
   readonly surface = "cloud" as const;
 
-  constructor(private readonly durableStore: DurableProviderStore) {}
+  constructor(
+    private readonly credentialStore: CredentialStore,
+    private readonly userId: string,
+  ) {}
 
   async setCredential(providerId: ProviderId, apiKey: string): Promise<void> {
-    await this.durableStore.setProvider(providerId, apiKey);
+    await this.credentialStore.setCredential({
+      credentialId: crypto.randomUUID(),
+      userId: this.userId,
+      providerId,
+      label: "default",
+      apiKey,
+    });
   }
 
   async getApiKey(providerId: ProviderId): Promise<string | null> {
-    return this.durableStore.getApiKey(providerId);
+    const result = await this.credentialStore.getCredentialWithKey(providerId);
+    return result?.apiKey ?? null;
   }
 
   async deleteCredential(providerId: ProviderId): Promise<void> {
-    await this.durableStore.deleteProvider(providerId);
+    await this.credentialStore.deleteCredential(providerId);
   }
 
   async isConnected(providerId: ProviderId): Promise<boolean> {
-    return this.durableStore.isConnected(providerId);
+    const cred = await this.credentialStore.getCredential(providerId);
+    return cred !== null && cred.status === "connected";
   }
 
   async listConnectedProviders(): Promise<ProviderId[]> {
-    return this.durableStore.getAllProviders();
+    return this.credentialStore.listCredentialProviders();
   }
 }

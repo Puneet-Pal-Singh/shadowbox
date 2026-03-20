@@ -11,7 +11,7 @@ import type {
   CredentialStore,
   ProviderCredentialRecord,
   SetCredentialInput,
-} from "../stores/CredentialStore";
+} from "./CredentialStore";
 import {
   CredentialEncryptionService,
   EncryptedSecret,
@@ -35,26 +35,17 @@ interface CredentialRow {
   deleted_at: string | null;
 }
 
-/**
- * D1CredentialStore
- *
- * User-global credential storage - credentials are keyed by userId + providerId.
- */
 export class D1CredentialStore implements CredentialStore {
   private encryption: CredentialEncryptionService;
-  private keyVersion: string;
-  private previousKeyVersion?: string;
 
   constructor(
     private db: D1Database,
     private userId: string,
-    masterKey: string,
-    keyVersion: string,
-    previousKeyVersion?: string,
+    private masterKey: string,
+    private keyVersion: string,
+    private previousMasterKey?: string,
   ) {
     this.encryption = new CredentialEncryptionService();
-    this.keyVersion = keyVersion;
-    this.previousKeyVersion = previousKeyVersion;
   }
 
   async getCredential(
@@ -94,8 +85,8 @@ export class D1CredentialStore implements CredentialStore {
 
     const encrypted = JSON.parse(row.encrypted_secret_json) as EncryptedSecret;
     const apiKey = await this.encryption.decrypt(encrypted, {
-      masterKey: "", // Will be resolved from environment in real implementation
-      previousMasterKey: this.previousKeyVersion,
+      masterKey: this.masterKey,
+      previousMasterKey: this.previousMasterKey,
     });
 
     return {
@@ -110,18 +101,15 @@ export class D1CredentialStore implements CredentialStore {
     const credentialId = input.credentialId || crypto.randomUUID();
     const now = new Date().toISOString();
 
-    // Validate key format
     if (!this.encryption.isValidKeyFormat(input.apiKey)) {
       throw new Error("Invalid API key format");
     }
 
-    // Encrypt the API key
     const encrypted = await this.encryption.encrypt(input.apiKey, {
       keyVersion: this.keyVersion,
-      masterKey: "", // Will be resolved from environment
+      masterKey: this.masterKey,
     });
 
-    // Generate fingerprint
     const fingerprint = this.encryption.generateFingerprint(input.apiKey);
 
     const query = `
@@ -162,7 +150,6 @@ export class D1CredentialStore implements CredentialStore {
       throw new Error("Failed to create credential");
     }
 
-    // Return the created record
     const created = await this.getCredential(input.providerId);
     if (!created) {
       throw new Error("Failed to retrieve created credential");

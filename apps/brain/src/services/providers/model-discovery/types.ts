@@ -5,8 +5,8 @@ import type {
 } from "@repo/shared-types";
 
 export interface ProviderModelCredentialContext {
-  userId: string;
-  workspaceId: string;
+  userId?: string;
+  workspaceId?: string;
   apiKey: string;
 }
 

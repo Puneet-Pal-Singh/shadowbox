@@ -5,9 +5,9 @@ import type {
   ProviderRegistryEntry,
 } from "@repo/shared-types";
 import type {
-  DurableProviderStore,
+  ProviderModelCacheStore,
   ProviderModelCacheRecord,
-} from "../DurableProviderStore";
+} from "../stores/ProviderModelCacheStore";
 import type { ProviderCredentialService } from "../ProviderCredentialService";
 import { ProviderRegistryService } from "../ProviderRegistryService";
 import {
@@ -31,24 +31,26 @@ export class ProviderModelDiscoveryService {
   private readonly registryService: ProviderRegistryService;
 
   constructor(
-    private readonly store: DurableProviderStore,
+    private readonly cacheStore: ProviderModelCacheStore,
     private readonly credentialService: ProviderCredentialService,
-    registryOrAdapters?: ProviderRegistryService | Partial<Record<string, ProviderModelCatalogPort>>,
-    adaptersOrRanking?: Partial<Record<string, ProviderModelCatalogPort>> | ProviderModelRankingService,
-    rankingOrObservability?: ProviderModelRankingService | ProviderModelDiscoveryObservability,
+    registryOrAdapters?:
+      | ProviderRegistryService
+      | Partial<Record<string, ProviderModelCatalogPort>>,
+    adaptersOrRanking?:
+      | Partial<Record<string, ProviderModelCatalogPort>>
+      | ProviderModelRankingService,
+    rankingOrObservability?:
+      | ProviderModelRankingService
+      | ProviderModelDiscoveryObservability,
     maybeObservability?: ProviderModelDiscoveryObservability,
   ) {
-    const {
-      registryService,
-      adapters,
-      rankingService,
-      observability,
-    } = resolveConstructorArgs(
-      registryOrAdapters,
-      adaptersOrRanking,
-      rankingOrObservability,
-      maybeObservability,
-    );
+    const { registryService, adapters, rankingService, observability } =
+      resolveConstructorArgs(
+        registryOrAdapters,
+        adaptersOrRanking,
+        rankingOrObservability,
+        maybeObservability,
+      );
 
     this.registryService = registryService;
     this.adapters = buildAdapterRegistry(this.registryService, adapters);
@@ -73,9 +75,14 @@ export class ProviderModelDiscoveryService {
     const startedAt = Date.now();
     try {
       const fullList = await this.getCatalogWithCache(providerId);
-      const ranked = await this.rankModels(providerId, query.view, fullList.models);
+      const ranked = await this.rankModels(
+        providerId,
+        query.view,
+        fullList.models,
+      );
       const page = toPage(ranked, query.cursor, query.limit);
-      const stale = fullList.source === "cache" && isExpired(fullList.expiresAt);
+      const stale =
+        fullList.source === "cache" && isExpired(fullList.expiresAt);
       const response: BYOKDiscoveredProviderModelsResponse = {
         providerId,
         view: query.view,
@@ -116,7 +123,7 @@ export class ProviderModelDiscoveryService {
   async refreshDiscoveredModels(
     providerId: string,
   ): Promise<BYOKDiscoveredProviderModelsRefreshResponse> {
-    await this.store.invalidateModelCache(providerId);
+    await this.cacheStore.invalidateModelCache(providerId);
     const fresh = await this.fetchAndCacheModels(providerId);
     return {
       providerId,
@@ -165,7 +172,10 @@ export class ProviderModelDiscoveryService {
     try {
       return await this.fetchAndCacheModels(providerId);
     } catch (error) {
-      this.observability.recordAdapterFailure(providerId, toDiscoveryErrorCode(error));
+      this.observability.recordAdapterFailure(
+        providerId,
+        toDiscoveryErrorCode(error),
+      );
       if (cached) {
         return {
           ...cached,
@@ -193,10 +203,7 @@ export class ProviderModelDiscoveryService {
         `${providerId} credentials are not connected for model discovery.`,
       );
     }
-    const scope = this.store.getScopeSnapshot();
     const models = await adapter.fetchAll(providerId, {
-      userId: scope.userId,
-      workspaceId: scope.workspaceId,
       apiKey,
     });
     const fetchedAt = new Date().toISOString();
@@ -208,13 +215,15 @@ export class ProviderModelDiscoveryService {
       expiresAt,
       source: "provider_api",
     };
-    await this.store.setModelCache(record);
+    await this.cacheStore.setModelCache(record);
     return record;
   }
 
-  private async readCache(providerId: string): Promise<ProviderModelCacheRecord | null> {
+  private async readCache(
+    providerId: string,
+  ): Promise<ProviderModelCacheRecord | null> {
     try {
-      return await this.store.getModelCache(providerId);
+      return await this.cacheStore.getModelCache(providerId);
     } catch (error) {
       throw new ProviderModelCacheError(
         toErrorMessage(error, "Failed to read provider model cache."),
@@ -251,7 +260,8 @@ function resolveConstructorArgs(
     return {
       registryService: registryOrAdapters,
       adapters:
-        !adaptersOrRanking || adaptersOrRanking instanceof ProviderModelRankingService
+        !adaptersOrRanking ||
+        adaptersOrRanking instanceof ProviderModelRankingService
           ? {}
           : adaptersOrRanking,
       rankingService:
@@ -263,7 +273,7 @@ function resolveConstructorArgs(
       observability:
         rankingOrObservability instanceof ProviderModelDiscoveryObservability
           ? rankingOrObservability
-          : maybeObservability ?? defaultObservability,
+          : (maybeObservability ?? defaultObservability),
     };
   }
 
@@ -279,7 +289,7 @@ function resolveConstructorArgs(
     observability:
       rankingOrObservability instanceof ProviderModelDiscoveryObservability
         ? rankingOrObservability
-        : maybeObservability ?? defaultObservability,
+        : (maybeObservability ?? defaultObservability),
   };
 }
 
@@ -313,11 +323,16 @@ function createAdapterForProvider(
   if (provider.adapterFamily === "openai-compatible") {
     const endpoint =
       provider.modelsEndpoint ??
-      (provider.baseUrl ? `${provider.baseUrl.replace(/\/$/, "")}/models` : undefined);
+      (provider.baseUrl
+        ? `${provider.baseUrl.replace(/\/$/, "")}/models`
+        : undefined);
     if (!endpoint) {
       return undefined;
     }
-    return new OpenAICompatibleModelCatalogAdapter(provider.providerId, endpoint);
+    return new OpenAICompatibleModelCatalogAdapter(
+      provider.providerId,
+      endpoint,
+    );
   }
 
   return undefined;

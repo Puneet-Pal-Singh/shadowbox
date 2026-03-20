@@ -7,7 +7,7 @@
 
 import type { D1Database } from "@cloudflare/workers-types";
 import type { BYOKPreferences, BYOKPreferencesPatch } from "@repo/shared-types";
-import type { PreferenceStore } from "../stores/PreferenceStore";
+import type { PreferenceStore } from "./PreferenceStore";
 import { AXIS_PROVIDER_ID } from "../axis";
 import { AXIS_CURATED_MODEL_IDS } from "../axis";
 
