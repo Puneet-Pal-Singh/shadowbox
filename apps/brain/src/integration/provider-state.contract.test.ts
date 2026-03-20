@@ -42,6 +42,7 @@ describe("Provider State Contract: Controller/Runtime Shared Ownership", () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     setCompatModeOverride(false);
     resetCredentialStore();
   });

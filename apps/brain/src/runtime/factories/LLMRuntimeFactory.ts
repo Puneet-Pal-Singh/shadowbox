@@ -61,8 +61,14 @@ export function buildLLMGateway(
   llmRuntimeService: LLMRuntimeAIService;
   llmGateway: LLMGateway;
 } {
-  const userId = providerScope.userId || "anonymous";
-  const workspaceId = providerScope.workspaceId || "default";
+  const userId = providerScope.userId;
+  const workspaceId = providerScope.workspaceId;
+
+  if (!userId || !workspaceId) {
+    throw new Error(
+      `Invalid provider scope: userId="${userId}", workspaceId="${workspaceId}". Both are required.`,
+    );
+  }
 
   const providerConfigService = createProviderConfigService(
     env,

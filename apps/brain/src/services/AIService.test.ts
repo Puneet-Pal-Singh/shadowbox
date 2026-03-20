@@ -124,18 +124,52 @@ function createProviderConfigService(): ProviderConfigService {
 
 function createMockCredentialStore() {
   const connectedProviders = new Set<string>();
-  const credentials = new Map<string, { status: string }>();
+  const credentials = new Map<string, { status: string; apiKey: string }>();
 
   return {
     getCredential: vi.fn().mockImplementation((providerId: string) => {
-      return Promise.resolve(credentials.get(providerId) || null);
+      const cred = credentials.get(providerId);
+      if (!cred) return Promise.resolve(null);
+      return Promise.resolve({
+        credentialId: "test-cred",
+        userId: "test-user",
+        workspaceId: "test-workspace",
+        providerId,
+        label: "default",
+        keyFingerprint: "sk-...test",
+        status: cred.status as "connected" | "failed" | "revoked",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      });
     }),
-    getCredentialWithKey: vi.fn().mockResolvedValue(null),
+    getCredentialWithKey: vi.fn().mockImplementation((providerId: string) => {
+      const cred = credentials.get(providerId);
+      if (!cred) return Promise.resolve(null);
+      return Promise.resolve({
+        record: {
+          credentialId: "test-cred",
+          userId: "test-user",
+          workspaceId: "test-workspace",
+          providerId,
+          label: "default",
+          keyFingerprint: "sk-...test",
+          status: cred.status as "connected" | "failed" | "revoked",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          deletedAt: null,
+        },
+        apiKey: cred.apiKey,
+      });
+    }),
     setCredential: vi
       .fn()
-      .mockImplementation((input: { providerId: string }) => {
+      .mockImplementation((input: { providerId: string; apiKey: string }) => {
         connectedProviders.add(input.providerId);
-        credentials.set(input.providerId, { status: "connected" });
+        credentials.set(input.providerId, {
+          status: "connected",
+          apiKey: input.apiKey,
+        });
         return Promise.resolve({
           credentialId: "test-cred",
           userId: "test-user",
@@ -149,7 +183,11 @@ function createMockCredentialStore() {
           deletedAt: null,
         });
       }),
-    deleteCredential: vi.fn().mockResolvedValue(undefined),
+    deleteCredential: vi.fn().mockImplementation((providerId: string) => {
+      connectedProviders.delete(providerId);
+      credentials.delete(providerId);
+      return Promise.resolve();
+    }),
     listCredentialProviders: vi.fn().mockImplementation(() => {
       return Promise.resolve(Array.from(connectedProviders));
     }),
