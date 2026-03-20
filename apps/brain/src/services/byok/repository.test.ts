@@ -7,12 +7,13 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { ProviderVaultRepository, IDatabase } from "./repository.js";
 
+const TEST_MASTER_KEY = "test-master-key-for-encryption-tests-32chars";
+
 describe("ProviderVaultRepository", () => {
   let mockDb: IDatabase;
   let repository: ProviderVaultRepository;
 
   beforeEach(() => {
-    // Mock D1 database interface
     mockDb = {
       prepare: vi.fn().mockReturnValue({
         bind: vi.fn().mockReturnValue({
@@ -23,11 +24,7 @@ describe("ProviderVaultRepository", () => {
       }),
     };
 
-    repository = new ProviderVaultRepository(
-      mockDb,
-      "test-master-key",
-      "v1",
-    );
+    repository = new ProviderVaultRepository(mockDb, TEST_MASTER_KEY, "v1");
   });
 
   describe("create", () => {
@@ -36,20 +33,18 @@ describe("ProviderVaultRepository", () => {
         credentialId: "cred-123",
         userId: "user-123",
         workspaceId: "ws-123",
-        providerId: "openai",
+        providerId: "openai" as const,
         label: "My OpenAI Key",
         keyFingerprint: "sk-...abc123",
         status: "connected" as const,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
+        lastValidatedAt: null,
+        deletedAt: null,
       };
 
-      // Valid key format should not throw during encryption
       await expect(
-        repository.create(
-          credential,
-          "sk-test-FAKE-KEY-DO-NOT-USE",
-        ),
+        repository.create(credential, "sk-test-FAKE-KEY-DO-NOT-USE"),
       ).resolves.toBeDefined();
     });
 
@@ -58,17 +53,19 @@ describe("ProviderVaultRepository", () => {
         credentialId: "cred-123",
         userId: "user-123",
         workspaceId: "ws-123",
-        providerId: "openai",
+        providerId: "openai" as const,
         label: "My Key",
         keyFingerprint: "***",
         status: "connected" as const,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
+        lastValidatedAt: null,
+        deletedAt: null,
       };
 
-      await expect(
-        repository.create(credential, "short"),
-      ).rejects.toThrow("Invalid API key format");
+      await expect(repository.create(credential, "short")).rejects.toThrow(
+        "Invalid API key format",
+      );
     });
   });
 
@@ -83,7 +80,13 @@ describe("ProviderVaultRepository", () => {
             provider_id: "openai",
             label: "My Key",
             key_fingerprint: "sk-...abc123",
+            encrypted_secret_json:
+              '{"alg":"AES-256-GCM","ciphertext":"","iv":"","tag":"","keyVersion":"v1"}',
+            key_version: "v1",
             status: "connected",
+            last_validated_at: null,
+            last_error_code: null,
+            last_error_message: null,
             created_at: "2025-01-01T00:00:00Z",
             updated_at: "2025-01-01T00:00:00Z",
             deleted_at: null,
@@ -92,17 +95,12 @@ describe("ProviderVaultRepository", () => {
       });
 
       mockDb.prepare = mockPrepare;
-      repository = new ProviderVaultRepository(
-        mockDb,
-        "test-master-key",
-        "v1",
-      );
+      repository = new ProviderVaultRepository(mockDb, TEST_MASTER_KEY, "v1");
 
       const dto = await repository.retrieve("cred-123");
 
       expect(dto).toBeDefined();
       expect(dto?.credentialId).toBe("cred-123");
-      expect("encryptedSecretJson" in dto || true).toBe(true);
     });
 
     it("returns null for non-existent credential", async () => {
@@ -125,6 +123,9 @@ describe("ProviderVaultRepository", () => {
                 label: "Key 1",
                 key_fingerprint: "sk-...1",
                 status: "connected",
+                last_validated_at: null,
+                last_error_code: null,
+                last_error_message: null,
                 created_at: "2025-01-01T00:00:00Z",
                 updated_at: "2025-01-01T00:00:00Z",
                 deleted_at: null,
@@ -137,6 +138,9 @@ describe("ProviderVaultRepository", () => {
                 label: "Key 2",
                 key_fingerprint: "gsk_...2",
                 status: "connected",
+                last_validated_at: null,
+                last_error_code: null,
+                last_error_message: null,
                 created_at: "2025-01-02T00:00:00Z",
                 updated_at: "2025-01-02T00:00:00Z",
                 deleted_at: null,
@@ -147,17 +151,13 @@ describe("ProviderVaultRepository", () => {
       });
 
       mockDb.prepare = mockPrepare;
-      repository = new ProviderVaultRepository(
-        mockDb,
-        "test-master-key",
-        "v1",
-      );
+      repository = new ProviderVaultRepository(mockDb, TEST_MASTER_KEY, "v1");
 
       const list = await repository.listByWorkspace("user-123", "ws-123");
 
       expect(list).toHaveLength(2);
-      expect(list[0].credentialId).toBe("cred-1");
-      expect(list[1].credentialId).toBe("cred-2");
+      expect(list[0]!.credentialId).toBe("cred-1");
+      expect(list[1]!.credentialId).toBe("cred-2");
     });
 
     it("excludes soft-deleted credentials", async () => {
@@ -168,16 +168,11 @@ describe("ProviderVaultRepository", () => {
       });
 
       mockDb.prepare = mockPrepare;
-      repository = new ProviderVaultRepository(
-        mockDb,
-        "test-master-key",
-        "v1",
-      );
+      repository = new ProviderVaultRepository(mockDb, TEST_MASTER_KEY, "v1");
 
       const list = await repository.listByWorkspace("user-123", "ws-123");
 
       expect(list).toHaveLength(0);
-      // Verify the query includes WHERE deleted_at IS NULL
       const prepareCall = mockPrepare.mock.calls[0];
       expect(prepareCall[0]).toContain("deleted_at IS NULL");
     });
@@ -194,11 +189,7 @@ describe("ProviderVaultRepository", () => {
       });
 
       mockDb.prepare = mockPrepare;
-      repository = new ProviderVaultRepository(
-        mockDb,
-        "test-master-key",
-        "v1",
-      );
+      repository = new ProviderVaultRepository(mockDb, TEST_MASTER_KEY, "v1");
 
       await repository.updateMetadata("cred-123", {
         status: "connected",
@@ -206,7 +197,7 @@ describe("ProviderVaultRepository", () => {
       });
 
       expect(mockRun).toHaveBeenCalled();
-      const query = mockPrepare.mock.calls[0][0];
+      const query = mockPrepare.mock.calls[0]![0];
       expect(query).toContain("UPDATE byok_credentials");
       expect(query).toContain("status");
       expect(query).toContain("last_validated_at");
@@ -224,16 +215,12 @@ describe("ProviderVaultRepository", () => {
       });
 
       mockDb.prepare = mockPrepare;
-      repository = new ProviderVaultRepository(
-        mockDb,
-        "test-master-key",
-        "v1",
-      );
+      repository = new ProviderVaultRepository(mockDb, TEST_MASTER_KEY, "v1");
 
       await repository.delete("cred-123");
 
       expect(mockRun).toHaveBeenCalled();
-      const query = mockPrepare.mock.calls[0][0];
+      const query = mockPrepare.mock.calls[0]![0];
       expect(query).toContain("deleted_at");
       expect(query).toContain("WHERE");
     });
@@ -248,11 +235,7 @@ describe("ProviderVaultRepository", () => {
       });
 
       mockDb.prepare = mockPrepare;
-      repository = new ProviderVaultRepository(
-        mockDb,
-        "test-master-key",
-        "v1",
-      );
+      repository = new ProviderVaultRepository(mockDb, TEST_MASTER_KEY, "v1");
 
       await expect(repository.delete("cred-123")).rejects.toThrow(
         "Failed to delete credential",
