@@ -4,14 +4,14 @@ import {
   collectFeatureFlagSnapshot,
   createRuntimeIdentity,
   resolveRuntimeGitSha,
+  type RuntimeIdentity,
 } from "@repo/shared-types";
 import type { Env } from "../../types/ai";
 
-const brainWorkerIdentity = createRuntimeIdentity("brain-worker");
-const runEngineIdentity = createRuntimeIdentity("brain-run-engine-do");
-
 let workerStartupLogged = false;
 let runEngineStartupLogged = false;
+let brainWorkerIdentity: RuntimeIdentity | null = null;
+let runEngineIdentity: RuntimeIdentity | null = null;
 
 interface RuntimeBindingSnapshot {
   brainMuscleBaseUrlConfigured: boolean;
@@ -33,12 +33,12 @@ interface RuntimeDebugPayload {
 
 export function getBrainRuntimeHeaders(env: Env): Record<string, string> {
   ensureBrainWorkerStartupLogged(env);
-  return buildRuntimeHeaders(brainWorkerIdentity, toEnvRecord(env));
+  return buildRuntimeHeaders(getBrainWorkerIdentity(), toEnvRecord(env));
 }
 
 export function getRunEngineRuntimeHeaders(env: Env): Record<string, string> {
   ensureRunEngineStartupLogged(env);
-  return buildRuntimeHeaders(runEngineIdentity, toEnvRecord(env));
+  return buildRuntimeHeaders(getRunEngineIdentity(), toEnvRecord(env));
 }
 
 export function buildBrainRuntimeDebugPayload(env: Env): RuntimeDebugPayload {
@@ -52,7 +52,7 @@ export function buildBrainRuntimeDebugPayload(env: Env): RuntimeDebugPayload {
       secureApiBound: Boolean(env.SECURE_API),
     },
     featureFlags: collectFeatureFlagSnapshot(toEnvRecord(env)),
-    runtime: buildRuntimePayload(brainWorkerIdentity, env),
+    runtime: buildRuntimePayload(getBrainWorkerIdentity(), env),
   };
 }
 
@@ -69,7 +69,7 @@ export function buildRunEngineRuntimeDebugPayload(
       secureApiBound: Boolean(env.SECURE_API),
     },
     featureFlags: collectFeatureFlagSnapshot(toEnvRecord(env)),
-    runtime: buildRuntimePayload(runEngineIdentity, env),
+    runtime: buildRuntimePayload(getRunEngineIdentity(), env),
   };
 }
 
@@ -79,7 +79,7 @@ function ensureBrainWorkerStartupLogged(env: Env): void {
   }
 
   workerStartupLogged = true;
-  logRuntimeStartup(brainWorkerIdentity, env);
+  logRuntimeStartup(getBrainWorkerIdentity(), env);
 }
 
 function ensureRunEngineStartupLogged(env: Env): void {
@@ -88,11 +88,27 @@ function ensureRunEngineStartupLogged(env: Env): void {
   }
 
   runEngineStartupLogged = true;
-  logRuntimeStartup(runEngineIdentity, env);
+  logRuntimeStartup(getRunEngineIdentity(), env);
+}
+
+function getBrainWorkerIdentity(): RuntimeIdentity {
+  if (!brainWorkerIdentity) {
+    brainWorkerIdentity = createRuntimeIdentity("brain-worker");
+  }
+
+  return brainWorkerIdentity;
+}
+
+function getRunEngineIdentity(): RuntimeIdentity {
+  if (!runEngineIdentity) {
+    runEngineIdentity = createRuntimeIdentity("brain-run-engine-do");
+  }
+
+  return runEngineIdentity;
 }
 
 function logRuntimeStartup(
-  identity: { bootId: string; name: string; startedAt: string },
+  identity: RuntimeIdentity,
   env: Env,
 ): void {
   const gitSha = resolveRuntimeGitSha(toEnvRecord(env));
@@ -105,7 +121,7 @@ function logRuntimeStartup(
 }
 
 function buildRuntimePayload(
-  identity: { bootId: string; name: string; startedAt: string },
+  identity: RuntimeIdentity,
   env: Env,
 ) {
   const gitSha = resolveRuntimeGitSha(toEnvRecord(env));
