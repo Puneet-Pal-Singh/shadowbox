@@ -29,6 +29,7 @@ import {
   type BYOKDiscoveredProviderModelsRefreshResponse,
   type BYOKProviderModelsResponse,
   type BYOKPreferencesUpdateRequest,
+  type BYOKValidateResponse,
   BYOKConnectRequestSchema,
   BYOKConnectResponseSchema,
   BYOKDisconnectRequestSchema,
@@ -134,7 +135,7 @@ export class ProviderController {
         BYOKProviderModelsResponseSchema,
         correlationId,
       );
-      const payload = await readProxyResponseJson(
+      const payload = await readProxyResponseJson<BYOKProviderModelsResponse>(
         response,
         BYOKProviderModelsResponseSchema,
         correlationId,
@@ -468,7 +469,7 @@ export class ProviderController {
           BYOKValidateResponseSchema,
           correlationId,
         );
-      const validated = await readProxyResponseJson(
+      const validated = await readProxyResponseJson<BYOKValidateResponse>(
         runtimeResponse,
         BYOKValidateResponseSchema,
         correlationId,
