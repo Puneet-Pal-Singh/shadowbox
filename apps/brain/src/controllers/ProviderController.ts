@@ -52,6 +52,7 @@ import { jsonResponse, withEngineHeaders } from "../http/response";
 import { parseRequestBody, validateWithSchema } from "../http/validation";
 import {
   NotFoundError,
+  ProviderError,
   ProviderNotConnectedError,
   ValidationError,
   isDomainError,
@@ -114,11 +115,11 @@ export class ProviderController {
           BYOKDiscoveredProviderModelsResponseSchema,
           correlationId,
         );
-        const payload =
-          await readResponseJson<BYOKDiscoveredProviderModelsResponse>(
-            response,
-            correlationId,
-          );
+        const payload = await readProxyResponseJson(
+          response,
+          BYOKDiscoveredProviderModelsResponseSchema,
+          correlationId,
+        );
         return withScopeJson(req, env, scope, payload);
       }
 
@@ -133,8 +134,9 @@ export class ProviderController {
         BYOKProviderModelsResponseSchema,
         correlationId,
       );
-      const payload = await readResponseJson<BYOKProviderModelsResponse>(
+      const payload = await readProxyResponseJson(
         response,
+        BYOKProviderModelsResponseSchema,
         correlationId,
       );
       return withScopeJson(
@@ -179,11 +181,11 @@ export class ProviderController {
         BYOKDiscoveredProviderModelsRefreshResponseSchema,
         correlationId,
       );
-      const payload =
-        await readResponseJson<BYOKDiscoveredProviderModelsRefreshResponse>(
-          response,
-          correlationId,
-        );
+      const payload = await readProxyResponseJson(
+        response,
+        BYOKDiscoveredProviderModelsRefreshResponseSchema,
+        correlationId,
+      );
       return withScopeJson(req, env, scope, payload);
     } catch (error) {
       return handleByokError(req, env, error, correlationId);
@@ -463,13 +465,14 @@ export class ProviderController {
           path: "/providers/validate",
           body: { providerId: credential.providerId, mode: request.mode },
         },
+          BYOKValidateResponseSchema,
+          correlationId,
+        );
+      const validated = await readProxyResponseJson(
+        runtimeResponse,
         BYOKValidateResponseSchema,
         correlationId,
       );
-      const validated = await readResponseJson<{
-        status: "valid" | "invalid";
-        checkedAt: string;
-      }>(runtimeResponse, correlationId);
 
       return withScopeJson(req, env, scope, {
         credentialId,
@@ -558,8 +561,9 @@ export class ProviderController {
           BYOKPreferencesSchema,
           correlationId,
         );
-        runtimePreference = await readResponseJson(
+        runtimePreference = await readProxyResponseJson(
           runtimeResponse,
+          BYOKPreferencesSchema,
           correlationId,
         );
       }
@@ -1066,10 +1070,11 @@ async function normalizeByokRuntimeError(
   scope: AuthorizedProviderScope,
   correlationId: string,
 ): Promise<Response> {
-  const parsed = await parseErrorLikeBody(response);
+  const parsed = await parseProviderErrorBody(response);
   const code = normalizeProviderErrorCode(parsed.code, response.status);
   const message = parsed.message || "Provider request failed";
-  const retryable = response.status >= 500 || code === "RATE_LIMITED";
+  const retryable =
+    parsed.retryable ?? (response.status >= 500 || code === "RATE_LIMITED");
   console.warn(
     `[provider/byok] ${correlationId}: runtime error ${code} (${response.status}) - ${message}`,
   );
@@ -1095,15 +1100,24 @@ async function normalizeByokRuntimeError(
   return withEngineHeaders(req, env, normalized, scope.runId);
 }
 
-async function parseErrorLikeBody(
+async function parseProviderErrorBody(
   response: Response,
-): Promise<{ code?: string; message?: string }> {
+): Promise<{
+  code?: string;
+  message?: string;
+  retryable?: boolean;
+  correlationId?: string;
+}> {
   try {
     const payload = await response.clone().json();
     if (!payload || typeof payload !== "object") {
       return {};
     }
     const raw = payload as Record<string, unknown>;
+    const envelope = ProviderErrorEnvelopeSchema.safeParse(payload);
+    if (envelope.success) {
+      return envelope.data.error;
+    }
     const nestedError =
       raw.error && typeof raw.error === "object"
         ? (raw.error as Record<string, unknown>)
@@ -1122,7 +1136,19 @@ async function parseErrorLikeBody(
           : typeof nestedError?.message === "string"
             ? nestedError.message
             : undefined;
-    return { code, message };
+    const retryable =
+      typeof raw.retryable === "boolean"
+        ? raw.retryable
+        : typeof nestedError?.retryable === "boolean"
+          ? nestedError.retryable
+          : undefined;
+    const correlationId =
+      typeof raw.correlationId === "string"
+        ? raw.correlationId
+        : typeof nestedError?.correlationId === "string"
+          ? nestedError.correlationId
+          : undefined;
+    return { code, message, retryable, correlationId };
   } catch {
     return {};
   }
@@ -1201,6 +1227,26 @@ async function readResponseJson<T>(
   }
 }
 
+async function readProxyResponseJson<T>(
+  response: Response,
+  schema: z.ZodSchema,
+  correlationId: string,
+): Promise<T> {
+  if (!response.ok) {
+    const errorDetails = await parseProviderErrorBody(response);
+    throw new ProviderError(
+      errorDetails.message ?? "Provider request failed",
+      normalizeProviderErrorCode(errorDetails.code, response.status),
+      response.status,
+      errorDetails.retryable ?? response.status >= 500,
+      errorDetails.correlationId ?? correlationId,
+    );
+  }
+
+  const payload = await readResponseJson<unknown>(response, correlationId);
+  return validateWithSchema<T>(payload, schema, correlationId);
+}
+
 async function fetchRuntimeCatalog(
   req: Request,
   env: Env,
@@ -1218,7 +1264,11 @@ async function fetchRuntimeCatalog(
     ProviderCatalogResponseSchema,
     correlationId,
   );
-  return await readResponseJson(response, correlationId);
+  return await readProxyResponseJson(
+    response,
+    ProviderCatalogResponseSchema,
+    correlationId,
+  );
 }
 
 async function fetchRuntimeConnections(
@@ -1238,7 +1288,11 @@ async function fetchRuntimeConnections(
     ProviderConnectionsResponseSchema,
     correlationId,
   );
-  return await readResponseJson(response, correlationId);
+  return await readProxyResponseJson(
+    response,
+    ProviderConnectionsResponseSchema,
+    correlationId,
+  );
 }
 
 async function fetchRuntimePreferences(
@@ -1258,7 +1312,11 @@ async function fetchRuntimePreferences(
     BYOKPreferencesSchema,
     correlationId,
   );
-  return await readResponseJson(response, correlationId);
+  return await readProxyResponseJson(
+    response,
+    BYOKPreferencesSchema,
+    correlationId,
+  );
 }
 
 async function fetchRuntimeAxisQuota(
@@ -1266,7 +1324,7 @@ async function fetchRuntimeAxisQuota(
   env: Env,
   scope: AuthorizedProviderScope,
   correlationId: string,
-): Promise<z.infer<typeof AxisQuotaMetadataSchema> | undefined> {
+): Promise<z.infer<typeof AxisQuotaMetadataSchema>> {
   const response = await proxyByokOperation(
     req,
     env,
@@ -1278,12 +1336,11 @@ async function fetchRuntimeAxisQuota(
     AxisQuotaMetadataSchema,
     correlationId,
   );
-  if (!response.ok) {
-    return undefined;
-  }
-
-  const payload = await readResponseJson<unknown>(response, correlationId);
-  return validateWithSchema(payload, AxisQuotaMetadataSchema, correlationId);
+  return await readProxyResponseJson(
+    response,
+    AxisQuotaMetadataSchema,
+    correlationId,
+  );
 }
 
 function mapCatalogEntryToRegistry(

@@ -9,7 +9,12 @@ const TEST_USER_ID = "user-123";
 const TEST_WORKSPACE_ID = "workspace-main";
 const TEST_SESSION_SECRET = "test-session-secret";
 
-function createMockEnv(options?: { axisConnected?: boolean }): Env {
+function createMockEnv(options?: {
+  axisConnected?: boolean;
+  catalogError?: boolean;
+  connectionsError?: boolean;
+  preferencesError?: boolean;
+}): Env {
   const axisConnected = options?.axisConnected ?? true;
   const providerState = new Map<string, Set<ProviderId>>();
   const preferencesState = new Map<
@@ -116,6 +121,13 @@ function createMockEnv(options?: { axisConnected?: boolean }): Env {
         }
 
         if (url.pathname === "/providers/catalog" && request.method === "GET") {
+          if (options?.catalogError) {
+            return jsonError(
+              "Provider catalog unavailable",
+              500,
+              "PROVIDER_UNAVAILABLE",
+            );
+          }
           return jsonOk({
             providers: (["axis", "openrouter", "openai", "groq"] as ProviderId[]).map(
               (providerId) => ({
@@ -193,6 +205,13 @@ function createMockEnv(options?: { axisConnected?: boolean }): Env {
           url.pathname === "/providers/connections" &&
           request.method === "GET"
         ) {
+          if (options?.connectionsError) {
+            return jsonError(
+              "Provider connections unavailable",
+              500,
+              "PROVIDER_UNAVAILABLE",
+            );
+          }
           return jsonOk({
             connections: (["axis", "openrouter", "openai", "groq"] as ProviderId[]).map(
               (providerId) => ({
@@ -241,6 +260,13 @@ function createMockEnv(options?: { axisConnected?: boolean }): Env {
           url.pathname === "/providers/preferences" &&
           request.method === "GET"
         ) {
+          if (options?.preferencesError) {
+            return jsonError(
+              "Provider preferences unavailable",
+              500,
+              "PROVIDER_UNAVAILABLE",
+            );
+          }
           const current = preferencesState.get(scopeKey) ?? {
             credentialLabels: {},
             updatedAt: new Date().toISOString(),
@@ -252,6 +278,13 @@ function createMockEnv(options?: { axisConnected?: boolean }): Env {
           url.pathname === "/providers/preferences" &&
           request.method === "PATCH"
         ) {
+          if (options?.preferencesError) {
+            return jsonError(
+              "Provider preferences unavailable",
+              500,
+              "PROVIDER_UNAVAILABLE",
+            );
+          }
           const body = (await request.json()) as {
             defaultProviderId?: ProviderId;
             defaultModelId?: string;
@@ -745,6 +778,55 @@ describe("ProviderController", () => {
       );
       expect(axisEntry).toBeDefined();
       expect(axisEntry.authModes).toContain("platform_managed");
+    });
+
+    it("surfaces catalog runtime errors as typed provider errors", async () => {
+      const env = createMockEnv({ catalogError: true });
+      const response = await ProviderController.byokProviders(
+        new Request("http://localhost/api/byok/providers", {
+          method: "GET",
+          headers: await withByokHeaders(env),
+        }),
+        env,
+      );
+      const data = await response.json();
+
+      expect(response.status).toBe(500);
+      expect(data.error.code).toBe("PROVIDER_UNAVAILABLE");
+      expect(data.error.message).toContain("Provider catalog unavailable");
+    });
+
+    it("surfaces connection runtime errors as typed provider errors", async () => {
+      const env = createMockEnv({ connectionsError: true });
+      const response = await ProviderController.byokCredentials(
+        new Request("http://localhost/api/byok/credentials", {
+          method: "GET",
+          headers: await withByokHeaders(env),
+        }),
+        env,
+      );
+      const data = await response.json();
+
+      expect(response.status).toBe(500);
+      expect(data.error.code).toBe("PROVIDER_UNAVAILABLE");
+      expect(data.error.message).toContain("Provider connections unavailable");
+    });
+
+    it("surfaces catalog runtime errors during resolution as typed provider errors", async () => {
+      const env = createMockEnv({ catalogError: true });
+      const response = await ProviderController.byokResolve(
+        new Request("http://localhost/api/byok/resolve", {
+          method: "POST",
+          headers: await withByokHeaders(env),
+          body: JSON.stringify({}),
+        }),
+        env,
+      );
+      const data = await response.json();
+
+      expect(response.status).toBe(500);
+      expect(data.error.code).toBe("PROVIDER_UNAVAILABLE");
+      expect(data.error.message).toContain("Provider catalog unavailable");
     });
 
     it("refreshes models for a provider", async () => {
