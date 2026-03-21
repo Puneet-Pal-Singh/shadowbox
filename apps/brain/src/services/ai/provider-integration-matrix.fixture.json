@@ -1,10 +1,17 @@
 {
-  "version": "2026-02-21",
+  "version": "2026-03-22",
   "owners": {
     "schemas": "packages/shared-types/src/provider.ts",
     "apiBoundary": "apps/brain/src/controllers/ProviderController.ts",
     "runtime": "apps/brain/src/runtime/RunEngineRuntime.ts",
-    "selectionPolicy": "apps/brain/src/services/ai/ModelSelectionPolicy.ts"
+    "selectionPolicy": "apps/brain/src/services/ai/ModelSelectionPolicy.ts",
+    "executionLanePolicy": "apps/brain/src/services/providers/ProviderRegistryService.ts"
+  },
+  "executionLanePolicy": {
+    "approach": "capability-driven",
+    "rejectionCriteria": ["missing-tools", "missing-structured-outputs", "missing-transport"],
+    "notRejectionCriteria": ["provider-id", "model-price-tier", "reliability-tier"],
+    "informationalTiers": ["latencyTier", "reliabilityTier"]
   },
   "providers": [
     {
@@ -48,6 +55,10 @@
     {
       "flow": "durable-credential-semantics",
       "file": "apps/brain/src/services/providers/DurableProviderStore.test.ts"
+    },
+    {
+      "flow": "execution-profile-lane-admission",
+      "file": "apps/brain/src/services/providers/ProviderRegistryService.test.ts"
     }
   ]
 }
