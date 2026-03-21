@@ -114,4 +114,33 @@ describe("ProviderRegistryService execution profiles", () => {
       reason: "Structured planning requires structured output support.",
     });
   });
+
+  it("blocks structured planning when provider lacks JSON mode and is not anthropic-native", () => {
+    const noTransportService = new ProviderRegistryService([
+      {
+        providerId: "transport-no-json",
+        name: "No JSON Mode Provider",
+        adapterFamily: "openai-compatible",
+        capabilities: {
+          streaming: true,
+          tools: true,
+          structuredOutputs: true,
+          jsonMode: false,
+        },
+      },
+    ]);
+
+    const profile = noTransportService.getExecutionProfile(
+      "transport-no-json",
+      "some-model",
+    );
+
+    expect(
+      profile?.supportedLanes.structured_planning_required,
+    ).toMatchObject({
+      supported: false,
+      reason:
+        "Structured planning requires JSON mode or a native structured-output provider transport.",
+    });
+  });
 });
