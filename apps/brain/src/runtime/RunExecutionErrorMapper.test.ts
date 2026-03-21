@@ -146,7 +146,7 @@ describe("RunExecutionErrorMapper", () => {
         "axis",
         "z-ai/glm-4.5-air:free",
         "structured_planning_required",
-        "Free-tier models are blocked from structured planning until explicitly approved.",
+        "Structured planning requires JSON mode or a native structured-output provider transport.",
       ),
       "corr-11",
     );
