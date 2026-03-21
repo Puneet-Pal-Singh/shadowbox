@@ -98,7 +98,7 @@ export class ExecutionService {
             sessionId: executionSession.sessionId,
             taskId: createExecutionTaskId(plugin, executionAction),
             action: `${plugin}.execute`,
-            params: { action: executionAction, runId: this.runId, ...payload },
+            params: { ...payload, runId: this.runId, action: executionAction },
             timeout: timeoutMs,
           }),
         },
