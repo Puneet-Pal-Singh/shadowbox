@@ -12,6 +12,9 @@ import type {
   LLMExecutionReliabilityTier,
 } from "@shadowbox/execution-engine/runtime";
 
+// Plan 82: latencyTier and reliabilityTier are informational only.
+// They must NOT be used as lane rejection criteria.
+
 export interface ProviderValidationConfig {
   endpoint: string;
   authMode: ProviderValidationAuthMode;
@@ -22,11 +25,6 @@ export interface ProviderDiscoveryConfig {
   adapterFamily: ProviderAdapterFamily;
   endpoint?: string;
 }
-
-const AXIS_ACTION_APPROVED_MODELS = new Set([
-  "arcee-ai/trinity-large-preview:free",
-  "stepfun/step-3.5-flash:free",
-]);
 
 export class ProviderRegistryService {
   private readonly entriesById: Map<string, ProviderRegistryEntry>;
@@ -79,16 +77,8 @@ export class ProviderRegistryService {
       reliabilityTier,
       supportedLanes: {
         chat_only: supportedLane(),
-        single_agent_action: resolveActionLaneSupport(
-          provider,
-          modelId,
-          reliabilityTier,
-        ),
-        structured_planning_required: resolveStructuredLaneSupport(
-          provider,
-          modelId,
-          reliabilityTier,
-        ),
+        single_agent_action: resolveActionLaneSupport(provider),
+        structured_planning_required: resolveStructuredLaneSupport(provider),
       },
     };
   }
@@ -190,29 +180,9 @@ function blockedLane(reason: string): ProviderExecutionLaneSupport {
 
 function resolveActionLaneSupport(
   provider: ProviderRegistryEntry,
-  modelId: string,
-  reliabilityTier: LLMExecutionReliabilityTier,
 ): ProviderExecutionLaneSupport {
   if (!provider.capabilities.tools) {
     return blockedLane("Selected provider does not support tool calling.");
-  }
-
-  if (
-    provider.providerId === "axis" &&
-    !AXIS_ACTION_APPROVED_MODELS.has(modelId)
-  ) {
-    return blockedLane(
-      "Axis free defaults are chat-only unless an explicitly approved action model is selected.",
-    );
-  }
-
-  if (
-    reliabilityTier === "experimental" &&
-    !isExplicitlyApprovedActionModel(provider.providerId, modelId)
-  ) {
-    return blockedLane(
-      "Selected model is classified as experimental for execution-critical action turns.",
-    );
   }
 
   return supportedLane();
@@ -220,8 +190,6 @@ function resolveActionLaneSupport(
 
 function resolveStructuredLaneSupport(
   provider: ProviderRegistryEntry,
-  modelId: string,
-  reliabilityTier: LLMExecutionReliabilityTier,
 ): ProviderExecutionLaneSupport {
   if (!provider.capabilities.tools) {
     return blockedLane("Structured planning requires tool-calling support.");
@@ -236,18 +204,6 @@ function resolveStructuredLaneSupport(
   if (!supportsStructuredPlanningTransport(provider)) {
     return blockedLane(
       "Structured planning requires JSON mode or a native structured-output provider transport.",
-    );
-  }
-
-  if (isFreeModel(modelId)) {
-    return blockedLane(
-      "Free-tier models are blocked from structured planning until explicitly approved.",
-    );
-  }
-
-  if (reliabilityTier === "experimental") {
-    return blockedLane(
-      "Selected model is classified as experimental for structured planning.",
     );
   }
 
@@ -270,7 +226,7 @@ function resolveLatencyTier(
   if (providerId === "groq") {
     return "fast";
   }
-  if (providerId === "axis" || isFreeModel(modelId)) {
+  if (providerId === "axis" || modelId.includes(":free")) {
     return "slow";
   }
   return "standard";
@@ -286,19 +242,10 @@ function resolveReliabilityTier(
   if (providerId === "groq") {
     return "baseline";
   }
-  if (providerId === "axis" || isFreeModel(modelId)) {
+  if (providerId === "axis" || modelId.includes(":free")) {
     return "experimental";
   }
   return "baseline";
 }
 
-function isFreeModel(modelId: string): boolean {
-  return modelId.includes(":free");
-}
 
-function isExplicitlyApprovedActionModel(
-  providerId: string,
-  modelId: string,
-): boolean {
-  return providerId === "axis" && AXIS_ACTION_APPROVED_MODELS.has(modelId);
-}
