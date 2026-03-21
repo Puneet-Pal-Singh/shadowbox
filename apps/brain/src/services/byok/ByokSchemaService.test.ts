@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   createByokSchemaService,
   resetByokSchemaReadyCacheForTests,
+  splitSqlStatements,
 } from "./ByokSchemaService.js";
 import { createTestByokD1Database } from "../../test-utils/byokTestD1";
 
@@ -65,5 +66,35 @@ describe("ByokSchemaService", () => {
 
     await expect(service.ensureReady()).resolves.toBeUndefined();
     expect(db.inspect.getAppliedMigrationIds().length).toBeGreaterThan(0);
+  });
+
+  it("preserves quoted string literals while splitting migration statements", () => {
+    const statements = splitSqlStatements(`
+      CREATE TABLE example (
+        status TEXT NOT NULL DEFAULT 'connected',
+        payload TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL DEFAULT '2026-03-21T09:46:32.204Z'
+      );
+      INSERT INTO example (status, payload, created_at) VALUES ('connected', '{}', '2026-03-21T09:46:32.204Z');
+    `);
+
+    expect(statements).toHaveLength(2);
+    expect(statements[0]).toContain("DEFAULT 'connected'");
+    expect(statements[0]).toContain("DEFAULT '{}'");
+    expect(statements[0]).toContain("DEFAULT '2026-03-21T09:46:32.204Z'");
+    expect(statements[1]).toContain("VALUES ('connected', '{}', '2026-03-21T09:46:32.204Z')");
+  });
+
+  it("ignores trailing comment-only fragments after executable statements", () => {
+    const statements = splitSqlStatements(`
+      -- Drop old workspace-scoped index if it exists
+      DROP INDEX IF EXISTS uq_byok_cred_scope_label;
+
+      -- User-global unique index already created in BYOK_CREDENTIALS_SCHEMA
+      -- This migration file exists for reference only
+    `);
+
+    expect(statements).toHaveLength(1);
+    expect(statements[0]).toContain("DROP INDEX IF EXISTS uq_byok_cred_scope_label");
   });
 });

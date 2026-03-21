@@ -25,6 +25,72 @@ interface MigrationRecord {
 }
 
 /**
+ * Split a migration script into executable SQL statements.
+ *
+ * Keeps quoted string literals intact so statement separators inside values
+ * do not break D1 bootstrap SQL.
+ */
+export function splitSqlStatements(sql: string): string[] {
+  const statements: string[] = [];
+  let current = "";
+  let inString = false;
+  let stringChar = "";
+
+  for (let index = 0; index < sql.length; index += 1) {
+    const char = sql[index];
+
+    if (!inString && (char === "'" || char === '"')) {
+      inString = true;
+      stringChar = char;
+      current += char;
+      continue;
+    }
+
+    if (inString && char === stringChar) {
+      if (sql[index + 1] === char) {
+        current += char + char;
+        index += 1;
+      } else {
+        inString = false;
+        current += char;
+      }
+      continue;
+    }
+
+    if (!inString && char === ";") {
+      if (hasExecutableSql(current)) {
+        statements.push(current.trim());
+      }
+      current = "";
+      continue;
+    }
+
+    current += char;
+  }
+
+  if (hasExecutableSql(current)) {
+    statements.push(current.trim());
+  }
+
+  return statements;
+}
+
+function hasExecutableSql(sql: string): boolean {
+  for (const line of sql.split("\n")) {
+    const trimmed = line.trim();
+    if (trimmed.length === 0) {
+      continue;
+    }
+    if (trimmed.startsWith("--")) {
+      continue;
+    }
+    return true;
+  }
+
+  return false;
+}
+
+/**
  * ByokSchemaService
  *
  * Runs migrations idempotently - skips already-applied migrations.
@@ -84,19 +150,34 @@ export class ByokSchemaService {
     console.log(`[byok/schema] Applying migration: ${migration.id}`);
 
     // Split SQL into individual statements
-    const statements = this.splitSqlStatements(migration.sql);
+    const statements = splitSqlStatements(migration.sql);
 
-    for (const sql of statements) {
-      if (!sql.trim()) continue;
+    for (const [index, statement] of statements.entries()) {
+      const sql = statement.trim();
+      if (!sql) continue;
+
+      const statementLabel = `${index + 1}/${statements.length}`;
       if (await this.isStatementAlreadySatisfied(sql)) {
+        console.log(
+          `[byok/schema] Skipping satisfied statement ${statementLabel} for ${migration.id}`,
+        );
         continue;
       }
 
+      console.log(
+        `[byok/schema] Applying statement ${statementLabel} for ${migration.id}`,
+      );
       const stmt = this.db.prepare(sql);
-      const result = await stmt.run();
-
-      if (!result.success) {
-        throw new Error(`Migration ${migration.id} failed: ${sql}`);
+      try {
+        const result = await stmt.run();
+        if (!result.success) {
+          throw new Error("Statement execution returned failure");
+        }
+      } catch (error) {
+        throw new Error(
+          `Migration ${migration.id} statement ${statementLabel} failed: ${sql}`,
+          { cause: error },
+        );
       }
     }
 
@@ -133,55 +214,6 @@ export class ByokSchemaService {
     }
   }
 
-  /**
-   * Split SQL into individual statements
-   * Handles basic SQL parsing for migration scripts
-   */
-  private splitSqlStatements(sql: string): string[] {
-    const statements: string[] = [];
-    let current = "";
-    let inString = false;
-    let stringChar = "";
-
-    for (let i = 0; i < sql.length; i++) {
-      const char = sql[i];
-
-      // Handle string literals
-      if (!inString && (char === "'" || char === '"')) {
-        inString = true;
-        stringChar = char;
-        current += char;
-      } else if (inString && char === stringChar) {
-        // Check for escaped quote
-        if (sql[i + 1] === char) {
-          current += char + char;
-          i++;
-        } else {
-          inString = false;
-          current += char;
-        }
-        continue;
-      }
-
-      // Statement separator
-      if (!inString && char === ";") {
-        if (current.trim()) {
-          statements.push(current.trim());
-        }
-        current = "";
-        continue;
-      }
-
-      current += char;
-    }
-
-    // Add remaining statement
-    if (current.trim()) {
-      statements.push(current.trim());
-    }
-
-    return statements;
-  }
 }
 
 /**
