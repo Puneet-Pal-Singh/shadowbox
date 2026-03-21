@@ -33,6 +33,23 @@ interface ActiveTaskExecution {
   startTime: number;
 }
 
+function resolveExecutePayloadAction(
+  taskAction: string,
+  params: Record<string, unknown>,
+): string {
+  const requestedAction = params.action;
+  if (typeof requestedAction === "string" && requestedAction.trim().length > 0) {
+    return requestedAction;
+  }
+  if (!taskAction.includes(".")) {
+    return taskAction;
+  }
+  throw {
+    code: "INVALID_INPUT",
+    message: "action is required for execute-style plugin routing",
+  };
+}
+
 export class CloudflareSandboxExecutionAdapter implements SandboxExecutionPort {
   private activeExecutions = new Map<string, ActiveTaskExecution>();
   private taskTimeouts = new Map<string, NodeJS.Timeout>();
@@ -235,9 +252,10 @@ export class CloudflareSandboxExecutionAdapter implements SandboxExecutionPort {
     signal: AbortSignal,
   ): Promise<unknown> {
     if (mapping.method === "execute") {
+      const pluginAction = resolveExecutePayloadAction(action, params);
       const payload: Record<string, unknown> & { action: string } = {
         ...params,
-        action,
+        action: pluginAction,
       };
       const runId = payload.runId;
       if (typeof runId !== "string" || runId.length === 0) {
