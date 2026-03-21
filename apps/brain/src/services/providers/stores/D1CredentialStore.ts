@@ -119,6 +119,7 @@ export class D1CredentialStore implements CredentialStore {
         status, created_by, created_at, updated_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(user_id, provider_id, label)
+      WHERE deleted_at IS NULL
       DO UPDATE SET
         encrypted_secret_json = excluded.encrypted_secret_json,
         key_version = excluded.key_version,

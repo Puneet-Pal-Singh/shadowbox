@@ -81,10 +81,48 @@ describe("GitController", () => {
       sessionId: "sess-git-1",
       action: "git.execute",
       params: {
-        action: "status",
+        action: "git_status",
         runId: "run-1",
       },
       timeout: 12000,
+    });
+  });
+
+  it("maps git contract failures to a typed controller error", async () => {
+    const fetchMock = vi.mocked(global.fetch);
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            sessionId: "sess-git-2",
+            token: "tok-git-2",
+            expiresAt: Date.now() + 60_000,
+          }),
+          { status: 201, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            error:
+              "Validation failed: action invalid enum value, received 'git.execute'",
+          }),
+          { status: 500, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+
+    const response = await GitController.getStatus(
+      new Request("https://brain.local/api/git/status?runId=run-1"),
+      {
+        MUSCLE_BASE_URL: "http://muscle.local",
+        NODE_ENV: "test",
+      } as Env,
+    );
+
+    expect(response.status).toBe(502);
+    await expect(response.json()).resolves.toMatchObject({
+      code: "GIT_EXECUTION_CONTRACT_ERROR",
+      retryable: true,
     });
   });
 });

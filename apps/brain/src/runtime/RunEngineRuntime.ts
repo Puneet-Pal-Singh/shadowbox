@@ -53,6 +53,10 @@ const ScopeIdSchema = z
 const RefreshModelsRequestSchema = z.object({
   providerId: ProviderIdSchema,
 });
+const CredentialLabelMutationRequestSchema = z.object({
+  credentialId: z.string().uuid(),
+  label: z.string().min(1).max(256),
+});
 
 export class RunEngineRuntime extends DurableObject {
   private executionQueue: Promise<void> = Promise.resolve();
@@ -275,6 +279,33 @@ export class RunEngineRuntime extends DurableObject {
         return jsonResponse(request, env, response);
       }
 
+      if (url.pathname === "/providers/preferences/credential-labels") {
+        if (request.method !== "POST") {
+          return errorResponse(request, env, "Method Not Allowed", 405);
+        }
+        const body = await parseRequestBody(request, correlationId);
+        const input = validateWithSchema<{
+          credentialId: string;
+          label: string;
+        }>(body, CredentialLabelMutationRequestSchema, correlationId);
+        const response = await configService.setCredentialLabel(
+          input.credentialId,
+          input.label,
+        );
+        return jsonResponse(request, env, response);
+      }
+
+      if (url.pathname.startsWith("/providers/preferences/credential-labels/")) {
+        if (request.method !== "DELETE") {
+          return errorResponse(request, env, "Method Not Allowed", 405);
+        }
+        const credentialId = this.parseCredentialLabelPath(url, correlationId);
+        const response = await configService.deleteCredentialLabel(
+          credentialId,
+        );
+        return jsonResponse(request, env, response);
+      }
+
       return errorResponse(request, env, "Not Found", 404);
     } catch (error: unknown) {
       if (isDomainError(error)) {
@@ -415,6 +446,28 @@ export class RunEngineRuntime extends DurableObject {
         correlationId,
       );
     }
+  }
+
+  private parseCredentialLabelPath(
+    url: URL,
+    correlationId: string,
+  ): string {
+    const match = url.pathname.match(
+      /^\/providers\/preferences\/credential-labels\/([^/]+)$/,
+    );
+    if (!match?.[1]) {
+      throw new ValidationError(
+        "Invalid credential label path",
+        "INVALID_CREDENTIAL_PATH",
+        correlationId,
+      );
+    }
+
+    return validateWithSchema<string>(
+      decodeURIComponent(match[1]),
+      z.string().uuid(),
+      correlationId,
+    );
   }
 
   private async withExecutionLock<T>(operation: () => Promise<T>): Promise<T> {

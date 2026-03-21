@@ -4,16 +4,18 @@ import {
   collectFeatureFlagSnapshot,
   createRuntimeIdentity,
   resolveRuntimeGitSha,
+  type RuntimeIdentity,
 } from "@repo/shared-types";
 import type { Env } from "../../index";
 
-const secureWorkerIdentity = createRuntimeIdentity("secure-agent-api-worker");
+const MODULE_STARTED_AT = new Date().toISOString();
 
 let startupLogged = false;
+let secureWorkerIdentity: RuntimeIdentity | null = null;
 
 export function getSecureRuntimeHeaders(env: Env): Record<string, string> {
   ensureRuntimeStartupLogged(env);
-  return buildRuntimeHeaders(secureWorkerIdentity, toEnvRecord(env));
+  return buildRuntimeHeaders(getSecureWorkerIdentity(), toEnvRecord(env));
 }
 
 export function buildSecureRuntimeDebugPayload(
@@ -22,6 +24,7 @@ export function buildSecureRuntimeDebugPayload(
   ensureRuntimeStartupLogged(env);
 
   const gitSha = resolveRuntimeGitSha(toEnvRecord(env));
+  const identity = getSecureWorkerIdentity();
 
   return {
     bindings: {
@@ -35,11 +38,11 @@ export function buildSecureRuntimeDebugPayload(
     },
     featureFlags: collectFeatureFlagSnapshot(toEnvRecord(env)),
     runtime: {
-      bootId: secureWorkerIdentity.bootId,
-      fingerprint: buildRuntimeFingerprint(secureWorkerIdentity, gitSha),
+      bootId: identity.bootId,
+      fingerprint: buildRuntimeFingerprint(identity, gitSha),
       gitSha,
-      name: secureWorkerIdentity.name,
-      startedAt: secureWorkerIdentity.startedAt,
+      name: identity.name,
+      startedAt: identity.startedAt,
     },
   };
 }
@@ -49,14 +52,26 @@ function ensureRuntimeStartupLogged(env: Env): void {
     return;
   }
 
-  startupLogged = true;
+  const identity = getSecureWorkerIdentity();
   const gitSha = resolveRuntimeGitSha(toEnvRecord(env));
-  const fingerprint = buildRuntimeFingerprint(secureWorkerIdentity, gitSha);
+  const fingerprint = buildRuntimeFingerprint(identity, gitSha);
   const featureFlags = collectFeatureFlagSnapshot(toEnvRecord(env));
 
   console.log(
-    `[runtime/startup] name=${secureWorkerIdentity.name} gitSha=${gitSha} startedAt=${secureWorkerIdentity.startedAt} bootId=${secureWorkerIdentity.bootId} fingerprint=${fingerprint} featureFlags=${JSON.stringify(featureFlags)}`,
+    `[runtime/startup] name=${identity.name} gitSha=${gitSha} startedAt=${identity.startedAt} bootId=${identity.bootId} fingerprint=${fingerprint} featureFlags=${JSON.stringify(featureFlags)}`,
   );
+  startupLogged = true;
+}
+
+function getSecureWorkerIdentity(): RuntimeIdentity {
+  if (!secureWorkerIdentity) {
+    secureWorkerIdentity = createRuntimeIdentity(
+      "secure-agent-api-worker",
+      MODULE_STARTED_AT,
+    );
+  }
+
+  return secureWorkerIdentity;
 }
 
 function toEnvRecord(env: Env): Record<string, unknown> {

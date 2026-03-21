@@ -34,6 +34,9 @@ const RESTRICTED_IMPORT_RULE = [
 
 export default defineConfig([
   {
+    ignores: [".wrangler/**"],
+  },
+  {
     files: ["src/**/*.{ts,tsx}"],
     ignores: [
       "src/**/*.test.ts",

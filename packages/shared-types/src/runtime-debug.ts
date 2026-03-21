@@ -12,11 +12,14 @@ const GIT_SHA_ENV_KEYS = [
   "GITHUB_SHA",
 ] as const;
 
-export function createRuntimeIdentity(name: string): RuntimeIdentity {
+export function createRuntimeIdentity(
+  name: string,
+  startedAt: string = new Date().toISOString(),
+): RuntimeIdentity {
   return {
     bootId: crypto.randomUUID(),
     name,
-    startedAt: new Date().toISOString(),
+    startedAt,
   };
 }
 

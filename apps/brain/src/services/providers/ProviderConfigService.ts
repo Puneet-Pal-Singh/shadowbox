@@ -2,7 +2,6 @@
  * Provider Config Service
  *
  * Facade for provider configuration and credential management.
- * Supports both DO-backed (DurableProviderStore) and D1-backed stores.
  *
  * Uses focused, single-responsibility stores:
  * - CredentialStore: Credential operations
@@ -42,6 +41,7 @@ import { ProviderRegistryService } from "./ProviderRegistryService";
 import { AXIS_PROVIDER_ID, getAxisDiscoveredModels } from "./axis";
 import { ProviderModelDiscoveryService } from "./model-discovery";
 import type { ProviderModelDiscoveryService as ProviderModelDiscoveryServiceType } from "./model-discovery";
+import { ensureByokSchemaReady } from "../byok/ByokSchemaService.js";
 
 export interface ProviderConfigServiceOptions {
   env: Env;
@@ -62,6 +62,7 @@ export class ProviderConfigService {
   private modelDiscoveryService: ProviderModelDiscoveryServiceType | null =
     null;
   private connectionService: ProviderConnectionService;
+  private storageReadyPromise: Promise<void> | null = null;
 
   constructor(private options: ProviderConfigServiceOptions) {
     this.registryService = new ProviderRegistryService();
@@ -81,15 +82,18 @@ export class ProviderConfigService {
   }
 
   async getCatalog(): Promise<ProviderCatalogResponse> {
+    await this.ensureStorageReady();
     return this.getCatalogService().getCatalog();
   }
 
   async getConnections(): Promise<ProviderConnectionsResponse> {
+    await this.ensureStorageReady();
     const connections = await this.connectionService.getConnections();
     return { connections };
   }
 
   async connect(request: BYOKConnectRequest): Promise<BYOKConnectResponse> {
+    await this.ensureStorageReady();
     try {
       const response = await this.credentialService.connect(request);
       await this.options.auditLog.appendAuditEvent({
@@ -111,6 +115,7 @@ export class ProviderConfigService {
   }
 
   async validate(request: BYOKValidateRequest): Promise<BYOKValidateResponse> {
+    await this.ensureStorageReady();
     try {
       const response = await this.credentialService.validate(request);
       await this.options.auditLog.appendAuditEvent({
@@ -135,6 +140,7 @@ export class ProviderConfigService {
   async disconnect(
     request: BYOKDisconnectRequest,
   ): Promise<{ status: "disconnected"; providerId: ProviderId }> {
+    await this.ensureStorageReady();
     try {
       const response = await this.credentialService.disconnect(request);
       await this.options.auditLog.appendAuditEvent({
@@ -155,12 +161,14 @@ export class ProviderConfigService {
   }
 
   async getPreferences(): Promise<BYOKPreferences> {
+    await this.ensureStorageReady();
     return this.options.preferenceStore.getPreferences();
   }
 
   async updatePreferences(
     patch: BYOKPreferencesPatch,
   ): Promise<BYOKPreferences> {
+    await this.ensureStorageReady();
     try {
       const response =
         await this.options.preferenceStore.updatePreferences(patch);
@@ -181,11 +189,36 @@ export class ProviderConfigService {
     }
   }
 
+  async setCredentialLabel(
+    credentialId: string,
+    label: string,
+  ): Promise<BYOKPreferences> {
+    await this.ensureStorageReady();
+    try {
+      await this.options.preferenceStore.setCredentialLabel(credentialId, label);
+      return await this.options.preferenceStore.getPreferences();
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  async deleteCredentialLabel(credentialId: string): Promise<BYOKPreferences> {
+    await this.ensureStorageReady();
+    try {
+      await this.options.preferenceStore.deleteCredentialLabel(credentialId);
+      return await this.options.preferenceStore.getPreferences();
+    } catch (error) {
+      throw error;
+    }
+  }
+
   async getStatus(): Promise<ProviderConnection[]> {
+    await this.ensureStorageReady();
     return this.connectionService.getStatus();
   }
 
   async getModels(providerId: ProviderId): Promise<ModelsListResponse> {
+    await this.ensureStorageReady();
     return this.getCatalogService().getDiscoveredModels(providerId);
   }
 
@@ -193,6 +226,7 @@ export class ProviderConfigService {
     providerId: ProviderId,
     query: BYOKDiscoveredProviderModelsQuery,
   ): Promise<BYOKDiscoveredProviderModelsResponse> {
+    await this.ensureStorageReady();
     if (providerId === AXIS_PROVIDER_ID) {
       return this.getCatalogService().getStaticDiscoveredModelsForAxis(query);
     }
@@ -205,6 +239,7 @@ export class ProviderConfigService {
   async refreshDiscoveredModels(
     providerId: ProviderId,
   ): Promise<BYOKDiscoveredProviderModelsRefreshResponse> {
+    await this.ensureStorageReady();
     if (providerId === AXIS_PROVIDER_ID) {
       return {
         providerId: AXIS_PROVIDER_ID,
@@ -218,10 +253,12 @@ export class ProviderConfigService {
   }
 
   async getApiKey(providerId: ProviderId): Promise<string | null> {
+    await this.ensureStorageReady();
     return this.credentialVault.getApiKey(providerId);
   }
 
   async isConnected(providerId: ProviderId): Promise<boolean> {
+    await this.ensureStorageReady();
     return this.credentialVault.isConnected(providerId);
   }
 
@@ -230,6 +267,7 @@ export class ProviderConfigService {
     limit: number;
     resetsAt: string;
   }> {
+    await this.ensureStorageReady();
     const dayKey = new Date().toISOString().slice(0, 10);
     const used = await this.options.quotaStore.getAxisQuotaUsage(dayKey);
     return {
@@ -242,6 +280,7 @@ export class ProviderConfigService {
   async consumeAxisQuota(
     correlationId?: string,
   ): Promise<{ used: number; limit: number; resetsAt: string }> {
+    await this.ensureStorageReady();
     const dayKey = new Date().toISOString().slice(0, 10);
     const used = await this.options.quotaStore.incrementAndGetQuota(dayKey);
     return {
@@ -274,6 +313,22 @@ export class ProviderConfigService {
 
   static resetForTests(): void {
     ProviderCredentialService.resetForTests();
+  }
+
+  private async ensureStorageReady(): Promise<void> {
+    const db = this.options.env.BYOK_DB;
+    if (!db) {
+      throw new Error("BYOK_DB D1 binding is required");
+    }
+
+    if (!this.storageReadyPromise) {
+      this.storageReadyPromise = ensureByokSchemaReady(db).catch((error) => {
+        this.storageReadyPromise = null;
+        throw error;
+      });
+    }
+
+    await this.storageReadyPromise;
   }
 }
 

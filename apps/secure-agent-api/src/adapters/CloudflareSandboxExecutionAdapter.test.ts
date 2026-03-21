@@ -74,7 +74,7 @@ describe("CloudflareSandboxExecutionAdapter", () => {
       const input = {
         taskId: "task-1",
         action: "MockPlugin.execute",
-        params: { test: "value", runId: TEST_RUN_ID },
+        params: { action: "run", test: "value", runId: TEST_RUN_ID },
       };
 
       const result = await adapter.executeTask("session-1", input);
@@ -117,7 +117,7 @@ describe("CloudflareSandboxExecutionAdapter", () => {
       const input = {
         taskId: "task-missing-run",
         action: "MockPlugin.execute",
-        params: { test: "value" },
+        params: { action: "run", test: "value" },
       };
 
       const result = await adapter.executeTask("session-1", input);
@@ -127,11 +127,25 @@ describe("CloudflareSandboxExecutionAdapter", () => {
       expect(result.error?.message).toContain("runId is required");
     });
 
+    it("should fail fast when execute-style routing is missing params.action", async () => {
+      const input = {
+        taskId: "task-missing-action",
+        action: "MockPlugin.execute",
+        params: { runId: TEST_RUN_ID },
+      };
+
+      const result = await adapter.executeTask("session-1", input);
+
+      expect(result.status).toBe("failure");
+      expect(result.error?.code).toBe("INVALID_INPUT");
+      expect(result.error?.message).toContain("action is required");
+    });
+
     it("should handle task execution errors", async () => {
       const input = {
         taskId: "task-4",
         action: "MockPlugin.execute",
-        params: { shouldFail: true, runId: TEST_RUN_ID },
+        params: { action: "run", shouldFail: true, runId: TEST_RUN_ID },
       };
 
       const result = await adapter.executeTask("session-1", input);
@@ -147,7 +161,7 @@ describe("CloudflareSandboxExecutionAdapter", () => {
       const input = {
         taskId: "task-5",
         action: "MockPlugin.execute",
-        params: { delay: 10, runId: TEST_RUN_ID },
+        params: { action: "run", delay: 10, runId: TEST_RUN_ID },
         timeout: 50,
       };
 
@@ -196,6 +210,78 @@ describe("CloudflareSandboxExecutionAdapter", () => {
 
       expect(result.status).toBe("success");
     });
+
+    it("preserves params.action for execute-style plugin routing", async () => {
+      class NodePlugin implements IPlugin {
+        readonly name = "node";
+        readonly tools: ToolDefinition[] = [];
+
+        async setup(): Promise<void> {
+          // No-op
+        }
+
+        async execute(
+          _sandbox: unknown,
+          payload: unknown,
+        ): Promise<{ success: boolean; output: string }> {
+          const params = payload as Record<string, unknown>;
+          expect(params.action).toBe("run");
+          expect(params.runId).toBe(TEST_RUN_ID);
+          expect(params.command).toBe("echo hi");
+          return { success: true, output: "hi" };
+        }
+      }
+
+      pluginMap.set("node", new NodePlugin());
+
+      const result = await adapter.executeTask("session-1", {
+        taskId: "task-node-run",
+        action: "node.execute",
+        params: {
+          action: "run",
+          command: "echo hi",
+          runId: TEST_RUN_ID,
+        },
+      });
+
+      expect(result.status).toBe("success");
+      expect(result.output).toBe("hi");
+    });
+
+    it("trims execute-style params.action before forwarding to plugins", async () => {
+      class NodePlugin implements IPlugin {
+        readonly name = "node";
+        readonly tools: ToolDefinition[] = [];
+
+        async setup(): Promise<void> {
+          // No-op
+        }
+
+        async execute(
+          _sandbox: unknown,
+          payload: unknown,
+        ): Promise<{ success: boolean; output: string }> {
+          const params = payload as Record<string, unknown>;
+          expect(params.action).toBe("run");
+          return { success: true, output: "trimmed" };
+        }
+      }
+
+      pluginMap.set("node", new NodePlugin());
+
+      const result = await adapter.executeTask("session-1", {
+        taskId: "task-node-trimmed-run",
+        action: "node.execute",
+        params: {
+          action: "  run  ",
+          command: "echo hi",
+          runId: TEST_RUN_ID,
+        },
+      });
+
+      expect(result.status).toBe("success");
+      expect(result.output).toBe("trimmed");
+    });
   });
 
   describe("cancelTask", () => {
@@ -203,7 +289,7 @@ describe("CloudflareSandboxExecutionAdapter", () => {
       const input = {
         taskId: "task-7",
         action: "MockPlugin.execute",
-        params: { delay: 10, runId: TEST_RUN_ID },
+        params: { action: "run", delay: 10, runId: TEST_RUN_ID },
         timeout: 5000,
       };
 
@@ -252,7 +338,7 @@ describe("CloudflareSandboxExecutionAdapter", () => {
       const input = {
         taskId: "task-8",
         action: "MockPlugin.execute",
-        params: { runId: TEST_RUN_ID },
+        params: { action: "run", runId: TEST_RUN_ID },
       };
 
       await adapter.executeTask("session-1", input);
@@ -269,7 +355,7 @@ describe("CloudflareSandboxExecutionAdapter", () => {
       const input = {
         taskId: "task-9",
         action: "MockPlugin.execute",
-        params: { shouldFail: true, runId: TEST_RUN_ID },
+        params: { action: "run", shouldFail: true, runId: TEST_RUN_ID },
       };
 
       const result = await adapter.executeTask("session-1", input);

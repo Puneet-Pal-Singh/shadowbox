@@ -83,6 +83,11 @@ export function useChatCore(
     credentials,
     resolveForChat,
   } = useProviderStore(runId);
+  const authenticatedChatFetch = useCallback(
+    (input: RequestInfo | URL, init?: RequestInit) =>
+      fetchWithSessionAuth(input, init),
+    [],
+  );
   const hasConnectedCredential = credentials.length > 0;
   const isModelConfigReady = status === "ready" && hasConnectedCredential;
 
@@ -146,6 +151,8 @@ export function useChatCore(
         };
       }
     },
+    credentials: "include",
+    fetch: authenticatedChatFetch,
   });
 
   const resetRun = useCallback(() => {
@@ -284,6 +291,7 @@ export function useChatCore(
           headers: {
             "Content-Type": "application/json",
           },
+          credentials: "include",
           body: JSON.stringify({ runId }),
         });
       } catch (error) {
@@ -392,6 +400,9 @@ function mapKnownChatErrorMessage(
     return "Provider rate limit reached. Retry after cooldown or switch to another connected provider.";
   }
   if (payload?.code === "AUTH_FAILED") {
+    if (containsSessionAuthFailure(message)) {
+      return "Your session is missing or expired. Log in again and retry.";
+    }
     return "Provider authentication failed. Reconnect credentials in Provider Settings and retry.";
   }
   if (containsMissingDefaultKeyError(message)) {
@@ -429,6 +440,14 @@ function containsToolChoiceUnsupportedError(message: string): boolean {
   return message.includes("support the provided 'tool_choice' value");
 }
 
+function containsSessionAuthFailure(message: string): boolean {
+  return (
+    message.includes("missing authentication token") ||
+    message.includes("missing or invalid authentication") ||
+    message.includes("Unauthorized")
+  );
+}
+
 function containsTransientNetworkError(message: string): boolean {
   return (
     message.includes("Failed to fetch") ||
@@ -456,6 +475,35 @@ function shouldLogStreamError(
     return true;
   }
   return Date.now() - previous.timestamp >= 30_000;
+}
+
+function fetchWithSessionAuth(
+  input: RequestInfo | URL,
+  init?: RequestInit,
+): Promise<Response> {
+  const headers = new Headers(init?.headers ?? {});
+  const token = loadBrowserSessionToken();
+  if (token && !headers.has("Authorization")) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
+
+  return fetch(input, {
+    ...init,
+    credentials: "include",
+    headers,
+  });
+}
+
+function loadBrowserSessionToken(): string | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  try {
+    return window.localStorage.getItem("shadowbox_session");
+  } catch {
+    return null;
+  }
 }
 
 function resolveRuntimeHarnessId(sessionId: string): RuntimeHarnessId {

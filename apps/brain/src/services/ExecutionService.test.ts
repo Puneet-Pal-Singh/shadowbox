@@ -136,4 +136,106 @@ describe("ExecutionService", () => {
       error: "command failed",
     });
   });
+
+  it("normalizes git actions before sending execute payloads", async () => {
+    const fetchMock = vi.fn<
+      Parameters<Env["SECURE_API"]["fetch"]>,
+      ReturnType<Env["SECURE_API"]["fetch"]>
+    >();
+
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            sessionId: "sess-git",
+            token: "tok-git",
+            expiresAt: Date.now() + 60_000,
+          }),
+          { status: 201, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            taskId: "task-git",
+            status: "success",
+            output: "ok",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+
+    const service = new ExecutionService(
+      {
+        SECURE_API: { fetch: fetchMock },
+      } as unknown as Env,
+      "session-git",
+      "run-git",
+    );
+
+    await service.execute("git", "status", {});
+
+    const [, executeInit] = fetchMock.mock.calls[1]!;
+    expect(JSON.parse(String(executeInit?.body))).toMatchObject({
+      action: "git.execute",
+      params: {
+        action: "git_status",
+        runId: "run-git",
+      },
+      timeout: 12000,
+    });
+  });
+
+  it("does not allow payload to override canonical action or runId", async () => {
+    const fetchMock = vi.fn<
+      Parameters<Env["SECURE_API"]["fetch"]>,
+      ReturnType<Env["SECURE_API"]["fetch"]>
+    >();
+
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            sessionId: "sess-node",
+            token: "tok-node",
+            expiresAt: Date.now() + 60_000,
+          }),
+          { status: 201, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            taskId: "task-node",
+            status: "success",
+            output: "ok",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+
+    const service = new ExecutionService(
+      {
+        SECURE_API: { fetch: fetchMock },
+      } as unknown as Env,
+      "session-node",
+      "run-owned-by-service",
+    );
+
+    await service.execute("node", "run", {
+      action: "write_file",
+      runId: "run-from-caller",
+      command: "echo hi",
+    });
+
+    const [, executeInit] = fetchMock.mock.calls[1]!;
+    expect(JSON.parse(String(executeInit?.body))).toMatchObject({
+      action: "node.execute",
+      params: {
+        action: "run",
+        runId: "run-owned-by-service",
+        command: "echo hi",
+      },
+    });
+  });
 });

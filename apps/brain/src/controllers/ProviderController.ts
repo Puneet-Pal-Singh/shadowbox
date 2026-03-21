@@ -29,11 +29,13 @@ import {
   type BYOKDiscoveredProviderModelsRefreshResponse,
   type BYOKProviderModelsResponse,
   type BYOKPreferencesUpdateRequest,
+  type BYOKValidateResponse,
   BYOKConnectRequestSchema,
   BYOKConnectResponseSchema,
   BYOKDisconnectRequestSchema,
   BYOKDisconnectResponseSchema,
   BYOKPreferencesPatchSchema,
+  type BYOKPreferences,
   BYOKPreferencesSchema,
   BYOKValidateRequestSchema,
   BYOKValidateResponseSchema,
@@ -51,6 +53,7 @@ import { jsonResponse, withEngineHeaders } from "../http/response";
 import { parseRequestBody, validateWithSchema } from "../http/validation";
 import {
   NotFoundError,
+  ProviderError,
   ProviderNotConnectedError,
   ValidationError,
   isDomainError,
@@ -72,7 +75,6 @@ const AxisQuotaMetadataSchema = z.object({
   limit: z.number().int().positive(),
   resetsAt: z.string().datetime(),
 });
-const BYOK_WORKSPACE_METADATA_PREFIX = "byok:workspace-meta:";
 type WorkspaceByokMetadata = z.infer<typeof WorkspaceByokMetadataSchema>;
 
 /**
@@ -114,11 +116,11 @@ export class ProviderController {
           BYOKDiscoveredProviderModelsResponseSchema,
           correlationId,
         );
-        const payload =
-          await readResponseJson<BYOKDiscoveredProviderModelsResponse>(
-            response,
-            correlationId,
-          );
+        const payload = await readProxyResponseJson(
+          response,
+          BYOKDiscoveredProviderModelsResponseSchema,
+          correlationId,
+        );
         return withScopeJson(req, env, scope, payload);
       }
 
@@ -133,8 +135,9 @@ export class ProviderController {
         BYOKProviderModelsResponseSchema,
         correlationId,
       );
-      const payload = await readResponseJson<BYOKProviderModelsResponse>(
+      const payload = await readProxyResponseJson<BYOKProviderModelsResponse>(
         response,
+        BYOKProviderModelsResponseSchema,
         correlationId,
       );
       return withScopeJson(
@@ -179,11 +182,11 @@ export class ProviderController {
         BYOKDiscoveredProviderModelsRefreshResponseSchema,
         correlationId,
       );
-      const payload =
-        await readResponseJson<BYOKDiscoveredProviderModelsRefreshResponse>(
-          response,
-          correlationId,
-        );
+      const payload = await readProxyResponseJson(
+        response,
+        BYOKDiscoveredProviderModelsRefreshResponseSchema,
+        correlationId,
+      );
       return withScopeJson(req, env, scope, payload);
     } catch (error) {
       return handleByokError(req, env, error, correlationId);
@@ -272,7 +275,14 @@ export class ProviderController {
 
       const credentialId = buildVirtualCredentialId(request.providerId);
       if (request.label) {
-        await persistCredentialLabel(env, scope, credentialId, request.label);
+        await persistCredentialLabel(
+          req,
+          env,
+          scope,
+          credentialId,
+          request.label,
+          correlationId,
+        );
       }
 
       const credentials = await loadConnectedCredentials(
@@ -318,7 +328,14 @@ export class ProviderController {
       );
 
       if (patch.label) {
-        await persistCredentialLabel(env, scope, credentialId, patch.label);
+        await persistCredentialLabel(
+          req,
+          env,
+          scope,
+          credentialId,
+          patch.label,
+          correlationId,
+        );
       }
 
       const credentials = await loadConnectedCredentials(
@@ -388,7 +405,7 @@ export class ProviderController {
         BYOKDisconnectResponseSchema,
         correlationId,
       );
-      await deleteCredentialLabel(env, scope, credentialId);
+      await deleteCredentialLabel(req, env, scope, credentialId, correlationId);
 
       return withEngineHeaders(
         req,
@@ -449,13 +466,14 @@ export class ProviderController {
           path: "/providers/validate",
           body: { providerId: credential.providerId, mode: request.mode },
         },
+          BYOKValidateResponseSchema,
+          correlationId,
+        );
+      const validated = await readProxyResponseJson<BYOKValidateResponse>(
+        runtimeResponse,
         BYOKValidateResponseSchema,
         correlationId,
       );
-      const validated = await readResponseJson<{
-        status: "valid" | "invalid";
-        checkedAt: string;
-      }>(runtimeResponse, correlationId);
 
       return withScopeJson(req, env, scope, {
         credentialId,
@@ -544,8 +562,9 @@ export class ProviderController {
           BYOKPreferencesSchema,
           correlationId,
         );
-        runtimePreference = await readResponseJson(
+        runtimePreference = await readProxyResponseJson(
           runtimeResponse,
+          BYOKPreferencesSchema,
           correlationId,
         );
       }
@@ -967,7 +986,7 @@ async function proxyProviderOperation(
   env: Env,
   operation: {
     scope: AuthorizedProviderScope;
-    method: "GET" | "POST" | "PATCH";
+    method: "GET" | "POST" | "PATCH" | "DELETE";
     path: string;
     body?: unknown;
   },
@@ -1005,7 +1024,7 @@ async function proxyByokOperation(
   env: Env,
   operation: {
     scope: AuthorizedProviderScope;
-    method: "GET" | "POST" | "PATCH";
+    method: "GET" | "POST" | "PATCH" | "DELETE";
     path: string;
     body?: unknown;
   },
@@ -1052,10 +1071,11 @@ async function normalizeByokRuntimeError(
   scope: AuthorizedProviderScope,
   correlationId: string,
 ): Promise<Response> {
-  const parsed = await parseErrorLikeBody(response);
+  const parsed = await parseProviderErrorBody(response);
   const code = normalizeProviderErrorCode(parsed.code, response.status);
   const message = parsed.message || "Provider request failed";
-  const retryable = response.status >= 500 || code === "RATE_LIMITED";
+  const retryable =
+    parsed.retryable ?? (response.status >= 500 || code === "RATE_LIMITED");
   console.warn(
     `[provider/byok] ${correlationId}: runtime error ${code} (${response.status}) - ${message}`,
   );
@@ -1081,15 +1101,24 @@ async function normalizeByokRuntimeError(
   return withEngineHeaders(req, env, normalized, scope.runId);
 }
 
-async function parseErrorLikeBody(
+async function parseProviderErrorBody(
   response: Response,
-): Promise<{ code?: string; message?: string }> {
+): Promise<{
+  code?: string;
+  message?: string;
+  retryable?: boolean;
+  correlationId?: string;
+}> {
   try {
     const payload = await response.clone().json();
     if (!payload || typeof payload !== "object") {
       return {};
     }
     const raw = payload as Record<string, unknown>;
+    const envelope = ProviderErrorEnvelopeSchema.safeParse(payload);
+    if (envelope.success) {
+      return envelope.data.error;
+    }
     const nestedError =
       raw.error && typeof raw.error === "object"
         ? (raw.error as Record<string, unknown>)
@@ -1108,7 +1137,19 @@ async function parseErrorLikeBody(
           : typeof nestedError?.message === "string"
             ? nestedError.message
             : undefined;
-    return { code, message };
+    const retryable =
+      typeof raw.retryable === "boolean"
+        ? raw.retryable
+        : typeof nestedError?.retryable === "boolean"
+          ? nestedError.retryable
+          : undefined;
+    const correlationId =
+      typeof raw.correlationId === "string"
+        ? raw.correlationId
+        : typeof nestedError?.correlationId === "string"
+          ? nestedError.correlationId
+          : undefined;
+    return { code, message, retryable, correlationId };
   } catch {
     return {};
   }
@@ -1187,6 +1228,26 @@ async function readResponseJson<T>(
   }
 }
 
+async function readProxyResponseJson<T>(
+  response: Response,
+  schema: z.ZodSchema,
+  correlationId: string,
+): Promise<T> {
+  if (!response.ok) {
+    const errorDetails = await parseProviderErrorBody(response);
+    throw new ProviderError(
+      errorDetails.message ?? "Provider request failed",
+      normalizeProviderErrorCode(errorDetails.code, response.status),
+      response.status,
+      errorDetails.retryable ?? response.status >= 500,
+      errorDetails.correlationId ?? correlationId,
+    );
+  }
+
+  const payload = await readResponseJson<unknown>(response, correlationId);
+  return validateWithSchema<T>(payload, schema, correlationId);
+}
+
 async function fetchRuntimeCatalog(
   req: Request,
   env: Env,
@@ -1204,7 +1265,11 @@ async function fetchRuntimeCatalog(
     ProviderCatalogResponseSchema,
     correlationId,
   );
-  return await readResponseJson(response, correlationId);
+  return await readProxyResponseJson(
+    response,
+    ProviderCatalogResponseSchema,
+    correlationId,
+  );
 }
 
 async function fetchRuntimeConnections(
@@ -1224,7 +1289,11 @@ async function fetchRuntimeConnections(
     ProviderConnectionsResponseSchema,
     correlationId,
   );
-  return await readResponseJson(response, correlationId);
+  return await readProxyResponseJson(
+    response,
+    ProviderConnectionsResponseSchema,
+    correlationId,
+  );
 }
 
 async function fetchRuntimePreferences(
@@ -1232,12 +1301,7 @@ async function fetchRuntimePreferences(
   env: Env,
   scope: AuthorizedProviderScope,
   correlationId: string,
-): Promise<{
-  defaultProviderId?: string;
-  defaultModelId?: string;
-  visibleModelIds?: Record<string, string[]>;
-  updatedAt: string;
-}> {
+): Promise<BYOKPreferences> {
   const response = await proxyByokOperation(
     req,
     env,
@@ -1249,7 +1313,11 @@ async function fetchRuntimePreferences(
     BYOKPreferencesSchema,
     correlationId,
   );
-  return await readResponseJson(response, correlationId);
+  return await readProxyResponseJson(
+    response,
+    BYOKPreferencesSchema,
+    correlationId,
+  );
 }
 
 async function fetchRuntimeAxisQuota(
@@ -1257,7 +1325,7 @@ async function fetchRuntimeAxisQuota(
   env: Env,
   scope: AuthorizedProviderScope,
   correlationId: string,
-): Promise<z.infer<typeof AxisQuotaMetadataSchema> | undefined> {
+): Promise<z.infer<typeof AxisQuotaMetadataSchema>> {
   const response = await proxyByokOperation(
     req,
     env,
@@ -1269,12 +1337,11 @@ async function fetchRuntimeAxisQuota(
     AxisQuotaMetadataSchema,
     correlationId,
   );
-  if (!response.ok) {
-    return undefined;
-  }
-
-  const payload = await readResponseJson<unknown>(response, correlationId);
-  return validateWithSchema(payload, AxisQuotaMetadataSchema, correlationId);
+  return await readProxyResponseJson(
+    response,
+    AxisQuotaMetadataSchema,
+    correlationId,
+  );
 }
 
 function mapCatalogEntryToRegistry(
@@ -1306,7 +1373,7 @@ async function loadConnectedCredentials(
   correlationId: string,
 ): Promise<BYOKCredential[]> {
   const runtime = await fetchRuntimeConnections(req, env, scope, correlationId);
-  const metadata = await loadWorkspaceByokMetadata(env, scope);
+  const metadata = await loadWorkspaceByokMetadata(req, env, scope, correlationId);
   const now = new Date().toISOString();
   const credentials: BYOKCredential[] = [];
 
@@ -1676,140 +1743,58 @@ async function ensureDefaultPreferenceConfigured(
 }
 
 async function persistCredentialLabel(
+  req: Request,
   env: Env,
   scope: AuthorizedProviderScope,
   credentialId: string,
   label: string,
+  correlationId: string,
 ): Promise<void> {
-  const metadata = await loadWorkspaceByokMetadata(env, scope);
-  await saveWorkspaceByokMetadata(env, scope, {
-    ...metadata,
-    credentialLabels: {
-      ...metadata.credentialLabels,
-      [credentialId]: label,
+  await proxyByokOperation(
+    req,
+    env,
+    {
+      scope,
+      method: "POST",
+      path: "/providers/preferences/credential-labels",
+      body: {
+        credentialId,
+        label,
+      },
     },
-  });
+    BYOKPreferencesSchema,
+    correlationId,
+  );
 }
 
 async function deleteCredentialLabel(
+  req: Request,
   env: Env,
   scope: AuthorizedProviderScope,
   credentialId: string,
+  correlationId: string,
 ): Promise<void> {
-  const metadata = await loadWorkspaceByokMetadata(env, scope);
-  if (!metadata.credentialLabels[credentialId]) {
-    return;
-  }
-  const nextLabels = { ...metadata.credentialLabels };
-  delete nextLabels[credentialId];
-  await saveWorkspaceByokMetadata(env, scope, {
-    ...metadata,
-    credentialLabels: nextLabels,
-  });
+  await proxyByokOperation(
+    req,
+    env,
+    {
+      scope,
+      method: "DELETE",
+      path: `/providers/preferences/credential-labels/${encodeURIComponent(credentialId)}`,
+    },
+    BYOKPreferencesSchema,
+    correlationId,
+  );
 }
 
 async function loadWorkspaceByokMetadata(
+  req: Request,
   env: Env,
   scope: AuthorizedProviderScope,
+  correlationId: string,
 ): Promise<WorkspaceByokMetadata> {
-  if (!env.BYOK_DB) {
-    const raw = await env.SESSIONS.get(buildWorkspaceByokMetadataKey(scope));
-    if (!raw) {
-      return {
-        credentialLabels: {},
-      };
-    }
-    try {
-      const parsed = JSON.parse(raw) as unknown;
-      const result = WorkspaceByokMetadataSchema.safeParse(parsed);
-      if (!result.success) {
-        return {
-          credentialLabels: {},
-        };
-      }
-      return result.data;
-    } catch {
-      return {
-        credentialLabels: {},
-      };
-    }
-  }
-
-  const query = `
-    SELECT credential_labels_json FROM byok_preferences
-    WHERE user_id = ? AND workspace_id = ?
-  `;
-  const stmt = env.BYOK_DB.prepare(query).bind(scope.userId, scope.workspaceId);
-  const row = await stmt.first<{ credential_labels_json: string | null }>();
-
-  if (row?.credential_labels_json) {
-    try {
-      const credentialLabels = JSON.parse(row.credential_labels_json);
-      return { credentialLabels };
-    } catch {
-      return { credentialLabels: {} };
-    }
-  }
-
-  const raw = await env.SESSIONS.get(buildWorkspaceByokMetadataKey(scope));
-  if (raw) {
-    try {
-      const parsed = JSON.parse(raw) as unknown;
-      const result = WorkspaceByokMetadataSchema.safeParse(parsed);
-      if (
-        result.success &&
-        Object.keys(result.data.credentialLabels).length > 0
-      ) {
-        await saveWorkspaceByokMetadata(env, scope, result.data);
-        return result.data;
-      }
-    } catch {
-      // Fall through to empty
-    }
-  }
-
-  return { credentialLabels: {} };
-}
-
-async function saveWorkspaceByokMetadata(
-  env: Env,
-  scope: AuthorizedProviderScope,
-  metadata: WorkspaceByokMetadata,
-): Promise<void> {
-  if (!env.BYOK_DB) {
-    await env.SESSIONS.put(
-      buildWorkspaceByokMetadataKey(scope),
-      JSON.stringify(metadata),
-    );
-    return;
-  }
-
-  const query = `
-    INSERT INTO byok_preferences (
-      user_id, workspace_id, default_provider_id, default_model_id,
-      fallback_mode, fallback_json, visible_model_ids_json, credential_labels_json, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(user_id, workspace_id)
-    DO UPDATE SET
-      credential_labels_json = excluded.credential_labels_json,
-      updated_at = excluded.updated_at
-  `;
-
-  await env.BYOK_DB.prepare(query)
-    .bind(
-      scope.userId,
-      scope.workspaceId,
-      AXIS_PROVIDER_ID,
-      "meta-llama/llama-4-scout-17b-16e-instruct",
-      "strict",
-      null,
-      "{}",
-      JSON.stringify(metadata.credentialLabels),
-      new Date().toISOString(),
-    )
-    .run();
-}
-
-function buildWorkspaceByokMetadataKey(scope: AuthorizedProviderScope): string {
-  return `${BYOK_WORKSPACE_METADATA_PREFIX}${scope.userId}:${scope.workspaceId}`;
+  const preferences = await fetchRuntimePreferences(req, env, scope, correlationId);
+  return {
+    credentialLabels: preferences.credentialLabels ?? {},
+  };
 }
