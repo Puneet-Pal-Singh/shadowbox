@@ -38,8 +38,11 @@ function resolveExecutePayloadAction(
   params: Record<string, unknown>,
 ): string {
   const requestedAction = params.action;
-  if (typeof requestedAction === "string" && requestedAction.trim().length > 0) {
-    return requestedAction;
+  if (typeof requestedAction === "string") {
+    const normalizedAction = requestedAction.trim();
+    if (normalizedAction.length > 0) {
+      return normalizedAction;
+    }
   }
   if (!taskAction.includes(".")) {
     return taskAction;

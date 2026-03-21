@@ -247,6 +247,41 @@ describe("CloudflareSandboxExecutionAdapter", () => {
       expect(result.status).toBe("success");
       expect(result.output).toBe("hi");
     });
+
+    it("trims execute-style params.action before forwarding to plugins", async () => {
+      class NodePlugin implements IPlugin {
+        readonly name = "node";
+        readonly tools: ToolDefinition[] = [];
+
+        async setup(): Promise<void> {
+          // No-op
+        }
+
+        async execute(
+          _sandbox: unknown,
+          payload: unknown,
+        ): Promise<{ success: boolean; output: string }> {
+          const params = payload as Record<string, unknown>;
+          expect(params.action).toBe("run");
+          return { success: true, output: "trimmed" };
+        }
+      }
+
+      pluginMap.set("node", new NodePlugin());
+
+      const result = await adapter.executeTask("session-1", {
+        taskId: "task-node-trimmed-run",
+        action: "node.execute",
+        params: {
+          action: "  run  ",
+          command: "echo hi",
+          runId: TEST_RUN_ID,
+        },
+      });
+
+      expect(result.status).toBe("success");
+      expect(result.output).toBe("trimmed");
+    });
   });
 
   describe("cancelTask", () => {
