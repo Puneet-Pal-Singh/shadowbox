@@ -4,6 +4,7 @@ import {
   sanitizeLogPayload,
   sanitizeUnknownError,
 } from "../core/security/LogSanitizer";
+import { toCanonicalGitExecutionAction } from "../lib/gitExecutionActions";
 
 const DEFAULT_EXECUTION_TIMEOUT_MS = 120_000;
 const GIT_STATUS_TIMEOUT_MS = 12_000;
@@ -63,8 +64,9 @@ export class ExecutionService {
     action: string,
     payload: Record<string, unknown>,
   ) {
+    const executionAction = normalizeExecutionAction(plugin, action);
     console.log(
-      `[ExecutionService] ${plugin}:${action}`,
+      `[ExecutionService] ${plugin}:${executionAction}`,
       sanitizeLogPayload(payload),
     );
 
@@ -75,11 +77,13 @@ export class ExecutionService {
         const token = await this.getGitHubToken(this.userId);
         if (token) {
           payload.token = token;
-          console.log(`[ExecutionService] Injected GitHub token for ${action}`);
+          console.log(
+            `[ExecutionService] Injected GitHub token for ${executionAction}`,
+          );
         }
       }
 
-      const timeoutMs = resolveExecutionTimeoutMs(plugin, action);
+      const timeoutMs = resolveExecutionTimeoutMs(plugin, executionAction);
       const executionSession = await this.getExecutionSession();
       const res = await fetchWithTimeout(
         this.env.SECURE_API,
@@ -92,9 +96,9 @@ export class ExecutionService {
           },
           body: JSON.stringify({
             sessionId: executionSession.sessionId,
-            taskId: createExecutionTaskId(plugin, action),
+            taskId: createExecutionTaskId(plugin, executionAction),
             action: `${plugin}.execute`,
-            params: { action, runId: this.runId, ...payload },
+            params: { action: executionAction, runId: this.runId, ...payload },
             timeout: timeoutMs,
           }),
         },
@@ -235,6 +239,13 @@ export class ExecutionService {
       token: session.token,
     };
   }
+}
+
+function normalizeExecutionAction(plugin: string, action: string): string {
+  if (plugin !== "git") {
+    return action;
+  }
+  return toCanonicalGitExecutionAction(action);
 }
 
 function resolveExecutionTimeoutMs(plugin: string, action: string): number {

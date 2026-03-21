@@ -14,6 +14,7 @@ import {
   logInfoRateLimited,
   logWarnRateLimited,
 } from "../lib/rate-limited-log";
+import { toCanonicalGitExecutionAction } from "../lib/gitExecutionActions";
 
 const GitBootstrapRequestBodySchema = z.object({
   runId: z.string(),
@@ -375,7 +376,7 @@ async function executeGitViaCanonicalApi(
         taskId: createGitTaskId(action),
         action: "git.execute",
         params: {
-          action,
+          action: toCanonicalGitExecutionAction(action),
           runId,
           ...payload,
         },
@@ -669,6 +670,16 @@ function mapGitControllerError(
 } {
   const fallbackMessage = getDefaultOperationError(operation);
   const message = error instanceof Error ? error.message : fallbackMessage;
+  if (isGitExecutionContractError(message)) {
+    return {
+      status: 502,
+      code: "GIT_EXECUTION_CONTRACT_ERROR",
+      message:
+        "Git workspace bootstrap failed because Brain and the secure runtime disagreed on the git execution contract. Refresh and retry.",
+      retryable: true,
+    };
+  }
+
   if (isTransientGitServiceError(message)) {
     return {
       status: 503,
@@ -685,6 +696,14 @@ function mapGitControllerError(
     message,
     retryable: false,
   };
+}
+
+function isGitExecutionContractError(message: string): boolean {
+  return (
+    message.includes("git.execute") ||
+    /invalid enum value/i.test(message) ||
+    /received ['"]git\.execute['"]/i.test(message)
+  );
 }
 
 function isTransientGitServiceError(message: string): boolean {
