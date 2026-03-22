@@ -1,3 +1,5 @@
+import type { RunMode } from "@repo/shared-types";
+
 export interface RuntimeStorage {
   get<T>(key: string): Promise<T | undefined>;
   put<T>(key: string, value: T): Promise<void>;
@@ -67,6 +69,7 @@ export interface WorkspaceBootstrapper {
 }
 
 export interface RunInput {
+  mode?: RunMode;
   agentType: AgentType;
   prompt: string;
   sessionId: string;
@@ -100,7 +103,7 @@ export interface RunOutput {
  * Once set, backend cannot change. Mismatch errors fail fast with typed errors.
  */
 export interface RunManifest {
-  mode: "agentic";
+  mode: RunMode;
   providerId: string | null;
   modelId: string | null;
   harness: RuntimeHarnessId;

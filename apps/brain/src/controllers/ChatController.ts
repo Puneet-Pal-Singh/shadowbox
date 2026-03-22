@@ -1,5 +1,6 @@
 import type { CoreMessage } from "ai";
 import type { AgentType } from "@shadowbox/execution-engine/runtime";
+import { RunModeSchema } from "@repo/shared-types";
 import { z } from "zod";
 import type { Env } from "../types/ai";
 import { HandleChatRequest } from "../application/chat";
@@ -45,6 +46,7 @@ const ChatRequestBodySchema = z.object({
   sessionId: z.string().optional(),
   agentId: z.string().optional(),
   runId: z.string().optional(),
+  mode: RunModeSchema.optional(),
   providerId: z.string().optional(),
   modelId: z.string().optional(),
   harnessId: z.enum(["cloudflare-sandbox", "local-sandbox"]).optional(),
@@ -237,6 +239,7 @@ export class ChatController {
           workspaceId,
           correlationId,
           agentType: mapAgentIdToType(body.agentId, correlationId),
+          mode: body.mode,
           prompt,
           messages: coreMessages,
           providerId: body.providerId,

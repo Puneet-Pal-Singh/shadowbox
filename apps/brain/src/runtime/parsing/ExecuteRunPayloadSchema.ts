@@ -5,6 +5,7 @@
  */
 
 import { z } from "zod";
+import { RunModeSchema } from "@repo/shared-types";
 
 /**
  * Core message schema for AI SDK messages.
@@ -69,6 +70,7 @@ export const ExecuteRunPayloadSchema = z.object({
   requestOrigin: z.string().trim().min(1).optional(),
   input: z
     .object({
+      mode: RunModeSchema,
       agentType: z.enum(["coding", "review", "ci"]),
       prompt: z.string().trim().min(1),
       sessionId: z.string().trim().min(1),

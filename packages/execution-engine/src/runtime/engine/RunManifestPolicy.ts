@@ -1,3 +1,4 @@
+import { DEFAULT_RUN_MODE } from "@repo/shared-types";
 import type { OrchestratorBackend } from "@shadowbox/orchestrator-core";
 import { RunManifestMismatchError } from "@shadowbox/orchestrator-core";
 import type {
@@ -28,7 +29,7 @@ export function createRunManifest(
   );
 
   return {
-    mode: "agentic",
+    mode: input.mode ?? DEFAULT_RUN_MODE,
     providerId: normalizeOptionalSelection(input.providerId),
     modelId: normalizeOptionalSelection(input.modelId),
     harness: normalizeHarnessSelection(input.harnessId),

@@ -19,11 +19,18 @@ describe("RunManifestPolicy", () => {
       const input = createInput();
       const manifest = createRunManifest(input);
 
-      expect(manifest.mode).toBe("agentic");
+      expect(manifest.mode).toBe("build");
       expect(manifest.orchestratorBackend).toBe("execution-engine-v1");
       expect(manifest.executionBackend).toBe("cloudflare_sandbox");
       expect(manifest.harnessMode).toBe("platform_owned");
       expect(manifest.authMode).toBe("api_key");
+    });
+
+    it("should preserve explicit plan mode", () => {
+      const input = createInput({ mode: "plan" });
+      const manifest = createRunManifest(input);
+
+      expect(manifest.mode).toBe("plan");
     });
 
     it("should support cloudflare_agents backend when specified", () => {

@@ -41,6 +41,7 @@ describe("Types - Phase 4: Repository Context", () => {
   describe("RunInput with Repository Context", () => {
     it("should include repository context in RunInput", () => {
       const input: RunInput = {
+        mode: "build",
         agentType: "coding",
         prompt: "check README",
         sessionId: "sess-123",
@@ -59,6 +60,7 @@ describe("Types - Phase 4: Repository Context", () => {
 
     it("should allow RunInput without repository context for backward compatibility", () => {
       const input: RunInput = {
+        mode: "plan",
         agentType: "review",
         prompt: "review this code",
         sessionId: "sess-456",
@@ -69,6 +71,7 @@ describe("Types - Phase 4: Repository Context", () => {
 
     it("should preserve all RunInput fields with repository context", () => {
       const input: RunInput = {
+        mode: "build",
         agentType: "coding",
         prompt: "implement feature",
         sessionId: "sess-789",
@@ -84,6 +87,7 @@ describe("Types - Phase 4: Repository Context", () => {
       };
 
       expect(input.agentType).toBe("coding");
+      expect(input.mode).toBe("build");
       expect(input.prompt).toBe("implement feature");
       expect(input.sessionId).toBe("sess-789");
       expect(input.providerId).toBe("openai");
@@ -97,6 +101,7 @@ describe("Types - Phase 4: Repository Context", () => {
   describe("Repository context usage patterns", () => {
     it("should support detecting repository availability", () => {
       const withRepo: RunInput = {
+        mode: "build",
         agentType: "coding",
         prompt: "check README",
         sessionId: "sess-1",
@@ -107,6 +112,7 @@ describe("Types - Phase 4: Repository Context", () => {
       };
 
       const withoutRepo: RunInput = {
+        mode: "build",
         agentType: "coding",
         prompt: "check README",
         sessionId: "sess-2",
@@ -152,6 +158,24 @@ describe("Types - Phase 4: Repository Context", () => {
         expect(ctx.owner).toBe("org");
         expect(ctx.repo).toBe("proj");
       });
+    });
+
+    it("should support explicit build and plan modes", () => {
+      const buildInput: RunInput = {
+        mode: "build",
+        agentType: "coding",
+        prompt: "implement feature",
+        sessionId: "sess-build",
+      };
+      const planInput: RunInput = {
+        mode: "plan",
+        agentType: "coding",
+        prompt: "design the work",
+        sessionId: "sess-plan",
+      };
+
+      expect(buildInput.mode).toBe("build");
+      expect(planInput.mode).toBe("plan");
     });
   });
 });

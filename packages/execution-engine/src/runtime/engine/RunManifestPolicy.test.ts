@@ -23,6 +23,7 @@ describe("RunManifestPolicy matrix conformance", () => {
         });
 
         expect(manifest.providerId).toBe(providerId);
+        expect(manifest.mode).toBe("build");
         expect(manifest.modelId).toBe(`${providerId}-model`);
         expect(manifest.harness).toBe(harnessId);
         expect(manifest.orchestratorBackend).toBe("execution-engine-v1");
@@ -65,6 +66,32 @@ describe("RunManifestPolicy matrix conformance", () => {
       RunManifestMismatchError,
     );
     expect(() => ensureManifestMatch(existing, changedProvider)).toThrow(
+      RunManifestMismatchError,
+    );
+  });
+
+  it("rejects active-run manifest drift when build/plan mode changes", () => {
+    const existing = createRunManifest({
+      agentType: "coding",
+      mode: "build",
+      prompt: "run once",
+      sessionId: "session-1",
+      providerId: "openai",
+      modelId: "gpt-4o",
+      harnessId: "cloudflare-sandbox",
+    });
+
+    const changedMode = createRunManifest({
+      agentType: "coding",
+      mode: "plan",
+      prompt: "same run",
+      sessionId: "session-1",
+      providerId: "openai",
+      modelId: "gpt-4o",
+      harnessId: "cloudflare-sandbox",
+    });
+
+    expect(() => ensureManifestMatch(existing, changedMode)).toThrow(
       RunManifestMismatchError,
     );
   });
