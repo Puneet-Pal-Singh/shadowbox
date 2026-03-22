@@ -235,8 +235,8 @@ describe("SessionStateService", () => {
 
     it("defaults legacy sessions without mode to build when loading", () => {
       const session = SessionStateService.createSession("Test", "repo");
-      const legacySession = { ...session };
-      delete legacySession.mode;
+      const { mode, ...legacySession } = session;
+      expect(mode).toBe("build");
 
       localStorage.setItem(
         "shadowbox:sessions:v2",
