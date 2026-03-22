@@ -16,6 +16,11 @@ interface ProviderMatrixCase {
 
 const PROVIDER_MATRIX: ProviderMatrixCase[] = [
   {
+    providerId: "axis",
+    allowedModel: "z-ai/glm-4.5-air:free",
+    blockedModel: "totally-unknown-axis-model",
+  },
+  {
     providerId: "openai",
     allowedModel: "gpt-4o",
     blockedModel: "gpt-3-legacy",
@@ -92,27 +97,33 @@ describe("LLMGateway provider behavior matrix", () => {
     expect(report).toMatchInlineSnapshot(`
       [
         {
+          "providerId": "axis",
+          "streamPath": "stream:axis",
+          "structuredPath": "{\"ok\":true}",
+          "textPath": "text:axis",
+        },
+        {
           "providerId": "openai",
           "streamPath": "stream:openai",
-          "structuredPath": "{"ok":true}",
+          "structuredPath": "{\"ok\":true}",
           "textPath": "text:openai",
         },
         {
           "providerId": "anthropic",
           "streamPath": "stream:anthropic",
-          "structuredPath": "{"ok":true}",
+          "structuredPath": "{\"ok\":true}",
           "textPath": "text:anthropic",
         },
         {
           "providerId": "groq",
           "streamPath": "stream:groq",
-          "structuredPath": "{"ok":true}",
+          "structuredPath": "{\"ok\":true}",
           "textPath": "text:groq",
         },
         {
           "providerId": "openrouter",
           "streamPath": "stream:openrouter",
-          "structuredPath": "{"ok":true}",
+          "structuredPath": "{\"ok\":true}",
           "textPath": "text:openrouter",
         },
       ]
@@ -144,6 +155,12 @@ describe("LLMGateway provider behavior matrix", () => {
 
     expect(report).toMatchInlineSnapshot(`
       [
+        {
+          "classification": "contract",
+          "providerId": "axis",
+          "result": "MODEL_NOT_ALLOWED",
+          "scenario": "blocked-model",
+        },
         {
           "classification": "contract",
           "providerId": "openai",
@@ -231,8 +248,8 @@ function createMatrixGateway(providerMatrix: ProviderMatrixCase[]): LLMGateway {
 
 function createMatrixAIService(): LLMRuntimeAIService {
   return {
-    getProvider: () => "openrouter",
-    getDefaultModel: () => "arcee-ai/trinity-large-preview:free",
+    getProvider: () => "axis",
+    getDefaultModel: () => "z-ai/glm-4.5-air:free",
     generateText: vi.fn(async (input) => ({
       text: `text:${input.providerId ?? "default"}`,
       usage: createUsage(input.providerId, input.model),
@@ -277,8 +294,8 @@ function buildAllowedModelMap(
 
 function createUsage(provider?: string, model?: string) {
   return {
-    provider: provider ?? "openrouter",
-    model: model ?? "arcee-ai/trinity-large-preview:free",
+    provider: provider ?? "axis",
+    model: model ?? "z-ai/glm-4.5-air:free",
     promptTokens: 10,
     completionTokens: 5,
     totalTokens: 15,
