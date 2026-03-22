@@ -4,7 +4,7 @@ import { ProviderRegistryService } from "./ProviderRegistryService";
 describe("ProviderRegistryService execution profiles", () => {
   const service = new ProviderRegistryService();
 
-  it("keeps the default Axis free model out of action and structured lanes", () => {
+  it("admits Axis free models to action and structured lanes when capabilities qualify", () => {
     const profile = service.getExecutionProfile(
       "axis",
       "z-ai/glm-4.5-air:free",
@@ -15,13 +15,13 @@ describe("ProviderRegistryService execution profiles", () => {
       reliabilityTier: "experimental",
       supportedLanes: {
         chat_only: { supported: true },
-        single_agent_action: { supported: false },
-        structured_planning_required: { supported: false },
+        single_agent_action: { supported: true },
+        structured_planning_required: { supported: true },
       },
     });
   });
 
-  it("allows explicitly approved Axis action models without opening structured planning", () => {
+  it("admits Axis approved action models to all capability-qualifying lanes", () => {
     const profile = service.getExecutionProfile(
       "axis",
       "arcee-ai/trinity-large-preview:free",
@@ -31,19 +31,19 @@ describe("ProviderRegistryService execution profiles", () => {
       supportedLanes: {
         chat_only: { supported: true },
         single_agent_action: { supported: true },
-        structured_planning_required: { supported: false },
+        structured_planning_required: { supported: true },
       },
     });
   });
 
-  it("keeps OpenRouter free models out of structured planning", () => {
+  it("admits OpenRouter free models to structured planning when capabilities qualify", () => {
     const profile = service.getExecutionProfile(
       "openrouter",
       "meta-llama/llama-3.3-70b-instruct:free",
     );
 
     expect(profile?.supportedLanes.structured_planning_required).toMatchObject({
-      supported: false,
+      supported: true,
     });
   });
 
@@ -58,6 +58,89 @@ describe("ProviderRegistryService execution profiles", () => {
         single_agent_action: { supported: true },
         structured_planning_required: { supported: true },
       },
+    });
+  });
+
+  it("blocks action lane when provider lacks tool-calling support", () => {
+    const noToolsService = new ProviderRegistryService([
+      {
+        providerId: "no-tools",
+        name: "No Tools Provider",
+        adapterFamily: "openai-compatible",
+        capabilities: {
+          streaming: true,
+          tools: false,
+          structuredOutputs: false,
+          jsonMode: false,
+        },
+      },
+    ]);
+
+    const profile = noToolsService.getExecutionProfile(
+      "no-tools",
+      "some-model",
+    );
+
+    expect(profile?.supportedLanes.single_agent_action).toMatchObject({
+      supported: false,
+      reason: "Selected provider does not support tool calling.",
+    });
+  });
+
+  it("blocks structured planning when provider lacks structured output support", () => {
+    const noStructuredService = new ProviderRegistryService([
+      {
+        providerId: "no-structured",
+        name: "No Structured Provider",
+        adapterFamily: "openai-compatible",
+        capabilities: {
+          streaming: true,
+          tools: true,
+          structuredOutputs: false,
+          jsonMode: true,
+        },
+      },
+    ]);
+
+    const profile = noStructuredService.getExecutionProfile(
+      "no-structured",
+      "some-model",
+    );
+
+    expect(
+      profile?.supportedLanes.structured_planning_required,
+    ).toMatchObject({
+      supported: false,
+      reason: "Structured planning requires structured output support.",
+    });
+  });
+
+  it("blocks structured planning when provider lacks JSON mode and is not anthropic-native", () => {
+    const noTransportService = new ProviderRegistryService([
+      {
+        providerId: "transport-no-json",
+        name: "No JSON Mode Provider",
+        adapterFamily: "openai-compatible",
+        capabilities: {
+          streaming: true,
+          tools: true,
+          structuredOutputs: true,
+          jsonMode: false,
+        },
+      },
+    ]);
+
+    const profile = noTransportService.getExecutionProfile(
+      "transport-no-json",
+      "some-model",
+    );
+
+    expect(
+      profile?.supportedLanes.structured_planning_required,
+    ).toMatchObject({
+      supported: false,
+      reason:
+        "Structured planning requires JSON mode or a native structured-output provider transport.",
     });
   });
 });

@@ -197,7 +197,7 @@ describe("LLMGateway provider capabilities", () => {
     });
   });
 
-  it("throws EXECUTION_LANE_UNSUPPORTED when task execution uses a chat-only model", async () => {
+  it("throws EXECUTION_LANE_UNSUPPORTED when task execution uses a provider without tool support", async () => {
     const gateway = new LLMGateway(
       createDependencies({
         getCapabilities: () => ({
@@ -208,18 +208,18 @@ describe("LLMGateway provider capabilities", () => {
         }),
         isModelAllowed: () => true,
         getExecutionProfile: () => ({
-          latencyTier: "slow",
-          reliabilityTier: "experimental",
+          latencyTier: "standard",
+          reliabilityTier: "baseline",
           supportedLanes: {
             chat_only: { supported: true },
             single_agent_action: {
               supported: false,
               reason:
-                "Execution-critical action turns require an approved model.",
+                "Selected provider does not support tool calling.",
             },
             structured_planning_required: {
               supported: false,
-              reason: "Structured planning is not approved for this model.",
+              reason: "Structured planning requires tool-calling support.",
             },
           },
         }),
