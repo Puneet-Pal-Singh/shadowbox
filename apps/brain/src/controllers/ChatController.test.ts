@@ -40,7 +40,10 @@ describe("ChatController DO runtime migration", () => {
     const runtime = createMockRuntimeNamespace();
     const env = createEnv(runtime.namespace);
 
-    const response = await ChatController.handle(createChatRequest(), env);
+    const response = await ChatController.handle(
+      await createChatRequest(env),
+      env,
+    );
 
     expect(response.status).toBe(200);
     expect(runtime.idFromName).toHaveBeenCalledWith(VALID_RUN_ID);
@@ -64,7 +67,7 @@ describe("ChatController DO runtime migration", () => {
     delete envWithoutRuntime.RUN_ENGINE_RUNTIME;
 
     const response = await ChatController.handle(
-      createChatRequest(),
+      await createChatRequest(envWithRuntime),
       envWithoutRuntime as unknown as Env,
     );
 
@@ -76,21 +79,9 @@ describe("ChatController DO runtime migration", () => {
   it("forwards provider/model override fields to runtime payload", async () => {
     const runtime = createMockRuntimeNamespace();
     const env = createEnv(runtime.namespace);
-    const requestWithProviderModel = new Request("https://brain.local/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        sessionId: "session-1",
-        runId: VALID_RUN_ID,
-        providerId: "openai",
-        modelId: "gpt-4",
-        messages: [
-          {
-            role: "user",
-            content: "hello",
-          },
-        ],
-      }),
+    const requestWithProviderModel = await createChatRequest(env, {
+      providerId: "openai",
+      modelId: "gpt-4",
     });
 
     const response = await ChatController.handle(requestWithProviderModel, env);
@@ -110,7 +101,10 @@ describe("ChatController DO runtime migration", () => {
     const runtime = createMockRuntimeNamespace();
     const env = createEnv(runtime.namespace);
 
-    const response = await ChatController.handle(createChatRequest(), env);
+    const response = await ChatController.handle(
+      await createChatRequest(env),
+      env,
+    );
 
     expect(response.status).toBe(200);
     const fetchCall = runtime.fetch.mock.calls[0];
@@ -119,6 +113,7 @@ describe("ChatController DO runtime migration", () => {
     const payloadStr = (fetchCall[1] as { body: string }).body;
     const payload = JSON.parse(payloadStr) as {
       input: {
+        mode: string;
         orchestratorBackend: string;
         executionBackend: string;
         harnessMode: string;
@@ -126,6 +121,7 @@ describe("ChatController DO runtime migration", () => {
       };
     };
 
+    expect(payload.input.mode).toBe("build");
     expect(payload.input.orchestratorBackend).toBe("execution-engine-v1");
     expect(payload.input.executionBackend).toBe("cloudflare_sandbox");
     expect(payload.input.harnessMode).toBe("platform_owned");
@@ -135,23 +131,11 @@ describe("ChatController DO runtime migration", () => {
   it("fails fast when cloudflare_agents is requested without the feature flag", async () => {
     const runtime = createMockRuntimeNamespace();
     const env = createEnv(runtime.namespace);
-    const requestWithOverrides = new Request("https://brain.local/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        sessionId: "session-1",
-        runId: VALID_RUN_ID,
-        orchestratorBackend: "cloudflare_agents",
-        executionBackend: "e2b",
-        harnessMode: "delegated",
-        authMode: "oauth",
-        messages: [
-          {
-            role: "user",
-            content: "hello",
-          },
-        ],
-      }),
+    const requestWithOverrides = await createChatRequest(env, {
+      orchestratorBackend: "cloudflare_agents",
+      executionBackend: "e2b",
+      harnessMode: "delegated",
+      authMode: "oauth",
     });
 
     const response = await ChatController.handle(requestWithOverrides, env);
@@ -170,23 +154,12 @@ describe("ChatController DO runtime migration", () => {
       runEngineAgent: agentNamespace,
       cloudflareAgentsEnabled: "true",
     });
-    const requestWithOverrides = new Request("https://brain.local/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        sessionId: "session-1",
-        runId: VALID_RUN_ID,
-        orchestratorBackend: "cloudflare_agents",
-        executionBackend: "e2b",
-        harnessMode: "delegated",
-        authMode: "oauth",
-        messages: [
-          {
-            role: "user",
-            content: "hello",
-          },
-        ],
-      }),
+    const requestWithOverrides = await createChatRequest(env, {
+      mode: "plan",
+      orchestratorBackend: "cloudflare_agents",
+      executionBackend: "e2b",
+      harnessMode: "delegated",
+      authMode: "oauth",
     });
 
     const response = await ChatController.handle(requestWithOverrides, env);
@@ -198,6 +171,7 @@ describe("ChatController DO runtime migration", () => {
       runId: string;
       payload: {
         input: {
+          mode: string;
           orchestratorBackend: string;
           executionBackend: string;
           harnessMode: string;
@@ -208,6 +182,7 @@ describe("ChatController DO runtime migration", () => {
 
     expect(agentNamespace).toBeDefined();
     expect(payload.runId).toBe(VALID_RUN_ID);
+    expect(payload.payload.input.mode).toBe("plan");
     expect(payload.payload.input.orchestratorBackend).toBe("cloudflare_agents");
     expect(payload.payload.input.executionBackend).toBe("e2b");
     expect(payload.payload.input.harnessMode).toBe("delegated");
@@ -220,23 +195,17 @@ describe("ChatController DO runtime migration", () => {
   it("forwards repository context fields to runtime payload", async () => {
     const runtime = createMockRuntimeNamespace();
     const env = createEnv(runtime.namespace);
-    const requestWithRepoContext = new Request("https://brain.local/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        sessionId: "session-1",
-        runId: VALID_RUN_ID,
-        repositoryOwner: "sourcegraph",
-        repositoryName: "shadowbox",
-        repositoryBranch: "dev",
-        repositoryBaseUrl: "https://github.com/sourcegraph/shadowbox",
-        messages: [
-          {
-            role: "user",
-            content: "check README.md",
-          },
-        ],
-      }),
+    const requestWithRepoContext = await createChatRequest(env, {
+      repositoryOwner: "sourcegraph",
+      repositoryName: "shadowbox",
+      repositoryBranch: "dev",
+      repositoryBaseUrl: "https://github.com/sourcegraph/shadowbox",
+      messages: [
+        {
+          role: "user",
+          content: "check README.md",
+        },
+      ],
     });
 
     const response = await ChatController.handle(requestWithRepoContext, env);
@@ -267,19 +236,13 @@ describe("ChatController DO runtime migration", () => {
   it("extracts prompt text from structured user message content parts", async () => {
     const runtime = createMockRuntimeNamespace();
     const env = createEnv(runtime.namespace);
-    const request = new Request("https://brain.local/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        sessionId: "session-1",
-        runId: VALID_RUN_ID,
-        messages: [
-          {
-            role: "user",
-            content: [{ type: "text", text: "so? what is your name?" }],
-          },
-        ],
-      }),
+    const request = await createChatRequest(env, {
+      messages: [
+        {
+          role: "user",
+          content: [{ type: "text", text: "so? what is your name?" }],
+        },
+      ],
     });
 
     const response = await ChatController.handle(request, env);
@@ -297,7 +260,7 @@ describe("ChatController DO runtime migration", () => {
     const runtime = createMockRuntimeNamespace();
     const env = createEnv(runtime.namespace);
     const response = await ChatController.handle(
-      createChatRequest({ agentId: "unknown-agent" }),
+      await createChatRequest(env, { agentId: "unknown-agent" }),
       env,
     );
 
@@ -312,7 +275,7 @@ describe("ChatController DO runtime migration", () => {
     const runtime = createMockRuntimeNamespace();
     const env = createEnv(runtime.namespace);
     const response = await ChatController.handle(
-      createChatRequest({ runId: undefined }),
+      await createChatRequest(env, { runId: undefined }),
       env,
     );
 
@@ -399,21 +362,53 @@ describe("ChatController DO runtime migration", () => {
   });
 });
 
-function createChatRequest(
+async function createChatRequest(
+  env: Env,
   overrides: {
     runId?: string;
     agentId?: string;
+    mode?: "build" | "plan";
+    providerId?: string;
+    modelId?: string;
+    orchestratorBackend?: "execution-engine-v1" | "cloudflare_agents";
+    executionBackend?: "cloudflare_sandbox" | "e2b" | "daytona";
+    harnessMode?: "platform_owned" | "delegated";
+    authMode?: "api_key" | "oauth";
+    repositoryOwner?: string;
+    repositoryName?: string;
+    repositoryBranch?: string;
+    repositoryBaseUrl?: string;
+    messages?: Array<{
+      role: string;
+      content: unknown;
+    }>;
   } = {},
-): Request {
+): Promise<Request> {
   const runIdValue = "runId" in overrides ? overrides.runId : VALID_RUN_ID;
+  const token = await createSessionToken(TEST_USER_ID, env.SESSION_SECRET);
+
   return new Request("https://brain.local/chat", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      Cookie: `shadowbox_session=${token}`,
+    },
     body: JSON.stringify({
       sessionId: "session-1",
       runId: runIdValue,
       agentId: overrides.agentId,
-      messages: [
+      mode: overrides.mode,
+      providerId: overrides.providerId,
+      modelId: overrides.modelId,
+      orchestratorBackend: overrides.orchestratorBackend,
+      executionBackend: overrides.executionBackend,
+      harnessMode: overrides.harnessMode,
+      authMode: overrides.authMode,
+      repositoryOwner: overrides.repositoryOwner,
+      repositoryName: overrides.repositoryName,
+      repositoryBranch: overrides.repositoryBranch,
+      repositoryBaseUrl: overrides.repositoryBaseUrl,
+      messages: overrides.messages ?? [
         {
           role: "user",
           content: "hello",

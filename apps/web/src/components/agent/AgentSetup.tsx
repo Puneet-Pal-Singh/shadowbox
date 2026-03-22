@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
+import { DEFAULT_RUN_MODE, type RunMode } from "@repo/shared-types";
 import { motion } from "framer-motion";
 import {
   ChevronDown,
@@ -33,11 +34,19 @@ import { Resizer } from "../ui/Resizer";
 import { useGitStatus } from "../../hooks/useGitStatus";
 import { useGitDiff } from "../../hooks/useGitDiff";
 import type { FileExplorerHandle } from "../FileExplorer";
+import { ChatModeToggle } from "../chat/ChatModeToggle.js";
 
 interface AgentSetupProps {
   sessionId: string;
   isRightSidebarOpen?: boolean;
-  onStart: (config: { repo: string; branch: string; task: string }) => void;
+  mode?: RunMode;
+  onModeChange?: (mode: RunMode) => void;
+  onStart: (config: {
+    repo: string;
+    branch: string;
+    task: string;
+    mode: RunMode;
+  }) => void;
   onRepoClick?: () => void;
 }
 
@@ -68,6 +77,8 @@ const SUGGESTED_ACTIONS: SuggestedAction[] = [
 export function AgentSetup({
   sessionId,
   isRightSidebarOpen = false,
+  mode = DEFAULT_RUN_MODE,
+  onModeChange,
   onStart,
   onRepoClick,
 }: AgentSetupProps) {
@@ -264,6 +275,7 @@ export function AgentSetup({
         repo: repo?.full_name || "",
         branch: branch || "main",
         task,
+        mode,
       });
     }
   };
@@ -442,6 +454,13 @@ export function AgentSetup({
               <div className="flex items-center justify-between mt-2 pt-2">
                 {/* Left: Add button + Model picker */}
                 <div className="flex items-center gap-1.5">
+                  <ChatModeToggle
+                    mode={mode}
+                    onModeChange={(nextMode) => onModeChange?.(nextMode)}
+                  />
+
+                  <div className="h-3.5 w-px bg-zinc-800" />
+
                   <motion.button
                     type="button"
                     {...hoverScaleSmall}

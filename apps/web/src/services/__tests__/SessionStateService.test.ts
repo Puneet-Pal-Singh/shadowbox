@@ -212,6 +212,7 @@ describe("SessionStateService", () => {
       expect(session.activeRunId).toBeTruthy();
       expect(session.runIds).toContain(session.activeRunId);
       expect(session.status).toBe("idle");
+      expect(session.mode).toBe("build");
       expect(session.updatedAt).toBeTruthy();
     });
 
@@ -230,6 +231,25 @@ describe("SessionStateService", () => {
         "running",
       );
       expect(session.status).toBe("running");
+    });
+
+    it("defaults legacy sessions without mode to build when loading", () => {
+      const session = SessionStateService.createSession("Test", "repo");
+      const { mode, ...legacySession } = session;
+      expect(mode).toBe("build");
+
+      localStorage.setItem(
+        "shadowbox:sessions:v2",
+        JSON.stringify({
+          version: 2,
+          sessions: { [session.id]: legacySession },
+          activeSessionId: session.id,
+          lastModified: new Date().toISOString(),
+        }),
+      );
+
+      const loaded = SessionStateService.loadSessions();
+      expect(loaded[session.id]?.mode).toBe("build");
     });
   });
 

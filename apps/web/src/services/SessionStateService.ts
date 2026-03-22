@@ -14,6 +14,7 @@
  * @module services/SessionStateService
  */
 
+import { DEFAULT_RUN_MODE, type RunMode } from "@repo/shared-types";
 import type {
   AgentSession,
   SessionStatus,
@@ -23,6 +24,10 @@ import type {
 
 const SESSIONS_KEY = "shadowbox:sessions:v2";
 const ACTIVE_SESSION_ID_KEY = "shadowbox:active-session-id:v2";
+
+type StoredAgentSession = Omit<AgentSession, "mode"> & {
+  mode?: RunMode;
+};
 
 function getSessionContextKey(sessionId: string): string {
   return `shadowbox:session-context:${sessionId}`;
@@ -56,7 +61,13 @@ export class SessionStateService {
         return {};
       }
 
-      return parsed.sessions || {};
+      const sessions = parsed.sessions || {};
+      return Object.fromEntries(
+        Object.entries(sessions).map(([sessionId, session]) => [
+          sessionId,
+          normalizeSession(session as StoredAgentSession),
+        ]),
+      );
     } catch (e) {
       console.error("[SessionStateService] Failed to load sessions:", e);
       return {};
@@ -262,6 +273,7 @@ export class SessionStateService {
     name: string,
     repository: string,
     status: SessionStatus = "idle",
+    mode: RunMode = DEFAULT_RUN_MODE,
   ): AgentSession {
     const sessionId = crypto.randomUUID();
     const runId = crypto.randomUUID();
@@ -273,6 +285,7 @@ export class SessionStateService {
       activeRunId: runId,
       runIds: [runId],
       status,
+      mode,
       updatedAt: new Date().toISOString(),
     };
   }
@@ -335,6 +348,10 @@ export class SessionStateService {
         pass: validStatuses.includes(session.status as typeof validStatuses[number]),
       },
       {
+        name: "mode",
+        pass: session.mode === "build" || session.mode === "plan",
+      },
+      {
         name: "activeRunId-in-runIds",
         pass: session.runIds.includes(session.activeRunId),
       },
@@ -354,4 +371,11 @@ export class SessionStateService {
 
     return true;
   }
+}
+
+function normalizeSession(session: StoredAgentSession): AgentSession {
+  return {
+    ...session,
+    mode: session.mode ?? DEFAULT_RUN_MODE,
+  };
 }

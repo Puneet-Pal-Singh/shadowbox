@@ -42,7 +42,7 @@ describe("RunMetadataPolicy", () => {
       {
         prompt: "test",
         manifest: {
-          mode: "agentic",
+          mode: "build",
           providerId: "openai",
           modelId: "gpt-4o",
           harness: "cloudflare-sandbox",
@@ -74,7 +74,7 @@ describe("RunMetadataPolicy", () => {
   it("resolves delegated manifests to delegated approval owner", () => {
     expect(
       isPlatformApprovalOwner({
-        mode: "agentic",
+        mode: "build",
         providerId: "openai",
         modelId: "gpt-4o",
         harness: "cloudflare-sandbox",

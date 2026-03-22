@@ -1,4 +1,5 @@
 import { useRef, useEffect, useCallback } from "react";
+import type { RunMode } from "@repo/shared-types";
 import { motion } from "framer-motion";
 import { FileExplorerHandle } from "../FileExplorer";
 import { ChatInterface } from "../chat/ChatInterface";
@@ -19,6 +20,8 @@ interface WorkspaceProps {
   sessionId: string;
   runId: string;
   repository: string;
+  mode?: RunMode;
+  onModeChange?: (mode: RunMode) => void;
   isRightSidebarOpen?: boolean;
   setIsRightSidebarOpen?: (open: boolean) => void;
 }
@@ -27,6 +30,8 @@ export function Workspace({
   sessionId,
   runId: initialRunId,
   repository,
+  mode = "build",
+  onModeChange,
   isRightSidebarOpen = false,
   setIsRightSidebarOpen,
 }: WorkspaceProps) {
@@ -69,7 +74,7 @@ export function Workspace({
     debugEvents,
   } = useChat(sessionId, initialRunId, () => {
     explorerRef.current?.refresh();
-  });
+  }, mode);
   const { status, refetch: refetchGitStatus } = useGitStatus(
     activeRunId,
     sessionId,
@@ -238,6 +243,8 @@ export function Workspace({
                 debugEvents,
               }}
               sessionId={sessionId}
+              mode={mode}
+              onModeChange={onModeChange}
               onArtifactOpen={(path, content) => {
                 setSelectedFile({ path, content });
                 setIsViewingContent(true);

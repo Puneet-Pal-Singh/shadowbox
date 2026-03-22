@@ -7,6 +7,7 @@ function createValidPayload() {
     sessionId: "session-1",
     correlationId: "corr-1",
     input: {
+      mode: "build" as const,
       agentType: "coding" as const,
       prompt: "inspect repository",
       sessionId: "session-1",
@@ -77,5 +78,13 @@ describe("ExecuteRunPayloadSchema tools validation", () => {
     const result = ExecuteRunPayloadSchema.parse(payload);
     expect(result.input.metadata?.featureFlags?.agenticLoopV1).toBe(true);
     expect(result.input.metadata?.featureFlags?.reviewerPassV1).toBe(false);
+  });
+
+  it("accepts explicit plan mode", () => {
+    const payload = createValidPayload();
+    payload.input.mode = "plan";
+
+    const result = ExecuteRunPayloadSchema.parse(payload);
+    expect(result.input.mode).toBe("plan");
   });
 });

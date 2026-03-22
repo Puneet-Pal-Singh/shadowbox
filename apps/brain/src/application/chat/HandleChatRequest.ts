@@ -14,6 +14,7 @@
  */
 
 import type { CoreMessage } from "ai";
+import { DEFAULT_RUN_MODE, type RunMode } from "@repo/shared-types";
 import type { Env } from "../../types/ai";
 import { ValidationError } from "../../domain/errors";
 import { PersistenceService } from "../../services/PersistenceService";
@@ -36,6 +37,7 @@ export interface HandleChatRequestInput {
   workspaceId?: string;
   correlationId: string;
   agentType: AgentType;
+  mode?: RunMode;
   prompt: string;
   messages: CoreMessage[];
   providerId?: string;
@@ -66,6 +68,7 @@ export interface HandleChatRequestOutput {
     correlationId: string;
     requestOrigin?: string;
     input: {
+      mode: RunMode;
       agentType: AgentType;
       prompt: string;
       sessionId: string;
@@ -122,6 +125,7 @@ export class HandleChatRequest {
     } = input;
 
     const runtimeSelections = this.resolveRuntimeSelections(input);
+    const mode = input.mode ?? DEFAULT_RUN_MODE;
 
     try {
       // Validate messages
@@ -167,6 +171,7 @@ export class HandleChatRequest {
         correlationId,
         requestOrigin,
         input: {
+          mode,
           agentType,
           prompt,
           sessionId,

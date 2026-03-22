@@ -1,10 +1,11 @@
 import { useRef, useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { Plus, Mic, ArrowUp, Paperclip, Square, X } from "lucide-react";
-import type { ProviderId } from "@repo/shared-types";
+import { DEFAULT_RUN_MODE, type ProviderId, type RunMode } from "@repo/shared-types";
 import { useProviderStore } from "../../hooks/useProviderStore.js";
 import { findCredentialByProviderId } from "../../lib/provider-helpers.js";
 import { ProviderDialog, ModelPickerPopover } from "../provider/index.js";
+import { ChatModeToggle } from "./ChatModeToggle.js";
 
 const IDLE_SWITCH_WARNING =
   "Changing models mid-conversation will degrade performance.";
@@ -18,6 +19,8 @@ interface ChatInputBarProps {
   isLoading?: boolean;
   placeholder?: string;
   sessionId: string;
+  mode?: RunMode;
+  onModeChange?: (mode: RunMode) => void;
   hasMessages?: boolean;
   onModelSelect?: (providerId: ProviderId, modelId: string) => void;
 }
@@ -29,6 +32,8 @@ export function ChatInputBar({
   onStop,
   isLoading = false,
   placeholder = "Ask Shadowbox anything, @ to add files, / for commands",
+  mode = DEFAULT_RUN_MODE,
+  onModeChange,
   hasMessages = false,
   onModelSelect,
 }: ChatInputBarProps) {
@@ -185,6 +190,14 @@ export function ChatInputBar({
           <div className="flex items-center justify-between mt-2 pt-2">
             {/* Left: Add button + Model picker */}
             <div className="flex items-center gap-1.5">
+              <ChatModeToggle
+                mode={mode}
+                onModeChange={(nextMode) => onModeChange?.(nextMode)}
+                disabled={isLoading}
+              />
+
+              <div className="h-3.5 w-px bg-zinc-800" />
+
               <motion.button
                 type="button"
                 whileHover={{ scale: 1.1 }}

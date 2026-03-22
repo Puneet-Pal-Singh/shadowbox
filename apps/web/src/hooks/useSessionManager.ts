@@ -10,6 +10,7 @@
  */
 
 import { useState, useCallback, useEffect } from "react";
+import { DEFAULT_RUN_MODE, type RunMode } from "@repo/shared-types";
 import { agentStore } from "../store/agentStore";
 import type { AgentSession } from "../types/session";
 import { SessionStateService } from "../services/SessionStateService";
@@ -66,7 +67,11 @@ export function useSessionManager() {
    * Generates initial active run ID
    */
   const createSession = useCallback(
-    (name?: string, repository: string = "New Project") => {
+    (
+      name?: string,
+      repository: string = "New Project",
+      mode: RunMode = DEFAULT_RUN_MODE,
+    ) => {
       const sessionName = typeof name === "string" ? name : `New Task`;
 
       // Ensure repository exists in the list
@@ -82,6 +87,7 @@ export function useSessionManager() {
         sessionName,
         repository,
         "idle",
+        mode,
       );
 
       setSessions((prev) => [...prev, newSession]);

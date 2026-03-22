@@ -430,6 +430,10 @@ function AppContent() {
                 >
                   <AgentSetup
                     sessionId={activeSessionId}
+                    mode={activeSession.mode}
+                    onModeChange={(mode) =>
+                      updateSession(activeSessionId, { mode })
+                    }
                     isRightSidebarOpen={isRightSidebarOpen}
                     onRepoClick={() => setShowRepoPicker(true)}
                     onStart={(config) => {
@@ -438,7 +442,11 @@ function AppContent() {
                           ? config.task.substring(0, 20) + "..."
                           : config.task;
 
-                      updateSession(activeSessionId, { name, status: "running" });
+                      updateSession(activeSessionId, {
+                        name,
+                        status: "running",
+                        mode: config.mode,
+                      });
                       // Store pending query in session-scoped storage
                       SessionStateService.saveSessionPendingQuery(
                         activeSessionId,
@@ -463,6 +471,10 @@ function AppContent() {
                   sessionId={activeSessionId}
                   runId={activeSession?.activeRunId || ""}
                   repository={activeSession?.repository || ""}
+                  mode={activeSession?.mode}
+                  onModeChange={(mode) =>
+                    updateSession(activeSessionId, { mode })
+                  }
                   isRightSidebarOpen={isRightSidebarOpen}
                   setIsRightSidebarOpen={setIsRightSidebarOpen}
                 />

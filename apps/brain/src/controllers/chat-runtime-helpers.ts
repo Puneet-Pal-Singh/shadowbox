@@ -1,4 +1,5 @@
 import type { CoreMessage } from "ai";
+import type { RunMode } from "@repo/shared-types";
 import {
   CloudflareAgentsRunRuntimeClient,
   parseCloudflareAgentsFeatureFlag,
@@ -40,6 +41,7 @@ export interface RunEngineExecutionPayload {
   correlationId: string;
   requestOrigin?: string;
   input: {
+    mode: RunMode;
     agentType: AgentType;
     prompt: string;
     sessionId: string;

@@ -47,6 +47,7 @@ describe("HandleChatRequest", () => {
     );
 
     expect(result.success).toBe(true);
+    expect(result.executionPayload.input.mode).toBe("build");
     expect(result.executionPayload.input.agentType).toBe("coding");
     expect(result.executionPayload.input.providerId).toBe("openai");
     expect(result.executionPayload.input.modelId).toBe("gpt-4");
@@ -103,6 +104,23 @@ describe("HandleChatRequest", () => {
     expect(result.executionPayload.input.executionBackend).toBe("e2b");
     expect(result.executionPayload.input.harnessMode).toBe("delegated");
     expect(result.executionPayload.input.authMode).toBe("oauth");
+  });
+
+  it("passes explicit plan mode into execution payload", async () => {
+    vi.spyOn(PersistenceService.prototype, "persistUserMessage").mockResolvedValue();
+
+    const useCase = new HandleChatRequest(createEnv());
+    const result = await useCase.execute({
+      sessionId: "session-1",
+      runId: "123e4567-e89b-42d3-a456-426614174000",
+      correlationId: "corr-plan",
+      agentType: "coding",
+      mode: "plan",
+      prompt: "design the work",
+      messages: [{ role: "user", content: "design the work" }],
+    });
+
+    expect(result.executionPayload.input.mode).toBe("plan");
   });
 
   it("passes optional tool definitions into execution payload", async () => {
