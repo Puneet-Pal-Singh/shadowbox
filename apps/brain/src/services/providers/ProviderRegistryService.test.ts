@@ -21,13 +21,15 @@ describe("ProviderRegistryService execution profiles", () => {
     });
   });
 
-  it("admits Axis approved action models to all capability-qualifying lanes", () => {
+  it("admits Axis curated free models to all capability-qualifying lanes", () => {
     const profile = service.getExecutionProfile(
       "axis",
-      "arcee-ai/trinity-large-preview:free",
+      "stepfun/step-3.5-flash:free",
     );
 
     expect(profile).toMatchObject({
+      latencyTier: "slow",
+      reliabilityTier: "experimental",
       supportedLanes: {
         chat_only: { supported: true },
         single_agent_action: { supported: true },
@@ -107,9 +109,7 @@ describe("ProviderRegistryService execution profiles", () => {
       "some-model",
     );
 
-    expect(
-      profile?.supportedLanes.structured_planning_required,
-    ).toMatchObject({
+    expect(profile?.supportedLanes.structured_planning_required).toMatchObject({
       supported: false,
       reason: "Structured planning requires structured output support.",
     });
@@ -135,9 +135,7 @@ describe("ProviderRegistryService execution profiles", () => {
       "some-model",
     );
 
-    expect(
-      profile?.supportedLanes.structured_planning_required,
-    ).toMatchObject({
+    expect(profile?.supportedLanes.structured_planning_required).toMatchObject({
       supported: false,
       reason:
         "Structured planning requires JSON mode or a native structured-output provider transport.",

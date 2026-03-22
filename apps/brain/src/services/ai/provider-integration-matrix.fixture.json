@@ -9,11 +9,33 @@
   },
   "executionLanePolicy": {
     "approach": "capability-driven",
-    "rejectionCriteria": ["missing-tools", "missing-structured-outputs", "missing-transport"],
-    "notRejectionCriteria": ["provider-id", "model-price-tier", "reliability-tier"],
+    "rejectionCriteria": [
+      "missing-tools",
+      "missing-structured-outputs",
+      "missing-transport"
+    ],
+    "notRejectionCriteria": [
+      "provider-id",
+      "model-price-tier",
+      "reliability-tier"
+    ],
     "informationalTiers": ["latencyTier", "reliabilityTier"]
   },
   "providers": [
+    {
+      "providerId": "axis",
+      "connectionMode": "platform_managed",
+      "supportsConnect": false,
+      "supportsCatalog": true,
+      "supportsValidate": false,
+      "supportsDisconnect": false,
+      "strictModelGuard": true,
+      "notes": [
+        "managed starter provider with curated free models",
+        "quota behavior is product-owned, not lane-policy-owned",
+        "execution lanes remain capability-driven"
+      ]
+    },
     {
       "providerId": "openrouter",
       "supportsConnect": true,

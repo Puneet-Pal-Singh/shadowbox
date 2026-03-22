@@ -43,11 +43,11 @@ const STRUCTURED_OUTPUTS_NOT_SUPPORTED_MESSAGE =
 const EXECUTION_LANE_UNSUPPORTED_CODE = "EXECUTION_LANE_UNSUPPORTED";
 const EXECUTION_LANE_UNSUPPORTED_STATUS = 422;
 const EXECUTION_LANE_UNSUPPORTED_ACTION_MESSAGE =
-  "The selected model is not approved for execution-critical action turns. Switch to a stronger action model or keep the request conversational.";
+  "The selected provider/model pair cannot satisfy the tool-calling requirements for this execution turn. Choose a tool-capable model and retry.";
 const EXECUTION_LANE_UNSUPPORTED_PLANNING_MESSAGE =
-  "The selected model is not approved for structured planning. Switch to a stronger planning model or narrow the request.";
+  "The selected provider/model pair cannot satisfy the structured-planning requirements for this request. Choose a model with tool-calling and structured-output support, then retry.";
 const EXECUTION_LANE_UNSUPPORTED_DEFAULT_MESSAGE =
-  "The selected provider/model pair is not allowed for this execution path. Choose a supported model and retry.";
+  "The selected provider/model pair cannot satisfy the required execution lane for this request. Choose a compatible model and retry.";
 const INVALID_PROVIDER_SELECTION_CODE = "INVALID_PROVIDER_SELECTION";
 const INVALID_PROVIDER_SELECTION_STATUS = 400;
 const INVALID_PROVIDER_SELECTION_MESSAGE =

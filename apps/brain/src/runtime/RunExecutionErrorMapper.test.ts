@@ -139,7 +139,7 @@ describe("RunExecutionErrorMapper", () => {
     });
   });
 
-  it("maps execution lane policy failures with actionable planning guidance", () => {
+  it("maps execution lane policy failures with capability-based planning guidance", () => {
     const mapped = mapRunExecutionErrorToDomain(
       new ProviderCapabilityError(
         "EXECUTION_LANE_UNSUPPORTED",
@@ -160,7 +160,10 @@ describe("RunExecutionErrorMapper", () => {
         lane: "structured_planning_required",
       },
     });
-    expect(mapped?.message).toContain("structured planning");
+    expect(mapped?.message).toBe(
+      "The selected provider/model pair cannot satisfy the structured-planning requirements for this request. Choose a model with tool-calling and structured-output support, then retry.",
+    );
+    expect(mapped?.message).not.toContain("approved");
   });
 
   it("handles self-referential error causes without infinite loop", () => {
