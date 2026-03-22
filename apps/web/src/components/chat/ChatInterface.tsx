@@ -5,6 +5,7 @@ import { ExploredFilesSummary } from "./ExploredFilesSummary";
 import { ChatBranchSelector } from "./ChatBranchSelector";
 import { ProviderDialog } from "../provider/ProviderDialog";
 import type { Message } from "@ai-sdk/react";
+import type { RunMode } from "@repo/shared-types";
 import type { ProviderId } from "../../types/provider";
 import type { ChatDebugEvent } from "../../types/chat-debug.js";
 import { useRunSummary } from "../../hooks/useRunSummary.js";
@@ -25,6 +26,8 @@ interface ChatInterfaceProps {
     debugEvents?: ChatDebugEvent[];
   };
   sessionId: string;
+  mode?: RunMode;
+  onModeChange?: (mode: RunMode) => void;
   onArtifactOpen?: (path: string, content: string) => void;
   onModelSelect?: (providerId: ProviderId, modelId: string) => void;
 }
@@ -32,6 +35,8 @@ interface ChatInterfaceProps {
 export function ChatInterface({
   chatProps,
   sessionId,
+  mode = "build",
+  onModeChange,
   onArtifactOpen,
   onModelSelect,
 }: ChatInterfaceProps) {
@@ -92,9 +97,9 @@ export function ChatInterface({
       messages,
       debugEvents,
       (modelId) => resolveModelLabel(modelId, providerModels),
-      "Build",
+      mode === "plan" ? "Plan" : "Build",
     );
-  }, [messages, debugEvents, providerModels]);
+  }, [messages, debugEvents, mode, providerModels]);
 
   const handleInputChangeWrapper = (value: string) => {
     // Create a synthetic event to match the expected interface
@@ -201,6 +206,8 @@ export function ChatInterface({
             onStop={stop}
             isLoading={isLoading}
             sessionId={sessionId}
+            mode={mode}
+            onModeChange={onModeChange}
             hasMessages={messages.length > 0}
             onModelSelect={onModelSelect}
           />

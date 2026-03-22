@@ -35,10 +35,13 @@ vi.mock("../services/SessionStateService", () => ({
 }));
 
 describe("useChatCore", () => {
+  let appendSpy: ReturnType<typeof vi.fn>;
+
   beforeEach(() => {
     vi.restoreAllMocks();
     mockResolveForChat.mockReset();
     mockUseChat.mockReset();
+    appendSpy = vi.fn();
     mockUseChat.mockReturnValue({
       messages: [],
       input: "",
@@ -46,7 +49,7 @@ describe("useChatCore", () => {
       isLoading: false,
       stop: vi.fn(),
       setMessages: vi.fn(),
-      append: vi.fn(),
+      append: appendSpy,
     });
     localStorage.clear();
   });
@@ -105,6 +108,32 @@ describe("useChatCore", () => {
 
     expect(result.current.error).toBe(
       "Your session is missing or expired. Log in again and retry.",
+    );
+  });
+
+  it("sends explicit plan mode in request overrides", async () => {
+    mockResolveForChat.mockResolvedValue({
+      providerId: "axis",
+      credentialId: "cred-axis",
+      modelId: "z-ai/glm-4.5-air:free",
+      resolvedAt: "workspace_preference",
+      resolvedAtTime: new Date().toISOString(),
+    });
+
+    const { result } = renderHook(() => useChatCore("session-1", undefined, "plan"));
+
+    await act(async () => {
+      await result.current.append({ role: "user", content: "Design this first" });
+    });
+
+    expect(appendSpy).toHaveBeenCalledWith(
+      { role: "user", content: "Design this first" },
+      expect.objectContaining({
+        body: expect.objectContaining({
+          sessionId: "session-1",
+          mode: "plan",
+        }),
+      }),
     );
   });
 });

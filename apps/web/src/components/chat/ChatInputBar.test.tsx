@@ -232,4 +232,23 @@ describe("ChatInputBar", () => {
       expect(screen.queryByText(IDLE_SWITCH_WARNING)).toBeNull();
     });
   });
+
+  it("surfaces a build/plan mode toggle and emits changes", () => {
+    const onModeChange = vi.fn();
+
+    render(
+      <ChatInputBar
+        input=""
+        onChange={vi.fn()}
+        onSubmit={vi.fn()}
+        sessionId="session-1"
+        mode="build"
+        onModeChange={onModeChange}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("tab", { name: "Plan" }));
+
+    expect(onModeChange).toHaveBeenCalledWith("plan");
+  });
 });

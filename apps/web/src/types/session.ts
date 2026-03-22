@@ -1,3 +1,5 @@
+import type { RunMode } from "@repo/shared-types";
+
 /**
  * Session Type Definitions
  *
@@ -43,6 +45,9 @@ export interface AgentSession {
 
   /** Current session status */
   status: SessionStatus;
+
+  /** Explicit product mode selected for this session */
+  mode: RunMode;
 
   /** ISO timestamp of last update */
   updatedAt: string;

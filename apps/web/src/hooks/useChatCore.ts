@@ -1,4 +1,5 @@
 import { useChat as useVercelChat, type Message } from "@ai-sdk/react";
+import { DEFAULT_RUN_MODE, type RunMode } from "@repo/shared-types";
 import { useCallback, useMemo, useRef, useState, type FormEvent } from "react";
 import { chatStreamPath, getBrainHttpBase } from "../lib/platform-endpoints.js";
 import { dispatchRunSummaryRefresh } from "../lib/run-summary-events.js";
@@ -25,6 +26,7 @@ interface UseChatCoreResult {
 interface ChatRequestBody {
   sessionId: string;
   runId: string;
+  mode?: RunMode;
   providerId?: string;
   modelId?: string;
   harnessId?: RuntimeHarnessId;
@@ -49,6 +51,7 @@ const RUNTIME_HARNESS_SESSION_KEY_PREFIX = "shadowbox:runtime-harness:";
 export function useChatCore(
   sessionId: string,
   externalRunId?: string,
+  mode: RunMode = DEFAULT_RUN_MODE,
 ): UseChatCoreResult {
   const [internalRunId, setInternalRunId] = useState<string>(() =>
     crypto.randomUUID(),
@@ -105,6 +108,7 @@ export function useChatCore(
     body: {
       sessionId,
       runId,
+      mode,
     },
     initialMessages: [],
     id: instanceKey,
@@ -186,6 +190,7 @@ export function useChatCore(
       const requestBody: ChatRequestBody = {
         sessionId,
         runId,
+        mode,
         harnessId: resolvedHarnessId,
         providerId,
         modelId,
@@ -221,6 +226,7 @@ export function useChatCore(
       runId,
       sessionId,
       status,
+      mode,
       pushDebugEvent,
       apiPath,
     ],
