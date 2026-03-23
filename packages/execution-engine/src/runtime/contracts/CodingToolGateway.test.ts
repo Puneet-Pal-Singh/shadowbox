@@ -4,6 +4,7 @@ import {
   getGoldenFlowToolNames,
   getGoldenFlowToolRegistry,
   getGoldenFlowToolRoute,
+  isMutatingGoldenFlowToolName,
   validateGoldenFlowToolInput,
 } from "./CodingToolGateway.js";
 
@@ -42,6 +43,13 @@ describe("CodingToolGateway", () => {
       action: "git_diff",
     });
     expect(getGoldenFlowToolRoute("unknown_tool")).toBeNull();
+  });
+
+  it("classifies mutating golden-flow tools conservatively", () => {
+    expect(isMutatingGoldenFlowToolName("write_file")).toBe(true);
+    expect(isMutatingGoldenFlowToolName("run_command")).toBe(true);
+    expect(isMutatingGoldenFlowToolName("read_file")).toBe(false);
+    expect(isMutatingGoldenFlowToolName("git_diff")).toBe(false);
   });
 
   it("enforces bounded scope by dropping non-floor tools", () => {

@@ -110,7 +110,11 @@ describe("AgenticLoop - Bounded Agentic Tool Chaining", () => {
       });
 
       const initialMessages = [{ role: "user" as const, content: "test" }];
-      const result = await loop.execute(initialMessages, {}, { agentType: "coding" });
+      const result = await loop.execute(
+        initialMessages,
+        {},
+        { agentType: "coding" },
+      );
 
       expect(result.messages).toHaveLength(2);
       expect(result.messages[0]).toEqual(initialMessages[0]);
@@ -162,6 +166,15 @@ describe("AgenticLoop - Bounded Agentic Tool Chaining", () => {
       expect(result.stepsExecuted).toBe(2);
       expect(result.toolExecutionCount).toBe(1);
       expect(result.failedToolCount).toBe(0);
+      expect(result.toolLifecycle.map((event) => event.status)).toEqual([
+        "requested",
+        "started",
+        "completed",
+      ]);
+      expect(result.toolLifecycle[2]).toMatchObject({
+        toolName: "read_file",
+        mutating: false,
+      });
       expect(result.messages).toHaveLength(4);
       expect(result.messages[2]).toMatchObject({
         role: "user",
@@ -191,6 +204,10 @@ describe("AgenticLoop - Bounded Agentic Tool Chaining", () => {
       expect(result.stopReason).toBe("tool_error");
       expect(result.toolExecutionCount).toBe(1);
       expect(result.failedToolCount).toBe(1);
+      expect(result.toolLifecycle.map((event) => event.status)).toEqual([
+        "requested",
+        "failed",
+      ]);
       expect(executor.execute).not.toHaveBeenCalled();
     });
   });
@@ -202,7 +219,11 @@ describe("AgenticLoop - Bounded Agentic Tool Chaining", () => {
         usage: { promptTokens: 10, completionTokens: 5 },
       });
 
-      await loop.execute([{ role: "user", content: "test" }], {}, { agentType: "coding" });
+      await loop.execute(
+        [{ role: "user", content: "test" }],
+        {},
+        { agentType: "coding" },
+      );
 
       const stats = loop.getStats();
       expect(stats.stepsExecuted).toBe(1);
@@ -217,7 +238,11 @@ describe("AgenticLoop - Bounded Agentic Tool Chaining", () => {
         usage: { promptTokens: 10, completionTokens: 5 },
       });
 
-      await loop.execute([{ role: "user", content: "test" }], {}, { agentType: "coding" });
+      await loop.execute(
+        [{ role: "user", content: "test" }],
+        {},
+        { agentType: "coding" },
+      );
       let stats = loop.getStats();
       expect(stats.stepsExecuted).toBe(1);
 
@@ -235,7 +260,11 @@ describe("AgenticLoop - Bounded Agentic Tool Chaining", () => {
         usage: { promptTokens: 10, completionTokens: 5 },
       });
 
-      await loop.execute([{ role: "user", content: "test" }], {}, { agentType: "coding" });
+      await loop.execute(
+        [{ role: "user", content: "test" }],
+        {},
+        { agentType: "coding" },
+      );
 
       expect(budgetManager.isOverBudget).toHaveBeenCalledWith("run-123");
     });
@@ -246,7 +275,11 @@ describe("AgenticLoop - Bounded Agentic Tool Chaining", () => {
       );
 
       await expect(
-        loop.execute([{ role: "user", content: "test" }], {}, { agentType: "coding" }),
+        loop.execute(
+          [{ role: "user", content: "test" }],
+          {},
+          { agentType: "coding" },
+        ),
       ).rejects.toThrow("Storage unavailable");
     });
   });

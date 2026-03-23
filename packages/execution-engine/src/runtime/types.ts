@@ -90,6 +90,21 @@ export interface RunOutput {
   finalSummary?: string;
 }
 
+export type AgenticLoopToolLifecycleStatus =
+  | "requested"
+  | "started"
+  | "completed"
+  | "failed";
+
+export interface AgenticLoopToolLifecycleEvent {
+  toolCallId: string;
+  toolName: string;
+  status: AgenticLoopToolLifecycleStatus;
+  mutating: boolean;
+  recordedAt: string;
+  detail?: string;
+}
+
 /**
  * RunManifest - Immutable run configuration determined at creation.
  *
@@ -138,6 +153,7 @@ export interface RunMetadata {
     stepsExecuted?: number;
     toolExecutionCount?: number;
     failedToolCount?: number;
+    toolLifecycle?: AgenticLoopToolLifecycleEvent[];
     completedAt?: string;
   };
   reviewerPass?: {
