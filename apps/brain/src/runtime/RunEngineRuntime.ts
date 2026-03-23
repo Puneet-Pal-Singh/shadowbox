@@ -98,6 +98,10 @@ export class RunEngineRuntime extends DurableObject {
       return requestHandler.handleCancelRequest(request);
     }
 
+    if (url.pathname === "/debug/runtime" && request.method === "GET") {
+      return requestHandler.handleRuntimeDebugRequest(request);
+    }
+
     if (url.pathname.startsWith("/providers/")) {
       return this.handleProviderRequest(request, url);
     }
@@ -295,14 +299,15 @@ export class RunEngineRuntime extends DurableObject {
         return jsonResponse(request, env, response);
       }
 
-      if (url.pathname.startsWith("/providers/preferences/credential-labels/")) {
+      if (
+        url.pathname.startsWith("/providers/preferences/credential-labels/")
+      ) {
         if (request.method !== "DELETE") {
           return errorResponse(request, env, "Method Not Allowed", 405);
         }
         const credentialId = this.parseCredentialLabelPath(url, correlationId);
-        const response = await configService.deleteCredentialLabel(
-          credentialId,
-        );
+        const response =
+          await configService.deleteCredentialLabel(credentialId);
         return jsonResponse(request, env, response);
       }
 
@@ -448,10 +453,7 @@ export class RunEngineRuntime extends DurableObject {
     }
   }
 
-  private parseCredentialLabelPath(
-    url: URL,
-    correlationId: string,
-  ): string {
+  private parseCredentialLabelPath(url: URL, correlationId: string): string {
     const match = url.pathname.match(
       /^\/providers\/preferences\/credential-labels\/([^/]+)$/,
     );

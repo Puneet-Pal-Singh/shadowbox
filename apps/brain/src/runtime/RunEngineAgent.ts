@@ -40,6 +40,10 @@ export class RunEngineAgent extends CloudflareAgent<Env> {
       return handler.handleCancelRequest(request);
     }
 
+    if (url.pathname === "/debug/runtime" && request.method === "GET") {
+      return handler.handleRuntimeDebugRequest(request);
+    }
+
     return errorResponse(request, this.env, "Not Found", 404);
   }
 

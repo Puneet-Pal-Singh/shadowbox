@@ -16,14 +16,16 @@ import {
   type ExecuteRunPayload,
 } from "./parsing/ExecuteRunPayloadSchema";
 import { buildRuntimeDependencies } from "./factories/ExecutionGatewayFactory";
-import { errorResponse, jsonResponse } from "../http/response";
-import {
-  isDomainError,
-  mapDomainErrorToHttp,
-} from "../domain/errors";
+import { isDomainError, mapDomainErrorToHttp } from "../domain/errors";
 import { parseRequestBody, validateWithSchema } from "../http/validation";
 import { mapRunExecutionErrorToDomain } from "./RunExecutionErrorMapper";
 import { sanitizeUnknownError } from "../core/security/LogSanitizer";
+import { buildRunEngineRuntimeDebugPayload } from "../core/observability/runtime";
+import {
+  runEngineErrorResponse,
+  runEngineJsonResponse,
+  withRunEngineHeaders,
+} from "./RunEngineHttpResponse";
 import {
   enforceGoldenFlowToolFloor,
   getGoldenFlowToolRegistry,
@@ -57,7 +59,12 @@ export class RunEngineRequestHandler {
     const runIdRaw = url.searchParams.get("runId");
 
     if (!runIdRaw) {
-      return errorResponse(request, this.env, "runId is required", 400);
+      return runEngineErrorResponse(
+        request,
+        this.env,
+        "runId is required",
+        400,
+      );
     }
 
     let runId: string;
@@ -68,7 +75,7 @@ export class RunEngineRequestHandler {
         "run-summary",
       );
     } catch {
-      return errorResponse(request, this.env, "Invalid runId", 400);
+      return runEngineErrorResponse(request, this.env, "Invalid runId", 400);
     }
 
     const runtimeState = this.createRuntimeState();
@@ -77,9 +84,13 @@ export class RunEngineRequestHandler {
 
     const run = await runRepo.getById(runId);
     const events = await eventRepo.getByRun(runId);
-    const summary = projectRunSummaryFromEvents(runId, run?.status ?? null, events);
+    const summary = projectRunSummaryFromEvents(
+      runId,
+      run?.status ?? null,
+      events,
+    );
 
-    return jsonResponse(request, this.env, summary);
+    return runEngineJsonResponse(request, this.env, summary);
   }
 
   async handleCancelRequest(request: Request): Promise<Response> {
@@ -93,7 +104,12 @@ export class RunEngineRequestHandler {
       );
       runId = validated.runId;
     } catch {
-      return errorResponse(request, this.env, "Invalid cancel payload", 400);
+      return runEngineErrorResponse(
+        request,
+        this.env,
+        "Invalid cancel payload",
+        400,
+      );
     }
 
     return this.withExecutionLock(async () => {
@@ -103,7 +119,7 @@ export class RunEngineRequestHandler {
 
       const run = await runRepo.getById(runId);
       if (!run) {
-        return jsonResponse(request, this.env, {
+        return runEngineJsonResponse(request, this.env, {
           runId,
           cancelled: false,
           status: null,
@@ -115,7 +131,7 @@ export class RunEngineRequestHandler {
         run.status === "FAILED" ||
         run.status === "CANCELLED";
       if (isTerminal) {
-        return jsonResponse(request, this.env, {
+        return runEngineJsonResponse(request, this.env, {
           runId,
           cancelled: false,
           status: run.status,
@@ -135,13 +151,21 @@ export class RunEngineRequestHandler {
         }
       }
 
-      return jsonResponse(request, this.env, {
+      return runEngineJsonResponse(request, this.env, {
         runId,
         cancelled: true,
         status: "CANCELLED",
         cancelledTasks,
       });
     });
+  }
+
+  async handleRuntimeDebugRequest(request: Request): Promise<Response> {
+    return runEngineJsonResponse(
+      request,
+      this.env,
+      buildRunEngineRuntimeDebugPayload(this.env),
+    );
   }
 
   async handleExecuteRequest(
@@ -154,7 +178,7 @@ export class RunEngineRequestHandler {
     } catch (error: unknown) {
       if (isDomainError(error)) {
         const { status, code, message, metadata } = mapDomainErrorToHttp(error);
-        return errorResponse(
+        return runEngineErrorResponse(
           request,
           this.env,
           message,
@@ -165,7 +189,7 @@ export class RunEngineRequestHandler {
       }
       const message =
         error instanceof Error ? error.message : "Invalid payload";
-      return errorResponse(request, this.env, message, 400);
+      return runEngineErrorResponse(request, this.env, message, 400);
     }
 
     try {
@@ -207,7 +231,7 @@ export class RunEngineRequestHandler {
           });
         }
 
-        return executionResponse;
+        return withRunEngineHeaders(request, this.env, executionResponse);
       });
     } catch (error: unknown) {
       const domainError = mapRunExecutionErrorToDomain(
@@ -215,10 +239,9 @@ export class RunEngineRequestHandler {
         payload.correlationId,
       );
       if (domainError) {
-        const { status, code, message, metadata } = mapDomainErrorToHttp(
-          domainError,
-        );
-        return errorResponse(
+        const { status, code, message, metadata } =
+          mapDomainErrorToHttp(domainError);
+        return runEngineErrorResponse(
           request,
           this.env,
           message,
@@ -231,8 +254,10 @@ export class RunEngineRequestHandler {
         `[run/engine-runtime] ${payload.correlationId}: untyped runtime failure: ${sanitizeUnknownError(error)}`,
       );
       const message =
-        error instanceof Error ? error.message : "RunEngine DO execution failed";
-      return errorResponse(request, this.env, message, 500);
+        error instanceof Error
+          ? error.message
+          : "RunEngine DO execution failed";
+      return runEngineErrorResponse(request, this.env, message, 500);
     }
   }
 

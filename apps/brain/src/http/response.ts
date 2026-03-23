@@ -9,6 +9,14 @@ import { getCorsHeaders } from "../lib/cors";
 import type { Env } from "../types/ai";
 import { getBrainRuntimeHeaders } from "../core/observability/runtime";
 
+const RUNTIME_HEADER_FORWARD_MAP = {
+  "X-Shadowbox-Runtime-Boot-Id": "X-Shadowbox-Run-Engine-Boot-Id",
+  "X-Shadowbox-Runtime-Fingerprint": "X-Shadowbox-Run-Engine-Fingerprint",
+  "X-Shadowbox-Runtime-Git-Sha": "X-Shadowbox-Run-Engine-Git-Sha",
+  "X-Shadowbox-Runtime-Name": "X-Shadowbox-Run-Engine-Name",
+  "X-Shadowbox-Runtime-Started-At": "X-Shadowbox-Run-Engine-Started-At",
+} as const;
+
 /**
  * Build a successful JSON response with CORS headers.
  *
@@ -97,6 +105,7 @@ export function withEngineHeaders(
   headers.set("X-Engine-Version", "3.0");
   headers.set("X-Run-Id", runId);
   headers.set("X-Run-Engine-Runtime", runtime);
+  forwardRunEngineRuntimeHeaders(response.headers, headers);
   const runtimeHeaders = getBrainRuntimeHeaders(env);
   Object.entries(runtimeHeaders).forEach(([key, value]) => {
     headers.set(key, value);
@@ -112,4 +121,18 @@ export function withEngineHeaders(
     statusText: response.statusText,
     headers,
   });
+}
+
+function forwardRunEngineRuntimeHeaders(
+  sourceHeaders: Headers,
+  targetHeaders: Headers,
+): void {
+  for (const [sourceHeader, targetHeader] of Object.entries(
+    RUNTIME_HEADER_FORWARD_MAP,
+  )) {
+    const value = sourceHeaders.get(sourceHeader);
+    if (value) {
+      targetHeaders.set(targetHeader, value);
+    }
+  }
 }
