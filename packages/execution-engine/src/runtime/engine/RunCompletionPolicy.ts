@@ -93,12 +93,12 @@ export async function completeRunWithAssistantMessage(params: {
   recordPhaseSelectionSnapshot(run, "synthesis");
   recordOrchestrationTerminal(run);
   run.output = { content: sanitizedText };
+  await deps.runRepo.update(run);
   await deps.runEventRecorder.recordMessageEmitted("assistant", sanitizedText);
   await deps.runEventRecorder.recordRunCompleted(
     getRunDurationMs(run),
     run.metadata.agenticLoop?.toolExecutionCount ?? 0,
   );
-  await deps.runRepo.update(run);
   console.log(`[run/engine] Completed assistant run ${run.id}`);
 
   return createStreamResponse(sanitizedText);
@@ -145,9 +145,9 @@ export async function completeRunWithRecoveredAssistantMessage(params: {
   recordLifecycleStep(run, "TERMINAL", "status=COMPLETED:recoverable");
   recordOrchestrationTerminal(run);
   run.output = { content: sanitizedText };
+  await deps.runRepo.update(run);
   await deps.runEventRecorder.recordMessageEmitted("assistant", sanitizedText);
   await deps.runEventRecorder.recordRunCompleted(getRunDurationMs(run), 0);
-  await deps.runRepo.update(run);
 
   console.log(`[run/engine] Completed run ${run.id} with recoverable error`);
   return createStreamResponse(sanitizedText);

@@ -10,7 +10,7 @@ import type {
 } from "../types.js";
 import type { Task } from "../task/index.js";
 import type { ILLMGateway } from "../llm/types.js";
-import { Run } from "../run/index.js";
+import { Run, RunRepository } from "../run/index.js";
 import { CodingAgent } from "../agents/CodingAgent.js";
 import { RunEventRepository } from "../events/index.js";
 
@@ -83,6 +83,72 @@ describe("RunEngine", () => {
     expect(buildRequest.context?.phase).toBe("task");
   });
 
+  it("persists completed build-mode runs before emitting terminal events", async () => {
+    const runEngine = createRunEngine();
+    const privateApi = runEngine as unknown as {
+      runRepo: {
+        update(run: Run): Promise<void>;
+      };
+      runEventRecorder: {
+        recordMessageEmitted(
+          role: "user" | "assistant" | "system",
+          content: string,
+          metadata?: Record<string, unknown>,
+        ): Promise<void>;
+        recordRunCompleted(
+          totalDurationMs: number,
+          toolsUsed: number,
+        ): Promise<void>;
+      };
+    };
+    const callOrder: string[] = [];
+    const originalUpdate = privateApi.runRepo.update.bind(privateApi.runRepo);
+    const originalRecordMessageEmitted =
+      privateApi.runEventRecorder.recordMessageEmitted.bind(
+        privateApi.runEventRecorder,
+      );
+    const originalRecordRunCompleted =
+      privateApi.runEventRecorder.recordRunCompleted.bind(
+        privateApi.runEventRecorder,
+      );
+
+    vi.spyOn(privateApi.runRepo, "update").mockImplementation(async (run) => {
+      if (run.status === "COMPLETED") {
+        callOrder.push("update");
+      }
+      return originalUpdate(run);
+    });
+    vi.spyOn(
+      privateApi.runEventRecorder,
+      "recordMessageEmitted",
+    ).mockImplementation(async (role, content, metadata) => {
+      if (role === "assistant") {
+        callOrder.push("message");
+      }
+      return originalRecordMessageEmitted(role, content, metadata);
+    });
+    vi.spyOn(
+      privateApi.runEventRecorder,
+      "recordRunCompleted",
+    ).mockImplementation(async (totalDurationMs, toolsUsed) => {
+      callOrder.push("completed");
+      return originalRecordRunCompleted(totalDurationMs, toolsUsed);
+    });
+
+    const response = await runEngine.execute(
+      {
+        agentType: "coding",
+        prompt: "hello",
+        sessionId: "session-1",
+      },
+      [{ role: "user", content: "hello" }],
+      {},
+    );
+
+    expect(response.status).toBe(200);
+    expect(callOrder).toEqual(["update", "message", "completed"]);
+  });
+
   it("returns a user-facing recovery message when explicit plan mode produces invalid structured output", async () => {
     const llmGateway: ILLMGateway = {
       generateText: async () => ({
@@ -143,6 +209,138 @@ describe("RunEngine", () => {
     expect(persisted?.metadata.error).toContain(
       "Planner response did not match required schema",
     );
+  });
+
+  it("persists PLANNING status before calling the explicit planner", async () => {
+    const state = new MockRuntimeState();
+    let observedPlanningStatus: string | null = null;
+    const llmGateway: ILLMGateway = {
+      generateText: async () => ({
+        text: "Execution complete",
+        usage: {
+          provider: "mock",
+          model: "mock-model",
+          promptTokens: 5,
+          completionTokens: 5,
+          totalTokens: 10,
+        },
+      }),
+      generateStructured: async (request) => {
+        if (request.context.phase !== "planning") {
+          throw new Error("unexpected structured phase");
+        }
+
+        observedPlanningStatus =
+          (await new RunRepository(state).getById(TEST_RUN_ID))?.status ?? null;
+
+        return {
+          object: {
+            tasks: [],
+            metadata: { estimatedSteps: 1 },
+          },
+          usage: {
+            provider: "mock",
+            model: "mock-model",
+            promptTokens: 5,
+            completionTokens: 5,
+            totalTokens: 10,
+          },
+        };
+      },
+      generateStream: async () =>
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.close();
+          },
+        }),
+    };
+    const runEngine = createRunEngineForRun({
+      state,
+      dependencies: { llmGateway },
+    });
+
+    const response = await runEngine.execute(
+      {
+        agentType: "coding",
+        mode: "plan",
+        prompt: "plan it",
+        sessionId: "session-1",
+      },
+      [{ role: "user", content: "plan it" }],
+      {},
+    );
+
+    expect(response.status).toBe(200);
+    expect(observedPlanningStatus).toBe("PLANNING");
+  });
+
+  it("persists explicit-plan terminal state before emitting completion events", async () => {
+    const runEngine = createRunEngine({
+      llmGateway: createMockLLMGateway(),
+    });
+    const privateApi = runEngine as unknown as {
+      runRepo: {
+        update(run: Run): Promise<void>;
+      };
+      runEventRecorder: {
+        recordMessageEmitted(
+          role: "user" | "assistant" | "system",
+          content: string,
+          metadata?: Record<string, unknown>,
+        ): Promise<void>;
+        recordRunCompleted(
+          totalDurationMs: number,
+          toolsUsed: number,
+        ): Promise<void>;
+      };
+    };
+    const callOrder: string[] = [];
+    const originalUpdate = privateApi.runRepo.update.bind(privateApi.runRepo);
+    const originalRecordMessageEmitted =
+      privateApi.runEventRecorder.recordMessageEmitted.bind(
+        privateApi.runEventRecorder,
+      );
+    const originalRecordRunCompleted =
+      privateApi.runEventRecorder.recordRunCompleted.bind(
+        privateApi.runEventRecorder,
+      );
+
+    vi.spyOn(privateApi.runRepo, "update").mockImplementation(async (run) => {
+      if (run.status === "COMPLETED") {
+        callOrder.push("update");
+      }
+      return originalUpdate(run);
+    });
+    vi.spyOn(
+      privateApi.runEventRecorder,
+      "recordMessageEmitted",
+    ).mockImplementation(async (role, content, metadata) => {
+      if (role === "assistant") {
+        callOrder.push("message");
+      }
+      return originalRecordMessageEmitted(role, content, metadata);
+    });
+    vi.spyOn(
+      privateApi.runEventRecorder,
+      "recordRunCompleted",
+    ).mockImplementation(async (totalDurationMs, toolsUsed) => {
+      callOrder.push("completed");
+      return originalRecordRunCompleted(totalDurationMs, toolsUsed);
+    });
+
+    const response = await runEngine.execute(
+      {
+        agentType: "coding",
+        mode: "plan",
+        prompt: "plan this",
+        sessionId: "session-1",
+      },
+      [{ role: "user", content: "plan this" }],
+      {},
+    );
+
+    expect(response.status).toBe(200);
+    expect(callOrder).toEqual(["update", "message", "completed"]);
   });
 
   it("build mode bypasses planner and reads files through the canonical tool loop", async () => {
@@ -221,7 +419,11 @@ describe("RunEngine", () => {
         prompt: "read README.md",
         sessionId: "session-1",
       },
-      [{ role: "user", content: "read README.md" }],
+      [
+        { role: "system", content: "internal system prompt" },
+        { role: "assistant", content: "previous assistant reply" },
+        { role: "user", content: "read README.md" },
+      ],
       {},
     );
 
@@ -351,7 +553,6 @@ describe("RunEngine", () => {
     const events = await new RunEventRepository(state).getByRun(TEST_RUN_ID);
     expect(events.map((event) => event.type)).toEqual([
       RUN_EVENT_TYPES.RUN_STARTED,
-      RUN_EVENT_TYPES.RUN_STATUS_CHANGED,
       RUN_EVENT_TYPES.MESSAGE_EMITTED,
       RUN_EVENT_TYPES.RUN_STATUS_CHANGED,
       RUN_EVENT_TYPES.TOOL_REQUESTED,
@@ -362,14 +563,33 @@ describe("RunEngine", () => {
       RUN_EVENT_TYPES.RUN_COMPLETED,
     ]);
     expect(events[1]).toMatchObject({
-      payload: { workflowStep: RUN_WORKFLOW_STEPS.PLANNING },
+      payload: {
+        role: "user",
+        content: "read README.md",
+      },
     });
-    expect(events[3]).toMatchObject({
+    expect(events[2]).toMatchObject({
       payload: { workflowStep: RUN_WORKFLOW_STEPS.EXECUTION },
     });
-    expect(events[7]).toMatchObject({
+    expect(events[6]).toMatchObject({
       payload: { workflowStep: RUN_WORKFLOW_STEPS.SYNTHESIS },
     });
+    expect(
+      events.filter((event) => event.type === RUN_EVENT_TYPES.MESSAGE_EMITTED),
+    ).toMatchObject([
+      {
+        payload: {
+          role: "user",
+          content: "read README.md",
+        },
+      },
+      {
+        payload: {
+          role: "assistant",
+          content: "README reviewed.",
+        },
+      },
+    ]);
   });
 
   it.skip("executes direct write-file requests through CodingAgent without planner decomposition", async () => {
@@ -900,10 +1120,20 @@ describe("RunEngine", () => {
     const privateApi = runEngine as unknown as {
       runRepo: {
         create(run: Run): Promise<void>;
+        update(run: Run): Promise<void>;
         getById(runId: string): Promise<Run | null>;
+      };
+      runEventRecorder: {
+        recordRunFailed(error: string, totalDurationMs: number): Promise<void>;
       };
       handleExecutionError(runId: string, error: unknown): Promise<void>;
     };
+    const callOrder: string[] = [];
+    const originalUpdate = privateApi.runRepo.update.bind(privateApi.runRepo);
+    const originalRecordRunFailed =
+      privateApi.runEventRecorder.recordRunFailed.bind(
+        privateApi.runEventRecorder,
+      );
 
     const run = new Run("run-created", "session-1", "CREATED", "coding", {
       agentType: "coding",
@@ -911,12 +1141,27 @@ describe("RunEngine", () => {
       sessionId: "session-1",
     });
     await privateApi.runRepo.create(run);
+    vi.spyOn(privateApi.runRepo, "update").mockImplementation(
+      async (nextRun) => {
+        if (nextRun.id === "run-created" && nextRun.status === "FAILED") {
+          callOrder.push("update");
+        }
+        return originalUpdate(nextRun);
+      },
+    );
+    vi.spyOn(privateApi.runEventRecorder, "recordRunFailed").mockImplementation(
+      async (error, totalDurationMs) => {
+        callOrder.push("failed");
+        return originalRecordRunFailed(error, totalDurationMs);
+      },
+    );
 
     await privateApi.handleExecutionError("run-created", new Error("boom"));
 
     const persisted = await privateApi.runRepo.getById("run-created");
     expect(persisted?.status).toBe("FAILED");
     expect(persisted?.metadata.error).toBe("boom");
+    expect(callOrder).toEqual(["update", "failed"]);
   });
 
   it("enforces immutable run manifest for active runs", async () => {

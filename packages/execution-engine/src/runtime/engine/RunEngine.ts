@@ -263,12 +263,7 @@ export class RunEngine implements IRunEngine {
       await this.sessionCostsLoaded;
       const run = await this.getOrCreateRun(input, runId, sessionId);
       await this.runEventRecorder.ensureRunStarted(run.status);
-      await this.runEventRecorder.recordRunStatusChanged(
-        run.status,
-        run.status,
-        RUN_WORKFLOW_STEPS.PLANNING,
-      );
-      await this.recordRunMessages(messages);
+      await this.recordCurrentUserTurn(input.prompt);
       recordOrchestrationActivation(run);
       await this.runRepo.update(run);
       console.log(`[run/engine] Retrieving memory context for run ${runId}`);
@@ -364,7 +359,20 @@ export class RunEngine implements IRunEngine {
         `[run/engine] Explicit plan mode planning phase for run ${runId}`,
       );
       try {
-        run.transition("PLANNING");
+        const previousPlanningStatus = run.status;
+        if (run.status === "CREATED") {
+          run.transition("PLANNING");
+        }
+        if (
+          previousPlanningStatus !== run.status ||
+          run.status === "PLANNING"
+        ) {
+          await this.runEventRecorder.recordRunStatusChanged(
+            previousPlanningStatus,
+            run.status,
+            RUN_WORKFLOW_STEPS.PLANNING,
+          );
+        }
         recordPhaseSelectionSnapshot(run, "planning");
         await this.runRepo.update(run);
 
@@ -530,6 +538,7 @@ export class RunEngine implements IRunEngine {
       recordLifecycleStep(run, "TERMINAL", `status=${finalRunStatus}`);
       recordOrchestrationTerminal(run);
       run.output = { content: finalOutput };
+      await this.runRepo.update(run);
       await this.runEventRecorder.recordMessageEmitted(
         "assistant",
         finalOutput,
@@ -545,7 +554,6 @@ export class RunEngine implements IRunEngine {
           this.getRunDurationMs(run),
         );
       }
-      await this.runRepo.update(run);
       console.log(`[run/engine] Completed run ${runId}`);
       console.log(
         `[run/timing] run=${runId} step=total elapsedMs=${Date.now() - runStartedAt} status=${finalRunStatus} mode=task`,
@@ -665,21 +673,8 @@ export class RunEngine implements IRunEngine {
     };
   }
 
-  private async recordRunMessages(messages: CoreMessage[]): Promise<void> {
-    for (const message of messages) {
-      if (
-        typeof message.content !== "string" ||
-        (message.role !== "user" &&
-          message.role !== "assistant" &&
-          message.role !== "system")
-      ) {
-        continue;
-      }
-      await this.runEventRecorder.recordMessageEmitted(
-        message.role,
-        message.content,
-      );
-    }
+  private async recordCurrentUserTurn(prompt: string): Promise<void> {
+    await this.runEventRecorder.recordMessageEmitted("user", prompt);
   }
 
   async getRunStatus(runId: string): Promise<RunStatus | null> {
@@ -919,13 +914,13 @@ export class RunEngine implements IRunEngine {
         recordLifecycleStep(run, "TERMINAL", "status=FAILED");
         recordOrchestrationTerminal(run);
         run.metadata.error = errorMessage;
+        await this.runRepo.update(run);
         if (run.status === "FAILED") {
           await this.runEventRecorder.recordRunFailed(
             errorMessage,
             this.getRunDurationMs(run),
           );
         }
-        await this.runRepo.update(run);
       }
     } catch (handlerError) {
       console.error(
