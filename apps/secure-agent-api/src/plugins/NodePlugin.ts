@@ -4,6 +4,10 @@ import { NodeTool } from "../schemas/node";
 import { z } from "zod";
 import { getWorkspaceRoot, normalizeRunId } from "./security/PathGuard";
 import { runSafeCommand } from "./security/SafeCommand";
+import {
+  readToolboxCommandContext,
+  withToolboxCommandContext,
+} from "./security/ToolboxCommandContext";
 
 const DEFAULT_ALLOWED_COMMANDS = ["node", "npm", "pnpm", "yarn", "npx", "tsx"];
 
@@ -30,10 +34,21 @@ export class NodePlugin implements IPlugin {
     onLog?: LogCallback,
   ): Promise<PluginResult> {
     try {
+      const toolboxContext = readToolboxCommandContext(payload);
       if (isRunActionPayload(payload)) {
-        return await this.executeRunCommand(sandbox, payload, onLog);
+        return await this.executeRunCommand(
+          sandbox,
+          payload,
+          toolboxContext,
+          onLog,
+        );
       }
-      return await this.executeCodeBlock(sandbox, payload, onLog);
+      return await this.executeCodeBlock(
+        sandbox,
+        payload,
+        toolboxContext,
+        onLog,
+      );
     } catch (error: unknown) {
       const message =
         error instanceof Error ? error.message : "Node plugin execution failed";
@@ -44,15 +59,20 @@ export class NodePlugin implements IPlugin {
   private async executeRunCommand(
     sandbox: Sandbox,
     payload: unknown,
+    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
     onLog?: LogCallback,
   ): Promise<PluginResult> {
     const parsed = RunCommandPayloadSchema.parse(payload);
-    const runId = normalizeRunId(parsed.runId);
+    const runId = normalizeRunId(parsed.runId ?? toolboxContext.runId);
     const workspaceRoot = getWorkspaceRoot(runId);
 
     await runSafeCommand(
       sandbox,
-      { command: "mkdir", args: ["-p", workspaceRoot] },
+      withToolboxCommandContext(
+        { command: "mkdir", args: ["-p", workspaceRoot], runId },
+        toolboxContext,
+        "node.prepare_workspace",
+      ),
       ["mkdir"],
     );
 
@@ -69,7 +89,11 @@ export class NodePlugin implements IPlugin {
 
     const result = await runSafeCommand(
       sandbox,
-      { command, args, cwd: workspaceRoot },
+      withToolboxCommandContext(
+        { command, args, cwd: workspaceRoot, runId },
+        toolboxContext,
+        "node.run",
+      ),
       DEFAULT_ALLOWED_COMMANDS,
     );
 
@@ -88,15 +112,20 @@ export class NodePlugin implements IPlugin {
   private async executeCodeBlock(
     sandbox: Sandbox,
     payload: unknown,
+    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
     onLog?: LogCallback,
   ): Promise<PluginResult> {
     const parsed = ExecuteCodePayloadSchema.parse(payload);
-    const runId = normalizeRunId(parsed.runId);
+    const runId = normalizeRunId(parsed.runId ?? toolboxContext.runId);
     const workspaceRoot = getWorkspaceRoot(runId);
 
     await runSafeCommand(
       sandbox,
-      { command: "mkdir", args: ["-p", workspaceRoot] },
+      withToolboxCommandContext(
+        { command: "mkdir", args: ["-p", workspaceRoot], runId },
+        toolboxContext,
+        "node.prepare_workspace",
+      ),
       ["mkdir"],
     );
 
@@ -111,7 +140,11 @@ export class NodePlugin implements IPlugin {
 
     const result = await runSafeCommand(
       sandbox,
-      { command: runner, args: [`index.${ext}`], cwd: workspaceRoot },
+      withToolboxCommandContext(
+        { command: runner, args: [`index.${ext}`], cwd: workspaceRoot, runId },
+        toolboxContext,
+        "node.execute_code",
+      ),
       DEFAULT_ALLOWED_COMMANDS,
     );
 

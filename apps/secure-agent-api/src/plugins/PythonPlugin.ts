@@ -4,6 +4,10 @@ import { z } from "zod";
 import { PythonTool } from "../schemas/python";
 import { getWorkspaceRoot, normalizeRunId } from "./security/PathGuard";
 import { runSafeCommand } from "./security/SafeCommand";
+import {
+  readToolboxCommandContext,
+  withToolboxCommandContext,
+} from "./security/ToolboxCommandContext";
 
 const PYTHON_ALLOWED_COMMANDS = ["python3"] as const;
 const REQUIREMENT_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._\-[\],<>=!~]*$/;
@@ -25,8 +29,9 @@ export class PythonPlugin implements IPlugin {
     onLog?: LogCallback,
   ): Promise<PluginResult> {
     try {
+      const toolboxContext = readToolboxCommandContext(payload);
       const parsed = PythonPayloadSchema.parse(payload);
-      const runId = normalizeRunId(parsed.runId);
+      const runId = normalizeRunId(parsed.runId ?? toolboxContext.runId);
       const workspaceRoot = getWorkspaceRoot(runId);
       const requirements = normalizeRequirements(parsed.requirements ?? []);
 
@@ -34,7 +39,11 @@ export class PythonPlugin implements IPlugin {
 
       await runSafeCommand(
         sandbox,
-        { command: "mkdir", args: ["-p", workspaceRoot] },
+        withToolboxCommandContext(
+          { command: "mkdir", args: ["-p", workspaceRoot], runId },
+          toolboxContext,
+          "python.prepare_workspace",
+        ),
         ["mkdir"],
       );
 
@@ -43,6 +52,8 @@ export class PythonPlugin implements IPlugin {
           sandbox,
           workspaceRoot,
           requirements,
+          toolboxContext,
+          runId,
           onLog,
         );
         if (installResult) {
@@ -55,7 +66,11 @@ export class PythonPlugin implements IPlugin {
       if (onLog) onLog("[System] Executing script...");
       const result = await runSafeCommand(
         sandbox,
-        { command: "python3", args: ["main.py"], cwd: workspaceRoot },
+        withToolboxCommandContext(
+          { command: "python3", args: ["main.py"], cwd: workspaceRoot, runId },
+          toolboxContext,
+          "python.execute",
+        ),
         PYTHON_ALLOWED_COMMANDS,
       );
 
@@ -72,7 +87,9 @@ export class PythonPlugin implements IPlugin {
       };
     } catch (error: unknown) {
       const message =
-        error instanceof Error ? error.message : "Python plugin execution failed";
+        error instanceof Error
+          ? error.message
+          : "Python plugin execution failed";
       return { success: false, error: message };
     }
   }
@@ -81,6 +98,8 @@ export class PythonPlugin implements IPlugin {
     sandbox: Sandbox,
     workspaceRoot: string,
     requirements: string[],
+    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
+    runId: string,
     onLog?: LogCallback,
   ): Promise<PluginResult | null> {
     if (onLog) {
@@ -89,11 +108,16 @@ export class PythonPlugin implements IPlugin {
 
     let install = await runSafeCommand(
       sandbox,
-      {
-        command: "python3",
-        args: ["-m", "pip", "install", ...requirements],
-        cwd: workspaceRoot,
-      },
+      withToolboxCommandContext(
+        {
+          command: "python3",
+          args: ["-m", "pip", "install", ...requirements],
+          cwd: workspaceRoot,
+          runId,
+        },
+        toolboxContext,
+        "python.install_requirements",
+      ),
       PYTHON_ALLOWED_COMMANDS,
     );
 
@@ -108,17 +132,22 @@ export class PythonPlugin implements IPlugin {
       }
       install = await runSafeCommand(
         sandbox,
-        {
-          command: "python3",
-          args: [
-            "-m",
-            "pip",
-            "install",
-            ...requirements,
-            "--break-system-packages",
-          ],
-          cwd: workspaceRoot,
-        },
+        withToolboxCommandContext(
+          {
+            command: "python3",
+            args: [
+              "-m",
+              "pip",
+              "install",
+              ...requirements,
+              "--break-system-packages",
+            ],
+            cwd: workspaceRoot,
+            runId,
+          },
+          toolboxContext,
+          "python.install_requirements",
+        ),
         PYTHON_ALLOWED_COMMANDS,
       );
     }
