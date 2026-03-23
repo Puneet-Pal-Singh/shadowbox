@@ -94,6 +94,10 @@ export class RunEngineRuntime extends DurableObject {
       return requestHandler.handleSummaryRequest(request);
     }
 
+    if (url.pathname === "/events" && request.method === "GET") {
+      return requestHandler.handleEventsRequest(request);
+    }
+
     if (url.pathname === "/cancel" && request.method === "POST") {
       return requestHandler.handleCancelRequest(request);
     }
