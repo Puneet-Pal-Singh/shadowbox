@@ -1,7 +1,6 @@
 import { useRef, useEffect, useState, useMemo } from "react";
 import { ChatMessage } from "./ChatMessage";
 import { ChatInputBar } from "./ChatInputBar";
-import { ExploredFilesSummary } from "./ExploredFilesSummary";
 import { ChatBranchSelector } from "./ChatBranchSelector";
 import { ProviderDialog } from "../provider/ProviderDialog";
 import type { Message } from "@ai-sdk/react";
@@ -9,9 +8,11 @@ import type { RunMode } from "@repo/shared-types";
 import type { ProviderId } from "../../types/provider";
 import type { ChatDebugEvent } from "../../types/chat-debug.js";
 import { useRunSummary } from "../../hooks/useRunSummary.js";
+import { useRunEvents } from "../../hooks/useRunEvents.js";
 import { getProviderRecoveryAdvice } from "../../lib/provider-recovery";
 import { useProviderStore } from "../../hooks/useProviderStore.js";
 import { buildChatMessageMetadata } from "./messageMetadata";
+import { WorkflowTimeline } from "./workflow/WorkflowTimeline.js";
 
 interface ChatInterfaceProps {
   chatProps: {
@@ -87,6 +88,7 @@ export function ChatInterface({
   }, [isLoading]);
 
   const { summary } = useRunSummary(runId, isLoading);
+  const { events } = useRunEvents(runId);
   const showDebugPanel =
     import.meta.env.VITE_ENABLE_CHAT_DEBUG_PANEL === "true";
   const [showProviderDialog, setShowProviderDialog] = useState(false);
@@ -117,19 +119,25 @@ export function ChatInterface({
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 py-4">
         <div className="max-w-4xl mx-auto space-y-6">
           {(messages.length > 0 || isLoading) && (
-            <ExploredFilesSummary
-              runStatus={summary?.status}
-              totalTasks={summary?.totalTasks ?? 0}
-              completedTasks={summary?.completedTasks ?? 0}
-              failedTasks={summary?.failedTasks ?? 0}
+            <WorkflowTimeline
+              events={events}
+              summary={summary}
               isLoading={isLoading}
+              onJumpToLatest={() => {
+                scrollRef.current?.scrollTo({
+                  top: scrollRef.current.scrollHeight,
+                  behavior: "smooth",
+                });
+              }}
             />
           )}
 
           {error && (
             <div className="px-4 py-3 rounded border border-red-500/40 bg-red-950/30 text-red-200 text-sm space-y-2">
               <p>{recoveryAdvice.message}</p>
-              <p className="text-red-100/80 text-xs">{recoveryAdvice.remediation}</p>
+              <p className="text-red-100/80 text-xs">
+                {recoveryAdvice.remediation}
+              </p>
               <button
                 type="button"
                 onClick={() => setShowProviderDialog(true)}
@@ -265,6 +273,8 @@ function summarizeModelId(modelId: string): string {
   if (!trimmed) {
     return "Unknown model";
   }
-  const withoutProvider = trimmed.includes("/") ? trimmed.split("/").pop() ?? trimmed : trimmed;
+  const withoutProvider = trimmed.includes("/")
+    ? (trimmed.split("/").pop() ?? trimmed)
+    : trimmed;
   return withoutProvider.replace(/:free$/i, "").replace(/-/g, " ");
 }

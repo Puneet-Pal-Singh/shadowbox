@@ -117,6 +117,15 @@ export function chatStreamPath(): string {
 }
 
 /**
+ * Build the workflow events endpoint URL
+ * Used for fetching canonical run events from Brain
+ * Path: /events?runId=<runId>
+ */
+export function runEventsPath(runId: string): string {
+  return `${getBrainHttpBase()}/events?runId=${encodeURIComponent(runId)}`;
+}
+
+/**
  * Build the full chat history endpoint URL
  * Used for fetching previous chat messages from Muscle
  * Path: /api/chat/history
@@ -137,12 +146,12 @@ export function gitStatusPath(runId: string): string {
 /**
  * Build the full git stage/unstage endpoint URL
  * Used for staging/unstaging files via Brain (proxied to Muscle)
- * 
+ *
  * Canonical endpoint: POST /api/git/stage with unified contract
  * Request body: { files: string[], unstage?: boolean }
  * - unstage: false (or omitted) = stage files
  * - unstage: true = unstage (restore) files
- * 
+ *
  * Path: /api/git/stage
  */
 export function gitStagePath(): string {
@@ -199,7 +208,8 @@ export function validateEndpointConfig(): void {
   ];
 
   const missingVars = requiredEnvVars.filter(
-    (varName) => !(import.meta.env as unknown as Record<string, unknown>)[varName],
+    (varName) =>
+      !(import.meta.env as unknown as Record<string, unknown>)[varName],
   );
 
   if (missingVars.length > 0 && import.meta.env.MODE === "production") {
