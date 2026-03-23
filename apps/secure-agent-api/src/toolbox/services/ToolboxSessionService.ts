@@ -23,7 +23,7 @@ export class ToolboxSessionService {
     }
 
     const handle = this.createHandle(request);
-    this.eventFactory.createRequested(request);
+    this.eventFactory.createRequested(handle);
     this.eventFactory.createStatus(handle, "started");
 
     const startedAt = Date.now();
@@ -47,7 +47,9 @@ export class ToolboxSessionService {
         durationMs: Date.now() - startedAt,
       };
     } catch (error) {
-      const isTimeout = error instanceof Error && error.message === "Toolbox execution timed out";
+      const isTimeout =
+        error instanceof Error &&
+        error.message === "Toolbox execution timed out";
       this.eventFactory.createStatus(handle, isTimeout ? "timeout" : "failed");
       return {
         sessionId: handle.sessionId,
@@ -65,7 +67,7 @@ export class ToolboxSessionService {
 
   private createHandle(request: ToolboxSessionRequest): ToolboxSessionHandle {
     return {
-      sessionId: `${request.runId}:${request.callId}:${request.toolName}`,
+      sessionId: createSessionId(request),
       runId: request.runId,
       toolName: request.toolName,
       callId: request.callId,
@@ -79,7 +81,7 @@ export class ToolboxSessionService {
     reason: string,
   ): ToolboxExecutionResult {
     return {
-      sessionId: `${request.runId}:${request.callId}:${request.toolName}`,
+      sessionId: createSessionId(request),
       runId: request.runId,
       toolName: request.toolName,
       callId: request.callId,
@@ -90,6 +92,10 @@ export class ToolboxSessionService {
       durationMs: 0,
     };
   }
+}
+
+function createSessionId(request: ToolboxSessionRequest): string {
+  return `${request.runId}:${request.callId}:${request.toolName}:${crypto.randomUUID()}`;
 }
 
 function buildShellCommand(request: ToolboxSessionRequest): string {

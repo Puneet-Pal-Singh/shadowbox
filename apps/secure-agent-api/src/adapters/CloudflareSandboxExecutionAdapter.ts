@@ -33,6 +33,14 @@ interface ActiveTaskExecution {
   startTime: number;
 }
 
+interface ToolboxPayloadContext {
+  __toolbox: {
+    callId: string;
+    runId?: string;
+    toolName: string;
+  };
+}
+
 function resolveExecutePayloadAction(
   taskAction: string,
   params: Record<string, unknown>,
@@ -121,6 +129,7 @@ export class CloudflareSandboxExecutionAdapter implements SandboxExecutionPort {
         plugin,
         mapping,
         input.action,
+        input.taskId,
         sessionId,
         input.params,
         abortController.signal,
@@ -140,7 +149,10 @@ export class CloudflareSandboxExecutionAdapter implements SandboxExecutionPort {
 
       // Detect timeout vs other errors
       let status: "failure" | "timeout" = "failure";
-      if (abortController.signal.aborted && duration >= (input.timeout ?? 30000)) {
+      if (
+        abortController.signal.aborted &&
+        duration >= (input.timeout ?? 30000)
+      ) {
         status = "timeout";
       }
 
@@ -230,17 +242,17 @@ export class CloudflareSandboxExecutionAdapter implements SandboxExecutionPort {
 
     // Legacy mappings for backward compatibility
     const legacyMappings: Record<string, TaskActionMapping> = {
-      "read_file": { pluginName: "filesystem", method: "execute" },
-      "write_file": { pluginName: "filesystem", method: "execute" },
-      "list_files": { pluginName: "filesystem", method: "execute" },
-      "make_dir": { pluginName: "filesystem", method: "execute" },
-      "git_status": { pluginName: "git", method: "execute" },
-      "git_diff": { pluginName: "git", method: "execute" },
-      "git_commit": { pluginName: "git", method: "execute" },
-      "git_push": { pluginName: "git", method: "execute" },
-      "execute_python": { pluginName: "python", method: "execute" },
-      "execute_node": { pluginName: "node", method: "execute" },
-      "execute_rust": { pluginName: "rust", method: "execute" },
+      read_file: { pluginName: "filesystem", method: "execute" },
+      write_file: { pluginName: "filesystem", method: "execute" },
+      list_files: { pluginName: "filesystem", method: "execute" },
+      make_dir: { pluginName: "filesystem", method: "execute" },
+      git_status: { pluginName: "git", method: "execute" },
+      git_diff: { pluginName: "git", method: "execute" },
+      git_commit: { pluginName: "git", method: "execute" },
+      git_push: { pluginName: "git", method: "execute" },
+      execute_python: { pluginName: "python", method: "execute" },
+      execute_node: { pluginName: "node", method: "execute" },
+      execute_rust: { pluginName: "rust", method: "execute" },
     };
 
     return legacyMappings[action] ?? null;
@@ -250,17 +262,25 @@ export class CloudflareSandboxExecutionAdapter implements SandboxExecutionPort {
     plugin: IPlugin,
     mapping: TaskActionMapping,
     action: string,
+    taskId: string,
     sessionId: string,
     params: Record<string, unknown>,
     signal: AbortSignal,
   ): Promise<unknown> {
     if (mapping.method === "execute") {
       const pluginAction = resolveExecutePayloadAction(action, params);
-      const payload: Record<string, unknown> & { action: string } = {
+      const runId = params.runId;
+      const payload: Record<string, unknown> & {
+        action: string;
+      } & ToolboxPayloadContext = {
         ...params,
         action: pluginAction,
+        __toolbox: {
+          callId: taskId,
+          runId: typeof runId === "string" ? runId : undefined,
+          toolName: `${mapping.pluginName}.${pluginAction}`,
+        },
       };
-      const runId = payload.runId;
       if (typeof runId !== "string" || runId.length === 0) {
         throw {
           code: "INVALID_INPUT",
@@ -271,7 +291,8 @@ export class CloudflareSandboxExecutionAdapter implements SandboxExecutionPort {
       if (!result.success) {
         throw {
           code: "PLUGIN_EXECUTION_FAILED",
-          message: result.error ?? `Plugin ${mapping.pluginName} execution failed`,
+          message:
+            result.error ?? `Plugin ${mapping.pluginName} execution failed`,
           details: result.logs,
         };
       }
@@ -293,7 +314,15 @@ export class CloudflareSandboxExecutionAdapter implements SandboxExecutionPort {
       paramsArg: Record<string, unknown>,
       options?: { signal?: AbortSignal },
     ) => Promise<unknown>;
-    return invoker.call(plugin, sessionId, params, { signal });
+    const payload: Record<string, unknown> & ToolboxPayloadContext = {
+      ...params,
+      __toolbox: {
+        callId: taskId,
+        runId: typeof params.runId === "string" ? params.runId : undefined,
+        toolName: action,
+      },
+    };
+    return invoker.call(plugin, sessionId, payload, { signal });
   }
 
   /**
@@ -307,9 +336,7 @@ export class CloudflareSandboxExecutionAdapter implements SandboxExecutionPort {
     if (err instanceof Error) {
       const errorLike = err as Error & { code?: unknown; details?: unknown };
       const code =
-        typeof errorLike.code === "string"
-          ? errorLike.code
-          : "EXECUTION_ERROR";
+        typeof errorLike.code === "string" ? errorLike.code : "EXECUTION_ERROR";
       return {
         code,
         message: err.message,
@@ -352,7 +379,6 @@ function isErrorShape(
     details?: unknown;
   };
   return (
-    typeof candidate.code === "string" &&
-    typeof candidate.message === "string"
+    typeof candidate.code === "string" && typeof candidate.message === "string"
   );
 }

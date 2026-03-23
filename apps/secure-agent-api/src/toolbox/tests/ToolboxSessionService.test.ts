@@ -12,9 +12,7 @@ interface SandboxMock {
   }>;
 }
 
-function createSandboxMock(
-  execImpl?: SandboxMock["exec"],
-): SandboxMock {
+function createSandboxMock(execImpl?: SandboxMock["exec"]): SandboxMock {
   const execCalls: string[] = [];
   return {
     execCalls,
@@ -58,6 +56,36 @@ describe("ToolboxSessionService", () => {
 
     expect(first.sessionId).not.toBe(second.sessionId);
     expect(sandbox.execCalls).toHaveLength(2);
+  });
+
+  it("creates unique session ids even when callId and toolName repeat", async () => {
+    const sandbox = createSandboxMock();
+    const service = new ToolboxSessionService(
+      new CloudflareToolboxAdapter(sandbox as unknown as Sandbox),
+    );
+
+    const first = await service.execute(
+      {
+        runId: "run-repeat",
+        toolName: "git.status",
+        callId: "task-123",
+        command: "git",
+      },
+      ["git"],
+    );
+    const second = await service.execute(
+      {
+        runId: "run-repeat",
+        toolName: "git.status",
+        callId: "task-123",
+        command: "git",
+      },
+      ["git"],
+    );
+
+    expect(first.callId).toBe("task-123");
+    expect(second.callId).toBe("task-123");
+    expect(first.sessionId).not.toBe(second.sessionId);
   });
 
   it("returns a failed result when policy denies the command", async () => {

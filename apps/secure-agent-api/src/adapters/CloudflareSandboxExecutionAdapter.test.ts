@@ -24,7 +24,10 @@ class MockPlugin implements IPlugin {
   }
 
   // This matches the actual IPlugin.execute signature
-  async execute(sandbox: any, payload: any): Promise<{ success: boolean; output?: string }> {
+  async execute(
+    sandbox: any,
+    payload: any,
+  ): Promise<{ success: boolean; output?: string }> {
     const params = payload as Record<string, unknown>;
     if (params.delay) {
       await new Promise((resolve) =>
@@ -246,6 +249,54 @@ describe("CloudflareSandboxExecutionAdapter", () => {
 
       expect(result.status).toBe("success");
       expect(result.output).toBe("hi");
+    });
+
+    it("injects stable toolbox correlation metadata into execute-style payloads", async () => {
+      class NodePlugin implements IPlugin {
+        readonly name = "node";
+        readonly tools: ToolDefinition[] = [];
+
+        async setup(): Promise<void> {
+          // No-op
+        }
+
+        async execute(
+          _sandbox: unknown,
+          payload: unknown,
+        ): Promise<{ success: boolean; output: string }> {
+          const params = payload as {
+            __toolbox?: {
+              callId?: string;
+              runId?: string;
+              toolName?: string;
+            };
+            action?: string;
+            runId?: string;
+          };
+          expect(params.__toolbox).toEqual({
+            callId: "task-node-toolbox",
+            runId: TEST_RUN_ID,
+            toolName: "node.run",
+          });
+          expect(params.action).toBe("run");
+          expect(params.runId).toBe(TEST_RUN_ID);
+          return { success: true, output: "hi" };
+        }
+      }
+
+      pluginMap.set("node", new NodePlugin());
+
+      const result = await adapter.executeTask("session-1", {
+        taskId: "task-node-toolbox",
+        action: "node.execute",
+        params: {
+          action: "run",
+          command: "echo hi",
+          runId: TEST_RUN_ID,
+        },
+      });
+
+      expect(result.status).toBe("success");
     });
 
     it("trims execute-style params.action before forwarding to plugins", async () => {
