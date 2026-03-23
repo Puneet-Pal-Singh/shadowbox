@@ -1,4 +1,5 @@
 import type { CoreMessage, CoreTool } from "ai";
+import { RUN_WORKFLOW_STEPS } from "@repo/shared-types";
 import { Run, RunRepository, RunStateMachine } from "../run/index.js";
 import { Task, TaskRepository } from "../task/index.js";
 import {
@@ -70,6 +71,7 @@ import { resetRecyclableRun } from "./RunRecyclableResetPolicy.js";
 import { applyReviewerPassIfEnabled } from "./RunReviewerPassPolicy.js";
 import { buildPlanningRecoveryMessage } from "./RunPlanningRecoveryPolicy.js";
 import { synthesizeResultFromTasks } from "./RunSynthesisPolicy.js";
+import { RunEventRecorder, RunEventRepository } from "../events/index.js";
 
 export interface IRunEngine {
   execute(
@@ -114,6 +116,8 @@ export interface RunEngineDependencies {
 export class RunEngine implements IRunEngine {
   private runRepo: RunRepository;
   private taskRepo: TaskRepository;
+  private runEventRepo: RunEventRepository;
+  private runEventRecorder: RunEventRecorder;
   private pricingRegistry: IPricingRegistry;
   private costLedger: ICostLedger;
   private costTracker: ICostTracker;
@@ -139,6 +143,12 @@ export class RunEngine implements IRunEngine {
   ) {
     this.runRepo = new RunRepository(ctx);
     this.taskRepo = new TaskRepository(ctx);
+    this.runEventRepo = new RunEventRepository(ctx);
+    this.runEventRecorder = new RunEventRecorder(
+      this.runEventRepo,
+      options.runId,
+      options.sessionId,
+    );
 
     this.pricingRegistry =
       dependencies.pricingRegistry ??
@@ -246,6 +256,13 @@ export class RunEngine implements IRunEngine {
     try {
       await this.sessionCostsLoaded;
       const run = await this.getOrCreateRun(input, runId, sessionId);
+      await this.runEventRecorder.ensureRunStarted(run.status);
+      await this.runEventRecorder.recordRunStatusChanged(
+        run.status,
+        run.status,
+        RUN_WORKFLOW_STEPS.PLANNING,
+      );
+      await this.recordRunMessages(messages);
       recordOrchestrationActivation(run);
       await this.runRepo.update(run);
       console.log(`[run/engine] Retrieving memory context for run ${runId}`);
@@ -337,7 +354,9 @@ export class RunEngine implements IRunEngine {
         );
       }
 
-      console.log(`[run/engine] Explicit plan mode planning phase for run ${runId}`);
+      console.log(
+        `[run/engine] Explicit plan mode planning phase for run ${runId}`,
+      );
       try {
         run.transition("PLANNING");
         recordPhaseSelectionSnapshot(run, "planning");
@@ -379,9 +398,15 @@ export class RunEngine implements IRunEngine {
       }
 
       console.log(`[run/engine] Execution phase for run ${runId}`);
+      const executionPreviousStatus = run.status;
       run.transition("RUNNING");
       recordPhaseSelectionSnapshot(run, "execution");
       recordLifecycleStep(run, "TASK_EXECUTING");
+      await this.runEventRecorder.recordRunStatusChanged(
+        executionPreviousStatus,
+        run.status,
+        RUN_WORKFLOW_STEPS.EXECUTION,
+      );
       await this.runRepo.update(run);
 
       const taskResults: Array<{ taskId: string; content: string }> = [];
@@ -391,10 +416,17 @@ export class RunEngine implements IRunEngine {
           console.log(
             `[task/scheduler] beforeTask run=${run.id} task=${task.id} phase=task`,
           );
+          await this.runEventRecorder.recordToolRequested(task);
+          await this.runEventRecorder.recordToolStarted(task);
         },
         afterTask: async (task, result) => {
           console.log(
             `[task/scheduler] afterTask run=${run.id} task=${task.id} status=${result.status}`,
+          );
+          await this.runEventRecorder.recordToolCompleted(
+            task,
+            result.output?.content ?? null,
+            0,
           );
           if (result.output?.content) {
             taskResults.push({
@@ -405,6 +437,11 @@ export class RunEngine implements IRunEngine {
         },
         onTaskError: async (task, error) => {
           console.error(`[task/scheduler] onTaskError task=${task.id}`, error);
+          await this.runEventRecorder.recordToolFailed(
+            task,
+            error instanceof Error ? error.message : "Task execution failed",
+            0,
+          );
         },
       });
 
@@ -438,6 +475,11 @@ export class RunEngine implements IRunEngine {
       console.log(`[run/engine] Synthesis phase for run ${runId}`);
       recordPhaseSelectionSnapshot(run, "synthesis");
       recordLifecycleStep(run, "SYNTHESIS");
+      await this.runEventRecorder.recordRunStatusChanged(
+        run.status,
+        run.status,
+        RUN_WORKFLOW_STEPS.SYNTHESIS,
+      );
       const finalOutputRaw = await this.generateSynthesis(
         run,
         input.prompt,
@@ -482,6 +524,21 @@ export class RunEngine implements IRunEngine {
       recordLifecycleStep(run, "TERMINAL", `status=${finalRunStatus}`);
       recordOrchestrationTerminal(run);
       run.output = { content: finalOutput };
+      await this.runEventRecorder.recordMessageEmitted(
+        "assistant",
+        finalOutput,
+      );
+      if (finalRunStatus === "COMPLETED") {
+        await this.runEventRecorder.recordRunCompleted(
+          this.getRunDurationMs(run),
+          allTasks.length,
+        );
+      } else if (finalRunStatus === "FAILED") {
+        await this.runEventRecorder.recordRunFailed(
+          run.metadata.error ?? "One or more tasks failed",
+          this.getRunDurationMs(run),
+        );
+      }
       await this.runRepo.update(run);
       console.log(`[run/engine] Completed run ${runId}`);
       console.log(
@@ -501,9 +558,15 @@ export class RunEngine implements IRunEngine {
     tools: Record<string, CoreTool>,
   ): Promise<Response> {
     console.log(`[run/engine] Agentic loop execution active for run ${run.id}`);
+    const previousStatus = run.status;
     run.transition("RUNNING");
     recordPhaseSelectionSnapshot(run, "execution");
     recordLifecycleStep(run, "TASK_EXECUTING", "agentic_loop");
+    await this.runEventRecorder.recordRunStatusChanged(
+      previousStatus,
+      run.status,
+      RUN_WORKFLOW_STEPS.EXECUTION,
+    );
     await this.runRepo.update(run);
 
     const loop = new AgenticLoop(
@@ -521,6 +584,39 @@ export class RunEngine implements IRunEngine {
       modelId: input.modelId,
       providerId: input.providerId,
       temperature: 0.2,
+      onToolRequested: async (toolCall) => {
+        await this.runEventRecorder.recordToolRequested({
+          id: toolCall.id,
+          type: toolCall.toolName,
+          input: toolCall.args,
+        });
+      },
+      onToolStarted: async (toolCall) => {
+        await this.runEventRecorder.recordToolStarted({
+          id: toolCall.id,
+          type: toolCall.toolName,
+        });
+      },
+      onToolCompleted: async (toolCall, result, executionTimeMs) => {
+        await this.runEventRecorder.recordToolCompleted(
+          {
+            id: toolCall.id,
+            type: toolCall.toolName,
+          },
+          result,
+          executionTimeMs,
+        );
+      },
+      onToolFailed: async (toolCall, error, executionTimeMs) => {
+        await this.runEventRecorder.recordToolFailed(
+          {
+            id: toolCall.id,
+            type: toolCall.toolName,
+          },
+          error,
+          executionTimeMs,
+        );
+      },
     });
 
     recordAgenticLoopMetadata(run, loopResult);
@@ -550,6 +646,23 @@ export class RunEngine implements IRunEngine {
           phase: role === "user" ? "planning" : "synthesis",
         });
       }
+    }
+  }
+
+  private async recordRunMessages(messages: CoreMessage[]): Promise<void> {
+    for (const message of messages) {
+      if (
+        typeof message.content !== "string" ||
+        (message.role !== "user" &&
+          message.role !== "assistant" &&
+          message.role !== "system")
+      ) {
+        continue;
+      }
+      await this.runEventRecorder.recordMessageEmitted(
+        message.role,
+        message.content,
+      );
     }
   }
 
@@ -610,6 +723,7 @@ export class RunEngine implements IRunEngine {
           previousStatus: existing.status,
           taskRepo: this.taskRepo,
           runRepo: this.runRepo,
+          clearRunEvents: () => this.runEventRecorder.clear(),
           createFreshRun: this.createFreshRun.bind(this),
         });
       }
@@ -747,6 +861,11 @@ export class RunEngine implements IRunEngine {
   ): Promise<Response> {
     const sanitizedText = sanitizeUserFacingOutput(text);
     recordLifecycleStep(run, "SYNTHESIS");
+    await this.runEventRecorder.recordRunStatusChanged(
+      run.status,
+      run.status,
+      RUN_WORKFLOW_STEPS.SYNTHESIS,
+    );
 
     await this.safeMemoryOperation(() =>
       this.memoryCoordinator.extractAndPersist({
@@ -781,6 +900,14 @@ export class RunEngine implements IRunEngine {
     recordPhaseSelectionSnapshot(run, "synthesis");
     recordOrchestrationTerminal(run);
     run.output = { content: sanitizedText };
+    await this.runEventRecorder.recordMessageEmitted(
+      "assistant",
+      sanitizedText,
+    );
+    await this.runEventRecorder.recordRunCompleted(
+      this.getRunDurationMs(run),
+      run.metadata.agenticLoop?.toolExecutionCount ?? 0,
+    );
     await this.runRepo.update(run);
     console.log(`[run/engine] Completed assistant run ${run.id}`);
 
@@ -794,6 +921,11 @@ export class RunEngine implements IRunEngine {
   ): Promise<Response> {
     const sanitizedText = sanitizeUserFacingOutput(text);
     recordLifecycleStep(run, "SYNTHESIS", "planning_recovery");
+    await this.runEventRecorder.recordRunStatusChanged(
+      run.status,
+      run.status,
+      RUN_WORKFLOW_STEPS.SYNTHESIS,
+    );
 
     await this.safeMemoryOperation(() =>
       this.memoryCoordinator.extractAndPersist({
@@ -821,6 +953,14 @@ export class RunEngine implements IRunEngine {
     recordLifecycleStep(run, "TERMINAL", "status=COMPLETED:recoverable");
     recordOrchestrationTerminal(run);
     run.output = { content: sanitizedText };
+    await this.runEventRecorder.recordMessageEmitted(
+      "assistant",
+      sanitizedText,
+    );
+    await this.runEventRecorder.recordRunCompleted(
+      this.getRunDurationMs(run),
+      0,
+    );
     await this.runRepo.update(run);
 
     console.log(`[run/engine] Completed run ${run.id} with recoverable error`);
@@ -891,6 +1031,12 @@ export class RunEngine implements IRunEngine {
         recordLifecycleStep(run, "TERMINAL", "status=FAILED");
         recordOrchestrationTerminal(run);
         run.metadata.error = errorMessage;
+        if (run.status === "FAILED") {
+          await this.runEventRecorder.recordRunFailed(
+            errorMessage,
+            this.getRunDurationMs(run),
+          );
+        }
         await this.runRepo.update(run);
       }
     } catch (handlerError) {
@@ -921,6 +1067,15 @@ export class RunEngine implements IRunEngine {
   }
   async getRun(runId: string) {
     return this.runRepo.getById(runId);
+  }
+
+  private getRunDurationMs(run: Run): number {
+    const startedAt = run.metadata.startedAt ?? run.createdAt.toISOString();
+    const startedAtMs = Date.parse(startedAt);
+    if (Number.isNaN(startedAtMs)) {
+      return 0;
+    }
+    return Math.max(0, Date.now() - startedAtMs);
   }
 
   private getUnknownPricingMode(env: RunEngineEnv): "warn" | "block" {

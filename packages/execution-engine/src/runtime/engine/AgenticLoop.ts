@@ -53,10 +53,12 @@ interface AgenticLoopHooks {
   onToolCompleted?: (
     toolCall: AgenticLoopToolCall,
     result: unknown,
+    executionTimeMs: number,
   ) => Promise<void>;
   onToolFailed?: (
     toolCall: AgenticLoopToolCall,
     error: string,
+    executionTimeMs: number,
   ) => Promise<void>;
 }
 
@@ -219,7 +221,7 @@ export class AgenticLoop {
             const message = `Tool "${toolCall.toolName}" is not registered for this run`;
             console.warn(`[agentic-loop] ${message} (call: ${toolCall.id})`);
             this.recordToolLifecycle(toolCall, "failed", message);
-            await context.onToolFailed?.(toolCall, message);
+            await context.onToolFailed?.(toolCall, message, 0);
             toolResults.push({
               toolId: toolCall.id,
               toolName: toolCall.toolName,
@@ -234,10 +236,12 @@ export class AgenticLoop {
           );
 
           const toolTask = this.createToolTask(toolCall.id, toolCall);
+          const toolStartedAt = Date.now();
           this.recordToolLifecycle(toolCall, "started");
           await context.onToolStarted?.(toolCall);
 
           const result = await this.executor.execute(toolTask);
+          const executionTimeMs = Date.now() - toolStartedAt;
 
           if (result.status === "DONE") {
             this.recordToolLifecycle(
@@ -248,6 +252,7 @@ export class AgenticLoop {
             await context.onToolCompleted?.(
               toolCall,
               result.output?.content ?? null,
+              executionTimeMs,
             );
             toolResults.push({
               toolId: toolCall.id,
@@ -258,7 +263,7 @@ export class AgenticLoop {
             this.failedToolCount++;
             const toolError = result.error?.message || "Tool execution failed";
             this.recordToolLifecycle(toolCall, "failed", toolError);
-            await context.onToolFailed?.(toolCall, toolError);
+            await context.onToolFailed?.(toolCall, toolError, executionTimeMs);
             toolResults.push({
               toolId: toolCall.id,
               toolName: toolCall.toolName,
@@ -270,8 +275,9 @@ export class AgenticLoop {
           this.failedToolCount++;
           const errorMessage =
             error instanceof Error ? error.message : "Unknown error";
+          const executionTimeMs = 0;
           this.recordToolLifecycle(toolCall, "failed", errorMessage);
-          await context.onToolFailed?.(toolCall, errorMessage);
+          await context.onToolFailed?.(toolCall, errorMessage, executionTimeMs);
           console.error(
             `[agentic-loop] Tool execution failed: ${toolCall.toolName}`,
             error,

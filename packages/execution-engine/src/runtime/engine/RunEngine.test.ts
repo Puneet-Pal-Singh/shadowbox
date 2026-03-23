@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { RUN_EVENT_TYPES } from "@repo/shared-types";
+import { RUN_EVENT_TYPES, RUN_WORKFLOW_STEPS } from "@repo/shared-types";
 import { RunEngine, type RunEngineDependencies } from "./RunEngine.js";
 import { sanitizeUserFacingOutput } from "./RunOutputSanitizer.js";
 import type { PlannedTask } from "../planner/PlanSchema.js";
@@ -286,9 +286,55 @@ describe("RunEngine", () => {
     expect(planner.plan).toHaveBeenCalledTimes(1);
   });
 
-  it.skip("emits canonical run and tool lifecycle events for direct execution runs", async () => {
+  it("emits canonical run and tool lifecycle events for build-mode tool runs", async () => {
     const state = new MockRuntimeState();
-    const runEngine = createRunEngineForRun({ state });
+    const llmGateway: ILLMGateway = {
+      generateText: vi
+        .fn()
+        .mockResolvedValueOnce({
+          text: "Reading the requested file.",
+          toolCalls: [
+            {
+              id: "call-1",
+              toolName: "read_file",
+              args: { path: "README.md" },
+            },
+          ],
+          usage: {
+            provider: "mock",
+            model: "mock-model",
+            promptTokens: 3,
+            completionTokens: 6,
+            totalTokens: 9,
+          },
+        })
+        .mockResolvedValueOnce({
+          text: "README reviewed.",
+          toolCalls: [],
+          usage: {
+            provider: "mock",
+            model: "mock-model",
+            promptTokens: 4,
+            completionTokens: 5,
+            totalTokens: 9,
+          },
+        }),
+      generateStructured: vi.fn(async () => {
+        throw new Error(
+          "structured planning should be inactive for build mode",
+        );
+      }),
+      generateStream: async () =>
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.close();
+          },
+        }),
+    };
+    const runEngine = createRunEngineForRun({
+      state,
+      dependencies: { llmGateway },
+    });
 
     const response = await runEngine.execute(
       {
@@ -305,16 +351,25 @@ describe("RunEngine", () => {
     const events = await new RunEventRepository(state).getByRun(TEST_RUN_ID);
     expect(events.map((event) => event.type)).toEqual([
       RUN_EVENT_TYPES.RUN_STARTED,
+      RUN_EVENT_TYPES.RUN_STATUS_CHANGED,
       RUN_EVENT_TYPES.MESSAGE_EMITTED,
       RUN_EVENT_TYPES.RUN_STATUS_CHANGED,
       RUN_EVENT_TYPES.TOOL_REQUESTED,
-      RUN_EVENT_TYPES.RUN_STATUS_CHANGED,
       RUN_EVENT_TYPES.TOOL_STARTED,
       RUN_EVENT_TYPES.TOOL_COMPLETED,
-      RUN_EVENT_TYPES.MESSAGE_EMITTED,
       RUN_EVENT_TYPES.RUN_STATUS_CHANGED,
+      RUN_EVENT_TYPES.MESSAGE_EMITTED,
       RUN_EVENT_TYPES.RUN_COMPLETED,
     ]);
+    expect(events[1]).toMatchObject({
+      payload: { workflowStep: RUN_WORKFLOW_STEPS.PLANNING },
+    });
+    expect(events[3]).toMatchObject({
+      payload: { workflowStep: RUN_WORKFLOW_STEPS.EXECUTION },
+    });
+    expect(events[7]).toMatchObject({
+      payload: { workflowStep: RUN_WORKFLOW_STEPS.SYNTHESIS },
+    });
   });
 
   it.skip("executes direct write-file requests through CodingAgent without planner decomposition", async () => {

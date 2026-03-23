@@ -182,6 +182,48 @@ describe("AgenticLoop - Bounded Agentic Tool Chaining", () => {
       expect(executor.execute).toHaveBeenCalledTimes(1);
     });
 
+    it("passes execution timing to tool lifecycle hooks", async () => {
+      vi.mocked(llmGateway.generateText!)
+        .mockResolvedValueOnce({
+          text: "Calling tool",
+          toolCalls: [
+            {
+              id: "tool-call-1",
+              toolName: "read_file",
+              args: { path: "README.md" },
+            },
+          ],
+          usage: { promptTokens: 10, completionTokens: 5 },
+        })
+        .mockResolvedValueOnce({
+          text: "Done",
+          toolCalls: [],
+          usage: { promptTokens: 12, completionTokens: 6 },
+        });
+
+      vi.mocked(executor.execute!).mockResolvedValue({
+        taskId: "tool-call-1",
+        status: "DONE",
+        output: { content: "README content" },
+        completedAt: new Date(),
+      });
+
+      const onToolCompleted = vi.fn(async () => undefined);
+      const tools = {
+        read_file: {
+          description: "Read a file",
+        },
+      } as unknown as Record<string, import("ai").CoreTool>;
+
+      await loop.execute([{ role: "user", content: "read readme" }], tools, {
+        agentType: "coding",
+        onToolCompleted,
+      });
+
+      expect(onToolCompleted).toHaveBeenCalledTimes(1);
+      expect(onToolCompleted.mock.calls[0]?.[2]).toEqual(expect.any(Number));
+    });
+
     it("stops with tool_error when LLM requests an unregistered tool", async () => {
       vi.mocked(llmGateway.generateText!).mockResolvedValue({
         text: "calling unknown tool",
