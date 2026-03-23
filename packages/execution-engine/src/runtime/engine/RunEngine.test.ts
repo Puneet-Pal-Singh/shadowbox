@@ -39,7 +39,7 @@ describe("RunEngine", () => {
     expect(task.input.command).toBe("node --version");
   });
 
-  it("uses model-selected chat mode for greeting prompts", async () => {
+  it("routes build-mode greetings through the canonical tool-capable loop", async () => {
     const generateText = vi.fn(async () => ({
       text: "ok",
       usage: {
@@ -50,19 +50,11 @@ describe("RunEngine", () => {
         totalTokens: 2,
       },
     }));
-    const generateStructured = vi.fn(async () => ({
-      object: { mode: "chat", rationale: "simple greeting" },
-      usage: {
-        provider: "mock",
-        model: "mock-model",
-        promptTokens: 1,
-        completionTokens: 1,
-        totalTokens: 2,
-      },
-    }));
     const llmGateway: ILLMGateway = {
       generateText,
-      generateStructured,
+      generateStructured: vi.fn(async () => {
+        throw new Error("structured turn classification should be inactive");
+      }),
       generateStream: async () =>
         new ReadableStream<Uint8Array>({
           start(controller) {
@@ -84,15 +76,14 @@ describe("RunEngine", () => {
 
     expect(response.status).toBe(200);
     expect(await response.text()).toBe("ok");
-    expect(generateStructured).toHaveBeenCalledTimes(1);
     expect(generateText).toHaveBeenCalledTimes(1);
-    const modeRequest = generateStructured.mock.calls[0]?.[0] as {
+    const buildRequest = generateText.mock.calls[0]?.[0] as {
       context?: { phase?: string };
     };
-    expect(modeRequest.context?.phase).toBe("planning");
+    expect(buildRequest.context?.phase).toBe("task");
   });
 
-  it("returns a user-facing recovery message when structured planning output is invalid", async () => {
+  it("returns a user-facing recovery message when explicit plan mode produces invalid structured output", async () => {
     const llmGateway: ILLMGateway = {
       generateText: async () => ({
         text: "unused",
@@ -106,17 +97,7 @@ describe("RunEngine", () => {
       }),
       generateStructured: vi
         .fn()
-        .mockResolvedValueOnce({
-          object: { mode: "action", rationale: "needs tools" },
-          usage: {
-            provider: "mock",
-            model: "mock-model",
-            promptTokens: 1,
-            completionTokens: 1,
-            totalTokens: 2,
-          },
-        })
-        .mockRejectedValueOnce(
+        .mockRejectedValue(
           new Error("No object generated: response did not match schema."),
         ),
       generateStream: async () =>
@@ -131,6 +112,7 @@ describe("RunEngine", () => {
     const response = await runEngine.execute(
       {
         agentType: "coding",
+        mode: "plan",
         prompt: "continue with that",
         sessionId: "session-1",
       },
@@ -163,57 +145,62 @@ describe("RunEngine", () => {
     );
   });
 
-  it.skip("skips planner decomposition for direct read-file requests", async () => {
+  it("build mode bypasses planner and reads files through the canonical tool loop", async () => {
     const planner = {
       plan: vi.fn(async () => {
         throw new Error(
-          "planner should not be called for direct read requests",
-        );
-      }),
-    } as unknown as RunEngineDependencies["planner"];
-    const runEngine = createRunEngine({ planner });
-
-    const response = await runEngine.execute(
-      {
-        agentType: "coding",
-        prompt: "read README.md",
-        sessionId: "session-1",
-      },
-      [{ role: "user", content: "read README.md" }],
-      {},
-    );
-
-    expect(response.status).toBe(200);
-    expect(planner.plan).not.toHaveBeenCalled();
-
-    const privateApi = runEngine as unknown as {
-      taskRepo: {
-        getByRun(
-          runId: string,
-        ): Promise<Array<{ type: string; input: Record<string, unknown> }>>;
-      };
-    };
-    const tasks = await privateApi.taskRepo.getByRun(TEST_RUN_ID);
-    expect(tasks).toHaveLength(1);
-    expect(tasks[0]?.type).toBe("read_file");
-    expect(tasks[0]?.input.path).toBe("README.md");
-  });
-
-  it.skip("executes direct run-command requests through CodingAgent without planner decomposition", async () => {
-    const planner = {
-      plan: vi.fn(async () => {
-        throw new Error(
-          "planner should not be called for direct command requests",
+          "planner should not be called for build-mode read requests",
         );
       }),
     } as unknown as RunEngineDependencies["planner"];
     const executionService: RuntimeExecutionService = {
       execute: vi.fn(async () => ({
         success: true,
-        output: "test suite passed",
+        output: "# Shadowbox\n",
       })),
     };
-    const llmGateway = createMockLLMGateway();
+    const generateText = vi
+      .fn()
+      .mockResolvedValueOnce({
+        text: "Reading the requested file.",
+        toolCalls: [
+          {
+            id: "call-1",
+            toolName: "read_file",
+            args: { path: "README.md" },
+          },
+        ],
+        usage: {
+          provider: "mock",
+          model: "mock-model",
+          promptTokens: 3,
+          completionTokens: 6,
+          totalTokens: 9,
+        },
+      })
+      .mockResolvedValueOnce({
+        text: "README reviewed.",
+        toolCalls: [],
+        usage: {
+          provider: "mock",
+          model: "mock-model",
+          promptTokens: 4,
+          completionTokens: 5,
+          totalTokens: 9,
+        },
+      });
+    const llmGateway: ILLMGateway = {
+      generateText,
+      generateStructured: vi.fn(async () => {
+        throw new Error("structured planning should be inactive for build mode");
+      }),
+      generateStream: async () =>
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.close();
+          },
+        }),
+    };
     const runEngine = new RunEngine(
       new MockRuntimeState(),
       {
@@ -229,18 +216,69 @@ describe("RunEngine", () => {
     const response = await runEngine.execute(
       {
         agentType: "coding",
-        prompt: "run pnpm test -- src/runtime/engine",
+        prompt: "read README.md",
         sessionId: "session-1",
       },
-      [{ role: "user", content: "run pnpm test -- src/runtime/engine" }],
+      [{ role: "user", content: "read README.md" }],
       {},
     );
 
     expect(response.status).toBe(200);
+    expect(await response.text()).toContain("README reviewed.");
     expect(planner.plan).not.toHaveBeenCalled();
-    expect(executionService.execute).toHaveBeenCalledWith("node", "run", {
-      command: "pnpm test -- src/runtime/engine",
-    });
+    expect(executionService.execute).toHaveBeenCalledWith(
+      "filesystem",
+      "read_file",
+      { path: "README.md" },
+    );
+  });
+
+  it("keeps build mode running when planner would fail, because planner is inactive", async () => {
+    const planner = {
+      plan: vi.fn(async () => {
+        throw new Error("planner timed out");
+      }),
+    } as unknown as RunEngineDependencies["planner"];
+    const llmGateway = createMockLLMGateway();
+    const runEngine = createRunEngine({ llmGateway, planner });
+
+    const response = await runEngine.execute(
+      {
+        agentType: "coding",
+        prompt: "hello there",
+        sessionId: "session-1",
+      },
+      [{ role: "user", content: "hello there" }],
+      {},
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe("ok");
+    expect(planner.plan).not.toHaveBeenCalled();
+  });
+
+  it("keeps explicit plan mode on the structured planner path", async () => {
+    const planner = {
+      plan: vi.fn(async () => ({
+        tasks: [],
+        metadata: { estimatedSteps: 1 },
+      })),
+    } as unknown as RunEngineDependencies["planner"];
+    const runEngine = createRunEngine({ llmGateway: createMockLLMGateway(), planner });
+
+    const response = await runEngine.execute(
+      {
+        agentType: "coding",
+        mode: "plan",
+        prompt: "make a plan for the README changes",
+        sessionId: "session-1",
+      },
+      [{ role: "user", content: "make a plan for the README changes" }],
+      {},
+    );
+
+    expect(response.status).toBe(200);
+    expect(planner.plan).toHaveBeenCalledTimes(1);
   });
 
   it.skip("emits canonical run and tool lifecycle events for direct execution runs", async () => {
@@ -420,7 +458,7 @@ describe("RunEngine", () => {
     expect(persisted?.metadata.agenticLoop?.toolExecutionCount).toBe(1);
   });
 
-  it("uses an extended timeout budget for conversational responses", async () => {
+  it("answers build-mode prompts without invoking structured turn classification", async () => {
     const generateText = vi.fn(async () => ({
       text: "Longer budget applied.",
       usage: {
@@ -465,10 +503,11 @@ describe("RunEngine", () => {
 
     expect(response.status).toBe(200);
     expect(await response.text()).toBe("Longer budget applied.");
-    const synthesisRequest = generateText.mock.calls[0]?.[0] as {
-      timeoutMs?: number;
+    expect(generateStructured).not.toHaveBeenCalled();
+    const buildRequest = generateText.mock.calls[0]?.[0] as {
+      context?: { phase?: string };
     };
-    expect(synthesisRequest.timeoutMs).toBe(60_000);
+    expect(buildRequest.context?.phase).toBe("task");
   });
 
   it("completes the golden-flow tool roundtrip in one agentic run", async () => {
@@ -986,6 +1025,7 @@ describe("RunEngine", () => {
     const response = await runEngine.execute(
       {
         agentType: "coding",
+        mode: "plan",
         prompt: "implement a tiny command task",
         sessionId: "session-1",
         providerId: "openai",

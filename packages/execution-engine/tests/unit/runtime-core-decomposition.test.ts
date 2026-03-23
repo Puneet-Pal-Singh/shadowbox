@@ -22,9 +22,10 @@ describe("runtime core decomposition guard", () => {
     expect(runEngineLineCount).toBeLessThanOrEqual(RUN_ENGINE_MAX_LINES);
     expect(taskSchedulerLineCount).toBeLessThanOrEqual(TASK_SCHEDULER_MAX_LINES);
 
-    expect(runEngineSource).toContain('from "./ConversationPolicy.js"');
+    expect(runEngineSource).toContain('from "./RunAgenticLoopPolicy.js"');
     expect(runEngineSource).toContain('from "./RunOutputSanitizer.js"');
     expect(runEngineSource).toContain('from "./RunStatusPolicy.js"');
+    expect(runEngineSource).not.toContain('from "./ConversationPolicy.js"');
 
     expect(runEngineSource).not.toContain("private buildConversationalSystemPrompt(");
     expect(runEngineSource).not.toContain("private sanitizeUserFacingOutput(");

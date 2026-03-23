@@ -19,6 +19,7 @@ import { PlannerService } from "../planner/index.js";
 import { TaskScheduler, type TaskExecutor } from "../orchestration/index.js";
 import { DefaultTaskExecutor, AgentTaskExecutor } from "./TaskExecutor.js";
 import { AgenticLoop } from "./AgenticLoop.js";
+import { enforceGoldenFlowToolFloor } from "../contracts/CodingToolGateway.js";
 import type {
   RunInput,
   RunStatus,
@@ -30,7 +31,6 @@ import type {
 import type { Plan, PlannedTask } from "../planner/index.js";
 import {
   LLMGateway,
-  LLMTimeoutError,
   type ILLMGateway,
   type LLMRuntimeAIService,
 } from "../llm/index.js";
@@ -47,7 +47,6 @@ import {
   processPermissionDirectives as processPermissionDirectivesPolicy,
 } from "./RunPermissionWorkspacePolicy.js";
 import { createRunManifest, ensureManifestMatch } from "./RunManifestPolicy.js";
-import { buildConversationalSystemPrompt } from "./ConversationPolicy.js";
 import { sanitizeUserFacingOutput } from "./RunOutputSanitizer.js";
 import {
   applyFinalRunStatus,
@@ -59,7 +58,6 @@ import {
   buildAgenticLoopFinalOutput,
   getAgenticLoopMaxSteps,
   recordAgenticLoopMetadata,
-  resolveAgenticLoopTools,
 } from "./RunAgenticLoopPolicy.js";
 import {
   isPlatformApprovalOwner,
@@ -70,10 +68,6 @@ import {
 } from "./RunMetadataPolicy.js";
 import { resetRecyclableRun } from "./RunRecyclableResetPolicy.js";
 import { applyReviewerPassIfEnabled } from "./RunReviewerPassPolicy.js";
-import {
-  determineTurnMode as determineTurnModePolicy,
-  type TurnMode,
-} from "./RunTurnModePolicy.js";
 import { buildPlanningRecoveryMessage } from "./RunPlanningRecoveryPolicy.js";
 import { synthesizeResultFromTasks } from "./RunSynthesisPolicy.js";
 
@@ -116,8 +110,6 @@ export interface RunEngineDependencies {
   sessionMemoryClient?: MemoryCoordinatorDependencies["sessionMemoryClient"];
   workspaceBootstrapper?: WorkspaceBootstrapper;
 }
-
-const CONVERSATIONAL_RESPONSE_TIMEOUT_MS = 60_000;
 
 export class RunEngine implements IRunEngine {
   private runRepo: RunRepository;
@@ -294,42 +286,6 @@ export class RunEngine implements IRunEngine {
         );
       }
 
-      let turnMode: TurnMode;
-      try {
-        const decision = await determineTurnModePolicy({
-          llmGateway: this.llmGateway,
-          run,
-          prompt: input.prompt,
-          messages,
-          repositoryContext: input.repositoryContext,
-        });
-        turnMode = decision.mode;
-      } catch (turnModeError) {
-        const recoveryResponse = await this.tryHandlePlanningError(
-          run,
-          runId,
-          turnModeError,
-        );
-        if (recoveryResponse) {
-          return recoveryResponse;
-        }
-        throw turnModeError;
-      }
-      if (turnMode === "chat") {
-        console.log(
-          `[run/engine] Model-selected conversational mode for run ${runId}`,
-        );
-        const response = await this.executeConversationalTurn(
-          run,
-          input,
-          messages,
-        );
-        console.log(
-          `[run/timing] run=${runId} step=total elapsedMs=${Date.now() - runStartedAt} status=${run.status} mode=chat`,
-        );
-        return response;
-      }
-
       if (isPlatformApprovalOwner(run.metadata.manifest)) {
         const permissionMessage = await getPermissionPolicyMessage(
           input.prompt,
@@ -356,6 +312,7 @@ export class RunEngine implements IRunEngine {
         );
       }
 
+      const runMode = run.metadata.manifest?.mode ?? "build";
       const bootstrapMessage = await getWorkspaceBootstrapMessage(
         run.id,
         input.repositoryContext,
@@ -371,20 +328,16 @@ export class RunEngine implements IRunEngine {
         );
       }
 
-      const agenticLoopTools = resolveAgenticLoopTools(
-        run.input.metadata,
-        tools,
-      );
-      if (agenticLoopTools) {
+      if (runMode === "build") {
         return await this.executeAgenticLoopPath(
           run,
           input,
           messages,
-          agenticLoopTools,
+          enforceGoldenFlowToolFloor(tools),
         );
       }
 
-      console.log(`[run/engine] Planning phase for run ${runId}`);
+      console.log(`[run/engine] Explicit plan mode planning phase for run ${runId}`);
       try {
         run.transition("PLANNING");
         recordPhaseSelectionSnapshot(run, "planning");
@@ -770,42 +723,6 @@ export class RunEngine implements IRunEngine {
     });
   }
 
-  private async executeConversationalTurn(
-    run: Run,
-    input: RunInput,
-    messages: CoreMessage[],
-  ): Promise<Response> {
-    run.transition("RUNNING");
-    await this.runRepo.update(run);
-
-    try {
-      const result = await this.llmGateway.generateText({
-        context: {
-          runId: run.id,
-          sessionId: run.sessionId,
-          agentType: run.agentType,
-          phase: "synthesis",
-        },
-        messages,
-        system: buildConversationalSystemPrompt(),
-        model: input.modelId,
-        providerId: input.providerId,
-        temperature: 0.7,
-        timeoutMs: CONVERSATIONAL_RESPONSE_TIMEOUT_MS,
-      });
-      return this.completeRunWithAssistantMessage(run, result.text);
-    } catch (error) {
-      if (error instanceof LLMTimeoutError && error.phase === "synthesis") {
-        return this.completeRunWithRecoveredAssistantMessage(
-          run,
-          "The model took too long to respond. Please retry, or switch to a faster model for quick chat turns.",
-          error.message,
-        );
-      }
-      throw error;
-    }
-  }
-
   private createStreamResponse(content: string): Response {
     const safeContent = sanitizeUserFacingOutput(content);
     const encoder = new TextEncoder();
@@ -865,7 +782,7 @@ export class RunEngine implements IRunEngine {
     recordOrchestrationTerminal(run);
     run.output = { content: sanitizedText };
     await this.runRepo.update(run);
-    console.log(`[run/engine] Completed conversational run ${run.id}`);
+    console.log(`[run/engine] Completed assistant run ${run.id}`);
 
     return this.createStreamResponse(sanitizedText);
   }
