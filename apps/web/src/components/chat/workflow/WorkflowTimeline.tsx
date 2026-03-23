@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import type { RunEvent } from "@repo/shared-types";
 import {
   buildWorkflowTimelineViewModel,
@@ -14,6 +14,8 @@ interface WorkflowTimelineProps {
   onJumpToLatest?: () => void;
 }
 
+type WorkflowBlocks = ReturnType<typeof buildWorkflowTimelineViewModel>["blocks"];
+
 export function WorkflowTimeline({
   events,
   summary,
@@ -24,64 +26,19 @@ export function WorkflowTimeline({
     () => buildWorkflowTimelineViewModel({ events, summary }),
     [events, summary],
   );
-  const [expandedBlocks, setExpandedBlocks] = useState<Record<string, boolean>>(
-    {},
-  );
+  const [expandedBlocks, setExpandedBlocks] = useState<Record<string, boolean>>({});
   const [expandedRows, setExpandedRows] = useState<Record<string, boolean>>({});
   const [acknowledgedEventCounts, setAcknowledgedEventCounts] = useState<
     Record<string, number>
-  >({});
-
-  useEffect(() => {
-    setExpandedBlocks((previous) =>
-      syncExpansionState(
-        previous,
-        viewModel.blocks.map((block) => ({
-          key: block.key,
-          expanded: !block.defaultCollapsed,
-        })),
+  >(() => buildAcknowledgedEventCounts(viewModel.blocks));
+  const effectiveAcknowledgedEventCounts = useMemo(
+    () =>
+      buildEffectiveAcknowledgedEventCounts(
+        viewModel.blocks,
+        acknowledgedEventCounts,
       ),
-    );
-
-    setExpandedRows((previous) =>
-      syncExpansionState(
-        previous,
-        viewModel.blocks.flatMap((block) =>
-          block.rows
-            .filter((row) => row.kind === "tool")
-            .map((row) => ({
-              key: row.key,
-              expanded: !row.defaultCollapsed,
-            })),
-        ),
-      ),
-    );
-
-    setAcknowledgedEventCounts((previous) => {
-      const next: Record<string, number> = {};
-      let changed = false;
-
-      for (const block of viewModel.blocks) {
-        const expanded = expandedBlocks[block.key] ?? !block.defaultCollapsed;
-        const value = expanded
-          ? block.eventCount
-          : (previous[block.key] ?? block.eventCount);
-        next[block.key] = value;
-        if (previous[block.key] !== value) {
-          changed = true;
-        }
-      }
-
-      if (
-        !changed &&
-        Object.keys(previous).length === viewModel.blocks.length
-      ) {
-        return previous;
-      }
-
-      return next;
-    });
-  }, [expandedBlocks, viewModel.blocks]);
+    [acknowledgedEventCounts, viewModel.blocks],
+  );
 
   if (events.length === 0 && !summary && !isLoading) {
     return null;
@@ -92,6 +49,10 @@ export function WorkflowTimeline({
       <RunSummaryStrip
         summary={viewModel.summary}
         onExpandAll={() => {
+          setAcknowledgedEventCounts((previous) => ({
+            ...previous,
+            ...buildAcknowledgedEventCounts(viewModel.blocks),
+          }));
           setExpandedBlocks(
             Object.fromEntries(
               viewModel.blocks.map((block) => [block.key, true]),
@@ -104,11 +65,6 @@ export function WorkflowTimeline({
                   .filter((row) => row.kind === "tool")
                   .map((row) => [row.key, true]),
               ),
-            ),
-          );
-          setAcknowledgedEventCounts(
-            Object.fromEntries(
-              viewModel.blocks.map((block) => [block.key, block.eventCount]),
             ),
           );
         }}
@@ -145,7 +101,7 @@ export function WorkflowTimeline({
             expanded={expandedBlocks[block.key] ?? !block.defaultCollapsed}
             newEventCount={getNewEventCount(
               block.eventCount,
-              acknowledgedEventCounts[block.key] ?? block.eventCount,
+              effectiveAcknowledgedEventCounts[block.key] ?? block.eventCount,
               expandedBlocks[block.key] ?? !block.defaultCollapsed,
             )}
             expandedRows={expandedRows}
@@ -153,16 +109,16 @@ export function WorkflowTimeline({
               const nextExpanded = !(
                 expandedBlocks[block.key] ?? !block.defaultCollapsed
               );
-              setExpandedBlocks((previous) => ({
-                ...previous,
-                [block.key]: nextExpanded,
-              }));
               if (nextExpanded) {
                 setAcknowledgedEventCounts((previous) => ({
                   ...previous,
                   [block.key]: block.eventCount,
                 }));
               }
+              setExpandedBlocks((previous) => ({
+                ...previous,
+                [block.key]: nextExpanded,
+              }));
             }}
             onToggleRow={(rowKey) => {
               const row = block.rows.find(
@@ -184,22 +140,23 @@ export function WorkflowTimeline({
   );
 }
 
-function syncExpansionState(
-  previous: Record<string, boolean>,
-  entries: Array<{ key: string; expanded: boolean }>,
-): Record<string, boolean> {
-  const next: Record<string, boolean> = {};
-  let changed = Object.keys(previous).length !== entries.length;
+function buildAcknowledgedEventCounts(
+  blocks: WorkflowBlocks,
+): Record<string, number> {
+  return Object.fromEntries(
+    blocks.map((block) => [block.key, block.eventCount]),
+  );
+}
 
-  for (const entry of entries) {
-    const value = previous[entry.key] ?? entry.expanded;
-    next[entry.key] = value;
-    if (previous[entry.key] !== value) {
-      changed = true;
-    }
+function buildEffectiveAcknowledgedEventCounts(
+  blocks: WorkflowBlocks,
+  acknowledgedEventCounts: Record<string, number>,
+): Record<string, number> {
+  const next: Record<string, number> = {};
+  for (const block of blocks) {
+    next[block.key] = acknowledgedEventCounts[block.key] ?? block.eventCount;
   }
-
-  return changed ? next : previous;
+  return next;
 }
 
 function getNewEventCount(
