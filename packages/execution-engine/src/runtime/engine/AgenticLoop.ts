@@ -13,7 +13,9 @@ import {
 import type { ILLMGateway } from "../llm/index.js";
 import type { IBudgetManager } from "../cost/index.js";
 import type { TaskExecutor } from "../orchestration/index.js";
+import { isMutatingGoldenFlowToolName } from "../contracts/CodingToolGateway.js";
 import { Task } from "../task/index.js";
+import type { AgenticLoopToolLifecycleEvent } from "../types.js";
 
 export interface AgenticLoopConfig {
   maxSteps: number;
@@ -41,6 +43,7 @@ export interface AgenticLoopResult {
   toolExecutionCount: number;
   failedToolCount: number;
   stepsExecuted: number;
+  toolLifecycle: AgenticLoopToolLifecycleEvent[];
 }
 
 interface AgenticLoopHooks {
@@ -68,6 +71,7 @@ export class AgenticLoop {
   private stepsExecuted: number = 0;
   private toolExecutionCount: number = 0;
   private failedToolCount: number = 0;
+  private toolLifecycle: AgenticLoopToolLifecycleEvent[] = [];
 
   constructor(
     config: AgenticLoopConfig,
@@ -96,6 +100,7 @@ export class AgenticLoop {
       temperature?: number;
     } & AgenticLoopHooks,
   ): Promise<AgenticLoopResult> {
+    this.reset();
     const messages: CoreMessage[] = [...initialMessages];
     let stopReason: StopReason = "llm_stop";
 
@@ -103,31 +108,31 @@ export class AgenticLoop {
       this.stepsExecuted = step + 1;
 
       // Check budget before LLM call
-       try {
-         if (this.config.budget) {
-           // Note: AgenticLoop doesn't have actual LLM usage data yet,
-           // so we skip budget check here. In production, this would use
-           // estimated token counts based on message history.
-           const isOverBudget = await this.config.budget.isOverBudget(
-             this.config.runId,
-           );
-           if (isOverBudget) {
-             throw new BudgetExceededError(this.config.runId, 0, 0);
-           }
-         }
-       } catch (error) {
-         if (
-           error instanceof BudgetExceededError ||
-           error instanceof SessionBudgetExceededError
-         ) {
-           console.warn(
-             `[agentic-loop] Budget exceeded at step ${step} for run ${this.config.runId}`,
-           );
-           stopReason = "budget_exceeded";
-           break;
-         }
-         throw error;
-       }
+      try {
+        if (this.config.budget) {
+          // Note: AgenticLoop doesn't have actual LLM usage data yet,
+          // so we skip budget check here. In production, this would use
+          // estimated token counts based on message history.
+          const isOverBudget = await this.config.budget.isOverBudget(
+            this.config.runId,
+          );
+          if (isOverBudget) {
+            throw new BudgetExceededError(this.config.runId, 0, 0);
+          }
+        }
+      } catch (error) {
+        if (
+          error instanceof BudgetExceededError ||
+          error instanceof SessionBudgetExceededError
+        ) {
+          console.warn(
+            `[agentic-loop] Budget exceeded at step ${step} for run ${this.config.runId}`,
+          );
+          stopReason = "budget_exceeded";
+          break;
+        }
+        throw error;
+      }
 
       console.log(
         `[agentic-loop] Step ${step + 1}/${this.config.maxSteps} for run ${this.config.runId}`,
@@ -150,10 +155,7 @@ export class AgenticLoop {
           temperature: context.temperature,
         });
       } catch (error) {
-        console.error(
-          `[agentic-loop] LLM call failed at step ${step}:`,
-          error,
-        );
+        console.error(`[agentic-loop] LLM call failed at step ${step}:`, error);
         throw error;
       }
 
@@ -183,40 +185,40 @@ export class AgenticLoop {
 
       for (const toolCall of response.toolCalls) {
         this.toolExecutionCount++;
+        this.recordToolLifecycle(toolCall, "requested");
         await context.onToolRequested?.(toolCall);
 
         // Check budget before tool execution
-         try {
-           if (this.config.budget) {
-             const isOverBudget = await this.config.budget.isOverBudget(
-               this.config.runId,
-             );
-             if (isOverBudget) {
-               throw new BudgetExceededError(this.config.runId, 0, 0);
-             }
-           }
-         } catch (error) {
-           if (
-             error instanceof BudgetExceededError ||
-             error instanceof SessionBudgetExceededError
-           ) {
-             console.warn(
-               `[agentic-loop] Budget exceeded during tool execution for run ${this.config.runId}`,
-             );
-             stopReason = "budget_exceeded";
-             break;
-           }
-           throw error;
-         }
+        try {
+          if (this.config.budget) {
+            const isOverBudget = await this.config.budget.isOverBudget(
+              this.config.runId,
+            );
+            if (isOverBudget) {
+              throw new BudgetExceededError(this.config.runId, 0, 0);
+            }
+          }
+        } catch (error) {
+          if (
+            error instanceof BudgetExceededError ||
+            error instanceof SessionBudgetExceededError
+          ) {
+            console.warn(
+              `[agentic-loop] Budget exceeded during tool execution for run ${this.config.runId}`,
+            );
+            stopReason = "budget_exceeded";
+            break;
+          }
+          throw error;
+        }
 
         // Execute tool
         try {
           if (!tools[toolCall.toolName]) {
             this.failedToolCount++;
             const message = `Tool "${toolCall.toolName}" is not registered for this run`;
-            console.warn(
-              `[agentic-loop] ${message} (call: ${toolCall.id})`,
-            );
+            console.warn(`[agentic-loop] ${message} (call: ${toolCall.id})`);
+            this.recordToolLifecycle(toolCall, "failed", message);
             await context.onToolFailed?.(toolCall, message);
             toolResults.push({
               toolId: toolCall.id,
@@ -232,11 +234,17 @@ export class AgenticLoop {
           );
 
           const toolTask = this.createToolTask(toolCall.id, toolCall);
+          this.recordToolLifecycle(toolCall, "started");
           await context.onToolStarted?.(toolCall);
 
           const result = await this.executor.execute(toolTask);
 
           if (result.status === "DONE") {
+            this.recordToolLifecycle(
+              toolCall,
+              "completed",
+              summarizeLifecycleDetail(result.output?.content ?? null),
+            );
             await context.onToolCompleted?.(
               toolCall,
               result.output?.content ?? null,
@@ -249,6 +257,7 @@ export class AgenticLoop {
           } else {
             this.failedToolCount++;
             const toolError = result.error?.message || "Tool execution failed";
+            this.recordToolLifecycle(toolCall, "failed", toolError);
             await context.onToolFailed?.(toolCall, toolError);
             toolResults.push({
               toolId: toolCall.id,
@@ -261,6 +270,7 @@ export class AgenticLoop {
           this.failedToolCount++;
           const errorMessage =
             error instanceof Error ? error.message : "Unknown error";
+          this.recordToolLifecycle(toolCall, "failed", errorMessage);
           await context.onToolFailed?.(toolCall, errorMessage);
           console.error(
             `[agentic-loop] Tool execution failed: ${toolCall.toolName}`,
@@ -316,6 +326,7 @@ export class AgenticLoop {
       toolExecutionCount: this.toolExecutionCount,
       failedToolCount: this.failedToolCount,
       stepsExecuted: this.stepsExecuted,
+      toolLifecycle: [...this.toolLifecycle],
     };
   }
 
@@ -327,6 +338,7 @@ export class AgenticLoop {
       stepsExecuted: this.stepsExecuted,
       toolExecutionCount: this.toolExecutionCount,
       failedToolCount: this.failedToolCount,
+      toolLifecycleCount: this.toolLifecycle.length,
       maxSteps: this.config.maxSteps,
     };
   }
@@ -338,6 +350,7 @@ export class AgenticLoop {
     this.stepsExecuted = 0;
     this.toolExecutionCount = 0;
     this.failedToolCount = 0;
+    this.toolLifecycle = [];
   }
 
   private createToolTask(
@@ -349,4 +362,37 @@ export class AgenticLoop {
       ...toolCall.args,
     });
   }
+
+  private recordToolLifecycle(
+    toolCall: Pick<AgenticLoopToolCall, "id" | "toolName">,
+    status: AgenticLoopToolLifecycleEvent["status"],
+    detail?: string,
+  ): void {
+    this.toolLifecycle.push({
+      toolCallId: toolCall.id,
+      toolName: toolCall.toolName,
+      status,
+      mutating: isMutatingGoldenFlowToolName(toolCall.toolName),
+      recordedAt: new Date().toISOString(),
+      detail,
+    });
+  }
+}
+
+function summarizeLifecycleDetail(value: unknown): string | undefined {
+  if (value === null || value === undefined) {
+    return undefined;
+  }
+
+  const raw =
+    typeof value === "string"
+      ? value
+      : (JSON.stringify(value, null, 2) ?? String(value));
+  const normalized = raw.trim();
+  if (!normalized) {
+    return undefined;
+  }
+
+  const compact = normalized.replace(/\s+/g, " ");
+  return compact.length <= 160 ? compact : `${compact.slice(0, 157)}...`;
 }

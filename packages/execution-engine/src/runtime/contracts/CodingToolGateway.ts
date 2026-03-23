@@ -87,12 +87,20 @@ const GOLDEN_FLOW_TOOL_SPECS: Record<GoldenFlowToolName, GoldenFlowToolSpec> = {
   list_files: {
     description: "List files in a workspace directory.",
     parameters: LIST_FILES_TOOL_INPUT_SCHEMA,
-    route: { toolName: "list_files", plugin: "filesystem", action: "list_files" },
+    route: {
+      toolName: "list_files",
+      plugin: "filesystem",
+      action: "list_files",
+    },
   },
   write_file: {
     description: "Write content to a file path in the workspace.",
     parameters: WRITE_FILE_TOOL_INPUT_SCHEMA,
-    route: { toolName: "write_file", plugin: "filesystem", action: "write_file" },
+    route: {
+      toolName: "write_file",
+      plugin: "filesystem",
+      action: "write_file",
+    },
   },
   run_command: {
     description: "Run a bounded Node/shell command in the workspace.",
@@ -133,8 +141,14 @@ export function getGoldenFlowToolNames(): GoldenFlowToolName[] {
   return [...GOLDEN_FLOW_TOOL_NAMES];
 }
 
-export function isGoldenFlowToolName(value: string): value is GoldenFlowToolName {
+export function isGoldenFlowToolName(
+  value: string,
+): value is GoldenFlowToolName {
   return GOLDEN_FLOW_TOOL_NAMES.includes(value as GoldenFlowToolName);
+}
+
+export function isMutatingGoldenFlowToolName(toolName: string): boolean {
+  return toolName === "write_file" || toolName === "run_command";
 }
 
 export function getGoldenFlowToolRoute(
