@@ -31,7 +31,15 @@ describe("ChatController DO runtime migration", () => {
     mockCloudflareAgentExecute.mockResolvedValue(
       new Response(JSON.stringify({ ok: true }), {
         status: 200,
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "X-Shadowbox-Runtime-Name": "brain-run-engine-do",
+          "X-Shadowbox-Runtime-Git-Sha": "run-engine-sha",
+          "X-Shadowbox-Runtime-Started-At": "2026-03-23T00:00:00.000Z",
+          "X-Shadowbox-Runtime-Boot-Id": "run-engine-boot",
+          "X-Shadowbox-Runtime-Fingerprint":
+            "brain-run-engine-do:run-engine-sha:run-engine-boot",
+        },
       }),
     );
   });
@@ -55,6 +63,12 @@ describe("ChatController DO runtime migration", () => {
     );
     expect(response.headers.get("X-Shadowbox-Runtime-Fingerprint")).toContain(
       "brain-worker:",
+    );
+    expect(response.headers.get("X-Shadowbox-Run-Engine-Name")).toBe(
+      "brain-run-engine-do",
+    );
+    expect(response.headers.get("X-Shadowbox-Run-Engine-Fingerprint")).toBe(
+      "brain-run-engine-do:run-engine-sha:run-engine-boot",
     );
   });
 
@@ -422,7 +436,15 @@ function createMockRuntimeNamespace() {
   const fetch = vi.fn(async () => {
     return new Response(JSON.stringify({ ok: true }), {
       status: 200,
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "X-Shadowbox-Runtime-Name": "brain-run-engine-do",
+        "X-Shadowbox-Runtime-Git-Sha": "run-engine-sha",
+        "X-Shadowbox-Runtime-Started-At": "2026-03-23T00:00:00.000Z",
+        "X-Shadowbox-Runtime-Boot-Id": "run-engine-boot",
+        "X-Shadowbox-Runtime-Fingerprint":
+          "brain-run-engine-do:run-engine-sha:run-engine-boot",
+      },
     });
   });
   const get = vi.fn(() => ({ fetch }));
