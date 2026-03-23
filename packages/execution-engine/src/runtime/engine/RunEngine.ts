@@ -47,6 +47,13 @@ import {
   getWorkspaceBootstrapMessage,
   processPermissionDirectives as processPermissionDirectivesPolicy,
 } from "./RunPermissionWorkspacePolicy.js";
+import {
+  completeRunWithAssistantMessage as completeRunWithAssistantMessagePolicy,
+  createStreamResponse as createStreamResponsePolicy,
+  getRunDurationMs as getRunDurationMsPolicy,
+  tryHandlePlanningError as tryHandlePlanningErrorPolicy,
+  type RunCompletionDependencies,
+} from "./RunCompletionPolicy.js";
 import { createRunManifest, ensureManifestMatch } from "./RunManifestPolicy.js";
 import { sanitizeUserFacingOutput } from "./RunOutputSanitizer.js";
 import {
@@ -69,7 +76,6 @@ import {
 } from "./RunMetadataPolicy.js";
 import { resetRecyclableRun } from "./RunRecyclableResetPolicy.js";
 import { applyReviewerPassIfEnabled } from "./RunReviewerPassPolicy.js";
-import { buildPlanningRecoveryMessage } from "./RunPlanningRecoveryPolicy.js";
 import { synthesizeResultFromTasks } from "./RunSynthesisPolicy.js";
 import { RunEventRecorder, RunEventRepository } from "../events/index.js";
 
@@ -544,7 +550,7 @@ export class RunEngine implements IRunEngine {
       console.log(
         `[run/timing] run=${runId} step=total elapsedMs=${Date.now() - runStartedAt} status=${finalRunStatus} mode=task`,
       );
-      return this.createStreamResponse(finalOutput);
+      return createStreamResponsePolicy(finalOutput);
     } catch (error) {
       await this.handleExecutionError(runId, error);
       throw error;
@@ -647,6 +653,16 @@ export class RunEngine implements IRunEngine {
         });
       }
     }
+  }
+
+  private getRunCompletionDependencies(): RunCompletionDependencies {
+    return {
+      memoryCoordinator: this.memoryCoordinator,
+      persistConversationMessages: this.persistConversationMessages.bind(this),
+      runEventRecorder: this.runEventRecorder,
+      runRepo: this.runRepo,
+      safeMemoryOperation: this.safeMemoryOperation.bind(this),
+    };
   }
 
   private async recordRunMessages(messages: CoreMessage[]): Promise<void> {
@@ -837,156 +853,28 @@ export class RunEngine implements IRunEngine {
     });
   }
 
-  private createStreamResponse(content: string): Response {
-    const safeContent = sanitizeUserFacingOutput(content);
-    const encoder = new TextEncoder();
-    const stream = new ReadableStream({
-      start(controller) {
-        controller.enqueue(encoder.encode(safeContent));
-        controller.close();
-      },
-    });
-
-    return new Response(stream, {
-      headers: {
-        "Content-Type": "text/plain; charset=utf-8",
-        "Transfer-Encoding": "chunked",
-      },
-    });
-  }
-
   private async completeRunWithAssistantMessage(
     run: Run,
     text: string,
   ): Promise<Response> {
-    const sanitizedText = sanitizeUserFacingOutput(text);
-    recordLifecycleStep(run, "SYNTHESIS");
-    await this.runEventRecorder.recordRunStatusChanged(
-      run.status,
-      run.status,
-      RUN_WORKFLOW_STEPS.SYNTHESIS,
-    );
-
-    await this.safeMemoryOperation(() =>
-      this.memoryCoordinator.extractAndPersist({
-        runId: run.id,
-        sessionId: run.sessionId,
-        source: "synthesis",
-        content: sanitizedText,
-        phase: "synthesis",
-      }),
-    );
-
-    await this.safeMemoryOperation(() =>
-      this.persistConversationMessages(
-        run.id,
-        run.sessionId,
-        [{ role: "assistant", content: sanitizedText }],
-        "assistant",
-      ),
-    );
-
-    await this.safeMemoryOperation(() =>
-      this.memoryCoordinator.createCheckpoint({
-        runId: run.id,
-        sequence: 1,
-        phase: "synthesis",
-        runStatus: "COMPLETED",
-        taskStatuses: {},
-      }),
-    );
-    transitionRunToCompleted(run, run.id);
-    recordLifecycleStep(run, "TERMINAL", "status=COMPLETED");
-    recordPhaseSelectionSnapshot(run, "synthesis");
-    recordOrchestrationTerminal(run);
-    run.output = { content: sanitizedText };
-    await this.runEventRecorder.recordMessageEmitted(
-      "assistant",
-      sanitizedText,
-    );
-    await this.runEventRecorder.recordRunCompleted(
-      this.getRunDurationMs(run),
-      run.metadata.agenticLoop?.toolExecutionCount ?? 0,
-    );
-    await this.runRepo.update(run);
-    console.log(`[run/engine] Completed assistant run ${run.id}`);
-
-    return this.createStreamResponse(sanitizedText);
+    return completeRunWithAssistantMessagePolicy({
+      run,
+      text,
+      deps: this.getRunCompletionDependencies(),
+    });
   }
 
-  private async completeRunWithRecoveredAssistantMessage(
-    run: Run,
-    text: string,
-    technicalError?: string,
-  ): Promise<Response> {
-    const sanitizedText = sanitizeUserFacingOutput(text);
-    recordLifecycleStep(run, "SYNTHESIS", "planning_recovery");
-    await this.runEventRecorder.recordRunStatusChanged(
-      run.status,
-      run.status,
-      RUN_WORKFLOW_STEPS.SYNTHESIS,
-    );
-
-    await this.safeMemoryOperation(() =>
-      this.memoryCoordinator.extractAndPersist({
-        runId: run.id,
-        sessionId: run.sessionId,
-        source: "synthesis",
-        content: sanitizedText,
-        phase: "synthesis",
-      }),
-    );
-
-    await this.safeMemoryOperation(() =>
-      this.persistConversationMessages(
-        run.id,
-        run.sessionId,
-        [{ role: "assistant", content: sanitizedText }],
-        "assistant",
-      ),
-    );
-
-    transitionRunToCompleted(run, run.id);
-    if (technicalError) {
-      run.metadata.error = technicalError;
-    }
-    recordLifecycleStep(run, "TERMINAL", "status=COMPLETED:recoverable");
-    recordOrchestrationTerminal(run);
-    run.output = { content: sanitizedText };
-    await this.runEventRecorder.recordMessageEmitted(
-      "assistant",
-      sanitizedText,
-    );
-    await this.runEventRecorder.recordRunCompleted(
-      this.getRunDurationMs(run),
-      0,
-    );
-    await this.runRepo.update(run);
-
-    console.log(`[run/engine] Completed run ${run.id} with recoverable error`);
-    return this.createStreamResponse(sanitizedText);
-  }
   private async tryHandlePlanningError(
     run: Run,
     runId: string,
     error: unknown,
   ): Promise<Response | null> {
-    const technicalMessage =
-      error instanceof Error ? error.message : "Planning phase failed";
-    const userMessage = buildPlanningRecoveryMessage(error);
-    if (!userMessage) {
-      return null;
-    }
-
-    console.log(
-      `[run/engine] Recoverable planning error for run ${runId}: ${technicalMessage}`,
-    );
-
-    return this.completeRunWithRecoveredAssistantMessage(
+    return tryHandlePlanningErrorPolicy({
       run,
-      userMessage,
-      technicalMessage,
-    );
+      runId,
+      error,
+      deps: this.getRunCompletionDependencies(),
+    });
   }
 
   private async processPermissionDirectives(
@@ -1070,12 +958,7 @@ export class RunEngine implements IRunEngine {
   }
 
   private getRunDurationMs(run: Run): number {
-    const startedAt = run.metadata.startedAt ?? run.createdAt.toISOString();
-    const startedAtMs = Date.parse(startedAt);
-    if (Number.isNaN(startedAtMs)) {
-      return 0;
-    }
-    return Math.max(0, Date.now() - startedAtMs);
+    return getRunDurationMsPolicy(run);
   }
 
   private getUnknownPricingMode(env: RunEngineEnv): "warn" | "block" {
