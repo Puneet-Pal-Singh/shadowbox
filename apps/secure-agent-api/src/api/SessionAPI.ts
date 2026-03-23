@@ -108,7 +108,9 @@ function constantTimeEqual(a: string, b: string): boolean {
   return diff === 0;
 }
 
-function getRuntimeSessionStore(runtime: RuntimeStub): RuntimeSessionStore | null {
+function getRuntimeSessionStore(
+  runtime: RuntimeStub,
+): RuntimeSessionStore | null {
   const candidate = runtime as Record<string, unknown>;
   const storeExecutionSession = candidate.storeExecutionSession;
   const getExecutionSession = candidate.getExecutionSession;
@@ -133,7 +135,8 @@ function getRuntimeSessionStore(runtime: RuntimeStub): RuntimeSessionStore | nul
       getExecutionSession as RuntimeSessionStore["getExecutionSession"],
     appendExecutionLog:
       appendExecutionLog as RuntimeSessionStore["appendExecutionLog"],
-    getExecutionLogs: getExecutionLogs as RuntimeSessionStore["getExecutionLogs"],
+    getExecutionLogs:
+      getExecutionLogs as RuntimeSessionStore["getExecutionLogs"],
     deleteExecutionSession:
       deleteExecutionSession as RuntimeSessionStore["deleteExecutionSession"],
   };
@@ -211,12 +214,18 @@ async function authorizeSessionRequest(
   request: Request,
   runtime: RuntimeStub,
   sessionId: string,
-): Promise<{ ok: true; session: SessionRecord } | { ok: false; response: Response }> {
+): Promise<
+  { ok: true; session: SessionRecord } | { ok: false; response: Response }
+> {
   const session = await getActiveSession(runtime, sessionId);
   if (!session) {
     return {
       ok: false,
-      response: errorResponse("Session not found or expired", "SESSION_NOT_FOUND", 404),
+      response: errorResponse(
+        "Session not found or expired",
+        "SESSION_NOT_FOUND",
+        404,
+      ),
     };
   }
 
@@ -264,14 +273,13 @@ function getRuntimeExecutionPort(
   }
 
   return {
-    executeTask: (
-      sessionId: string,
-      input: TaskExecutionInput,
-    ) =>
-      (executeTask as (
-        sessionIdArg: string,
-        inputArg: TaskExecutionInput,
-      ) => Promise<ExecuteTaskResponse>)(sessionId, input),
+    executeTask: (sessionId: string, input: TaskExecutionInput) =>
+      (
+        executeTask as (
+          sessionIdArg: string,
+          inputArg: TaskExecutionInput,
+        ) => Promise<ExecuteTaskResponse>
+      )(sessionId, input),
   };
 }
 
@@ -285,9 +293,7 @@ function parseExecutionResponse(result: unknown): ExecuteTaskResponse | null {
   return parsed.success ? parsed.data : null;
 }
 
-function toTaskExecutionInput(
-  request: ExecuteTaskRequest,
-): TaskExecutionInput {
+function toTaskExecutionInput(request: ExecuteTaskRequest): TaskExecutionInput {
   return {
     taskId: request.taskId,
     action: request.action,
@@ -304,23 +310,26 @@ function getExecutionLogLevel(
 }
 
 function getExecutionLogMessage(result: ExecuteTaskResponse): string {
+  const taskId = result.taskId.trim();
+  const taskLabel = taskId.length > 0 ? `Task ${taskId}` : "Task";
+
   if (result.status === "success") {
-    return "Task executed successfully";
+    return `${taskLabel} executed successfully`;
   }
 
   if (result.error?.message) {
-    return result.error.message;
+    return `${taskLabel} failed: ${result.error.message}`;
   }
 
   if (result.status === "timeout") {
-    return "Task execution timed out";
+    return `${taskLabel} execution timed out`;
   }
 
   if (result.status === "cancelled") {
-    return "Task execution was cancelled";
+    return `${taskLabel} execution was cancelled`;
   }
 
-  return "Task execution failed";
+  return `${taskLabel} execution failed`;
 }
 
 function getExecutionLogSource(
@@ -344,7 +353,10 @@ export async function handleCreateSession(
       );
     }
 
-    const validation = await validateRequestBody(request, SessionCreateRequestSchema);
+    const validation = await validateRequestBody(
+      request,
+      SessionCreateRequestSchema,
+    );
     if (!validation.valid) {
       console.warn(`[api/session] Validation failed: ${validation.error}`);
       return errorResponse(validation.error, "INVALID_REQUEST", 400);
@@ -372,7 +384,9 @@ export async function handleCreateSession(
       response.manifest = manifest;
     }
 
-    console.log(`[api/session] Session created: ${sessionId.substring(0, 8)}...`);
+    console.log(
+      `[api/session] Session created: ${sessionId.substring(0, 8)}...`,
+    );
     return jsonResponse(response, 201);
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
@@ -388,7 +402,10 @@ export async function handleExecuteTask(
   console.log("[api/execute] Handling task execution request");
 
   try {
-    const validation = await validateRequestBody(request, ExecuteTaskRequestSchema);
+    const validation = await validateRequestBody(
+      request,
+      ExecuteTaskRequestSchema,
+    );
     if (!validation.valid) {
       console.warn(`[api/execute] Validation failed: ${validation.error}`);
       return errorResponse(validation.error, "INVALID_REQUEST", 400);
@@ -480,7 +497,9 @@ export async function handleStreamLogs(
       `[api/logs] Streaming ${logs.length} logs for session: ${sessionId.substring(0, 8)}...`,
     );
 
-    const sseContent = logs.map((log) => `data: ${JSON.stringify(log)}\n\n`).join("");
+    const sseContent = logs
+      .map((log) => `data: ${JSON.stringify(log)}\n\n`)
+      .join("");
 
     return new Response(sseContent, {
       status: 200,
@@ -527,7 +546,9 @@ export async function handleDeleteSession(
     }
 
     await sessionStore.deleteExecutionSession(sessionId);
-    console.log(`[api/delete-session] Session deleted: ${sessionId.substring(0, 8)}...`);
+    console.log(
+      `[api/delete-session] Session deleted: ${sessionId.substring(0, 8)}...`,
+    );
 
     return jsonResponse(
       {

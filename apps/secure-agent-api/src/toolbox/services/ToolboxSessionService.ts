@@ -5,13 +5,20 @@ import type {
   ToolboxSessionRequest,
 } from "../contracts/ToolboxSession";
 import { ToolboxEventFactory } from "../events/ToolboxEventFactory";
+import {
+  ConsoleToolboxEventPublisher,
+  type ToolboxEventPublisher,
+} from "../events/ToolboxEventPublisher";
 import { ToolboxPolicyService } from "../policies/ToolboxPolicyService";
 
 export class ToolboxSessionService {
   private readonly eventFactory = new ToolboxEventFactory();
   private readonly policyService = new ToolboxPolicyService();
 
-  constructor(private readonly adapter: CloudflareToolboxAdapter) {}
+  constructor(
+    private readonly adapter: CloudflareToolboxAdapter,
+    private readonly eventPublisher: ToolboxEventPublisher = new ConsoleToolboxEventPublisher(),
+  ) {}
 
   async execute(
     request: ToolboxSessionRequest,
@@ -23,8 +30,8 @@ export class ToolboxSessionService {
     }
 
     const handle = this.createHandle(request);
-    this.eventFactory.createRequested(request);
-    this.eventFactory.createStatus(handle, "started");
+    this.publishRequested(handle);
+    this.publishStatus(handle, "started");
 
     const startedAt = Date.now();
     try {
@@ -34,7 +41,7 @@ export class ToolboxSessionService {
         request.timeoutMs,
       );
       const status = result.exitCode === 0 ? "completed" : "failed";
-      this.eventFactory.createStatus(handle, status);
+      this.publishStatus(handle, status);
       return {
         sessionId: handle.sessionId,
         runId: handle.runId,
@@ -47,8 +54,10 @@ export class ToolboxSessionService {
         durationMs: Date.now() - startedAt,
       };
     } catch (error) {
-      const isTimeout = error instanceof Error && error.message === "Toolbox execution timed out";
-      this.eventFactory.createStatus(handle, isTimeout ? "timeout" : "failed");
+      const isTimeout =
+        error instanceof Error &&
+        error.message === "Toolbox execution timed out";
+      this.publishStatus(handle, isTimeout ? "timeout" : "failed");
       return {
         sessionId: handle.sessionId,
         runId: handle.runId,
@@ -65,7 +74,7 @@ export class ToolboxSessionService {
 
   private createHandle(request: ToolboxSessionRequest): ToolboxSessionHandle {
     return {
-      sessionId: `${request.runId}:${request.callId}:${request.toolName}`,
+      sessionId: createSessionId(request),
       runId: request.runId,
       toolName: request.toolName,
       callId: request.callId,
@@ -74,12 +83,23 @@ export class ToolboxSessionService {
     };
   }
 
+  private publishRequested(handle: ToolboxSessionHandle): void {
+    this.eventPublisher.publish(this.eventFactory.createRequested(handle));
+  }
+
+  private publishStatus(
+    handle: ToolboxSessionHandle,
+    status: ToolboxSessionHandle["status"],
+  ): void {
+    this.eventPublisher.publish(this.eventFactory.createStatus(handle, status));
+  }
+
   private buildDeniedResult(
     request: ToolboxSessionRequest,
     reason: string,
   ): ToolboxExecutionResult {
     return {
-      sessionId: `${request.runId}:${request.callId}:${request.toolName}`,
+      sessionId: createSessionId(request),
       runId: request.runId,
       toolName: request.toolName,
       callId: request.callId,
@@ -90,6 +110,10 @@ export class ToolboxSessionService {
       durationMs: 0,
     };
   }
+}
+
+function createSessionId(request: ToolboxSessionRequest): string {
+  return `${request.runId}:${request.callId}:${request.toolName}:${crypto.randomUUID()}`;
 }
 
 function buildShellCommand(request: ToolboxSessionRequest): string {

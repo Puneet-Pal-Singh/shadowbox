@@ -14,6 +14,10 @@ import {
   validateRepoRelativePath,
 } from "./security/PathGuard";
 import { runSafeCommand } from "./security/SafeCommand";
+import {
+  readToolboxCommandContext,
+  withToolboxCommandContext,
+} from "./security/ToolboxCommandContext";
 
 const GIT_ACTIONS = [
   "status",
@@ -68,16 +72,17 @@ export class GitPlugin implements IPlugin {
     onLog?: LogCallback,
   ): Promise<PluginResult> {
     try {
+      const toolboxContext = readToolboxCommandContext(payload);
       const parsed = GitPayloadSchema.parse(payload);
-      const runId = normalizeRunId(parsed.runId);
+      const runId = normalizeRunId(parsed.runId ?? toolboxContext.runId);
       const worktree = getWorkspaceRoot(runId);
 
-      await this.ensureWorkspace(sandbox, worktree);
+      await this.ensureWorkspace(sandbox, worktree, toolboxContext, runId);
 
       switch (parsed.action) {
         case "status":
         case "git_status":
-          return await this.getStatus(sandbox, worktree);
+          return await this.getStatus(sandbox, worktree, toolboxContext, runId);
         case "diff":
         case "git_diff":
           return await this.getDiff(
@@ -85,12 +90,26 @@ export class GitPlugin implements IPlugin {
             worktree,
             parsed.path,
             parsed.staged,
+            toolboxContext,
+            runId,
           );
         case "stage":
         case "git_stage":
-          return await this.stageFiles(sandbox, worktree, parsed.files);
+          return await this.stageFiles(
+            sandbox,
+            worktree,
+            parsed.files,
+            toolboxContext,
+            runId,
+          );
         case "unstage":
-          return await this.unstageFiles(sandbox, worktree, parsed.files);
+          return await this.unstageFiles(
+            sandbox,
+            worktree,
+            parsed.files,
+            toolboxContext,
+            runId,
+          );
         case "commit":
         case "git_commit":
           return await this.commit(
@@ -98,6 +117,8 @@ export class GitPlugin implements IPlugin {
             worktree,
             parsed.message,
             parsed.files,
+            toolboxContext,
+            runId,
           );
         case "push":
         case "git_push":
@@ -107,6 +128,8 @@ export class GitPlugin implements IPlugin {
             parsed.remote,
             parsed.branch,
             parsed.token,
+            toolboxContext,
+            runId,
           );
         case "git_clone":
           return await this.clone(
@@ -115,6 +138,8 @@ export class GitPlugin implements IPlugin {
             parsed.url,
             parsed.token,
             parsed.replaceExisting,
+            toolboxContext,
+            runId,
             onLog,
           );
         case "git_pull":
@@ -124,31 +149,65 @@ export class GitPlugin implements IPlugin {
             parsed.remote,
             parsed.branch,
             parsed.token,
+            toolboxContext,
+            runId,
           );
         case "git_fetch":
-          return await this.fetch(sandbox, worktree, parsed.remote, parsed.token);
+          return await this.fetch(
+            sandbox,
+            worktree,
+            parsed.remote,
+            parsed.token,
+            toolboxContext,
+            runId,
+          );
         case "git_branch_create":
-          return await this.createBranch(sandbox, worktree, parsed.branch);
+          return await this.createBranch(
+            sandbox,
+            worktree,
+            parsed.branch,
+            toolboxContext,
+            runId,
+          );
         case "git_branch_switch":
-          return await this.switchBranch(sandbox, worktree, parsed.branch);
+          return await this.switchBranch(
+            sandbox,
+            worktree,
+            parsed.branch,
+            toolboxContext,
+            runId,
+          );
         case "git_branch_list":
-          return await this.listBranches(sandbox, worktree);
+          return await this.listBranches(
+            sandbox,
+            worktree,
+            toolboxContext,
+            runId,
+          );
         case "git_config":
           return this.validateTokenOnly(parsed.token);
         default:
           return { success: false, error: "Unsupported git action" };
       }
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : "Git operation failed";
+      const message =
+        error instanceof Error ? error.message : "Git operation failed";
       return { success: false, error: message };
     }
   }
 
-  private async ensureWorkspace(sandbox: Sandbox, worktree: string): Promise<void> {
-    await runSafeCommand(
+  private async ensureWorkspace(
+    sandbox: Sandbox,
+    worktree: string,
+    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
+    runId: string,
+  ): Promise<void> {
+    await this.runToolboxCommand(
       sandbox,
-      { command: "mkdir", args: ["-p", worktree] },
+      { command: "mkdir", args: ["-p", worktree], runId },
       ["mkdir"],
+      toolboxContext,
+      "git.prepare_workspace",
     );
   }
 
@@ -159,7 +218,10 @@ export class GitPlugin implements IPlugin {
     if (containsIllegalTokenChars(token)) {
       return { success: false, error: "Invalid token format" };
     }
-    return { success: true, output: "Token validated for authenticated git actions" };
+    return {
+      success: true,
+      output: "Token validated for authenticated git actions",
+    };
   }
 
   private async clone(
@@ -168,6 +230,8 @@ export class GitPlugin implements IPlugin {
     url: string | undefined,
     token: string | undefined,
     replaceExisting: boolean | undefined,
+    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
+    runId: string,
     onLog?: LogCallback,
   ): Promise<PluginResult> {
     const safeUrl = validateCloneUrl(url);
@@ -182,6 +246,8 @@ export class GitPlugin implements IPlugin {
       authArgs,
       safeUrl,
       worktree,
+      toolboxContext,
+      runId,
     );
     if (
       result.exitCode !== 0 &&
@@ -190,14 +256,19 @@ export class GitPlugin implements IPlugin {
     ) {
       const clearResult = await runSafeCommand(
         sandbox,
-        { command: "rm", args: ["-rf", worktree] },
+        withToolboxCommandContext(
+          { command: "rm", args: ["-rf", worktree], runId },
+          toolboxContext,
+          "git.clear_workspace",
+        ),
         ["rm"],
       );
       if (clearResult.exitCode !== 0) {
         return {
           success: false,
           error:
-            clearResult.stderr || "Failed to clear existing workspace before clone.",
+            clearResult.stderr ||
+            "Failed to clear existing workspace before clone.",
         };
       }
       const retryResult = await this.runCloneCommand(
@@ -205,6 +276,8 @@ export class GitPlugin implements IPlugin {
         authArgs,
         safeUrl,
         worktree,
+        toolboxContext,
+        runId,
       );
       return buildGitResult(retryResult, "Repository cloned successfully");
     }
@@ -216,29 +289,42 @@ export class GitPlugin implements IPlugin {
     authArgs: string[],
     safeUrl: string,
     worktree: string,
+    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
+    runId: string,
   ): Promise<{
     exitCode: number;
     stdout: string;
     stderr: string;
   }> {
-    return await runSafeCommand(
+    return await this.runToolboxCommand(
       sandbox,
-      { command: "git", args: [...authArgs, "clone", safeUrl, worktree] },
+      {
+        command: "git",
+        args: [...authArgs, "clone", safeUrl, worktree],
+        runId,
+      },
       ["git"],
+      toolboxContext,
+      "git.clone",
     );
   }
 
   private async getStatus(
     sandbox: Sandbox,
     worktree: string,
+    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
+    runId: string,
   ): Promise<PluginResult> {
-    const statusResult = await runSafeCommand(
+    const statusResult = await this.runToolboxCommand(
       sandbox,
       {
         command: "git",
         args: ["-C", worktree, "status", "--porcelain", "-b"],
+        runId,
       },
       ["git"],
+      toolboxContext,
+      "git.status",
     );
 
     if (statusResult.exitCode !== 0) {
@@ -272,9 +358,9 @@ export class GitPlugin implements IPlugin {
       }
     }
 
-    const files: FileStatus[] = lines.slice(1).flatMap((line) =>
-      parseStatusLine(line),
-    );
+    const files: FileStatus[] = lines
+      .slice(1)
+      .flatMap((line) => parseStatusLine(line));
 
     return {
       files,
@@ -292,6 +378,8 @@ export class GitPlugin implements IPlugin {
     worktree: string,
     filePath: string | undefined,
     staged: boolean | undefined,
+    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
+    runId: string,
   ): Promise<PluginResult> {
     const args = ["-C", worktree, "diff"];
     if (staged) {
@@ -301,10 +389,12 @@ export class GitPlugin implements IPlugin {
       args.push(validateRepoRelativePath(filePath));
     }
 
-    const diffResult = await runSafeCommand(
+    const diffResult = await this.runToolboxCommand(
       sandbox,
-      { command: "git", args },
+      { command: "git", args, runId },
       ["git"],
+      toolboxContext,
+      "git.diff",
     );
     if (diffResult.exitCode !== 0) {
       return { success: false, error: diffResult.stderr };
@@ -385,15 +475,20 @@ export class GitPlugin implements IPlugin {
     sandbox: Sandbox,
     worktree: string,
     files: string[] | undefined,
+    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
+    runId: string,
   ): Promise<PluginResult> {
     const safeFiles = normalizeFileList(files);
-    const result = await runSafeCommand(
+    const result = await this.runToolboxCommand(
       sandbox,
       {
         command: "git",
         args: ["-C", worktree, "add", "--", ...safeFiles],
+        runId,
       },
       ["git"],
+      toolboxContext,
+      "git.stage",
     );
 
     return buildGitResult(result, "Files staged");
@@ -403,15 +498,20 @@ export class GitPlugin implements IPlugin {
     sandbox: Sandbox,
     worktree: string,
     files: string[] | undefined,
+    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
+    runId: string,
   ): Promise<PluginResult> {
     const safeFiles = normalizeFileList(files);
-    const result = await runSafeCommand(
+    const result = await this.runToolboxCommand(
       sandbox,
       {
         command: "git",
         args: ["-C", worktree, "reset", "HEAD", "--", ...safeFiles],
+        runId,
       },
       ["git"],
+      toolboxContext,
+      "git.unstage",
     );
 
     return buildGitResult(result, "Files unstaged");
@@ -422,28 +522,42 @@ export class GitPlugin implements IPlugin {
     worktree: string,
     message: string | undefined,
     files: string[] | undefined,
+    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
+    runId: string,
   ): Promise<PluginResult> {
     if (!message || message.trim().length === 0) {
       return { success: false, error: "Commit message is required" };
     }
     if (/[\0\r\n]/.test(message)) {
-      return { success: false, error: "Commit message contains invalid characters" };
+      return {
+        success: false,
+        error: "Commit message contains invalid characters",
+      };
     }
 
     if (files && files.length > 0) {
-      const stageResult = await this.stageFiles(sandbox, worktree, files);
+      const stageResult = await this.stageFiles(
+        sandbox,
+        worktree,
+        files,
+        toolboxContext,
+        runId,
+      );
       if (!stageResult.success) {
         return stageResult;
       }
     }
 
-    const result = await runSafeCommand(
+    const result = await this.runToolboxCommand(
       sandbox,
       {
         command: "git",
         args: ["-C", worktree, "commit", "-m", message],
+        runId,
       },
       ["git"],
+      toolboxContext,
+      "git.commit",
     );
 
     return buildGitResult(result, "Changes committed");
@@ -455,6 +569,8 @@ export class GitPlugin implements IPlugin {
     remote: string | undefined,
     branch: string | undefined,
     token: string | undefined,
+    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
+    runId: string,
   ): Promise<PluginResult> {
     const safeRemote = sanitizeRef(remote || "origin", "remote");
     const authArgs = this.buildGitAuthArgs(token);
@@ -464,10 +580,12 @@ export class GitPlugin implements IPlugin {
       args.push(sanitizeRef(branch, "branch"));
     }
 
-    const result = await runSafeCommand(
+    const result = await this.runToolboxCommand(
       sandbox,
-      { command: "git", args },
+      { command: "git", args, runId },
       ["git"],
+      toolboxContext,
+      "git.push",
     );
     return buildGitResult(result, "Changes pushed");
   }
@@ -478,6 +596,8 @@ export class GitPlugin implements IPlugin {
     remote: string | undefined,
     branch: string | undefined,
     token: string | undefined,
+    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
+    runId: string,
   ): Promise<PluginResult> {
     const safeRemote = sanitizeRef(remote || "origin", "remote");
     const authArgs = this.buildGitAuthArgs(token);
@@ -487,10 +607,12 @@ export class GitPlugin implements IPlugin {
       args.push(sanitizeRef(branch, "branch"));
     }
 
-    const result = await runSafeCommand(
+    const result = await this.runToolboxCommand(
       sandbox,
-      { command: "git", args },
+      { command: "git", args, runId },
       ["git"],
+      toolboxContext,
+      "git.pull",
     );
     return buildGitResult(result, "Changes pulled successfully");
   }
@@ -500,16 +622,21 @@ export class GitPlugin implements IPlugin {
     worktree: string,
     remote: string | undefined,
     token: string | undefined,
+    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
+    runId: string,
   ): Promise<PluginResult> {
     const safeRemote = sanitizeRef(remote || "origin", "remote");
     const authArgs = this.buildGitAuthArgs(token);
-    const result = await runSafeCommand(
+    const result = await this.runToolboxCommand(
       sandbox,
       {
         command: "git",
         args: [...authArgs, "-C", worktree, "fetch", safeRemote],
+        runId,
       },
       ["git"],
+      toolboxContext,
+      "git.fetch",
     );
     return buildGitResult(result, "Fetched successfully");
   }
@@ -518,39 +645,52 @@ export class GitPlugin implements IPlugin {
     sandbox: Sandbox,
     worktree: string,
     branch: string | undefined,
+    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
+    runId: string,
   ): Promise<PluginResult> {
     if (!branch) {
       return { success: false, error: "Branch name is required" };
     }
     const safeBranch = sanitizeRef(branch, "branch");
-    const result = await runSafeCommand(
+    const result = await this.runToolboxCommand(
       sandbox,
       {
         command: "git",
         args: ["-C", worktree, "checkout", "-b", safeBranch],
+        runId,
       },
       ["git"],
+      toolboxContext,
+      "git.branch_create",
     );
 
-    return buildGitResult(result, `Created and switched to branch: ${safeBranch}`);
+    return buildGitResult(
+      result,
+      `Created and switched to branch: ${safeBranch}`,
+    );
   }
 
   private async switchBranch(
     sandbox: Sandbox,
     worktree: string,
     branch: string | undefined,
+    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
+    runId: string,
   ): Promise<PluginResult> {
     if (!branch) {
       return { success: false, error: "Branch name is required" };
     }
     const safeBranch = sanitizeRef(branch, "branch");
-    const result = await runSafeCommand(
+    const result = await this.runToolboxCommand(
       sandbox,
       {
         command: "git",
         args: ["-C", worktree, "checkout", safeBranch],
+        runId,
       },
       ["git"],
+      toolboxContext,
+      "git.branch_switch",
     );
 
     return buildGitResult(result, `Switched to branch: ${safeBranch}`);
@@ -559,14 +699,19 @@ export class GitPlugin implements IPlugin {
   private async listBranches(
     sandbox: Sandbox,
     worktree: string,
+    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
+    runId: string,
   ): Promise<PluginResult> {
-    const result = await runSafeCommand(
+    const result = await this.runToolboxCommand(
       sandbox,
       {
         command: "git",
         args: ["-C", worktree, "branch", "-a"],
+        runId,
       },
       ["git"],
+      toolboxContext,
+      "git.branch_list",
     );
 
     return {
@@ -588,6 +733,20 @@ export class GitPlugin implements IPlugin {
       "base64",
     );
     return ["-c", `http.extraheader=AUTHORIZATION: basic ${authValue}`];
+  }
+
+  private async runToolboxCommand(
+    sandbox: Sandbox,
+    spec: Parameters<typeof withToolboxCommandContext>[0],
+    allowlist: readonly string[],
+    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
+    toolName: string,
+  ) {
+    return await runSafeCommand(
+      sandbox,
+      withToolboxCommandContext(spec, toolboxContext, toolName),
+      allowlist,
+    );
   }
 }
 

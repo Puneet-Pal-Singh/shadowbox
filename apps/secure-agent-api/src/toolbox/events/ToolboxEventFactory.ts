@@ -1,6 +1,5 @@
 import type {
   ToolboxSessionHandle,
-  ToolboxSessionRequest,
   ToolboxSessionStatus,
 } from "../contracts/ToolboxSession";
 
@@ -14,12 +13,12 @@ export interface ToolboxEvent {
 }
 
 export class ToolboxEventFactory {
-  createRequested(request: ToolboxSessionRequest): ToolboxEvent {
+  createRequested(handle: ToolboxSessionHandle): ToolboxEvent {
     return {
-      sessionId: buildSessionId(request),
-      runId: request.runId,
-      toolName: request.toolName,
-      callId: request.callId,
+      sessionId: handle.sessionId,
+      runId: handle.runId,
+      toolName: handle.toolName,
+      callId: handle.callId,
       status: "requested",
       timestamp: Date.now(),
     };
@@ -38,8 +37,4 @@ export class ToolboxEventFactory {
       timestamp: Date.now(),
     };
   }
-}
-
-function buildSessionId(request: ToolboxSessionRequest): string {
-  return `${request.runId}:${request.callId}:${request.toolName}`;
 }

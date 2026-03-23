@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { Sandbox } from "@cloudflare/sandbox";
 import { CloudflareToolboxAdapter } from "../adapters/CloudflareToolboxAdapter";
+import type { ToolboxEvent } from "../events/ToolboxEventFactory";
+import type { ToolboxEventPublisher } from "../events/ToolboxEventPublisher";
 import { ToolboxSessionService } from "../services/ToolboxSessionService";
 
 interface SandboxMock {
@@ -12,9 +14,7 @@ interface SandboxMock {
   }>;
 }
 
-function createSandboxMock(
-  execImpl?: SandboxMock["exec"],
-): SandboxMock {
+function createSandboxMock(execImpl?: SandboxMock["exec"]): SandboxMock {
   const execCalls: string[] = [];
   return {
     execCalls,
@@ -27,6 +27,21 @@ function createSandboxMock(
           execCalls.push(command);
           return { exitCode: 0, stdout: "ok", stderr: "" };
         },
+  };
+}
+
+function createEventPublisherMock(): {
+  events: ToolboxEvent[];
+  publisher: ToolboxEventPublisher;
+} {
+  const events: ToolboxEvent[] = [];
+  return {
+    events,
+    publisher: {
+      publish(event) {
+        events.push(event);
+      },
+    },
   };
 }
 
@@ -58,6 +73,70 @@ describe("ToolboxSessionService", () => {
 
     expect(first.sessionId).not.toBe(second.sessionId);
     expect(sandbox.execCalls).toHaveLength(2);
+  });
+
+  it("creates unique session ids even when callId and toolName repeat", async () => {
+    const sandbox = createSandboxMock();
+    const service = new ToolboxSessionService(
+      new CloudflareToolboxAdapter(sandbox as unknown as Sandbox),
+    );
+
+    const first = await service.execute(
+      {
+        runId: "run-repeat",
+        toolName: "git.status",
+        callId: "task-123",
+        command: "git",
+      },
+      ["git"],
+    );
+    const second = await service.execute(
+      {
+        runId: "run-repeat",
+        toolName: "git.status",
+        callId: "task-123",
+        command: "git",
+      },
+      ["git"],
+    );
+
+    expect(first.callId).toBe("task-123");
+    expect(second.callId).toBe("task-123");
+    expect(first.sessionId).not.toBe(second.sessionId);
+  });
+
+  it("publishes requested and lifecycle status events with stable correlation", async () => {
+    const sandbox = createSandboxMock();
+    const eventPublisher = createEventPublisherMock();
+    const service = new ToolboxSessionService(
+      new CloudflareToolboxAdapter(sandbox as unknown as Sandbox),
+      eventPublisher.publisher,
+    );
+
+    const result = await service.execute(
+      {
+        runId: "run-events",
+        toolName: "node.run",
+        callId: "task-456",
+        command: "node",
+      },
+      ["node"],
+    );
+
+    expect(result.status).toBe("completed");
+    expect(eventPublisher.events).toHaveLength(3);
+    expect(eventPublisher.events.map((event) => event.status)).toEqual([
+      "requested",
+      "started",
+      "completed",
+    ]);
+
+    for (const event of eventPublisher.events) {
+      expect(event.sessionId).toBe(result.sessionId);
+      expect(event.runId).toBe("run-events");
+      expect(event.toolName).toBe("node.run");
+      expect(event.callId).toBe("task-456");
+    }
   });
 
   it("returns a failed result when policy denies the command", async () => {

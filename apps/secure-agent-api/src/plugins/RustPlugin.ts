@@ -2,26 +2,53 @@ import { Sandbox } from "@cloudflare/sandbox";
 import { IPlugin, PluginResult, LogCallback } from "../interfaces/types";
 import { RustTool } from "../schemas/rust";
 import { runSafeCommand } from "./security/SafeCommand";
+import { getWorkspaceRoot, normalizeRunId } from "./security/PathGuard";
+import {
+  readToolboxCommandContext,
+  withToolboxCommandContext,
+} from "./security/ToolboxCommandContext";
 
 export class RustPlugin implements IPlugin {
   name = "rust";
   tools = [RustTool];
 
-  async execute(sandbox: Sandbox, payload: { code: string }, onLog?: LogCallback): Promise<PluginResult> {
+  async execute(
+    sandbox: Sandbox,
+    payload: { code: string },
+    onLog?: LogCallback,
+  ): Promise<PluginResult> {
+    const toolboxContext = readToolboxCommandContext(payload);
+    const runId = normalizeRunId(toolboxContext.runId);
+    const workspaceRoot = getWorkspaceRoot(runId);
     const fileName = "main.rs";
     const binaryName = "main_bin";
 
-    await sandbox.writeFile(fileName, payload.code);
+    await runSafeCommand(
+      sandbox,
+      withToolboxCommandContext(
+        { command: "mkdir", args: ["-p", workspaceRoot], runId },
+        toolboxContext,
+        "rust.prepare_workspace",
+      ),
+      ["mkdir"],
+    );
+
+    await sandbox.writeFile(`${workspaceRoot}/${fileName}`, payload.code);
 
     // 1. Compile Phase
     if (onLog) onLog(`[Rust] Compiling ${fileName}...\n`);
     const compile = await runSafeCommand(
       sandbox,
-      {
-        command: "rustc",
-        args: [fileName, "-o", binaryName],
-        toolName: "rust.compile",
-      },
+      withToolboxCommandContext(
+        {
+          command: "rustc",
+          args: [fileName, "-o", binaryName],
+          cwd: workspaceRoot,
+          runId,
+        },
+        toolboxContext,
+        "rust.compile",
+      ),
       ["rustc"],
     );
 
@@ -31,7 +58,7 @@ export class RustPlugin implements IPlugin {
         success: false,
         output: compile.stdout,
         error: "Compilation failed",
-        logs: [compile.stderr]
+        logs: [compile.stderr],
       };
     }
 
@@ -39,10 +66,15 @@ export class RustPlugin implements IPlugin {
     if (onLog) onLog(`[Rust] Successfully compiled. Executing...\n`);
     const result = await runSafeCommand(
       sandbox,
-      {
-        command: `./${binaryName}`,
-        toolName: "rust.execute",
-      },
+      withToolboxCommandContext(
+        {
+          command: `./${binaryName}`,
+          cwd: workspaceRoot,
+          runId,
+        },
+        toolboxContext,
+        "rust.execute",
+      ),
       [`./${binaryName}`],
     );
 
@@ -54,7 +86,7 @@ export class RustPlugin implements IPlugin {
     return {
       success: result.exitCode === 0,
       output: result.stdout,
-      error: result.exitCode !== 0 ? result.stderr : undefined
+      error: result.exitCode !== 0 ? result.stderr : undefined,
     };
   }
 }
