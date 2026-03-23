@@ -56,6 +56,82 @@ describe("WorkflowTimelineViewModel", () => {
       shellRow && shellRow.kind === "tool" && shellRow.defaultCollapsed,
     ).toBe(false);
   });
+
+  it("reuses the existing final block when assistant output arrives before terminal completion", () => {
+    const viewModel = buildWorkflowTimelineViewModel({
+      events: [
+        createRunEvent(
+          "evt-1",
+          RUN_EVENT_TYPES.MESSAGE_EMITTED,
+          {
+            role: "assistant",
+            content: "Final summary preview.",
+          },
+          "2026-03-24T10:00:01.000Z",
+        ),
+        createRunEvent(
+          "evt-2",
+          RUN_EVENT_TYPES.RUN_COMPLETED,
+          {
+            status: "complete",
+            totalDurationMs: 2_000,
+            toolsUsed: 0,
+          },
+          "2026-03-24T10:00:02.000Z",
+        ),
+      ],
+      summary: {
+        runId: "run-1",
+        status: "COMPLETED",
+        totalTasks: 0,
+        completedTasks: 0,
+        failedTasks: 0,
+      },
+    });
+
+    expect(
+      viewModel.blocks.filter((block) => block.kind === "final"),
+    ).toHaveLength(1);
+    expect(viewModel.blocks[0]?.rows).toHaveLength(2);
+  });
+
+  it("surfaces queued tool batches without claiming they completed", () => {
+    const viewModel = buildWorkflowTimelineViewModel({
+      events: [
+        createRunEvent(
+          "evt-1",
+          RUN_EVENT_TYPES.RUN_STATUS_CHANGED,
+          {
+            previousStatus: "queued",
+            newStatus: "running",
+            workflowStep: RUN_WORKFLOW_STEPS.EXECUTION,
+            reason: "starting tools",
+          },
+          "2026-03-24T10:00:01.000Z",
+        ),
+        createRunEvent(
+          "evt-2",
+          RUN_EVENT_TYPES.TOOL_REQUESTED,
+          {
+            toolId: "tool-1",
+            toolName: "read_file",
+            arguments: { path: "README.md" },
+          },
+          "2026-03-24T10:00:02.000Z",
+        ),
+      ],
+      summary: {
+        runId: "run-1",
+        status: "RUNNING",
+        totalTasks: 1,
+        completedTasks: 0,
+        failedTasks: 0,
+      },
+    });
+
+    const batch = viewModel.blocks.find((block) => block.kind === "tool_batch");
+    expect(batch?.summary).toBe("1 queued");
+  });
 });
 
 function createCanonicalRunEvents(): RunEvent[] {

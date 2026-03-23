@@ -179,17 +179,13 @@ export function buildWorkflowTimelineViewModel(params: {
           currentContextBlock = block;
           appendDetail(block, truncateText(event.payload.content, 180));
         } else if (event.payload.role === "assistant") {
-          const block: MutableBlock =
-            currentContextBlock?.kind === "synthesis"
-              ? currentContextBlock
-              : (currentContextBlock ??
-                createAndPushBlock(
-                  blocks,
-                  blockCounters,
-                  "final",
-                  "Final",
-                  event,
-                ));
+          const block = getOrCreateAssistantBlock(
+            currentContextBlock,
+            blocks,
+            blockCounters,
+            event,
+          );
+          currentContextBlock = block;
           block.tone = block.kind === "final" ? block.tone : "success";
           appendDetail(block, truncateText(event.payload.content, 220));
         }
@@ -246,11 +242,10 @@ export function buildWorkflowTimelineViewModel(params: {
         finalizeToolBatch(currentToolBatch, currentToolRows);
         currentToolBatch = null;
         currentToolRows = new Map<string, MutableToolRow>();
-        currentContextBlock = createAndPushBlock(
+        currentContextBlock = getOrCreateTerminalBlock(
+          currentContextBlock,
           blocks,
           blockCounters,
-          "final",
-          "Final",
           event,
         );
         currentContextBlock.tone = "success";
@@ -265,11 +260,10 @@ export function buildWorkflowTimelineViewModel(params: {
         finalizeToolBatch(currentToolBatch, currentToolRows);
         currentToolBatch = null;
         currentToolRows = new Map<string, MutableToolRow>();
-        currentContextBlock = createAndPushBlock(
+        currentContextBlock = getOrCreateTerminalBlock(
+          currentContextBlock,
           blocks,
           blockCounters,
-          "final",
-          "Final",
           event,
         );
         currentContextBlock.tone = "failed";
@@ -332,6 +326,46 @@ function createBlock(
     details: [],
     rows: [],
   };
+}
+
+function getOrCreateAssistantBlock(
+  currentContextBlock: MutableBlock | null,
+  blocks: MutableBlock[],
+  counters: Map<WorkflowBlockViewModel["kind"], number>,
+  event: RunEvent,
+): MutableBlock {
+  if (currentContextBlock?.kind === "synthesis") {
+    return currentContextBlock;
+  }
+
+  const lastBlock = blocks[blocks.length - 1];
+  if (lastBlock?.kind === "final") {
+    return lastBlock;
+  }
+
+  return createAndPushBlock(blocks, counters, "final", "Final", event);
+}
+
+function getOrCreateTerminalBlock(
+  currentContextBlock: MutableBlock | null,
+  blocks: MutableBlock[],
+  counters: Map<WorkflowBlockViewModel["kind"], number>,
+  event: Extract<
+    RunEvent,
+    | { type: typeof RUN_EVENT_TYPES.RUN_COMPLETED }
+    | { type: typeof RUN_EVENT_TYPES.RUN_FAILED }
+  >,
+): MutableBlock {
+  if (currentContextBlock?.kind === "final") {
+    return currentContextBlock;
+  }
+
+  const lastBlock = blocks[blocks.length - 1];
+  if (lastBlock?.kind === "final") {
+    return lastBlock;
+  }
+
+  return createAndPushBlock(blocks, counters, "final", "Final", event);
 }
 
 function appendDetail(block: MutableBlock, detail: string): void {
@@ -439,6 +473,9 @@ function buildBlockSummary(
   rows: WorkflowRowViewModel[],
 ): string {
   if (block.kind === "tool_batch") {
+    const queuedCount = rows.filter(
+      (row) => row.kind === "tool" && row.status === "warning",
+    ).length;
     const completedCount = rows.filter(
       (row) => row.kind === "tool" && row.status === "success",
     ).length;
@@ -453,6 +490,14 @@ function buildBlockSummary(
     }
     if (runningCount > 0) {
       return `${runningCount} running, ${completedCount} completed`;
+    }
+    if (queuedCount > 0) {
+      return completedCount > 0
+        ? `${queuedCount} queued, ${completedCount} completed`
+        : `${queuedCount} queued`;
+    }
+    if (rows.length === 0) {
+      return "Waiting for first tool call";
     }
     return `${rows.length} tool call${rows.length === 1 ? "" : "s"} completed`;
   }

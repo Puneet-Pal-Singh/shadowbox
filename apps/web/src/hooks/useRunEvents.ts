@@ -15,49 +15,79 @@ export function useRunEvents(runId: string): UseRunEventsResult {
   const [events, setEvents] = useState<RunEvent[]>([]);
   const inFlightRef = useRef(false);
   const lastFetchAtRef = useRef(0);
+  const requestIdRef = useRef(0);
+  const activeRunIdRef = useRef(runId);
+  const missedRefreshRef = useRef(false);
   const lastErrorLogRef = useRef<{
     timestamp: number;
     message: string;
   } | null>(null);
 
-  const fetchEvents = useCallback(async () => {
-    if (!runId || inFlightRef.current) {
-      if (!runId) {
-        setEvents([]);
-      }
-      return;
-    }
-
-    const now = Date.now();
-    if (now - lastFetchAtRef.current < RUN_EVENTS_MIN_FETCH_INTERVAL_MS) {
-      return;
-    }
-
-    try {
-      inFlightRef.current = true;
-      lastFetchAtRef.current = now;
-
-      const response = await fetch(runEventsPath(runId));
-      if (!response.ok) {
+  const fetchEvents = useCallback(
+    async (options?: { force?: boolean }) => {
+      const currentRunId = runId.trim();
+      if (!currentRunId || inFlightRef.current) {
+        if (!currentRunId) {
+          setEvents([]);
+        }
         return;
       }
 
-      const body = await response.text();
-      const parsedEvents = parseNdjsonEvents(body, runId);
-      setEvents(parsedEvents);
-    } catch (error) {
-      logRunEventsWarning(runId, error, lastErrorLogRef);
-    } finally {
-      inFlightRef.current = false;
-    }
-  }, [runId]);
+      const now = Date.now();
+      if (
+        !options?.force &&
+        now - lastFetchAtRef.current < RUN_EVENTS_MIN_FETCH_INTERVAL_MS
+      ) {
+        return;
+      }
+
+      try {
+        inFlightRef.current = true;
+        lastFetchAtRef.current = now;
+        const requestId = requestIdRef.current + 1;
+        requestIdRef.current = requestId;
+
+        const response = await fetch(runEventsPath(currentRunId));
+        if (!response.ok) {
+          return;
+        }
+
+        const body = await response.text();
+        if (
+          activeRunIdRef.current !== currentRunId ||
+          requestIdRef.current !== requestId
+        ) {
+          return;
+        }
+        const parsedEvents = parseNdjsonEvents(body, currentRunId);
+        setEvents(parsedEvents);
+      } catch (error) {
+        if (activeRunIdRef.current === currentRunId) {
+          logRunEventsWarning(currentRunId, error, lastErrorLogRef);
+        }
+      } finally {
+        if (activeRunIdRef.current === currentRunId) {
+          inFlightRef.current = false;
+        }
+      }
+    },
+    [runId],
+  );
 
   useEffect(() => {
+    activeRunIdRef.current = runId;
+    inFlightRef.current = false;
+    lastFetchAtRef.current = 0;
+    requestIdRef.current += 1;
+    lastErrorLogRef.current = null;
+    missedRefreshRef.current = false;
+
     if (!runId) {
       setEvents([]);
       return;
     }
 
+    setEvents([]);
     void fetchEvents();
   }, [fetchEvents, runId]);
 
@@ -72,14 +102,25 @@ export function useRunEvents(runId: string): UseRunEventsResult {
         return;
       }
       if (document.visibilityState !== "visible") {
+        missedRefreshRef.current = true;
         return;
       }
       void fetchEvents();
     };
 
+    const handleVisibilityChange = () => {
+      if (document.visibilityState !== "visible" || !missedRefreshRef.current) {
+        return;
+      }
+      missedRefreshRef.current = false;
+      void fetchEvents({ force: true });
+    };
+
     window.addEventListener(RUN_SUMMARY_REFRESH_EVENT, handleRefreshEvent);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => {
       window.removeEventListener(RUN_SUMMARY_REFRESH_EVENT, handleRefreshEvent);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [fetchEvents, runId]);
 
