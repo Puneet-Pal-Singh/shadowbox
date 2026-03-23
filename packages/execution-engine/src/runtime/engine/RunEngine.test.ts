@@ -203,12 +203,42 @@ describe("RunEngine", () => {
     const persisted = await (
       runEngine as unknown as {
         getRun(runId: string): Promise<Run | null>;
+        memoryCoordinator: {
+          getCheckpointForResume(runId: string): Promise<
+            | {
+                phase: string;
+                runStatus: string;
+              }
+            | undefined
+          >;
+        };
       }
     ).getRun(TEST_RUN_ID);
+    const checkpoint = await (
+      runEngine as unknown as {
+        memoryCoordinator: {
+          getCheckpointForResume(runId: string): Promise<
+            | {
+                phase: string;
+                runStatus: string;
+              }
+            | undefined
+          >;
+        };
+      }
+    ).memoryCoordinator.getCheckpointForResume(TEST_RUN_ID);
+
     expect(persisted?.status).toBe("COMPLETED");
-    expect(persisted?.metadata.error).toContain(
-      "Planner response did not match required schema",
+    expect(persisted?.metadata.error).toBe(
+      "PLANNER_INVALID_RESPONSE: Planner returned invalid structured output.",
     );
+    expect(persisted?.metadata.phaseSelectionSnapshots?.synthesis).toEqual(
+      persisted?.metadata.manifest,
+    );
+    expect(checkpoint).toMatchObject({
+      phase: "synthesis",
+      runStatus: "COMPLETED",
+    });
   });
 
   it("persists PLANNING status before calling the explicit planner", async () => {

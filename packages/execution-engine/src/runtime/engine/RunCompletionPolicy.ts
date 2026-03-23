@@ -12,6 +12,13 @@ import {
 import { sanitizeUserFacingOutput } from "./RunOutputSanitizer.js";
 import { transitionRunToCompleted } from "./RunStatusPolicy.js";
 
+const PLANNER_DIAGNOSTIC_MAX_LENGTH = 160;
+
+type PlannerRecoveryErrorCode =
+  | "PLANNER_TIMEOUT"
+  | "PLANNER_INVALID_RESPONSE"
+  | "UNKNOWN_PLANNER_ERROR";
+
 export interface RunCompletionDependencies {
   memoryCoordinator: MemoryCoordinator;
   persistConversationMessages: (
@@ -59,6 +66,94 @@ export async function completeRunWithAssistantMessage(params: {
     RUN_WORKFLOW_STEPS.SYNTHESIS,
   );
 
+  await persistSynthesisArtifacts({ run, sanitizedText, deps });
+  transitionRunToCompleted(run, run.id);
+  recordLifecycleStep(run, "TERMINAL", "status=COMPLETED");
+  recordOrchestrationTerminal(run);
+  run.output = { content: sanitizedText };
+  await deps.runRepo.update(run);
+  await deps.runEventRecorder.recordMessageEmitted("assistant", sanitizedText);
+  await deps.runEventRecorder.recordRunCompleted(
+    getRunDurationMs(run),
+    run.metadata.agenticLoop?.toolExecutionCount ?? 0,
+  );
+  console.log(`[run/engine] Completed assistant run ${run.id}`);
+
+  return createStreamResponse(sanitizedText);
+}
+
+export async function completeRunWithRecoveredAssistantMessage(params: {
+  run: Run;
+  text: string;
+  plannerError?: unknown;
+  deps: RunCompletionDependencies;
+}): Promise<Response> {
+  const { run, text, plannerError, deps } = params;
+  const sanitizedText = sanitizeUserFacingOutput(text);
+  recordLifecycleStep(run, "SYNTHESIS", "planning_recovery");
+  await deps.runEventRecorder.recordRunStatusChanged(
+    run.status,
+    run.status,
+    RUN_WORKFLOW_STEPS.SYNTHESIS,
+  );
+
+  await persistSynthesisArtifacts({ run, sanitizedText, deps });
+  transitionRunToCompleted(run, run.id);
+  if (plannerError !== undefined) {
+    run.metadata.error = buildPlannerRecoveryMetadata(plannerError);
+  }
+  recordLifecycleStep(run, "TERMINAL", "status=COMPLETED:recoverable");
+  recordOrchestrationTerminal(run);
+  run.output = { content: sanitizedText };
+  await deps.runRepo.update(run);
+  await deps.runEventRecorder.recordMessageEmitted("assistant", sanitizedText);
+  await deps.runEventRecorder.recordRunCompleted(getRunDurationMs(run), 0);
+
+  console.log(`[run/engine] Completed run ${run.id} with recoverable error`);
+  return createStreamResponse(sanitizedText);
+}
+
+export async function tryHandlePlanningError(params: {
+  run: Run;
+  runId: string;
+  error: unknown;
+  deps: RunCompletionDependencies;
+}): Promise<Response | null> {
+  const { run, runId, error, deps } = params;
+  const userMessage = buildPlanningRecoveryMessage(error);
+  if (!userMessage) {
+    return null;
+  }
+  const classification = classifyPlannerRecoveryError(error);
+
+  console.warn(
+    `[run/engine] Recoverable planning error for run ${runId}: code=${classification.code} detail=${classification.diagnosticDetail}`,
+  );
+
+  return completeRunWithRecoveredAssistantMessage({
+    run,
+    text: userMessage,
+    plannerError: error,
+    deps,
+  });
+}
+
+export function getRunDurationMs(run: Run): number {
+  const startedAt = run.metadata.startedAt ?? run.createdAt.toISOString();
+  const startedAtMs = Date.parse(startedAt);
+  if (Number.isNaN(startedAtMs)) {
+    return 0;
+  }
+  return Math.max(0, Date.now() - startedAtMs);
+}
+
+async function persistSynthesisArtifacts(params: {
+  run: Run;
+  sanitizedText: string;
+  deps: RunCompletionDependencies;
+}): Promise<void> {
+  const { run, sanitizedText, deps } = params;
+
   await deps.safeMemoryOperation(() =>
     deps.memoryCoordinator.extractAndPersist({
       runId: run.id,
@@ -88,102 +183,63 @@ export async function completeRunWithAssistantMessage(params: {
     }),
   );
 
-  transitionRunToCompleted(run, run.id);
-  recordLifecycleStep(run, "TERMINAL", "status=COMPLETED");
   recordPhaseSelectionSnapshot(run, "synthesis");
-  recordOrchestrationTerminal(run);
-  run.output = { content: sanitizedText };
-  await deps.runRepo.update(run);
-  await deps.runEventRecorder.recordMessageEmitted("assistant", sanitizedText);
-  await deps.runEventRecorder.recordRunCompleted(
-    getRunDurationMs(run),
-    run.metadata.agenticLoop?.toolExecutionCount ?? 0,
-  );
-  console.log(`[run/engine] Completed assistant run ${run.id}`);
-
-  return createStreamResponse(sanitizedText);
 }
 
-export async function completeRunWithRecoveredAssistantMessage(params: {
-  run: Run;
-  text: string;
-  technicalError?: string;
-  deps: RunCompletionDependencies;
-}): Promise<Response> {
-  const { run, text, technicalError, deps } = params;
-  const sanitizedText = sanitizeUserFacingOutput(text);
-  recordLifecycleStep(run, "SYNTHESIS", "planning_recovery");
-  await deps.runEventRecorder.recordRunStatusChanged(
-    run.status,
-    run.status,
-    RUN_WORKFLOW_STEPS.SYNTHESIS,
-  );
-
-  await deps.safeMemoryOperation(() =>
-    deps.memoryCoordinator.extractAndPersist({
-      runId: run.id,
-      sessionId: run.sessionId,
-      source: "synthesis",
-      content: sanitizedText,
-      phase: "synthesis",
-    }),
-  );
-
-  await deps.safeMemoryOperation(() =>
-    deps.persistConversationMessages(
-      run.id,
-      run.sessionId,
-      [{ role: "assistant", content: sanitizedText }],
-      "assistant",
-    ),
-  );
-
-  transitionRunToCompleted(run, run.id);
-  if (technicalError) {
-    run.metadata.error = technicalError;
-  }
-  recordLifecycleStep(run, "TERMINAL", "status=COMPLETED:recoverable");
-  recordOrchestrationTerminal(run);
-  run.output = { content: sanitizedText };
-  await deps.runRepo.update(run);
-  await deps.runEventRecorder.recordMessageEmitted("assistant", sanitizedText);
-  await deps.runEventRecorder.recordRunCompleted(getRunDurationMs(run), 0);
-
-  console.log(`[run/engine] Completed run ${run.id} with recoverable error`);
-  return createStreamResponse(sanitizedText);
+function buildPlannerRecoveryMetadata(error: unknown): string {
+  const classification = classifyPlannerRecoveryError(error);
+  return `${classification.code}: ${classification.description}`;
 }
 
-export async function tryHandlePlanningError(params: {
-  run: Run;
-  runId: string;
-  error: unknown;
-  deps: RunCompletionDependencies;
-}): Promise<Response | null> {
-  const { run, runId, error, deps } = params;
-  const technicalMessage =
-    error instanceof Error ? error.message : "Planning phase failed";
-  const userMessage = buildPlanningRecoveryMessage(error);
-  if (!userMessage) {
-    return null;
+function classifyPlannerRecoveryError(error: unknown): {
+  code: PlannerRecoveryErrorCode;
+  description: string;
+  diagnosticDetail: string;
+} {
+  const detail = getBoundedDiagnosticDetail(error);
+  const normalizedDetail = detail.toLowerCase();
+
+  if (
+    normalizedDetail.includes("did not match schema") ||
+    normalizedDetail.includes("did not match required schema") ||
+    normalizedDetail.includes("invalid structured")
+  ) {
+    return {
+      code: "PLANNER_INVALID_RESPONSE",
+      description: "Planner returned invalid structured output.",
+      diagnosticDetail: detail,
+    };
   }
 
-  console.log(
-    `[run/engine] Recoverable planning error for run ${runId}: ${technicalMessage}`,
-  );
+  if (
+    normalizedDetail.includes("timeout") ||
+    normalizedDetail.includes("timed out") ||
+    normalizedDetail.includes("abort")
+  ) {
+    return {
+      code: "PLANNER_TIMEOUT",
+      description: "Planner timed out before producing a valid plan.",
+      diagnosticDetail: detail,
+    };
+  }
 
-  return completeRunWithRecoveredAssistantMessage({
-    run,
-    text: userMessage,
-    technicalError: technicalMessage,
-    deps,
-  });
+  return {
+    code: "UNKNOWN_PLANNER_ERROR",
+    description: "Planner failed before execution could continue.",
+    diagnosticDetail: detail,
+  };
 }
 
-export function getRunDurationMs(run: Run): number {
-  const startedAt = run.metadata.startedAt ?? run.createdAt.toISOString();
-  const startedAtMs = Date.parse(startedAt);
-  if (Number.isNaN(startedAtMs)) {
-    return 0;
+function getBoundedDiagnosticDetail(error: unknown): string {
+  const rawDetail =
+    error instanceof Error
+      ? `${error.name}: ${error.message}`
+      : "Unknown planner error";
+  const normalized = rawDetail.replace(/\s+/g, " ").trim();
+
+  if (normalized.length <= PLANNER_DIAGNOSTIC_MAX_LENGTH) {
+    return normalized;
   }
-  return Math.max(0, Date.now() - startedAtMs);
+
+  return `${normalized.slice(0, PLANNER_DIAGNOSTIC_MAX_LENGTH)}...`;
 }
