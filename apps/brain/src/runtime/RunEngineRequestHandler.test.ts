@@ -15,6 +15,35 @@ import type { Env } from "../types/ai";
 import { RunEngineRequestHandler } from "./RunEngineRequestHandler";
 
 describe("RunEngineRequestHandler", () => {
+  it("serves run-engine runtime debug metadata with run-engine headers", async () => {
+    const ctx = new MockDurableObjectState();
+    const handler = new RunEngineRequestHandler(
+      ctx as unknown as DurableObjectState,
+      {
+        RUNTIME_GIT_SHA: "run-engine-sha",
+      } as Env,
+      async (operation) => operation(),
+    );
+
+    const response = await handler.handleRuntimeDebugRequest(
+      new Request("https://run-engine/debug/runtime"),
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("X-Shadowbox-Runtime-Name")).toBe(
+      "brain-run-engine-do",
+    );
+    expect(response.headers.get("X-Shadowbox-Runtime-Fingerprint")).toContain(
+      "brain-run-engine-do:run-engine-sha:",
+    );
+
+    const body = (await response.json()) as {
+      runtime: { name: string; gitSha: string };
+    };
+    expect(body.runtime.name).toBe("brain-run-engine-do");
+    expect(body.runtime.gitSha).toBe("run-engine-sha");
+  });
+
   it("projects summary counts from canonical runtime events", async () => {
     const ctx = new MockDurableObjectState();
     const runtimeState = tagRuntimeStateSemantics(ctx, "do");
