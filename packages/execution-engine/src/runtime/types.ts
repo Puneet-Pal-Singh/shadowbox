@@ -90,6 +90,31 @@ export interface RunOutput {
   finalSummary?: string;
 }
 
+export interface RunPlanArtifactTask {
+  id: string;
+  type: string;
+  description: string;
+  dependsOn: string[];
+  expectedOutput?: string;
+  executionKind: "read" | "mutating";
+}
+
+export interface RunPlanHandoff {
+  targetMode: "build";
+  prompt: string;
+  summary: string;
+}
+
+export interface RunPlanArtifact {
+  id: string;
+  createdAt: string;
+  summary: string;
+  estimatedSteps: number;
+  reasoning?: string;
+  tasks: RunPlanArtifactTask[];
+  handoff: RunPlanHandoff;
+}
+
 export type AgenticLoopToolLifecycleStatus =
   | "requested"
   | "started"
@@ -173,6 +198,7 @@ export interface RunMetadata {
   phaseSelectionSnapshots?: Partial<Record<RunPhase, RunManifest>>;
   orchestrationTelemetry?: RunOrchestrationTelemetry;
   planId?: string;
+  planArtifact?: RunPlanArtifact;
   completedAt?: string;
   error?: string;
   startedAt?: string;

@@ -68,6 +68,10 @@ import {
   recordAgenticLoopMetadata,
 } from "./RunAgenticLoopPolicy.js";
 import {
+  buildPlanModeResponse,
+  persistPlanArtifact,
+} from "./RunPlanModePolicy.js";
+import {
   isPlatformApprovalOwner,
   recordLifecycleStep,
   recordOrchestrationActivation,
@@ -279,8 +283,12 @@ export class RunEngine implements IRunEngine {
         this.persistConversationMessages(runId, sessionId, messages, "user"),
       );
       recordLifecycleStep(run, "CONTEXT_PREPARED");
+      const runMode = run.metadata.manifest?.mode ?? "build";
 
-      if (isPlatformApprovalOwner(run.metadata.manifest)) {
+      if (
+        runMode === "build" &&
+        isPlatformApprovalOwner(run.metadata.manifest)
+      ) {
         const approvalDirectiveMessage = await this.processPermissionDirectives(
           input.prompt,
         );
@@ -300,11 +308,14 @@ export class RunEngine implements IRunEngine {
         }
       } else {
         console.log(
-          `[run/engine] Delegated harness mode active; skipping platform approval directives for run ${runId}`,
+          `[run/engine] Skipping platform approval directives for run ${runId} mode=${runMode}`,
         );
       }
 
-      if (isPlatformApprovalOwner(run.metadata.manifest)) {
+      if (
+        runMode === "build" &&
+        isPlatformApprovalOwner(run.metadata.manifest)
+      ) {
         const permissionMessage = await getPermissionPolicyMessage(
           input.prompt,
           input.repositoryContext,
@@ -326,24 +337,25 @@ export class RunEngine implements IRunEngine {
         }
       } else {
         console.log(
-          `[run/engine] Delegated harness mode active; skipping platform approval gates for run ${runId}`,
+          `[run/engine] Skipping platform approval gates for run ${runId} mode=${runMode}`,
         );
       }
 
-      const runMode = run.metadata.manifest?.mode ?? "build";
-      const bootstrapMessage = await getWorkspaceBootstrapMessage(
-        run.id,
-        input.repositoryContext,
-        this.workspaceBootstrapper,
-      );
-      if (bootstrapMessage) {
-        console.log(
-          `[run/engine] Workspace bootstrap blocked action planning for run ${runId}`,
+      if (runMode === "build") {
+        const bootstrapMessage = await getWorkspaceBootstrapMessage(
+          run.id,
+          input.repositoryContext,
+          this.workspaceBootstrapper,
         );
-        return await this.completeRunWithAssistantMessage(
-          run,
-          bootstrapMessage,
-        );
+        if (bootstrapMessage) {
+          console.log(
+            `[run/engine] Workspace bootstrap blocked action planning for run ${runId}`,
+          );
+          return await this.completeRunWithAssistantMessage(
+            run,
+            bootstrapMessage,
+          );
+        }
       }
 
       if (runMode === "build") {
@@ -381,7 +393,7 @@ export class RunEngine implements IRunEngine {
           input.prompt,
           this.currentMemoryContext,
         );
-        await this.createTasksFromPlan(run.id, plan);
+        const planArtifact = persistPlanArtifact(run, plan);
         recordLifecycleStep(run, "PLAN_VALIDATED");
 
         await this.safeMemoryOperation(() =>
@@ -392,6 +404,12 @@ export class RunEngine implements IRunEngine {
             runStatus: run.status,
             taskStatuses: {},
           }),
+        );
+        await this.runRepo.update(run);
+
+        return await this.completeRunWithAssistantMessage(
+          run,
+          buildPlanModeResponse(planArtifact),
         );
       } catch (planError) {
         const recoveryResponse = await this.tryHandlePlanningError(

@@ -518,6 +518,141 @@ describe("RunEngine", () => {
     expect(planner.plan).toHaveBeenCalledTimes(1);
   });
 
+  it("completes explicit plan mode with a preserved handoff artifact and no task execution", async () => {
+    const planner = {
+      plan: vi.fn(async () => ({
+        tasks: [
+          {
+            id: "task-1",
+            type: "edit",
+            description: "Update the README introduction",
+            dependsOn: [],
+            expectedOutput: "README intro is refreshed",
+            input: { path: "README.md", content: "# Updated" },
+          },
+        ],
+        metadata: {
+          estimatedSteps: 1,
+          reasoning: "Refresh the README copy before validating the update.",
+        },
+      })),
+    } as unknown as RunEngineDependencies["planner"];
+    const scheduler = {
+      execute: vi.fn(async () => {
+        throw new Error("scheduler should not run in explicit plan mode");
+      }),
+    } as unknown as RunEngineDependencies["scheduler"];
+    const runEngine = createRunEngine({
+      llmGateway: createMockLLMGateway(),
+      planner,
+      scheduler,
+    });
+
+    const response = await runEngine.execute(
+      {
+        agentType: "coding",
+        mode: "plan",
+        prompt: "refresh the README intro",
+        sessionId: "session-1",
+      },
+      [{ role: "user", content: "refresh the README intro" }],
+      {},
+    );
+
+    const output = await response.text();
+    const persisted = await (
+      runEngine as unknown as {
+        getRun(runId: string): Promise<Run | null>;
+        getTasksForRun(runId: string): Promise<Task[]>;
+      }
+    ).getRun(TEST_RUN_ID);
+    const tasks = await (
+      runEngine as unknown as {
+        getTasksForRun(runId: string): Promise<Task[]>;
+      }
+    ).getTasksForRun(TEST_RUN_ID);
+
+    expect(response.status).toBe(200);
+    expect(output).toContain("No files, commands, or mutating tools were run");
+    expect(output).toContain("Switch to Build mode");
+    expect(scheduler.execute).not.toHaveBeenCalled();
+    expect(tasks).toHaveLength(0);
+    expect(persisted?.metadata.planArtifact).toMatchObject({
+      estimatedSteps: 1,
+      summary: "Refresh the README copy before validating the update.",
+      handoff: {
+        targetMode: "build",
+      },
+    });
+    expect(persisted?.metadata.planArtifact?.tasks).toEqual([
+      expect.objectContaining({
+        id: "task-1",
+        type: "edit",
+        executionKind: "mutating",
+      }),
+    ]);
+  });
+
+  it("skips build-only approval and bootstrap gates in explicit plan mode", async () => {
+    const planner = {
+      plan: vi.fn(async () => ({
+        tasks: [
+          {
+            id: "task-1",
+            type: "analyze",
+            description: "Inspect the current repository state",
+            dependsOn: [],
+            expectedOutput: "Current state understood",
+            input: { path: "README.md" },
+          },
+        ],
+        metadata: { estimatedSteps: 1 },
+      })),
+    } as unknown as RunEngineDependencies["planner"];
+    const workspaceBootstrapper = {
+      bootstrap: vi.fn(async () => ({
+        status: "sync-failed" as const,
+        message: "bootstrap should be skipped in plan mode",
+      })),
+    };
+    const runEngine = createRunEngine({
+      llmGateway: createMockLLMGateway(),
+      planner,
+      workspaceBootstrapper,
+    });
+
+    const response = await runEngine.execute(
+      {
+        agentType: "coding",
+        mode: "plan",
+        prompt:
+          "delete the old branch and force push once you inspect the repo",
+        sessionId: "session-1",
+        repositoryContext: {
+          owner: "shadowbox",
+          repo: "shadowbox",
+          branch: "main",
+        },
+      },
+      [
+        {
+          role: "user",
+          content:
+            "delete the old branch and force push once you inspect the repo",
+        },
+      ],
+      {},
+    );
+
+    const output = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(planner.plan).toHaveBeenCalledTimes(1);
+    expect(workspaceBootstrapper.bootstrap).not.toHaveBeenCalled();
+    expect(output).not.toContain("approval");
+    expect(output).toContain("Plan mode prepared a safe execution outline");
+  });
+
   it("emits canonical run and tool lifecycle events for build-mode tool runs", async () => {
     const state = new MockRuntimeState();
     const llmGateway: ILLMGateway = {
@@ -1451,7 +1586,7 @@ describe("RunEngine", () => {
     expect(persistedRun?.input.providerId).toBe("openai");
   });
 
-  it("records immutable selection snapshots across planning, execution, and synthesis metadata", async () => {
+  it("records immutable selection snapshots for explicit plan runs without execution metadata", async () => {
     const runEngine = createRunEngine({
       llmGateway: createPlanningLLMGateway(),
     });
@@ -1488,14 +1623,13 @@ describe("RunEngine", () => {
     expect(manifest).toBeDefined();
     expect(snapshots).toBeDefined();
     expect(snapshots?.planning).toEqual(manifest);
-    expect(snapshots?.execution).toEqual(manifest);
+    expect(snapshots?.execution).toBeUndefined();
     expect(snapshots?.synthesis).toEqual(manifest);
     expect(snapshots?.planning).not.toBe(manifest);
     expect(lifecycleSteps).toEqual([
       "RUN_CREATED",
       "CONTEXT_PREPARED",
       "PLAN_VALIDATED",
-      "TASK_EXECUTING",
       "SYNTHESIS",
       "TERMINAL",
     ]);
