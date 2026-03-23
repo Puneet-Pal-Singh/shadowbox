@@ -1,4 +1,5 @@
 import type { CoreMessage, CoreTool } from "ai";
+import { RUN_WORKFLOW_STEPS } from "@repo/shared-types";
 import { Run, RunRepository, RunStateMachine } from "../run/index.js";
 import { Task, TaskRepository } from "../task/index.js";
 import {
@@ -46,6 +47,13 @@ import {
   getWorkspaceBootstrapMessage,
   processPermissionDirectives as processPermissionDirectivesPolicy,
 } from "./RunPermissionWorkspacePolicy.js";
+import {
+  completeRunWithAssistantMessage as completeRunWithAssistantMessagePolicy,
+  createStreamResponse as createStreamResponsePolicy,
+  getRunDurationMs as getRunDurationMsPolicy,
+  tryHandlePlanningError as tryHandlePlanningErrorPolicy,
+  type RunCompletionDependencies,
+} from "./RunCompletionPolicy.js";
 import { createRunManifest, ensureManifestMatch } from "./RunManifestPolicy.js";
 import { sanitizeUserFacingOutput } from "./RunOutputSanitizer.js";
 import {
@@ -68,8 +76,8 @@ import {
 } from "./RunMetadataPolicy.js";
 import { resetRecyclableRun } from "./RunRecyclableResetPolicy.js";
 import { applyReviewerPassIfEnabled } from "./RunReviewerPassPolicy.js";
-import { buildPlanningRecoveryMessage } from "./RunPlanningRecoveryPolicy.js";
 import { synthesizeResultFromTasks } from "./RunSynthesisPolicy.js";
+import { RunEventRecorder, RunEventRepository } from "../events/index.js";
 
 export interface IRunEngine {
   execute(
@@ -114,6 +122,8 @@ export interface RunEngineDependencies {
 export class RunEngine implements IRunEngine {
   private runRepo: RunRepository;
   private taskRepo: TaskRepository;
+  private runEventRepo: RunEventRepository;
+  private runEventRecorder: RunEventRecorder;
   private pricingRegistry: IPricingRegistry;
   private costLedger: ICostLedger;
   private costTracker: ICostTracker;
@@ -139,6 +149,12 @@ export class RunEngine implements IRunEngine {
   ) {
     this.runRepo = new RunRepository(ctx);
     this.taskRepo = new TaskRepository(ctx);
+    this.runEventRepo = new RunEventRepository(ctx);
+    this.runEventRecorder = new RunEventRecorder(
+      this.runEventRepo,
+      options.runId,
+      options.sessionId,
+    );
 
     this.pricingRegistry =
       dependencies.pricingRegistry ??
@@ -246,6 +262,8 @@ export class RunEngine implements IRunEngine {
     try {
       await this.sessionCostsLoaded;
       const run = await this.getOrCreateRun(input, runId, sessionId);
+      await this.runEventRecorder.ensureRunStarted(run.status);
+      await this.recordCurrentUserTurn(input.prompt);
       recordOrchestrationActivation(run);
       await this.runRepo.update(run);
       console.log(`[run/engine] Retrieving memory context for run ${runId}`);
@@ -337,9 +355,24 @@ export class RunEngine implements IRunEngine {
         );
       }
 
-      console.log(`[run/engine] Explicit plan mode planning phase for run ${runId}`);
+      console.log(
+        `[run/engine] Explicit plan mode planning phase for run ${runId}`,
+      );
       try {
-        run.transition("PLANNING");
+        const previousPlanningStatus = run.status;
+        if (run.status === "CREATED") {
+          run.transition("PLANNING");
+        }
+        if (
+          previousPlanningStatus !== run.status ||
+          run.status === "PLANNING"
+        ) {
+          await this.runEventRecorder.recordRunStatusChanged(
+            previousPlanningStatus,
+            run.status,
+            RUN_WORKFLOW_STEPS.PLANNING,
+          );
+        }
         recordPhaseSelectionSnapshot(run, "planning");
         await this.runRepo.update(run);
 
@@ -379,9 +412,15 @@ export class RunEngine implements IRunEngine {
       }
 
       console.log(`[run/engine] Execution phase for run ${runId}`);
+      const executionPreviousStatus = run.status;
       run.transition("RUNNING");
       recordPhaseSelectionSnapshot(run, "execution");
       recordLifecycleStep(run, "TASK_EXECUTING");
+      await this.runEventRecorder.recordRunStatusChanged(
+        executionPreviousStatus,
+        run.status,
+        RUN_WORKFLOW_STEPS.EXECUTION,
+      );
       await this.runRepo.update(run);
 
       const taskResults: Array<{ taskId: string; content: string }> = [];
@@ -391,10 +430,17 @@ export class RunEngine implements IRunEngine {
           console.log(
             `[task/scheduler] beforeTask run=${run.id} task=${task.id} phase=task`,
           );
+          await this.runEventRecorder.recordToolRequested(task);
+          await this.runEventRecorder.recordToolStarted(task);
         },
         afterTask: async (task, result) => {
           console.log(
             `[task/scheduler] afterTask run=${run.id} task=${task.id} status=${result.status}`,
+          );
+          await this.runEventRecorder.recordToolCompleted(
+            task,
+            result.output?.content ?? null,
+            0,
           );
           if (result.output?.content) {
             taskResults.push({
@@ -405,6 +451,11 @@ export class RunEngine implements IRunEngine {
         },
         onTaskError: async (task, error) => {
           console.error(`[task/scheduler] onTaskError task=${task.id}`, error);
+          await this.runEventRecorder.recordToolFailed(
+            task,
+            error instanceof Error ? error.message : "Task execution failed",
+            0,
+          );
         },
       });
 
@@ -438,6 +489,11 @@ export class RunEngine implements IRunEngine {
       console.log(`[run/engine] Synthesis phase for run ${runId}`);
       recordPhaseSelectionSnapshot(run, "synthesis");
       recordLifecycleStep(run, "SYNTHESIS");
+      await this.runEventRecorder.recordRunStatusChanged(
+        run.status,
+        run.status,
+        RUN_WORKFLOW_STEPS.SYNTHESIS,
+      );
       const finalOutputRaw = await this.generateSynthesis(
         run,
         input.prompt,
@@ -483,11 +539,26 @@ export class RunEngine implements IRunEngine {
       recordOrchestrationTerminal(run);
       run.output = { content: finalOutput };
       await this.runRepo.update(run);
+      await this.runEventRecorder.recordMessageEmitted(
+        "assistant",
+        finalOutput,
+      );
+      if (finalRunStatus === "COMPLETED") {
+        await this.runEventRecorder.recordRunCompleted(
+          this.getRunDurationMs(run),
+          allTasks.length,
+        );
+      } else if (finalRunStatus === "FAILED") {
+        await this.runEventRecorder.recordRunFailed(
+          run.metadata.error ?? "One or more tasks failed",
+          this.getRunDurationMs(run),
+        );
+      }
       console.log(`[run/engine] Completed run ${runId}`);
       console.log(
         `[run/timing] run=${runId} step=total elapsedMs=${Date.now() - runStartedAt} status=${finalRunStatus} mode=task`,
       );
-      return this.createStreamResponse(finalOutput);
+      return createStreamResponsePolicy(finalOutput);
     } catch (error) {
       await this.handleExecutionError(runId, error);
       throw error;
@@ -501,9 +572,15 @@ export class RunEngine implements IRunEngine {
     tools: Record<string, CoreTool>,
   ): Promise<Response> {
     console.log(`[run/engine] Agentic loop execution active for run ${run.id}`);
+    const previousStatus = run.status;
     run.transition("RUNNING");
     recordPhaseSelectionSnapshot(run, "execution");
     recordLifecycleStep(run, "TASK_EXECUTING", "agentic_loop");
+    await this.runEventRecorder.recordRunStatusChanged(
+      previousStatus,
+      run.status,
+      RUN_WORKFLOW_STEPS.EXECUTION,
+    );
     await this.runRepo.update(run);
 
     const loop = new AgenticLoop(
@@ -521,6 +598,39 @@ export class RunEngine implements IRunEngine {
       modelId: input.modelId,
       providerId: input.providerId,
       temperature: 0.2,
+      onToolRequested: async (toolCall) => {
+        await this.runEventRecorder.recordToolRequested({
+          id: toolCall.id,
+          type: toolCall.toolName,
+          input: toolCall.args,
+        });
+      },
+      onToolStarted: async (toolCall) => {
+        await this.runEventRecorder.recordToolStarted({
+          id: toolCall.id,
+          type: toolCall.toolName,
+        });
+      },
+      onToolCompleted: async (toolCall, result, executionTimeMs) => {
+        await this.runEventRecorder.recordToolCompleted(
+          {
+            id: toolCall.id,
+            type: toolCall.toolName,
+          },
+          result,
+          executionTimeMs,
+        );
+      },
+      onToolFailed: async (toolCall, error, executionTimeMs) => {
+        await this.runEventRecorder.recordToolFailed(
+          {
+            id: toolCall.id,
+            type: toolCall.toolName,
+          },
+          error,
+          executionTimeMs,
+        );
+      },
     });
 
     recordAgenticLoopMetadata(run, loopResult);
@@ -551,6 +661,20 @@ export class RunEngine implements IRunEngine {
         });
       }
     }
+  }
+
+  private getRunCompletionDependencies(): RunCompletionDependencies {
+    return {
+      memoryCoordinator: this.memoryCoordinator,
+      persistConversationMessages: this.persistConversationMessages.bind(this),
+      runEventRecorder: this.runEventRecorder,
+      runRepo: this.runRepo,
+      safeMemoryOperation: this.safeMemoryOperation.bind(this),
+    };
+  }
+
+  private async recordCurrentUserTurn(prompt: string): Promise<void> {
+    await this.runEventRecorder.recordMessageEmitted("user", prompt);
   }
 
   async getRunStatus(runId: string): Promise<RunStatus | null> {
@@ -610,6 +734,7 @@ export class RunEngine implements IRunEngine {
           previousStatus: existing.status,
           taskRepo: this.taskRepo,
           runRepo: this.runRepo,
+          clearRunEvents: () => this.runEventRecorder.clear(),
           createFreshRun: this.createFreshRun.bind(this),
         });
       }
@@ -723,130 +848,28 @@ export class RunEngine implements IRunEngine {
     });
   }
 
-  private createStreamResponse(content: string): Response {
-    const safeContent = sanitizeUserFacingOutput(content);
-    const encoder = new TextEncoder();
-    const stream = new ReadableStream({
-      start(controller) {
-        controller.enqueue(encoder.encode(safeContent));
-        controller.close();
-      },
-    });
-
-    return new Response(stream, {
-      headers: {
-        "Content-Type": "text/plain; charset=utf-8",
-        "Transfer-Encoding": "chunked",
-      },
-    });
-  }
-
   private async completeRunWithAssistantMessage(
     run: Run,
     text: string,
   ): Promise<Response> {
-    const sanitizedText = sanitizeUserFacingOutput(text);
-    recordLifecycleStep(run, "SYNTHESIS");
-
-    await this.safeMemoryOperation(() =>
-      this.memoryCoordinator.extractAndPersist({
-        runId: run.id,
-        sessionId: run.sessionId,
-        source: "synthesis",
-        content: sanitizedText,
-        phase: "synthesis",
-      }),
-    );
-
-    await this.safeMemoryOperation(() =>
-      this.persistConversationMessages(
-        run.id,
-        run.sessionId,
-        [{ role: "assistant", content: sanitizedText }],
-        "assistant",
-      ),
-    );
-
-    await this.safeMemoryOperation(() =>
-      this.memoryCoordinator.createCheckpoint({
-        runId: run.id,
-        sequence: 1,
-        phase: "synthesis",
-        runStatus: "COMPLETED",
-        taskStatuses: {},
-      }),
-    );
-    transitionRunToCompleted(run, run.id);
-    recordLifecycleStep(run, "TERMINAL", "status=COMPLETED");
-    recordPhaseSelectionSnapshot(run, "synthesis");
-    recordOrchestrationTerminal(run);
-    run.output = { content: sanitizedText };
-    await this.runRepo.update(run);
-    console.log(`[run/engine] Completed assistant run ${run.id}`);
-
-    return this.createStreamResponse(sanitizedText);
+    return completeRunWithAssistantMessagePolicy({
+      run,
+      text,
+      deps: this.getRunCompletionDependencies(),
+    });
   }
 
-  private async completeRunWithRecoveredAssistantMessage(
-    run: Run,
-    text: string,
-    technicalError?: string,
-  ): Promise<Response> {
-    const sanitizedText = sanitizeUserFacingOutput(text);
-    recordLifecycleStep(run, "SYNTHESIS", "planning_recovery");
-
-    await this.safeMemoryOperation(() =>
-      this.memoryCoordinator.extractAndPersist({
-        runId: run.id,
-        sessionId: run.sessionId,
-        source: "synthesis",
-        content: sanitizedText,
-        phase: "synthesis",
-      }),
-    );
-
-    await this.safeMemoryOperation(() =>
-      this.persistConversationMessages(
-        run.id,
-        run.sessionId,
-        [{ role: "assistant", content: sanitizedText }],
-        "assistant",
-      ),
-    );
-
-    transitionRunToCompleted(run, run.id);
-    if (technicalError) {
-      run.metadata.error = technicalError;
-    }
-    recordLifecycleStep(run, "TERMINAL", "status=COMPLETED:recoverable");
-    recordOrchestrationTerminal(run);
-    run.output = { content: sanitizedText };
-    await this.runRepo.update(run);
-
-    console.log(`[run/engine] Completed run ${run.id} with recoverable error`);
-    return this.createStreamResponse(sanitizedText);
-  }
   private async tryHandlePlanningError(
     run: Run,
     runId: string,
     error: unknown,
   ): Promise<Response | null> {
-    const technicalMessage =
-      error instanceof Error ? error.message : "Planning phase failed";
-    const userMessage = buildPlanningRecoveryMessage(error);
-    if (!userMessage) {
-      return null;
-    }
-
-    console.log(
-      `[run/engine] Recoverable planning error for run ${runId}: ${technicalMessage}`,
-    );
-
-    return this.completeRunWithRecoveredAssistantMessage(
+    return tryHandlePlanningErrorPolicy({
       run,
-      userMessage,
-      technicalMessage,
-    );
+      runId,
+      error,
+      deps: this.getRunCompletionDependencies(),
+    });
   }
 
   private async processPermissionDirectives(
@@ -892,6 +915,12 @@ export class RunEngine implements IRunEngine {
         recordOrchestrationTerminal(run);
         run.metadata.error = errorMessage;
         await this.runRepo.update(run);
+        if (run.status === "FAILED") {
+          await this.runEventRecorder.recordRunFailed(
+            errorMessage,
+            this.getRunDurationMs(run),
+          );
+        }
       }
     } catch (handlerError) {
       console.error(
@@ -921,6 +950,10 @@ export class RunEngine implements IRunEngine {
   }
   async getRun(runId: string) {
     return this.runRepo.getById(runId);
+  }
+
+  private getRunDurationMs(run: Run): number {
+    return getRunDurationMsPolicy(run);
   }
 
   private getUnknownPricingMode(env: RunEngineEnv): "warn" | "block" {

@@ -4,7 +4,12 @@
  */
 
 import { z } from "zod";
-import { RUN_EVENT_TYPES, type RunEvent, type RunEventType } from "./run-events.js";
+import {
+  RUN_EVENT_TYPES,
+  RUN_WORKFLOW_STEPS,
+  type RunEvent,
+  type RunEventType,
+} from "./run-events.js";
 import { RUN_STATUSES } from "./run-status.js";
 
 // ============================================================================
@@ -44,6 +49,13 @@ const RunStartedPayloadSchema = z.object({
 const RunStatusChangedPayloadSchema = z.object({
   previousStatus: RunStatusSchema,
   newStatus: RunStatusSchema,
+  workflowStep: z
+    .enum([
+      RUN_WORKFLOW_STEPS.PLANNING,
+      RUN_WORKFLOW_STEPS.EXECUTION,
+      RUN_WORKFLOW_STEPS.SYNTHESIS,
+    ])
+    .optional(),
   reason: z.string().optional(),
 });
 
@@ -252,7 +264,9 @@ export function safeParseRunEvent(
  */
 export function validateEventEnvelope(
   data: unknown,
-): { success: true; data: z.infer<typeof RunEventEnvelopeSchema> } | { success: false; error: string } {
+):
+  | { success: true; data: z.infer<typeof RunEventEnvelopeSchema> }
+  | { success: false; error: string } {
   const result = RunEventEnvelopeSchema.safeParse(data);
   if (result.success) {
     return { success: true, data: result.data };

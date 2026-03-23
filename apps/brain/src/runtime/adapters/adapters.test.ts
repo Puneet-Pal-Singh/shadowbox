@@ -5,6 +5,7 @@
  */
 
 import { describe, it, expect, beforeEach } from "vitest";
+import { RUN_EVENT_TYPES } from "@repo/shared-types";
 import { CloudflareEventStreamAdapter } from "./CloudflareEventStreamAdapter";
 import type { StreamEvent } from "../ports";
 
@@ -26,10 +27,16 @@ describe("Runtime Adapters", () => {
 
     it("should emit single events", () => {
       const event: StreamEvent = {
-        type: "text-delta",
+        version: 1,
+        eventId: "evt-1",
         runId: "test-run",
-        timestamp: Date.now(),
-        data: { delta: "hello" },
+        timestamp: new Date().toISOString(),
+        source: "brain",
+        type: RUN_EVENT_TYPES.MESSAGE_EMITTED,
+        payload: {
+          content: "hello",
+          role: "assistant",
+        },
       };
 
       expect(() => adapter.emit(event)).not.toThrow();
@@ -38,16 +45,22 @@ describe("Runtime Adapters", () => {
     it("should emit batches of events", () => {
       const events: StreamEvent[] = [
         {
-          type: "text-delta",
+          version: 1,
+          eventId: "evt-1",
           runId: "test-run",
-          timestamp: Date.now(),
-          data: { delta: "hello" },
+          timestamp: new Date().toISOString(),
+          source: "brain",
+          type: RUN_EVENT_TYPES.MESSAGE_EMITTED,
+          payload: { content: "hello", role: "assistant" },
         },
         {
-          type: "text-delta",
+          version: 1,
+          eventId: "evt-2",
           runId: "test-run",
-          timestamp: Date.now(),
-          data: { delta: " world" },
+          timestamp: new Date().toISOString(),
+          source: "brain",
+          type: RUN_EVENT_TYPES.MESSAGE_EMITTED,
+          payload: { content: " world", role: "assistant" },
         },
       ];
 
@@ -75,10 +88,13 @@ describe("Runtime Adapters", () => {
 
     it("should ignore events for completed runs", () => {
       const event: StreamEvent = {
-        type: "text-delta",
+        version: 1,
+        eventId: "evt-1",
         runId: "test-run",
-        timestamp: Date.now(),
-        data: { delta: "hello" },
+        timestamp: new Date().toISOString(),
+        source: "brain",
+        type: RUN_EVENT_TYPES.MESSAGE_EMITTED,
+        payload: { content: "hello", role: "assistant" },
       };
 
       adapter.complete("test-run");
@@ -92,23 +108,33 @@ describe("Runtime Adapters", () => {
       const stream = adapter.getStream(runId);
 
       adapter.emit({
-        type: "text-delta",
+        version: 1,
+        eventId: "evt-1",
         runId,
-        timestamp: 1000,
-        data: { delta: "hello" },
+        timestamp: "2026-03-23T00:00:00.000Z",
+        source: "brain",
+        type: RUN_EVENT_TYPES.MESSAGE_EMITTED,
+        payload: { content: "hello", role: "assistant" },
       });
       adapter.emit({
-        type: "tool-call",
+        version: 1,
+        eventId: "evt-2",
         runId,
-        timestamp: 1001,
-        data: { tool: "read_file" },
+        timestamp: "2026-03-23T00:00:01.000Z",
+        source: "brain",
+        type: RUN_EVENT_TYPES.TOOL_REQUESTED,
+        payload: {
+          toolId: "tool-1",
+          toolName: "read_file",
+          arguments: { path: "README.md" },
+        },
       });
       adapter.complete(runId);
 
       const events = await readStreamEvents(stream);
       expect(events.map((event) => event.type)).toEqual([
-        "text-delta",
-        "tool-call",
+        RUN_EVENT_TYPES.MESSAGE_EMITTED,
+        RUN_EVENT_TYPES.TOOL_REQUESTED,
       ]);
       expect(events.every((event) => event.runId === runId)).toBe(true);
     });
@@ -118,16 +144,22 @@ describe("Runtime Adapters", () => {
       const streamB = adapter.getStream("run-b");
 
       adapter.emit({
-        type: "text-delta",
+        version: 1,
+        eventId: "evt-a",
         runId: "run-a",
-        timestamp: 1,
-        data: { delta: "A" },
+        timestamp: "2026-03-23T00:00:00.000Z",
+        source: "brain",
+        type: RUN_EVENT_TYPES.MESSAGE_EMITTED,
+        payload: { content: "A", role: "assistant" },
       });
       adapter.emit({
-        type: "text-delta",
+        version: 1,
+        eventId: "evt-b",
         runId: "run-b",
-        timestamp: 2,
-        data: { delta: "B" },
+        timestamp: "2026-03-23T00:00:01.000Z",
+        source: "brain",
+        type: RUN_EVENT_TYPES.MESSAGE_EMITTED,
+        payload: { content: "B", role: "assistant" },
       });
       adapter.complete("run-a");
       adapter.complete("run-b");
@@ -150,10 +182,13 @@ describe("Runtime Adapters", () => {
 
       // Both should satisfy the same interface
       const event: StreamEvent = {
-        type: "text-delta",
+        version: 1,
+        eventId: "evt-shared",
         runId: "test",
-        timestamp: Date.now(),
-        data: {},
+        timestamp: new Date().toISOString(),
+        source: "brain",
+        type: RUN_EVENT_TYPES.MESSAGE_EMITTED,
+        payload: { content: "shared", role: "assistant" },
       };
 
       adapter1.emit(event);
@@ -165,7 +200,9 @@ describe("Runtime Adapters", () => {
   });
 });
 
-async function readStreamEvents(stream: ReadableStream<Uint8Array>): Promise<StreamEvent[]> {
+async function readStreamEvents(
+  stream: ReadableStream<Uint8Array>,
+): Promise<StreamEvent[]> {
   const reader = stream.getReader();
   const decoder = new TextDecoder();
   let buffer = "";

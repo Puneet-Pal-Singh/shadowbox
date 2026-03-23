@@ -75,18 +75,16 @@ export { RUN_STATUSES } from "./run-status.js";
 export type { RunStatus } from "./run-status.js";
 
 // Explicit build/plan mode contract
-export {
-  RunModeSchema,
-  DEFAULT_RUN_MODE,
-  type RunMode,
-} from "./run-mode.js";
+export { RunModeSchema, DEFAULT_RUN_MODE, type RunMode } from "./run-mode.js";
 
 // Run event types
 export {
   RUN_EVENT_TYPES,
+  RUN_WORKFLOW_STEPS,
   type EventSource,
   type RunEventType,
   type RunEventEnvelope,
+  type RunWorkflowStep,
   isRunEvent,
   isRunEventOfType,
   // Event types

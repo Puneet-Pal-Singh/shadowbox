@@ -5,6 +5,7 @@
  * Bridges Cloudflare Workers streaming to port contracts.
  */
 
+import { RUN_EVENT_TYPES } from "@repo/shared-types";
 import type { StreamEvent, RealtimeEventPort } from "../ports";
 
 /**
@@ -23,7 +24,9 @@ export class CloudflareEventStreamAdapter implements RealtimeEventPort {
 
   emit(event: StreamEvent): void {
     if (this.completed.has(event.runId)) {
-      console.warn(`[event-stream] Ignoring event for completed run: ${event.runId}`);
+      console.warn(
+        `[event-stream] Ignoring event for completed run: ${event.runId}`,
+      );
       return;
     }
 
@@ -62,10 +65,17 @@ export class CloudflareEventStreamAdapter implements RealtimeEventPort {
     },
   ): void {
     const errorEvent: StreamEvent = {
-      type: "error",
+      version: 1,
+      eventId: crypto.randomUUID(),
       runId,
-      timestamp: Date.now(),
-      data: error,
+      timestamp: new Date().toISOString(),
+      source: "brain",
+      type: RUN_EVENT_TYPES.RUN_FAILED,
+      payload: {
+        status: "failed",
+        error: error.message,
+        totalDurationMs: 0,
+      },
     };
 
     this.emit(errorEvent);
@@ -101,7 +111,10 @@ export class CloudflareEventStreamAdapter implements RealtimeEventPort {
       try {
         controller.enqueue(uint8);
       } catch (e) {
-        console.error(`[event-stream] Failed to enqueue event for ${runId}:`, e);
+        console.error(
+          `[event-stream] Failed to enqueue event for ${runId}:`,
+          e,
+        );
         break; // Stop flushing on error
       }
     }

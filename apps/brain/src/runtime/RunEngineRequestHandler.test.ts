@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { RUN_EVENT_TYPES } from "@repo/shared-types";
 import {
   Run,
   RunEventRepository,
@@ -141,6 +142,64 @@ describe("RunEngineRequestHandler", () => {
     expect(body.failedTasks).toBe(0);
     expect(body.eventCount).toBe(4);
     expect(body.lastEventType).toBe("tool.requested");
+  });
+
+  it("streams canonical runtime events as NDJSON", async () => {
+    const ctx = new MockDurableObjectState();
+    const runtimeState = tagRuntimeStateSemantics(ctx, "do");
+    const eventRepo = new RunEventRepository(runtimeState);
+    const runId = "123e4567-e89b-42d3-a456-426614174001";
+
+    await eventRepo.append(
+      runId,
+      createToolRequestedEvent(
+        {
+          runId,
+          sessionId: "session-1",
+          taskId: "task-1",
+          toolName: "read_file",
+        },
+        { path: "README.md" },
+      ),
+    );
+    await eventRepo.append(
+      runId,
+      createToolCompletedEvent(
+        {
+          runId,
+          sessionId: "session-1",
+          taskId: "task-1",
+          toolName: "read_file",
+        },
+        "README contents",
+        8,
+      ),
+    );
+
+    const handler = new RunEngineRequestHandler(
+      ctx as unknown as DurableObjectState,
+      {} as Env,
+      async (operation) => operation(),
+    );
+
+    const response = await handler.handleEventsRequest(
+      new Request(`https://brain.local/events?runId=${runId}`),
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Content-Type")).toBe(
+      "application/x-ndjson; charset=utf-8",
+    );
+
+    const lines = (await response.text()).trim().split("\n");
+    expect(lines).toHaveLength(2);
+
+    const firstEvent = JSON.parse(lines[0]) as { type: string; runId: string };
+    const secondEvent = JSON.parse(lines[1]) as { type: string; runId: string };
+    expect(firstEvent.type).toBe(RUN_EVENT_TYPES.TOOL_REQUESTED);
+    expect(secondEvent.type).toBe(RUN_EVENT_TYPES.TOOL_COMPLETED);
+    expect(firstEvent.runId).toBe(runId);
+    expect(secondEvent.runId).toBe(runId);
   });
 });
 

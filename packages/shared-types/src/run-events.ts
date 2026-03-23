@@ -8,6 +8,16 @@ import { RunStatus } from "./run-status.js";
 /** Event source identifier */
 export type EventSource = "brain" | "muscle" | "web" | "cli" | "desktop";
 
+/** Canonical workflow stages for user-visible run progress */
+export const RUN_WORKFLOW_STEPS = {
+  PLANNING: "planning",
+  EXECUTION: "execution",
+  SYNTHESIS: "synthesis",
+} as const;
+
+export type RunWorkflowStep =
+  (typeof RUN_WORKFLOW_STEPS)[keyof typeof RUN_WORKFLOW_STEPS];
+
 /** Canonical run event types */
 export const RUN_EVENT_TYPES = {
   RUN_STARTED: "run.started",
@@ -21,7 +31,8 @@ export const RUN_EVENT_TYPES = {
   RUN_FAILED: "run.failed",
 } as const;
 
-export type RunEventType = (typeof RUN_EVENT_TYPES)[keyof typeof RUN_EVENT_TYPES];
+export type RunEventType =
+  (typeof RUN_EVENT_TYPES)[keyof typeof RUN_EVENT_TYPES];
 
 /**
  * Generic event envelope structure used for all run events
@@ -52,6 +63,7 @@ export interface RunStartedPayload {
 export interface RunStatusChangedPayload {
   previousStatus: RunStatus;
   newStatus: RunStatus;
+  workflowStep?: RunWorkflowStep;
   reason?: string;
 }
 

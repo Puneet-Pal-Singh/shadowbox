@@ -5,6 +5,7 @@
 import { describe, expect, it } from "vitest";
 import {
   RUN_EVENT_TYPES,
+  RUN_WORKFLOW_STEPS,
   isRunEvent,
   isRunEventOfType,
   type RunEvent,
@@ -73,8 +74,12 @@ describe("RunEvent Type Guards", () => {
   });
 
   it("should distinguish between event types", () => {
-    expect(isRunEventOfType(validRunStartedEvent, RUN_EVENT_TYPES.RUN_STARTED)).toBe(true);
-    expect(isRunEventOfType(validRunStartedEvent, RUN_EVENT_TYPES.MESSAGE_EMITTED)).toBe(false);
+    expect(
+      isRunEventOfType(validRunStartedEvent, RUN_EVENT_TYPES.RUN_STARTED),
+    ).toBe(true);
+    expect(
+      isRunEventOfType(validRunStartedEvent, RUN_EVENT_TYPES.MESSAGE_EMITTED),
+    ).toBe(false);
   });
 });
 
@@ -122,6 +127,28 @@ describe("RunEvent Schema Validation", () => {
     expect(parsed.type).toBe(RUN_EVENT_TYPES.TOOL_REQUESTED);
     if (parsed.type === RUN_EVENT_TYPES.TOOL_REQUESTED) {
       expect(parsed.payload.toolName).toBe("read_file");
+    }
+  });
+
+  it("should parse run.status.changed events with workflow stage context", () => {
+    const event = {
+      version: 1,
+      eventId: "evt-456",
+      runId: "run-456",
+      timestamp: new Date().toISOString(),
+      source: "brain" as const,
+      type: RUN_EVENT_TYPES.RUN_STATUS_CHANGED,
+      payload: {
+        previousStatus: "queued" as const,
+        newStatus: "running" as const,
+        workflowStep: RUN_WORKFLOW_STEPS.EXECUTION,
+      },
+    };
+
+    const parsed = parseRunEvent(event);
+    expect(parsed.type).toBe(RUN_EVENT_TYPES.RUN_STATUS_CHANGED);
+    if (parsed.type === RUN_EVENT_TYPES.RUN_STATUS_CHANGED) {
+      expect(parsed.payload.workflowStep).toBe(RUN_WORKFLOW_STEPS.EXECUTION);
     }
   });
 

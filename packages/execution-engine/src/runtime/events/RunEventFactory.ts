@@ -8,6 +8,7 @@ import {
   type RunStartedEvent,
   type RunStatus,
   type RunStatusChangedEvent,
+  type RunWorkflowStep,
   type ToolCompletedEvent,
   type ToolFailedEvent,
   type ToolRequestedEvent,
@@ -49,11 +50,13 @@ export function createRunStatusChangedEvent(
   input: EventBaseInput,
   previousStatus: RunStatus,
   newStatus: RunStatus,
+  workflowStep?: RunWorkflowStep,
   reason?: string,
 ): RunStatusChangedEvent {
   return createEnvelope(input, RUN_EVENT_TYPES.RUN_STATUS_CHANGED, {
     previousStatus,
     newStatus,
+    workflowStep,
     reason,
   });
 }

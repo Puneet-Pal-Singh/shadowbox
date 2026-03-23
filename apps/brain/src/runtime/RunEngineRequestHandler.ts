@@ -93,6 +93,40 @@ export class RunEngineRequestHandler {
     return runEngineJsonResponse(request, this.env, summary);
   }
 
+  async handleEventsRequest(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+    const runIdRaw = url.searchParams.get("runId");
+
+    if (!runIdRaw) {
+      return runEngineErrorResponse(
+        request,
+        this.env,
+        "runId is required",
+        400,
+      );
+    }
+
+    let runId: string;
+    try {
+      runId = validateWithSchema<string>(
+        runIdRaw.trim(),
+        RunIdSchema,
+        "run-events",
+      );
+    } catch {
+      return runEngineErrorResponse(request, this.env, "Invalid runId", 400);
+    }
+
+    const runtimeState = this.createRuntimeState();
+    const eventRepo = new RunEventRepository(runtimeState);
+    const events = await eventRepo.getByRun(runId);
+    return withRunEngineHeaders(
+      request,
+      this.env,
+      this.buildEventsResponse(events, runId),
+    );
+  }
+
   async handleCancelRequest(request: Request): Promise<Response> {
     let runId: string;
     try {
@@ -266,6 +300,28 @@ export class RunEngineRequestHandler {
       this.ctx as unknown as LegacyDurableObjectState,
       "do",
     );
+  }
+
+  private buildEventsResponse(events: unknown[], runId: string): Response {
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const event of events) {
+          controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
+        }
+        controller.close();
+      },
+    });
+
+    return new Response(stream, {
+      status: 200,
+      headers: {
+        "Content-Type": "application/x-ndjson; charset=utf-8",
+        "Transfer-Encoding": "chunked",
+        "Cache-Control": "no-cache",
+        "X-Run-Id": runId,
+      },
+    });
   }
 }
 

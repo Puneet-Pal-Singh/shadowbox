@@ -13,7 +13,12 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import type { ExecutionRuntimePort, ProviderResolutionPort, RealtimeEventPort } from "./ports";
+import { RUN_EVENT_TYPES } from "@repo/shared-types";
+import type {
+  ExecutionRuntimePort,
+  ProviderResolutionPort,
+  RealtimeEventPort,
+} from "./ports";
 import { CloudflareEventStreamAdapter } from "./adapters/CloudflareEventStreamAdapter";
 import type { StreamEvent } from "./ports";
 
@@ -28,10 +33,13 @@ describe("Parity Smoke Tests: Boundary Extraction", () => {
     it("should emit text-delta events deterministically", () => {
       const runId = "test-run-123";
       const event: StreamEvent = {
-        type: "text-delta",
+        version: 1,
+        eventId: "evt-1",
         runId,
-        timestamp: Date.now(),
-        data: { delta: "hello world" },
+        timestamp: new Date().toISOString(),
+        source: "brain",
+        type: RUN_EVENT_TYPES.MESSAGE_EMITTED,
+        payload: { content: "hello world", role: "assistant" },
       };
 
       expect(() => eventPort.emit(event)).not.toThrow();
@@ -40,9 +48,33 @@ describe("Parity Smoke Tests: Boundary Extraction", () => {
     it("should maintain event order in NDJSON stream", () => {
       const runId = "test-run-order";
       const events: StreamEvent[] = [
-        { type: "text-delta", runId, timestamp: 1000, data: { delta: "a" } },
-        { type: "text-delta", runId, timestamp: 2000, data: { delta: "b" } },
-        { type: "text-delta", runId, timestamp: 3000, data: { delta: "c" } },
+        {
+          version: 1,
+          eventId: "evt-a",
+          runId,
+          timestamp: "2026-03-23T00:00:00.000Z",
+          source: "brain",
+          type: RUN_EVENT_TYPES.MESSAGE_EMITTED,
+          payload: { content: "a", role: "assistant" },
+        },
+        {
+          version: 1,
+          eventId: "evt-b",
+          runId,
+          timestamp: "2026-03-23T00:00:01.000Z",
+          source: "brain",
+          type: RUN_EVENT_TYPES.MESSAGE_EMITTED,
+          payload: { content: "b", role: "assistant" },
+        },
+        {
+          version: 1,
+          eventId: "evt-c",
+          runId,
+          timestamp: "2026-03-23T00:00:02.000Z",
+          source: "brain",
+          type: RUN_EVENT_TYPES.MESSAGE_EMITTED,
+          payload: { content: "c", role: "assistant" },
+        },
       ];
 
       for (const event of events) {
@@ -67,10 +99,13 @@ describe("Parity Smoke Tests: Boundary Extraction", () => {
     it("should complete streams without data loss", () => {
       const runId = "test-complete";
       const event: StreamEvent = {
-        type: "text-delta",
+        version: 1,
+        eventId: "evt-final",
         runId,
-        timestamp: Date.now(),
-        data: { delta: "final" },
+        timestamp: new Date().toISOString(),
+        source: "brain",
+        type: RUN_EVENT_TYPES.MESSAGE_EMITTED,
+        payload: { content: "final", role: "assistant" },
       };
 
       eventPort.emit(event);
@@ -142,9 +177,11 @@ describe("Parity Smoke Tests: Boundary Extraction", () => {
 
       // All should route to action-capable path
       for (const prompt of actionPrompts) {
-        expect(prompt.includes("Read") || prompt.includes("Search") || prompt.includes("List")).toBe(
-          true,
-        );
+        expect(
+          prompt.includes("Read") ||
+            prompt.includes("Search") ||
+            prompt.includes("List"),
+        ).toBe(true);
       }
     });
 
@@ -196,17 +233,23 @@ describe("Parity Smoke Tests: Boundary Extraction", () => {
       const adapter = new CloudflareEventStreamAdapter();
 
       const event1: StreamEvent = {
-        type: "text-delta",
+        version: 1,
+        eventId: "evt-run-1",
         runId: "run-1",
-        timestamp: Date.now(),
-        data: { delta: "run1" },
+        timestamp: new Date().toISOString(),
+        source: "brain",
+        type: RUN_EVENT_TYPES.MESSAGE_EMITTED,
+        payload: { content: "run1", role: "assistant" },
       };
 
       const event2: StreamEvent = {
-        type: "text-delta",
+        version: 1,
+        eventId: "evt-run-2",
         runId: "run-2",
-        timestamp: Date.now(),
-        data: { delta: "run2" },
+        timestamp: new Date().toISOString(),
+        source: "brain",
+        type: RUN_EVENT_TYPES.MESSAGE_EMITTED,
+        payload: { content: "run2", role: "assistant" },
       };
 
       adapter.emit(event1);
@@ -225,10 +268,13 @@ describe("Parity Smoke Tests: Boundary Extraction", () => {
 
       // Emit to run-1
       adapter.emit({
-        type: "text-delta",
+        version: 1,
+        eventId: "evt-run-1-secret",
         runId: "run-1",
-        timestamp: Date.now(),
-        data: { delta: "secret-run-1" },
+        timestamp: new Date().toISOString(),
+        source: "brain",
+        type: RUN_EVENT_TYPES.MESSAGE_EMITTED,
+        payload: { content: "secret-run-1", role: "assistant" },
       });
 
       // Complete run-1

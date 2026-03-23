@@ -1,4 +1,4 @@
-import type { RunEvent } from "@repo/shared-types";
+import type { RunEvent, RunWorkflowStep } from "@repo/shared-types";
 import type { RunStatus, SerializedTask } from "../types.js";
 import {
   createMessageEmittedEvent,
@@ -39,9 +39,10 @@ export class RunEventRecorder {
   async recordRunStatusChanged(
     previousStatus: RunStatus,
     newStatus: RunStatus,
+    workflowStep?: RunWorkflowStep,
     reason?: string,
   ): Promise<void> {
-    if (previousStatus === newStatus) {
+    if (previousStatus === newStatus && !workflowStep) {
       return;
     }
 
@@ -50,6 +51,7 @@ export class RunEventRecorder {
         this.baseInput(),
         mapRuntimeStatusToRunEventStatus(previousStatus),
         mapRuntimeStatusToRunEventStatus(newStatus),
+        workflowStep,
         reason,
       ),
     );
@@ -70,7 +72,9 @@ export class RunEventRecorder {
 
   async recordToolStarted(task: Pick<SerializedTask, "id" | "type">) {
     await this.append(
-      createToolStartedEvent(toToolEventInput(this.runId, this.sessionId, task)),
+      createToolStartedEvent(
+        toToolEventInput(this.runId, this.sessionId, task),
+      ),
     );
   }
 
@@ -125,10 +129,7 @@ export class RunEventRecorder {
     );
   }
 
-  async recordRunFailed(
-    error: string,
-    totalDurationMs: number,
-  ): Promise<void> {
+  async recordRunFailed(error: string, totalDurationMs: number): Promise<void> {
     await this.append(
       createRunFailedEvent(this.baseInput(), error, totalDurationMs),
     );

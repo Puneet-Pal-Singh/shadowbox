@@ -7,23 +7,13 @@
  * Canonical alignment: RealtimeEventPort (Charter 46)
  */
 
+import type { RunEvent } from "@repo/shared-types";
+
 /**
- * Represents a single event in the execution stream.
- * Events are typed and can be composed into different stream formats (NDJSON, protobuf, etc.).
+ * Canonical runtime stream event envelope.
+ * Runtime streaming must use the shared run-events contract directly.
  */
-export interface StreamEvent {
-  type:
-    | "text-delta"
-    | "tool-call"
-    | "tool-result"
-    | "run-status"
-    | "error"
-    | "done";
-  runId: string;
-  timestamp: number;
-  correlationId?: string;
-  data: unknown;
-}
+export type StreamEvent = RunEvent;
 
 /**
  * Port for emitting and managing realtime events.
