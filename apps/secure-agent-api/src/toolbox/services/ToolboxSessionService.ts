@@ -5,13 +5,20 @@ import type {
   ToolboxSessionRequest,
 } from "../contracts/ToolboxSession";
 import { ToolboxEventFactory } from "../events/ToolboxEventFactory";
+import {
+  ConsoleToolboxEventPublisher,
+  type ToolboxEventPublisher,
+} from "../events/ToolboxEventPublisher";
 import { ToolboxPolicyService } from "../policies/ToolboxPolicyService";
 
 export class ToolboxSessionService {
   private readonly eventFactory = new ToolboxEventFactory();
   private readonly policyService = new ToolboxPolicyService();
 
-  constructor(private readonly adapter: CloudflareToolboxAdapter) {}
+  constructor(
+    private readonly adapter: CloudflareToolboxAdapter,
+    private readonly eventPublisher: ToolboxEventPublisher = new ConsoleToolboxEventPublisher(),
+  ) {}
 
   async execute(
     request: ToolboxSessionRequest,
@@ -23,8 +30,8 @@ export class ToolboxSessionService {
     }
 
     const handle = this.createHandle(request);
-    this.eventFactory.createRequested(handle);
-    this.eventFactory.createStatus(handle, "started");
+    this.publishRequested(handle);
+    this.publishStatus(handle, "started");
 
     const startedAt = Date.now();
     try {
@@ -34,7 +41,7 @@ export class ToolboxSessionService {
         request.timeoutMs,
       );
       const status = result.exitCode === 0 ? "completed" : "failed";
-      this.eventFactory.createStatus(handle, status);
+      this.publishStatus(handle, status);
       return {
         sessionId: handle.sessionId,
         runId: handle.runId,
@@ -50,7 +57,7 @@ export class ToolboxSessionService {
       const isTimeout =
         error instanceof Error &&
         error.message === "Toolbox execution timed out";
-      this.eventFactory.createStatus(handle, isTimeout ? "timeout" : "failed");
+      this.publishStatus(handle, isTimeout ? "timeout" : "failed");
       return {
         sessionId: handle.sessionId,
         runId: handle.runId,
@@ -74,6 +81,17 @@ export class ToolboxSessionService {
       status: "started",
       startedAt: Date.now(),
     };
+  }
+
+  private publishRequested(handle: ToolboxSessionHandle): void {
+    this.eventPublisher.publish(this.eventFactory.createRequested(handle));
+  }
+
+  private publishStatus(
+    handle: ToolboxSessionHandle,
+    status: ToolboxSessionHandle["status"],
+  ): void {
+    this.eventPublisher.publish(this.eventFactory.createStatus(handle, status));
   }
 
   private buildDeniedResult(
