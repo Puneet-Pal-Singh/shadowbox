@@ -192,7 +192,9 @@ describe("RunEngine", () => {
     const llmGateway: ILLMGateway = {
       generateText,
       generateStructured: vi.fn(async () => {
-        throw new Error("structured planning should be inactive for build mode");
+        throw new Error(
+          "structured planning should be inactive for build mode",
+        );
       }),
       generateStream: async () =>
         new ReadableStream<Uint8Array>({
@@ -264,7 +266,10 @@ describe("RunEngine", () => {
         metadata: { estimatedSteps: 1 },
       })),
     } as unknown as RunEngineDependencies["planner"];
-    const runEngine = createRunEngine({ llmGateway: createMockLLMGateway(), planner });
+    const runEngine = createRunEngine({
+      llmGateway: createMockLLMGateway(),
+      planner,
+    });
 
     const response = await runEngine.execute(
       {
@@ -661,6 +666,105 @@ describe("RunEngine", () => {
     expect(persisted?.metadata.agenticLoop?.stopReason).toBe("llm_stop");
     expect(persisted?.metadata.agenticLoop?.toolExecutionCount).toBe(5);
     expect(persisted?.metadata.agenticLoop?.failedToolCount).toBe(0);
+    expect(persisted?.metadata.agenticLoop?.toolLifecycle).toHaveLength(15);
+    expect(persisted?.metadata.agenticLoop?.toolLifecycle?.[0]).toMatchObject({
+      toolCallId: "t1",
+      toolName: "list_files",
+      status: "requested",
+      mutating: false,
+    });
+  });
+
+  it("returns a truthful fallback summary when a build-mode tool fails", async () => {
+    const generateText = vi.fn().mockResolvedValue({
+      text: "I'll update the file now.",
+      toolCalls: [
+        {
+          id: "write-1",
+          toolName: "write_file",
+          args: { path: "README.md", content: "# Broken\n" },
+        },
+      ],
+      usage: {
+        provider: "mock",
+        model: "mock-model",
+        promptTokens: 3,
+        completionTokens: 5,
+        totalTokens: 8,
+      },
+    });
+
+    const llmGateway: ILLMGateway = {
+      generateText,
+      generateStructured: async () => ({
+        object: { tasks: [], metadata: { estimatedSteps: 1 } },
+        usage: {
+          provider: "mock",
+          model: "mock-model",
+          promptTokens: 1,
+          completionTokens: 1,
+          totalTokens: 2,
+        },
+      }),
+      generateStream: async () =>
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.close();
+          },
+        }),
+    };
+
+    const executionService: RuntimeExecutionService = {
+      execute: vi.fn(async () => ({
+        success: false,
+        error: "Permission denied",
+      })),
+    };
+
+    const runEngine = new RunEngine(
+      new MockRuntimeState(),
+      {
+        env: { NODE_ENV: "test" } as unknown,
+        sessionId: "session-1",
+        runId: TEST_RUN_ID,
+        correlationId: "corr-tool-failure",
+      },
+      new CodingAgent(llmGateway, executionService),
+      undefined,
+      { llmGateway },
+    );
+
+    const response = await runEngine.execute(
+      {
+        agentType: "coding",
+        prompt: "update README.md",
+        sessionId: "session-1",
+        repositoryContext: { owner: "sourcegraph", repo: "shadowbox" },
+        metadata: { featureFlags: { agenticLoopV1: true } },
+      },
+      [{ role: "user", content: "update README.md" }],
+      {},
+    );
+
+    expect(response.status).toBe(200);
+    const output = await response.text();
+    expect(output).toContain("The build loop stopped after a tool failure.");
+    expect(output).toContain(
+      "Failures: write_file (write-1): Permission denied",
+    );
+    expect(output).not.toContain("I'll update the file now.");
+
+    const persisted = await (
+      runEngine as unknown as {
+        getRun(runId: string): Promise<Run | null>;
+      }
+    ).getRun(TEST_RUN_ID);
+    expect(persisted?.metadata.agenticLoop?.stopReason).toBe("tool_error");
+    expect(
+      persisted?.metadata.agenticLoop?.toolLifecycle?.map(
+        (event) => event.status,
+      ),
+    ).toEqual(["requested", "started", "failed"]);
   });
 
   it("enforces the bounded golden-flow tool floor for agentic-loop tool maps", async () => {
