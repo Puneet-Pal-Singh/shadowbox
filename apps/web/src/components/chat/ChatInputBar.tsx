@@ -1,7 +1,11 @@
 import { useRef, useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { Plus, Mic, ArrowUp, Paperclip, Square, X } from "lucide-react";
-import { DEFAULT_RUN_MODE, type ProviderId, type RunMode } from "@repo/shared-types";
+import {
+  DEFAULT_RUN_MODE,
+  type ProviderId,
+  type RunMode,
+} from "@repo/shared-types";
 import { useProviderStore } from "../../hooks/useProviderStore.js";
 import { findCredentialByProviderId } from "../../lib/provider-helpers.js";
 import { ProviderDialog, ModelPickerPopover } from "../provider/index.js";
@@ -10,6 +14,10 @@ import { ChatModeToggle } from "./ChatModeToggle.js";
 const IDLE_SWITCH_WARNING =
   "Changing models mid-conversation will degrade performance.";
 const WARNING_AUTO_DISMISS_MS = 4000;
+const BUILD_PLACEHOLDER =
+  "Ask Shadowbox anything, @ to add files, / for commands";
+const PLAN_PLACEHOLDER =
+  "Inspect the codebase and outline a safe plan without executing changes";
 
 interface ChatInputBarProps {
   input: string;
@@ -31,7 +39,7 @@ export function ChatInputBar({
   onSubmit,
   onStop,
   isLoading = false,
-  placeholder = "Ask Shadowbox anything, @ to add files, / for commands",
+  placeholder,
   mode = DEFAULT_RUN_MODE,
   onModeChange,
   hasMessages = false,
@@ -74,6 +82,8 @@ export function ChatInputBar({
   } = useProviderStore();
 
   const hasInput = input.trim().length > 0;
+  const effectivePlaceholder =
+    placeholder ?? (mode === "plan" ? PLAN_PLACEHOLDER : BUILD_PLACEHOLDER);
 
   // Auto-resize textarea
   useEffect(() => {
@@ -180,11 +190,34 @@ export function ChatInputBar({
             onKeyDown={handleKeyDown}
             onFocus={() => setIsFocused(true)}
             onBlur={() => setIsFocused(false)}
-            placeholder={placeholder}
+            placeholder={effectivePlaceholder}
             rows={1}
             className={`w-full bg-transparent text-sm text-white placeholder-zinc-500 focus:outline-none resize-none overflow-hidden min-h-[20px] ${hasInput ? "max-h-[200px]" : "max-h-[400px]"}`}
             style={{ lineHeight: "1.5" }}
           />
+
+          {mode === "plan" ? (
+            <div className="mt-3 rounded-xl border border-cyan-900/60 bg-cyan-950/20 px-3 py-2 text-xs text-cyan-100">
+              <div className="font-semibold uppercase tracking-[0.18em] text-cyan-300">
+                Plan Mode
+              </div>
+              <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
+                <span>
+                  Plan mode inspects and outlines steps without running normal
+                  mutating execution.
+                </span>
+                {onModeChange ? (
+                  <button
+                    type="button"
+                    onClick={() => onModeChange("build")}
+                    className="rounded-full border border-cyan-700/70 px-2.5 py-1 font-medium text-cyan-100 transition hover:border-cyan-500 hover:bg-cyan-900/40"
+                  >
+                    Switch to Build
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
 
           {/* Toolbar */}
           <div className="flex items-center justify-between mt-2 pt-2">
@@ -219,12 +252,12 @@ export function ChatInputBar({
                 selectedModelView={selectedModelView}
                 selectedProviderMetadata={
                   selectedProviderId
-                    ? providerModelsMetadata[selectedProviderId] ?? null
+                    ? (providerModelsMetadata[selectedProviderId] ?? null)
                     : null
                 }
                 hasMoreSelectedProviderModels={
                   selectedProviderId
-                    ? providerModelsPage[selectedProviderId]?.hasMore ?? false
+                    ? (providerModelsPage[selectedProviderId]?.hasMore ?? false)
                     : false
                 }
                 isLoadingMoreSelectedProviderModels={
@@ -238,7 +271,7 @@ export function ChatInputBar({
                 onSelectModel={async (providerId, modelId) => {
                   const credential = findCredentialByProviderId(
                     credentials,
-                    providerId
+                    providerId,
                   );
                   if (!credential) {
                     setProviderDialogInitialTab("available");
@@ -319,8 +352,8 @@ export function ChatInputBar({
                     isLoading
                       ? "bg-white text-black hover:bg-zinc-200"
                       : input.trim()
-                      ? "bg-white text-black hover:bg-zinc-200"
-                      : "bg-zinc-800 text-zinc-600 cursor-not-allowed"
+                        ? "bg-white text-black hover:bg-zinc-200"
+                        : "bg-zinc-800 text-zinc-600 cursor-not-allowed"
                   }
                 `}
               >
