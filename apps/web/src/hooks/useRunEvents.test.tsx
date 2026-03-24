@@ -6,7 +6,7 @@ import { useRunEvents } from "./useRunEvents.js";
 
 vi.mock("../lib/platform-endpoints.js", () => ({
   runEventsPath: (runId: string) =>
-    `https://brain.local/events?runId=${encodeURIComponent(runId)}`,
+    `https://brain.local/api/run/events?runId=${encodeURIComponent(runId)}`,
 }));
 
 describe("useRunEvents", () => {

@@ -8,6 +8,8 @@ import {
   getMuscleHttpBase,
   getMuscleWsBase,
   chatStreamPath,
+  runEventsPath,
+  runActivityPath,
   chatHistoryPath,
   gitStatusPath,
   gitStagePath,
@@ -108,6 +110,18 @@ describe("Platform Endpoints", () => {
       );
     });
 
+    it("should build the canonical run events path through Brain", () => {
+      expect(runEventsPath("run-123")).toBe(
+        "https://brain.local/api/run/events?runId=run-123",
+      );
+    });
+
+    it("should build the canonical run activity path through Brain", () => {
+      expect(runActivityPath("run-123")).toBe(
+        "https://brain.local/api/run/activity?runId=run-123",
+      );
+    });
+
     it("should encode runId in chat history path", () => {
       expect(chatHistoryPath("run/with/slashes")).toBe(
         "https://muscle.local/api/chat/history/run%2Fwith%2Fslashes",
@@ -121,9 +135,7 @@ describe("Platform Endpoints", () => {
     });
 
     it("should build git stage path (unified contract)", () => {
-      expect(gitStagePath()).toBe(
-        "https://brain.local/api/git/stage",
-      );
+      expect(gitStagePath()).toBe("https://brain.local/api/git/stage");
     });
 
     it("should build artifact path with runId and key", () => {
@@ -159,7 +171,8 @@ describe("Platform Endpoints", () => {
 
   describe("validateEndpointConfig", () => {
     it("should warn about missing vars in dev", () => {
-      (import.meta.env as unknown as Record<string, string>).MODE = "development";
+      (import.meta.env as unknown as Record<string, string>).MODE =
+        "development";
       const warnSpy = vi.spyOn(console, "warn");
 
       validateEndpointConfig();
@@ -171,7 +184,8 @@ describe("Platform Endpoints", () => {
     });
 
     it("should error about missing vars in production", () => {
-      (import.meta.env as unknown as Record<string, string>).MODE = "production";
+      (import.meta.env as unknown as Record<string, string>).MODE =
+        "production";
       deleteEnv("VITE_BRAIN_BASE_URL");
       deleteEnv("VITE_MUSCLE_BASE_URL");
       deleteEnv("VITE_MUSCLE_WS_URL");
@@ -182,13 +196,16 @@ describe("Platform Endpoints", () => {
 
       expect(errorSpy).toHaveBeenCalled();
       expect(errorSpy).toHaveBeenCalledWith(
-        expect.stringContaining("Missing required environment variables in production"),
+        expect.stringContaining(
+          "Missing required environment variables in production",
+        ),
         expect.any(Array),
       );
     });
 
     it("should not error when all vars present in production", () => {
-      (import.meta.env as unknown as Record<string, string>).MODE = "production";
+      (import.meta.env as unknown as Record<string, string>).MODE =
+        "production";
       setEnv("VITE_BRAIN_BASE_URL", "https://brain.prod");
       setEnv("VITE_MUSCLE_BASE_URL", "https://muscle.prod");
       setEnv("VITE_MUSCLE_WS_URL", "wss://ws.prod");

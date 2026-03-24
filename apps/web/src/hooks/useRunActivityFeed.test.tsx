@@ -6,7 +6,7 @@ import { useRunActivityFeed } from "./useRunActivityFeed.js";
 
 vi.mock("../lib/platform-endpoints.js", () => ({
   runActivityPath: (runId: string) =>
-    `https://brain.local/activity?runId=${encodeURIComponent(runId)}`,
+    `https://brain.local/api/run/activity?runId=${encodeURIComponent(runId)}`,
 }));
 
 describe("useRunActivityFeed", () => {
