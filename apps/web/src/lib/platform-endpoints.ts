@@ -126,6 +126,15 @@ export function runEventsPath(runId: string): string {
 }
 
 /**
+ * Build the live run events stream endpoint URL
+ * Used for subscribing to canonical runtime events from Brain while a run is active
+ * Path: /api/run/events/stream?runId=<runId>
+ */
+export function runEventsStreamPath(runId: string): string {
+  return `${getBrainHttpBase()}/api/run/events/stream?runId=${encodeURIComponent(runId)}`;
+}
+
+/**
  * Build the activity feed endpoint URL
  * Used for fetching the structured activity feed snapshot from Brain
  * Path: /api/run/activity?runId=<runId>
