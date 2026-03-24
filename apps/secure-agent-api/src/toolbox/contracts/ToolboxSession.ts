@@ -40,3 +40,13 @@ export interface ToolboxPolicyDecision {
   decision: "allow" | "deny";
   reason?: string;
 }
+
+export interface ToolboxCommandResult {
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+}
+
+export interface ToolboxCommandExecutor {
+  execute(command: string): Promise<ToolboxCommandResult>;
+}

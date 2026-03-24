@@ -1,12 +1,10 @@
 import type { Sandbox } from "@cloudflare/sandbox";
+import type {
+  ToolboxCommandExecutor,
+  ToolboxCommandResult,
+} from "../contracts/ToolboxSession";
 
-export interface ToolboxCommandResult {
-  exitCode: number;
-  stdout: string;
-  stderr: string;
-}
-
-export class CloudflareToolboxAdapter {
+export class CloudflareToolboxAdapter implements ToolboxCommandExecutor {
   constructor(private sandbox: Sandbox) {}
 
   async execute(command: string): Promise<ToolboxCommandResult> {

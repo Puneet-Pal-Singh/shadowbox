@@ -1,24 +1,22 @@
 import { describe, expect, it } from "vitest";
-import type { Sandbox } from "@cloudflare/sandbox";
-import { CloudflareToolboxAdapter } from "../adapters/CloudflareToolboxAdapter";
+import type { ToolboxCommandExecutor } from "../contracts/ToolboxSession";
 import type { ToolboxEvent } from "../events/ToolboxEventFactory";
 import type { ToolboxEventPublisher } from "../events/ToolboxEventPublisher";
 import { ToolboxSessionService } from "../services/ToolboxSessionService";
 
-interface SandboxMock {
+interface ExecutorMock extends ToolboxCommandExecutor {
   execCalls: string[];
-  exec: (command: string) => Promise<{
-    exitCode: number;
-    stdout: string;
-    stderr: string;
-  }>;
 }
 
-function createSandboxMock(execImpl?: SandboxMock["exec"]): SandboxMock {
+function createExecutorMock(
+  execImpl?: (
+    command: string,
+  ) => Promise<{ exitCode: number; stdout: string; stderr: string }>,
+): ExecutorMock {
   const execCalls: string[] = [];
   return {
     execCalls,
-    exec: execImpl
+    execute: execImpl
       ? async (command) => {
           execCalls.push(command);
           return execImpl(command);
@@ -47,10 +45,8 @@ function createEventPublisherMock(): {
 
 describe("ToolboxSessionService", () => {
   it("creates a unique toolbox session per execution", async () => {
-    const sandbox = createSandboxMock();
-    const service = new ToolboxSessionService(
-      new CloudflareToolboxAdapter(sandbox as unknown as Sandbox),
-    );
+    const executor = createExecutorMock();
+    const service = new ToolboxSessionService(executor);
 
     const first = await service.execute(
       {
@@ -72,14 +68,12 @@ describe("ToolboxSessionService", () => {
     );
 
     expect(first.sessionId).not.toBe(second.sessionId);
-    expect(sandbox.execCalls).toHaveLength(2);
+    expect(executor.execCalls).toHaveLength(2);
   });
 
   it("creates unique session ids even when callId and toolName repeat", async () => {
-    const sandbox = createSandboxMock();
-    const service = new ToolboxSessionService(
-      new CloudflareToolboxAdapter(sandbox as unknown as Sandbox),
-    );
+    const executor = createExecutorMock();
+    const service = new ToolboxSessionService(executor);
 
     const first = await service.execute(
       {
@@ -106,10 +100,10 @@ describe("ToolboxSessionService", () => {
   });
 
   it("publishes requested and lifecycle status events with stable correlation", async () => {
-    const sandbox = createSandboxMock();
+    const executor = createExecutorMock();
     const eventPublisher = createEventPublisherMock();
     const service = new ToolboxSessionService(
-      new CloudflareToolboxAdapter(sandbox as unknown as Sandbox),
+      executor,
       eventPublisher.publisher,
     );
 
@@ -140,10 +134,8 @@ describe("ToolboxSessionService", () => {
   });
 
   it("returns a failed result when policy denies the command", async () => {
-    const sandbox = createSandboxMock();
-    const service = new ToolboxSessionService(
-      new CloudflareToolboxAdapter(sandbox as unknown as Sandbox),
-    );
+    const executor = createExecutorMock();
+    const service = new ToolboxSessionService(executor);
 
     const result = await service.execute(
       {
@@ -157,11 +149,11 @@ describe("ToolboxSessionService", () => {
 
     expect(result.status).toBe("failed");
     expect(result.stderr).toContain("Command not allowed");
-    expect(sandbox.execCalls).toHaveLength(0);
+    expect(executor.execCalls).toHaveLength(0);
   });
 
   it("marks slow executions as timed out", async () => {
-    const sandbox = createSandboxMock(
+    const executor = createExecutorMock(
       async () =>
         await new Promise((resolve) => {
           setTimeout(() => {
@@ -169,9 +161,7 @@ describe("ToolboxSessionService", () => {
           }, 25);
         }),
     );
-    const service = new ToolboxSessionService(
-      new CloudflareToolboxAdapter(sandbox as unknown as Sandbox),
-    );
+    const service = new ToolboxSessionService(executor);
 
     const result = await service.execute(
       {
