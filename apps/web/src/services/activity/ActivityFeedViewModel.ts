@@ -76,6 +76,7 @@ export type ActivityFeedRowViewModel =
 
 export interface ActivityTurnViewModel {
   key: string;
+  userPrompt: string | null;
   elapsedLabel: string;
   summaryLabel: string;
   defaultCollapsed: boolean;
@@ -115,6 +116,7 @@ export function buildActivityFeedViewModel(
       const isActiveTurn = feed.status === "RUNNING" && index === lastTurnIndex;
       return {
         key: turn.turnId ?? `turn-fallback-${index}`,
+        userPrompt: getTurnUserPrompt(turn.items),
         elapsedLabel: formatDuration(
           turn.items[0]?.createdAt ?? null,
           turn.items[turn.items.length - 1]?.updatedAt ?? null,
@@ -173,6 +175,17 @@ function buildTurnRows(items: ActivityPart[]): ActivityFeedRowViewModel[] {
 
   flushExploreGroup(rows, pendingExplore);
   return rows;
+}
+
+function getTurnUserPrompt(items: ActivityPart[]): string | null {
+  for (const item of items) {
+    if (item.kind === ACTIVITY_PART_KINDS.TEXT && item.role === "user") {
+      const content = item.content.trim();
+      return content || null;
+    }
+  }
+
+  return null;
 }
 
 function buildTurnSummary(rows: ActivityFeedRowViewModel[]): string {

@@ -377,7 +377,8 @@ function buildChatEntries(
   turns: ActivityTurnViewModel[],
 ): ChatInterfaceEntry[] {
   const entries: ChatInterfaceEntry[] = [];
-  let turnIndex = 0;
+  const unmatchedTurns = turns.filter((turn) => turn.hasVisibleRows);
+  const turnsByPrompt = buildTurnsByPrompt(unmatchedTurns);
 
   for (const message of messages) {
     entries.push({ kind: "message", message });
@@ -386,20 +387,70 @@ function buildChatEntries(
       continue;
     }
 
-    const turn = turns[turnIndex];
-    if (turn?.hasVisibleRows) {
+    const turn = claimTurnForMessage(message, turnsByPrompt, unmatchedTurns);
+    if (turn) {
       entries.push({ kind: "turn", turn });
     }
-    turnIndex += 1;
   }
 
-  for (const turn of turns.slice(turnIndex)) {
-    if (turn.hasVisibleRows) {
-      entries.push({ kind: "turn", turn });
-    }
+  for (const turn of unmatchedTurns) {
+    entries.push({ kind: "turn", turn });
   }
 
   return entries;
+}
+
+function buildTurnsByPrompt(
+  turns: ActivityTurnViewModel[],
+): Map<string, ActivityTurnViewModel[]> {
+  const turnsByPrompt = new Map<string, ActivityTurnViewModel[]>();
+
+  for (const turn of turns) {
+    if (!turn.userPrompt) {
+      continue;
+    }
+
+    const existing = turnsByPrompt.get(turn.userPrompt) ?? [];
+    existing.push(turn);
+    turnsByPrompt.set(turn.userPrompt, existing);
+  }
+
+  return turnsByPrompt;
+}
+
+function claimTurnForMessage(
+  message: Message,
+  turnsByPrompt: Map<string, ActivityTurnViewModel[]>,
+  unmatchedTurns: ActivityTurnViewModel[],
+): ActivityTurnViewModel | undefined {
+  const prompt = extractMessageText(message).trim();
+  if (prompt) {
+    const matchedTurns = turnsByPrompt.get(prompt);
+    const matchedTurn = matchedTurns?.shift();
+    if (matchedTurn) {
+      removeTurn(unmatchedTurns, matchedTurn.key);
+      return matchedTurn;
+    }
+  }
+
+  const fallbackTurn = unmatchedTurns[0];
+  if (!fallbackTurn) {
+    return undefined;
+  }
+
+  removeTurn(unmatchedTurns, fallbackTurn.key);
+  return fallbackTurn;
+}
+
+function extractMessageText(message: Message): string {
+  return typeof message.content === "string" ? message.content : "";
+}
+
+function removeTurn(turns: ActivityTurnViewModel[], key: string): void {
+  const index = turns.findIndex((turn) => turn.key === key);
+  if (index >= 0) {
+    turns.splice(index, 1);
+  }
 }
 
 function resolveModelLabel(
