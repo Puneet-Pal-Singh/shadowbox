@@ -9,6 +9,7 @@ import {
   getMuscleWsBase,
   chatStreamPath,
   runEventsPath,
+  runEventsStreamPath,
   runActivityPath,
   chatHistoryPath,
   gitStatusPath,
@@ -113,6 +114,12 @@ describe("Platform Endpoints", () => {
     it("should build the canonical run events path through Brain", () => {
       expect(runEventsPath("run-123")).toBe(
         "https://brain.local/api/run/events?runId=run-123",
+      );
+    });
+
+    it("should build the live run events stream path through Brain", () => {
+      expect(runEventsStreamPath("run-123")).toBe(
+        "https://brain.local/api/run/events/stream?runId=run-123",
       );
     });
 
