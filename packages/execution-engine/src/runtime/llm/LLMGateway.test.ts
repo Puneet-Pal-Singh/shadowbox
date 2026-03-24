@@ -214,8 +214,7 @@ describe("LLMGateway provider capabilities", () => {
             chat_only: { supported: true },
             single_agent_action: {
               supported: false,
-              reason:
-                "Selected provider does not support tool calling.",
+              reason: "Selected provider does not support tool calling.",
             },
             structured_planning_required: {
               supported: false,
@@ -315,6 +314,81 @@ describe("LLMGateway provider capabilities", () => {
     ).rejects.toBeInstanceOf(LLMTimeoutError);
 
     expect(deps.costLedger.append).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses a longer default timeout for task-phase text calls", async () => {
+    vi.useFakeTimers();
+    try {
+      const deps = createDependencies({
+        getCapabilities: () => ({
+          streaming: true,
+          tools: true,
+          structuredOutputs: true,
+          jsonMode: true,
+        }),
+        isModelAllowed: () => true,
+      });
+      deps.aiService.generateText.mockImplementationOnce(
+        () => new Promise(() => {}),
+      );
+      const gateway = new LLMGateway(deps);
+
+      const outcome = gateway.generateText(baseRequest);
+      let settled = false;
+      outcome.catch(() => {
+        settled = true;
+      });
+
+      await vi.advanceTimersByTimeAsync(20_001);
+      expect(settled).toBe(false);
+
+      const rejection = expect(outcome).rejects.toMatchObject({
+        timeoutMs: 60_000,
+        phase: "task",
+        operation: "text",
+      });
+      await vi.advanceTimersByTimeAsync(39_999);
+      await rejection;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps non-task text calls on the standard default timeout", async () => {
+    vi.useFakeTimers();
+    try {
+      const deps = createDependencies({
+        getCapabilities: () => ({
+          streaming: true,
+          tools: true,
+          structuredOutputs: true,
+          jsonMode: true,
+        }),
+        isModelAllowed: () => true,
+      });
+      deps.aiService.generateText.mockImplementationOnce(
+        () => new Promise(() => {}),
+      );
+      const gateway = new LLMGateway(deps);
+
+      const outcome = gateway.generateText({
+        ...baseRequest,
+        context: {
+          ...baseRequest.context,
+          phase: "synthesis",
+        },
+      });
+
+      const rejection = expect(outcome).rejects.toMatchObject({
+        timeoutMs: 20_000,
+        phase: "synthesis",
+        operation: "text",
+      });
+      await vi.advanceTimersByTimeAsync(20_000);
+      await rejection;
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
