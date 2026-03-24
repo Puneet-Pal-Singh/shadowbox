@@ -7,6 +7,8 @@ import { useRunEvents } from "./useRunEvents.js";
 vi.mock("../lib/platform-endpoints.js", () => ({
   runEventsPath: (runId: string) =>
     `https://brain.local/api/run/events?runId=${encodeURIComponent(runId)}`,
+  runEventsStreamPath: (runId: string) =>
+    `https://brain.local/api/run/events/stream?runId=${encodeURIComponent(runId)}`,
 }));
 
 describe("useRunEvents", () => {
@@ -88,41 +90,35 @@ describe("useRunEvents", () => {
     });
   });
 
-  it("refreshes canonical events when the runtime bridge emits an update", async () => {
-    const fetchSpy = vi
-      .spyOn(globalThis, "fetch")
-      .mockResolvedValueOnce(
-        createEventsResponse(
-          createMessageEvent("run-live", "evt-1", "Started"),
-        ),
-      )
-      .mockResolvedValueOnce(
-        createEventsResponse(
-          createMessageEvent("run-live", "evt-1", "Started"),
+  it("streams canonical runtime events while the run is active", async () => {
+    const refreshSpy = vi.spyOn(window, "dispatchEvent");
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes("/stream?")) {
+        return createStreamResponse(
           createMessageEvent("run-live", "evt-2", "Tool finished"),
-        ),
-      );
+        );
+      }
 
-    const { result } = renderHook(() => useRunEvents("run-live"));
-
-    await waitFor(() => {
-      expect(result.current.events).toHaveLength(1);
-    });
-
-    act(() => {
-      window.dispatchEvent(
-        new CustomEvent(RUN_SUMMARY_REFRESH_EVENT, {
-          detail: { runId: "run-live" },
-        }),
+      return createEventsResponse(
+        createMessageEvent("run-live", "evt-1", "Started"),
       );
     });
+
+    const { result } = renderHook(() => useRunEvents("run-live", true));
 
     await waitFor(() => {
       expect(result.current.events).toHaveLength(2);
     });
 
-    expect(fetchSpy).toHaveBeenCalledTimes(2);
-    expect(result.current.events[1]?.eventId).toBe("evt-2");
+    expect(result.current.events.map((event) => event.eventId)).toEqual(
+      expect.arrayContaining(["evt-1", "evt-2"]),
+    );
+    expect(refreshSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: RUN_SUMMARY_REFRESH_EVENT,
+      }),
+    );
   });
 });
 
@@ -132,6 +128,28 @@ function createEventsResponse(
   return new Response(events.map((event) => JSON.stringify(event)).join("\n"), {
     status: 200,
   });
+}
+
+function createStreamResponse(
+  ...events: Array<Record<string, unknown>>
+): Response {
+  const encoder = new TextEncoder();
+  return new Response(
+    new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const event of events) {
+          controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
+        }
+        controller.close();
+      },
+    }),
+    {
+      status: 200,
+      headers: {
+        "Content-Type": "application/x-ndjson; charset=utf-8",
+      },
+    },
+  );
 }
 
 function createMessageEvent(runId: string, eventId: string, content: string) {
