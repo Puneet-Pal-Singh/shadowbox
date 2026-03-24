@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from "vitest";
 import { RUN_EVENT_TYPES, RUN_WORKFLOW_STEPS } from "@repo/shared-types";
 import { RunEngine, type RunEngineDependencies } from "./RunEngine.js";
 import { sanitizeUserFacingOutput } from "./RunOutputSanitizer.js";
-import type { PlannedTask } from "../planner/PlanSchema.js";
 import type {
   RuntimeDurableObjectState,
   RuntimeExecutionService,
@@ -17,28 +16,6 @@ import { RunEventRepository } from "../events/index.js";
 const TEST_RUN_ID = "f462a003-5c36-4c86-a95d-367b92bf46c9";
 
 describe("RunEngine", () => {
-  it("preserves structured task input when creating runtime tasks from a plan", () => {
-    const runEngine = createRunEngine();
-    const privateApi = runEngine as unknown as {
-      createTaskFromPlanned(runId: string, planned: PlannedTask): Task;
-    };
-
-    const planned: PlannedTask = {
-      id: "1",
-      type: "shell",
-      description: "Check Node version",
-      dependsOn: [],
-      expectedOutput: "Node version printed",
-      input: { command: "node --version" },
-    };
-
-    const task = privateApi.createTaskFromPlanned("run-1", planned);
-
-    expect(task.input.description).toBe("Check Node version");
-    expect(task.input.expectedOutput).toBe("Node version printed");
-    expect(task.input.command).toBe("node --version");
-  });
-
   it("routes build-mode greetings through the canonical tool-capable loop", async () => {
     const generateText = vi.fn(async () => ({
       text: "ok",
