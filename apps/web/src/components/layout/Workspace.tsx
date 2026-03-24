@@ -66,15 +66,21 @@ export function Workspace({
     input,
     handleInputChange,
     handleSubmit,
+    append,
     stop,
     isLoading,
     isHydrating,
     runId: activeRunId,
     error: chatError,
     debugEvents,
-  } = useChat(sessionId, initialRunId, () => {
-    explorerRef.current?.refresh();
-  }, mode);
+  } = useChat(
+    sessionId,
+    initialRunId,
+    () => {
+      explorerRef.current?.refresh();
+    },
+    mode,
+  );
   const { status, refetch: refetchGitStatus } = useGitStatus(
     activeRunId,
     sessionId,
@@ -237,6 +243,7 @@ export function Workspace({
                 input,
                 handleInputChange,
                 handleSubmit,
+                append,
                 stop,
                 isLoading,
                 error: chatError,
