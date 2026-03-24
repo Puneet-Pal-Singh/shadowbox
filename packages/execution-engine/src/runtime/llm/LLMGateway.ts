@@ -19,6 +19,7 @@ import type {
 const TOKEN_CHAR_RATIO = 4;
 const DEFAULT_COMPLETION_TOKENS = 500;
 const DEFAULT_TEXT_TIMEOUT_MS = 20_000;
+const DEFAULT_TASK_TEXT_TIMEOUT_MS = 60_000;
 const DEFAULT_STRUCTURED_TIMEOUT_MS = 45_000;
 
 export interface LLMGatewayDependencies {
@@ -78,7 +79,7 @@ export class LLMGateway implements ILLMGateway {
         tools: req.tools,
       }),
       {
-        timeoutMs: req.timeoutMs ?? DEFAULT_TEXT_TIMEOUT_MS,
+        timeoutMs: resolveTextTimeoutMs(req),
         phase: req.context.phase,
         operation: "text",
       },
@@ -517,6 +518,18 @@ export class LLMGateway implements ILLMGateway {
       usage.totalTokens.toString(),
     ].join(":");
   }
+}
+
+function resolveTextTimeoutMs(req: LLMTextRequest): number {
+  if (typeof req.timeoutMs === "number") {
+    return req.timeoutMs;
+  }
+
+  if (req.context.phase === "task") {
+    return DEFAULT_TASK_TEXT_TIMEOUT_MS;
+  }
+
+  return DEFAULT_TEXT_TIMEOUT_MS;
 }
 
 export class UnknownPricingError extends Error {
