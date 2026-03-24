@@ -58,7 +58,7 @@ describe("ChatInterface", () => {
     });
   });
 
-  it("switches to build mode and seeds the approved handoff prompt", async () => {
+  it("switches to build mode and stages the approved handoff prompt", async () => {
     const handleInputChange = vi.fn();
     const onModeChange = vi.fn();
     const append = vi.fn().mockResolvedValue(undefined);
@@ -95,16 +95,41 @@ describe("ChatInterface", () => {
     );
 
     expect(onModeChange).toHaveBeenCalledWith("build");
-    expect(handleInputChange).toHaveBeenCalledWith(
-      expect.objectContaining({
-        target: expect.objectContaining({
-          value: "Execute this approved plan in build mode.",
-        }),
-      }),
-    );
+    expect(handleInputChange).not.toHaveBeenCalled();
 
     await waitFor(() => {
       expect(append).not.toHaveBeenCalled();
     });
+  });
+
+  it("hides the build handoff action when build mode cannot be reached", () => {
+    render(
+      <ChatInterface
+        chatProps={{
+          messages: [
+            {
+              id: "assistant-1",
+              role: "assistant",
+              content: "Plan complete.",
+            },
+          ],
+          runId: "run-1",
+          input: "",
+          handleInputChange: vi.fn(),
+          handleSubmit: vi.fn(),
+          append: vi.fn(),
+          stop: vi.fn(),
+          isLoading: false,
+          error: null,
+          debugEvents: [],
+        }}
+        sessionId="session-1"
+        mode="plan"
+      />,
+    );
+
+    expect(
+      screen.queryByRole("button", { name: "Execute Plan in Build" }),
+    ).not.toBeInTheDocument();
   });
 });

@@ -148,7 +148,6 @@ export function ChatInterface({
     }
 
     setPendingPlanPrompt(handoffPrompt);
-    handleInputChangeWrapper(handoffPrompt);
     if (mode !== "build") {
       onModeChange?.("build");
     }
@@ -167,7 +166,8 @@ export function ChatInterface({
               summary={summary}
               isLoading={isLoading}
               onUsePlanInBuild={
-                summary?.planArtifact?.handoff
+                summary?.planArtifact?.handoff &&
+                (mode === "build" || onModeChange)
                   ? handleUsePlanInBuild
                   : undefined
               }
