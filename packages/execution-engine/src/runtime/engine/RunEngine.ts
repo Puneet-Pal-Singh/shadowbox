@@ -601,7 +601,6 @@ export class RunEngine implements IRunEngine {
           previousStatus: existing.status,
           taskRepo: this.taskRepo,
           runRepo: this.runRepo,
-          clearRunEvents: () => this.runEventRecorder.clear(),
           createFreshRun: this.createFreshRun.bind(this),
         });
       }
