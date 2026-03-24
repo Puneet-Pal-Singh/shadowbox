@@ -31,7 +31,7 @@ describe("useRunEvents", () => {
     });
 
     const { result, rerender } = renderHook(
-      ({ runId }) => useRunEvents(runId),
+      ({ runId }) => useRunEvents(runId, false),
       { initialProps: { runId: "run-a" } },
     );
 
@@ -61,7 +61,7 @@ describe("useRunEvents", () => {
       .spyOn(globalThis, "fetch")
       .mockImplementation(async () => createEventsResponse());
 
-    renderHook(() => useRunEvents("run-visible"));
+    renderHook(() => useRunEvents("run-visible", false));
 
     await waitFor(() => {
       expect(fetchSpy).toHaveBeenCalledTimes(1);
@@ -86,6 +86,38 @@ describe("useRunEvents", () => {
     await waitFor(() => {
       expect(fetchSpy).toHaveBeenCalledTimes(2);
     });
+  });
+
+  it("polls for new canonical events while a run is active", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        createEventsResponse(
+          createMessageEvent("run-live", "evt-1", "Started"),
+        ),
+      )
+      .mockResolvedValueOnce(
+        createEventsResponse(
+          createMessageEvent("run-live", "evt-1", "Started"),
+          createMessageEvent("run-live", "evt-2", "Tool finished"),
+        ),
+      );
+
+    const { result } = renderHook(() => useRunEvents("run-live", true));
+
+    await waitFor(() => {
+      expect(result.current.events).toHaveLength(1);
+    });
+
+    await waitFor(
+      () => {
+        expect(result.current.events).toHaveLength(2);
+      },
+      { timeout: 2_500 },
+    );
+
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(result.current.events[1]?.eventId).toBe("evt-2");
   });
 });
 
