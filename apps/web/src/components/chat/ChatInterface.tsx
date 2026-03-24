@@ -93,7 +93,7 @@ export function ChatInterface({
   }, [isLoading]);
 
   const { summary } = useRunSummary(runId, isLoading);
-  const { events } = useRunEvents(runId, isLoading);
+  const { events } = useRunEvents(runId);
   const showDebugPanel =
     import.meta.env.VITE_ENABLE_CHAT_DEBUG_PANEL === "true";
   const [showProviderDialog, setShowProviderDialog] = useState(false);
@@ -142,7 +142,7 @@ export function ChatInterface({
   }, [append, handleInputChangeWrapper, isLoading, mode, pendingPlanPrompt]);
 
   const handleUsePlanInBuild = () => {
-    const handoffPrompt = summary?.planArtifact?.handoff.prompt?.trim();
+    const handoffPrompt = summary?.planArtifact?.handoff?.prompt?.trim();
     if (!handoffPrompt) {
       return;
     }

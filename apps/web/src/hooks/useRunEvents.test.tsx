@@ -31,7 +31,7 @@ describe("useRunEvents", () => {
     });
 
     const { result, rerender } = renderHook(
-      ({ runId }) => useRunEvents(runId, false),
+      ({ runId }) => useRunEvents(runId),
       { initialProps: { runId: "run-a" } },
     );
 
@@ -61,7 +61,7 @@ describe("useRunEvents", () => {
       .spyOn(globalThis, "fetch")
       .mockImplementation(async () => createEventsResponse());
 
-    renderHook(() => useRunEvents("run-visible", false));
+    renderHook(() => useRunEvents("run-visible"));
 
     await waitFor(() => {
       expect(fetchSpy).toHaveBeenCalledTimes(1);
@@ -88,7 +88,7 @@ describe("useRunEvents", () => {
     });
   });
 
-  it("polls for new canonical events while a run is active", async () => {
+  it("refreshes canonical events when the runtime bridge emits an update", async () => {
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(
@@ -103,18 +103,23 @@ describe("useRunEvents", () => {
         ),
       );
 
-    const { result } = renderHook(() => useRunEvents("run-live", true));
+    const { result } = renderHook(() => useRunEvents("run-live"));
 
     await waitFor(() => {
       expect(result.current.events).toHaveLength(1);
     });
 
-    await waitFor(
-      () => {
-        expect(result.current.events).toHaveLength(2);
-      },
-      { timeout: 2_500 },
-    );
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(RUN_SUMMARY_REFRESH_EVENT, {
+          detail: { runId: "run-live" },
+        }),
+      );
+    });
+
+    await waitFor(() => {
+      expect(result.current.events).toHaveLength(2);
+    });
 
     expect(fetchSpy).toHaveBeenCalledTimes(2);
     expect(result.current.events[1]?.eventId).toBe("evt-2");

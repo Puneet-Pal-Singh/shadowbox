@@ -10,12 +10,8 @@ interface UseRunEventsResult {
 
 const EVENT_ERROR_LOG_WINDOW_MS = 30_000;
 const RUN_EVENTS_MIN_FETCH_INTERVAL_MS = 800;
-const ACTIVE_RUN_POLL_INTERVAL_MS = 1_000;
 
-export function useRunEvents(
-  runId: string,
-  shouldPoll: boolean,
-): UseRunEventsResult {
+export function useRunEvents(runId: string): UseRunEventsResult {
   const [events, setEvents] = useState<RunEvent[]>([]);
   const inFlightRef = useRef(false);
   const lastFetchAtRef = useRef(0);
@@ -109,7 +105,7 @@ export function useRunEvents(
         missedRefreshRef.current = true;
         return;
       }
-      void fetchEvents();
+      void fetchEvents({ force: true });
     };
 
     const handleVisibilityChange = () => {
@@ -127,24 +123,6 @@ export function useRunEvents(
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [fetchEvents, runId]);
-
-  useEffect(() => {
-    if (!runId || !shouldPoll) {
-      return;
-    }
-
-    const intervalId = window.setInterval(() => {
-      if (document.visibilityState !== "visible") {
-        missedRefreshRef.current = true;
-        return;
-      }
-      void fetchEvents();
-    }, ACTIVE_RUN_POLL_INTERVAL_MS);
-
-    return () => {
-      window.clearInterval(intervalId);
-    };
-  }, [fetchEvents, runId, shouldPoll]);
 
   return { events };
 }
