@@ -17,6 +17,7 @@ import {
 } from "@shadowbox/execution-engine/runtime";
 import type { DurableObjectState } from "@cloudflare/workers-types";
 import type { Env } from "../types/ai";
+import { CloudflareEventStreamAdapter } from "./adapters/CloudflareEventStreamAdapter";
 import { RunEngineRequestHandler } from "./RunEngineRequestHandler";
 
 describe("RunEngineRequestHandler", () => {
@@ -263,6 +264,38 @@ describe("RunEngineRequestHandler", () => {
     expect(secondEvent.type).toBe(RUN_EVENT_TYPES.TOOL_COMPLETED);
     expect(firstEvent.runId).toBe(runId);
     expect(secondEvent.runId).toBe(runId);
+  });
+
+  it("streams live runtime events from the realtime event port", async () => {
+    const ctx = new MockDurableObjectState();
+    const runId = "123e4567-e89b-42d3-a456-426614174111";
+    const eventStream = new CloudflareEventStreamAdapter();
+    const handler = new RunEngineRequestHandler(
+      ctx as unknown as DurableObjectState,
+      {} as Env,
+      async (operation) => operation(),
+      eventStream,
+    );
+
+    const response = await handler.handleEventsStreamRequest(
+      new Request(`https://brain.local/events/stream?runId=${runId}`),
+    );
+
+    eventStream.emit(
+      createToolRequestedEvent(
+        {
+          runId,
+          sessionId: "session-1",
+          taskId: "task-live",
+          toolName: "read_file",
+        },
+        { path: "README.md" },
+      ),
+    );
+    eventStream.complete(runId);
+
+    expect(response.status).toBe(200);
+    await expect(response.text()).resolves.toContain('"toolName":"read_file"');
   });
 
   it("projects a typed activity feed snapshot", async () => {
