@@ -141,13 +141,18 @@ describe("CodingAgent task-phase model selection", () => {
 
     const result = await agent.executeTask(task, context);
     expect(result.status).toBe("FAILED");
-    expect(result.error?.message).toContain("Git shell commands are not allowed");
+    expect(result.error?.message).toContain(
+      "Git shell commands are not allowed",
+    );
     expect(execute).not.toHaveBeenCalled();
   });
 
   it("routes golden-flow read_file tool calls through the gateway contract", async () => {
     const llmGateway = createLLMGatewayMock();
-    const execute = vi.fn(async () => ({ success: true, output: "README body" }));
+    const execute = vi.fn(async () => ({
+      success: true,
+      output: "README body",
+    }));
     const executionService = { execute } as unknown as RuntimeExecutionService;
     const agent = new CodingAgent(llmGateway, executionService);
 
@@ -207,8 +212,51 @@ describe("CodingAgent task-phase model selection", () => {
     const diffResult = await agent.executeTask(diffTask, context);
     expect(diffResult.status).toBe("DONE");
 
-    expect(execute).toHaveBeenCalledWith("node", "run", { command: "pnpm test" });
+    expect(execute).toHaveBeenCalledWith("node", "run", {
+      command: "pnpm test",
+    });
     expect(execute).toHaveBeenCalledWith("git", "git_diff", {});
+  });
+
+  it("preserves edit activity metadata for write_file results", async () => {
+    const llmGateway = createLLMGatewayMock();
+    const execute = vi
+      .fn()
+      .mockResolvedValueOnce({ success: true, output: "old line\n" })
+      .mockResolvedValueOnce({
+        success: true,
+        output: "Wrote 8 bytes to notes.txt",
+      });
+    const executionService = { execute } as unknown as RuntimeExecutionService;
+    const agent = new CodingAgent(llmGateway, executionService);
+
+    const task = {
+      id: "task-tool-write",
+      runId: "run-1",
+      type: "write_file",
+      input: {
+        description: "write file",
+        path: "notes.txt",
+        content: "new line\n",
+      },
+    } as unknown as Task;
+
+    const context: ExecutionContext = {
+      runId: "run-1",
+      sessionId: "session-1",
+      dependencies: [],
+    };
+
+    const result = await agent.executeTask(task, context);
+    expect(result.status).toBe("DONE");
+    expect(result.output?.metadata).toMatchObject({
+      activity: expect.objectContaining({
+        family: "edit",
+        filePath: "notes.txt",
+        additions: 1,
+        deletions: 1,
+      }),
+    });
   });
 
   it("uses discovery-first analyze flow for ambiguous targets", async () => {
@@ -244,7 +292,11 @@ describe("CodingAgent task-phase model selection", () => {
   it("does not treat unsafe user grep patterns as executable regex", async () => {
     const llmGateway = createLLMGatewayMock();
     const execute = vi.fn(
-      async (plugin: string, action: string, payload: Record<string, unknown>) => {
+      async (
+        plugin: string,
+        action: string,
+        payload: Record<string, unknown>,
+      ) => {
         if (plugin === "filesystem" && action === "list_files") {
           return { success: true, output: "README.md\n" };
         }
@@ -265,7 +317,12 @@ describe("CodingAgent task-phase model selection", () => {
       id: "task-grep-unsafe-pattern",
       runId: "run-1",
       type: "grep",
-      input: { description: "grep", pattern: "(a+)+$", path: ".", caseSensitive: true },
+      input: {
+        description: "grep",
+        pattern: "(a+)+$",
+        path: ".",
+        caseSensitive: true,
+      },
     } as unknown as Task;
 
     const context: ExecutionContext = {
@@ -282,7 +339,10 @@ describe("CodingAgent task-phase model selection", () => {
 
   it("rejects invalid grep input types via golden-flow schema validation", async () => {
     const llmGateway = createLLMGatewayMock();
-    const execute = vi.fn(async () => ({ success: true, output: "README.md\n" }));
+    const execute = vi.fn(async () => ({
+      success: true,
+      output: "README.md\n",
+    }));
     const executionService = { execute } as unknown as RuntimeExecutionService;
     const agent = new CodingAgent(llmGateway, executionService);
 
