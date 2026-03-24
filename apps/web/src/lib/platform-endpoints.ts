@@ -126,6 +126,15 @@ export function runEventsPath(runId: string): string {
 }
 
 /**
+ * Build the activity feed endpoint URL
+ * Used for fetching the structured activity feed snapshot from Brain
+ * Path: /activity?runId=<runId>
+ */
+export function runActivityPath(runId: string): string {
+  return `${getBrainHttpBase()}/activity?runId=${encodeURIComponent(runId)}`;
+}
+
+/**
  * Build the full chat history endpoint URL
  * Used for fetching previous chat messages from Muscle
  * Path: /api/chat/history
