@@ -36,6 +36,10 @@ export class RunEngineAgent extends CloudflareAgent<Env> {
       return handler.handleSummaryRequest(request);
     }
 
+    if (url.pathname === "/activity" && request.method === "GET") {
+      return handler.handleActivityRequest(request);
+    }
+
     if (url.pathname === "/cancel" && request.method === "POST") {
       return handler.handleCancelRequest(request);
     }

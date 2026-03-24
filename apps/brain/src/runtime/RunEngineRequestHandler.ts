@@ -4,6 +4,7 @@ import { z } from "zod";
 import {
   RunEngine,
   RunEventRepository,
+  projectRunActivityFeed,
   projectRunSummaryFromEvents,
   tagRuntimeStateSemantics,
   RunRepository,
@@ -127,6 +128,43 @@ export class RunEngineRequestHandler {
       request,
       this.env,
       this.buildEventsResponse(events, runId),
+    );
+  }
+
+  async handleActivityRequest(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+    const runIdRaw = url.searchParams.get("runId");
+
+    if (!runIdRaw) {
+      return runEngineErrorResponse(
+        request,
+        this.env,
+        "runId is required",
+        400,
+      );
+    }
+
+    let runId: string;
+    try {
+      runId = validateWithSchema<string>(
+        runIdRaw.trim(),
+        RunIdSchema,
+        "run-activity",
+      );
+    } catch {
+      return runEngineErrorResponse(request, this.env, "Invalid runId", 400);
+    }
+
+    const runtimeState = this.createRuntimeState();
+    const runRepo = new RunRepository(runtimeState);
+    const eventRepo = new RunEventRepository(runtimeState);
+    const run = await runRepo.getById(runId);
+    const events = await eventRepo.getByRun(runId);
+
+    return runEngineJsonResponse(
+      request,
+      this.env,
+      projectRunActivityFeed({ runId, run, events }),
     );
   }
 
