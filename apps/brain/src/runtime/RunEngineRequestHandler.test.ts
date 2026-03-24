@@ -144,6 +144,65 @@ describe("RunEngineRequestHandler", () => {
     expect(body.lastEventType).toBe("tool.requested");
   });
 
+  it("includes persisted plan artifacts in the summary response", async () => {
+    const ctx = new MockDurableObjectState();
+    const runtimeState = tagRuntimeStateSemantics(ctx, "do");
+    const runRepo = new RunRepository(runtimeState);
+
+    const run = new Run(
+      "123e4567-e89b-42d3-a456-426614174002",
+      "session-1",
+      "COMPLETED",
+      "coding",
+      {
+        agentType: "coding",
+        mode: "plan",
+        prompt: "plan the migration",
+        sessionId: "session-1",
+      },
+    );
+    run.metadata.planArtifact = {
+      id: `${run.id}:plan`,
+      createdAt: "2026-03-24T10:00:00.000Z",
+      summary: "Inspect the repository before executing the build flow.",
+      estimatedSteps: 2,
+      tasks: [],
+      handoff: {
+        targetMode: "build",
+        summary: "Move to build with the approved handoff prompt.",
+        prompt: "Execute this approved plan in build mode.",
+      },
+    };
+    await runRepo.create(run);
+
+    const handler = new RunEngineRequestHandler(
+      ctx as unknown as DurableObjectState,
+      {} as Env,
+      async (operation) => operation(),
+    );
+
+    const response = await handler.handleSummaryRequest(
+      new Request(
+        `https://brain.local/summary?runId=${encodeURIComponent(run.id)}`,
+      ),
+    );
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      planArtifact?: {
+        handoff?: {
+          prompt?: string;
+          targetMode?: string;
+        };
+      } | null;
+    };
+
+    expect(body.planArtifact?.handoff?.targetMode).toBe("build");
+    expect(body.planArtifact?.handoff?.prompt).toBe(
+      "Execute this approved plan in build mode.",
+    );
+  });
+
   it("streams canonical runtime events as NDJSON", async () => {
     const ctx = new MockDurableObjectState();
     const runtimeState = tagRuntimeStateSemantics(ctx, "do");

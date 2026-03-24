@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState, useMemo } from "react";
+import { useRef, useEffect, useState, useMemo, useCallback } from "react";
 import { ChatMessage } from "./ChatMessage";
 import { ChatInputBar } from "./ChatInputBar";
 import { ChatBranchSelector } from "./ChatBranchSelector";
@@ -21,6 +21,7 @@ interface ChatInterfaceProps {
     input: string;
     handleInputChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
     handleSubmit: () => void;
+    append: (message: { role: "user"; content: string }) => Promise<void>;
     stop: () => void;
     isLoading: boolean;
     error?: string | null;
@@ -47,6 +48,7 @@ export function ChatInterface({
     input,
     handleInputChange,
     handleSubmit,
+    append,
     stop,
     isLoading,
     error,
@@ -55,6 +57,9 @@ export function ChatInterface({
   const scrollRef = useRef<HTMLDivElement>(null);
   const thinkingStartAtRef = useRef<number | null>(null);
   const [thinkingElapsedMs, setThinkingElapsedMs] = useState(0);
+  const [pendingPlanPrompt, setPendingPlanPrompt] = useState<string | null>(
+    null,
+  );
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {
@@ -103,12 +108,49 @@ export function ChatInterface({
     );
   }, [messages, debugEvents, mode, providerModels]);
 
-  const handleInputChangeWrapper = (value: string) => {
-    // Create a synthetic event to match the expected interface
-    const syntheticEvent = {
-      target: { value },
-    } as React.ChangeEvent<HTMLTextAreaElement>;
-    handleInputChange(syntheticEvent);
+  const handleInputChangeWrapper = useCallback(
+    (value: string) => {
+      // Create a synthetic event to match the expected interface
+      const syntheticEvent = {
+        target: { value },
+      } as React.ChangeEvent<HTMLTextAreaElement>;
+      handleInputChange(syntheticEvent);
+    },
+    [handleInputChange],
+  );
+
+  useEffect(() => {
+    if (!pendingPlanPrompt || mode !== "build" || isLoading) {
+      return;
+    }
+
+    const submitPlanHandoff = async (): Promise<void> => {
+      try {
+        await append({ role: "user", content: pendingPlanPrompt });
+      } catch (submitError) {
+        console.warn(
+          "[chat/interface] Failed to submit plan handoff",
+          submitError,
+        );
+        handleInputChangeWrapper(pendingPlanPrompt);
+      } finally {
+        setPendingPlanPrompt(null);
+      }
+    };
+
+    void submitPlanHandoff();
+  }, [append, handleInputChangeWrapper, isLoading, mode, pendingPlanPrompt]);
+
+  const handleUsePlanInBuild = () => {
+    const handoffPrompt = summary?.planArtifact?.handoff?.prompt?.trim();
+    if (!handoffPrompt) {
+      return;
+    }
+
+    setPendingPlanPrompt(handoffPrompt);
+    if (mode !== "build") {
+      onModeChange?.("build");
+    }
   };
 
   const recoveryAdvice = getProviderRecoveryAdvice(error);
@@ -123,6 +165,12 @@ export function ChatInterface({
               events={events}
               summary={summary}
               isLoading={isLoading}
+              onUsePlanInBuild={
+                summary?.planArtifact?.handoff &&
+                (mode === "build" || onModeChange)
+                  ? handleUsePlanInBuild
+                  : undefined
+              }
               onJumpToLatest={() => {
                 scrollRef.current?.scrollTo({
                   top: scrollRef.current.scrollHeight,

@@ -1,5 +1,5 @@
-import { CloudflareToolboxAdapter } from "../adapters/CloudflareToolboxAdapter";
 import type {
+  ToolboxCommandExecutor,
   ToolboxExecutionResult,
   ToolboxSessionHandle,
   ToolboxSessionRequest,
@@ -16,7 +16,7 @@ export class ToolboxSessionService {
   private readonly policyService = new ToolboxPolicyService();
 
   constructor(
-    private readonly adapter: CloudflareToolboxAdapter,
+    private readonly adapter: ToolboxCommandExecutor,
     private readonly eventPublisher: ToolboxEventPublisher = new ConsoleToolboxEventPublisher(),
   ) {}
 

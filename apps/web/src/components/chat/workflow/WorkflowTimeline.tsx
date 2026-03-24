@@ -12,6 +12,7 @@ interface WorkflowTimelineProps {
   events: RunEvent[];
   summary: WorkflowRunSummary | null;
   isLoading: boolean;
+  onUsePlanInBuild?: () => void;
   onJumpToLatest?: () => void;
 }
 
@@ -19,6 +20,7 @@ export function WorkflowTimeline({
   events,
   summary,
   isLoading,
+  onUsePlanInBuild,
   onJumpToLatest,
 }: WorkflowTimelineProps) {
   const viewModel = useMemo(
@@ -45,6 +47,7 @@ export function WorkflowTimeline({
         summary={viewModel.summary}
         onExpandAll={expandAll}
         onCollapseAll={collapseAll}
+        onUsePlanInBuild={onUsePlanInBuild}
         onJumpToLatest={onJumpToLatest}
       />
 

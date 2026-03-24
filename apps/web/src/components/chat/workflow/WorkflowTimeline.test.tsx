@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   RUN_EVENT_TYPES,
   RUN_WORKFLOW_STEPS,
@@ -63,6 +63,34 @@ describe("WorkflowTimeline", () => {
       "aria-expanded",
       "false",
     );
+  });
+
+  it("shows a first-class plan handoff action when one is available", () => {
+    const onUsePlanInBuild = vi.fn();
+
+    render(
+      <WorkflowTimeline
+        events={[]}
+        summary={{
+          ...createSummary(0, 0),
+          planArtifact: {
+            handoff: {
+              targetMode: "build",
+              summary: "Move to build with the approved handoff prompt.",
+              prompt: "Execute this approved plan in build mode.",
+            },
+          },
+        }}
+        isLoading={false}
+        onUsePlanInBuild={onUsePlanInBuild}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Execute Plan in Build" }),
+    );
+
+    expect(onUsePlanInBuild).toHaveBeenCalledTimes(1);
   });
 });
 

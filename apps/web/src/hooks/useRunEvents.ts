@@ -105,7 +105,7 @@ export function useRunEvents(runId: string): UseRunEventsResult {
         missedRefreshRef.current = true;
         return;
       }
-      void fetchEvents();
+      void fetchEvents({ force: true });
     };
 
     const handleVisibilityChange = () => {

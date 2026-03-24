@@ -2,14 +2,41 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { getBrainHttpBase } from "../lib/platform-endpoints.js";
 import { RUN_SUMMARY_REFRESH_EVENT } from "../lib/run-summary-events.js";
 
+interface RunPlanArtifactTask {
+  id: string;
+  type: string;
+  description: string;
+  dependsOn: string[];
+  expectedOutput?: string;
+  executionKind: "read" | "mutating";
+}
+
+interface RunPlanArtifact {
+  id: string;
+  createdAt: string;
+  summary: string;
+  estimatedSteps: number;
+  reasoning?: string;
+  tasks: RunPlanArtifactTask[];
+  handoff: {
+    targetMode: "build";
+    prompt: string;
+    summary: string;
+  };
+}
+
 interface RunSummary {
   runId: string;
   status: string | null;
   totalTasks: number;
   completedTasks: number;
   failedTasks: number;
+  runningTasks?: number;
+  pendingTasks?: number;
+  cancelledTasks?: number;
   eventCount?: number;
   lastEventType?: string | null;
+  planArtifact?: RunPlanArtifact | null;
 }
 
 interface UseRunSummaryResult {
@@ -20,7 +47,10 @@ const TERMINAL_RUN_STATUSES = new Set(["COMPLETED", "FAILED", "CANCELLED"]);
 const SUMMARY_ERROR_LOG_WINDOW_MS = 30_000;
 const RUN_SUMMARY_MIN_FETCH_INTERVAL_MS = 1_200;
 
-export function useRunSummary(runId: string, shouldPoll: boolean): UseRunSummaryResult {
+export function useRunSummary(
+  runId: string,
+  shouldPoll: boolean,
+): UseRunSummaryResult {
   const [summary, setSummary] = useState<RunSummary | null>(null);
   const inFlightRef = useRef(false);
   const lastFetchAtRef = useRef(0);

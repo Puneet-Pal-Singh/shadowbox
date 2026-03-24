@@ -29,7 +29,7 @@ import type {
   RuntimeDurableObjectState,
   WorkspaceBootstrapper,
 } from "../types.js";
-import type { Plan, PlannedTask } from "../planner/index.js";
+import type { Plan } from "../planner/index.js";
 import {
   LLMGateway,
   type ILLMGateway,
@@ -49,7 +49,6 @@ import {
 } from "./RunPermissionWorkspacePolicy.js";
 import {
   completeRunWithAssistantMessage as completeRunWithAssistantMessagePolicy,
-  createStreamResponse as createStreamResponsePolicy,
   getRunDurationMs as getRunDurationMsPolicy,
   tryHandlePlanningError as tryHandlePlanningErrorPolicy,
   type RunCompletionDependencies,
@@ -57,8 +56,6 @@ import {
 import { createRunManifest, ensureManifestMatch } from "./RunManifestPolicy.js";
 import { sanitizeUserFacingOutput } from "./RunOutputSanitizer.js";
 import {
-  applyFinalRunStatus,
-  determineRunStatusFromTasks,
   transitionRunToCompleted,
   transitionRunToFailed,
 } from "./RunStatusPolicy.js";
@@ -80,7 +77,6 @@ import {
 } from "./RunMetadataPolicy.js";
 import { resetRecyclableRun } from "./RunRecyclableResetPolicy.js";
 import { applyReviewerPassIfEnabled } from "./RunReviewerPassPolicy.js";
-import { synthesizeResultFromTasks } from "./RunSynthesisPolicy.js";
 import { RunEventRecorder, RunEventRepository } from "../events/index.js";
 
 export interface IRunEngine {
@@ -428,155 +424,6 @@ export class RunEngine implements IRunEngine {
         await this.runRepo.update(run);
         throw planError;
       }
-
-      console.log(`[run/engine] Execution phase for run ${runId}`);
-      const executionPreviousStatus = run.status;
-      run.transition("RUNNING");
-      recordPhaseSelectionSnapshot(run, "execution");
-      recordLifecycleStep(run, "TASK_EXECUTING");
-      await this.runEventRecorder.recordRunStatusChanged(
-        executionPreviousStatus,
-        run.status,
-        RUN_WORKFLOW_STEPS.EXECUTION,
-      );
-      await this.runRepo.update(run);
-
-      const taskResults: Array<{ taskId: string; content: string }> = [];
-
-      await this.scheduler.execute(run.id, {
-        beforeTask: async (task) => {
-          console.log(
-            `[task/scheduler] beforeTask run=${run.id} task=${task.id} phase=task`,
-          );
-          await this.runEventRecorder.recordToolRequested(task);
-          await this.runEventRecorder.recordToolStarted(task);
-        },
-        afterTask: async (task, result) => {
-          console.log(
-            `[task/scheduler] afterTask run=${run.id} task=${task.id} status=${result.status}`,
-          );
-          await this.runEventRecorder.recordToolCompleted(
-            task,
-            result.output?.content ?? null,
-            0,
-          );
-          if (result.output?.content) {
-            taskResults.push({
-              taskId: task.id,
-              content: result.output.content,
-            });
-          }
-        },
-        onTaskError: async (task, error) => {
-          console.error(`[task/scheduler] onTaskError task=${task.id}`, error);
-          await this.runEventRecorder.recordToolFailed(
-            task,
-            error instanceof Error ? error.message : "Task execution failed",
-            0,
-          );
-        },
-      });
-
-      for (const { taskId, content } of taskResults) {
-        await this.safeMemoryOperation(() =>
-          this.memoryCoordinator.extractAndPersist({
-            runId,
-            sessionId,
-            taskId,
-            source: "task",
-            content,
-            phase: "execution",
-          }),
-        );
-      }
-
-      const allTasks = await this.taskRepo.getByRun(runId);
-      const finalRunStatus = determineRunStatusFromTasks(allTasks);
-      await this.safeMemoryOperation(() =>
-        this.memoryCoordinator.createCheckpoint({
-          runId,
-          sequence: 2,
-          phase: "execution",
-          runStatus: run.status,
-          taskStatuses: Object.fromEntries(
-            allTasks.map((t) => [t.id, t.status]),
-          ),
-        }),
-      );
-
-      console.log(`[run/engine] Synthesis phase for run ${runId}`);
-      recordPhaseSelectionSnapshot(run, "synthesis");
-      recordLifecycleStep(run, "SYNTHESIS");
-      await this.runEventRecorder.recordRunStatusChanged(
-        run.status,
-        run.status,
-        RUN_WORKFLOW_STEPS.SYNTHESIS,
-      );
-      const finalOutputRaw = await this.generateSynthesis(
-        run,
-        input.prompt,
-        this.currentMemoryContext,
-      );
-      const finalOutput = await applyReviewerPassIfEnabled({
-        run,
-        originalPrompt: input.prompt,
-        synthesisOutput: sanitizeUserFacingOutput(finalOutputRaw),
-        llmGateway: this.llmGateway,
-      });
-
-      await this.safeMemoryOperation(() =>
-        this.memoryCoordinator.extractAndPersist({
-          runId,
-          sessionId,
-          source: "synthesis",
-          content: finalOutput,
-          phase: "synthesis",
-        }),
-      );
-
-      await this.safeMemoryOperation(() =>
-        this.memoryCoordinator.createCheckpoint({
-          runId,
-          sequence: 3,
-          phase: "synthesis",
-          runStatus: finalRunStatus,
-          taskStatuses: {},
-        }),
-      );
-
-      await this.safeMemoryOperation(() =>
-        this.persistConversationMessages(
-          runId,
-          sessionId,
-          [{ role: "assistant", content: finalOutput }],
-          "assistant",
-        ),
-      );
-      applyFinalRunStatus(run, runId, finalRunStatus, allTasks);
-      recordLifecycleStep(run, "TERMINAL", `status=${finalRunStatus}`);
-      recordOrchestrationTerminal(run);
-      run.output = { content: finalOutput };
-      await this.runRepo.update(run);
-      await this.runEventRecorder.recordMessageEmitted(
-        "assistant",
-        finalOutput,
-      );
-      if (finalRunStatus === "COMPLETED") {
-        await this.runEventRecorder.recordRunCompleted(
-          this.getRunDurationMs(run),
-          allTasks.length,
-        );
-      } else if (finalRunStatus === "FAILED") {
-        await this.runEventRecorder.recordRunFailed(
-          run.metadata.error ?? "One or more tasks failed",
-          this.getRunDurationMs(run),
-        );
-      }
-      console.log(`[run/engine] Completed run ${runId}`);
-      console.log(
-        `[run/timing] run=${runId} step=total elapsedMs=${Date.now() - runStartedAt} status=${finalRunStatus} mode=task`,
-      );
-      return createStreamResponsePolicy(finalOutput);
     } catch (error) {
       await this.handleExecutionError(runId, error);
       throw error;
@@ -802,32 +649,6 @@ export class RunEngine implements IRunEngine {
     );
   }
 
-  private async createTasksFromPlan(runId: string, plan: Plan): Promise<void> {
-    for (const plannedTask of plan.tasks) {
-      const task = this.createTaskFromPlanned(runId, plannedTask);
-      await this.taskRepo.create(task);
-    }
-
-    console.log(
-      `[run/engine] Created ${plan.tasks.length} tasks for run ${runId}`,
-    );
-  }
-
-  private createTaskFromPlanned(runId: string, planned: PlannedTask): Task {
-    return new Task(
-      planned.id,
-      runId,
-      planned.type,
-      "PENDING",
-      planned.dependsOn,
-      {
-        description: planned.description,
-        expectedOutput: planned.expectedOutput,
-        ...(planned.input ?? {}),
-      },
-    );
-  }
-
   private async generatePlan(
     run: Run,
     prompt: string,
@@ -837,33 +658,6 @@ export class RunEngine implements IRunEngine {
       return this.agent.plan({ run, prompt, history: undefined });
     }
     return this.planner.plan(run, prompt, memoryContext);
-  }
-
-  private async generateSynthesis(
-    run: Run,
-    originalPrompt: string,
-    memoryContext?: MemoryContext,
-  ): Promise<string> {
-    if (this.agent) {
-      const tasks = await this.taskRepo.getByRun(run.id);
-      const taskSnapshots = tasks.map((task) => task.toJSON());
-      return this.agent.synthesize({
-        runId: run.id,
-        sessionId: run.sessionId,
-        completedTasks: taskSnapshots,
-        originalPrompt,
-        modelId: run.input.modelId,
-        providerId: run.input.providerId,
-      });
-    }
-    return synthesizeResultFromTasks({
-      run,
-      originalPrompt,
-      memoryContext,
-      taskRepo: this.taskRepo,
-      memoryCoordinator: this.memoryCoordinator,
-      llmGateway: this.llmGateway,
-    });
   }
 
   private async completeRunWithAssistantMessage(

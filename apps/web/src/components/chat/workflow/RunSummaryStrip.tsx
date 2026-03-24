@@ -5,6 +5,7 @@ interface RunSummaryStripProps {
   summary: WorkflowTimelineSummary;
   onExpandAll: () => void;
   onCollapseAll: () => void;
+  onUsePlanInBuild?: () => void;
   onJumpToLatest?: () => void;
 }
 
@@ -12,6 +13,7 @@ export function RunSummaryStrip({
   summary,
   onExpandAll,
   onCollapseAll,
+  onUsePlanInBuild,
   onJumpToLatest,
 }: RunSummaryStripProps) {
   return (
@@ -23,11 +25,20 @@ export function RunSummaryStrip({
             label="Tool Calls"
             value={`${summary.totalToolCalls} total`}
           />
-          <MetricPill label="Approvals" value={summary.approvalsLabel} />
+          {summary.approvalsLabel ? (
+            <MetricPill label="Approvals" value={summary.approvalsLabel} />
+          ) : null}
           <MetricPill label="Failures" value={summary.failuresLabel} />
-          <MetricPill label="Agents" value={summary.agentLabel} />
+          {summary.agentLabel ? (
+            <MetricPill label="Agents" value={summary.agentLabel} />
+          ) : null}
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {onUsePlanInBuild ? (
+            <ActionButton onClick={onUsePlanInBuild}>
+              Execute Plan in Build
+            </ActionButton>
+          ) : null}
           {onJumpToLatest ? (
             <ActionButton onClick={onJumpToLatest}>Jump to latest</ActionButton>
           ) : null}

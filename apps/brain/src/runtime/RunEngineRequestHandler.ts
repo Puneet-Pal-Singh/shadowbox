@@ -90,7 +90,10 @@ export class RunEngineRequestHandler {
       events,
     );
 
-    return runEngineJsonResponse(request, this.env, summary);
+    return runEngineJsonResponse(request, this.env, {
+      ...summary,
+      planArtifact: run?.metadata.planArtifact ?? null,
+    });
   }
 
   async handleEventsRequest(request: Request): Promise<Response> {

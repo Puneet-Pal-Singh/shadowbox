@@ -87,6 +87,43 @@ describe("useRunEvents", () => {
       expect(fetchSpy).toHaveBeenCalledTimes(2);
     });
   });
+
+  it("refreshes canonical events when the runtime bridge emits an update", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        createEventsResponse(
+          createMessageEvent("run-live", "evt-1", "Started"),
+        ),
+      )
+      .mockResolvedValueOnce(
+        createEventsResponse(
+          createMessageEvent("run-live", "evt-1", "Started"),
+          createMessageEvent("run-live", "evt-2", "Tool finished"),
+        ),
+      );
+
+    const { result } = renderHook(() => useRunEvents("run-live"));
+
+    await waitFor(() => {
+      expect(result.current.events).toHaveLength(1);
+    });
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(RUN_SUMMARY_REFRESH_EVENT, {
+          detail: { runId: "run-live" },
+        }),
+      );
+    });
+
+    await waitFor(() => {
+      expect(result.current.events).toHaveLength(2);
+    });
+
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(result.current.events[1]?.eventId).toBe("evt-2");
+  });
 });
 
 function createEventsResponse(
