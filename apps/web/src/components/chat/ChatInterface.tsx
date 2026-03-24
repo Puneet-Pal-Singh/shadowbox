@@ -9,9 +9,11 @@ import type { ProviderId } from "../../types/provider";
 import type { ChatDebugEvent } from "../../types/chat-debug.js";
 import { useRunSummary } from "../../hooks/useRunSummary.js";
 import { useRunEvents } from "../../hooks/useRunEvents.js";
+import { useRunActivityFeed } from "../../hooks/useRunActivityFeed.js";
 import { getProviderRecoveryAdvice } from "../../lib/provider-recovery";
 import { useProviderStore } from "../../hooks/useProviderStore.js";
 import { buildChatMessageMetadata } from "./messageMetadata";
+import { ActivityFeed } from "./activity/ActivityFeed.js";
 import { WorkflowTimeline } from "./workflow/WorkflowTimeline.js";
 
 interface ChatInterfaceProps {
@@ -94,6 +96,7 @@ export function ChatInterface({
 
   const { summary } = useRunSummary(runId, isLoading);
   const { events } = useRunEvents(runId);
+  const { feed } = useRunActivityFeed(runId, isLoading);
   const showDebugPanel =
     import.meta.env.VITE_ENABLE_CHAT_DEBUG_PANEL === "true";
   const [showProviderDialog, setShowProviderDialog] = useState(false);
@@ -161,9 +164,8 @@ export function ChatInterface({
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 py-4">
         <div className="max-w-4xl mx-auto space-y-6">
           {(messages.length > 0 || isLoading) && (
-            <WorkflowTimeline
-              events={events}
-              summary={summary}
+            <ActivityFeed
+              feed={feed}
               isLoading={isLoading}
               onUsePlanInBuild={
                 summary?.planArtifact?.handoff &&
@@ -178,6 +180,27 @@ export function ChatInterface({
                 });
               }}
             />
+          )}
+
+          {(messages.length > 0 || isLoading) && (
+            <details className="rounded-2xl border border-zinc-900/80 bg-zinc-950/40 px-4 py-3">
+              <summary className="cursor-pointer text-sm font-medium text-zinc-400">
+                Workflow overview
+              </summary>
+              <div className="mt-4">
+                <WorkflowTimeline
+                  events={events}
+                  summary={summary}
+                  isLoading={isLoading}
+                  onJumpToLatest={() => {
+                    scrollRef.current?.scrollTo({
+                      top: scrollRef.current.scrollHeight,
+                      behavior: "smooth",
+                    });
+                  }}
+                />
+              </div>
+            </details>
           )}
 
           {error && (

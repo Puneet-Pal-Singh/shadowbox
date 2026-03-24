@@ -23,11 +23,16 @@ vi.mock("../../hooks/useRunEvents.js", () => ({
   useRunEvents: vi.fn(() => ({ events: [] })),
 }));
 
+vi.mock("../../hooks/useRunActivityFeed.js", () => ({
+  useRunActivityFeed: vi.fn(() => ({ feed: null })),
+}));
+
 vi.mock("../../hooks/useProviderStore.js", () => ({
   useProviderStore: vi.fn(() => ({ providerModels: {} })),
 }));
 
 import { useRunSummary } from "../../hooks/useRunSummary.js";
+import { useRunActivityFeed } from "../../hooks/useRunActivityFeed.js";
 
 describe("ChatInterface", () => {
   beforeEach(() => {
@@ -54,6 +59,27 @@ describe("ChatInterface", () => {
             prompt: "Execute this approved plan in build mode.",
           },
         },
+      },
+    });
+    vi.mocked(useRunActivityFeed).mockReturnValue({
+      feed: {
+        runId: "run-1",
+        sessionId: "session-1",
+        status: "COMPLETED",
+        items: [
+          {
+            id: "text-1",
+            runId: "run-1",
+            sessionId: "session-1",
+            turnId: "turn-1",
+            kind: "text",
+            createdAt: "2026-03-24T10:00:00.000Z",
+            updatedAt: "2026-03-24T10:00:00.000Z",
+            source: "brain",
+            role: "user",
+            content: "Plan complete.",
+          },
+        ],
       },
     });
   });
