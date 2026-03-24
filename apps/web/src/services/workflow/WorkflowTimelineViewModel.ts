@@ -10,6 +10,13 @@ export interface WorkflowRunSummary {
   totalTasks: number;
   completedTasks: number;
   failedTasks: number;
+  planArtifact?: {
+    handoff: {
+      targetMode: "build";
+      prompt: string;
+      summary: string;
+    };
+  } | null;
   eventCount?: number;
   lastEventType?: string | null;
 }
@@ -17,9 +24,9 @@ export interface WorkflowRunSummary {
 export interface WorkflowTimelineSummary {
   elapsedLabel: string;
   totalToolCalls: number;
-  approvalsLabel: string;
   failuresLabel: string;
-  agentLabel: string;
+  approvalsLabel?: string;
+  agentLabel?: string;
 }
 
 export interface WorkflowToolRowViewModel {
@@ -583,12 +590,10 @@ function buildSummary(
         ? `Worked for ${formatDuration(elapsedMs)}`
         : "Started just now",
     totalToolCalls: toolIds.size,
-    approvalsLabel: "Approvals 0/0",
     failuresLabel:
       failedTaskCount > 0
         ? `${failedTaskCount} failure${failedTaskCount === 1 ? "" : "s"}`
         : "No failures",
-    agentLabel: "1 agent",
   };
 }
 

@@ -29,6 +29,8 @@ describe("WorkflowTimelineViewModel", () => {
     expect(first.summary.elapsedLabel).toBe("Worked for 12s");
     expect(first.summary.totalToolCalls).toBe(2);
     expect(first.summary.failuresLabel).toBe("1 failure");
+    expect(first.summary.approvalsLabel).toBeUndefined();
+    expect(first.summary.agentLabel).toBeUndefined();
     expect(first.blocks.map((block) => block.kind)).toEqual([
       "plan",
       "tool_batch",
