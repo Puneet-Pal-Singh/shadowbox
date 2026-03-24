@@ -8,7 +8,7 @@ import {
 import { ActivityFeed } from "./ActivityFeed.js";
 
 describe("ActivityFeed", () => {
-  it("renders grouped exploration rows and exposes handoff action", () => {
+  it("renders collapsed turn summaries and expands grouped exploration rows", () => {
     const onUsePlanInBuild = vi.fn();
     render(
       <ActivityFeed
@@ -19,15 +19,56 @@ describe("ActivityFeed", () => {
     );
 
     expect(screen.getByText("Activity Feed")).toBeInTheDocument();
-    expect(screen.getByText("Explore")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /worked for 3s/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("2 tool calls · 1 handoff")).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Execute Plan in Build" }),
     ).toBeInTheDocument();
 
+    fireEvent.click(screen.getByRole("button", { name: /worked for 3s/i }));
+    expect(screen.getByText("Explore")).toBeInTheDocument();
+
     fireEvent.click(
-      screen.getByRole("button", { name: "Execute Plan in Build" }),
+      screen.getAllByRole("button", { name: "Execute Plan in Build" })[1]!,
     );
     expect(onUsePlanInBuild).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders active turns as an open transcript instead of a worked summary", () => {
+    render(
+      <ActivityFeed
+        feed={{
+          ...createFeedSnapshot(),
+          status: "RUNNING",
+          items: [
+            ...createFeedSnapshot().items,
+            {
+              id: "reasoning-1",
+              runId: "run-1",
+              sessionId: "session-1",
+              turnId: "turn-1",
+              kind: ACTIVITY_PART_KINDS.REASONING,
+              createdAt: "2026-03-24T10:00:03.500Z",
+              updatedAt: "2026-03-24T10:00:03.500Z",
+              source: "brain",
+              label: "Analyzing repository",
+              summary: "Inspecting the repository before the next tool call.",
+              phase: "planning",
+              status: "active",
+            },
+          ],
+        }}
+        isLoading={true}
+      />,
+    );
+
+    expect(
+      screen.queryByRole("button", { name: /worked for/i }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText(/working for 4s/i)).toBeInTheDocument();
+    expect(screen.getByText("Analyzing repository")).toBeInTheDocument();
   });
 });
 

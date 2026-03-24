@@ -4,53 +4,75 @@ interface ActivityRowProps {
   row: ActivityFeedRowViewModel;
   expanded: boolean;
   onToggle: () => void;
+  onUsePlanInBuild?: () => void;
+  displayMode?: "card" | "transcript";
 }
 
-export function ActivityRow({ row, expanded, onToggle }: ActivityRowProps) {
+export function ActivityRow({
+  row,
+  expanded,
+  onToggle,
+  onUsePlanInBuild,
+  displayMode = "card",
+}: ActivityRowProps) {
   switch (row.kind) {
     case "text":
-      return (
-        <div className="rounded-2xl border border-zinc-800/80 bg-black/30 px-4 py-3">
-          <div className="text-[10px] uppercase tracking-[0.24em] text-zinc-500">
-            {row.role}
-          </div>
-          <div className="mt-2 whitespace-pre-wrap text-sm text-zinc-100">
-            {row.content}
-          </div>
-        </div>
-      );
+      return null;
     case "reasoning":
       return (
-        <div className="rounded-2xl border border-cyan-900/50 bg-cyan-950/20 px-4 py-3">
-          <div className="text-[10px] uppercase tracking-[0.24em] text-cyan-300/70">
-            {row.label}
-          </div>
-          <div className="mt-2 text-sm text-cyan-50">{row.summary}</div>
-        </div>
+        <ExpandableRow
+          label={row.label}
+          summary={row.summary}
+          expanded={expanded}
+          onToggle={onToggle}
+          tone={row.status === "active" ? "running" : "completed"}
+          displayMode={displayMode}
+        >
+          <div className="text-xs text-cyan-100/80">{row.summary}</div>
+        </ExpandableRow>
       );
     case "approval":
       return (
-        <div className="rounded-2xl border border-orange-900/50 bg-orange-950/20 px-4 py-3">
-          <div className="text-[10px] uppercase tracking-[0.24em] text-orange-300/70">
-            Approval Required
-          </div>
-          <div className="mt-2 text-sm text-orange-50">{row.summary}</div>
+        <ExpandableRow
+          label="Approval Required"
+          summary={row.summary}
+          expanded={expanded}
+          onToggle={onToggle}
+          tone={row.status === "granted" ? "completed" : "requested"}
+          displayMode={displayMode}
+        >
           {row.details ? (
-            <div className="mt-2 text-xs text-orange-100/70">{row.details}</div>
-          ) : null}
-        </div>
+            <div className="text-xs text-orange-100/70">{row.details}</div>
+          ) : (
+            <div className="text-xs text-orange-100/70">No extra details.</div>
+          )}
+        </ExpandableRow>
       );
     case "handoff":
       return (
-        <div className="rounded-2xl border border-emerald-900/50 bg-emerald-950/20 px-4 py-3">
-          <div className="text-[10px] uppercase tracking-[0.24em] text-emerald-300/70">
-            Build Handoff
+        <ExpandableRow
+          label="Build Handoff"
+          summary={row.summary}
+          expanded={expanded}
+          onToggle={onToggle}
+          tone="completed"
+          displayMode={displayMode}
+        >
+          <div className="space-y-3">
+            <pre className="overflow-x-auto rounded-xl border border-emerald-900/60 bg-black/40 px-3 py-2 text-xs text-emerald-100/80">
+              {row.prompt}
+            </pre>
+            {onUsePlanInBuild ? (
+              <button
+                type="button"
+                onClick={onUsePlanInBuild}
+                className="rounded-full border border-emerald-700/70 bg-emerald-950/40 px-3 py-1.5 text-xs font-medium text-emerald-100 transition hover:border-emerald-500 hover:bg-emerald-900/40"
+              >
+                Execute Plan in Build
+              </button>
+            ) : null}
           </div>
-          <div className="mt-2 text-sm text-emerald-50">{row.summary}</div>
-          <pre className="mt-3 overflow-x-auto rounded-xl border border-emerald-900/60 bg-black/40 px-3 py-2 text-xs text-emerald-100/80">
-            {row.prompt}
-          </pre>
-        </div>
+        </ExpandableRow>
       );
     case "group":
       return (
@@ -59,6 +81,7 @@ export function ActivityRow({ row, expanded, onToggle }: ActivityRowProps) {
           summary={row.summary}
           expanded={expanded}
           onToggle={onToggle}
+          displayMode={displayMode}
         >
           <div className="space-y-2">
             {row.rows.map((groupRow) => (
@@ -67,6 +90,8 @@ export function ActivityRow({ row, expanded, onToggle }: ActivityRowProps) {
                 row={groupRow}
                 expanded={true}
                 onToggle={() => undefined}
+                onUsePlanInBuild={onUsePlanInBuild}
+                displayMode="transcript"
               />
             ))}
           </div>
@@ -80,6 +105,7 @@ export function ActivityRow({ row, expanded, onToggle }: ActivityRowProps) {
           expanded={expanded}
           onToggle={onToggle}
           tone={row.status}
+          displayMode={displayMode}
         >
           {row.details.length > 0 ? (
             <div className="space-y-2">
@@ -107,6 +133,7 @@ function ExpandableRow({
   onToggle,
   children,
   tone = "completed",
+  displayMode = "card",
 }: {
   label: string;
   summary: string;
@@ -114,7 +141,34 @@ function ExpandableRow({
   onToggle: () => void;
   children: React.ReactNode;
   tone?: "requested" | "running" | "completed" | "failed";
+  displayMode?: "card" | "transcript";
 }) {
+  if (displayMode === "transcript") {
+    return (
+      <div className="rounded-xl border border-zinc-900/80 bg-zinc-950/40 px-3 py-2">
+        <button
+          type="button"
+          onClick={onToggle}
+          className="flex w-full items-center justify-between gap-3 text-left"
+        >
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 text-sm text-zinc-100">
+              <span className={statusDotClassName(tone)} aria-hidden="true" />
+              <span className="truncate font-medium">{label}</span>
+            </div>
+            <div className={`mt-1 text-xs ${toneClassName(tone)}`}>
+              {summary}
+            </div>
+          </div>
+          <div className="shrink-0 text-[11px] text-zinc-500">
+            {expanded ? "Hide" : "Show"}
+          </div>
+        </button>
+        {expanded ? <div className="mt-3">{children}</div> : null}
+      </div>
+    );
+  }
+
   return (
     <div className="rounded-2xl border border-zinc-800/80 bg-black/30 px-4 py-3">
       <button
@@ -145,5 +199,18 @@ function toneClassName(tone: string): string {
       return "text-amber-300";
     default:
       return "text-zinc-400";
+  }
+}
+
+function statusDotClassName(tone: string): string {
+  switch (tone) {
+    case "running":
+      return "h-2 w-2 rounded-full bg-cyan-400";
+    case "failed":
+      return "h-2 w-2 rounded-full bg-red-400";
+    case "requested":
+      return "h-2 w-2 rounded-full bg-amber-400";
+    default:
+      return "h-2 w-2 rounded-full bg-zinc-500";
   }
 }

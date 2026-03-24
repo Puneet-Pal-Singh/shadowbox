@@ -76,7 +76,11 @@ export type ActivityFeedRowViewModel =
 
 export interface ActivityTurnViewModel {
   key: string;
-  title: string;
+  elapsedLabel: string;
+  summaryLabel: string;
+  defaultCollapsed: boolean;
+  isActiveTurn: boolean;
+  hasVisibleRows: boolean;
   rows: ActivityFeedRowViewModel[];
 }
 
@@ -103,13 +107,26 @@ export function buildActivityFeedViewModel(
   }
 
   const turnGroups = groupItemsIntoTurns(feed.items);
+  const lastTurnIndex = turnGroups.length - 1;
   return {
     summary: buildFeedSummary(feed),
-    turns: turnGroups.map((turn, index) => ({
-      key: turn.turnId ?? `turn-fallback-${index}`,
-      title: `Turn ${index + 1}`,
-      rows: buildTurnRows(turn.items),
-    })),
+    turns: turnGroups.map((turn, index) => {
+      const rows = buildTurnRows(turn.items);
+      const isActiveTurn = feed.status === "RUNNING" && index === lastTurnIndex;
+      return {
+        key: turn.turnId ?? `turn-fallback-${index}`,
+        elapsedLabel: formatDuration(
+          turn.items[0]?.createdAt ?? null,
+          turn.items[turn.items.length - 1]?.updatedAt ?? null,
+          isActiveTurn,
+        ),
+        summaryLabel: buildTurnSummary(rows),
+        defaultCollapsed: !isActiveTurn,
+        isActiveTurn,
+        hasVisibleRows: rows.length > 0,
+        rows,
+      };
+    }),
   };
 }
 
@@ -133,6 +150,10 @@ function buildTurnRows(items: ActivityPart[]): ActivityFeedRowViewModel[] {
   let pendingExplore: ActivityToolRowViewModel[] = [];
 
   for (const item of items) {
+    if (item.kind === ACTIVITY_PART_KINDS.TEXT) {
+      continue;
+    }
+
     if (item.kind === ACTIVITY_PART_KINDS.TOOL) {
       const row = createToolRow(item);
       if (isExplorationTool(row)) {
@@ -152,6 +173,54 @@ function buildTurnRows(items: ActivityPart[]): ActivityFeedRowViewModel[] {
 
   flushExploreGroup(rows, pendingExplore);
   return rows;
+}
+
+function buildTurnSummary(rows: ActivityFeedRowViewModel[]): string {
+  const toolCount = rows.reduce((count, row) => {
+    if (row.kind === "tool") {
+      return count + 1;
+    }
+    if (row.kind === "group") {
+      return count + row.rows.length;
+    }
+    return count;
+  }, 0);
+  const reasoningCount = rows.filter((row) => row.kind === "reasoning").length;
+  const approvalCount = rows.filter((row) => row.kind === "approval").length;
+  const handoffCount = rows.filter((row) => row.kind === "handoff").length;
+  const failureCount = rows.reduce((count, row) => {
+    if (row.kind === "tool") {
+      return count + (row.status === "failed" ? 1 : 0);
+    }
+    if (row.kind === "group") {
+      return (
+        count +
+        row.rows.filter((groupRow) => groupRow.status === "failed").length
+      );
+    }
+    return count;
+  }, 0);
+
+  const parts: string[] = [];
+  if (toolCount > 0) {
+    parts.push(`${toolCount} tool call${toolCount === 1 ? "" : "s"}`);
+  }
+  if (reasoningCount > 0) {
+    parts.push(
+      `${reasoningCount} thinking step${reasoningCount === 1 ? "" : "s"}`,
+    );
+  }
+  if (approvalCount > 0) {
+    parts.push(`${approvalCount} approval${approvalCount === 1 ? "" : "s"}`);
+  }
+  if (handoffCount > 0) {
+    parts.push(`${handoffCount} handoff${handoffCount === 1 ? "" : "s"}`);
+  }
+  if (failureCount > 0) {
+    parts.push(`${failureCount} failure${failureCount === 1 ? "" : "s"}`);
+  }
+
+  return parts[0] ? parts.slice(0, 3).join(" · ") : "Workflow captured";
 }
 
 function createNonToolRow(item: Exclude<ActivityPart, ToolActivityPart>) {
@@ -335,21 +404,22 @@ function buildFeedSummary(
 function formatDuration(
   startedAt: string | null,
   endedAt: string | null,
+  isActive: boolean = false,
 ): string {
   if (!startedAt || !endedAt) {
-    return "Started just now";
+    return isActive ? "Working now" : "Started just now";
   }
   const elapsedMs = Math.max(0, Date.parse(endedAt) - Date.parse(startedAt));
   if (elapsedMs < 1_000) {
-    return "Started just now";
+    return isActive ? "Working now" : "Started just now";
   }
   const totalSeconds = Math.round(elapsedMs / 1_000);
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
   if (minutes === 0) {
-    return `Worked for ${seconds}s`;
+    return `${isActive ? "Working" : "Worked"} for ${seconds}s`;
   }
-  return `Worked for ${minutes}m ${seconds}s`;
+  return `${isActive ? "Working" : "Worked"} for ${minutes}m ${seconds}s`;
 }
 
 function humanizeToolName(toolName: string): string {

@@ -18,6 +18,9 @@ export function ActivityFeed({
   onJumpToLatest,
 }: ActivityFeedProps) {
   const viewModel = useMemo(() => buildActivityFeedViewModel(feed), [feed]);
+  const [expandedTurns, setExpandedTurns] = useState<Record<string, boolean>>(
+    {},
+  );
   const [expandedRows, setExpandedRows] = useState<Record<string, boolean>>({});
 
   if (!feed && !isLoading) {
@@ -81,6 +84,13 @@ export function ActivityFeed({
           <ActivityTurn
             key={turn.key}
             turn={turn}
+            expanded={expandedTurns[turn.key] ?? !turn.defaultCollapsed}
+            onToggleTurn={() =>
+              setExpandedTurns((current) => ({
+                ...current,
+                [turn.key]: !(current[turn.key] ?? !turn.defaultCollapsed),
+              }))
+            }
             expandedRows={expandedRows}
             onToggleRow={(rowKey) =>
               setExpandedRows((current) => ({
@@ -88,6 +98,7 @@ export function ActivityFeed({
                 [rowKey]: !current[rowKey],
               }))
             }
+            onUsePlanInBuild={onUsePlanInBuild}
           />
         ))
       )}
