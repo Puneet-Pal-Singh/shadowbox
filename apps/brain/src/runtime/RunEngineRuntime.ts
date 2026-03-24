@@ -41,6 +41,7 @@ import {
   SAFE_SCOPE_IDENTIFIER_REGEX,
   type ProviderStoreScopeInput,
 } from "../types/provider-scope";
+import { createCloudflareEventStreamPort } from "./factories/PortalityAdapterFactory";
 import { RunEngineRequestHandler } from "./RunEngineRequestHandler";
 import { persistAssistantMessageFromRunResponse } from "./RunEngineResponsePersistence";
 
@@ -60,6 +61,7 @@ const CredentialLabelMutationRequestSchema = z.object({
 
 export class RunEngineRuntime extends DurableObject {
   private executionQueue: Promise<void> = Promise.resolve();
+  private readonly eventStreamPort = createCloudflareEventStreamPort();
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -96,6 +98,10 @@ export class RunEngineRuntime extends DurableObject {
 
     if (url.pathname === "/events" && request.method === "GET") {
       return requestHandler.handleEventsRequest(request);
+    }
+
+    if (url.pathname === "/events/stream" && request.method === "GET") {
+      return requestHandler.handleEventsStreamRequest(request);
     }
 
     if (url.pathname === "/activity" && request.method === "GET") {
@@ -500,6 +506,7 @@ export class RunEngineRuntime extends DurableObject {
       this.ctx,
       this.env as Env,
       this.withExecutionLock.bind(this),
+      this.eventStreamPort,
     );
   }
 }

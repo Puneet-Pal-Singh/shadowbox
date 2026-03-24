@@ -1,6 +1,7 @@
 import type { DurableObjectState as LegacyDurableObjectState } from "@cloudflare/workers-types";
 import type { CoreMessage, CoreTool } from "ai";
 import { z } from "zod";
+import { RUN_EVENT_TYPES, type RunEvent } from "@repo/shared-types";
 import {
   RunEngine,
   RunEventRepository,
@@ -27,6 +28,7 @@ import {
   runEngineJsonResponse,
   withRunEngineHeaders,
 } from "./RunEngineHttpResponse";
+import type { RealtimeEventPort } from "./ports";
 import {
   enforceGoldenFlowToolFloor,
   getGoldenFlowToolRegistry,
@@ -53,6 +55,7 @@ export class RunEngineRequestHandler {
     private readonly ctx: DurableObjectState,
     private readonly env: Env,
     private readonly withExecutionLock: RunEngineRequestLock,
+    private readonly eventStream?: RealtimeEventPort,
   ) {}
 
   async handleSummaryRequest(request: Request): Promise<Response> {
@@ -128,6 +131,51 @@ export class RunEngineRequestHandler {
       request,
       this.env,
       this.buildEventsResponse(events, runId),
+    );
+  }
+
+  async handleEventsStreamRequest(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+    const runIdRaw = url.searchParams.get("runId");
+
+    if (!runIdRaw) {
+      return runEngineErrorResponse(
+        request,
+        this.env,
+        "runId is required",
+        400,
+      );
+    }
+
+    let runId: string;
+    try {
+      runId = validateWithSchema<string>(
+        runIdRaw.trim(),
+        RunIdSchema,
+        "run-events-stream",
+      );
+    } catch {
+      return runEngineErrorResponse(request, this.env, "Invalid runId", 400);
+    }
+
+    if (!this.eventStream) {
+      return runEngineErrorResponse(
+        request,
+        this.env,
+        "Live event stream is unavailable",
+        501,
+      );
+    }
+
+    return withRunEngineHeaders(
+      request,
+      this.env,
+      new Response(this.eventStream.getStream(runId) as ReadableStream, {
+        headers: {
+          "Content-Type": "application/x-ndjson; charset=utf-8",
+          "Cache-Control": "no-cache",
+        },
+      }),
     );
   }
 
@@ -288,7 +336,12 @@ export class RunEngineRequestHandler {
           },
           agent,
           undefined,
-          runEngineDeps,
+          {
+            ...runEngineDeps,
+            runEventListener: (event) => {
+              this.emitLiveEvent(event);
+            },
+          },
         );
 
         const executionResponse = await runEngine.execute(
@@ -341,6 +394,20 @@ export class RunEngineRequestHandler {
       this.ctx as unknown as LegacyDurableObjectState,
       "do",
     );
+  }
+
+  private emitLiveEvent(event: RunEvent): void {
+    if (!this.eventStream) {
+      return;
+    }
+
+    this.eventStream.emit(event);
+    if (
+      event.type === RUN_EVENT_TYPES.RUN_COMPLETED ||
+      event.type === RUN_EVENT_TYPES.RUN_FAILED
+    ) {
+      this.eventStream.complete(event.runId);
+    }
   }
 
   private buildEventsResponse(events: unknown[], runId: string): Response {
