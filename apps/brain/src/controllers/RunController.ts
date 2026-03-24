@@ -149,6 +149,46 @@ export class RunController {
     }
   }
 
+  static async getEventsStream(req: Request, env: Env): Promise<Response> {
+    try {
+      const url = new URL(req.url);
+      const runId = url.searchParams.get("runId")?.trim();
+      const requestedBackend = parseRequestedBackend(
+        url.searchParams.get("backend"),
+      );
+
+      if (!runId) {
+        return errorResponse(req, env, "runId is required", 400);
+      }
+
+      const response = await fetchRunEventsStreamFromRuntime(
+        env,
+        runId,
+        requestedBackend,
+      );
+      if (!response.ok) {
+        const details = await readErrorPreview(response);
+        const suffix = details ? `: ${details}` : "";
+        return errorResponse(
+          req,
+          env,
+          `Failed to stream run events${suffix}`,
+          response.status,
+        );
+      }
+
+      return proxyResponse(req, env, response);
+    } catch (error) {
+      console.error("[RunController:getEventsStream] Error:", error);
+      return errorResponse(
+        req,
+        env,
+        error instanceof Error ? error.message : "Failed to stream run events",
+        500,
+      );
+    }
+  }
+
   static async getActivity(req: Request, env: Env): Promise<Response> {
     try {
       const url = new URL(req.url);
@@ -225,6 +265,17 @@ async function fetchRunEventsFromRuntime(
   return fetchRunRuntimeRoute(env, runId, requestedBackend, {
     method: "GET",
     path: `/events?runId=${encodeURIComponent(runId)}`,
+  });
+}
+
+async function fetchRunEventsStreamFromRuntime(
+  env: Env,
+  runId: string,
+  requestedBackend: RuntimeOrchestratorBackend,
+): Promise<Response> {
+  return fetchRunRuntimeRoute(env, runId, requestedBackend, {
+    method: "GET",
+    path: `/events/stream?runId=${encodeURIComponent(runId)}`,
   });
 }
 
