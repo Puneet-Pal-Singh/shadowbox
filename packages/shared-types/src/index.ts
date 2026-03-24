@@ -77,6 +77,45 @@ export type { RunStatus } from "./run-status.js";
 // Explicit build/plan mode contract
 export { RunModeSchema, DEFAULT_RUN_MODE, type RunMode } from "./run-mode.js";
 
+// Activity feed contract
+export {
+  ACTIVITY_PART_KINDS,
+  TOOL_ACTIVITY_STATUSES,
+  REASONING_ACTIVITY_STATUSES,
+  APPROVAL_ACTIVITY_STATUSES,
+  HANDOFF_ACTIVITY_STATUSES,
+  TOOL_ACTIVITY_FAMILIES,
+  isActivityPart,
+  type ActivityPartKind,
+  type ToolActivityStatus,
+  type ReasoningActivityStatus,
+  type ApprovalActivityStatus,
+  type HandoffActivityStatus,
+  type ToolActivityFamily,
+  type ActivityPartBase,
+  type TextActivityPart,
+  type ReasoningActivityPart,
+  type ToolActivityPart,
+  type ApprovalActivityPart,
+  type HandoffActivityPart,
+  type ReadToolActivityMetadata,
+  type SearchToolActivityMetadata,
+  type ShellToolActivityMetadata,
+  type EditToolActivityMetadata,
+  type GitToolActivityMetadata,
+  type GenericToolActivityMetadata,
+  type ToolActivityMetadata,
+  type ActivityPart,
+  type ActivityFeedSnapshot,
+} from "./activity-feed.js";
+export {
+  ActivityPartSchema,
+  ActivityFeedSnapshotSchema,
+  parseActivityPart,
+  safeParseActivityPart,
+  parseActivityFeedSnapshot,
+} from "./activity-feed.zod.js";
+
 // Run event types
 export {
   RUN_EVENT_TYPES,
