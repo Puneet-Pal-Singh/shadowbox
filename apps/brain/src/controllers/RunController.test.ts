@@ -66,6 +66,37 @@ describe("RunController", () => {
     await expect(response.text()).resolves.toContain('"toolName":"read_file"');
   });
 
+  it("proxies the live run events stream through the brain worker route", async () => {
+    const env = {} as Env;
+    runtimeHelpers.fetchRunRuntimeRoute.mockResolvedValueOnce(
+      new Response('{"eventId":"evt-live"}\n', {
+        status: 200,
+        headers: {
+          "Content-Type": "application/x-ndjson; charset=utf-8",
+        },
+      }),
+    );
+
+    const response = await RunController.getEventsStream(
+      new Request(
+        "https://brain.local/api/run/events/stream?runId=123e4567-e89b-42d3-a456-426614174100",
+      ),
+      env,
+    );
+
+    expect(runtimeHelpers.fetchRunRuntimeRoute).toHaveBeenCalledWith(
+      env,
+      "123e4567-e89b-42d3-a456-426614174100",
+      "execution-engine-v1",
+      {
+        method: "GET",
+        path: "/events/stream?runId=123e4567-e89b-42d3-a456-426614174100",
+      },
+    );
+    expect(response.status).toBe(200);
+    await expect(response.text()).resolves.toContain("evt-live");
+  });
+
   it("proxies run activity snapshots through the brain worker route", async () => {
     const env = {} as Env;
     runtimeHelpers.fetchRunRuntimeRoute.mockResolvedValueOnce(
