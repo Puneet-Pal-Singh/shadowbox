@@ -101,10 +101,9 @@ describe("ChatInputBar", () => {
       reset: vi.fn(),
     };
 
-    vi.spyOn(
-      useProviderStoreModule,
-      "useProviderStore",
-    ).mockReturnValue(mockStore);
+    vi.spyOn(useProviderStoreModule, "useProviderStore").mockReturnValue(
+      mockStore,
+    );
 
     vi.spyOn(
       providerHelpersModule,
@@ -188,9 +187,12 @@ describe("ChatInputBar", () => {
         expect(screen.getByText(IDLE_SWITCH_WARNING)).toBeTruthy();
       });
 
-      await waitFor(() => {
-        expect(screen.queryByText(IDLE_SWITCH_WARNING)).toBeNull();
-      }, { timeout: 5000 });
+      await waitFor(
+        () => {
+          expect(screen.queryByText(IDLE_SWITCH_WARNING)).toBeNull();
+        },
+        { timeout: 5000 },
+      );
     }, 12000);
 
     it("does not show warning when thread has no messages", async () => {
@@ -250,5 +252,35 @@ describe("ChatInputBar", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Plan" }));
 
     expect(onModeChange).toHaveBeenCalledWith("plan");
+  });
+
+  it("shows plan-mode guidance and lets users switch back to build", () => {
+    const onModeChange = vi.fn();
+
+    render(
+      <ChatInputBar
+        input=""
+        onChange={vi.fn()}
+        onSubmit={vi.fn()}
+        sessionId="session-1"
+        mode="plan"
+        onModeChange={onModeChange}
+      />,
+    );
+
+    expect(
+      screen.getByPlaceholderText(
+        "Inspect the codebase and outline a safe plan without executing changes",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Plan mode inspects and outlines steps without running normal mutating execution.",
+      ),
+    ).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Switch to Build" }));
+
+    expect(onModeChange).toHaveBeenCalledWith("build");
   });
 });
