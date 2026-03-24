@@ -79,6 +79,34 @@ describe("ChatInterface", () => {
             role: "user",
             content: "Plan complete.",
           },
+          {
+            id: "reasoning-1",
+            runId: "run-1",
+            sessionId: "session-1",
+            turnId: "turn-1",
+            kind: "reasoning",
+            createdAt: "2026-03-24T10:00:01.000Z",
+            updatedAt: "2026-03-24T10:00:01.000Z",
+            source: "brain",
+            label: "Preparing handoff",
+            summary: "Finalizing the approved plan.",
+            phase: "planning",
+            status: "completed",
+          },
+          {
+            id: "handoff-1",
+            runId: "run-1",
+            sessionId: "session-1",
+            turnId: "turn-1",
+            kind: "handoff",
+            createdAt: "2026-03-24T10:00:01.000Z",
+            updatedAt: "2026-03-24T10:00:01.000Z",
+            source: "brain",
+            targetMode: "build",
+            summary: "Move to build with the approved handoff prompt.",
+            prompt: "Execute this approved plan in build mode.",
+            status: "ready",
+          },
         ],
       },
     });
@@ -116,16 +144,55 @@ describe("ChatInterface", () => {
       />,
     );
 
+    fireEvent.click(screen.getByRole("button", { name: /worked for 1s/i }));
+    expect(screen.getByText("Workflow overview")).toBeInTheDocument();
     fireEvent.click(
       screen.getByRole("button", { name: "Execute Plan in Build" }),
     );
 
     expect(onModeChange).toHaveBeenCalledWith("build");
     expect(handleInputChange).not.toHaveBeenCalled();
+    expect(screen.getByText("Worked for 1s")).toBeInTheDocument();
+    expect(screen.queryByText("Activity Feed")).not.toBeInTheDocument();
 
     await waitFor(() => {
       expect(append).not.toHaveBeenCalled();
     });
+  });
+
+  it("renders the workflow overview inside the worked block instead of as a separate panel", () => {
+    render(
+      <ChatInterface
+        chatProps={{
+          messages: [
+            {
+              id: "assistant-1",
+              role: "assistant",
+              content: "Plan complete.",
+            },
+          ],
+          runId: "run-1",
+          input: "",
+          handleInputChange: vi.fn(),
+          handleSubmit: vi.fn(),
+          append: vi.fn(),
+          stop: vi.fn(),
+          isLoading: false,
+          error: null,
+          debugEvents: [],
+        }}
+        sessionId="session-1"
+        mode="plan"
+        onModeChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByText("Workflow overview")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /worked for 1s/i }));
+
+    expect(screen.getByText("Workflow overview")).toBeInTheDocument();
+    expect(screen.getByText("1 thinking step · 1 handoff")).toBeInTheDocument();
   });
 
   it("hides the build handoff action when build mode cannot be reached", () => {
