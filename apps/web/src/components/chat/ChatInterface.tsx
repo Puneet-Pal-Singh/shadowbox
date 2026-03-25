@@ -71,14 +71,6 @@ export function ChatInterface({
     Record<string, boolean>
   >({});
 
-  // Auto-scroll to bottom on new messages
-  useEffect(() => {
-    scrollRef.current?.scrollTo({
-      top: scrollRef.current.scrollHeight,
-      behavior: "smooth",
-    });
-  }, [messages, isLoading]);
-
   useEffect(() => {
     if (!isLoading) {
       thinkingStartAtRef.current = null;
@@ -185,6 +177,16 @@ export function ChatInterface({
     () => buildChatEntries(messages, activityViewModel.turns),
     [activityViewModel.turns, messages],
   );
+  const activityScrollSignal = useMemo(
+    () =>
+      activityViewModel.turns
+        .map(
+          (turn) =>
+            `${turn.key}:${turn.rows.length}:${turn.summaryLabel}:${turn.isActiveTurn ? "active" : "idle"}`,
+        )
+        .join("|"),
+    [activityViewModel.turns],
+  );
   const overviewHostTurnKey = useMemo(() => {
     const visibleTurns = activityViewModel.turns.filter(
       (turn) => turn.hasVisibleRows,
@@ -223,10 +225,10 @@ export function ChatInterface({
         }))
       }
       expandedRows={expandedActivityRows}
-      onToggleRow={(rowKey) =>
+      onToggleRow={(rowKey, expanded) =>
         setExpandedActivityRows((current) => ({
           ...current,
-          [rowKey]: !current[rowKey],
+          [rowKey]: !expanded,
         }))
       }
       onUsePlanInBuild={planHandoffAction}
@@ -235,6 +237,14 @@ export function ChatInterface({
       }
     />
   );
+
+  // Auto-scroll to bottom on new messages and live activity updates.
+  useEffect(() => {
+    scrollRef.current?.scrollTo({
+      top: scrollRef.current.scrollHeight,
+      behavior: "smooth",
+    });
+  }, [activityScrollSignal, isLoading, messages]);
 
   return (
     <div className="flex flex-col h-full bg-black">
