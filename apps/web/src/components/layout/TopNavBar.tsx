@@ -70,7 +70,7 @@ export function TopNavBar({
             variant="secondary"
           />
         )}
-        <OpenDropdown onSelect={onOpenIde} />
+        <OpenDropdown onSelect={onOpenIde} disabled={!onOpenIde} />
         <CommitDropdown onCommit={onCommit} onPush={onPush} onStash={onStash} />
 
         <motion.button
