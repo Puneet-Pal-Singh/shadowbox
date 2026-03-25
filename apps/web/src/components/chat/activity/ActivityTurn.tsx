@@ -10,7 +10,7 @@ interface ActivityTurnProps {
   expanded: boolean;
   onToggleTurn: () => void;
   expandedRows: Record<string, boolean>;
-  onToggleRow: (rowKey: string) => void;
+  onToggleRow: (rowKey: string, expanded: boolean) => void;
   onUsePlanInBuild?: () => void;
   workflowOverview?: ReactNode;
 }
@@ -40,7 +40,7 @@ export function ActivityTurn({
               key={row.key}
               row={row}
               expanded={expandedRows[row.key] ?? true}
-              onToggle={() => onToggleRow(row.key)}
+              onToggle={(expanded) => onToggleRow(row.key, expanded)}
               onUsePlanInBuild={onUsePlanInBuild}
               displayMode="transcript"
             />
@@ -99,7 +99,9 @@ export function ActivityTurn({
                 key={row.key}
                 row={row}
                 expanded={expandedRows[row.key] ?? !isCollapsedByDefault(row)}
-                onToggle={() => onToggleRow(row.key)}
+                onToggle={(effectiveExpanded) =>
+                  onToggleRow(row.key, effectiveExpanded)
+                }
                 onUsePlanInBuild={onUsePlanInBuild}
                 displayMode="card"
               />
