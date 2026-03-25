@@ -50,6 +50,11 @@ export function useRunActivityFeed(
         lastFetchAtRef.current = now;
         const response = await fetch(runActivityPath(currentRunId));
         if (!response.ok) {
+          logActivityFeedWarning(
+            runId,
+            new Error(`HTTP ${response.status}: ${response.statusText}`),
+            lastErrorLogRef,
+          );
           return;
         }
 
