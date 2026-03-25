@@ -298,6 +298,44 @@ describe("RunEngineRequestHandler", () => {
     await expect(response.text()).resolves.toContain('"toolName":"read_file"');
   });
 
+  it("closes live event streams when a run is cancelled", async () => {
+    const ctx = new MockDurableObjectState();
+    const runtimeState = tagRuntimeStateSemantics(ctx, "do");
+    const runRepo = new RunRepository(runtimeState);
+    const runId = "123e4567-e89b-42d3-a456-426614174211";
+    await runRepo.create(
+      new Run(runId, "session-1", "RUNNING", "coding", {
+        agentType: "coding",
+        prompt: "cancel this run",
+        sessionId: "session-1",
+      }),
+    );
+
+    const eventStream = new CloudflareEventStreamAdapter();
+    const handler = new RunEngineRequestHandler(
+      ctx as unknown as DurableObjectState,
+      {} as Env,
+      async (operation) => operation(),
+      eventStream,
+    );
+
+    const streamResponse = await handler.handleEventsStreamRequest(
+      new Request(`https://brain.local/events/stream?runId=${runId}`),
+    );
+    const cancelResponse = await handler.handleCancelRequest(
+      new Request("https://brain.local/cancel", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ runId }),
+      }),
+    );
+
+    expect(cancelResponse.status).toBe(200);
+    await expect(streamResponse.text()).resolves.toBe("");
+  });
+
   it("projects a typed activity feed snapshot", async () => {
     const ctx = new MockDurableObjectState();
     const runtimeState = tagRuntimeStateSemantics(ctx, "do");
