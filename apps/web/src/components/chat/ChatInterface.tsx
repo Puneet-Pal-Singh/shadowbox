@@ -389,7 +389,13 @@ function buildChatEntries(
   turns: ActivityTurnViewModel[],
 ): ChatInterfaceEntry[] {
   const entries: ChatInterfaceEntry[] = [];
-  const pendingActivityTurns = [...turns];
+  const pendingActivityTurnsByKey = new Map<string, ActivityTurnViewModel[]>();
+
+  for (const turn of turns) {
+    const matchedTurns = pendingActivityTurnsByKey.get(turn.key) ?? [];
+    matchedTurns.push(turn);
+    pendingActivityTurnsByKey.set(turn.key, matchedTurns);
+  }
 
   for (const conversationTurn of conversationTurns) {
     if (conversationTurn.userMessage) {
@@ -398,9 +404,15 @@ function buildChatEntries(
         message: conversationTurn.userMessage,
       });
 
-      const activityTurn = pendingActivityTurns.shift();
-      if (activityTurn?.hasVisibleRows) {
-        entries.push({ kind: "turn", turn: activityTurn });
+      const activityKey = conversationTurn.turnId ?? conversationTurn.key;
+      const matchedActivityTurns = pendingActivityTurnsByKey.get(activityKey);
+      if (matchedActivityTurns) {
+        pendingActivityTurnsByKey.delete(activityKey);
+        for (const activityTurn of matchedActivityTurns) {
+          if (activityTurn.hasVisibleRows) {
+            entries.push({ kind: "turn", turn: activityTurn });
+          }
+        }
       }
     }
 
@@ -412,9 +424,15 @@ function buildChatEntries(
     }
   }
 
-  for (const turn of pendingActivityTurns) {
-    if (turn.hasVisibleRows) {
-      entries.push({ kind: "turn", turn });
+  for (const unmatchedTurns of pendingActivityTurnsByKey.values()) {
+    for (const turn of unmatchedTurns) {
+      if (turn.hasVisibleRows) {
+        console.warn(
+          "[chat/transcript] Unmatched activity turn; appending after messages.",
+          { activityTurnKey: turn.key },
+        );
+        entries.push({ kind: "turn", turn });
+      }
     }
   }
 

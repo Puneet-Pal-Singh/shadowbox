@@ -10,6 +10,7 @@ export interface ChatMessageMetadata {
 
 export interface ConversationTurn {
   key: string;
+  turnId?: string;
   userMessage?: Message;
   assistantMessage?: Message;
   userAtMs?: number;
@@ -39,11 +40,14 @@ export function buildConversationTurns(
   messages: Message[],
 ): ConversationTurn[] {
   const turns: ConversationTurn[] = [];
+  let turnIndex = 0;
   for (const message of messages) {
     const messageAtMs = resolveMessageTimestamp(message);
     if (message.role === "user") {
+      turnIndex += 1;
       turns.push({
         key: message.id,
+        turnId: `turn-${turnIndex}`,
         userMessage: message,
         userAtMs: messageAtMs,
       });
