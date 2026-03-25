@@ -1,4 +1,5 @@
 import {
+  safeParseToolActivityMetadata,
   ACTIVITY_PART_KINDS,
   HANDOFF_ACTIVITY_STATUSES,
   REASONING_ACTIVITY_STATUSES,
@@ -16,6 +17,8 @@ import {
   type ToolActivityPart,
 } from "@repo/shared-types";
 import type { SerializedRun } from "../types.js";
+
+const UNKNOWN_ACTIVITY_TIMESTAMP = "1970-01-01T00:00:00.000Z";
 
 interface ProjectRunActivityFeedParams {
   runId: string;
@@ -263,7 +266,7 @@ function createHandoffPart(
   const timestamp =
     run?.metadata.planArtifact?.createdAt ??
     run?.metadata.completedAt ??
-    new Date().toISOString();
+    UNKNOWN_ACTIVITY_TIMESTAMP;
 
   return {
     id: `${run?.id ?? "run"}:handoff`,
@@ -343,10 +346,11 @@ function getStructuredActivityMetadata(
   const metadata = isRecord(result.metadata) ? result.metadata : null;
   const activity =
     metadata && isRecord(metadata.activity) ? metadata.activity : null;
-  if (!activity || typeof activity.family !== "string") {
+  const parsed = safeParseToolActivityMetadata(activity);
+  if (!parsed.success) {
     return null;
   }
-  return activity as unknown as ToolActivityMetadata;
+  return parsed.data;
 }
 
 function getResultContent(result: unknown): string {
