@@ -109,6 +109,58 @@ describe("ActivityFeed", () => {
       screen.queryByRole("button", { name: "Read README.md" }),
     ).not.toBeInTheDocument();
   });
+
+  it("renders git status rows as command-style transcript details", () => {
+    render(
+      <ActivityFeed
+        feed={{
+          runId: "run-git",
+          sessionId: "session-git",
+          status: "COMPLETED",
+          items: [
+            {
+              id: "text-1",
+              runId: "run-git",
+              sessionId: "session-git",
+              turnId: "turn-1",
+              kind: ACTIVITY_PART_KINDS.TEXT,
+              createdAt: "2026-03-24T10:00:00.000Z",
+              updatedAt: "2026-03-24T10:00:00.000Z",
+              source: "brain",
+              role: "user",
+              content: "check my git info",
+            },
+            {
+              id: "tool-1",
+              runId: "run-git",
+              sessionId: "session-git",
+              turnId: "turn-1",
+              kind: ACTIVITY_PART_KINDS.TOOL,
+              createdAt: "2026-03-24T10:00:01.000Z",
+              updatedAt: "2026-03-24T10:00:02.000Z",
+              source: "brain",
+              toolId: "tool-1",
+              toolName: "git_status",
+              status: "completed",
+              metadata: {
+                family: TOOL_ACTIVITY_FAMILIES.GIT,
+                preview:
+                  '{"files":[],"ahead":0,"behind":0,"branch":"main","hasStaged":false,"hasUnstaged":false,"gitAvailable":true}',
+              },
+            },
+          ],
+        }}
+        isLoading={false}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /worked for \d+s/i }));
+    expect(
+      screen.getByRole("button", { name: /git status on main/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/\$ git status/)).toBeInTheDocument();
+    expect(screen.getByText(/working tree clean\./i)).toBeInTheDocument();
+  });
 });
 
 function createFeedSnapshot(): ActivityFeedSnapshot {

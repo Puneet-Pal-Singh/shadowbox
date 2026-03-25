@@ -111,6 +111,60 @@ describe("ActivityFeedViewModel", () => {
       ),
     ).toBe(false);
   });
+
+  it("formats git status activity like a command transcript", () => {
+    const viewModel = buildActivityFeedViewModel({
+      runId: "run-2",
+      sessionId: "session-2",
+      status: "COMPLETED",
+      items: [
+        {
+          id: "text-1",
+          runId: "run-2",
+          sessionId: "session-2",
+          turnId: "turn-1",
+          kind: ACTIVITY_PART_KINDS.TEXT,
+          createdAt: "2026-03-24T10:00:00.000Z",
+          updatedAt: "2026-03-24T10:00:00.000Z",
+          source: "brain",
+          role: "user",
+          content: "check my git info",
+        },
+        {
+          id: "tool-1",
+          runId: "run-2",
+          sessionId: "session-2",
+          turnId: "turn-1",
+          kind: ACTIVITY_PART_KINDS.TOOL,
+          createdAt: "2026-03-24T10:00:01.000Z",
+          updatedAt: "2026-03-24T10:00:02.000Z",
+          source: "brain",
+          toolId: "tool-1",
+          toolName: "git_status",
+          status: "completed",
+          metadata: {
+            family: TOOL_ACTIVITY_FAMILIES.GIT,
+            preview:
+              '{"files":[],"ahead":0,"behind":0,"branch":"main","hasStaged":false,"hasUnstaged":false,"gitAvailable":true}',
+          },
+        },
+      ],
+    });
+
+    const gitRow = viewModel.turns[0]?.rows[0];
+    expect(gitRow).toMatchObject({
+      kind: "tool",
+      title: "git status",
+      summary: "On main · working tree clean",
+      defaultCollapsed: false,
+    });
+
+    if (gitRow?.kind === "tool") {
+      expect(gitRow.details[0]).toContain("$ git status");
+      expect(gitRow.details[0]).toContain("On branch main");
+      expect(gitRow.details[0]).toContain("Working tree clean.");
+    }
+  });
 });
 
 function createFeedSnapshot(): ActivityFeedSnapshot {

@@ -7,14 +7,12 @@ interface ActivityFeedProps {
   feed: ActivityFeedSnapshot | null;
   isLoading: boolean;
   onUsePlanInBuild?: () => void;
-  onJumpToLatest?: () => void;
 }
 
 export function ActivityFeed({
   feed,
   isLoading,
   onUsePlanInBuild,
-  onJumpToLatest,
 }: ActivityFeedProps) {
   if (!feed && !isLoading) {
     return null;
@@ -26,7 +24,6 @@ export function ActivityFeed({
       feed={feed}
       isLoading={isLoading}
       onUsePlanInBuild={onUsePlanInBuild}
-      onJumpToLatest={onJumpToLatest}
     />
   );
 }
@@ -35,7 +32,6 @@ function ActivityFeedContent({
   feed,
   isLoading,
   onUsePlanInBuild,
-  onJumpToLatest: _onJumpToLatest,
 }: ActivityFeedProps) {
   const viewModel = useMemo(() => buildActivityFeedViewModel(feed), [feed]);
   const [expandedTurns, setExpandedTurns] = useState<Record<string, boolean>>(
