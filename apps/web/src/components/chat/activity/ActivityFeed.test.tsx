@@ -18,20 +18,16 @@ describe("ActivityFeed", () => {
       />,
     );
 
-    expect(screen.getByText("Activity Feed")).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: /worked for 3s/i }),
-    ).toBeInTheDocument();
-    expect(screen.getByText("2 tool calls · 1 handoff")).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Execute Plan in Build" }),
     ).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /worked for 3s/i }));
     expect(screen.getByText("Gathered context")).toBeInTheDocument();
+    expect(screen.getByText("Build Handoff")).toBeInTheDocument();
 
     fireEvent.click(
-      screen.getAllByRole("button", { name: "Execute Plan in Build" })[1]!,
+      screen.getByRole("button", { name: "Execute Plan in Build" }),
     );
     expect(onUsePlanInBuild).toHaveBeenCalledTimes(1);
   });
@@ -67,8 +63,10 @@ describe("ActivityFeed", () => {
     expect(
       screen.queryByRole("button", { name: /worked for/i }),
     ).not.toBeInTheDocument();
-    expect(screen.getByText(/working for 4s/i)).toBeInTheDocument();
-    expect(screen.getByText("Analyzing repository")).toBeInTheDocument();
+    expect(screen.getByText("Thinking")).toBeInTheDocument();
+    expect(
+      screen.getByText("Inspecting the repository before the next tool call."),
+    ).toBeInTheDocument();
   });
 
   it("resets expansion state when the feed switches to a new run", () => {
@@ -102,7 +100,7 @@ describe("ActivityFeed", () => {
     fireEvent.click(screen.getByRole("button", { name: /worked for 3s/i }));
     fireEvent.click(
       screen.getByRole("button", {
-        name: /Gathered context 2 low-noise context actions Show/i,
+        name: /Gathered context 2 low-noise context actions/i,
       }),
     );
 

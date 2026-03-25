@@ -157,6 +157,13 @@ function buildTurnRows(items: ActivityPart[]): ActivityFeedRowViewModel[] {
       continue;
     }
 
+    if (
+      item.kind === ACTIVITY_PART_KINDS.REASONING &&
+      isSuppressedReasoning(item)
+    ) {
+      continue;
+    }
+
     if (item.kind === ACTIVITY_PART_KINDS.TOOL) {
       const row = createToolRow(item);
       if (isExplorationTool(row)) {
@@ -250,8 +257,8 @@ function createNonToolRow(item: Exclude<ActivityPart, ToolActivityPart>) {
       return {
         kind: "reasoning",
         key: item.id,
-        label: item.label,
-        summary: item.summary,
+        label: "Thinking",
+        summary: normalizeReasoningSummary(item.summary),
         status: item.status,
       } satisfies ActivityReasoningRowViewModel;
     case ACTIVITY_PART_KINDS.APPROVAL:
@@ -272,6 +279,33 @@ function createNonToolRow(item: Exclude<ActivityPart, ToolActivityPart>) {
         status: item.status,
       } satisfies ActivityHandoffRowViewModel;
   }
+}
+
+function isSuppressedReasoning(
+  item: Extract<ActivityPart, { kind: typeof ACTIVITY_PART_KINDS.REASONING }>,
+): boolean {
+  if (item.phase === "execution" || item.phase === "synthesis") {
+    return true;
+  }
+
+  return false;
+}
+
+function normalizeReasoningSummary(summary: string): string {
+  const trimmed = summary.trim();
+  if (!trimmed) {
+    return "";
+  }
+
+  if (
+    trimmed === "Preparing the operational plan." ||
+    trimmed === "Running the selected coding tools." ||
+    trimmed === "Summarizing execution results for the final response."
+  ) {
+    return "";
+  }
+
+  return trimmed;
 }
 
 function createToolRow(item: ToolActivityPart): ActivityToolRowViewModel {
@@ -354,18 +388,18 @@ function getToolSummary(item: ToolActivityPart): string {
       return item.status === "failed"
         ? "Command failed"
         : item.status === "running"
-          ? "Running shell command"
-          : "Command completed";
+          ? "Running"
+          : "";
     case TOOL_ACTIVITY_FAMILIES.EDIT:
       return `+${item.metadata.additions} / -${item.metadata.deletions}`;
     case TOOL_ACTIVITY_FAMILIES.READ:
     case TOOL_ACTIVITY_FAMILIES.SEARCH:
-      return `${item.metadata.count} result${item.metadata.count === 1 ? "" : "s"}`;
+      return "";
     case TOOL_ACTIVITY_FAMILIES.GIT:
       return item.metadata.count
         ? `${item.metadata.count} changed lines`
         : item.status === "completed"
-          ? "Git inspection completed"
+          ? ""
           : "Git inspection pending";
     default:
       return humanizeToolStatus(item.status);

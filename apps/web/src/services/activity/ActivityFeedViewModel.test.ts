@@ -63,6 +63,54 @@ describe("ActivityFeedViewModel", () => {
       defaultCollapsed: false,
     });
   });
+
+  it("suppresses generic execution and synthesis reasoning rows", () => {
+    const snapshot = createFeedSnapshot();
+    const viewModel = buildActivityFeedViewModel({
+      ...snapshot,
+      items: [
+        ...snapshot.items,
+        {
+          id: "reasoning-execution",
+          runId: "run-1",
+          sessionId: "session-1",
+          turnId: "turn-1",
+          kind: ACTIVITY_PART_KINDS.REASONING,
+          createdAt: "2026-03-24T10:00:04.000Z",
+          updatedAt: "2026-03-24T10:00:04.000Z",
+          source: "brain",
+          label: "Executing tools",
+          summary: "Running the selected coding tools.",
+          phase: "execution",
+          status: "completed",
+        },
+        {
+          id: "reasoning-synthesis",
+          runId: "run-1",
+          sessionId: "session-1",
+          turnId: "turn-1",
+          kind: ACTIVITY_PART_KINDS.REASONING,
+          createdAt: "2026-03-24T10:00:05.000Z",
+          updatedAt: "2026-03-24T10:00:05.000Z",
+          source: "brain",
+          label: "Preparing final answer",
+          summary: "Summarizing execution results for the final response.",
+          phase: "synthesis",
+          status: "completed",
+        },
+      ],
+    });
+
+    expect(
+      viewModel.turns[0]?.rows.some(
+        (row) =>
+          row.kind === "reasoning" &&
+          (row.summary === "Running the selected coding tools." ||
+            row.summary ===
+              "Summarizing execution results for the final response."),
+      ),
+    ).toBe(false);
+  });
 });
 
 function createFeedSnapshot(): ActivityFeedSnapshot {

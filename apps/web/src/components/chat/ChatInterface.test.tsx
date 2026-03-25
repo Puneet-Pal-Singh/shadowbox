@@ -145,7 +145,6 @@ describe("ChatInterface", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: /worked for 1s/i }));
-    expect(screen.getByText("Workflow overview")).toBeInTheDocument();
     fireEvent.click(
       screen.getByRole("button", { name: "Execute Plan in Build" }),
     );
@@ -153,14 +152,13 @@ describe("ChatInterface", () => {
     expect(onModeChange).toHaveBeenCalledWith("build");
     expect(handleInputChange).not.toHaveBeenCalled();
     expect(screen.getByText("Worked for 1s")).toBeInTheDocument();
-    expect(screen.queryByText("Activity Feed")).not.toBeInTheDocument();
 
     await waitFor(() => {
       expect(append).not.toHaveBeenCalled();
     });
   });
 
-  it("renders the workflow overview inside the worked block instead of as a separate panel", () => {
+  it("renders completed transcript rows without the workflow overview panel", () => {
     render(
       <ChatInterface
         chatProps={{
@@ -187,12 +185,11 @@ describe("ChatInterface", () => {
       />,
     );
 
-    expect(screen.queryByText("Workflow overview")).not.toBeInTheDocument();
-
     fireEvent.click(screen.getByRole("button", { name: /worked for 1s/i }));
 
-    expect(screen.getByText("Workflow overview")).toBeInTheDocument();
-    expect(screen.getByText("1 thinking step · 1 handoff")).toBeInTheDocument();
+    expect(screen.queryByText("Workflow overview")).not.toBeInTheDocument();
+    expect(screen.getByText("Thinking")).toBeInTheDocument();
+    expect(screen.getByText("Build Handoff")).toBeInTheDocument();
   });
 
   it("hides the build handoff action when build mode cannot be reached", () => {
@@ -401,16 +398,14 @@ describe("ChatInterface", () => {
     );
 
     const text = container.textContent ?? "";
-    expect(text.indexOf("1 tool call · 1 thinking step")).toBeGreaterThan(
-      text.indexOf("hey"),
-    );
-    expect(text.indexOf("1 tool call · 1 thinking step")).toBeLessThan(
+    expect(text.indexOf("Worked for 3s")).toBeGreaterThan(text.indexOf("hey"));
+    expect(text.indexOf("Worked for 3s")).toBeLessThan(
       text.indexOf("Hello! How can I help you today?"),
     );
-    expect(text.indexOf("2 tool calls · 1 thinking step")).toBeGreaterThan(
+    expect(text.indexOf("Worked for 5s")).toBeGreaterThan(
       text.indexOf("can you read my readme?"),
     );
-    expect(text.indexOf("2 tool calls · 1 thinking step")).toBeLessThan(
+    expect(text.indexOf("Worked for 5s")).toBeLessThan(
       text.indexOf("I read the README and summarized it."),
     );
   });
@@ -593,16 +588,12 @@ describe("ChatInterface", () => {
     const firstHeyIndex = text.indexOf("hey");
     const secondHeyIndex = text.indexOf("hey", firstHeyIndex + 1);
 
-    expect(text.indexOf("1 tool call · 1 thinking step")).toBeGreaterThan(
-      firstHeyIndex,
-    );
-    expect(text.indexOf("1 tool call · 1 thinking step")).toBeLessThan(
+    expect(text.indexOf("Worked for 3s")).toBeGreaterThan(firstHeyIndex);
+    expect(text.indexOf("Worked for 3s")).toBeLessThan(
       text.indexOf("Hello! How can I help you today?"),
     );
-    expect(text.indexOf("2 tool calls · 1 thinking step")).toBeGreaterThan(
-      secondHeyIndex,
-    );
-    expect(text.indexOf("2 tool calls · 1 thinking step")).toBeLessThan(
+    expect(text.indexOf("Worked for 5s")).toBeGreaterThan(secondHeyIndex);
+    expect(text.indexOf("Worked for 5s")).toBeLessThan(
       text.indexOf("I read the README and summarized it."),
     );
   });

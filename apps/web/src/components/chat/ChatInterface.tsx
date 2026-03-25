@@ -21,6 +21,9 @@ import { ActivityTurn } from "./activity/ActivityTurn.js";
 import { WorkflowTimeline } from "./workflow/WorkflowTimeline.js";
 import type { ActivityTurnViewModel } from "../../services/activity/ActivityFeedViewModel.js";
 
+// Flip to true when you want to temporarily inspect the legacy workflow debug UI.
+const SHOW_WORKFLOW_DEBUG_PANEL = false;
+
 interface ChatInterfaceProps {
   chatProps: {
     messages: Message[];
@@ -194,32 +197,6 @@ export function ChatInterface({
         .join("|"),
     [activityViewModel.turns],
   );
-  const overviewHostTurnKey = useMemo(() => {
-    const visibleTurns = activityViewModel.turns.filter(
-      (turn) => turn.hasVisibleRows,
-    );
-    const lastVisibleTurn = visibleTurns[visibleTurns.length - 1];
-    return lastVisibleTurn?.key;
-  }, [activityViewModel.turns]);
-  const workflowOverview = useMemo(() => {
-    if (!overviewHostTurnKey) {
-      return null;
-    }
-
-    return (
-      <WorkflowTimeline
-        events={events}
-        summary={summary}
-        isLoading={isLoading}
-        onJumpToLatest={() => {
-          scrollRef.current?.scrollTo({
-            top: scrollRef.current.scrollHeight,
-            behavior: "smooth",
-          });
-        }}
-      />
-    );
-  }, [events, isLoading, overviewHostTurnKey, summary]);
   const renderActivityTurn = (turn: ActivityTurnViewModel) => (
     <ActivityTurn
       key={turn.key}
@@ -239,9 +216,6 @@ export function ChatInterface({
         }))
       }
       onUsePlanInBuild={planHandoffAction}
-      workflowOverview={
-        turn.key === overviewHostTurnKey ? workflowOverview : undefined
-      }
     />
   );
 
@@ -331,6 +305,27 @@ export function ChatInterface({
               <span>{`Thinking... ${formatThinkingDuration(thinkingElapsedMs)}`}</span>
             </div>
           )}
+
+          {SHOW_WORKFLOW_DEBUG_PANEL ? (
+            <details className="rounded-2xl border border-zinc-800/80 bg-zinc-950/60 px-4 py-3">
+              <summary className="cursor-pointer text-xs font-medium uppercase tracking-[0.2em] text-zinc-500">
+                Workflow Debug
+              </summary>
+              <div className="mt-4">
+                <WorkflowTimeline
+                  events={events}
+                  summary={summary}
+                  isLoading={isLoading}
+                  onJumpToLatest={() => {
+                    scrollRef.current?.scrollTo({
+                      top: scrollRef.current.scrollHeight,
+                      behavior: "smooth",
+                    });
+                  }}
+                />
+              </div>
+            </details>
+          ) : null}
         </div>
       </div>
 
