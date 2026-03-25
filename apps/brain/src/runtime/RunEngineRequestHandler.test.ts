@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { RUN_EVENT_TYPES } from "@repo/shared-types";
+import {
+  ACTIVITY_PART_KINDS,
+  RUN_EVENT_TYPES,
+  TOOL_ACTIVITY_FAMILIES,
+} from "@repo/shared-types";
 import {
   Run,
   RunEventRepository,
@@ -13,6 +17,7 @@ import {
 } from "@shadowbox/execution-engine/runtime";
 import type { DurableObjectState } from "@cloudflare/workers-types";
 import type { Env } from "../types/ai";
+import { CloudflareEventStreamAdapter } from "./adapters/CloudflareEventStreamAdapter";
 import { RunEngineRequestHandler } from "./RunEngineRequestHandler";
 
 describe("RunEngineRequestHandler", () => {
@@ -259,6 +264,172 @@ describe("RunEngineRequestHandler", () => {
     expect(secondEvent.type).toBe(RUN_EVENT_TYPES.TOOL_COMPLETED);
     expect(firstEvent.runId).toBe(runId);
     expect(secondEvent.runId).toBe(runId);
+  });
+
+  it("streams live runtime events from the realtime event port", async () => {
+    const ctx = new MockDurableObjectState();
+    const runId = "123e4567-e89b-42d3-a456-426614174111";
+    const eventStream = new CloudflareEventStreamAdapter();
+    const handler = new RunEngineRequestHandler(
+      ctx as unknown as DurableObjectState,
+      {} as Env,
+      async (operation) => operation(),
+      eventStream,
+    );
+
+    const response = await handler.handleEventsStreamRequest(
+      new Request(`https://brain.local/events/stream?runId=${runId}`),
+    );
+
+    eventStream.emit(
+      createToolRequestedEvent(
+        {
+          runId,
+          sessionId: "session-1",
+          taskId: "task-live",
+          toolName: "read_file",
+        },
+        { path: "README.md" },
+      ),
+    );
+    eventStream.complete(runId);
+
+    expect(response.status).toBe(200);
+    await expect(response.text()).resolves.toContain('"toolName":"read_file"');
+  });
+
+  it("closes live event streams when a run is cancelled", async () => {
+    const ctx = new MockDurableObjectState();
+    const runtimeState = tagRuntimeStateSemantics(ctx, "do");
+    const runRepo = new RunRepository(runtimeState);
+    const runId = "123e4567-e89b-42d3-a456-426614174211";
+    await runRepo.create(
+      new Run(runId, "session-1", "RUNNING", "coding", {
+        agentType: "coding",
+        prompt: "cancel this run",
+        sessionId: "session-1",
+      }),
+    );
+
+    const eventStream = new CloudflareEventStreamAdapter();
+    const handler = new RunEngineRequestHandler(
+      ctx as unknown as DurableObjectState,
+      {} as Env,
+      async (operation) => operation(),
+      eventStream,
+    );
+
+    const streamResponse = await handler.handleEventsStreamRequest(
+      new Request(`https://brain.local/events/stream?runId=${runId}`),
+    );
+    const cancelResponse = await handler.handleCancelRequest(
+      new Request("https://brain.local/cancel", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ runId }),
+      }),
+    );
+
+    expect(cancelResponse.status).toBe(200);
+    await expect(streamResponse.text()).resolves.toBe("");
+  });
+
+  it("projects a typed activity feed snapshot", async () => {
+    const ctx = new MockDurableObjectState();
+    const runtimeState = tagRuntimeStateSemantics(ctx, "do");
+    const runRepo = new RunRepository(runtimeState);
+    const eventRepo = new RunEventRepository(runtimeState);
+    const runId = "123e4567-e89b-42d3-a456-426614174099";
+
+    const run = new Run(runId, "session-1", "COMPLETED", "coding", {
+      agentType: "coding",
+      mode: "plan",
+      prompt: "Inspect and hand off",
+      sessionId: "session-1",
+    });
+    run.metadata.lifecycleSteps = [
+      {
+        step: "APPROVAL_WAIT",
+        recordedAt: "2026-03-24T10:00:00.000Z",
+        detail: "platform approval required",
+      },
+    ];
+    run.metadata.planArtifact = {
+      id: `${run.id}:plan`,
+      createdAt: "2026-03-24T10:00:02.000Z",
+      summary: "Inspect and then execute the build flow.",
+      estimatedSteps: 2,
+      tasks: [],
+      handoff: {
+        targetMode: "build",
+        summary: "Move to build with the approved handoff prompt.",
+        prompt: "Execute this approved plan in build mode.",
+      },
+    };
+    await runRepo.create(run);
+
+    await eventRepo.append(
+      runId,
+      createToolRequestedEvent(
+        {
+          runId,
+          sessionId: "session-1",
+          taskId: "task-1",
+          toolName: "run_command",
+        },
+        { command: "pnpm test" },
+      ),
+    );
+    await eventRepo.append(
+      runId,
+      createToolCompletedEvent(
+        {
+          runId,
+          sessionId: "session-1",
+          taskId: "task-1",
+          toolName: "run_command",
+        },
+        { content: "ok" },
+        8,
+      ),
+    );
+
+    const handler = new RunEngineRequestHandler(
+      ctx as unknown as DurableObjectState,
+      {} as Env,
+      async (operation) => operation(),
+    );
+
+    const response = await handler.handleActivityRequest(
+      new Request(`https://brain.local/activity?runId=${runId}`),
+    );
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      status: string | null;
+      items: Array<{
+        kind: string;
+        metadata?: { family?: string; command?: string };
+      }>;
+    };
+
+    expect(body.status).toBe("COMPLETED");
+    expect(
+      body.items.some((item) => item.kind === ACTIVITY_PART_KINDS.APPROVAL),
+    ).toBe(true);
+    expect(
+      body.items.some((item) => item.kind === ACTIVITY_PART_KINDS.HANDOFF),
+    ).toBe(true);
+    expect(
+      body.items.some(
+        (item) =>
+          item.kind === ACTIVITY_PART_KINDS.TOOL &&
+          item.metadata?.family === TOOL_ACTIVITY_FAMILIES.SHELL &&
+          item.metadata.command === "pnpm test",
+      ),
+    ).toBe(true);
   });
 });
 

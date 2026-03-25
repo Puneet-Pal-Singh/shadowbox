@@ -1,11 +1,13 @@
 import { CloudflareAgent } from "@shadowbox/orchestrator-adapters-cloudflare-agents";
 import type { Env } from "../types/ai";
 import { errorResponse } from "../http/response";
+import { createCloudflareEventStreamPort } from "./factories/PortalityAdapterFactory";
 import { RunEngineRequestHandler } from "./RunEngineRequestHandler";
 import { persistAssistantMessageFromRunResponse } from "./RunEngineResponsePersistence";
 
 export class RunEngineAgent extends CloudflareAgent<Env> {
   private executionQueue: Promise<void> = Promise.resolve();
+  private readonly eventStreamPort = createCloudflareEventStreamPort();
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -17,6 +19,7 @@ export class RunEngineAgent extends CloudflareAgent<Env> {
       this.ctx,
       this.env,
       this.withExecutionLock.bind(this),
+      this.eventStreamPort,
     );
 
     if (url.pathname === "/execute" && request.method === "POST") {
@@ -34,6 +37,18 @@ export class RunEngineAgent extends CloudflareAgent<Env> {
 
     if (url.pathname === "/summary" && request.method === "GET") {
       return handler.handleSummaryRequest(request);
+    }
+
+    if (url.pathname === "/events" && request.method === "GET") {
+      return handler.handleEventsRequest(request);
+    }
+
+    if (url.pathname === "/events/stream" && request.method === "GET") {
+      return handler.handleEventsStreamRequest(request);
+    }
+
+    if (url.pathname === "/activity" && request.method === "GET") {
+      return handler.handleActivityRequest(request);
     }
 
     if (url.pathname === "/cancel" && request.method === "POST") {

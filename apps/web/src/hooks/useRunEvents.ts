@@ -1,8 +1,14 @@
 import { safeParseRunEvent, type RunEvent } from "@repo/shared-types";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { MutableRefObject } from "react";
-import { runEventsPath } from "../lib/platform-endpoints.js";
-import { RUN_SUMMARY_REFRESH_EVENT } from "../lib/run-summary-events.js";
+import {
+  runEventsPath,
+  runEventsStreamPath,
+} from "../lib/platform-endpoints.js";
+import {
+  dispatchRunSummaryRefresh,
+  RUN_SUMMARY_REFRESH_EVENT,
+} from "../lib/run-summary-events.js";
 
 interface UseRunEventsResult {
   events: RunEvent[];
@@ -11,7 +17,10 @@ interface UseRunEventsResult {
 const EVENT_ERROR_LOG_WINDOW_MS = 30_000;
 const RUN_EVENTS_MIN_FETCH_INTERVAL_MS = 800;
 
-export function useRunEvents(runId: string): UseRunEventsResult {
+export function useRunEvents(
+  runId: string,
+  shouldStream: boolean = false,
+): UseRunEventsResult {
   const [events, setEvents] = useState<RunEvent[]>([]);
   const inFlightRef = useRef(false);
   const lastFetchAtRef = useRef(0);
@@ -59,8 +68,9 @@ export function useRunEvents(runId: string): UseRunEventsResult {
         ) {
           return;
         }
+
         const parsedEvents = parseNdjsonEvents(body, currentRunId);
-        setEvents(parsedEvents);
+        setEvents((current) => mergeRunEvents(current, parsedEvents));
       } catch (error) {
         if (activeRunIdRef.current === currentRunId) {
           logRunEventsWarning(currentRunId, error, lastErrorLogRef);
@@ -88,11 +98,73 @@ export function useRunEvents(runId: string): UseRunEventsResult {
     }
 
     setEvents([]);
-    void fetchEvents();
+    void fetchEvents({ force: true });
   }, [fetchEvents, runId]);
 
   useEffect(() => {
-    if (!runId) {
+    if (!runId || !shouldStream) {
+      return;
+    }
+
+    const currentRunId = runId.trim();
+    const abortController = new AbortController();
+    let buffer = "";
+
+    const consumeStream = async () => {
+      try {
+        const response = await fetch(runEventsStreamPath(currentRunId), {
+          signal: abortController.signal,
+        });
+        if (!response.ok || !response.body) {
+          return;
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+
+        while (!abortController.signal.aborted) {
+          const next = await reader.read();
+          if (next.done) {
+            break;
+          }
+
+          buffer += decoder.decode(next.value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() ?? "";
+
+          for (const line of lines) {
+            const event = parseRunEventLine(line, currentRunId);
+            if (!event) {
+              continue;
+            }
+
+            setEvents((current) => mergeRunEvents(current, [event]));
+            dispatchRunSummaryRefresh(currentRunId);
+          }
+        }
+
+        const trailingEvent = parseRunEventLine(buffer, currentRunId);
+        if (trailingEvent) {
+          setEvents((current) => mergeRunEvents(current, [trailingEvent]));
+          dispatchRunSummaryRefresh(currentRunId);
+        }
+      } catch (error) {
+        if (abortController.signal.aborted) {
+          return;
+        }
+        logRunEventsWarning(currentRunId, error, lastErrorLogRef);
+      }
+    };
+
+    void consumeStream();
+
+    return () => {
+      abortController.abort();
+    };
+  }, [runId, shouldStream]);
+
+  useEffect(() => {
+    if (!runId || shouldStream) {
       return;
     }
 
@@ -122,7 +194,7 @@ export function useRunEvents(runId: string): UseRunEventsResult {
       window.removeEventListener(RUN_SUMMARY_REFRESH_EVENT, handleRefreshEvent);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [fetchEvents, runId]);
+  }, [fetchEvents, runId, shouldStream]);
 
   return { events };
 }
@@ -134,23 +206,44 @@ function parseNdjsonEvents(body: string, runId: string): RunEvent[] {
 
   const events: RunEvent[] = [];
   for (const line of body.split("\n")) {
-    const trimmedLine = line.trim();
-    if (!trimmedLine) {
-      continue;
+    const event = parseRunEventLine(line, runId);
+    if (event) {
+      events.push(event);
     }
-
-    const result = safeParseRunEvent(JSON.parse(trimmedLine) as unknown);
-    if (!result.success) {
-      console.warn(
-        `[run/events] dropped invalid event for runId=${runId}: ${result.error}`,
-      );
-      continue;
-    }
-
-    events.push(result.data);
   }
 
   return events;
+}
+
+function parseRunEventLine(line: string, runId: string): RunEvent | null {
+  const trimmedLine = line.trim();
+  if (!trimmedLine) {
+    return null;
+  }
+
+  const result = safeParseRunEvent(JSON.parse(trimmedLine) as unknown);
+  if (!result.success) {
+    console.warn(
+      `[run/events] dropped invalid event for runId=${runId}: ${result.error}`,
+    );
+    return null;
+  }
+
+  return result.data;
+}
+
+function mergeRunEvents(current: RunEvent[], incoming: RunEvent[]): RunEvent[] {
+  const byId = new Map<string, RunEvent>();
+  for (const event of current) {
+    byId.set(event.eventId, event);
+  }
+  for (const event of incoming) {
+    byId.set(event.eventId, event);
+  }
+
+  return [...byId.values()].sort((left, right) =>
+    left.timestamp.localeCompare(right.timestamp),
+  );
 }
 
 function logRunEventsWarning(

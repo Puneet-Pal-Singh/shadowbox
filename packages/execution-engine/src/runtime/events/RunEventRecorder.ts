@@ -20,6 +20,7 @@ export class RunEventRecorder {
     private readonly repository: RunEventRepository,
     private readonly runId: string,
     private readonly sessionId: string,
+    private readonly eventListener?: (event: RunEvent) => Promise<void> | void,
   ) {}
 
   async ensureRunStarted(status: RunStatus): Promise<void> {
@@ -148,6 +149,15 @@ export class RunEventRecorder {
 
   private async append(event: RunEvent): Promise<void> {
     await this.repository.append(this.runId, event);
+    if (!this.eventListener) {
+      return;
+    }
+
+    try {
+      await this.eventListener(event);
+    } catch (error) {
+      console.warn("[run/events] failed to emit live run event", error);
+    }
   }
 }
 

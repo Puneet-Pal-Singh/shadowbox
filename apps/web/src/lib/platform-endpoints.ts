@@ -119,10 +119,28 @@ export function chatStreamPath(): string {
 /**
  * Build the workflow events endpoint URL
  * Used for fetching canonical run events from Brain
- * Path: /events?runId=<runId>
+ * Path: /api/run/events?runId=<runId>
  */
 export function runEventsPath(runId: string): string {
-  return `${getBrainHttpBase()}/events?runId=${encodeURIComponent(runId)}`;
+  return `${getBrainHttpBase()}/api/run/events?runId=${encodeURIComponent(runId)}`;
+}
+
+/**
+ * Build the live run events stream endpoint URL
+ * Used for subscribing to canonical runtime events from Brain while a run is active
+ * Path: /api/run/events/stream?runId=<runId>
+ */
+export function runEventsStreamPath(runId: string): string {
+  return `${getBrainHttpBase()}/api/run/events/stream?runId=${encodeURIComponent(runId)}`;
+}
+
+/**
+ * Build the activity feed endpoint URL
+ * Used for fetching the structured activity feed snapshot from Brain
+ * Path: /api/run/activity?runId=<runId>
+ */
+export function runActivityPath(runId: string): string {
+  return `${getBrainHttpBase()}/api/run/activity?runId=${encodeURIComponent(runId)}`;
 }
 
 /**

@@ -410,6 +410,51 @@ describe("Phase 8: Golden Scenario Reliability Tests", () => {
       expect(recycled.status).toBe("RUNNING");
       expect(recycled.id).toBe(runId);
     });
+
+    it("should preserve existing run events when recyclable run resets", async () => {
+      const { resetRecyclableRun } =
+        await import("../RunRecyclableResetPolicy.js");
+
+      const runRepo = new RunRepository(runtimeState);
+      const taskRepo = new TaskRepository(runtimeState);
+      const eventRepo = new RunEventRepository(runtimeState);
+
+      const runId = "recyclable-run-with-events";
+      await runRepo.create(
+        new Run(runId, "recycle-session", "COMPLETED", "coding", {
+          agentType: "coding",
+          prompt: "completed prompt",
+          sessionId: "recycle-session",
+        }),
+      );
+
+      await eventRepo.append(
+        runId,
+        createRunStartedEvent({
+          runId,
+          sessionId: "recycle-session",
+        }),
+      );
+
+      await resetRecyclableRun({
+        runId,
+        sessionId: "recycle-session",
+        input: {
+          agentType: "coding",
+          prompt: "new prompt",
+          sessionId: "recycle-session",
+        },
+        previousStatus: "COMPLETED",
+        taskRepo: taskRepo as TaskRepository,
+        runRepo: runRepo as RunRepository,
+        createFreshRun: (id, sid, input) =>
+          new Run(id, sid, "RUNNING", "coding", input),
+      });
+
+      const events = await eventRepo.getByRun(runId);
+      expect(events).toHaveLength(1);
+      expect(events[0]?.type).toBe("run.started");
+    });
   });
 
   describe("Cloudflare Agents Backend Selection", () => {

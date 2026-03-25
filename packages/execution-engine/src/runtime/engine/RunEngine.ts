@@ -1,5 +1,5 @@
 import type { CoreMessage, CoreTool } from "ai";
-import { RUN_WORKFLOW_STEPS } from "@repo/shared-types";
+import { RUN_WORKFLOW_STEPS, type RunEvent } from "@repo/shared-types";
 import { Run, RunRepository, RunStateMachine } from "../run/index.js";
 import { Task, TaskRepository } from "../task/index.js";
 import {
@@ -117,6 +117,7 @@ export interface RunEngineDependencies {
   memoryCoordinator?: MemoryCoordinator;
   sessionMemoryClient?: MemoryCoordinatorDependencies["sessionMemoryClient"];
   workspaceBootstrapper?: WorkspaceBootstrapper;
+  runEventListener?: (event: RunEvent) => Promise<void> | void;
 }
 
 export class RunEngine implements IRunEngine {
@@ -154,6 +155,7 @@ export class RunEngine implements IRunEngine {
       this.runEventRepo,
       options.runId,
       options.sessionId,
+      dependencies.runEventListener,
     );
 
     this.pricingRegistry =
@@ -599,7 +601,6 @@ export class RunEngine implements IRunEngine {
           previousStatus: existing.status,
           taskRepo: this.taskRepo,
           runRepo: this.runRepo,
-          clearRunEvents: () => this.runEventRecorder.clear(),
           createFreshRun: this.createFreshRun.bind(this),
         });
       }

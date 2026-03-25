@@ -86,7 +86,7 @@ describe("Runtime Adapters", () => {
       expect(stream instanceof ReadableStream).toBe(true);
     });
 
-    it("should ignore events for completed runs", () => {
+    it("should reopen completed runs when a recycled lifecycle emits again", async () => {
       const event: StreamEvent = {
         version: 1,
         eventId: "evt-1",
@@ -98,9 +98,14 @@ describe("Runtime Adapters", () => {
       };
 
       adapter.complete("test-run");
-
-      // Should warn and return early, not throw
+      const stream = adapter.getStream("test-run");
       expect(() => adapter.emit(event)).not.toThrow();
+
+      adapter.complete("test-run");
+
+      const events = await readStreamEvents(stream);
+      expect(events).toHaveLength(1);
+      expect(events[0]?.eventId).toBe("evt-1");
     });
 
     it("should stream NDJSON envelopes in emitted order", async () => {
@@ -172,6 +177,33 @@ describe("Runtime Adapters", () => {
       expect(eventsB).toHaveLength(1);
       expect(eventsA[0]?.runId).toBe("run-a");
       expect(eventsB[0]?.runId).toBe("run-b");
+    });
+
+    it("should fan out events to multiple subscribers for the same run", async () => {
+      const runId = "run-fanout";
+      const streamA = adapter.getStream(runId);
+      const streamB = adapter.getStream(runId);
+
+      adapter.emit({
+        version: 1,
+        eventId: "evt-1",
+        runId,
+        timestamp: "2026-03-25T00:00:00.000Z",
+        source: "brain",
+        type: RUN_EVENT_TYPES.MESSAGE_EMITTED,
+        payload: { content: "hello", role: "assistant" },
+      });
+      adapter.complete(runId);
+
+      const [eventsA, eventsB] = await Promise.all([
+        readStreamEvents(streamA),
+        readStreamEvents(streamB),
+      ]);
+
+      expect(eventsA).toHaveLength(1);
+      expect(eventsB).toHaveLength(1);
+      expect(eventsA[0]?.eventId).toBe("evt-1");
+      expect(eventsB[0]?.eventId).toBe("evt-1");
     });
   });
 

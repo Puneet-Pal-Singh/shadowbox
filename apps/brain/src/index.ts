@@ -99,8 +99,15 @@ function createRouter(): Router {
   router.add(/\/api\/git\/bootstrap/, GitController.bootstrap, "POST");
   router.add(/\/api\/git\/stage/, GitController.stageFiles, "POST");
   router.add(/\/api\/git\/commit/, GitController.commit, "POST");
-  router.add(/\/api\/run\/summary/, RunController.getSummary, "GET");
-  router.add(/\/api\/run\/cancel/, RunController.cancel, "POST");
+  router.add(/^\/api\/run\/summary$/, RunController.getSummary, "GET");
+  router.add(
+    /^\/api\/run\/events\/stream$/,
+    RunController.getEventsStream,
+    "GET",
+  );
+  router.add(/^\/api\/run\/events$/, RunController.getEvents, "GET");
+  router.add(/^\/api\/run\/activity$/, RunController.getActivity, "GET");
+  router.add(/^\/api\/run\/cancel$/, RunController.cancel, "POST");
 
   // BYOK v3 routes
   router.add(

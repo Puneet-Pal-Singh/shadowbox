@@ -33,7 +33,9 @@ import {
 } from "./ResultFormatter.js";
 import { buildGroundedTaskSummary } from "../engine/RunGroundedSummary.js";
 
-type LineMatcherPatternSource = "external_user_input" | "deriveGrepPatternFromHint";
+type LineMatcherPatternSource =
+  | "external_user_input"
+  | "deriveGrepPatternFromHint";
 
 export class CodingAgent extends BaseAgent {
   readonly type: AgentType = "coding";
@@ -263,7 +265,10 @@ VALIDATION RULES:
   private async executeShell(task: Task): Promise<TaskResult> {
     const command = extractStructuredField(task.input, "command");
     if (!command) {
-      throw new TaskInputError("shell", "Missing 'command' field in task input");
+      throw new TaskInputError(
+        "shell",
+        "Missing 'command' field in task input",
+      );
     }
     return this.executeCommandWithGuards(task.id, command);
   }
@@ -279,7 +284,8 @@ VALIDATION RULES:
     validateGitAction(action);
 
     const result = await this.executionService.execute("git", action, {
-      message: extractStructuredField(task.input, "message") ?? task.input.description,
+      message:
+        extractStructuredField(task.input, "message") ?? task.input.description,
     });
     const failure = extractExecutionFailure(result);
     if (failure) {
@@ -316,7 +322,10 @@ VALIDATION RULES:
   }
 
   private async executeReadFileTool(task: Task): Promise<TaskResult> {
-    const validatedInput = this.validateGoldenFlowInput("read_file", task.input);
+    const validatedInput = this.validateGoldenFlowInput(
+      "read_file",
+      task.input,
+    );
     const path = normalizeTaskPath(validatedInput.path);
     if (requiresDiscoveryBeforeRead(path)) {
       return this.executeDiscoveryForAmbiguousTarget(task.id, path);
@@ -327,8 +336,13 @@ VALIDATION RULES:
   }
 
   private async executeListFilesTool(task: Task): Promise<TaskResult> {
-    const validatedInput = this.validateGoldenFlowInput("list_files", task.input);
-    const path = validatedInput.path ? normalizeTaskPath(validatedInput.path) : ".";
+    const validatedInput = this.validateGoldenFlowInput(
+      "list_files",
+      task.input,
+    );
+    const path = validatedInput.path
+      ? normalizeTaskPath(validatedInput.path)
+      : ".";
     if (path !== ".") {
       validateSafePath(path);
     }
@@ -336,22 +350,34 @@ VALIDATION RULES:
   }
 
   private async executeWriteFileTool(task: Task): Promise<TaskResult> {
-    const validatedInput = this.validateGoldenFlowInput("write_file", task.input);
+    const validatedInput = this.validateGoldenFlowInput(
+      "write_file",
+      task.input,
+    );
     const path = normalizeTaskPath(validatedInput.path);
     validateTaskPath(path);
     validateSafePath(path);
     const { content } = validatedInput;
+    const existingContent = await this.readExistingFileContent(path);
 
-    const result = await this.executeGatewayPlugin("write_file", { path, content });
+    const result = await this.executeGatewayPlugin("write_file", {
+      path,
+      content,
+    });
     const failure = extractExecutionFailure(result);
     if (failure) {
       return this.buildFailureResult(task.id, failure);
     }
-    return this.buildSuccessResult(task.id, formatExecutionResult(result));
+    return this.buildSuccessResult(task.id, formatExecutionResult(result), {
+      activity: buildWriteActivityMetadata(path, existingContent, content),
+    });
   }
 
   private async executeRunCommandTool(task: Task): Promise<TaskResult> {
-    const validatedInput = this.validateGoldenFlowInput("run_command", task.input);
+    const validatedInput = this.validateGoldenFlowInput(
+      "run_command",
+      task.input,
+    );
     return this.executeCommandWithGuards(task.id, validatedInput.command);
   }
 
@@ -442,7 +468,10 @@ VALIDATION RULES:
       return this.listDirectory(taskId, path, true);
     }
 
-    if (looksLikeMissingTargetError(readFailure) && requiresDiscoveryBeforeRead(path)) {
+    if (
+      looksLikeMissingTargetError(readFailure) &&
+      requiresDiscoveryBeforeRead(path)
+    ) {
       return this.executeDiscoveryForAmbiguousTarget(taskId, path);
     }
 
@@ -456,7 +485,9 @@ VALIDATION RULES:
     const sections: string[] = [
       `Target "${targetHint}" is ambiguous. Running discovery first.`,
     ];
-    const topLevel = await this.executeGatewayPlugin("list_files", { path: "." });
+    const topLevel = await this.executeGatewayPlugin("list_files", {
+      path: ".",
+    });
     const topLevelFailure = extractExecutionFailure(topLevel);
     if (!topLevelFailure) {
       sections.push(`Top-level files:\n${formatExecutionResult(topLevel)}`);
@@ -483,12 +514,16 @@ VALIDATION RULES:
         patternSource: "deriveGrepPatternFromHint",
       });
       if (grepMatches.length > 0) {
-        sections.push(`Grep matches (${grepNeedle}):\n${grepMatches.join("\n")}`);
+        sections.push(
+          `Grep matches (${grepNeedle}):\n${grepMatches.join("\n")}`,
+        );
       }
     }
 
     if (sections.length === 1) {
-      sections.push("No candidate files were discovered in the current workspace.");
+      sections.push(
+        "No candidate files were discovered in the current workspace.",
+      );
     }
     return this.buildSuccessResult(taskId, sections.join("\n\n"));
   }
@@ -550,7 +585,10 @@ VALIDATION RULES:
   ): Promise<unknown> {
     const route = getGoldenFlowToolRoute(toolName);
     if (!route) {
-      throw new TaskInputError(toolName, `No gateway route registered for ${toolName}`);
+      throw new TaskInputError(
+        toolName,
+        `No gateway route registered for ${toolName}`,
+      );
     }
     if (route.plugin === "internal") {
       throw new TaskInputError(
@@ -561,6 +599,15 @@ VALIDATION RULES:
     return this.executionService.execute(route.plugin, route.action, payload);
   }
 
+  private async readExistingFileContent(path: string): Promise<string> {
+    const readResult = await this.executeGatewayPlugin("read_file", { path });
+    const failure = extractExecutionFailure(readResult);
+    if (failure) {
+      return "";
+    }
+    return formatExecutionResult(readResult);
+  }
+
   private validateGoldenFlowInput<T extends GoldenFlowToolName>(
     toolName: T,
     input: TaskInput,
@@ -568,7 +615,8 @@ VALIDATION RULES:
     try {
       return validateGoldenFlowToolInput(toolName, input);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Invalid tool input";
+      const message =
+        error instanceof Error ? error.message : "Invalid tool input";
       throw new TaskInputError(toolName, message);
     }
   }
@@ -594,7 +642,11 @@ VALIDATION RULES:
   }): Promise<string[]> {
     const scanLimit = Math.max(input.maxResults * 4, 80);
     const candidates = input.globPattern
-      ? await this.findGlobMatches(input.globPattern, input.startPath, scanLimit)
+      ? await this.findGlobMatches(
+          input.globPattern,
+          input.startPath,
+          scanLimit,
+        )
       : await this.collectWorkspaceFiles(input.startPath, scanLimit, 4);
     const matches: string[] = [];
     const lineMatcher = buildLineMatcher(
@@ -700,11 +752,18 @@ VALIDATION RULES:
     return this.buildSuccessResult(task.id, result.text);
   }
 
-  private buildSuccessResult(taskId: string, content: string): TaskResult {
+  private buildSuccessResult(
+    taskId: string,
+    content: string,
+    metadata?: Record<string, unknown>,
+  ): TaskResult {
     return {
       taskId,
       status: "DONE",
-      output: { content },
+      output: {
+        content,
+        metadata,
+      },
       completedAt: new Date(),
     };
   }
@@ -735,6 +794,64 @@ function validateShellCommand(command: string): void {
       "Shell command must be a concrete non-empty command",
     );
   }
+}
+
+function buildWriteActivityMetadata(
+  path: string,
+  previousContent: string,
+  nextContent: string,
+): Record<string, unknown> {
+  const additions = countChangedLines(nextContent, previousContent);
+  const deletions = countChangedLines(previousContent, nextContent);
+  return {
+    family: "edit",
+    filePath: path,
+    additions,
+    deletions,
+    diffPreview: buildDiffPreview(previousContent, nextContent),
+  };
+}
+
+function countChangedLines(source: string, comparison: string): number {
+  const sourceLines = splitLines(source);
+  const comparisonLines = new Set(splitLines(comparison));
+  return sourceLines.filter((line) => !comparisonLines.has(line)).length;
+}
+
+function buildDiffPreview(
+  previousContent: string,
+  nextContent: string,
+): string {
+  const previousLines = splitLines(previousContent);
+  const nextLines = splitLines(nextContent);
+  const previewLines: string[] = [];
+
+  for (const line of nextLines) {
+    if (!previousLines.includes(line)) {
+      previewLines.push(`+ ${line}`);
+    }
+    if (previewLines.length >= 6) {
+      break;
+    }
+  }
+
+  for (const line of previousLines) {
+    if (!nextLines.includes(line)) {
+      previewLines.push(`- ${line}`);
+    }
+    if (previewLines.length >= 10) {
+      break;
+    }
+  }
+
+  return previewLines.join("\n");
+}
+
+function splitLines(value: string): string[] {
+  return value
+    .split("\n")
+    .map((line) => line.trimEnd())
+    .filter((line) => line.length > 0);
 }
 
 function normalizeTaskPath(input: string): string {
@@ -828,7 +945,10 @@ function parseDirectoryEntries(output: string): string[] {
 }
 
 function joinRelativePath(basePath: string, entry: string): string {
-  const normalizedBase = basePath.trim().replace(/^\.\/+/, "").replace(/\/+$/, "");
+  const normalizedBase = basePath
+    .trim()
+    .replace(/^\.\/+/, "")
+    .replace(/\/+$/, "");
   const normalizedEntry = entry.trim().replace(/^\.\/+/, "");
   if (!normalizedBase || normalizedBase === ".") {
     return normalizedEntry;

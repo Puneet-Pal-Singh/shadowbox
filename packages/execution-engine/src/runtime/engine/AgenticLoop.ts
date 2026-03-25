@@ -251,7 +251,7 @@ export class AgenticLoop {
             );
             await context.onToolCompleted?.(
               toolCall,
-              result.output?.content ?? null,
+              result.output ?? null,
               executionTimeMs,
             );
             toolResults.push({

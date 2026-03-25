@@ -1,5 +1,6 @@
 const PRIMARY_TEXT_KEYS = [
   "content",
+  "output",
   "stdout",
   "message",
   "text",
@@ -47,7 +48,8 @@ export function extractExecutionFailure(result: unknown): string | null {
       return redactInternalRuntimeDetails(explicitError);
     }
 
-    const message = readStringField(result.message) ?? readStringField(result.stderr);
+    const message =
+      readStringField(result.message) ?? readStringField(result.stderr);
     if (message) {
       return redactInternalRuntimeDetails(message);
     }
@@ -57,7 +59,9 @@ export function extractExecutionFailure(result: unknown): string | null {
 
   const stderr = readStringField(result.stderr);
   if (typeof result.exitCode === "number" && result.exitCode !== 0) {
-    return redactInternalRuntimeDetails(stderr ?? `Command failed with exit code ${result.exitCode}`);
+    return redactInternalRuntimeDetails(
+      stderr ?? `Command failed with exit code ${result.exitCode}`,
+    );
   }
 
   return null;
@@ -118,7 +122,12 @@ function readStringField(value: unknown): string | null {
   }
 
   if (isRecord(value)) {
-    const content = value.content;
+    const content =
+      typeof value.content === "string"
+        ? value.content
+        : typeof value.output === "string"
+          ? value.output
+          : null;
     if (typeof content === "string" && content.trim().length > 0) {
       return content.trim();
     }

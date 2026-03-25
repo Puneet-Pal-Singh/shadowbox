@@ -9,10 +9,14 @@ import type { ProviderId } from "../../types/provider";
 import type { ChatDebugEvent } from "../../types/chat-debug.js";
 import { useRunSummary } from "../../hooks/useRunSummary.js";
 import { useRunEvents } from "../../hooks/useRunEvents.js";
+import { useRunActivityFeed } from "../../hooks/useRunActivityFeed.js";
 import { getProviderRecoveryAdvice } from "../../lib/provider-recovery";
 import { useProviderStore } from "../../hooks/useProviderStore.js";
 import { buildChatMessageMetadata } from "./messageMetadata";
+import { buildActivityFeedViewModel } from "../../services/activity/ActivityFeedViewModel.js";
+import { ActivityTurn } from "./activity/ActivityTurn.js";
 import { WorkflowTimeline } from "./workflow/WorkflowTimeline.js";
+import type { ActivityTurnViewModel } from "../../services/activity/ActivityFeedViewModel.js";
 
 interface ChatInterfaceProps {
   chatProps: {
@@ -60,14 +64,12 @@ export function ChatInterface({
   const [pendingPlanPrompt, setPendingPlanPrompt] = useState<string | null>(
     null,
   );
-
-  // Auto-scroll to bottom on new messages
-  useEffect(() => {
-    scrollRef.current?.scrollTo({
-      top: scrollRef.current.scrollHeight,
-      behavior: "smooth",
-    });
-  }, [messages, isLoading]);
+  const [expandedActivityTurns, setExpandedActivityTurns] = useState<
+    Record<string, boolean>
+  >({});
+  const [expandedActivityRows, setExpandedActivityRows] = useState<
+    Record<string, boolean>
+  >({});
 
   useEffect(() => {
     if (!isLoading) {
@@ -93,7 +95,8 @@ export function ChatInterface({
   }, [isLoading]);
 
   const { summary } = useRunSummary(runId, isLoading);
-  const { events } = useRunEvents(runId);
+  const { events } = useRunEvents(runId, isLoading);
+  const { feed } = useRunActivityFeed(runId, isLoading);
   const showDebugPanel =
     import.meta.env.VITE_ENABLE_CHAT_DEBUG_PANEL === "true";
   const [showProviderDialog, setShowProviderDialog] = useState(false);
@@ -107,6 +110,15 @@ export function ChatInterface({
       mode === "plan" ? "Plan" : "Build",
     );
   }, [messages, debugEvents, mode, providerModels]);
+  const activityViewModel = useMemo(
+    () => buildActivityFeedViewModel(feed),
+    [feed],
+  );
+
+  useEffect(() => {
+    setExpandedActivityTurns({});
+    setExpandedActivityRows({});
+  }, [runId]);
 
   const handleInputChangeWrapper = useCallback(
     (value: string) => {
@@ -154,32 +166,91 @@ export function ChatInterface({
   };
 
   const recoveryAdvice = getProviderRecoveryAdvice(error);
+  const activeInlineTurn = activityViewModel.turns.find(
+    (turn) => turn.hasVisibleRows && !turn.defaultCollapsed,
+  );
+  const planHandoffAction =
+    summary?.planArtifact?.handoff && (mode === "build" || onModeChange)
+      ? handleUsePlanInBuild
+      : undefined;
+  const chatEntries = useMemo(
+    () => buildChatEntries(messages, activityViewModel.turns),
+    [activityViewModel.turns, messages],
+  );
+  const activityScrollSignal = useMemo(
+    () =>
+      activityViewModel.turns
+        .map(
+          (turn) =>
+            `${turn.key}:${turn.rows.length}:${turn.summaryLabel}:${turn.isActiveTurn ? "active" : "idle"}`,
+        )
+        .join("|"),
+    [activityViewModel.turns],
+  );
+  const overviewHostTurnKey = useMemo(() => {
+    const visibleTurns = activityViewModel.turns.filter(
+      (turn) => turn.hasVisibleRows,
+    );
+    const lastVisibleTurn = visibleTurns[visibleTurns.length - 1];
+    return lastVisibleTurn?.key;
+  }, [activityViewModel.turns]);
+  const workflowOverview = useMemo(() => {
+    if (!overviewHostTurnKey) {
+      return null;
+    }
+
+    return (
+      <WorkflowTimeline
+        events={events}
+        summary={summary}
+        isLoading={isLoading}
+        onJumpToLatest={() => {
+          scrollRef.current?.scrollTo({
+            top: scrollRef.current.scrollHeight,
+            behavior: "smooth",
+          });
+        }}
+      />
+    );
+  }, [events, isLoading, overviewHostTurnKey, summary]);
+  const renderActivityTurn = (turn: ActivityTurnViewModel) => (
+    <ActivityTurn
+      key={turn.key}
+      turn={turn}
+      expanded={expandedActivityTurns[turn.key] ?? !turn.defaultCollapsed}
+      onToggleTurn={() =>
+        setExpandedActivityTurns((current) => ({
+          ...current,
+          [turn.key]: !(current[turn.key] ?? !turn.defaultCollapsed),
+        }))
+      }
+      expandedRows={expandedActivityRows}
+      onToggleRow={(rowKey, expanded) =>
+        setExpandedActivityRows((current) => ({
+          ...current,
+          [rowKey]: !expanded,
+        }))
+      }
+      onUsePlanInBuild={planHandoffAction}
+      workflowOverview={
+        turn.key === overviewHostTurnKey ? workflowOverview : undefined
+      }
+    />
+  );
+
+  // Auto-scroll to bottom on new messages and live activity updates.
+  useEffect(() => {
+    scrollRef.current?.scrollTo({
+      top: scrollRef.current.scrollHeight,
+      behavior: "smooth",
+    });
+  }, [activityScrollSignal, isLoading, messages]);
 
   return (
     <div className="flex flex-col h-full bg-black">
       {/* Scrollable Messages Container - Centered with max-width */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 py-4">
         <div className="max-w-4xl mx-auto space-y-6">
-          {(messages.length > 0 || isLoading) && (
-            <WorkflowTimeline
-              events={events}
-              summary={summary}
-              isLoading={isLoading}
-              onUsePlanInBuild={
-                summary?.planArtifact?.handoff &&
-                (mode === "build" || onModeChange)
-                  ? handleUsePlanInBuild
-                  : undefined
-              }
-              onJumpToLatest={() => {
-                scrollRef.current?.scrollTo({
-                  top: scrollRef.current.scrollHeight,
-                  behavior: "smooth",
-                });
-              }}
-            />
-          )}
-
           {error && (
             <div className="px-4 py-3 rounded border border-red-500/40 bg-red-950/30 text-red-200 text-sm space-y-2">
               <p>{recoveryAdvice.message}</p>
@@ -233,17 +304,21 @@ export function ChatInterface({
             </div>
           )}
 
-          {messages.map((msg) => (
-            <ChatMessage
-              key={msg.id}
-              message={msg}
-              metadata={messageMetadataById[msg.id]}
-              onArtifactOpen={onArtifactOpen}
-            />
-          ))}
+          {chatEntries.map((entry) =>
+            entry.kind === "message" ? (
+              <ChatMessage
+                key={entry.message.id}
+                message={entry.message}
+                metadata={messageMetadataById[entry.message.id]}
+                onArtifactOpen={onArtifactOpen}
+              />
+            ) : (
+              renderActivityTurn(entry.turn)
+            ),
+          )}
 
           {/* Loading indicator */}
-          {isLoading && (
+          {isLoading && !activeInlineTurn && (
             <div className="flex items-center gap-2 px-4 py-2 text-xs text-zinc-500 font-medium bg-zinc-900/30 w-fit rounded-full border border-zinc-800/50 animate-pulse">
               <div className="w-1.5 h-1.5 bg-zinc-500 rounded-full animate-bounce" />
               <span>{`Thinking... ${formatThinkingDuration(thinkingElapsedMs)}`}</span>
@@ -300,6 +375,91 @@ function formatDebugPayload(payload: unknown): string {
     return serialized;
   } catch {
     return String(payload);
+  }
+}
+
+type ChatInterfaceEntry =
+  | { kind: "message"; message: Message }
+  | { kind: "turn"; turn: ActivityTurnViewModel };
+
+function buildChatEntries(
+  messages: Message[],
+  turns: ActivityTurnViewModel[],
+): ChatInterfaceEntry[] {
+  const entries: ChatInterfaceEntry[] = [];
+  const unmatchedTurns = turns.filter((turn) => turn.hasVisibleRows);
+  const turnsByPrompt = buildTurnsByPrompt(unmatchedTurns);
+
+  for (const message of messages) {
+    entries.push({ kind: "message", message });
+
+    if (message.role !== "user") {
+      continue;
+    }
+
+    const turn = claimTurnForMessage(message, turnsByPrompt, unmatchedTurns);
+    if (turn) {
+      entries.push({ kind: "turn", turn });
+    }
+  }
+
+  for (const turn of unmatchedTurns) {
+    entries.push({ kind: "turn", turn });
+  }
+
+  return entries;
+}
+
+function buildTurnsByPrompt(
+  turns: ActivityTurnViewModel[],
+): Map<string, ActivityTurnViewModel[]> {
+  const turnsByPrompt = new Map<string, ActivityTurnViewModel[]>();
+
+  for (const turn of turns) {
+    if (!turn.userPrompt) {
+      continue;
+    }
+
+    const existing = turnsByPrompt.get(turn.userPrompt) ?? [];
+    existing.push(turn);
+    turnsByPrompt.set(turn.userPrompt, existing);
+  }
+
+  return turnsByPrompt;
+}
+
+function claimTurnForMessage(
+  message: Message,
+  turnsByPrompt: Map<string, ActivityTurnViewModel[]>,
+  unmatchedTurns: ActivityTurnViewModel[],
+): ActivityTurnViewModel | undefined {
+  const prompt = extractMessageText(message).trim();
+  if (prompt) {
+    const matchedTurns = turnsByPrompt.get(prompt);
+    const matchedTurn = matchedTurns?.shift();
+    if (matchedTurn) {
+      removeTurn(unmatchedTurns, matchedTurn.key);
+      return matchedTurn;
+    }
+  }
+
+  const fallbackTurn = unmatchedTurns[0];
+  if (!fallbackTurn) {
+    return undefined;
+  }
+
+  removeTurn(unmatchedTurns, fallbackTurn.key);
+  return fallbackTurn;
+}
+
+function extractMessageText(message: Message): string {
+  return typeof message.content === "string" ? message.content : "";
+}
+
+function removeTurn(turns: ActivityTurnViewModel[], key: string): void {
+  const index = turns.findIndex((turn) => turn.key === key);
+  if (index >= 0) {
+    turns.splice(index, 1);
   }
 }
 
