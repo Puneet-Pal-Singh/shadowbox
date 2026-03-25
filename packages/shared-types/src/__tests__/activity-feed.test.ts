@@ -38,6 +38,9 @@ describe("activity-feed contract", () => {
     });
 
     expect(part.kind).toBe("tool");
+    if (part.kind !== "tool") {
+      throw new Error("Expected tool activity part");
+    }
     expect(part.metadata.family).toBe("shell");
     expect(isActivityPart(part)).toBe(true);
   });
