@@ -274,6 +274,8 @@ export class RunEngineRequestHandler {
         }
       }
 
+      this.eventStream?.complete(runId);
+
       return runEngineJsonResponse(request, this.env, {
         runId,
         cancelled: true,
