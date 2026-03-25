@@ -18,16 +18,19 @@ import type { StreamEvent, RealtimeEventPort } from "../ports";
  */
 export class CloudflareEventStreamAdapter implements RealtimeEventPort {
   private events: Map<string, StreamEvent[]> = new Map();
-  private controller: Map<string, ReadableStreamDefaultController<Uint8Array>> =
-    new Map();
+  private subscribers = new Map<
+    string,
+    Set<{
+      controller: ReadableStreamDefaultController<Uint8Array>;
+      nextEventIndex: number;
+    }>
+  >();
   private completed: Set<string> = new Set();
 
   emit(event: StreamEvent): void {
     if (this.completed.has(event.runId)) {
-      console.warn(
-        `[event-stream] Ignoring event for completed run: ${event.runId}`,
-      );
-      return;
+      // Runs can be recycled across turns, so a new event means a new lifecycle.
+      this.completed.delete(event.runId);
     }
 
     const key = event.runId;
@@ -47,12 +50,14 @@ export class CloudflareEventStreamAdapter implements RealtimeEventPort {
 
   complete(runId: string): void {
     this.completed.add(runId);
-    const controller = this.controller.get(runId);
-    if (controller) {
-      controller.close();
+    const subscribers = this.subscribers.get(runId);
+    if (subscribers) {
+      for (const subscriber of subscribers) {
+        subscriber.controller.close();
+      }
     }
     // Clean up per-run state to prevent memory accumulation in long-lived workers
-    this.controller.delete(runId);
+    this.subscribers.delete(runId);
     this.events.delete(runId);
   }
 
@@ -83,33 +88,71 @@ export class CloudflareEventStreamAdapter implements RealtimeEventPort {
   }
 
   getStream(runId: string): ReadableStream<Uint8Array> {
+    let activeSubscriber:
+      | {
+          controller: ReadableStreamDefaultController<Uint8Array>;
+          nextEventIndex: number;
+        }
+      | undefined;
+
     return new ReadableStream<Uint8Array>({
       start: (controller: ReadableStreamDefaultController<Uint8Array>) => {
-        this.controller.set(runId, controller);
+        const subscriber = {
+          controller,
+          nextEventIndex: 0,
+        };
+        activeSubscriber = subscriber;
+        this.completed.delete(runId);
+        const subscribers = this.subscribers.get(runId) ?? new Set();
+        subscribers.add(subscriber);
+        this.subscribers.set(runId, subscribers);
         // Flush any pending events
-        this.flushToStream(runId);
+        this.flushToSubscriber(runId, subscriber);
       },
       cancel: () => {
         // Clean up on cancel
-        this.controller.delete(runId);
+        if (!activeSubscriber) {
+          return;
+        }
+        const subscribers = this.subscribers.get(runId);
+        if (!subscribers) {
+          return;
+        }
+        subscribers.delete(activeSubscriber);
+        if (subscribers.size === 0) {
+          this.subscribers.delete(runId);
+        }
       },
     });
   }
 
   private flushToStream(runId: string): void {
-    const controller = this.controller.get(runId);
-    if (!controller) {
-      return; // Controller not yet registered
+    const subscribers = this.subscribers.get(runId);
+    if (!subscribers || subscribers.size === 0) {
+      return;
     }
 
+    for (const subscriber of subscribers) {
+      this.flushToSubscriber(runId, subscriber);
+    }
+  }
+
+  private flushToSubscriber(
+    runId: string,
+    subscriber: {
+      controller: ReadableStreamDefaultController<Uint8Array>;
+      nextEventIndex: number;
+    },
+  ): void {
     const events = this.events.get(runId) || [];
-    while (events.length > 0) {
-      const event = events.shift()!;
+    while (subscriber.nextEventIndex < events.length) {
+      const event = events[subscriber.nextEventIndex]!;
       const serialized = JSON.stringify(event) + "\n";
       const uint8 = new TextEncoder().encode(serialized);
 
       try {
-        controller.enqueue(uint8);
+        subscriber.controller.enqueue(uint8);
+        subscriber.nextEventIndex += 1;
       } catch (e) {
         console.error(
           `[event-stream] Failed to enqueue event for ${runId}:`,
