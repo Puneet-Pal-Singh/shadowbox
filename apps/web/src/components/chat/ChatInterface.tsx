@@ -12,7 +12,10 @@ import { useRunEvents } from "../../hooks/useRunEvents.js";
 import { useRunActivityFeed } from "../../hooks/useRunActivityFeed.js";
 import { getProviderRecoveryAdvice } from "../../lib/provider-recovery";
 import { useProviderStore } from "../../hooks/useProviderStore.js";
-import { buildChatMessageMetadata } from "./messageMetadata";
+import {
+  buildChatMessageMetadata,
+  buildConversationTurns,
+} from "./messageMetadata";
 import { buildActivityFeedViewModel } from "../../services/activity/ActivityFeedViewModel.js";
 import { ActivityTurn } from "./activity/ActivityTurn.js";
 import { WorkflowTimeline } from "./workflow/WorkflowTimeline.js";
@@ -114,6 +117,10 @@ export function ChatInterface({
     () => buildActivityFeedViewModel(feed),
     [feed],
   );
+  const conversationTurns = useMemo(
+    () => buildConversationTurns(messages),
+    [messages],
+  );
 
   useEffect(() => {
     setExpandedActivityTurns({});
@@ -174,8 +181,8 @@ export function ChatInterface({
       ? handleUsePlanInBuild
       : undefined;
   const chatEntries = useMemo(
-    () => buildChatEntries(messages, activityViewModel.turns),
-    [activityViewModel.turns, messages],
+    () => buildChatEntries(conversationTurns, activityViewModel.turns),
+    [activityViewModel.turns, conversationTurns],
   );
   const activityScrollSignal = useMemo(
     () =>
@@ -383,84 +390,38 @@ type ChatInterfaceEntry =
   | { kind: "turn"; turn: ActivityTurnViewModel };
 
 function buildChatEntries(
-  messages: Message[],
+  conversationTurns: ReturnType<typeof buildConversationTurns>,
   turns: ActivityTurnViewModel[],
 ): ChatInterfaceEntry[] {
   const entries: ChatInterfaceEntry[] = [];
-  const unmatchedTurns = turns.filter((turn) => turn.hasVisibleRows);
-  const turnsByPrompt = buildTurnsByPrompt(unmatchedTurns);
+  const pendingActivityTurns = turns.filter((turn) => turn.hasVisibleRows);
 
-  for (const message of messages) {
-    entries.push({ kind: "message", message });
+  for (const conversationTurn of conversationTurns) {
+    if (conversationTurn.userMessage) {
+      entries.push({
+        kind: "message",
+        message: conversationTurn.userMessage,
+      });
 
-    if (message.role !== "user") {
-      continue;
+      const activityTurn = pendingActivityTurns.shift();
+      if (activityTurn) {
+        entries.push({ kind: "turn", turn: activityTurn });
+      }
     }
 
-    const turn = claimTurnForMessage(message, turnsByPrompt, unmatchedTurns);
-    if (turn) {
-      entries.push({ kind: "turn", turn });
+    if (conversationTurn.assistantMessage) {
+      entries.push({
+        kind: "message",
+        message: conversationTurn.assistantMessage,
+      });
     }
   }
 
-  for (const turn of unmatchedTurns) {
+  for (const turn of pendingActivityTurns) {
     entries.push({ kind: "turn", turn });
   }
 
   return entries;
-}
-
-function buildTurnsByPrompt(
-  turns: ActivityTurnViewModel[],
-): Map<string, ActivityTurnViewModel[]> {
-  const turnsByPrompt = new Map<string, ActivityTurnViewModel[]>();
-
-  for (const turn of turns) {
-    if (!turn.userPrompt) {
-      continue;
-    }
-
-    const existing = turnsByPrompt.get(turn.userPrompt) ?? [];
-    existing.push(turn);
-    turnsByPrompt.set(turn.userPrompt, existing);
-  }
-
-  return turnsByPrompt;
-}
-
-function claimTurnForMessage(
-  message: Message,
-  turnsByPrompt: Map<string, ActivityTurnViewModel[]>,
-  unmatchedTurns: ActivityTurnViewModel[],
-): ActivityTurnViewModel | undefined {
-  const prompt = extractMessageText(message).trim();
-  if (prompt) {
-    const matchedTurns = turnsByPrompt.get(prompt);
-    const matchedTurn = matchedTurns?.shift();
-    if (matchedTurn) {
-      removeTurn(unmatchedTurns, matchedTurn.key);
-      return matchedTurn;
-    }
-  }
-
-  const fallbackTurn = unmatchedTurns[0];
-  if (!fallbackTurn) {
-    return undefined;
-  }
-
-  removeTurn(unmatchedTurns, fallbackTurn.key);
-  return fallbackTurn;
-}
-
-function extractMessageText(message: Message): string {
-  return typeof message.content === "string" ? message.content : "";
-}
-
-function removeTurn(turns: ActivityTurnViewModel[], key: string): void {
-  const index = turns.findIndex((turn) => turn.key === key);
-  if (index >= 0) {
-    turns.splice(index, 1);
-  }
 }
 
 function resolveModelLabel(
