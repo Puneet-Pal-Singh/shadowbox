@@ -60,6 +60,8 @@ function AppContent() {
     saveSessionContext,
   } = useGitHub();
   const [showRepoPicker, setShowRepoPicker] = useState(false);
+  const [isGitReviewOpen, setIsGitReviewOpen] = useState(false);
+  const [gitReviewSessionId, setGitReviewSessionId] = useState<string | null>(null);
 
   // Get active session for workspace rendering
   // Use memoized activeSession to avoid unnecessary re-renders
@@ -260,20 +262,14 @@ function AppContent() {
     }
   };
 
-  const handleOpenIde = (ide: string) => {
-    console.log("Opening in IDE:", ide);
-  };
-
   const handleCommit = () => {
-    console.log("Commit changes");
-  };
+    if (!activeSessionId || !activeSession) {
+      return;
+    }
 
-  const handlePush = () => {
-    console.log("Push to remote");
-  };
-
-  const handleStash = () => {
-    console.log("Stash changes");
+    setIsRightSidebarOpen(true);
+    setIsGitReviewOpen(true);
+    setGitReviewSessionId(activeSessionId);
   };
 
   const handleToggleSidebar = () => {
@@ -398,10 +394,7 @@ function AppContent() {
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
         {/* Top Navigation Bar - Only in content area */}
         <TopNavBar
-          onOpenIde={handleOpenIde}
-          onCommit={handleCommit}
-          onPush={handlePush}
-          onStash={handleStash}
+          onCommit={showWorkspace ? handleCommit : undefined}
           isSidebarOpen={isSidebarOpen}
           onToggleSidebar={handleToggleSidebar}
           isRightSidebarOpen={isRightSidebarOpen}
@@ -477,6 +470,13 @@ function AppContent() {
                   }
                   isRightSidebarOpen={isRightSidebarOpen}
                   setIsRightSidebarOpen={setIsRightSidebarOpen}
+                  isGitReviewOpen={
+                    isGitReviewOpen && gitReviewSessionId === activeSessionId
+                  }
+                  onGitReviewOpenChange={(open) => {
+                    setIsGitReviewOpen(open);
+                    setGitReviewSessionId(open ? activeSessionId : null);
+                  }}
                 />
               </motion.div>
             ) : (

@@ -15,6 +15,8 @@ import { useFileLoader } from "./workspace/useFileLoader";
 import { SidebarHeader } from "./workspace/SidebarHeader";
 import { SidebarContent } from "./workspace/SidebarContent";
 import { bootstrapGitWorkspace } from "../../lib/git-workspace-bootstrap";
+import { GitReviewProvider } from "../git/GitReviewContext";
+import { GitReviewDialog } from "../git/GitReviewDialog";
 
 interface WorkspaceProps {
   sessionId: string;
@@ -24,6 +26,8 @@ interface WorkspaceProps {
   onModeChange?: (mode: RunMode) => void;
   isRightSidebarOpen?: boolean;
   setIsRightSidebarOpen?: (open: boolean) => void;
+  isGitReviewOpen?: boolean;
+  onGitReviewOpenChange?: (open: boolean) => void;
 }
 
 export function Workspace({
@@ -34,6 +38,8 @@ export function Workspace({
   onModeChange,
   isRightSidebarOpen = false,
   setIsRightSidebarOpen,
+  isGitReviewOpen = false,
+  onGitReviewOpenChange,
 }: WorkspaceProps) {
   const explorerRef = useRef<FileExplorerHandle>(null);
   const workspaceBootstrapKeyRef = useRef<string | null>(null);
@@ -223,7 +229,11 @@ export function Workspace({
 
   return (
     <RunContextProvider runId={activeRunId} sessionId={sessionId}>
-      <div className="flex-1 flex bg-black overflow-hidden relative">
+      <GitReviewProvider
+        isReviewOpen={isGitReviewOpen}
+        onReviewOpenChange={(open) => onGitReviewOpenChange?.(open)}
+      >
+        <div className="flex-1 flex bg-black overflow-hidden relative">
         {/* Chat Area */}
         <main className="flex-1 flex flex-col min-w-0 bg-black relative">
           {isHydrating ? (
@@ -299,6 +309,10 @@ export function Workspace({
               isViewingContent={isViewingContent}
               activeTab={activeTab}
               changesCount={changesCount}
+              onExpand={() => {
+                setIsRightSidebarOpen?.(true);
+                onGitReviewOpenChange?.(true);
+              }}
               onBack={() => {
                 setIsViewingContent(false);
                 setSelectedFile(null);
@@ -328,7 +342,9 @@ export function Workspace({
             />
           </div>
         </motion.aside>
+        <GitReviewDialog />
       </div>
+      </GitReviewProvider>
     </RunContextProvider>
   );
 }
