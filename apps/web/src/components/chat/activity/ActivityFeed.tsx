@@ -17,15 +17,32 @@ export function ActivityFeed({
   onUsePlanInBuild,
   onJumpToLatest,
 }: ActivityFeedProps) {
+  if (!feed && !isLoading) {
+    return null;
+  }
+
+  return (
+    <ActivityFeedContent
+      key={feed?.runId ?? "empty"}
+      feed={feed}
+      isLoading={isLoading}
+      onUsePlanInBuild={onUsePlanInBuild}
+      onJumpToLatest={onJumpToLatest}
+    />
+  );
+}
+
+function ActivityFeedContent({
+  feed,
+  isLoading,
+  onUsePlanInBuild,
+  onJumpToLatest,
+}: ActivityFeedProps) {
   const viewModel = useMemo(() => buildActivityFeedViewModel(feed), [feed]);
   const [expandedTurns, setExpandedTurns] = useState<Record<string, boolean>>(
     {},
   );
   const [expandedRows, setExpandedRows] = useState<Record<string, boolean>>({});
-
-  if (!feed && !isLoading) {
-    return null;
-  }
 
   return (
     <section className="space-y-4">
@@ -92,10 +109,10 @@ export function ActivityFeed({
               }))
             }
             expandedRows={expandedRows}
-            onToggleRow={(rowKey) =>
+            onToggleRow={(rowKey, expanded) =>
               setExpandedRows((current) => ({
                 ...current,
-                [rowKey]: !current[rowKey],
+                [rowKey]: !expanded,
               }))
             }
             onUsePlanInBuild={onUsePlanInBuild}

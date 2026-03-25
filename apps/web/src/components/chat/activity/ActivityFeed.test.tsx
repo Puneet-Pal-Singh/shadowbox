@@ -70,6 +70,45 @@ describe("ActivityFeed", () => {
     expect(screen.getByText(/working for 4s/i)).toBeInTheDocument();
     expect(screen.getByText("Analyzing repository")).toBeInTheDocument();
   });
+
+  it("resets expansion state when the feed switches to a new run", () => {
+    const { rerender } = render(
+      <ActivityFeed feed={createFeedSnapshot()} isLoading={false} />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /worked for 3s/i }));
+    expect(screen.getByText("Explore")).toBeInTheDocument();
+
+    rerender(
+      <ActivityFeed
+        feed={{
+          ...createFeedSnapshot(),
+          runId: "run-2",
+          items: createFeedSnapshot().items.map((item) => ({
+            ...item,
+            runId: "run-2",
+          })),
+        }}
+        isLoading={false}
+      />,
+    );
+
+    expect(screen.queryByText("Explore")).not.toBeInTheDocument();
+  });
+
+  it("renders grouped child rows without nested show-hide controls", () => {
+    render(<ActivityFeed feed={createFeedSnapshot()} isLoading={false} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /worked for 3s/i }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /Explore 2 low-noise read\/search actions Show/i }),
+    );
+
+    expect(screen.getByText("Read README.md")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Read README.md" }),
+    ).not.toBeInTheDocument();
+  });
 });
 
 function createFeedSnapshot(): ActivityFeedSnapshot {
