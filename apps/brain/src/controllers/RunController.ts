@@ -1,4 +1,5 @@
 import type { Env } from "../types/ai";
+import { parseActivityFeedSnapshot } from "@repo/shared-types";
 import { getCorsHeaders } from "../lib/cors";
 import { getBrainRuntimeHeaders } from "../core/observability/runtime";
 import { fetchRunRuntimeRoute } from "./chat-runtime-helpers";
@@ -16,13 +17,6 @@ interface RunSummaryResponse {
   cancelledTasks: number;
   eventCount?: number;
   lastEventType?: string | null;
-}
-
-interface RunActivityResponse {
-  runId: string;
-  sessionId: string;
-  status: string;
-  items: unknown[];
 }
 
 export class RunController {
@@ -217,7 +211,7 @@ export class RunController {
         );
       }
 
-      const payload = (await response.json()) as RunActivityResponse;
+      const payload = parseActivityFeedSnapshot(await response.json());
       return jsonResponse(req, env, payload);
     } catch (error) {
       console.error("[RunController:getActivity] Error:", error);
