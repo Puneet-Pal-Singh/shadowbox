@@ -389,7 +389,7 @@ function buildChatEntries(
   turns: ActivityTurnViewModel[],
 ): ChatInterfaceEntry[] {
   const entries: ChatInterfaceEntry[] = [];
-  const pendingActivityTurns = turns.filter((turn) => turn.hasVisibleRows);
+  const pendingActivityTurns = [...turns];
 
   for (const conversationTurn of conversationTurns) {
     if (conversationTurn.userMessage) {
@@ -399,7 +399,7 @@ function buildChatEntries(
       });
 
       const activityTurn = pendingActivityTurns.shift();
-      if (activityTurn) {
+      if (activityTurn?.hasVisibleRows) {
         entries.push({ kind: "turn", turn: activityTurn });
       }
     }
@@ -413,7 +413,9 @@ function buildChatEntries(
   }
 
   for (const turn of pendingActivityTurns) {
-    entries.push({ kind: "turn", turn });
+    if (turn.hasVisibleRows) {
+      entries.push({ kind: "turn", turn });
+    }
   }
 
   return entries;

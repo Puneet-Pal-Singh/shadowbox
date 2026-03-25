@@ -597,4 +597,143 @@ describe("ChatInterface", () => {
       text.indexOf("I read the README and summarized it."),
     );
   });
+
+  it("does not shift a later workflow turn upward when an intermediate query has no visible activity", () => {
+    vi.mocked(useRunSummary).mockReturnValue({
+      summary: {
+        runId: "run-1",
+        status: "COMPLETED",
+        totalTasks: 0,
+        completedTasks: 0,
+        failedTasks: 0,
+        planArtifact: null,
+      },
+    });
+    vi.mocked(useRunActivityFeed).mockReturnValue({
+      feed: {
+        runId: "run-1",
+        sessionId: "session-1",
+        status: "COMPLETED",
+        items: [
+          {
+            id: "turn-1-user",
+            runId: "run-1",
+            sessionId: "session-1",
+            turnId: "turn-1",
+            kind: "text",
+            createdAt: "2026-03-24T10:00:00.000Z",
+            updatedAt: "2026-03-24T10:00:00.000Z",
+            source: "brain",
+            role: "user",
+            content: "first query",
+          },
+          {
+            id: "turn-1-tool",
+            runId: "run-1",
+            sessionId: "session-1",
+            turnId: "turn-1",
+            kind: "tool",
+            createdAt: "2026-03-24T10:00:01.000Z",
+            updatedAt: "2026-03-24T10:00:03.000Z",
+            source: "brain",
+            toolId: "tool-1",
+            toolName: "read_file",
+            status: "completed",
+            metadata: {
+              family: "read",
+              count: 1,
+              truncated: false,
+              loadedPaths: ["README.md"],
+              path: "README.md",
+            },
+          },
+          {
+            id: "turn-2-user",
+            runId: "run-1",
+            sessionId: "session-1",
+            turnId: "turn-2",
+            kind: "text",
+            createdAt: "2026-03-24T10:01:00.000Z",
+            updatedAt: "2026-03-24T10:01:00.000Z",
+            source: "brain",
+            role: "user",
+            content: "second query",
+          },
+          {
+            id: "turn-3-user",
+            runId: "run-1",
+            sessionId: "session-1",
+            turnId: "turn-3",
+            kind: "text",
+            createdAt: "2026-03-24T10:02:00.000Z",
+            updatedAt: "2026-03-24T10:02:00.000Z",
+            source: "brain",
+            role: "user",
+            content: "third query",
+          },
+          {
+            id: "turn-3-tool",
+            runId: "run-1",
+            sessionId: "session-1",
+            turnId: "turn-3",
+            kind: "tool",
+            createdAt: "2026-03-24T10:02:01.000Z",
+            updatedAt: "2026-03-24T10:02:05.000Z",
+            source: "brain",
+            toolId: "tool-3",
+            toolName: "git_status",
+            status: "completed",
+            metadata: {
+              family: "git",
+              count: 1,
+              preview: '{"ahead":0}',
+            },
+          },
+        ],
+      },
+    });
+
+    const { container } = render(
+      <ChatInterface
+        chatProps={{
+          messages: [
+            { id: "user-1", role: "user", content: "first query" },
+            { id: "assistant-1", role: "assistant", content: "first reply" },
+            { id: "user-2", role: "user", content: "second query" },
+            { id: "assistant-2", role: "assistant", content: "second reply" },
+            { id: "user-3", role: "user", content: "third query" },
+            { id: "assistant-3", role: "assistant", content: "third reply" },
+          ],
+          runId: "run-1",
+          input: "",
+          handleInputChange: vi.fn(),
+          handleSubmit: vi.fn(),
+          append: vi.fn(),
+          stop: vi.fn(),
+          isLoading: false,
+          error: null,
+          debugEvents: [],
+        }}
+        sessionId="session-1"
+        mode="build"
+      />,
+    );
+
+    const text = container.textContent ?? "";
+    expect(text.indexOf("Worked for 3s")).toBeGreaterThan(
+      text.indexOf("first query"),
+    );
+    expect(text.indexOf("Worked for 3s")).toBeLessThan(
+      text.indexOf("first reply"),
+    );
+    expect(text.indexOf("Worked for 5s")).toBeGreaterThan(
+      text.indexOf("third query"),
+    );
+    expect(text.indexOf("Worked for 5s")).toBeLessThan(
+      text.indexOf("third reply"),
+    );
+    expect(text.indexOf("Worked for 5s")).toBeGreaterThan(
+      text.indexOf("second reply"),
+    );
+  });
 });
