@@ -114,6 +114,7 @@ export {
   parseActivityPart,
   safeParseActivityPart,
   parseActivityFeedSnapshot,
+  safeParseToolActivityMetadata,
 } from "./activity-feed.zod.js";
 
 // Run event types

@@ -8,6 +8,7 @@ import {
   TOOL_ACTIVITY_STATUSES,
   type ActivityFeedSnapshot,
   type ActivityPart,
+  type ToolActivityMetadata,
 } from "./activity-feed.js";
 
 const EventSourceSchema = z.enum(["brain", "muscle", "web", "cli", "desktop"]);
@@ -88,6 +89,15 @@ const GenericToolMetadataSchema = z.object({
   summary: z.string().optional(),
 });
 
+const ToolActivityMetadataSchema = z.discriminatedUnion("family", [
+  ReadToolMetadataSchema,
+  SearchToolMetadataSchema,
+  ShellToolMetadataSchema,
+  EditToolMetadataSchema,
+  GitToolMetadataSchema,
+  GenericToolMetadataSchema,
+]);
+
 const ToolActivityPartSchema = BaseActivityPartSchema.extend({
   kind: z.literal(ACTIVITY_PART_KINDS.TOOL),
   toolId: z.string().min(1),
@@ -100,14 +110,7 @@ const ToolActivityPartSchema = BaseActivityPartSchema.extend({
   ]),
   input: z.record(z.string(), z.unknown()).optional(),
   output: z.unknown().optional(),
-  metadata: z.discriminatedUnion("family", [
-    ReadToolMetadataSchema,
-    SearchToolMetadataSchema,
-    ShellToolMetadataSchema,
-    EditToolMetadataSchema,
-    GitToolMetadataSchema,
-    GenericToolMetadataSchema,
-  ]),
+  metadata: ToolActivityMetadataSchema,
   startedAt: z.string().datetime().optional(),
   endedAt: z.string().datetime().optional(),
 }).strict();
@@ -171,4 +174,14 @@ export function safeParseActivityPart(
 
 export function parseActivityFeedSnapshot(data: unknown): ActivityFeedSnapshot {
   return ActivityFeedSnapshotSchema.parse(data) as ActivityFeedSnapshot;
+}
+
+export function safeParseToolActivityMetadata(
+  data: unknown,
+): { success: true; data: ToolActivityMetadata } | { success: false; error: string } {
+  const result = ToolActivityMetadataSchema.safeParse(data);
+  if (result.success) {
+    return { success: true, data: result.data as ToolActivityMetadata };
+  }
+  return { success: false, error: result.error.message };
 }
