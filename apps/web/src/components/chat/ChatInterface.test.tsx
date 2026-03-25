@@ -77,7 +77,7 @@ describe("ChatInterface", () => {
             updatedAt: "2026-03-24T10:00:00.000Z",
             source: "brain",
             role: "user",
-            content: "Plan complete.",
+            content: "Plan this repository.",
           },
           {
             id: "reasoning-1",
@@ -117,6 +117,11 @@ describe("ChatInterface", () => {
     const onModeChange = vi.fn();
     const append = vi.fn().mockResolvedValue(undefined);
     const messages: Message[] = [
+      {
+        id: "user-1",
+        role: "user",
+        content: "Plan this repository.",
+      },
       {
         id: "assistant-1",
         role: "assistant",
@@ -164,6 +169,11 @@ describe("ChatInterface", () => {
         chatProps={{
           messages: [
             {
+              id: "user-1",
+              role: "user",
+              content: "Plan this repository.",
+            },
+            {
               id: "assistant-1",
               role: "assistant",
               content: "Plan complete.",
@@ -197,6 +207,11 @@ describe("ChatInterface", () => {
       <ChatInterface
         chatProps={{
           messages: [
+            {
+              id: "user-1",
+              role: "user",
+              content: "Plan this repository.",
+            },
             {
               id: "assistant-1",
               role: "assistant",

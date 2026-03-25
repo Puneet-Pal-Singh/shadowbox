@@ -95,6 +95,15 @@ export interface ActivityFeedViewModel {
 
 const LOW_SIGNAL_EXPLORATION_THRESHOLD = 2;
 
+class MissingActivityTurnIdError extends Error {
+  constructor(index: number) {
+    super(
+      `Activity turn at index ${index} is missing a canonical turnId and cannot be rendered safely.`,
+    );
+    this.name = "MissingActivityTurnIdError";
+  }
+}
+
 export function buildActivityFeedViewModel(
   feed: ActivityFeedSnapshot | null,
 ): ActivityFeedViewModel {
@@ -118,7 +127,7 @@ export function buildActivityFeedViewModel(
       const rows = buildTurnRows(turn.items);
       const isActiveTurn = feed.status === "RUNNING" && index === lastTurnIndex;
       return {
-        key: turn.turnId ?? `turn-fallback-${index}`,
+        key: requireActivityTurnId(turn.turnId, index),
         userPrompt: getTurnUserPrompt(turn.items),
         elapsedLabel: formatDuration(
           turn.items[0]?.createdAt ?? null,
@@ -133,6 +142,17 @@ export function buildActivityFeedViewModel(
       };
     }),
   };
+}
+
+function requireActivityTurnId(
+  turnId: string | undefined,
+  index: number,
+): string {
+  if (!turnId) {
+    throw new MissingActivityTurnIdError(index);
+  }
+
+  return turnId;
 }
 
 function groupItemsIntoTurns(

@@ -384,6 +384,24 @@ type ChatInterfaceEntry =
   | { kind: "message"; message: Message }
   | { kind: "turn"; turn: ActivityTurnViewModel };
 
+class MissingConversationTurnIdError extends Error {
+  constructor(messageId: string) {
+    super(
+      `Conversation turn for user message ${messageId} is missing a canonical turnId and cannot be correlated safely.`,
+    );
+    this.name = "MissingConversationTurnIdError";
+  }
+}
+
+class UnmatchedActivityTurnError extends Error {
+  constructor(activityTurnKeys: string[]) {
+    super(
+      `Activity turns could not be correlated to conversation turns: ${activityTurnKeys.join(", ")}`,
+    );
+    this.name = "UnmatchedActivityTurnError";
+  }
+}
+
 function buildChatEntries(
   conversationTurns: ReturnType<typeof buildConversationTurns>,
   turns: ActivityTurnViewModel[],
@@ -404,7 +422,13 @@ function buildChatEntries(
         message: conversationTurn.userMessage,
       });
 
-      const activityKey = conversationTurn.turnId ?? conversationTurn.key;
+      if (!conversationTurn.turnId) {
+        throw new MissingConversationTurnIdError(
+          conversationTurn.userMessage.id,
+        );
+      }
+
+      const activityKey = conversationTurn.turnId;
       const matchedActivityTurns = pendingActivityTurnsByKey.get(activityKey);
       if (matchedActivityTurns) {
         pendingActivityTurnsByKey.delete(activityKey);
@@ -424,16 +448,15 @@ function buildChatEntries(
     }
   }
 
-  for (const unmatchedTurns of pendingActivityTurnsByKey.values()) {
-    for (const turn of unmatchedTurns) {
-      if (turn.hasVisibleRows) {
-        console.warn(
-          "[chat/transcript] Unmatched activity turn; appending after messages.",
-          { activityTurnKey: turn.key },
-        );
-        entries.push({ kind: "turn", turn });
-      }
-    }
+  const unmatchedActivityTurnKeys = Array.from(
+    pendingActivityTurnsByKey.values(),
+  )
+    .flat()
+    .filter((turn) => turn.hasVisibleRows)
+    .map((turn) => turn.key);
+
+  if (unmatchedActivityTurnKeys.length > 0) {
+    throw new UnmatchedActivityTurnError(unmatchedActivityTurnKeys);
   }
 
   return entries;

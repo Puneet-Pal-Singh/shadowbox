@@ -165,6 +165,35 @@ describe("ActivityFeedViewModel", () => {
       expect(gitRow.details[0]).toContain("Working tree clean.");
     }
   });
+
+  it("fails fast when activity turns are missing a canonical turn id", () => {
+    expect(() =>
+      buildActivityFeedViewModel({
+        runId: "run-invalid",
+        sessionId: "session-invalid",
+        status: "COMPLETED",
+        items: [
+          {
+            id: "tool-1",
+            runId: "run-invalid",
+            sessionId: "session-invalid",
+            kind: ACTIVITY_PART_KINDS.TOOL,
+            createdAt: "2026-03-24T10:00:01.000Z",
+            updatedAt: "2026-03-24T10:00:02.000Z",
+            source: "brain",
+            toolId: "tool-1",
+            toolName: "git_status",
+            status: "completed",
+            metadata: {
+              family: TOOL_ACTIVITY_FAMILIES.GIT,
+              preview:
+                '{"files":[],"ahead":0,"behind":0,"branch":"main","hasStaged":false,"hasUnstaged":false,"gitAvailable":true}',
+            },
+          },
+        ],
+      }),
+    ).toThrow(/missing a canonical turnId/i);
+  });
 });
 
 function createFeedSnapshot(): ActivityFeedSnapshot {
