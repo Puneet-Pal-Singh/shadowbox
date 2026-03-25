@@ -34,6 +34,35 @@ describe("ActivityFeedViewModel", () => {
     expect(viewModel.turns[0]?.isActiveTurn).toBe(false);
     expect(viewModel.turns[0]?.defaultCollapsed).toBe(true);
   });
+
+  it("labels active read and search batches as gathering context", () => {
+    const snapshot = createFeedSnapshot();
+    const runningTool = snapshot.items[3];
+    if (!runningTool || runningTool.kind !== ACTIVITY_PART_KINDS.TOOL) {
+      throw new Error("Expected a tool activity fixture.");
+    }
+    const viewModel = buildActivityFeedViewModel({
+      ...snapshot,
+      items: [
+        snapshot.items[0]!,
+        snapshot.items[1]!,
+        snapshot.items[2]!,
+        {
+          ...runningTool,
+          id: "tool-2-running",
+          status: "running",
+          updatedAt: "2026-03-24T10:00:02.500Z",
+        },
+      ],
+    });
+
+    expect(viewModel.turns[0]?.rows[1]).toMatchObject({
+      kind: "group",
+      title: "Gathering context",
+      status: "running",
+      defaultCollapsed: false,
+    });
+  });
 });
 
 function createFeedSnapshot(): ActivityFeedSnapshot {

@@ -62,6 +62,7 @@ export interface ActivityGroupRowViewModel {
   key: string;
   title: string;
   summary: string;
+  status: "requested" | "running" | "completed" | "failed";
   defaultCollapsed: boolean;
   rows: ActivityToolRowViewModel[];
 }
@@ -294,7 +295,7 @@ function isExplorationTool(row: ActivityToolRowViewModel): boolean {
   return (
     (row.family === TOOL_ACTIVITY_FAMILIES.READ ||
       row.family === TOOL_ACTIVITY_FAMILIES.SEARCH) &&
-    row.status === "completed"
+    row.status !== "failed"
   );
 }
 
@@ -309,12 +310,19 @@ function flushExploreGroup(
     rows.push(...exploreRows);
     return;
   }
+  const hasFailedRows = exploreRows.some((row) => row.status === "failed");
+  const hasRunningRows = exploreRows.some(
+    (row) => row.status === "requested" || row.status === "running",
+  );
   rows.push({
     kind: "group",
     key: `explore-${exploreRows[0]?.key ?? "group"}`,
-    title: "Explore",
-    summary: `${exploreRows.length} low-noise read/search actions`,
-    defaultCollapsed: true,
+    title: hasRunningRows ? "Gathering context" : "Gathered context",
+    summary: hasRunningRows
+      ? `${exploreRows.length} read/search actions in progress`
+      : `${exploreRows.length} low-noise context actions`,
+    status: hasFailedRows ? "failed" : hasRunningRows ? "running" : "completed",
+    defaultCollapsed: !hasRunningRows,
     rows: [...exploreRows],
   });
 }

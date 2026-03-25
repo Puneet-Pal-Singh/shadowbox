@@ -197,6 +197,7 @@ function GroupRow({
       summary={row.summary}
       expanded={expanded}
       onToggle={onToggle}
+      tone={row.status}
       displayMode={displayMode}
       collapsible={collapsible}
     >

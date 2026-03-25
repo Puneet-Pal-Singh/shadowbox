@@ -28,7 +28,7 @@ describe("ActivityFeed", () => {
     ).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /worked for 3s/i }));
-    expect(screen.getByText("Explore")).toBeInTheDocument();
+    expect(screen.getByText("Gathered context")).toBeInTheDocument();
 
     fireEvent.click(
       screen.getAllByRole("button", { name: "Execute Plan in Build" })[1]!,
@@ -77,7 +77,7 @@ describe("ActivityFeed", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: /worked for 3s/i }));
-    expect(screen.getByText("Explore")).toBeInTheDocument();
+    expect(screen.getByText("Gathered context")).toBeInTheDocument();
 
     rerender(
       <ActivityFeed
@@ -101,7 +101,9 @@ describe("ActivityFeed", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /worked for 3s/i }));
     fireEvent.click(
-      screen.getByRole("button", { name: /Explore 2 low-noise read\/search actions Show/i }),
+      screen.getByRole("button", {
+        name: /Gathered context 2 low-noise context actions Show/i,
+      }),
     );
 
     expect(screen.getByText("Read README.md")).toBeInTheDocument();
