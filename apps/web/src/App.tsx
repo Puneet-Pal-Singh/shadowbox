@@ -62,6 +62,9 @@ function AppContent() {
   const [showRepoPicker, setShowRepoPicker] = useState(false);
   const [isGitReviewOpen, setIsGitReviewOpen] = useState(false);
   const [gitReviewSessionId, setGitReviewSessionId] = useState<string | null>(null);
+  const [gitReviewIntent, setGitReviewIntent] = useState<"review" | "commit">(
+    "review",
+  );
 
   // Get active session for workspace rendering
   // Use memoized activeSession to avoid unnecessary re-renders
@@ -119,8 +122,8 @@ function AppContent() {
   // Uses SessionStateService for session-scoped storage
   useEffect(() => {
     if (!activeSessionId) return;
+    if (!activeSession) return;
 
-    // Load session-scoped context from SessionStateService
     const sessionContext = SessionStateService.loadSessionGitHubContext(
       activeSessionId,
     );
@@ -166,7 +169,14 @@ function AppContent() {
         clearContext();
       }
     }
-  }, [activeSessionId, repo, branch, setContext, clearContext]);
+  }, [
+    activeSessionId,
+    activeSession,
+    repo,
+    branch,
+    setContext,
+    clearContext,
+  ]);
 
   // Check if user needs to select a repository on load
   useEffect(() => {
@@ -174,20 +184,20 @@ function AppContent() {
       isGitHubContextLoaded,
       hasRepo: !!repo,
       isAuthenticated,
-      hasSessions: sessions.length > 0
+      hasSessions: sessions.length > 0,
     });
     
-    // ONLY show repo picker automatically if:
-    // 1. Context is loaded
-    // 2. No repo is currently selected
-    // 3. User is authenticated
-    // 4. User has NO existing sessions (it's a fresh start)
-    if (isGitHubContextLoaded && !repo && isAuthenticated && sessions.length === 0) {
-      // No repo selected and no sessions, show picker
+    if (!isGitHubContextLoaded || !isAuthenticated) return;
+
+    // Fresh start: no repo, no sessions → show picker
+    if (!repo && sessions.length === 0) {
       console.log("[App] Showing repo picker - fresh start, no repo or sessions");
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setShowRepoPicker(true);
-    } else if (isGitHubContextLoaded && repo) {
+      return;
+    }
+
+    if (repo) {
       console.log("[App] Repo already selected:", repo.full_name);
     }
   }, [isGitHubContextLoaded, repo, isAuthenticated, sessions.length]);
@@ -223,19 +233,15 @@ function AppContent() {
     // If no repo name provided, try to use the currently active repo
     const targetRepo = repositoryName || repo?.full_name;
 
-    // Verify the repo actually exists in our folders list
-    const repoExists = targetRepo && repositories.includes(targetRepo);
-
-    if (targetRepo && repoExists) {
+    if (targetRepo) {
       console.log("[App] Creating new task for repo:", targetRepo);
+      setShowRepoPicker(false);
       // Create a session for this specific repository
       const sessionName = `New Task`;
       const sessionId = createSession(sessionName, targetRepo);
 
       // Clear pending query for new task
       SessionStateService.clearSessionPendingQuery(sessionId);
-
-      setActiveSessionId(sessionId);
 
       // Sync GitHub context with new session
       // Use SessionStateService for session-scoped storage
@@ -262,14 +268,23 @@ function AppContent() {
     }
   };
 
-  const handleCommit = () => {
+  const openGitReview = (intent: "review" | "commit") => {
     if (!activeSessionId || !activeSession) {
       return;
     }
 
     setIsRightSidebarOpen(true);
+    setGitReviewIntent(intent);
     setIsGitReviewOpen(true);
     setGitReviewSessionId(activeSessionId);
+  };
+
+  const handleReview = () => {
+    openGitReview("review");
+  };
+
+  const handleCommit = () => {
+    openGitReview("commit");
   };
 
   const handleToggleSidebar = () => {
@@ -294,7 +309,6 @@ function AppContent() {
     // Create a session immediately for this repository so it shows in sidebar
     const sessionName = `New Task`;
     const sessionId = createSession(sessionName, selectedRepo.full_name);
-    setActiveSessionId(sessionId);
 
     // Store GitHub context for the session using SessionStateService
     SessionStateService.saveSessionGitHubContext(sessionId, {
@@ -394,6 +408,7 @@ function AppContent() {
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
         {/* Top Navigation Bar - Only in content area */}
         <TopNavBar
+          onReview={showWorkspace ? handleReview : undefined}
           onCommit={showWorkspace ? handleCommit : undefined}
           isSidebarOpen={isSidebarOpen}
           onToggleSidebar={handleToggleSidebar}
@@ -473,9 +488,13 @@ function AppContent() {
                   isGitReviewOpen={
                     isGitReviewOpen && gitReviewSessionId === activeSessionId
                   }
+                  gitReviewIntent={gitReviewIntent}
                   onGitReviewOpenChange={(open) => {
                     setIsGitReviewOpen(open);
                     setGitReviewSessionId(open ? activeSessionId : null);
+                    if (!open) {
+                      setGitReviewIntent("review");
+                    }
                   }}
                 />
               </motion.div>
