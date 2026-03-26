@@ -24,9 +24,7 @@ export function GitCommitDialog({
     commitError,
     committing,
   } = useGitReview();
-  const [includeUnstaged, setIncludeUnstaged] = useState(
-    () => Boolean(status?.hasUnstaged),
-  );
+  const [includeUnstaged, setIncludeUnstaged] = useState(false);
   const [nextStep, setNextStep] = useState<CommitNextStep>("commit");
 
   useEffect(() => {
