@@ -8,6 +8,7 @@ const mockStageAll = vi.hoisted(() => vi.fn(async () => {}));
 const mockUnstageAll = vi.hoisted(() => vi.fn(async () => {}));
 const mockSubmitCommit = vi.hoisted(() => vi.fn(async () => true));
 const mockSetCommitMessage = vi.hoisted(() => vi.fn());
+const mockOpenReview = vi.hoisted(() => vi.fn());
 
 vi.mock("../git/GitReviewContext", () => ({
   useGitReview: () => ({
@@ -36,11 +37,14 @@ vi.mock("../git/GitReviewContext", () => ({
     stagedFiles: new Set<string>(),
     commitMessage: "feat: ship it",
     setCommitMessage: mockSetCommitMessage,
+    openReview: mockOpenReview,
+    closeReview: vi.fn(),
     selectFile: mockSelectFile,
     toggleFileStaged: mockToggleFileStaged,
     stageAll: mockStageAll,
     unstageAll: mockUnstageAll,
     submitCommit: mockSubmitCommit,
+    refetch: vi.fn(),
   }),
 }));
 
@@ -107,10 +111,20 @@ describe("ChangesPanel", () => {
     mockUnstageAll.mockClear();
     mockSubmitCommit.mockClear();
     mockSetCommitMessage.mockClear();
+    mockOpenReview.mockClear();
   });
 
-  it("delegates file selection and staging actions to the shared git review state", async () => {
+  it("opens the shared review dialog when selecting a file from the sidebar", async () => {
     render(<ChangesPanel />);
+
+    fireEvent.click(screen.getByTestId("select-file"));
+
+    expect(mockOpenReview).toHaveBeenCalledWith("src/main.ts");
+    expect(mockSelectFile).not.toHaveBeenCalled();
+  });
+
+  it("delegates file selection and staging actions to the shared git review state in modal mode", async () => {
+    render(<ChangesPanel mode="modal" />);
 
     fireEvent.click(screen.getByTestId("select-file"));
     fireEvent.click(screen.getByTestId("stage-file"));
@@ -120,6 +134,7 @@ describe("ChangesPanel", () => {
     expect(mockSelectFile).toHaveBeenCalledWith(
       expect.objectContaining({ path: "src/main.ts" }),
     );
+    expect(mockOpenReview).not.toHaveBeenCalled();
     expect(mockToggleFileStaged).toHaveBeenCalledWith("src/main.ts", true);
     expect(mockStageAll).toHaveBeenCalledTimes(1);
     expect(mockUnstageAll).toHaveBeenCalledTimes(1);

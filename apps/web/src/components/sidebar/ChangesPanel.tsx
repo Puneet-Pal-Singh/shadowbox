@@ -29,6 +29,7 @@ export function ChangesPanel({
     stagedFiles,
     commitMessage,
     setCommitMessage,
+    openReview,
     selectFile,
     toggleFileStaged,
     stageAll,
@@ -37,6 +38,11 @@ export function ChangesPanel({
   } = useGitReview();
 
   const handleSelectFile = (file: NonNullable<typeof selectedFile>) => {
+    if (mode === "sidebar") {
+      openReview(file.path);
+      return;
+    }
+
     selectFile(file);
     onFileSelect?.(file.path);
   };
@@ -111,32 +117,34 @@ export function ChangesPanel({
         )}
       </div>
 
-      <div className="border-t border-zinc-800 pt-4 space-y-3">
-        <div>
-          <label className="block text-xs font-semibold text-zinc-400 mb-2">
-            Commit Message
-          </label>
-          <textarea
-            value={commitMessage}
-            onChange={(e) => setCommitMessage(e.target.value)}
-            placeholder="Describe your changes..."
-            className="w-full px-3 py-2 bg-zinc-900 border border-zinc-700 rounded text-sm text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-zinc-600 focus:ring-1 focus:ring-zinc-600"
-            rows={2}
-          />
+      {mode === "sidebar" && (
+        <div className="border-t border-zinc-800 pt-4 space-y-3">
+          <div>
+            <label className="block text-xs font-semibold text-zinc-400 mb-2">
+              Commit Message
+            </label>
+            <textarea
+              value={commitMessage}
+              onChange={(e) => setCommitMessage(e.target.value)}
+              placeholder="Describe your changes..."
+              className="w-full px-3 py-2 bg-zinc-900 border border-zinc-700 rounded text-sm text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-zinc-600 focus:ring-1 focus:ring-zinc-600"
+              rows={2}
+            />
+          </div>
+
+          {(stageError || commitError) && (
+            <div className="text-xs text-red-400">{stageError ?? commitError}</div>
+          )}
+
+          <button
+            onClick={handleCommit}
+            disabled={committing || !commitMessage.trim()}
+            className="w-full px-3 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-zinc-800 disabled:text-zinc-600 text-white text-sm font-medium rounded transition-colors"
+          >
+            {committing ? "Committing..." : "Commit"}
+          </button>
         </div>
-
-        {(stageError || commitError) && (
-          <div className="text-xs text-red-400">{stageError ?? commitError}</div>
-        )}
-
-        <button
-          onClick={handleCommit}
-          disabled={committing || !commitMessage.trim()}
-          className="w-full px-3 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-zinc-800 disabled:text-zinc-600 text-white text-sm font-medium rounded transition-colors"
-        >
-          {committing ? "Committing..." : "Commit"}
-        </button>
-      </div>
+      )}
     </div>
   );
 }
