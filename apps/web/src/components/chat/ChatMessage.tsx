@@ -270,6 +270,8 @@ function MarkdownMessageContent({
   content,
   isUser = false,
 }: MarkdownMessageContentProps) {
+  const displayContent = isUser ? shortenUserFileMentions(content) : content;
+
   return (
     <div
       className={cn(
@@ -311,10 +313,22 @@ function MarkdownMessageContent({
           ),
         }}
       >
-        {content}
+        {displayContent}
       </ReactMarkdown>
     </div>
   );
+}
+
+function shortenUserFileMentions(content: string): string {
+  return content.replace(/@([^\s`]+)/g, (fullMatch: string, token: string) => {
+    const normalizedToken = token.trim();
+    if (!normalizedToken) {
+      return fullMatch;
+    }
+
+    const basename = normalizedToken.split("/").pop() ?? normalizedToken;
+    return `@${basename}`;
+  });
 }
 
 function parseThinkingTags(content: string): {

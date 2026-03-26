@@ -32,6 +32,21 @@ describe("ChatMessage", () => {
     expect(link).toHaveAttribute("href", "https://example.com");
   });
 
+  it("shows only the basename for user file mentions", () => {
+    const message = {
+      id: "user-mention",
+      role: "user",
+      content: "add logging to @src/components/dashboard/admin/pending-approvals/PendingJobCard.tsx",
+    } as Message;
+
+    render(<ChatMessage message={message} />);
+
+    expect(screen.getByText(/@PendingJobCard\.tsx/)).toBeInTheDocument();
+    expect(
+      screen.queryByText(/@src\/components\/dashboard\/admin\/pending-approvals\/PendingJobCard\.tsx/),
+    ).not.toBeInTheDocument();
+  });
+
   it("does not render markdown images", () => {
     const message = {
       id: "assistant-image",
