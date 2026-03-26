@@ -1,0 +1,636 @@
+import {
+  getGoldenFlowToolRoute,
+  isConcreteCommandInput,
+  isConcretePathInput,
+  validateGoldenFlowToolInput,
+  type GoldenFlowToolName,
+} from "../contracts/index.js";
+import {
+  extractExecutionFailure,
+  formatExecutionResult,
+} from "../agents/ResultFormatter.js";
+import { validateSafePath } from "../agents/validation.js";
+import type {
+  RuntimeExecutionService,
+  TaskInput,
+  TaskResult,
+} from "../types.js";
+
+type LineMatcherPatternSource =
+  | "external_user_input"
+  | "deriveGrepPatternFromHint";
+
+export async function executeAgenticLoopTool(
+  executionService: RuntimeExecutionService,
+  input: {
+    taskId: string;
+    toolName: GoldenFlowToolName;
+    toolInput: TaskInput;
+  },
+): Promise<TaskResult> {
+  switch (input.toolName) {
+    case "read_file":
+      return executeReadFileTool(
+        executionService,
+        input.taskId,
+        input.toolInput,
+      );
+    case "list_files":
+      return executeListFilesTool(
+        executionService,
+        input.taskId,
+        input.toolInput,
+      );
+    case "write_file":
+      return executeWriteFileTool(
+        executionService,
+        input.taskId,
+        input.toolInput,
+      );
+    case "run_command":
+      return executeRunCommandTool(
+        executionService,
+        input.taskId,
+        input.toolInput,
+      );
+    case "git_status":
+      return executeGitStatusTool(
+        executionService,
+        input.taskId,
+        input.toolInput,
+      );
+    case "git_diff":
+      return executeGitDiffTool(
+        executionService,
+        input.taskId,
+        input.toolInput,
+      );
+    case "glob":
+      return executeGlobTool(executionService, input.taskId, input.toolInput);
+    case "grep":
+      return executeGrepTool(executionService, input.taskId, input.toolInput);
+    default:
+      return buildFailureResult(input.taskId, "Unsupported tool");
+  }
+}
+
+async function executeReadFileTool(
+  executionService: RuntimeExecutionService,
+  taskId: string,
+  taskInput: TaskInput,
+): Promise<TaskResult> {
+  const validatedInput = validateGoldenFlowToolInput("read_file", taskInput);
+  const path = normalizeToolPath(validatedInput.path);
+  validateToolPath(path);
+  validateSafePath(path);
+
+  const result = await executeGatewayPlugin(executionService, "read_file", {
+    path,
+  });
+  const failure = extractExecutionFailure(result);
+  if (failure) {
+    return buildFailureResult(taskId, failure);
+  }
+  return buildSuccessResult(taskId, formatExecutionResult(result));
+}
+
+async function executeListFilesTool(
+  executionService: RuntimeExecutionService,
+  taskId: string,
+  taskInput: TaskInput,
+): Promise<TaskResult> {
+  const validatedInput = validateGoldenFlowToolInput("list_files", taskInput);
+  const path = validatedInput.path
+    ? normalizeToolPath(validatedInput.path)
+    : ".";
+  if (path !== ".") {
+    validateSafePath(path);
+  }
+
+  const result = await executeGatewayPlugin(executionService, "list_files", {
+    path,
+  });
+  const failure = extractExecutionFailure(result);
+  if (failure) {
+    return buildFailureResult(taskId, failure);
+  }
+  return buildSuccessResult(taskId, formatExecutionResult(result));
+}
+
+async function executeWriteFileTool(
+  executionService: RuntimeExecutionService,
+  taskId: string,
+  taskInput: TaskInput,
+): Promise<TaskResult> {
+  const validatedInput = validateGoldenFlowToolInput("write_file", taskInput);
+  const path = normalizeToolPath(validatedInput.path);
+  validateToolPath(path);
+  validateSafePath(path);
+
+  const previousContent = await readExistingFileContent(executionService, path);
+  const result = await executeGatewayPlugin(executionService, "write_file", {
+    path,
+    content: validatedInput.content,
+  });
+  const failure = extractExecutionFailure(result);
+  if (failure) {
+    return buildFailureResult(taskId, failure);
+  }
+
+  return buildSuccessResult(taskId, formatExecutionResult(result), {
+    activity: buildWriteActivityMetadata(
+      path,
+      previousContent,
+      validatedInput.content,
+    ),
+  });
+}
+
+async function executeRunCommandTool(
+  executionService: RuntimeExecutionService,
+  taskId: string,
+  taskInput: TaskInput,
+): Promise<TaskResult> {
+  const validatedInput = validateGoldenFlowToolInput("run_command", taskInput);
+  const command = validatedInput.command.trim();
+
+  if (!isConcreteCommandInput(command)) {
+    return buildFailureResult(
+      taskId,
+      "Shell command must be a concrete non-empty command",
+    );
+  }
+
+  if (/^git(\s|$)/i.test(command)) {
+    return buildFailureResult(
+      taskId,
+      "Git shell commands are not allowed in shell tasks. Use a git tool instead.",
+    );
+  }
+
+  if (/^ls(\s|$)/i.test(command)) {
+    const path = extractDirectoryFromLsCommand(command);
+    return executeListFilesTool(executionService, taskId, {
+      description: "List files from shell shortcut",
+      path,
+    });
+  }
+
+  const result = await executeGatewayPlugin(executionService, "run_command", {
+    command,
+  });
+  const failure = extractExecutionFailure(result);
+  if (failure) {
+    return buildFailureResult(taskId, failure);
+  }
+  return buildSuccessResult(taskId, formatExecutionResult(result));
+}
+
+async function executeGitStatusTool(
+  executionService: RuntimeExecutionService,
+  taskId: string,
+  taskInput: TaskInput,
+): Promise<TaskResult> {
+  validateGoldenFlowToolInput("git_status", taskInput);
+  const result = await executeGatewayPlugin(executionService, "git_status", {});
+  const failure = extractExecutionFailure(result);
+  if (failure) {
+    return buildFailureResult(taskId, failure);
+  }
+  return buildSuccessResult(taskId, formatExecutionResult(result));
+}
+
+async function executeGitDiffTool(
+  executionService: RuntimeExecutionService,
+  taskId: string,
+  taskInput: TaskInput,
+): Promise<TaskResult> {
+  const validatedInput = validateGoldenFlowToolInput("git_diff", taskInput);
+  const payload: Record<string, unknown> = {};
+
+  if (validatedInput.path) {
+    const path = normalizeToolPath(validatedInput.path);
+    validateSafePath(path);
+    payload.path = path;
+  }
+  if (typeof validatedInput.staged === "boolean") {
+    payload.staged = validatedInput.staged;
+  }
+
+  const result = await executeGatewayPlugin(
+    executionService,
+    "git_diff",
+    payload,
+  );
+  const failure = extractExecutionFailure(result);
+  if (failure) {
+    return buildFailureResult(taskId, failure);
+  }
+  return buildSuccessResult(taskId, formatExecutionResult(result));
+}
+
+async function executeGlobTool(
+  executionService: RuntimeExecutionService,
+  taskId: string,
+  taskInput: TaskInput,
+): Promise<TaskResult> {
+  const validatedInput = validateGoldenFlowToolInput("glob", taskInput);
+  const startPath = validatedInput.path ?? ".";
+  if (startPath !== ".") {
+    validateSafePath(startPath);
+  }
+
+  const maxResults = validatedInput.maxResults ?? 50;
+  const matches = await findGlobMatches(
+    executionService,
+    validatedInput.pattern,
+    startPath,
+    maxResults,
+  );
+  const output =
+    matches.length > 0
+      ? matches.join("\n")
+      : `No files matched glob pattern "${validatedInput.pattern}" from ${startPath}.`;
+  return buildSuccessResult(taskId, output);
+}
+
+async function executeGrepTool(
+  executionService: RuntimeExecutionService,
+  taskId: string,
+  taskInput: TaskInput,
+): Promise<TaskResult> {
+  const validatedInput = validateGoldenFlowToolInput("grep", taskInput);
+  const startPath = validatedInput.path ?? ".";
+  if (startPath !== ".") {
+    validateSafePath(startPath);
+  }
+
+  const matches = await findGrepMatches(executionService, {
+    pattern: validatedInput.pattern,
+    startPath,
+    globPattern: validatedInput.glob,
+    caseSensitive: validatedInput.caseSensitive ?? false,
+    maxResults: validatedInput.maxResults ?? 25,
+    patternSource: "external_user_input",
+  });
+  const output =
+    matches.length > 0
+      ? matches.join("\n")
+      : `No matches found for "${validatedInput.pattern}" from ${startPath}.`;
+  return buildSuccessResult(taskId, output);
+}
+
+async function executeGatewayPlugin(
+  executionService: RuntimeExecutionService,
+  toolName: GoldenFlowToolName,
+  payload: Record<string, unknown>,
+): Promise<unknown> {
+  const route = getGoldenFlowToolRoute(toolName);
+  if (!route || route.plugin === "internal") {
+    throw new Error(`No executable gateway route registered for ${toolName}`);
+  }
+  return executionService.execute(route.plugin, route.action, payload);
+}
+
+async function readExistingFileContent(
+  executionService: RuntimeExecutionService,
+  path: string,
+): Promise<string> {
+  const result = await executeGatewayPlugin(executionService, "read_file", {
+    path,
+  });
+  const failure = extractExecutionFailure(result);
+  if (failure) {
+    return "";
+  }
+  return formatExecutionResult(result);
+}
+
+async function findGlobMatches(
+  executionService: RuntimeExecutionService,
+  pattern: string,
+  startPath: string,
+  maxResults: number,
+): Promise<string[]> {
+  const scanLimit = Math.max(maxResults * 3, 60);
+  const files = await collectWorkspaceFiles(
+    executionService,
+    startPath,
+    scanLimit,
+    4,
+  );
+  const matcher = buildGlobMatcher(pattern);
+  return files.filter((filePath) => matcher(filePath)).slice(0, maxResults);
+}
+
+async function findGrepMatches(
+  executionService: RuntimeExecutionService,
+  input: {
+    pattern: string;
+    startPath: string;
+    globPattern?: string;
+    caseSensitive: boolean;
+    maxResults: number;
+    patternSource: LineMatcherPatternSource;
+  },
+): Promise<string[]> {
+  const scanLimit = Math.max(input.maxResults * 4, 80);
+  const candidates = input.globPattern
+    ? await findGlobMatches(
+        executionService,
+        input.globPattern,
+        input.startPath,
+        scanLimit,
+      )
+    : await collectWorkspaceFiles(
+        executionService,
+        input.startPath,
+        scanLimit,
+        4,
+      );
+  const matches: string[] = [];
+  const lineMatcher = buildLineMatcher(
+    input.pattern,
+    input.caseSensitive,
+    input.patternSource,
+  );
+
+  for (const filePath of candidates) {
+    if (matches.length >= input.maxResults) {
+      break;
+    }
+
+    const readResult = await executeGatewayPlugin(
+      executionService,
+      "read_file",
+      {
+        path: filePath,
+      },
+    );
+    const failure = extractExecutionFailure(readResult);
+    if (failure) {
+      continue;
+    }
+
+    const content = formatExecutionResult(readResult);
+    if (content.includes("[BINARY_FILE_DETECTED]")) {
+      continue;
+    }
+
+    const lines = content.split("\n");
+    for (let index = 0; index < lines.length; index += 1) {
+      if (matches.length >= input.maxResults) {
+        break;
+      }
+      const line = lines[index] ?? "";
+      if (lineMatcher(line)) {
+        matches.push(`${filePath}:${index + 1}: ${line}`);
+      }
+    }
+  }
+
+  return matches;
+}
+
+async function collectWorkspaceFiles(
+  executionService: RuntimeExecutionService,
+  startPath: string,
+  maxFiles: number,
+  maxDepth: number,
+): Promise<string[]> {
+  const discovered = new Set<string>();
+  const queue: Array<{ path: string; depth: number }> = [
+    { path: startPath, depth: 0 },
+  ];
+
+  while (queue.length > 0 && discovered.size < maxFiles) {
+    const current = queue.shift();
+    if (!current) {
+      break;
+    }
+
+    const listResult = await executeGatewayPlugin(
+      executionService,
+      "list_files",
+      {
+        path: current.path,
+      },
+    );
+    const failure = extractExecutionFailure(listResult);
+    if (failure) {
+      continue;
+    }
+
+    const entries = parseDirectoryEntries(formatExecutionResult(listResult));
+    for (const entry of entries) {
+      if (entry.endsWith("/")) {
+        if (current.depth >= maxDepth) {
+          continue;
+        }
+        queue.push({
+          path: joinRelativePath(current.path, entry.slice(0, -1)),
+          depth: current.depth + 1,
+        });
+        continue;
+      }
+
+      discovered.add(joinRelativePath(current.path, entry));
+      if (discovered.size >= maxFiles) {
+        break;
+      }
+    }
+  }
+
+  return Array.from(discovered);
+}
+
+function buildSuccessResult(
+  taskId: string,
+  content: string,
+  metadata?: Record<string, unknown>,
+): TaskResult {
+  return {
+    taskId,
+    status: "DONE",
+    output: {
+      content,
+      metadata,
+    },
+    completedAt: new Date(),
+  };
+}
+
+function buildFailureResult(taskId: string, message: string): TaskResult {
+  return {
+    taskId,
+    status: "FAILED",
+    error: { message },
+    completedAt: new Date(),
+  };
+}
+
+function buildWriteActivityMetadata(
+  path: string,
+  previousContent: string,
+  nextContent: string,
+): Record<string, unknown> {
+  const additions = countChangedLines(nextContent, previousContent);
+  const deletions = countChangedLines(previousContent, nextContent);
+  return {
+    family: "edit",
+    filePath: path,
+    additions,
+    deletions,
+    diffPreview: buildDiffPreview(previousContent, nextContent),
+  };
+}
+
+function countChangedLines(source: string, comparison: string): number {
+  const sourceLines = splitLines(source);
+  const comparisonLines = new Set(splitLines(comparison));
+  return sourceLines.filter((line) => !comparisonLines.has(line)).length;
+}
+
+function buildDiffPreview(
+  previousContent: string,
+  nextContent: string,
+): string {
+  const previousLines = splitLines(previousContent);
+  const nextLines = splitLines(nextContent);
+  const previewLines: string[] = [];
+
+  for (const line of nextLines) {
+    if (!previousLines.includes(line)) {
+      previewLines.push(`+ ${line}`);
+    }
+    if (previewLines.length >= 6) {
+      break;
+    }
+  }
+
+  for (const line of previousLines) {
+    if (!nextLines.includes(line)) {
+      previewLines.push(`- ${line}`);
+    }
+    if (previewLines.length >= 10) {
+      break;
+    }
+  }
+
+  return previewLines.join("\n");
+}
+
+function splitLines(value: string): string[] {
+  return value
+    .split("\n")
+    .map((line) => line.trimEnd())
+    .filter((line) => line.length > 0);
+}
+
+function normalizeToolPath(input: string): string {
+  const trimmed = input.trim().replace(/^['"`]+|['"`]+$/g, "");
+  const withoutMention = trimmed.startsWith("@") ? trimmed.slice(1) : trimmed;
+  const cleaned = withoutMention.replace(/[?!,;:]+$/g, "");
+  const aliases: Record<string, string> = {
+    readme: "README.md",
+    "readme.md": "README.md",
+  };
+  return aliases[cleaned.toLowerCase()] ?? cleaned;
+}
+
+function validateToolPath(path: string): void {
+  if (!isConcretePathInput(path)) {
+    throw new Error("Task path must be a concrete non-empty file path");
+  }
+}
+
+function extractDirectoryFromLsCommand(command: string): string {
+  const segments = command.split(/\s+/).slice(1);
+  for (let index = segments.length - 1; index >= 0; index -= 1) {
+    const segment = segments[index];
+    if (!segment || segment.startsWith("-")) {
+      continue;
+    }
+    return segment;
+  }
+  return ".";
+}
+
+function parseDirectoryEntries(output: string): string[] {
+  return output
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(
+      (line) =>
+        line.length > 0 &&
+        !line.startsWith("... and ") &&
+        !line.startsWith("Total:"),
+    );
+}
+
+function joinRelativePath(basePath: string, entry: string): string {
+  const normalizedBase = basePath
+    .trim()
+    .replace(/^\.\/+/, "")
+    .replace(/\/+$/, "");
+  const normalizedEntry = entry.trim().replace(/^\.\/+/, "");
+  if (!normalizedBase || normalizedBase === ".") {
+    return normalizedEntry;
+  }
+  return `${normalizedBase}/${normalizedEntry}`;
+}
+
+function buildGlobMatcher(pattern: string): (value: string) => boolean {
+  const normalized = pattern.trim();
+  const source: string[] = ["^"];
+
+  for (let index = 0; index < normalized.length; index += 1) {
+    const char = normalized.charAt(index);
+    const next = normalized.charAt(index + 1);
+    if (char === "*" && next === "*") {
+      source.push(".*");
+      index += 1;
+      continue;
+    }
+    if (char === "*") {
+      source.push("[^/]*");
+      continue;
+    }
+    if (char === "?") {
+      source.push("[^/]");
+      continue;
+    }
+    source.push(escapeRegexChar(char));
+  }
+
+  source.push("$");
+  const regex = new RegExp(source.join(""), "i");
+  return (value) => regex.test(value);
+}
+
+function buildLineMatcher(
+  pattern: string,
+  caseSensitive: boolean,
+  patternSource: LineMatcherPatternSource,
+): (line: string) => boolean {
+  const safePattern = pattern.trim();
+  if (safePattern.length === 0) {
+    return () => false;
+  }
+
+  const skipExternalScreening = patternSource === "deriveGrepPatternFromHint";
+  const matcherSource = skipExternalScreening
+    ? safePattern
+    : escapeRegex(safePattern);
+  const flags = caseSensitive ? "" : "i";
+  const regex = new RegExp(matcherSource, flags);
+  return (line) => regex.test(line);
+}
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function escapeRegexChar(value: string): string {
+  return /[.*+?^${}()|[\]\\]/.test(value) ? `\\${value}` : value;
+}

@@ -14,7 +14,13 @@ import type { Task } from "../task/index.js";
 import type { Plan, PlanContext } from "../planner/index.js";
 import type { ILLMGateway } from "../llm/index.js";
 
-export type { AgentCapability, PlanContext, ExecutionContext, SynthesisContext, IAgent };
+export type {
+  AgentCapability,
+  PlanContext,
+  ExecutionContext,
+  SynthesisContext,
+  IAgent,
+};
 
 export abstract class BaseAgent implements IAgent {
   abstract readonly type: string;
@@ -25,11 +31,18 @@ export abstract class BaseAgent implements IAgent {
   ) {}
 
   abstract plan(context: PlanContext): Promise<Plan>;
-  abstract executeTask(task: Task, context: ExecutionContext): Promise<TaskResult>;
+  abstract executeTask(
+    task: Task,
+    context: ExecutionContext,
+  ): Promise<TaskResult>;
   abstract synthesize(context: SynthesisContext): Promise<string>;
 
   getCapabilities(): AgentCapability[] {
     return [];
+  }
+
+  getRuntimeExecutionService(): RuntimeExecutionService {
+    return this.executionService;
   }
 
   protected buildPlanMessages(

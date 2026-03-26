@@ -15,7 +15,7 @@ import type { IBudgetManager } from "../cost/index.js";
 import type { TaskExecutor } from "../orchestration/index.js";
 import { isMutatingGoldenFlowToolName } from "../contracts/CodingToolGateway.js";
 import { Task } from "../task/index.js";
-import type { AgenticLoopToolLifecycleEvent } from "../types.js";
+import type { AgenticLoopToolLifecycleEvent, TaskResult } from "../types.js";
 
 export interface AgenticLoopConfig {
   maxSteps: number;
@@ -28,6 +28,14 @@ interface AgenticLoopToolCall {
   id: string;
   toolName: string;
   args: Record<string, unknown>;
+}
+
+interface AgenticLoopToolResult {
+  toolId: string;
+  toolName: string;
+  result: unknown;
+  error?: string;
+  terminalError?: boolean;
 }
 
 export type StopReason =
@@ -47,6 +55,8 @@ export interface AgenticLoopResult {
 }
 
 interface AgenticLoopHooks {
+  workspaceContext?: string;
+  executeTool?: (toolCall: AgenticLoopToolCall) => Promise<TaskResult>;
   onAssistantMessage?: (content: string) => Promise<void>;
   onToolRequested?: (toolCall: AgenticLoopToolCall) => Promise<void>;
   onToolStarted?: (toolCall: AgenticLoopToolCall) => Promise<void>;
@@ -104,10 +114,12 @@ export class AgenticLoop {
   ): Promise<AgenticLoopResult> {
     this.reset();
     const messages: CoreMessage[] = [...initialMessages];
-    let stopReason: StopReason = "llm_stop";
+    let stopReason: StopReason | null = null;
 
     for (let step = 0; step < this.config.maxSteps; step++) {
       this.stepsExecuted = step + 1;
+      const isFinalSynthesisStep =
+        step === this.config.maxSteps - 1 && this.toolExecutionCount > 0;
 
       // Check budget before LLM call
       try {
@@ -151,7 +163,11 @@ export class AgenticLoop {
             phase: "task",
           },
           messages,
-          tools,
+          system: buildAgenticLoopSystemPrompt({
+            workspaceContext: context.workspaceContext,
+            finalSynthesisOnly: isFinalSynthesisStep,
+          }),
+          tools: isFinalSynthesisStep ? undefined : tools,
           model: context.modelId,
           providerId: context.providerId,
           temperature: context.temperature,
@@ -162,10 +178,7 @@ export class AgenticLoop {
       }
 
       // Add LLM response to messages
-      messages.push({
-        role: "assistant",
-        content: response.text,
-      });
+      messages.push(buildAssistantMessage(response.text, response.toolCalls));
       await context.onAssistantMessage?.(response.text);
 
       // Check if LLM requested tool calls
@@ -178,12 +191,7 @@ export class AgenticLoop {
       }
 
       // Execute requested tools
-      const toolResults: Array<{
-        toolId: string;
-        toolName: string;
-        result: unknown;
-        error?: string;
-      }> = [];
+      const toolResults: AgenticLoopToolResult[] = [];
 
       for (const toolCall of response.toolCalls) {
         this.toolExecutionCount++;
@@ -227,6 +235,7 @@ export class AgenticLoop {
               toolName: toolCall.toolName,
               result: null,
               error: message,
+              terminalError: true,
             });
             continue;
           }
@@ -235,12 +244,14 @@ export class AgenticLoop {
             `[agentic-loop] Executing tool: ${toolCall.toolName} (call: ${toolCall.id})`,
           );
 
-          const toolTask = this.createToolTask(toolCall.id, toolCall);
           const toolStartedAt = Date.now();
           this.recordToolLifecycle(toolCall, "started");
           await context.onToolStarted?.(toolCall);
-
-          const result = await this.executor.execute(toolTask);
+          const result = context.executeTool
+            ? await context.executeTool(toolCall)
+            : await this.executor.execute(
+                this.createToolTask(toolCall.id, toolCall),
+              );
           const executionTimeMs = Date.now() - toolStartedAt;
 
           if (result.status === "DONE") {
@@ -257,7 +268,7 @@ export class AgenticLoop {
             toolResults.push({
               toolId: toolCall.id,
               toolName: toolCall.toolName,
-              result: result.output?.content,
+              result: result.output ?? null,
             });
           } else {
             this.failedToolCount++;
@@ -269,6 +280,7 @@ export class AgenticLoop {
               toolName: toolCall.toolName,
               result: null,
               error: toolError,
+              terminalError: isTerminalToolFailure(toolCall.toolName),
             });
           }
         } catch (error) {
@@ -287,6 +299,7 @@ export class AgenticLoop {
             toolName: toolCall.toolName,
             result: null,
             error: errorMessage,
+            terminalError: isTerminalToolFailure(toolCall.toolName),
           });
         }
       }
@@ -298,28 +311,20 @@ export class AgenticLoop {
 
       // Add tool results to messages for next LLM call
       if (toolResults.length > 0) {
-        messages.push({
-          role: "user",
-          content: JSON.stringify({
-            toolResults,
-            timestamp: new Date().toISOString(),
-          }),
-        });
+        messages.push(buildToolResultMessage(toolResults));
       }
 
-      if (toolResults.some((result) => Boolean(result.error))) {
+      if (toolResults.some((result) => result.terminalError)) {
         stopReason = "tool_error";
         break;
       }
+    }
 
-      // Check if we should continue
-      if (step === this.config.maxSteps - 1) {
-        console.log(
-          `[agentic-loop] Max steps reached (${this.config.maxSteps}) for run ${this.config.runId}`,
-        );
-        stopReason = "max_steps_reached";
-        break;
-      }
+    if (!stopReason) {
+      console.log(
+        `[agentic-loop] Max steps reached (${this.config.maxSteps}) for run ${this.config.runId}`,
+      );
+      stopReason = "max_steps_reached";
     }
 
     console.log(
@@ -383,6 +388,106 @@ export class AgenticLoop {
       detail,
     });
   }
+}
+
+function buildAgenticLoopSystemPrompt(input: {
+  workspaceContext?: string;
+  finalSynthesisOnly: boolean;
+}): string {
+  const sections = [
+    "You are Shadowbox's autonomous build agent.",
+    "Your job is to inspect the real workspace, decide which tools to use, and answer the user's request in clear natural language.",
+    "Start with the real workspace before concluding anything. Never invent file contents, project structure, git state, or completed work.",
+    "Tool strategy:",
+    "- For repository or git status questions, use git_status before answering.",
+    "- For vague component, page, route, or file questions, discover with list_files, glob, or grep before read_file.",
+    "- Prefer narrowing search after one broad listing. Do not repeat the same missing path after a file-not-found error.",
+    "- If a non-mutating tool returns no match or not found, keep exploring with different tools or paths instead of stopping.",
+    "- If a mutating tool fails, stop and explain what failed.",
+    "Answer quality:",
+    "- After gathering enough evidence, answer the user directly in plain English.",
+    "- Summarize tool results instead of echoing raw JSON or raw telemetry.",
+    "- Reference the files or git facts you actually observed.",
+  ];
+
+  if (input.workspaceContext) {
+    sections.push(`Workspace context:\n${input.workspaceContext}`);
+  }
+
+  if (input.finalSynthesisOnly) {
+    sections.push(
+      [
+        "Final step rule:",
+        "- This is the final step. Do not call tools.",
+        "- Synthesize what you have already learned into the best truthful answer you can.",
+        "- If the task is incomplete, say what you checked, what you found, and what remains uncertain.",
+      ].join("\n"),
+    );
+  }
+
+  return sections.join("\n");
+}
+
+function isTerminalToolFailure(toolName: string): boolean {
+  return isMutatingGoldenFlowToolName(toolName);
+}
+
+function buildAssistantMessage(
+  text: string,
+  toolCalls: AgenticLoopToolCall[] | undefined,
+): CoreMessage {
+  if (!toolCalls || toolCalls.length === 0) {
+    return {
+      role: "assistant",
+      content: text,
+    };
+  }
+
+  const content: Array<
+    | { type: "text"; text: string }
+    | {
+        type: "tool-call";
+        toolCallId: string;
+        toolName: string;
+        args: Record<string, unknown>;
+      }
+  > = [];
+
+  if (text.trim()) {
+    content.push({
+      type: "text",
+      text,
+    });
+  }
+
+  for (const toolCall of toolCalls) {
+    content.push({
+      type: "tool-call",
+      toolCallId: toolCall.id,
+      toolName: toolCall.toolName,
+      args: toolCall.args,
+    });
+  }
+
+  return {
+    role: "assistant",
+    content,
+  };
+}
+
+function buildToolResultMessage(
+  toolResults: AgenticLoopToolResult[],
+): CoreMessage {
+  return {
+    role: "tool",
+    content: toolResults.map((result) => ({
+      type: "tool-result" as const,
+      toolCallId: result.toolId,
+      toolName: result.toolName,
+      result: result.error ? { error: result.error } : result.result,
+      isError: Boolean(result.error),
+    })),
+  };
 }
 
 function summarizeLifecycleDetail(value: unknown): string | undefined {
