@@ -33,6 +33,9 @@ const ERROR_LOG_WINDOW_MS = 30_000;
 const MUSCLE_STATUS_TIMEOUT_MS = 12_000;
 const MUSCLE_GIT_TIMEOUT_MS = 20_000;
 const GIT_SESSION_TIMEOUT_MS = 10_000;
+type SecureApiFetch = Env["SECURE_API"]["fetch"];
+type SecureApiResponse = Awaited<ReturnType<SecureApiFetch>>;
+type SecureApiRequestInit = Parameters<SecureApiFetch>[1];
 
 interface SecureMuscleSession {
   sessionId: string;
@@ -736,36 +739,30 @@ function errorResponse(
 async function fetchSecureApiWithTimeout(
   service: Env["SECURE_API"],
   url: string,
-  init: RequestInit,
+  init: SecureApiRequestInit,
   timeoutMs: number,
-): Promise<Response> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+): Promise<SecureApiResponse> {
+  let timeout: ReturnType<typeof setTimeout> | null = null;
   try {
-    return await service.fetch(url, {
-      ...init,
-      signal: controller.signal,
-    });
+    return await Promise.race([
+      service.fetch(url, init),
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(() => {
+          reject(new Error(`Git request timed out after ${timeoutMs}ms`));
+        }, timeoutMs);
+      }),
+    ]);
   } catch (error) {
-    if (isAbortError(error)) {
-      throw new Error(`Git request timed out after ${timeoutMs}ms`);
-    }
     throw error;
   } finally {
-    clearTimeout(timeout);
+    if (timeout) {
+      clearTimeout(timeout);
+    }
   }
-}
-
-function isAbortError(error: unknown): boolean {
-  if (!error || typeof error !== "object") {
-    return false;
-  }
-  const candidate = error as { name?: unknown };
-  return candidate.name === "AbortError";
 }
 
 async function assertMuscleResponseOk(
-  response: Response,
+  response: SecureApiResponse,
   operation: "status" | "diff" | "stage" | "unstage" | "commit",
 ): Promise<void> {
   if (response.ok) {
@@ -796,7 +793,7 @@ function assertPluginResultSuccess(
   throw new Error(`Git ${operation} failed: ${details}`);
 }
 
-async function readErrorPreview(response: Response): Promise<string> {
+async function readErrorPreview(response: SecureApiResponse): Promise<string> {
   try {
     const payload = (await response.clone().json()) as { error?: string };
     if (typeof payload.error === "string" && payload.error.trim().length > 0) {

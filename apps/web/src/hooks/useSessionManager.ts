@@ -9,7 +9,7 @@
  * @module hooks/useSessionManager
  */
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { DEFAULT_RUN_MODE, type RunMode } from "@repo/shared-types";
 import { agentStore } from "../store/agentStore";
 import type { AgentSession } from "../types/session";
@@ -28,6 +28,7 @@ export function useSessionManager() {
     const sessionsMap = SessionStateService.loadSessions();
     return Object.values(sessionsMap);
   });
+  const sessionsRef = useRef<AgentSession[]>(sessions);
 
   // Persist activeSessionId to survive refreshes
   const [activeSessionId, setActiveSessionId] = useState<string | null>(() => {
@@ -41,6 +42,7 @@ export function useSessionManager() {
 
   // Persist sessions and active ID to localStorage with v2 schema
   useEffect(() => {
+    sessionsRef.current = sessions;
     const sessionsMap = createSessionsMap(sessions);
     // Pass activeSessionId to avoid race condition between load and save
     SessionStateService.saveSessions(sessionsMap, activeSessionId);
@@ -94,17 +96,18 @@ export function useSessionManager() {
         mode,
       );
 
-      const nextSessions = [...sessions, newSession];
+      const nextSessions = [...sessionsRef.current, newSession];
       const sessionsMap = createSessionsMap(nextSessions);
 
       SessionStateService.saveSessions(sessionsMap, newSession.id);
       SessionStateService.saveActiveSessionId(newSession.id, sessionsMap);
 
+      sessionsRef.current = nextSessions;
       setSessions(nextSessions);
       setActiveSessionId(newSession.id);
       return newSession.id;
     },
-    [sessions],
+    [],
   );
 
   /**

@@ -336,7 +336,10 @@ export function Workspace({
             />
           </div>
         </motion.aside>
-        <GitReviewDialog initialIntent={gitReviewIntent} />
+        <GitReviewDialog
+          key={`${activeRunId}:${isGitReviewOpen ? "open" : "closed"}:${gitReviewIntent}`}
+          initialIntent={gitReviewIntent}
+        />
       </div>
       </GitReviewProvider>
     </RunContextProvider>

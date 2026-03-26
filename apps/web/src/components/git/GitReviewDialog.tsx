@@ -19,25 +19,19 @@ export function GitReviewDialog({
     selectedFile,
     selectFile,
   } = useGitReview();
-  const [isCommitDialogOpen, setIsCommitDialogOpen] = useState(false);
-
-  useEffect(() => {
-    if (!isReviewOpen) {
-      setIsCommitDialogOpen(false);
-      return;
-    }
-
-    if (initialIntent === "commit") {
-      setIsCommitDialogOpen(true);
-    }
-  }, [initialIntent, isReviewOpen]);
+  const [isCommitDialogOpen, setIsCommitDialogOpen] = useState(
+    initialIntent === "commit",
+  );
 
   useEffect(() => {
     if (!isReviewOpen || selectedFile || !status?.files.length) {
       return;
     }
 
-    selectFile(status.files[0]);
+    const [firstFile] = status.files;
+    if (firstFile) {
+      selectFile(firstFile);
+    }
   }, [isReviewOpen, selectFile, selectedFile, status?.files]);
 
   useEffect(() => {
@@ -114,6 +108,7 @@ export function GitReviewDialog({
         </div>
 
         <GitCommitDialog
+          key={isCommitDialogOpen ? "commit-open" : "commit-closed"}
           isOpen={isCommitDialogOpen}
           onClose={() => setIsCommitDialogOpen(false)}
         />

@@ -72,7 +72,7 @@ export function ChatInputBar({
   const [dismissedMentionKey, setDismissedMentionKey] = useState<string | null>(
     null,
   );
-  const [pendingCaretPosition, setPendingCaretPosition] = useState<number | null>(
+  const [mentionNavigationKey, setMentionNavigationKey] = useState<string | null>(
     null,
   );
   const [showProviderDialog, setShowProviderDialog] = useState(false);
@@ -145,6 +145,8 @@ export function ChatInputBar({
   );
   const shouldShowFilePicker =
     activeMention !== null && dismissedMentionKey !== activeMentionKey;
+  const highlightedSuggestionIndex =
+    mentionNavigationKey === activeMentionKey ? highlightedFileIndex : 0;
 
   // Auto-resize textarea
   useEffect(() => {
@@ -156,28 +158,11 @@ export function ChatInputBar({
     }
   }, [input, hasInput]);
 
-  useEffect(() => {
-    if (pendingCaretPosition === null || !textareaRef.current) {
-      return;
-    }
-
-    textareaRef.current.focus();
-    textareaRef.current.setSelectionRange(
-      pendingCaretPosition,
-      pendingCaretPosition,
-    );
-    setCursorPosition(pendingCaretPosition);
-    setPendingCaretPosition(null);
-  }, [input, pendingCaretPosition]);
-
-  useEffect(() => {
-    setHighlightedFileIndex(0);
-  }, [activeMentionKey]);
-
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (shouldShowFilePicker) {
       if (e.key === "ArrowDown" && suggestedFiles.length > 0) {
         e.preventDefault();
+        setMentionNavigationKey(activeMentionKey);
         setHighlightedFileIndex((current) =>
           current >= suggestedFiles.length - 1 ? 0 : current + 1,
         );
@@ -186,6 +171,7 @@ export function ChatInputBar({
 
       if (e.key === "ArrowUp" && suggestedFiles.length > 0) {
         e.preventDefault();
+        setMentionNavigationKey(activeMentionKey);
         setHighlightedFileIndex((current) =>
           current <= 0 ? suggestedFiles.length - 1 : current - 1,
         );
@@ -198,7 +184,11 @@ export function ChatInputBar({
         !e.shiftKey
       ) {
         e.preventDefault();
-        selectSuggestedFile(suggestedFiles[highlightedFileIndex] ?? suggestedFiles[0]);
+        const selectedPath =
+          suggestedFiles[highlightedSuggestionIndex] ?? suggestedFiles[0];
+        if (selectedPath) {
+          selectSuggestedFile(selectedPath);
+        }
         return;
       }
 
@@ -262,7 +252,16 @@ export function ChatInputBar({
     const { nextValue, nextCaret } = applyFileMention(input, activeMention, filePath);
     onChange(nextValue);
     setDismissedMentionKey(null);
-    setPendingCaretPosition(nextCaret);
+    setMentionNavigationKey(null);
+    setCursorPosition(nextCaret);
+    requestAnimationFrame(() => {
+      const textarea = textareaRef.current;
+      if (!textarea) {
+        return;
+      }
+      textarea.focus();
+      textarea.setSelectionRange(nextCaret, nextCaret);
+    });
   };
 
   const insertMentionTrigger = () => {
@@ -274,7 +273,17 @@ export function ChatInputBar({
 
     onChange(nextValue);
     setDismissedMentionKey(null);
-    setPendingCaretPosition(selectionStart + 1);
+    setMentionNavigationKey(null);
+    const nextCaret = selectionStart + 1;
+    setCursorPosition(nextCaret);
+    requestAnimationFrame(() => {
+      const textarea = textareaRef.current;
+      if (!textarea) {
+        return;
+      }
+      textarea.focus();
+      textarea.setSelectionRange(nextCaret, nextCaret);
+    });
   };
 
   const syncCursorPosition = () => {

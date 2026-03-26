@@ -24,7 +24,9 @@ export function GitCommitDialog({
     commitError,
     committing,
   } = useGitReview();
-  const [includeUnstaged, setIncludeUnstaged] = useState(true);
+  const [includeUnstaged, setIncludeUnstaged] = useState(
+    () => Boolean(status?.hasUnstaged),
+  );
   const [nextStep, setNextStep] = useState<CommitNextStep>("commit");
 
   useEffect(() => {
@@ -41,15 +43,6 @@ export function GitCommitDialog({
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isOpen, onClose]);
-
-  useEffect(() => {
-    if (!isOpen) {
-      return;
-    }
-
-    setIncludeUnstaged(Boolean(status?.hasUnstaged));
-    setNextStep("commit");
-  }, [isOpen, status?.hasUnstaged]);
 
   const totalChanges = status?.files.length ?? 0;
   const stagedCount = stagedFiles.size;

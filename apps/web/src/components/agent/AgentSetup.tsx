@@ -658,7 +658,9 @@ export function AgentSetup({
           </div>
         </motion.aside>
 
-        <GitReviewDialog />
+        <GitReviewDialog
+          key={`${activeRunId}:${isGitReviewOpen ? "open" : "closed"}:review`}
+        />
 
         <ProviderDialog
           isOpen={showProviderDialog}

@@ -228,7 +228,7 @@ export function GitReviewProvider({
     setSelectedFilePath(null);
     await refetch(true);
     return true;
-  }, [commit, commitMessage, refetch]);
+  }, [commit, commitMessage, refetch, status?.files]);
 
   const forceRefetch = useCallback(async (): Promise<void> => {
     await refetch(true);
