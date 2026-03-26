@@ -1,8 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { useState } from "react";
 import { ChatInputBar } from "./ChatInputBar.js";
 import * as useProviderStoreModule from "../../hooks/useProviderStore.js";
 import * as providerHelpersModule from "../../lib/provider-helpers.js";
+import * as useGitHubTreeModule from "../layout/workspace/useGitHubTree.js";
 
 const IDLE_SWITCH_WARNING =
   "Changing models mid-conversation will degrade performance.";
@@ -122,6 +124,14 @@ describe("ChatInputBar", () => {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       deletedAt: null,
+    });
+
+    vi.spyOn(useGitHubTreeModule, "useGitHubTree").mockReturnValue({
+      repoTree: [],
+      isLoadingTree: false,
+      repo: null,
+      branch: "main",
+      isGitHubLoaded: true,
     });
   });
 
@@ -282,5 +292,51 @@ describe("ChatInputBar", () => {
     fireEvent.click(screen.getByRole("button", { name: "Switch to Build" }));
 
     expect(onModeChange).toHaveBeenCalledWith("build");
+  });
+
+  it("shows repo file suggestions for @ mentions and inserts the selected file", async () => {
+    vi.spyOn(useGitHubTreeModule, "useGitHubTree").mockReturnValue({
+      repoTree: [
+        { path: "README.md", type: "blob", sha: "1" },
+        {
+          path: "apps/web/src/components/chat/ChatInputBar.tsx",
+          type: "blob",
+          sha: "2",
+        },
+      ],
+      isLoadingTree: false,
+      repo: null,
+      branch: "main",
+      isGitHubLoaded: true,
+    });
+
+    function Wrapper() {
+      const [value, setValue] = useState("");
+
+      return (
+        <ChatInputBar
+          input={value}
+          onChange={setValue}
+          onSubmit={vi.fn()}
+          sessionId="session-1"
+        />
+      );
+    }
+
+    render(<Wrapper />);
+
+    const textarea = screen.getByPlaceholderText(
+      "Ask Shadowbox anything, @ to add files, / for commands",
+    ) as HTMLTextAreaElement;
+
+    fireEvent.change(textarea, { target: { value: "@rea", selectionStart: 4 } });
+
+    expect(await screen.findByText("README.md")).toBeTruthy();
+
+    fireEvent.mouseDown(screen.getByText("README.md"));
+
+    await waitFor(() => {
+      expect(textarea.value).toBe("@README.md ");
+    });
   });
 });
