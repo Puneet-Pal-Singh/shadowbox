@@ -135,6 +135,12 @@ export class CodingAgent extends BaseAgent {
         model: context.modelId,
         providerId: context.providerId,
       });
+      if (looksLikeRawToolTranscript(result.text)) {
+        console.warn(
+          `[agents/coding] Synthesis returned raw tool transcript for run ${context.runId}; using grounded fallback`,
+        );
+        return groundedSummary.fallbackSummary;
+      }
       return result.text;
     } catch (error) {
       console.warn(
@@ -894,6 +900,12 @@ function looksLikeDirectoryError(message: string): boolean {
 function looksLikeMissingTargetError(message: string): boolean {
   return /no such file or directory|file does not exist|path .* not found/i.test(
     message,
+  );
+}
+
+function looksLikeRawToolTranscript(value: string): boolean {
+  return /<tool_call>|<\/tool_call>|<tool_calls>|<\/tool_calls>|<parameters>|<\/parameters>/i.test(
+    value,
   );
 }
 

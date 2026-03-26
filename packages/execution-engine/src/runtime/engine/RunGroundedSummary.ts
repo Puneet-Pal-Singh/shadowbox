@@ -97,9 +97,7 @@ function formatSection(
 }
 
 function formatCompletedTask(task: SerializedTask): string {
-  return `- ${task.input.description}: ${formatDetail(
-    task.output?.content ?? "Completed with no output.",
-  )}`;
+  return `- ${task.input.description}: ${formatTaskEvidence(task)}`;
 }
 
 function formatFailedTask(task: SerializedTask): string {
@@ -143,7 +141,7 @@ function buildMissingMutationSummary(
   const completedEvidence =
     completedTasks.length > 0
       ? completedTasks
-          .map((task) => `- ${task.input.description}: ${formatDetail(task.output?.content ?? "Completed with no output.")}`)
+          .map((task) => `- ${task.input.description}: ${formatTaskEvidence(task)}`)
           .join("\n")
       : "- No completed tasks were recorded.";
 
@@ -186,4 +184,48 @@ function readActivityFamily(task: SerializedTask): string | null {
 
   const family = (activity as Record<string, unknown>).family;
   return typeof family === "string" ? family : null;
+}
+
+function formatTaskEvidence(task: SerializedTask): string {
+  const activitySummary = summarizeActivity(task.output?.metadata);
+  if (activitySummary) {
+    return activitySummary;
+  }
+
+  return formatDetail(task.output?.content ?? "Completed with no output.");
+}
+
+function summarizeActivity(metadata: unknown): string | null {
+  if (!metadata || typeof metadata !== "object") {
+    return null;
+  }
+
+  const activity = (metadata as Record<string, unknown>).activity;
+  if (!activity || typeof activity !== "object") {
+    return null;
+  }
+
+  const family = readString((activity as Record<string, unknown>).family);
+  if (family !== "edit") {
+    return null;
+  }
+
+  const filePath = readString((activity as Record<string, unknown>).filePath);
+  const additions = readNumber((activity as Record<string, unknown>).additions);
+  const deletions = readNumber((activity as Record<string, unknown>).deletions);
+  const parts = [filePath ? `updated ${filePath}` : "updated a file"];
+
+  if (typeof additions === "number" || typeof deletions === "number") {
+    parts.push(`(+${additions ?? 0} -${deletions ?? 0})`);
+  }
+
+  return parts.join(" ");
+}
+
+function readString(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+function readNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }

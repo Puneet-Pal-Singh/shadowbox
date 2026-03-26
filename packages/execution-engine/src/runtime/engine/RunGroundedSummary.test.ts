@@ -53,6 +53,36 @@ describe("RunGroundedSummary", () => {
       "did not record any successful edit/write task",
     );
   });
+
+  it("summarizes edit tasks from activity metadata instead of raw tool output", () => {
+    const summary = buildGroundedTaskSummary("make the landing page more beautiful", [
+      {
+        ...buildTask({
+          id: "1",
+          status: "DONE",
+          description: "Update landing page hero",
+          output: "<tool_call>very long raw payload</tool_call>",
+          type: "write_file",
+        }),
+        output: {
+          content: "<tool_call>very long raw payload</tool_call>",
+          metadata: {
+            activity: {
+              family: "edit",
+              filePath: "src/app/page.tsx",
+              additions: 30,
+              deletions: 16,
+            },
+          },
+        },
+      },
+    ]);
+
+    expect(summary.evidencePrompt).toContain(
+      "Update landing page hero: updated src/app/page.tsx (+30 -16)",
+    );
+    expect(summary.evidencePrompt).not.toContain("<tool_call>");
+  });
 });
 
 function buildTask({
