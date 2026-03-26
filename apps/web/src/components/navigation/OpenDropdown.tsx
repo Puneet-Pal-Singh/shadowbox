@@ -17,14 +17,39 @@ export function OpenDropdown({
   onSelect,
   disabled = false,
 }: OpenDropdownProps) {
-  const [isOpen, setIsOpen] = useState(false);
   const [selected, setSelected] = useState("vscode");
+
+  return (
+    <OpenDropdownMenu
+      key={disabled ? "disabled" : "enabled"}
+      selected={selected}
+      onSelectedChange={setSelected}
+      onSelect={onSelect}
+      disabled={disabled}
+    />
+  );
+}
+
+interface OpenDropdownMenuProps {
+  selected: string;
+  onSelectedChange: (value: string) => void;
+  onSelect?: (option: string) => void;
+  disabled: boolean;
+}
+
+function OpenDropdownMenu({
+  selected,
+  onSelectedChange,
+  onSelect,
+  disabled,
+}: OpenDropdownMenuProps) {
+  const [isOpen, setIsOpen] = useState(false);
 
   const handleSelect = (optionId: string) => {
     if (disabled) {
       return;
     }
-    setSelected(optionId);
+    onSelectedChange(optionId);
     setIsOpen(false);
     onSelect?.(optionId);
   };

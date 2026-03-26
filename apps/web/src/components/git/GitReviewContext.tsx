@@ -38,8 +38,8 @@ interface GitReviewContextValue {
   closeReview: () => void;
   selectFile: (file: FileStatus) => void;
   toggleFileStaged: (path: string, nextStaged: boolean) => Promise<void>;
-  stageAll: () => Promise<void>;
-  unstageAll: () => Promise<void>;
+  stageAll: () => Promise<boolean>;
+  unstageAll: () => Promise<boolean>;
   submitCommit: () => Promise<boolean>;
   setCommitMessage: (message: string) => void;
   refetch: () => Promise<void>;
@@ -169,14 +169,14 @@ export function GitReviewProvider({
   const updateManyFilesStage = useCallback(async (
     files: string[],
     nextStaged: boolean,
-  ): Promise<void> => {
+  ): Promise<boolean> => {
     if (!files.length) {
-      return;
+      return true;
     }
 
     if (!runId || !sessionId) {
       setStageError(!runId ? "No run context available" : "No session context available");
-      return;
+      return false;
     }
 
     setStageError(null);
@@ -194,30 +194,33 @@ export function GitReviewProvider({
       }
 
       await refetch(true);
+      return true;
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
       setStageError(message);
       console.error("[git-review] Failed to update staged files", error);
+      return false;
     }
   }, [fetchDiff, refetch, runId, selectedFilePath, sessionId]);
 
-  const stageAll = useCallback(async (): Promise<void> => {
+  const stageAll = useCallback(async (): Promise<boolean> => {
     const files = status?.files
       .filter((file) => !stagedFiles.has(file.path))
       .map((file) => file.path) ?? [];
 
-    await updateManyFilesStage(files, true);
+    return await updateManyFilesStage(files, true);
   }, [stagedFiles, status, updateManyFilesStage]);
 
-  const unstageAll = useCallback(async (): Promise<void> => {
+  const unstageAll = useCallback(async (): Promise<boolean> => {
     const files = status?.files
       .filter((file) => stagedFiles.has(file.path))
       .map((file) => file.path) ?? [];
 
-    await updateManyFilesStage(files, false);
+    return await updateManyFilesStage(files, false);
   }, [stagedFiles, status, updateManyFilesStage]);
 
   const submitCommit = useCallback(async (): Promise<boolean> => {
+    setStageError(null);
     const message = commitMessage.trim() || generateCommitMessage(status?.files ?? []);
     const committed = await commit({ message });
     if (!committed) {

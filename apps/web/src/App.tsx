@@ -249,6 +249,9 @@ function AppContent() {
 
   const handleNewTask = (repositoryName?: string) => {
     console.log("[App] handleNewTask called with:", repositoryName);
+    setIsGitReviewOpen(false);
+    setGitReviewSessionId(null);
+    setGitReviewIntent("review");
 
     // If no repo name provided, try to use the currently active repo
     const targetRepo = repositoryName || repo?.full_name;
@@ -315,6 +318,15 @@ function AppContent() {
     setIsRightSidebarOpen((previous) => !previous);
   };
 
+  const handleSelectSession = (sessionId: string) => {
+    if (sessionId !== activeSessionId) {
+      setIsGitReviewOpen(false);
+      setGitReviewSessionId(null);
+      setGitReviewIntent("review");
+    }
+    setActiveSessionId(sessionId);
+  };
+
   /**
    * Handle repository selection from RepoPicker
    * Creates a session immediately for the selected repository
@@ -323,6 +335,9 @@ function AppContent() {
     selectedRepo: Repository,
     selectedBranch: string,
   ) => {
+    setIsGitReviewOpen(false);
+    setGitReviewSessionId(null);
+    setGitReviewIntent("review");
     setContext(selectedRepo, selectedBranch);
     setShowRepoPicker(false);
 
@@ -386,7 +401,7 @@ function AppContent() {
                         sessions={sessions}
                         repositories={repositories}
                         activeSessionId={activeSessionId}
-                        onSelect={setActiveSessionId}
+                        onSelect={handleSelectSession}
                         onCreate={handleNewTask}
                         onRemove={removeSession}
                         onRemoveRepository={removeRepository}

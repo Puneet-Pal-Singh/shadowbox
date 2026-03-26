@@ -20,7 +20,7 @@ export function SidebarHeader({
   onTabChange,
   onExpand,
 }: SidebarHeaderProps) {
-  const expandDisabled = isViewingContent || activeTab !== "changes";
+  const expandDisabled = activeTab !== "changes";
 
   return (
     <div className="h-10 border-b border-zinc-800 flex items-center justify-between px-3 bg-black shrink-0">

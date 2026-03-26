@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { FileDiff, GitBranch, X } from "lucide-react";
 import { ChangesPanel } from "../sidebar/ChangesPanel";
 import { useGitReview } from "./GitReviewContext";
@@ -22,6 +22,10 @@ export function GitReviewDialog({
   const [isCommitDialogOpen, setIsCommitDialogOpen] = useState(
     initialIntent === "commit",
   );
+  const dialogTitleId = useId();
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (!isReviewOpen || selectedFile || !status?.files.length) {
@@ -39,14 +43,45 @@ export function GitReviewDialog({
       return;
     }
 
+    previousFocusRef.current = document.activeElement as HTMLElement | null;
+    closeButtonRef.current?.focus();
+
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         closeReview();
+        return;
+      }
+
+      if (event.key !== "Tab") {
+        return;
+      }
+
+      const focusableElements = dialogRef.current?.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      );
+      if (!focusableElements || focusableElements.length === 0) {
+        return;
+      }
+
+      const focusable = Array.from(focusableElements);
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const activeElement = document.activeElement;
+
+      if (event.shiftKey && activeElement === first) {
+        event.preventDefault();
+        last?.focus();
+      } else if (!event.shiftKey && activeElement === last) {
+        event.preventDefault();
+        first?.focus();
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      previousFocusRef.current?.focus();
+    };
   }, [closeReview, isReviewOpen]);
 
   if (!isReviewOpen) {
@@ -65,10 +100,19 @@ export function GitReviewDialog({
         onClick={closeReview}
       />
 
-      <div className="relative flex h-full max-h-[88vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-zinc-800 bg-[#09090b] shadow-2xl shadow-black/50">
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={dialogTitleId}
+        className="relative flex h-full max-h-[88vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-zinc-800 bg-[#09090b] shadow-2xl shadow-black/50"
+      >
         <div className="flex items-center justify-between border-b border-zinc-800 bg-zinc-950/80 px-5 py-4">
           <div className="min-w-0">
-            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.24em] text-zinc-500">
+            <div
+              id={dialogTitleId}
+              className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.24em] text-zinc-500"
+            >
               <FileDiff size={14} />
               Review Changes
             </div>
@@ -93,10 +137,11 @@ export function GitReviewDialog({
             </button>
 
             <button
+              ref={closeButtonRef}
               type="button"
               onClick={closeReview}
               className="rounded-lg border border-zinc-800 p-2 text-zinc-400 transition-colors hover:border-zinc-700 hover:text-white"
-              title="Close review"
+              aria-label="Close review"
             >
               <X size={16} />
             </button>

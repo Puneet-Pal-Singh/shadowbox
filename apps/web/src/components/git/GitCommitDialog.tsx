@@ -92,7 +92,10 @@ export function GitCommitDialog({
     }
 
     if (includeUnstaged && unstagedCount > 0) {
-      await stageAll();
+      const staged = await stageAll();
+      if (!staged) {
+        return;
+      }
     }
 
     const committed = await submitCommit();

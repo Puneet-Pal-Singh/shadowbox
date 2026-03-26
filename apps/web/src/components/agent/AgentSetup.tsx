@@ -36,7 +36,7 @@ import { useGitDiff } from "../../hooks/useGitDiff";
 import type { FileExplorerHandle } from "../FileExplorer";
 import { ChatModeToggle } from "../chat/ChatModeToggle.js";
 import { GitReviewDialog } from "../git/GitReviewDialog";
-import { GitReviewProvider } from "../git/GitReviewContext";
+import { GitReviewProvider, useGitReview } from "../git/GitReviewContext";
 
 interface AgentSetupProps {
   sessionId: string;
@@ -75,6 +75,35 @@ const SUGGESTED_ACTIONS: SuggestedAction[] = [
     gradient: "from-orange-500/10 to-red-500/10",
   },
 ];
+
+interface SetupSidebarHeaderProps {
+  isViewingContent: boolean;
+  activeTab: "files" | "changes";
+  changesCount: number;
+  onBack: () => void;
+  onTabChange: (tab: "files" | "changes") => void;
+}
+
+function SetupSidebarHeader({
+  isViewingContent,
+  activeTab,
+  changesCount,
+  onBack,
+  onTabChange,
+}: SetupSidebarHeaderProps) {
+  const { openReview } = useGitReview();
+
+  return (
+    <SidebarHeader
+      isViewingContent={isViewingContent}
+      activeTab={activeTab}
+      changesCount={changesCount}
+      onExpand={() => openReview()}
+      onBack={onBack}
+      onTabChange={onTabChange}
+    />
+  );
+}
 
 export function AgentSetup({
   sessionId,
@@ -619,11 +648,10 @@ export function AgentSetup({
             className="flex-1 flex flex-col min-w-[280px]"
             style={{ width: sidebarWidth }}
           >
-            <SidebarHeader
+            <SetupSidebarHeader
               isViewingContent={isViewingContent}
               activeTab={activeTab}
               changesCount={changesCount}
-              onExpand={() => setIsGitReviewOpen(true)}
               onBack={() => {
                 setIsViewingContent(false);
                 setSelectedFile(null);
