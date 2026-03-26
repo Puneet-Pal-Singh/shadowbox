@@ -35,6 +35,8 @@ import { useGitStatus } from "../../hooks/useGitStatus";
 import { useGitDiff } from "../../hooks/useGitDiff";
 import type { FileExplorerHandle } from "../FileExplorer";
 import { ChatModeToggle } from "../chat/ChatModeToggle.js";
+import { GitReviewDialog } from "../git/GitReviewDialog";
+import { GitReviewProvider } from "../git/GitReviewContext";
 
 interface AgentSetupProps {
   sessionId: string;
@@ -97,6 +99,7 @@ export function AgentSetup({
   const [providerDialogVariant, setProviderDialogVariant] = useState<
     "full" | "connect-only" | "manage-models-only"
   >("full");
+  const [isGitReviewOpen, setIsGitReviewOpen] = useState(false);
   const {
     catalog,
     credentials,
@@ -287,14 +290,18 @@ export function AgentSetup({
   const repoName = repo?.name || "New Project";
 
   return (
-    <motion.div
-      className="flex-1 flex bg-black relative overflow-hidden"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={{ duration: 0.3 }}
+    <GitReviewProvider
+      isReviewOpen={isGitReviewOpen}
+      onReviewOpenChange={setIsGitReviewOpen}
     >
-      <main className="flex-1 min-w-0 flex flex-col bg-black relative overflow-hidden">
+      <motion.div
+        className="flex-1 flex bg-black relative overflow-hidden"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        transition={{ duration: 0.3 }}
+      >
+        <main className="flex-1 min-w-0 flex flex-col bg-black relative overflow-hidden">
       {/* Animated Background Glow */}
       <div className="absolute inset-0 pointer-events-none overflow-hidden">
         <motion.div
@@ -579,90 +586,94 @@ export function AgentSetup({
           </div>
         </motion.div>
       </div>
-      </main>
+        </main>
 
-      <motion.aside
-        initial={false}
-        animate={{
-          width: isRightSidebarOpen ? sidebarWidth : 0,
-        }}
-        transition={
-          isResizing
-            ? { duration: 0 }
-            : { duration: 0.15, ease: [0.23, 1, 0.32, 1] }
-        }
-        className={`border-l border-zinc-800 bg-black flex flex-col overflow-hidden shrink-0 relative ${
-          !isRightSidebarOpen ? "border-transparent" : ""
-        }`}
-      >
-        {isRightSidebarOpen && (
-          <Resizer
-            side="right"
-            onResizeStart={() => setIsResizing(true)}
-            onResizeEnd={() => setIsResizing(false)}
-            onResize={(delta) =>
-              setSidebarWidth((prev) =>
-                Math.max(280, Math.min(600, prev + delta)),
-              )
-            }
-          />
-        )}
-
-        <div
-          className="flex-1 flex flex-col min-w-[280px]"
-          style={{ width: sidebarWidth }}
+        <motion.aside
+          initial={false}
+          animate={{
+            width: isRightSidebarOpen ? sidebarWidth : 0,
+          }}
+          transition={
+            isResizing
+              ? { duration: 0 }
+              : { duration: 0.15, ease: [0.23, 1, 0.32, 1] }
+          }
+          className={`border-l border-zinc-800 bg-black flex flex-col overflow-hidden shrink-0 relative ${
+            !isRightSidebarOpen ? "border-transparent" : ""
+          }`}
         >
-          <SidebarHeader
-            isViewingContent={isViewingContent}
-            activeTab={activeTab}
-            changesCount={changesCount}
-            onBack={() => {
-              setIsViewingContent(false);
-              setSelectedFile(null);
-              setSelectedDiff(null);
-            }}
-            onTabChange={setActiveTab}
-          />
+          {isRightSidebarOpen && (
+            <Resizer
+              side="right"
+              onResizeStart={() => setIsResizing(true)}
+              onResizeEnd={() => setIsResizing(false)}
+              onResize={(delta) =>
+                setSidebarWidth((prev) =>
+                  Math.max(280, Math.min(600, prev + delta)),
+                )
+              }
+            />
+          )}
 
-          <SidebarContent
-            isViewingContent={isViewingContent}
-            activeTab={activeTab}
-            isLoadingContent={isLoadingContent}
-            selectedFile={selectedFile}
-            selectedDiff={selectedDiff}
-            onCloseContent={() => {
-              setIsViewingContent(false);
-              setSelectedFile(null);
-              setSelectedDiff(null);
-            }}
-            repo={githubRepo}
-            isGitHubLoaded={isGitHubLoaded}
-            repoTree={repoTree}
-            isLoadingTree={!!isLoadingTree}
-            branch={githubBranch || "main"}
-            handleGitHubFileSelect={handleGitHubFileSelect}
-            handleFileClick={handleFileClick}
-            handleViewChange={handleViewChange}
-            explorerRef={explorerRef}
-            sandboxId={sessionId}
-            runId={activeRunId}
-          />
-        </div>
-      </motion.aside>
+          <div
+            className="flex-1 flex flex-col min-w-[280px]"
+            style={{ width: sidebarWidth }}
+          >
+            <SidebarHeader
+              isViewingContent={isViewingContent}
+              activeTab={activeTab}
+              changesCount={changesCount}
+              onExpand={() => setIsGitReviewOpen(true)}
+              onBack={() => {
+                setIsViewingContent(false);
+                setSelectedFile(null);
+                setSelectedDiff(null);
+              }}
+              onTabChange={setActiveTab}
+            />
 
-      <ProviderDialog
-        isOpen={showProviderDialog}
-        onClose={() => {
-          setShowProviderDialog(false);
-          setProviderDialogInitialTab(undefined);
-          setProviderDialogInitialView("default");
-          setProviderDialogVariant("full");
-        }}
-        mode="composer"
-        initialTab={providerDialogInitialTab}
-        initialView={providerDialogInitialView}
-        variant={providerDialogVariant}
-      />
-    </motion.div>
+            <SidebarContent
+              isViewingContent={isViewingContent}
+              activeTab={activeTab}
+              isLoadingContent={isLoadingContent}
+              selectedFile={selectedFile}
+              selectedDiff={selectedDiff}
+              onCloseContent={() => {
+                setIsViewingContent(false);
+                setSelectedFile(null);
+                setSelectedDiff(null);
+              }}
+              repo={githubRepo}
+              isGitHubLoaded={isGitHubLoaded}
+              repoTree={repoTree}
+              isLoadingTree={!!isLoadingTree}
+              branch={githubBranch || "main"}
+              handleGitHubFileSelect={handleGitHubFileSelect}
+              handleFileClick={handleFileClick}
+              handleViewChange={handleViewChange}
+              explorerRef={explorerRef}
+              sandboxId={sessionId}
+              runId={activeRunId}
+            />
+          </div>
+        </motion.aside>
+
+        <GitReviewDialog />
+
+        <ProviderDialog
+          isOpen={showProviderDialog}
+          onClose={() => {
+            setShowProviderDialog(false);
+            setProviderDialogInitialTab(undefined);
+            setProviderDialogInitialView("default");
+            setProviderDialogVariant("full");
+          }}
+          mode="composer"
+          initialTab={providerDialogInitialTab}
+          initialView={providerDialogInitialView}
+          variant={providerDialogVariant}
+        />
+      </motion.div>
+    </GitReviewProvider>
   );
 }
