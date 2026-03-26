@@ -4,6 +4,7 @@ import type {
   WorkspaceBootstrapper,
   RepositoryContext,
 } from "@shadowbox/execution-engine/runtime";
+import { z } from "zod";
 import { ExecutionService } from "../../services/ExecutionService";
 import type { Env } from "../../types/ai";
 
@@ -65,6 +66,13 @@ const CLONE_DESTINATION_NOT_EMPTY_PATTERNS = [
   /destination path .* already exists and is not an empty directory/i,
 ];
 const workspaceSyncCache = new Map<string, WorkspaceSyncCacheEntry>();
+const gitStatusOutputSchema = z.object({
+  branch: z.string(),
+  files: z.array(z.unknown()),
+  hasStaged: z.boolean(),
+  hasUnstaged: z.boolean(),
+  gitAvailable: z.boolean(),
+});
 
 export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
   constructor(
@@ -174,11 +182,30 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
       return bootstrapResult;
     }
 
-    if (hasLocalWorkspaceChanges(statusResult.output)) {
-      setWorkspaceSyncCache(cacheKey);
-      bootstrapResult = { status: "ready" };
+    const workspaceStatus = parseWorkspaceGitStatus(statusResult.output);
+    if (workspaceStatus && workspaceStatus.branch === normalized.branch) {
+      const hasLocalChanges =
+        workspaceStatus.hasStaged ||
+        workspaceStatus.hasUnstaged ||
+        workspaceStatus.files.length > 0;
+      if (hasLocalChanges) {
+        setWorkspaceSyncCache(cacheKey);
+        bootstrapResult = { status: "ready" };
+        this.logBootstrapTiming(request.runId, bootstrapResult, bootstrapStartedAt);
+        return bootstrapResult;
+      }
+    }
+
+    if (typeof statusResult.output === "string" && !workspaceStatus) {
+      bootstrapResult = mapGitFailure("Invalid git status response from workspace.");
       this.logBootstrapTiming(request.runId, bootstrapResult, bootstrapStartedAt);
       return bootstrapResult;
+    }
+
+    if (workspaceStatus && workspaceStatus.branch !== normalized.branch) {
+      console.log(
+        `[workspace/bootstrap] run=${request.runId} branch-mismatch current=${workspaceStatus.branch} target=${normalized.branch}`,
+      );
     }
 
     bootstrapResult = await this.syncBranch(
@@ -352,24 +379,27 @@ function toGitPluginResult(result: unknown): GitPluginResult {
   };
 }
 
-function hasLocalWorkspaceChanges(output: unknown): boolean {
+function parseWorkspaceGitStatus(
+  output: unknown,
+): z.infer<typeof gitStatusOutputSchema> | null {
   if (typeof output !== "string" || output.trim().length === 0) {
-    return false;
+    return null;
   }
 
   try {
-    const parsed = JSON.parse(output) as Partial<{
-      hasStaged: boolean;
-      hasUnstaged: boolean;
-      files: unknown[];
-    }>;
-    return (
-      parsed.hasStaged === true ||
-      parsed.hasUnstaged === true ||
-      (Array.isArray(parsed.files) && parsed.files.length > 0)
-    );
-  } catch {
-    return false;
+    const parsed = JSON.parse(output) as unknown;
+    const result = gitStatusOutputSchema.safeParse(parsed);
+    if (!result.success) {
+      console.warn(
+        "[workspace/bootstrap] Invalid git status payload",
+        result.error.flatten(),
+      );
+      return null;
+    }
+    return result.data;
+  } catch (error) {
+    console.warn("[workspace/bootstrap] Failed to parse git status payload", error);
+    return null;
   }
 }
 

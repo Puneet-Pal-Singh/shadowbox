@@ -245,4 +245,68 @@ describe("WorkspaceBootstrapService", () => {
     expect(execute).toHaveBeenCalledTimes(1);
     expect(execute).toHaveBeenCalledWith("git", "git_status", {});
   });
+
+  it("does not short-circuit ready when local changes are on a different branch", async () => {
+    const execute = vi
+      .fn()
+      .mockResolvedValueOnce({
+        success: true,
+        output: JSON.stringify({
+          branch: "feature/other",
+          files: [
+            {
+              path: "README.md",
+              status: "modified",
+              additions: 1,
+              deletions: 0,
+              isStaged: false,
+            },
+          ],
+          ahead: 0,
+          behind: 0,
+          hasStaged: false,
+          hasUnstaged: true,
+          gitAvailable: true,
+        }),
+      })
+      .mockResolvedValueOnce({ success: true })
+      .mockResolvedValueOnce({ success: true })
+      .mockResolvedValueOnce({ success: true });
+    const service = new WorkspaceBootstrapService({ execute }, 0);
+
+    const result = await service.bootstrap({
+      runId: "run-branch-mismatch",
+      repositoryContext: {
+        owner: "sourcegraph",
+        repo: "shadowbox",
+        branch: "main",
+      },
+    });
+
+    expect(result.status).toBe("ready");
+    expect(execute).toHaveBeenCalledTimes(4);
+    expect(execute).toHaveBeenNthCalledWith(2, "git", "git_fetch", {
+      remote: "origin",
+    });
+  });
+
+  it("fails closed on malformed git status payloads", async () => {
+    const execute = vi.fn().mockResolvedValueOnce({
+      success: true,
+      output: "{not-json",
+    });
+    const service = new WorkspaceBootstrapService({ execute }, 0);
+
+    const result = await service.bootstrap({
+      runId: "run-invalid-status",
+      repositoryContext: {
+        owner: "sourcegraph",
+        repo: "shadowbox",
+        branch: "main",
+      },
+    });
+
+    expect(result.status).toBe("sync-failed");
+    expect(result.message).toContain("Invalid git status response");
+  });
 });
