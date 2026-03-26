@@ -107,4 +107,18 @@ describe("secure-agent-api plugin hardening", () => {
     expect(validToken.success).toBe(true);
     expect(validToken.output).toBe("Token validated for authenticated git actions");
   });
+
+  it("fails git commits when the workspace author is not configured", async () => {
+    const plugin = new GitPlugin();
+    const sandbox = createSandboxMock();
+
+    const result = await plugin.execute(asSandbox(sandbox), {
+      action: "git_commit",
+      runId: "run-safe-5",
+      message: "feat: test commit",
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/git commit author is not configured/i);
+  });
 });

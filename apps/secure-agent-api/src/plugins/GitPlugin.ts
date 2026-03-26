@@ -61,8 +61,8 @@ type GitPayload = z.infer<typeof GitPayloadSchema>;
 const SAFE_GIT_REF_REGEX = /^[A-Za-z0-9._/-]{1,200}$/;
 const CLONE_DESTINATION_NOT_EMPTY_PATTERN =
   /destination path .* already exists and is not an empty directory/i;
-const DEFAULT_GIT_AUTHOR_NAME = "Shadowbox";
-const DEFAULT_GIT_AUTHOR_EMAIL = "shadowbox@local.invalid";
+const MISSING_GIT_AUTHOR_ERROR =
+  "Git commit author is not configured. Set git user.name and user.email for this workspace before committing.";
 
 export class GitPlugin implements IPlugin {
   name = "git";
@@ -591,71 +591,37 @@ export class GitPlugin implements IPlugin {
     toolboxContext: ReturnType<typeof readToolboxCommandContext>,
     runId: string,
   ): Promise<PluginResult> {
-    const authorNameResult = await this.ensureGitConfigValue(
+    const authorName = await this.readGitConfigValue(
       sandbox,
       worktree,
       "user.name",
-      DEFAULT_GIT_AUTHOR_NAME,
       toolboxContext,
       runId,
-      "git.commit_author_name",
+      "git.commit_author_name.read",
     );
-    if (!authorNameResult.success) {
-      return authorNameResult;
+    if (authorName.length === 0) {
+      return {
+        success: false,
+        error: MISSING_GIT_AUTHOR_ERROR,
+      };
     }
 
-    return await this.ensureGitConfigValue(
+    const authorEmail = await this.readGitConfigValue(
       sandbox,
       worktree,
       "user.email",
-      DEFAULT_GIT_AUTHOR_EMAIL,
       toolboxContext,
       runId,
-      "git.commit_author_email",
+      "git.commit_author_email.read",
     );
-  }
-
-  private async ensureGitConfigValue(
-    sandbox: Sandbox,
-    worktree: string,
-    key: "user.name" | "user.email",
-    fallbackValue: string,
-    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
-    runId: string,
-    toolName: string,
-  ): Promise<PluginResult> {
-    const currentValue = await this.readGitConfigValue(
-      sandbox,
-      worktree,
-      key,
-      toolboxContext,
-      runId,
-      `${toolName}.read`,
-    );
-    if (currentValue.length > 0) {
-      return { success: true };
+    if (authorEmail.length === 0) {
+      return {
+        success: false,
+        error: MISSING_GIT_AUTHOR_ERROR,
+      };
     }
 
-    const result = await this.runToolboxCommand(
-      sandbox,
-      {
-        command: "git",
-        args: ["-C", worktree, "config", key, fallbackValue],
-        runId,
-      },
-      ["git"],
-      toolboxContext,
-      toolName,
-    );
-
-    if (result.exitCode === 0) {
-      return { success: true };
-    }
-
-    return {
-      success: false,
-      error: result.stderr || `Failed to configure ${key} for commit`,
-    };
+    return { success: true };
   }
 
   private async readGitConfigValue(
