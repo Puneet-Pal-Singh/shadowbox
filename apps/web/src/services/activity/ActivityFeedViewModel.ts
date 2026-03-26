@@ -1,12 +1,15 @@
 import {
   ACTIVITY_PART_KINDS,
-  type GitStatusResponse,
-  type GitToolActivityMetadata,
   TOOL_ACTIVITY_FAMILIES,
   type ActivityFeedSnapshot,
   type ActivityPart,
   type ToolActivityPart,
 } from "@repo/shared-types";
+import {
+  getGitCommandLabel,
+  getGitDetails,
+  getGitSummary,
+} from "./gitTranscript.js";
 
 export interface ActivityFeedSummaryViewModel {
   elapsedLabel: string;
@@ -95,15 +98,6 @@ export interface ActivityFeedViewModel {
 
 const LOW_SIGNAL_EXPLORATION_THRESHOLD = 2;
 
-class MissingActivityTurnIdError extends Error {
-  constructor(index: number) {
-    super(
-      `Activity turn at index ${index} is missing a canonical turnId and cannot be rendered safely.`,
-    );
-    this.name = "MissingActivityTurnIdError";
-  }
-}
-
 export function buildActivityFeedViewModel(
   feed: ActivityFeedSnapshot | null,
 ): ActivityFeedViewModel {
@@ -123,33 +117,44 @@ export function buildActivityFeedViewModel(
   const lastTurnIndex = turnGroups.length - 1;
   return {
     summary: buildFeedSummary(feed),
-    turns: turnGroups.map((turn, index) => {
+    turns: turnGroups.flatMap((turn, index) => {
+      const turnKey = resolveActivityTurnKey(turn.turnId, index);
+      if (!turnKey) {
+        return [];
+      }
+
       const rows = buildTurnRows(turn.items);
       const isActiveTurn = feed.status === "RUNNING" && index === lastTurnIndex;
-      return {
-        key: requireActivityTurnId(turn.turnId, index),
-        userPrompt: getTurnUserPrompt(turn.items),
-        elapsedLabel: formatDuration(
-          turn.items[0]?.createdAt ?? null,
-          turn.items[turn.items.length - 1]?.updatedAt ?? null,
+      return [
+        {
+          key: turnKey,
+          userPrompt: getTurnUserPrompt(turn.items),
+          elapsedLabel: formatDuration(
+            turn.items[0]?.createdAt ?? null,
+            turn.items[turn.items.length - 1]?.updatedAt ?? null,
+            isActiveTurn,
+          ),
+          summaryLabel: buildTurnSummary(rows),
+          defaultCollapsed: !isActiveTurn,
           isActiveTurn,
-        ),
-        summaryLabel: buildTurnSummary(rows),
-        defaultCollapsed: !isActiveTurn,
-        isActiveTurn,
-        hasVisibleRows: rows.length > 0,
-        rows,
-      };
+          hasVisibleRows: rows.length > 0,
+          rows,
+        },
+      ];
     }),
   };
 }
 
-function requireActivityTurnId(
+function resolveActivityTurnKey(
   turnId: string | undefined,
   index: number,
-): string {
+): string | null {
   if (!turnId) {
-    throw new MissingActivityTurnIdError(index);
+    console.warn(
+      "[activity/feed] Skipping activity turn without canonical turnId.",
+      { index },
+    );
+    return null;
   }
 
   return turnId;
@@ -443,154 +448,6 @@ function getToolDetails(item: ToolActivityPart): string[] {
     default:
       return [];
   }
-}
-
-function getGitCommandLabel(item: ToolActivityPart): string {
-  const metadata = item.metadata as GitToolActivityMetadata;
-  switch (item.toolName) {
-    case "git_status":
-      return "git status";
-    case "git_diff": {
-      const path = typeof metadata.path === "string" ? metadata.path : "";
-      return path ? `git diff -- ${path}` : "git diff";
-    }
-    default:
-      return humanizeToolName(item.toolName);
-  }
-}
-
-function getGitSummary(item: ToolActivityPart): string {
-  const metadata = item.metadata as GitToolActivityMetadata;
-  if (item.status === "failed") {
-    return "Command failed";
-  }
-
-  if (item.status === "requested" || item.status === "running") {
-    return "Running";
-  }
-
-  if (item.toolName === "git_status") {
-    const parsed = parseGitStatusPreview(metadata.preview);
-    if (!parsed) {
-      return "";
-    }
-
-    if (!parsed.gitAvailable) {
-      return "Git unavailable";
-    }
-
-    const summaryParts: string[] = [];
-    if (parsed.branch) {
-      summaryParts.push(`On ${parsed.branch}`);
-    }
-
-    summaryParts.push(
-      parsed.hasStaged || parsed.hasUnstaged
-        ? "working tree dirty"
-        : "working tree clean",
-    );
-
-    if (parsed.ahead > 0) {
-      summaryParts.push(`ahead ${parsed.ahead}`);
-    }
-
-    if (parsed.behind > 0) {
-      summaryParts.push(`behind ${parsed.behind}`);
-    }
-
-    return summaryParts.join(" · ");
-  }
-
-  return metadata.count ? `${metadata.count} changed lines` : "";
-}
-
-function getGitDetails(item: ToolActivityPart): string[] {
-  const metadata = item.metadata as GitToolActivityMetadata;
-  if (item.toolName === "git_status") {
-    const parsed = parseGitStatusPreview(metadata.preview);
-    if (parsed) {
-      return [formatGitStatusTranscript(parsed)];
-    }
-  }
-
-  if (!metadata.preview) {
-    return [];
-  }
-
-  const commandLabel = getGitCommandLabel(item);
-  return [`$ ${commandLabel}\n\n${metadata.preview}`];
-}
-
-function parseGitStatusPreview(
-  preview: string | undefined,
-): GitStatusResponse | null {
-  if (!preview?.trim()) {
-    return null;
-  }
-
-  try {
-    const parsed = JSON.parse(preview) as unknown;
-    if (!isGitStatusResponse(parsed)) {
-      return null;
-    }
-    return parsed;
-  } catch {
-    return null;
-  }
-}
-
-function formatGitStatusTranscript(status: GitStatusResponse): string {
-  const lines = ["$ git status"];
-
-  if (!status.gitAvailable) {
-    lines.push("", "Git is unavailable in the current workspace.");
-    return lines.join("\n");
-  }
-
-  lines.push("", `On branch ${status.branch || "unknown"}`);
-
-  if (status.hasStaged || status.hasUnstaged) {
-    lines.push("Working tree has local changes.");
-  } else {
-    lines.push("Working tree clean.");
-  }
-
-  if (status.ahead > 0 || status.behind > 0) {
-    const trackingParts: string[] = [];
-    if (status.ahead > 0) {
-      trackingParts.push(`ahead ${status.ahead}`);
-    }
-    if (status.behind > 0) {
-      trackingParts.push(`behind ${status.behind}`);
-    }
-    lines.push(`Tracking status: ${trackingParts.join(", ")}.`);
-  }
-
-  if (status.files.length > 0) {
-    lines.push("", "Changed files:");
-    for (const file of status.files.slice(0, 8)) {
-      lines.push(`- ${file.path} (${file.status})`);
-    }
-  }
-
-  return lines.join("\n");
-}
-
-function isGitStatusResponse(value: unknown): value is GitStatusResponse {
-  if (typeof value !== "object" || value === null) {
-    return false;
-  }
-
-  const candidate = value as Record<string, unknown>;
-  return (
-    Array.isArray(candidate.files) &&
-    typeof candidate.ahead === "number" &&
-    typeof candidate.behind === "number" &&
-    typeof candidate.branch === "string" &&
-    typeof candidate.hasStaged === "boolean" &&
-    typeof candidate.hasUnstaged === "boolean" &&
-    typeof candidate.gitAvailable === "boolean"
-  );
 }
 
 function buildFeedSummary(

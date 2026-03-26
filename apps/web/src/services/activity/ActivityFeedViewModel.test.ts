@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   ACTIVITY_PART_KINDS,
   TOOL_ACTIVITY_FAMILIES,
@@ -166,33 +166,91 @@ describe("ActivityFeedViewModel", () => {
     }
   });
 
-  it("fails fast when activity turns are missing a canonical turn id", () => {
-    expect(() =>
-      buildActivityFeedViewModel({
-        runId: "run-invalid",
-        sessionId: "session-invalid",
-        status: "COMPLETED",
-        items: [
-          {
-            id: "tool-1",
-            runId: "run-invalid",
-            sessionId: "session-invalid",
-            kind: ACTIVITY_PART_KINDS.TOOL,
-            createdAt: "2026-03-24T10:00:01.000Z",
-            updatedAt: "2026-03-24T10:00:02.000Z",
-            source: "brain",
-            toolId: "tool-1",
-            toolName: "git_status",
-            status: "completed",
-            metadata: {
-              family: TOOL_ACTIVITY_FAMILIES.GIT,
-              preview:
-                '{"files":[],"ahead":0,"behind":0,"branch":"main","hasStaged":false,"hasUnstaged":false,"gitAvailable":true}',
-            },
+  it("skips activity turns that are missing a canonical turn id", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const viewModel = buildActivityFeedViewModel({
+      runId: "run-invalid",
+      sessionId: "session-invalid",
+      status: "COMPLETED",
+      items: [
+        {
+          id: "tool-1",
+          runId: "run-invalid",
+          sessionId: "session-invalid",
+          kind: ACTIVITY_PART_KINDS.TOOL,
+          createdAt: "2026-03-24T10:00:01.000Z",
+          updatedAt: "2026-03-24T10:00:02.000Z",
+          source: "brain",
+          toolId: "tool-1",
+          toolName: "git_status",
+          status: "completed",
+          metadata: {
+            family: TOOL_ACTIVITY_FAMILIES.GIT,
+            preview:
+              '{"files":[],"ahead":0,"behind":0,"branch":"main","hasStaged":false,"hasUnstaged":false,"gitAvailable":true}',
           },
-        ],
-      }),
-    ).toThrow(/missing a canonical turnId/i);
+        },
+      ],
+    });
+
+    expect(viewModel.turns).toHaveLength(0);
+    expect(warnSpy).toHaveBeenCalledWith(
+      "[activity/feed] Skipping activity turn without canonical turnId.",
+      { index: 0 },
+    );
+
+    warnSpy.mockRestore();
+  });
+
+  it("falls back to raw git preview when status files are malformed", () => {
+    const viewModel = buildActivityFeedViewModel({
+      runId: "run-git-invalid",
+      sessionId: "session-git-invalid",
+      status: "COMPLETED",
+      items: [
+        {
+          id: "text-1",
+          runId: "run-git-invalid",
+          sessionId: "session-git-invalid",
+          turnId: "turn-1",
+          kind: ACTIVITY_PART_KINDS.TEXT,
+          createdAt: "2026-03-24T10:00:00.000Z",
+          updatedAt: "2026-03-24T10:00:00.000Z",
+          source: "brain",
+          role: "user",
+          content: "check git",
+        },
+        {
+          id: "tool-1",
+          runId: "run-git-invalid",
+          sessionId: "session-git-invalid",
+          turnId: "turn-1",
+          kind: ACTIVITY_PART_KINDS.TOOL,
+          createdAt: "2026-03-24T10:00:01.000Z",
+          updatedAt: "2026-03-24T10:00:02.000Z",
+          source: "brain",
+          toolId: "tool-1",
+          toolName: "git_status",
+          status: "completed",
+          metadata: {
+            family: TOOL_ACTIVITY_FAMILIES.GIT,
+            preview:
+              '{"files":[{"oops":true}],"ahead":0,"behind":0,"branch":"main","hasStaged":false,"hasUnstaged":false,"gitAvailable":true}',
+          },
+        },
+      ],
+    });
+
+    const gitRow = viewModel.turns[0]?.rows[0];
+    expect(gitRow).toMatchObject({
+      kind: "tool",
+      title: "git status",
+      summary: "",
+    });
+    if (gitRow?.kind === "tool") {
+      expect(gitRow.details[0]).toContain('"oops":true');
+    }
   });
 });
 
