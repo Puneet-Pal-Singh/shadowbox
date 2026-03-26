@@ -103,6 +103,16 @@ export class CodingAgent extends BaseAgent {
       context.completedTasks,
     );
 
+    if (
+      groundedSummary.audit.missingMutationEvidence &&
+      groundedSummary.missingMutationSummary
+    ) {
+      console.warn(
+        `[agents/coding] Missing mutation evidence for run ${context.runId}; returning guarded summary`,
+      );
+      return groundedSummary.missingMutationSummary;
+    }
+
     try {
       const result = await this.llmGateway.generateText({
         context: {

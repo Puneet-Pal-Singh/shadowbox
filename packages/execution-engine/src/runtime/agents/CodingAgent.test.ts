@@ -5,6 +5,39 @@ import type { RuntimeExecutionService, ExecutionContext } from "../types";
 import type { Task } from "../task";
 
 describe("CodingAgent task-phase model selection", () => {
+  it("returns a guarded synthesis message when mutation was requested but no edit completed", async () => {
+    const llmGateway = createLLMGatewayMock();
+    const executionService = createExecutionServiceMock();
+    const agent = new CodingAgent(llmGateway, executionService);
+
+    const synthesis = await agent.synthesize({
+      runId: "run-1",
+      sessionId: "session-1",
+      originalPrompt: "add logging to PendingJobCard.tsx",
+      completedTasks: [
+        {
+          id: "task-read-1",
+          runId: "run-1",
+          type: "analyze",
+          status: "DONE",
+          dependencies: [],
+          input: { description: "Read PendingJobCard.tsx", path: "PendingJobCard.tsx" },
+          output: { content: "Read file successfully" },
+          retryCount: 0,
+          maxRetries: 0,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+      ],
+      modelId: "gpt-4o",
+      providerId: "openai",
+    });
+
+    expect(synthesis).toContain("I'm not done with that change yet.");
+    expect(synthesis).toContain("did not record any successful edit/write task");
+    expect(llmGateway.generateText).not.toHaveBeenCalled();
+  });
+
   it("passes model/provider overrides to review task LLM calls", async () => {
     const llmGateway = createLLMGatewayMock();
     const executionService = createExecutionServiceMock();
