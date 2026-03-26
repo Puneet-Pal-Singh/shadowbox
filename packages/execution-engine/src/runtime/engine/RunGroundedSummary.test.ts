@@ -32,6 +32,27 @@ describe("RunGroundedSummary", () => {
     expect(summary.fallbackSummary).toContain("Request: fix README and run tests");
     expect(summary.fallbackSummary).not.toContain("Completed 2/3 tasks");
   });
+
+  it("flags mutation requests that completed without edit evidence", () => {
+    const summary = buildGroundedTaskSummary("add logging to PendingJobCard.tsx", [
+      buildTask({
+        id: "1",
+        status: "DONE",
+        description: "Read PendingJobCard.tsx",
+        output: "Read src/components/PendingJobCard.tsx",
+      }),
+    ]);
+
+    expect(summary.audit.requestedMutation).toBe(true);
+    expect(summary.audit.completedMutatingTaskCount).toBe(0);
+    expect(summary.audit.missingMutationEvidence).toBe(true);
+    expect(summary.evidencePrompt).toContain(
+      "do not claim a file/code change was completed unless completed mutating task evidence exists",
+    );
+    expect(summary.missingMutationSummary).toContain(
+      "did not record any successful edit/write task",
+    );
+  });
 });
 
 function buildTask({
@@ -40,6 +61,7 @@ function buildTask({
   description,
   output,
   error,
+  type = "shell",
 }: {
   id: string;
   status:
@@ -49,11 +71,12 @@ function buildTask({
   description: string;
   output?: string;
   error?: string;
+  type?: string;
 }) {
   return {
     id,
     runId: "run-1",
-    type: "shell",
+    type,
     status,
     dependencies: [],
     input: {
