@@ -17,6 +17,12 @@ import { SessionStateService } from "../services/SessionStateService";
 
 export type { AgentSession } from "../types/session";
 
+function createSessionsMap(
+  sessions: AgentSession[],
+): Record<string, AgentSession> {
+  return Object.fromEntries(sessions.map((session) => [session.id, session]));
+}
+
 export function useSessionManager() {
   const [sessions, setSessions] = useState<AgentSession[]>(() => {
     const sessionsMap = SessionStateService.loadSessions();
@@ -35,9 +41,7 @@ export function useSessionManager() {
 
   // Persist sessions and active ID to localStorage with v2 schema
   useEffect(() => {
-    const sessionsMap = Object.fromEntries(
-      sessions.map((s) => [s.id, s]),
-    );
+    const sessionsMap = createSessionsMap(sessions);
     // Pass activeSessionId to avoid race condition between load and save
     SessionStateService.saveSessions(sessionsMap, activeSessionId);
     SessionStateService.saveActiveSessionId(activeSessionId, sessionsMap);
@@ -90,11 +94,17 @@ export function useSessionManager() {
         mode,
       );
 
-      setSessions((prev) => [...prev, newSession]);
+      const nextSessions = [...sessions, newSession];
+      const sessionsMap = createSessionsMap(nextSessions);
+
+      SessionStateService.saveSessions(sessionsMap, newSession.id);
+      SessionStateService.saveActiveSessionId(newSession.id, sessionsMap);
+
+      setSessions(nextSessions);
       setActiveSessionId(newSession.id);
       return newSession.id;
     },
-    [],
+    [sessions],
   );
 
   /**
