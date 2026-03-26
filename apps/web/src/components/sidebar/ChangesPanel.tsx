@@ -101,6 +101,7 @@ export function ChangesPanel({
           <div className="flex-1 flex flex-col overflow-hidden bg-zinc-900/30 rounded-lg border border-zinc-800">
             {selectedFile && diff ? (
               <DiffViewer
+                key={`${diff.oldPath}:${diff.newPath}:${diff.hunks.length}`}
                 diff={diff}
                 className="flex-1 overflow-hidden"
               />

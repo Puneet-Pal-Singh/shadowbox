@@ -49,6 +49,15 @@ const DiffLine = memo(
     return (
       <div
         onClick={onClick}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            event.currentTarget.click();
+          }
+        }}
+        role={onClick ? "button" : undefined}
+        tabIndex={onClick ? 0 : undefined}
+        aria-pressed={onClick ? isSelected : undefined}
         className={`group relative flex w-full border-l-2 text-left font-mono text-sm transition-colors ${
           isSelected ? "bg-sky-500/10" : ""
         } ${borderColor} ${bgColor}`}

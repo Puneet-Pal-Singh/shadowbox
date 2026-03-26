@@ -23,6 +23,7 @@ interface DiffAnnotation {
 
 interface SplitRow {
   key: string;
+  rowKeys: string[];
   left: DiffLineType | null;
   right: DiffLineType | null;
 }
@@ -407,9 +408,14 @@ function SplitHunkView({
   return (
     <div className="grid grid-cols-2 divide-x divide-zinc-800">
       {rows.map((row) => {
-        const isSelected = selectedRowKeys.includes(row.key);
-        const annotationCount = annotationCounts.get(row.key) ?? 0;
-        const anchoredAnnotations = annotationsByAnchor.get(row.key) ?? [];
+        const isSelected = row.rowKeys.some((rowKey) => selectedRowKeys.includes(rowKey));
+        const annotationCount = row.rowKeys.reduce(
+          (sum, rowKey) => sum + (annotationCounts.get(rowKey) ?? 0),
+          0,
+        );
+        const anchoredAnnotations = row.rowKeys.flatMap(
+          (rowKey) => annotationsByAnchor.get(rowKey) ?? [],
+        );
         return (
           <Fragment key={row.key}>
             <SplitDiffCell
@@ -488,6 +494,15 @@ function SplitDiffCell({
           isSelected ? "bg-sky-500/10" : ""
         }`}
         onClick={onClick}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            event.currentTarget.click();
+          }
+        }}
+        role="button"
+        tabIndex={0}
+        aria-pressed={isSelected}
       />
     );
   }
@@ -510,6 +525,15 @@ function SplitDiffCell({
   return (
     <div
       onClick={onClick}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          event.currentTarget.click();
+        }
+      }}
+      role="button"
+      tabIndex={0}
+      aria-pressed={isSelected}
       className={`group relative flex min-h-8 border-b border-zinc-900/80 font-mono text-sm ${
         isSelected ? "ring-1 ring-inset ring-sky-500/50" : ""
       } ${background}`}
@@ -659,7 +683,6 @@ function buildLineKey(hunkIndex: number, lineIndex: number): string {
 
 function buildSplitRows(lines: DiffLineType[], hunkIndex: number): SplitRow[] {
   const rows: SplitRow[] = [];
-  let splitRowIndex = 0;
 
   for (let index = 0; index < lines.length;) {
     const line = lines[index];
@@ -668,40 +691,47 @@ function buildSplitRows(lines: DiffLineType[], hunkIndex: number): SplitRow[] {
     }
 
     if (line.type === "unchanged") {
+      const rowKey = buildLineKey(hunkIndex, index);
       rows.push({
-        key: `${hunkIndex}:split:${splitRowIndex}`,
+        key: rowKey,
+        rowKeys: [rowKey],
         left: line,
         right: line,
       });
-      splitRowIndex += 1;
       index += 1;
       continue;
     }
 
-    const deleted: DiffLineType[] = [];
-    const added: DiffLineType[] = [];
+    const deleted: Array<{ line: DiffLineType; lineIndex: number }> = [];
+    const added: Array<{ line: DiffLineType; lineIndex: number }> = [];
     while (index < lines.length && lines[index]?.type !== "unchanged") {
       const current = lines[index];
       if (!current) {
         break;
       }
       if (current.type === "deleted") {
-        deleted.push(current);
+        deleted.push({ line: current, lineIndex: index });
       }
       if (current.type === "added") {
-        added.push(current);
+        added.push({ line: current, lineIndex: index });
       }
       index += 1;
     }
 
     const chunkSize = Math.max(deleted.length, added.length);
     for (let rowIndex = 0; rowIndex < chunkSize; rowIndex += 1) {
+      const leftEntry = deleted[rowIndex] ?? null;
+      const rightEntry = added[rowIndex] ?? null;
+      const rowKeys = [leftEntry, rightEntry]
+        .filter((entry): entry is { line: DiffLineType; lineIndex: number } => entry !== null)
+        .map((entry) => buildLineKey(hunkIndex, entry.lineIndex));
+
       rows.push({
-        key: `${hunkIndex}:split:${splitRowIndex}`,
-        left: deleted[rowIndex] ?? null,
-        right: added[rowIndex] ?? null,
+        key: rowKeys[0] ?? buildLineKey(hunkIndex, index),
+        rowKeys,
+        left: leftEntry?.line ?? null,
+        right: rightEntry?.line ?? null,
       });
-      splitRowIndex += 1;
     }
   }
 
