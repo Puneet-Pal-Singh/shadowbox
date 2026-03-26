@@ -61,6 +61,8 @@ type GitPayload = z.infer<typeof GitPayloadSchema>;
 const SAFE_GIT_REF_REGEX = /^[A-Za-z0-9._/-]{1,200}$/;
 const CLONE_DESTINATION_NOT_EMPTY_PATTERN =
   /destination path .* already exists and is not an empty directory/i;
+const DEFAULT_GIT_AUTHOR_NAME = "Shadowbox";
+const DEFAULT_GIT_AUTHOR_EMAIL = "shadowbox@local.invalid";
 
 export class GitPlugin implements IPlugin {
   name = "git";
@@ -381,7 +383,14 @@ export class GitPlugin implements IPlugin {
     toolboxContext: ReturnType<typeof readToolboxCommandContext>,
     runId: string,
   ): Promise<PluginResult> {
-    const args = ["-C", worktree, "diff"];
+    const args = [
+      "-C",
+      worktree,
+      "diff",
+      "--no-ext-diff",
+      "--find-renames",
+      "--unified=999999",
+    ];
     if (staged) {
       args.push("--staged");
     }
@@ -408,6 +417,8 @@ export class GitPlugin implements IPlugin {
     const lines = diffOutput.split("\n");
     const hunks: DiffHunk[] = [];
     let currentHunk: DiffHunk | null = null;
+    let oldLineCursor = 0;
+    let newLineCursor = 0;
 
     let oldPath = filePath || "";
     let newPath = filePath || "";
@@ -432,10 +443,12 @@ export class GitPlugin implements IPlugin {
 
         const match = line.match(/@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/);
         if (match && match[1] && match[3]) {
+          oldLineCursor = Number.parseInt(match[1], 10);
+          newLineCursor = Number.parseInt(match[3], 10);
           currentHunk = {
-            oldStart: Number.parseInt(match[1], 10),
+            oldStart: oldLineCursor,
             oldLines: Number.parseInt(match[2] || "1", 10),
-            newStart: Number.parseInt(match[3], 10),
+            newStart: newLineCursor,
             newLines: Number.parseInt(match[4] || "1", 10),
             lines: [],
             header: line,
@@ -445,15 +458,14 @@ export class GitPlugin implements IPlugin {
         currentHunk &&
         (line.startsWith(" ") || line.startsWith("+") || line.startsWith("-"))
       ) {
-        const type = line.startsWith("+")
-          ? "added"
-          : line.startsWith("-")
-            ? "deleted"
-            : "unchanged";
-        currentHunk.lines.push({
-          type,
-          content: line.substring(1),
-        });
+        const nextLine = createDiffLine(
+          line,
+          oldLineCursor,
+          newLineCursor,
+        );
+        oldLineCursor = nextLine.nextOldLineNumber;
+        newLineCursor = nextLine.nextNewLineNumber;
+        currentHunk.lines.push(nextLine.line);
       }
     }
 
@@ -548,6 +560,16 @@ export class GitPlugin implements IPlugin {
       }
     }
 
+    const commitIdentityResult = await this.ensureCommitIdentity(
+      sandbox,
+      worktree,
+      toolboxContext,
+      runId,
+    );
+    if (!commitIdentityResult.success) {
+      return commitIdentityResult;
+    }
+
     const result = await this.runToolboxCommand(
       sandbox,
       {
@@ -561,6 +583,104 @@ export class GitPlugin implements IPlugin {
     );
 
     return buildGitResult(result, "Changes committed");
+  }
+
+  private async ensureCommitIdentity(
+    sandbox: Sandbox,
+    worktree: string,
+    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
+    runId: string,
+  ): Promise<PluginResult> {
+    const authorNameResult = await this.ensureGitConfigValue(
+      sandbox,
+      worktree,
+      "user.name",
+      DEFAULT_GIT_AUTHOR_NAME,
+      toolboxContext,
+      runId,
+      "git.commit_author_name",
+    );
+    if (!authorNameResult.success) {
+      return authorNameResult;
+    }
+
+    return await this.ensureGitConfigValue(
+      sandbox,
+      worktree,
+      "user.email",
+      DEFAULT_GIT_AUTHOR_EMAIL,
+      toolboxContext,
+      runId,
+      "git.commit_author_email",
+    );
+  }
+
+  private async ensureGitConfigValue(
+    sandbox: Sandbox,
+    worktree: string,
+    key: "user.name" | "user.email",
+    fallbackValue: string,
+    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
+    runId: string,
+    toolName: string,
+  ): Promise<PluginResult> {
+    const currentValue = await this.readGitConfigValue(
+      sandbox,
+      worktree,
+      key,
+      toolboxContext,
+      runId,
+      `${toolName}.read`,
+    );
+    if (currentValue.length > 0) {
+      return { success: true };
+    }
+
+    const result = await this.runToolboxCommand(
+      sandbox,
+      {
+        command: "git",
+        args: ["-C", worktree, "config", key, fallbackValue],
+        runId,
+      },
+      ["git"],
+      toolboxContext,
+      toolName,
+    );
+
+    if (result.exitCode === 0) {
+      return { success: true };
+    }
+
+    return {
+      success: false,
+      error: result.stderr || `Failed to configure ${key} for commit`,
+    };
+  }
+
+  private async readGitConfigValue(
+    sandbox: Sandbox,
+    worktree: string,
+    key: "user.name" | "user.email",
+    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
+    runId: string,
+    toolName: string,
+  ): Promise<string> {
+    const result = await this.runToolboxCommand(
+      sandbox,
+      {
+        command: "git",
+        args: ["-C", worktree, "config", "--get", key],
+        runId,
+      },
+      ["git"],
+      toolboxContext,
+      toolName,
+    );
+    if (result.exitCode !== 0) {
+      return "";
+    }
+    return result.stdout.trim();
   }
 
   private async push(
@@ -782,6 +902,51 @@ function parseStatusLine(line: string): FileStatus[] {
       isStaged,
     },
   ];
+}
+
+function createDiffLine(
+  line: string,
+  oldLineNumber: number,
+  newLineNumber: number,
+): {
+  line: DiffHunk["lines"][number];
+  nextOldLineNumber: number;
+  nextNewLineNumber: number;
+} {
+  if (line.startsWith("+")) {
+    return {
+      line: {
+        type: "added",
+        content: line.substring(1),
+        newLineNumber,
+      },
+      nextOldLineNumber: oldLineNumber,
+      nextNewLineNumber: newLineNumber + 1,
+    };
+  }
+
+  if (line.startsWith("-")) {
+    return {
+      line: {
+        type: "deleted",
+        content: line.substring(1),
+        oldLineNumber,
+      },
+      nextOldLineNumber: oldLineNumber + 1,
+      nextNewLineNumber: newLineNumber,
+    };
+  }
+
+  return {
+    line: {
+      type: "unchanged",
+      content: line.substring(1),
+      oldLineNumber,
+      newLineNumber,
+    },
+    nextOldLineNumber: oldLineNumber + 1,
+    nextNewLineNumber: newLineNumber + 1,
+  };
 }
 
 function normalizeFileList(files: string[] | undefined): string[] {
