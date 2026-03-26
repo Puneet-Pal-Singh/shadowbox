@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildAgenticLoopFinalOutput,
+  getAgenticLoopMaxSteps,
   recordAgenticLoopMetadata,
 } from "./RunAgenticLoopPolicy.js";
 import { Run } from "../run/index.js";
@@ -37,6 +38,55 @@ describe("RunAgenticLoopPolicy", () => {
     );
   });
 
+  it("extracts assistant synthesis from structured text parts", () => {
+    const result: AgenticLoopResult = {
+      stopReason: "llm_stop",
+      messages: [
+        { role: "user", content: "check git info" },
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              toolCallId: "tool-1",
+              toolName: "git_status",
+              args: {},
+            },
+          ],
+        },
+        {
+          role: "tool",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "tool-1",
+              toolName: "git_status",
+              output: { branch: "main", files: [] },
+              isError: false,
+            },
+          ],
+        },
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "text",
+              text: "You're on main and the working tree is clean.",
+            },
+          ],
+        },
+      ],
+      toolExecutionCount: 1,
+      failedToolCount: 0,
+      stepsExecuted: 2,
+      toolLifecycle: [],
+    };
+
+    expect(buildAgenticLoopFinalOutput(result)).toBe(
+      "You're on main and the working tree is clean.",
+    );
+  });
+
   it("builds a truthful fallback summary when the loop stops on tool failure", () => {
     const result: AgenticLoopResult = {
       stopReason: "tool_error",
@@ -69,10 +119,14 @@ describe("RunAgenticLoopPolicy", () => {
 
     const output = buildAgenticLoopFinalOutput(result);
 
-    expect(output).toContain("The build loop stopped after a tool failure.");
-    expect(output).toContain("Completed: read_file (tool-1): README contents");
     expect(output).toContain(
-      "Failures: write_file (tool-2): Permission denied",
+      "I stopped because a required tool action failed.",
+    );
+    expect(output).toContain(
+      "I completed 1 tool action(s): read_file (tool-1): README contents",
+    );
+    expect(output).toContain(
+      "The run hit 1 failure(s): write_file (tool-2): Permission denied",
     );
     expect(output).not.toContain("I'll update the file now.");
   });
@@ -120,5 +174,9 @@ describe("RunAgenticLoopPolicy", () => {
     expect(run.metadata.agenticLoop?.toolLifecycle).toEqual(
       result.toolLifecycle,
     );
+  });
+
+  it("raises the default max steps to support repo discovery flows", () => {
+    expect(getAgenticLoopMaxSteps()).toBe(25);
   });
 });

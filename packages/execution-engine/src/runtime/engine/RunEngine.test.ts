@@ -849,6 +849,7 @@ describe("RunEngine", () => {
         repositoryContext: {
           owner: "sourcegraph",
           repo: "shadowbox",
+          branch: "main",
         },
         metadata: {
           featureFlags: {
@@ -865,9 +866,12 @@ describe("RunEngine", () => {
     expect(generateText).toHaveBeenCalledTimes(2);
     const firstRequest = generateText.mock.calls[0]?.[0] as {
       tools?: Record<string, unknown>;
+      system?: string;
     };
     expect(firstRequest.tools).toBeDefined();
     expect(Object.keys(firstRequest.tools ?? {})).toContain("read_file");
+    expect(firstRequest.system).toContain("Repository: sourcegraph/shadowbox");
+    expect(firstRequest.system).toContain("Branch: main");
     expect(planner.plan).not.toHaveBeenCalled();
 
     const persisted = await (
@@ -1165,9 +1169,11 @@ describe("RunEngine", () => {
 
     expect(response.status).toBe(200);
     const output = await response.text();
-    expect(output).toContain("The build loop stopped after a tool failure.");
     expect(output).toContain(
-      "Failures: write_file (write-1): Permission denied",
+      "I stopped because a required tool action failed.",
+    );
+    expect(output).toContain(
+      "The run hit 1 failure(s): write_file (write-1): Permission denied",
     );
     expect(output).not.toContain("I'll update the file now.");
 

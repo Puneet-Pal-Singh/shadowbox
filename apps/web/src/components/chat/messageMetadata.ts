@@ -8,18 +8,20 @@ export interface ChatMessageMetadata {
   timeLabel?: string;
 }
 
+export interface ConversationTurn {
+  key: string;
+  turnId?: string;
+  userMessage?: Message;
+  assistantMessage?: Message;
+  userAtMs?: number;
+  assistantAtMs?: number;
+  request?: RequestTiming;
+}
+
 interface RequestTiming {
   modelId?: string;
   startedAtMs: number;
   finishedAtMs?: number;
-}
-
-interface TurnMetadata {
-  userMessageId?: string;
-  assistantMessageId?: string;
-  userAtMs?: number;
-  assistantAtMs?: number;
-  request?: RequestTiming;
 }
 
 export function buildChatMessageMetadata(
@@ -28,19 +30,25 @@ export function buildChatMessageMetadata(
   resolveModelLabel: (modelId: string) => string,
   modeLabel = "Build",
 ): Record<string, ChatMessageMetadata> {
-  const turns = buildTurns(messages);
+  const turns = buildConversationTurns(messages);
   const requests = buildRequestTimings(debugEvents);
   assignRequestsToTurns(turns, requests);
   return mapTurnsToMessageMetadata(turns, resolveModelLabel, modeLabel);
 }
 
-function buildTurns(messages: Message[]): TurnMetadata[] {
-  const turns: TurnMetadata[] = [];
+export function buildConversationTurns(
+  messages: Message[],
+): ConversationTurn[] {
+  const turns: ConversationTurn[] = [];
+  let turnIndex = 0;
   for (const message of messages) {
     const messageAtMs = resolveMessageTimestamp(message);
     if (message.role === "user") {
+      turnIndex += 1;
       turns.push({
-        userMessageId: message.id,
+        key: message.id,
+        turnId: `turn-${turnIndex}`,
+        userMessage: message,
         userAtMs: messageAtMs,
       });
       continue;
@@ -48,23 +56,26 @@ function buildTurns(messages: Message[]): TurnMetadata[] {
     if (message.role !== "assistant") {
       continue;
     }
-    const pendingTurn = findPendingTurn(turns);
+    const pendingTurn = findPendingConversationTurn(turns);
     if (pendingTurn) {
-      pendingTurn.assistantMessageId = message.id;
+      pendingTurn.assistantMessage = message;
       pendingTurn.assistantAtMs = messageAtMs;
       continue;
     }
     turns.push({
-      assistantMessageId: message.id,
+      key: message.id,
+      assistantMessage: message,
       assistantAtMs: messageAtMs,
     });
   }
   return turns;
 }
 
-function findPendingTurn(turns: TurnMetadata[]): TurnMetadata | undefined {
+function findPendingConversationTurn(
+  turns: ConversationTurn[],
+): ConversationTurn | undefined {
   for (let i = turns.length - 1; i >= 0; i -= 1) {
-    if (turns[i]?.userMessageId && !turns[i]?.assistantMessageId) {
+    if (turns[i]?.userMessage && !turns[i]?.assistantMessage) {
       return turns[i];
     }
   }
@@ -131,12 +142,12 @@ function extractModelIdFromDebugPayload(payload: unknown): string | undefined {
 }
 
 function assignRequestsToTurns(
-  turns: TurnMetadata[],
+  turns: ConversationTurn[],
   requests: RequestTiming[],
 ): void {
   let requestIndex = 0;
   for (const turn of turns) {
-    if (!turn.userMessageId) {
+    if (!turn.userMessage) {
       continue;
     }
     const request = requests[requestIndex];
@@ -148,7 +159,7 @@ function assignRequestsToTurns(
 }
 
 function mapTurnsToMessageMetadata(
-  turns: TurnMetadata[],
+  turns: ConversationTurn[],
   resolveModelLabel: (modelId: string) => string,
   modeLabel: string,
 ): Record<string, ChatMessageMetadata> {
@@ -161,15 +172,15 @@ function mapTurnsToMessageMetadata(
     const assistantTimeLabel = formatTimestamp(turn.assistantAtMs);
     const durationLabel = formatDuration(resolveTurnDurationMs(turn));
 
-    if (turn.userMessageId) {
-      metadata[turn.userMessageId] = {
+    if (turn.userMessage) {
+      metadata[turn.userMessage.id] = {
         modeLabel,
         modelLabel,
         timeLabel: userTimeLabel,
       };
     }
-    if (turn.assistantMessageId) {
-      metadata[turn.assistantMessageId] = {
+    if (turn.assistantMessage) {
+      metadata[turn.assistantMessage.id] = {
         modeLabel,
         modelLabel,
         durationLabel,
@@ -180,8 +191,12 @@ function mapTurnsToMessageMetadata(
   return metadata;
 }
 
-function resolveTurnDurationMs(turn: TurnMetadata): number | undefined {
-  if (turn.userAtMs && turn.assistantAtMs && turn.assistantAtMs >= turn.userAtMs) {
+function resolveTurnDurationMs(turn: ConversationTurn): number | undefined {
+  if (
+    turn.userAtMs &&
+    turn.assistantAtMs &&
+    turn.assistantAtMs >= turn.userAtMs
+  ) {
     return turn.assistantAtMs - turn.userAtMs;
   }
   if (

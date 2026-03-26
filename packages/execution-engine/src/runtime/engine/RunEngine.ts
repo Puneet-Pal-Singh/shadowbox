@@ -20,7 +20,11 @@ import { PlannerService } from "../planner/index.js";
 import { TaskScheduler, type TaskExecutor } from "../orchestration/index.js";
 import { DefaultTaskExecutor, AgentTaskExecutor } from "./TaskExecutor.js";
 import { AgenticLoop } from "./AgenticLoop.js";
-import { enforceGoldenFlowToolFloor } from "../contracts/CodingToolGateway.js";
+import { executeAgenticLoopTool } from "./AgenticLoopToolExecutor.js";
+import {
+  enforceGoldenFlowToolFloor,
+  isGoldenFlowToolName,
+} from "../contracts/CodingToolGateway.js";
 import type {
   RunInput,
   RunStatus,
@@ -30,6 +34,7 @@ import type {
   WorkspaceBootstrapper,
 } from "../types.js";
 import type { Plan } from "../planner/index.js";
+import { BaseAgent } from "../agents/BaseAgent.js";
 import {
   LLMGateway,
   type ILLMGateway,
@@ -460,8 +465,30 @@ export class RunEngine implements IRunEngine {
       this.llmGateway,
       this.taskExecutor,
     );
+    const directExecutionService =
+      this.agent instanceof BaseAgent
+        ? this.agent.getRuntimeExecutionService()
+        : undefined;
     const loopResult = await loop.execute(messages, tools, {
       agentType: run.agentType,
+      workspaceContext: buildAgenticLoopWorkspaceContext(input),
+      executeTool: directExecutionService
+        ? async (toolCall) => {
+            if (!isGoldenFlowToolName(toolCall.toolName)) {
+              throw new Error(
+                `Unsupported direct agentic tool: ${toolCall.toolName}`,
+              );
+            }
+            return executeAgenticLoopTool(directExecutionService, {
+              taskId: toolCall.id,
+              toolName: toolCall.toolName,
+              toolInput: {
+                description: `Execute ${toolCall.toolName}`,
+                ...toolCall.args,
+              },
+            });
+          }
+        : undefined,
       modelId: input.modelId,
       providerId: input.providerId,
       temperature: 0.2,
@@ -794,6 +821,35 @@ export class RunEngine implements IRunEngine {
       maxCostPerSession: parseOptionalNumber(env.MAX_SESSION_BUDGET),
     };
   }
+}
+
+function buildAgenticLoopWorkspaceContext(
+  input: Pick<RunInput, "repositoryContext">,
+): string | undefined {
+  const repositoryContext = input.repositoryContext;
+  if (!repositoryContext) {
+    return undefined;
+  }
+
+  const repoName =
+    repositoryContext.owner && repositoryContext.repo
+      ? `${repositoryContext.owner}/${repositoryContext.repo}`
+      : (repositoryContext.repo ?? repositoryContext.owner);
+  const lines: string[] = [];
+
+  if (repoName) {
+    lines.push(`Repository: ${repoName}`);
+  }
+
+  if (repositoryContext.branch) {
+    lines.push(`Branch: ${repositoryContext.branch}`);
+  }
+
+  lines.push(
+    "The checked-out workspace is the source of truth. Inspect the real tree and answer from observed files or git state.",
+  );
+
+  return lines.join("\n");
 }
 
 function parseOptionalNumber(value?: string): number | undefined {

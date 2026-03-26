@@ -5,6 +5,11 @@ import {
   type ActivityPart,
   type ToolActivityPart,
 } from "@repo/shared-types";
+import {
+  getGitCommandLabel,
+  getGitDetails,
+  getGitSummary,
+} from "./gitTranscript.js";
 
 export interface ActivityFeedSummaryViewModel {
   elapsedLabel: string;
@@ -62,6 +67,7 @@ export interface ActivityGroupRowViewModel {
   key: string;
   title: string;
   summary: string;
+  status: "requested" | "running" | "completed" | "failed";
   defaultCollapsed: boolean;
   rows: ActivityToolRowViewModel[];
 }
@@ -111,25 +117,47 @@ export function buildActivityFeedViewModel(
   const lastTurnIndex = turnGroups.length - 1;
   return {
     summary: buildFeedSummary(feed),
-    turns: turnGroups.map((turn, index) => {
+    turns: turnGroups.flatMap((turn, index) => {
+      const turnKey = resolveActivityTurnKey(turn.turnId, index);
+      if (!turnKey) {
+        return [];
+      }
+
       const rows = buildTurnRows(turn.items);
       const isActiveTurn = feed.status === "RUNNING" && index === lastTurnIndex;
-      return {
-        key: turn.turnId ?? `turn-fallback-${index}`,
-        userPrompt: getTurnUserPrompt(turn.items),
-        elapsedLabel: formatDuration(
-          turn.items[0]?.createdAt ?? null,
-          turn.items[turn.items.length - 1]?.updatedAt ?? null,
+      return [
+        {
+          key: turnKey,
+          userPrompt: getTurnUserPrompt(turn.items),
+          elapsedLabel: formatDuration(
+            turn.items[0]?.createdAt ?? null,
+            turn.items[turn.items.length - 1]?.updatedAt ?? null,
+            isActiveTurn,
+          ),
+          summaryLabel: buildTurnSummary(rows),
+          defaultCollapsed: !isActiveTurn,
           isActiveTurn,
-        ),
-        summaryLabel: buildTurnSummary(rows),
-        defaultCollapsed: !isActiveTurn,
-        isActiveTurn,
-        hasVisibleRows: rows.length > 0,
-        rows,
-      };
+          hasVisibleRows: rows.length > 0,
+          rows,
+        },
+      ];
     }),
   };
+}
+
+function resolveActivityTurnKey(
+  turnId: string | undefined,
+  index: number,
+): string | null {
+  if (!turnId) {
+    console.warn(
+      "[activity/feed] Skipping activity turn without canonical turnId.",
+      { index },
+    );
+    return null;
+  }
+
+  return turnId;
 }
 
 function groupItemsIntoTurns(
@@ -153,6 +181,13 @@ function buildTurnRows(items: ActivityPart[]): ActivityFeedRowViewModel[] {
 
   for (const item of items) {
     if (item.kind === ACTIVITY_PART_KINDS.TEXT) {
+      continue;
+    }
+
+    if (
+      item.kind === ACTIVITY_PART_KINDS.REASONING &&
+      isSuppressedReasoning(item)
+    ) {
       continue;
     }
 
@@ -249,8 +284,8 @@ function createNonToolRow(item: Exclude<ActivityPart, ToolActivityPart>) {
       return {
         kind: "reasoning",
         key: item.id,
-        label: item.label,
-        summary: item.summary,
+        label: "Thinking",
+        summary: normalizeReasoningSummary(item.summary),
         status: item.status,
       } satisfies ActivityReasoningRowViewModel;
     case ACTIVITY_PART_KINDS.APPROVAL:
@@ -273,6 +308,33 @@ function createNonToolRow(item: Exclude<ActivityPart, ToolActivityPart>) {
   }
 }
 
+function isSuppressedReasoning(
+  item: Extract<ActivityPart, { kind: typeof ACTIVITY_PART_KINDS.REASONING }>,
+): boolean {
+  if (item.phase === "execution" || item.phase === "synthesis") {
+    return true;
+  }
+
+  return false;
+}
+
+function normalizeReasoningSummary(summary: string): string {
+  const trimmed = summary.trim();
+  if (!trimmed) {
+    return "";
+  }
+
+  if (
+    trimmed === "Preparing the operational plan." ||
+    trimmed === "Running the selected coding tools." ||
+    trimmed === "Summarizing execution results for the final response."
+  ) {
+    return "";
+  }
+
+  return trimmed;
+}
+
 function createToolRow(item: ToolActivityPart): ActivityToolRowViewModel {
   return {
     kind: "tool",
@@ -284,6 +346,7 @@ function createToolRow(item: ToolActivityPart): ActivityToolRowViewModel {
     status: item.status,
     defaultCollapsed:
       item.metadata.family !== TOOL_ACTIVITY_FAMILIES.SHELL &&
+      item.metadata.family !== TOOL_ACTIVITY_FAMILIES.GIT &&
       item.metadata.family !== TOOL_ACTIVITY_FAMILIES.EDIT &&
       item.status === "completed",
     details: getToolDetails(item),
@@ -294,7 +357,7 @@ function isExplorationTool(row: ActivityToolRowViewModel): boolean {
   return (
     (row.family === TOOL_ACTIVITY_FAMILIES.READ ||
       row.family === TOOL_ACTIVITY_FAMILIES.SEARCH) &&
-    row.status === "completed"
+    row.status !== "failed"
   );
 }
 
@@ -309,12 +372,19 @@ function flushExploreGroup(
     rows.push(...exploreRows);
     return;
   }
+  const hasFailedRows = exploreRows.some((row) => row.status === "failed");
+  const hasRunningRows = exploreRows.some(
+    (row) => row.status === "requested" || row.status === "running",
+  );
   rows.push({
     kind: "group",
     key: `explore-${exploreRows[0]?.key ?? "group"}`,
-    title: "Explore",
-    summary: `${exploreRows.length} low-noise read/search actions`,
-    defaultCollapsed: true,
+    title: hasRunningRows ? "Gathering context" : "Gathered context",
+    summary: hasRunningRows
+      ? `${exploreRows.length} read/search actions in progress`
+      : `${exploreRows.length} low-noise context actions`,
+    status: hasFailedRows ? "failed" : hasRunningRows ? "running" : "completed",
+    defaultCollapsed: !hasRunningRows,
     rows: [...exploreRows],
   });
 }
@@ -334,7 +404,7 @@ function getToolTitle(item: ToolActivityPart): string {
         ? `Search ${item.metadata.pattern}`
         : humanizeToolName(item.toolName);
     case TOOL_ACTIVITY_FAMILIES.GIT:
-      return humanizeToolName(item.toolName);
+      return getGitCommandLabel(item);
     default:
       return humanizeToolName(item.toolName);
   }
@@ -346,19 +416,15 @@ function getToolSummary(item: ToolActivityPart): string {
       return item.status === "failed"
         ? "Command failed"
         : item.status === "running"
-          ? "Running shell command"
-          : "Command completed";
+          ? "Running"
+          : "";
     case TOOL_ACTIVITY_FAMILIES.EDIT:
       return `+${item.metadata.additions} / -${item.metadata.deletions}`;
     case TOOL_ACTIVITY_FAMILIES.READ:
     case TOOL_ACTIVITY_FAMILIES.SEARCH:
-      return `${item.metadata.count} result${item.metadata.count === 1 ? "" : "s"}`;
+      return "";
     case TOOL_ACTIVITY_FAMILIES.GIT:
-      return item.metadata.count
-        ? `${item.metadata.count} changed lines`
-        : item.status === "completed"
-          ? "Git inspection completed"
-          : "Git inspection pending";
+      return getGitSummary(item);
     default:
       return humanizeToolStatus(item.status);
   }
@@ -378,7 +444,7 @@ function getToolDetails(item: ToolActivityPart): string[] {
     case TOOL_ACTIVITY_FAMILIES.SEARCH:
       return [item.metadata.preview ?? ""].filter(Boolean);
     case TOOL_ACTIVITY_FAMILIES.GIT:
-      return [item.metadata.preview ?? ""].filter(Boolean);
+      return getGitDetails(item);
     default:
       return [];
   }

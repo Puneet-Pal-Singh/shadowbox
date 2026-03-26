@@ -1,3 +1,4 @@
+import { Children } from "react";
 import type { ActivityFeedRowViewModel } from "../../../services/activity/ActivityFeedViewModel.js";
 
 interface ActivityRowProps {
@@ -88,6 +89,17 @@ function ReasoningRow({
   displayMode: "card" | "transcript";
   collapsible: boolean;
 }) {
+  if (displayMode === "transcript") {
+    return (
+      <div className="space-y-1 py-1">
+        <div className="text-sm font-medium text-zinc-300">{row.label}</div>
+        {row.summary ? (
+          <div className="text-sm text-zinc-500">{row.summary}</div>
+        ) : null}
+      </div>
+    );
+  }
+
   return (
     <ExpandableRow
       label={row.label}
@@ -197,6 +209,7 @@ function GroupRow({
       summary={row.summary}
       expanded={expanded}
       onToggle={onToggle}
+      tone={row.status}
       displayMode={displayMode}
       collapsible={collapsible}
     >
@@ -230,6 +243,20 @@ function ToolRow({
   displayMode: "card" | "transcript";
   collapsible: boolean;
 }) {
+  const details =
+    row.details.length > 0 ? (
+      <div className="space-y-2">
+        {row.details.map((detail, index) => (
+          <pre
+            key={`${row.key}-detail-${index}`}
+            className="overflow-x-auto rounded-xl border border-zinc-800/70 bg-black/40 px-3 py-2 text-xs text-zinc-200"
+          >
+            {detail}
+          </pre>
+        ))}
+      </div>
+    ) : null;
+
   return (
     <ExpandableRow
       label={row.title}
@@ -240,20 +267,7 @@ function ToolRow({
       displayMode={displayMode}
       collapsible={collapsible}
     >
-      {row.details.length > 0 ? (
-        <div className="space-y-2">
-          {row.details.map((detail, index) => (
-            <pre
-              key={`${row.key}-detail-${index}`}
-              className="overflow-x-auto rounded-xl border border-zinc-800/70 bg-black/40 px-3 py-2 text-xs text-zinc-200"
-            >
-              {detail}
-            </pre>
-          ))}
-        </div>
-      ) : (
-        <div className="text-xs text-zinc-500">No extra details.</div>
-      )}
+      {details}
     </ExpandableRow>
   );
 }
@@ -277,43 +291,62 @@ function ExpandableRow({
   displayMode?: "card" | "transcript";
   collapsible?: boolean;
 }) {
+  const hasChildren = Children.count(children) > 0;
+
   if (!collapsible) {
     return (
-      <div className="rounded-xl border border-zinc-900/80 bg-zinc-950/40 px-3 py-2">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2 text-sm text-zinc-100">
-            <span className={statusDotClassName(tone)} aria-hidden="true" />
-            <span className="truncate font-medium">{label}</span>
+      <div className="space-y-1 py-1">
+        <div className="flex min-w-0 items-start gap-2 text-sm text-zinc-300">
+          <span className="mt-[7px] h-1.5 w-1.5 rounded-full bg-zinc-600" />
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="truncate font-medium text-zinc-200">
+                {label}
+              </span>
+              {summary ? (
+                <span className={`text-xs ${toneClassName(tone)}`}>
+                  {summary}
+                </span>
+              ) : null}
+            </div>
           </div>
-          <div className={`mt-1 text-xs ${toneClassName(tone)}`}>{summary}</div>
         </div>
-        <div className="mt-3">{children}</div>
+        {hasChildren ? <div className="ml-5 mt-2">{children}</div> : null}
       </div>
     );
   }
 
   if (displayMode === "transcript") {
     return (
-      <div className="rounded-xl border border-zinc-900/80 bg-zinc-950/40 px-3 py-2">
+      <div className="space-y-1 py-1">
         <button
           type="button"
           onClick={() => onToggle(expanded)}
-          className="flex w-full items-center justify-between gap-3 text-left"
+          className="flex w-full items-start gap-2 text-left"
         >
+          {hasChildren ? (
+            <span className="mt-0.5">
+              <ChevronIcon expanded={expanded} muted />
+            </span>
+          ) : (
+            <span className="mt-[7px] h-1.5 w-1.5 rounded-full bg-zinc-600" />
+          )}
           <div className="min-w-0">
-            <div className="flex items-center gap-2 text-sm text-zinc-100">
-              <span className={statusDotClassName(tone)} aria-hidden="true" />
-              <span className="truncate font-medium">{label}</span>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="truncate text-sm font-medium text-zinc-200">
+                {label}
+              </span>
+              {summary ? (
+                <span className={`text-xs ${toneClassName(tone)}`}>
+                  {summary}
+                </span>
+              ) : null}
             </div>
-            <div className={`mt-1 text-xs ${toneClassName(tone)}`}>
-              {summary}
-            </div>
-          </div>
-          <div className="shrink-0 text-[11px] text-zinc-500">
-            {expanded ? "Hide" : "Show"}
           </div>
         </button>
-        {expanded ? <div className="mt-3">{children}</div> : null}
+        {hasChildren && expanded ? (
+          <div className="ml-5 mt-2">{children}</div>
+        ) : null}
       </div>
     );
   }
@@ -351,15 +384,30 @@ function toneClassName(tone: string): string {
   }
 }
 
-function statusDotClassName(tone: string): string {
-  switch (tone) {
-    case "running":
-      return "h-2 w-2 rounded-full bg-cyan-400";
-    case "failed":
-      return "h-2 w-2 rounded-full bg-red-400";
-    case "requested":
-      return "h-2 w-2 rounded-full bg-amber-400";
-    default:
-      return "h-2 w-2 rounded-full bg-zinc-500";
-  }
+function ChevronIcon({
+  expanded,
+  muted = false,
+}: {
+  expanded: boolean;
+  muted?: boolean;
+}) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={`${muted ? "text-zinc-500" : ""} ${
+        expanded ? "rotate-90 transition-transform" : "transition-transform"
+      }`}
+      aria-hidden="true"
+    >
+      <path d="m9 18 6-6-6-6" />
+    </svg>
+  );
 }

@@ -12,11 +12,17 @@ import { useRunEvents } from "../../hooks/useRunEvents.js";
 import { useRunActivityFeed } from "../../hooks/useRunActivityFeed.js";
 import { getProviderRecoveryAdvice } from "../../lib/provider-recovery";
 import { useProviderStore } from "../../hooks/useProviderStore.js";
-import { buildChatMessageMetadata } from "./messageMetadata";
+import {
+  buildChatMessageMetadata,
+  buildConversationTurns,
+} from "./messageMetadata";
 import { buildActivityFeedViewModel } from "../../services/activity/ActivityFeedViewModel.js";
 import { ActivityTurn } from "./activity/ActivityTurn.js";
 import { WorkflowTimeline } from "./workflow/WorkflowTimeline.js";
 import type { ActivityTurnViewModel } from "../../services/activity/ActivityFeedViewModel.js";
+
+// Flip to true when you want to temporarily inspect the legacy workflow debug UI.
+const SHOW_WORKFLOW_DEBUG_PANEL = false;
 
 interface ChatInterfaceProps {
   chatProps: {
@@ -114,6 +120,10 @@ export function ChatInterface({
     () => buildActivityFeedViewModel(feed),
     [feed],
   );
+  const conversationTurns = useMemo(
+    () => buildConversationTurns(messages),
+    [messages],
+  );
 
   useEffect(() => {
     setExpandedActivityTurns({});
@@ -174,8 +184,8 @@ export function ChatInterface({
       ? handleUsePlanInBuild
       : undefined;
   const chatEntries = useMemo(
-    () => buildChatEntries(messages, activityViewModel.turns),
-    [activityViewModel.turns, messages],
+    () => buildChatEntries(conversationTurns, activityViewModel.turns),
+    [activityViewModel.turns, conversationTurns],
   );
   const activityScrollSignal = useMemo(
     () =>
@@ -187,32 +197,6 @@ export function ChatInterface({
         .join("|"),
     [activityViewModel.turns],
   );
-  const overviewHostTurnKey = useMemo(() => {
-    const visibleTurns = activityViewModel.turns.filter(
-      (turn) => turn.hasVisibleRows,
-    );
-    const lastVisibleTurn = visibleTurns[visibleTurns.length - 1];
-    return lastVisibleTurn?.key;
-  }, [activityViewModel.turns]);
-  const workflowOverview = useMemo(() => {
-    if (!overviewHostTurnKey) {
-      return null;
-    }
-
-    return (
-      <WorkflowTimeline
-        events={events}
-        summary={summary}
-        isLoading={isLoading}
-        onJumpToLatest={() => {
-          scrollRef.current?.scrollTo({
-            top: scrollRef.current.scrollHeight,
-            behavior: "smooth",
-          });
-        }}
-      />
-    );
-  }, [events, isLoading, overviewHostTurnKey, summary]);
   const renderActivityTurn = (turn: ActivityTurnViewModel) => (
     <ActivityTurn
       key={turn.key}
@@ -232,9 +216,6 @@ export function ChatInterface({
         }))
       }
       onUsePlanInBuild={planHandoffAction}
-      workflowOverview={
-        turn.key === overviewHostTurnKey ? workflowOverview : undefined
-      }
     />
   );
 
@@ -324,6 +305,27 @@ export function ChatInterface({
               <span>{`Thinking... ${formatThinkingDuration(thinkingElapsedMs)}`}</span>
             </div>
           )}
+
+          {SHOW_WORKFLOW_DEBUG_PANEL ? (
+            <details className="rounded-2xl border border-zinc-800/80 bg-zinc-950/60 px-4 py-3">
+              <summary className="cursor-pointer text-xs font-medium uppercase tracking-[0.2em] text-zinc-500">
+                Workflow Debug
+              </summary>
+              <div className="mt-4">
+                <WorkflowTimeline
+                  events={events}
+                  summary={summary}
+                  isLoading={isLoading}
+                  onJumpToLatest={() => {
+                    scrollRef.current?.scrollTo({
+                      top: scrollRef.current.scrollHeight,
+                      behavior: "smooth",
+                    });
+                  }}
+                />
+              </div>
+            </details>
+          ) : null}
         </div>
       </div>
 
@@ -383,83 +385,96 @@ type ChatInterfaceEntry =
   | { kind: "turn"; turn: ActivityTurnViewModel };
 
 function buildChatEntries(
-  messages: Message[],
+  conversationTurns: ReturnType<typeof buildConversationTurns>,
   turns: ActivityTurnViewModel[],
 ): ChatInterfaceEntry[] {
   const entries: ChatInterfaceEntry[] = [];
-  const unmatchedTurns = turns.filter((turn) => turn.hasVisibleRows);
-  const turnsByPrompt = buildTurnsByPrompt(unmatchedTurns);
+  const pendingActivityTurnsByKey = buildPendingActivityIndex(turns);
 
-  for (const message of messages) {
-    entries.push({ kind: "message", message });
+  for (const conversationTurn of conversationTurns) {
+    if (conversationTurn.userMessage) {
+      entries.push({
+        kind: "message",
+        message: conversationTurn.userMessage,
+      });
 
-    if (message.role !== "user") {
-      continue;
+      appendMatchedActivityEntries(
+        entries,
+        conversationTurn,
+        pendingActivityTurnsByKey,
+      );
     }
 
-    const turn = claimTurnForMessage(message, turnsByPrompt, unmatchedTurns);
-    if (turn) {
-      entries.push({ kind: "turn", turn });
+    if (conversationTurn.assistantMessage) {
+      entries.push({
+        kind: "message",
+        message: conversationTurn.assistantMessage,
+      });
     }
   }
 
-  for (const turn of unmatchedTurns) {
-    entries.push({ kind: "turn", turn });
-  }
+  logUnmatchedActivityTurns(pendingActivityTurnsByKey);
 
   return entries;
 }
 
-function buildTurnsByPrompt(
+function buildPendingActivityIndex(
   turns: ActivityTurnViewModel[],
 ): Map<string, ActivityTurnViewModel[]> {
-  const turnsByPrompt = new Map<string, ActivityTurnViewModel[]>();
+  const pendingActivityTurnsByKey = new Map<string, ActivityTurnViewModel[]>();
 
   for (const turn of turns) {
-    if (!turn.userPrompt) {
-      continue;
+    const matchedTurns = pendingActivityTurnsByKey.get(turn.key) ?? [];
+    matchedTurns.push(turn);
+    pendingActivityTurnsByKey.set(turn.key, matchedTurns);
+  }
+
+  return pendingActivityTurnsByKey;
+}
+
+function appendMatchedActivityEntries(
+  entries: ChatInterfaceEntry[],
+  conversationTurn: ReturnType<typeof buildConversationTurns>[number],
+  pendingActivityTurnsByKey: Map<string, ActivityTurnViewModel[]>,
+): void {
+  if (!conversationTurn.turnId) {
+    console.warn(
+      "[chat/transcript] Conversation turn is missing canonical turnId; skipping activity correlation for now.",
+      { messageId: conversationTurn.userMessage?.id },
+    );
+    return;
+  }
+
+  const matchedActivityTurns = pendingActivityTurnsByKey.get(
+    conversationTurn.turnId,
+  );
+  if (!matchedActivityTurns) {
+    return;
+  }
+
+  pendingActivityTurnsByKey.delete(conversationTurn.turnId);
+  for (const activityTurn of matchedActivityTurns) {
+    if (activityTurn.hasVisibleRows) {
+      entries.push({ kind: "turn", turn: activityTurn });
     }
-
-    const existing = turnsByPrompt.get(turn.userPrompt) ?? [];
-    existing.push(turn);
-    turnsByPrompt.set(turn.userPrompt, existing);
   }
-
-  return turnsByPrompt;
 }
 
-function claimTurnForMessage(
-  message: Message,
-  turnsByPrompt: Map<string, ActivityTurnViewModel[]>,
-  unmatchedTurns: ActivityTurnViewModel[],
-): ActivityTurnViewModel | undefined {
-  const prompt = extractMessageText(message).trim();
-  if (prompt) {
-    const matchedTurns = turnsByPrompt.get(prompt);
-    const matchedTurn = matchedTurns?.shift();
-    if (matchedTurn) {
-      removeTurn(unmatchedTurns, matchedTurn.key);
-      return matchedTurn;
-    }
-  }
+function logUnmatchedActivityTurns(
+  pendingActivityTurnsByKey: Map<string, ActivityTurnViewModel[]>,
+): void {
+  const unmatchedActivityTurnKeys = Array.from(
+    pendingActivityTurnsByKey.values(),
+  )
+    .flat()
+    .filter((turn) => turn.hasVisibleRows)
+    .map((turn) => turn.key);
 
-  const fallbackTurn = unmatchedTurns[0];
-  if (!fallbackTurn) {
-    return undefined;
-  }
-
-  removeTurn(unmatchedTurns, fallbackTurn.key);
-  return fallbackTurn;
-}
-
-function extractMessageText(message: Message): string {
-  return typeof message.content === "string" ? message.content : "";
-}
-
-function removeTurn(turns: ActivityTurnViewModel[], key: string): void {
-  const index = turns.findIndex((turn) => turn.key === key);
-  if (index >= 0) {
-    turns.splice(index, 1);
+  if (unmatchedActivityTurnKeys.length > 0) {
+    console.warn(
+      "[chat/transcript] Activity turns could not be correlated yet; skipping unmatched transcript rows for this render.",
+      { activityTurnKeys: unmatchedActivityTurnKeys },
+    );
   }
 }
 

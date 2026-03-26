@@ -18,20 +18,16 @@ describe("ActivityFeed", () => {
       />,
     );
 
-    expect(screen.getByText("Activity Feed")).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: /worked for 3s/i }),
     ).toBeInTheDocument();
-    expect(screen.getByText("2 tool calls · 1 handoff")).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Execute Plan in Build" }),
-    ).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /worked for 3s/i }));
-    expect(screen.getByText("Explore")).toBeInTheDocument();
+    expect(screen.getByText("Gathered context")).toBeInTheDocument();
+    expect(screen.getByText("Build Handoff")).toBeInTheDocument();
 
     fireEvent.click(
-      screen.getAllByRole("button", { name: "Execute Plan in Build" })[1]!,
+      screen.getByRole("button", { name: "Execute Plan in Build" }),
     );
     expect(onUsePlanInBuild).toHaveBeenCalledTimes(1);
   });
@@ -67,8 +63,10 @@ describe("ActivityFeed", () => {
     expect(
       screen.queryByRole("button", { name: /worked for/i }),
     ).not.toBeInTheDocument();
-    expect(screen.getByText(/working for 4s/i)).toBeInTheDocument();
-    expect(screen.getByText("Analyzing repository")).toBeInTheDocument();
+    expect(screen.getByText("Thinking")).toBeInTheDocument();
+    expect(
+      screen.getByText("Inspecting the repository before the next tool call."),
+    ).toBeInTheDocument();
   });
 
   it("resets expansion state when the feed switches to a new run", () => {
@@ -77,7 +75,7 @@ describe("ActivityFeed", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: /worked for 3s/i }));
-    expect(screen.getByText("Explore")).toBeInTheDocument();
+    expect(screen.getByText("Gathered context")).toBeInTheDocument();
 
     rerender(
       <ActivityFeed
@@ -101,13 +99,67 @@ describe("ActivityFeed", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /worked for 3s/i }));
     fireEvent.click(
-      screen.getByRole("button", { name: /Explore 2 low-noise read\/search actions Show/i }),
+      screen.getByRole("button", {
+        name: /Gathered context 2 low-noise context actions/i,
+      }),
     );
 
     expect(screen.getByText("Read README.md")).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "Read README.md" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("renders git status rows as command-style transcript details", () => {
+    render(
+      <ActivityFeed
+        feed={{
+          runId: "run-git",
+          sessionId: "session-git",
+          status: "COMPLETED",
+          items: [
+            {
+              id: "text-1",
+              runId: "run-git",
+              sessionId: "session-git",
+              turnId: "turn-1",
+              kind: ACTIVITY_PART_KINDS.TEXT,
+              createdAt: "2026-03-24T10:00:00.000Z",
+              updatedAt: "2026-03-24T10:00:00.000Z",
+              source: "brain",
+              role: "user",
+              content: "check my git info",
+            },
+            {
+              id: "tool-1",
+              runId: "run-git",
+              sessionId: "session-git",
+              turnId: "turn-1",
+              kind: ACTIVITY_PART_KINDS.TOOL,
+              createdAt: "2026-03-24T10:00:01.000Z",
+              updatedAt: "2026-03-24T10:00:02.000Z",
+              source: "brain",
+              toolId: "tool-1",
+              toolName: "git_status",
+              status: "completed",
+              metadata: {
+                family: TOOL_ACTIVITY_FAMILIES.GIT,
+                preview:
+                  '{"files":[],"ahead":0,"behind":0,"branch":"main","hasStaged":false,"hasUnstaged":false,"gitAvailable":true}',
+              },
+            },
+          ],
+        }}
+        isLoading={false}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /worked for \d+s/i }));
+    expect(
+      screen.getByRole("button", { name: /git status on main/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/\$ git status/)).toBeInTheDocument();
+    expect(screen.getByText(/working tree clean\./i)).toBeInTheDocument();
   });
 });
 

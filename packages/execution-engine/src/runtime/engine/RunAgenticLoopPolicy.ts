@@ -4,7 +4,7 @@ import type { AgenticLoopResult } from "./AgenticLoop.js";
 import type { AgenticLoopToolLifecycleEvent } from "../types.js";
 import { enforceGoldenFlowToolFloor } from "../contracts/CodingToolGateway.js";
 
-const AGENTIC_LOOP_DEFAULT_MAX_STEPS = 6;
+const AGENTIC_LOOP_DEFAULT_MAX_STEPS = 25;
 
 export function resolveAgenticLoopTools(
   metadata: Record<string, unknown> | undefined,
@@ -30,7 +30,7 @@ export function getAgenticLoopMaxSteps(
     typeof raw === "number" &&
     Number.isInteger(raw) &&
     raw > 0 &&
-    raw <= 20
+    raw <= 128
   ) {
     return raw;
   }
@@ -78,24 +78,27 @@ function buildFallbackLoopSummary(result: AgenticLoopResult): string {
     "completed",
   );
   const failedTools = getLatestToolLifecycle(result.toolLifecycle, "failed");
-  const lines = [
-    describeLoopStopReason(result.stopReason),
-    `Steps executed: ${result.stepsExecuted}`,
-    `Tools executed: ${result.toolExecutionCount}`,
-    `Failed tools: ${result.failedToolCount}`,
-  ];
+  const lines = [describeLoopStopReason(result.stopReason)];
 
   if (completedTools.length > 0) {
     lines.push(
-      `Completed: ${completedTools.map(formatLifecycleSummary).join("; ")}`,
+      `I completed ${completedTools.length} tool action(s): ${completedTools
+        .map(formatLifecycleSummary)
+        .join("; ")}`,
     );
   }
 
   if (failedTools.length > 0) {
     lines.push(
-      `Failures: ${failedTools.map(formatLifecycleSummary).join("; ")}`,
+      `The run hit ${failedTools.length} failure(s): ${failedTools
+        .map(formatLifecycleSummary)
+        .join("; ")}`,
     );
   }
+
+  lines.push(
+    `Execution stats: ${result.stepsExecuted} step(s), ${result.toolExecutionCount} tool call(s), ${result.failedToolCount} failure(s).`,
+  );
 
   return lines.join("\n");
 }
@@ -125,12 +128,39 @@ function getLastAssistantText(messages: CoreMessage[]): string | null {
     if (!message || message.role !== "assistant") {
       continue;
     }
-    if (typeof message.content === "string" && message.content.trim()) {
-      return message.content;
+    const textContent = extractTextContent(message.content);
+    if (textContent) {
+      return textContent;
     }
   }
 
   return null;
+}
+
+function extractTextContent(content: CoreMessage["content"]): string | null {
+  if (typeof content === "string") {
+    const normalized = content.trim();
+    return normalized ? normalized : null;
+  }
+
+  if (!Array.isArray(content)) {
+    return null;
+  }
+
+  const text = content
+    .filter(
+      (
+        part,
+      ): part is {
+        type: "text";
+        text: string;
+      } => part.type === "text" && typeof part.text === "string",
+    )
+    .map((part) => part.text.trim())
+    .filter(Boolean)
+    .join("\n");
+
+  return text || null;
 }
 
 function describeLoopStopReason(
@@ -138,13 +168,13 @@ function describeLoopStopReason(
 ): string {
   switch (stopReason) {
     case "tool_error":
-      return "The build loop stopped after a tool failure.";
+      return "I stopped because a required tool action failed.";
     case "budget_exceeded":
-      return "The build loop stopped because it hit the execution budget.";
+      return "I stopped because the run hit the execution budget.";
     case "max_steps_reached":
-      return "The build loop stopped after reaching the configured step limit.";
+      return "I ran out of tool steps before I could finish the request.";
     case "cancelled":
-      return "The build loop was cancelled before final synthesis.";
+      return "The run was cancelled before I could finish the answer.";
     case "llm_stop":
       return "The build loop completed.";
   }
