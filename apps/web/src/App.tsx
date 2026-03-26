@@ -215,6 +215,26 @@ function AppContent() {
     );
   }, [isRightSidebarOpen]);
 
+  // Check if current session has a pending query or messages
+  const hasPendingQuery = activeSessionId
+    ? !!SessionStateService.loadSessionPendingQuery(activeSessionId)
+    : false;
+
+  // A session is considered to have "started" if:
+  // 1. It has a pending query in session-scoped storage
+  // 2. OR its name has been changed from "New Task"
+  // 3. OR its status is not "idle"
+  const isSessionStarted =
+    !!activeSession &&
+    (hasPendingQuery ||
+      (activeSession.name !== "New Task" && activeSession.name !== "") ||
+      (activeSession.status && activeSession.status !== "idle"));
+
+  // Robust visibility flags
+  const showSetup = !!activeSessionId && !!activeSession && !isSessionStarted;
+  const showWorkspace =
+    !!activeSessionId && !!activeSession && !!isSessionStarted;
+
   // Handle skip login - proceed without GitHub
   const handleSkipLogin = () => {
     // For now, we'll set a flag in localStorage to remember the choice
@@ -356,25 +376,6 @@ function AppContent() {
       </div>
     );
   }
-
-  // Check if current session has a pending query or messages
-  const hasPendingQuery = activeSessionId
-    ? !!SessionStateService.loadSessionPendingQuery(activeSessionId)
-    : false;
-
-  // A session is considered to have "started" if:
-  // 1. It has a pending query in session-scoped storage
-  // 2. OR its name has been changed from "New Task"
-  // 3. OR its status is not "idle"
-  const isSessionStarted = activeSession && (
-    hasPendingQuery ||
-    (activeSession.name !== "New Task" && activeSession.name !== "") ||
-    (activeSession.status && activeSession.status !== "idle")
-  );
-
-  // Robust visibility flags
-  const showSetup = !!activeSessionId && !!activeSession && !isSessionStarted;
-  const showWorkspace = !!activeSessionId && !!activeSession && !!isSessionStarted;
 
   return (
     <div className="h-screen w-screen bg-background text-zinc-400 flex overflow-hidden font-sans">
