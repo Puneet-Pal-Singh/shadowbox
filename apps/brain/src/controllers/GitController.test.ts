@@ -3,19 +3,17 @@ import { GitController } from "./GitController";
 import type { Env } from "../types/ai";
 
 describe("GitController", () => {
-  const originalFetch = global.fetch;
+  let fetchMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
-    global.fetch = vi.fn();
+    fetchMock = vi.fn();
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
-    global.fetch = originalFetch;
   });
 
   it("routes git status through the canonical session-authenticated API", async () => {
-    const fetchMock = vi.mocked(global.fetch);
     fetchMock
       .mockResolvedValueOnce(
         new Response(
@@ -49,7 +47,7 @@ describe("GitController", () => {
     const response = await GitController.getStatus(
       new Request("https://brain.local/api/git/status?runId=run-1&sessionId=session-1"),
       {
-        MUSCLE_BASE_URL: "http://muscle.local",
+        SECURE_API: { fetch: fetchMock } as Env["SECURE_API"],
         NODE_ENV: "test",
       } as Env,
     );
@@ -63,7 +61,7 @@ describe("GitController", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
 
     const [sessionUrl, sessionInit] = fetchMock.mock.calls[0]!;
-    expect(sessionUrl).toBe("http://muscle.local/api/v1/session?session=session-1");
+    expect(sessionUrl).toBe("http://internal/api/v1/session?session=session-1");
     expect(sessionInit?.method).toBe("POST");
     expect(JSON.parse(String(sessionInit?.body))).toMatchObject({
       runId: "run-1",
@@ -72,7 +70,7 @@ describe("GitController", () => {
     });
 
     const [executeUrl, executeInit] = fetchMock.mock.calls[1]!;
-    expect(executeUrl).toBe("http://muscle.local/api/v1/execute?session=session-1");
+    expect(executeUrl).toBe("http://internal/api/v1/execute?session=session-1");
     expect(executeInit?.headers).toMatchObject({
       Authorization: "Bearer tok-git-1",
       "Content-Type": "application/json",
@@ -89,7 +87,6 @@ describe("GitController", () => {
   });
 
   it("maps git contract failures to a typed controller error", async () => {
-    const fetchMock = vi.mocked(global.fetch);
     fetchMock
       .mockResolvedValueOnce(
         new Response(
@@ -114,7 +111,7 @@ describe("GitController", () => {
     const response = await GitController.getStatus(
       new Request("https://brain.local/api/git/status?runId=run-1"),
       {
-        MUSCLE_BASE_URL: "http://muscle.local",
+        SECURE_API: { fetch: fetchMock } as Env["SECURE_API"],
         NODE_ENV: "test",
       } as Env,
     );

@@ -11,7 +11,6 @@ import { WorkspaceBootstrapService } from "../runtime/services/WorkspaceBootstra
 import { sanitizeUnknownError } from "../core/security/LogSanitizer";
 import {
   logErrorRateLimited,
-  logInfoRateLimited,
   logWarnRateLimited,
 } from "../lib/rate-limited-log";
 import { toCanonicalGitExecutionAction } from "../lib/gitExecutionActions";
@@ -30,9 +29,7 @@ type GitBootstrapResult = Awaited<
   ReturnType<WorkspaceBootstrapService["bootstrap"]>
 >;
 const bootstrapRequestsByWorkspace = new Map<string, Promise<GitBootstrapResult>>();
-const MUSCLE_BASE_URL_FALLBACK_LOG_KEY = "GitController:muscle-base-url-fallback";
 const ERROR_LOG_WINDOW_MS = 30_000;
-const WARNING_LOG_WINDOW_MS = 5 * 60 * 1000;
 const MUSCLE_STATUS_TIMEOUT_MS = 12_000;
 const MUSCLE_GIT_TIMEOUT_MS = 20_000;
 const GIT_SESSION_TIMEOUT_MS = 10_000;
@@ -59,30 +56,6 @@ interface CanonicalExecutionResponse {
  * Single Responsibility: Coordinate git commands and responses
  */
 export class GitController {
-  /**
-   * Get Muscle base URL from environment
-   * Ensures no hardcoded localhost in production paths
-   */
-  static getMuscleBaseUrl(env: Env): string {
-    const configuredBaseUrl = env.MUSCLE_BASE_URL?.trim();
-    if (configuredBaseUrl) {
-      return configuredBaseUrl.replace(/\/+$/, "");
-    }
-
-    if (env.NODE_ENV === "production") {
-      throw new Error("MUSCLE_BASE_URL is required in production");
-    }
-
-    const localDevFallback = "http://localhost:8787";
-    logInfoRateLimited(
-      MUSCLE_BASE_URL_FALLBACK_LOG_KEY,
-      `[GitController] MUSCLE_BASE_URL not configured, using dev fallback: ${localDevFallback}`,
-      undefined,
-      WARNING_LOG_WINDOW_MS,
-    );
-    return localDevFallback;
-  }
-
   /**
    * Get git status for a run's worktree
    */
@@ -355,16 +328,16 @@ async function executeGitViaCanonicalApi(
   payload: Record<string, unknown>,
   timeoutMs: number,
 ): Promise<PluginSuccessPayload | PluginErrorPayload> {
-  const baseUrl = GitController.getMuscleBaseUrl(env);
   const secureSession = await createSecureMuscleSession(
-    baseUrl,
+    env.SECURE_API,
     muscleSession,
     runId,
     action,
   );
 
-  const response = await fetchWithTimeout(
-    buildMuscleUrl(baseUrl, muscleSession, "/api/v1/execute"),
+  const response = await fetchSecureApiWithTimeout(
+    env.SECURE_API,
+    buildSecureApiUrl(muscleSession, "/api/v1/execute"),
     {
       method: "POST",
       headers: {
@@ -394,13 +367,14 @@ async function executeGitViaCanonicalApi(
 }
 
 async function createSecureMuscleSession(
-  baseUrl: string,
+  service: Env["SECURE_API"],
   muscleSession: string,
   runId: string,
   action: string,
 ): Promise<SecureMuscleSession> {
-  const response = await fetchWithTimeout(
-    buildMuscleUrl(baseUrl, muscleSession, "/api/v1/session"),
+  const response = await fetchSecureApiWithTimeout(
+    service,
+    buildSecureApiUrl(muscleSession, "/api/v1/session"),
     {
       method: "POST",
       headers: {
@@ -445,12 +419,11 @@ async function createSecureMuscleSession(
   };
 }
 
-function buildMuscleUrl(
-  baseUrl: string,
+function buildSecureApiUrl(
   muscleSession: string,
   pathname: string,
 ): string {
-  const url = new URL(pathname, `${baseUrl}/`);
+  const url = new URL(pathname, "http://internal/");
   url.searchParams.set("session", muscleSession);
   return url.toString();
 }
@@ -760,7 +733,8 @@ function errorResponse(
   });
 }
 
-async function fetchWithTimeout(
+async function fetchSecureApiWithTimeout(
+  service: Env["SECURE_API"],
   url: string,
   init: RequestInit,
   timeoutMs: number,
@@ -768,7 +742,7 @@ async function fetchWithTimeout(
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await fetch(url, {
+    return await service.fetch(url, {
       ...init,
       signal: controller.signal,
     });
