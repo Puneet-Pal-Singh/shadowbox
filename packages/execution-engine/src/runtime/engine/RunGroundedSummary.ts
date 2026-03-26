@@ -60,7 +60,7 @@ export function buildGroundedTaskSummary(
     .filter((line) => line.length > 0)
     .join("\n");
   const missingMutationSummary = audit.missingMutationEvidence
-    ? buildMissingMutationSummary(originalPrompt, sections.completed)
+    ? buildMissingMutationSummary(originalPrompt, sections)
     : null;
 
   return {
@@ -136,20 +136,38 @@ function buildCompletionAudit(
 
 function buildMissingMutationSummary(
   originalPrompt: string,
-  completedTasks: SerializedTask[],
+  sections: TaskSections,
 ): string {
   const completedEvidence =
-    completedTasks.length > 0
-      ? completedTasks
+    sections.completed.length > 0
+      ? sections.completed
           .map((task) => `- ${task.input.description}: ${formatTaskEvidence(task)}`)
           .join("\n")
       : "- No completed tasks were recorded.";
+  const failedEvidence =
+    sections.failed.length > 0
+      ? sections.failed
+          .map((task) => `- ${task.input.description}: ${formatDetail(
+            task.error?.message ?? "Failed with no recorded error.",
+          )}`)
+          .join("\n")
+      : "- None";
+  const pendingEvidence =
+    sections.pending.length > 0
+      ? sections.pending
+          .map((task) => `- ${task.input.description}: status ${task.status.toLowerCase()}`)
+          .join("\n")
+      : "- None";
 
   return [
     "I'm not done with that change yet.",
     "The request asked for a code or file modification, but this run did not record any successful edit/write task.",
     "What completed so far:",
     completedEvidence,
+    "What failed:",
+    failedEvidence,
+    "What is still pending:",
+    pendingEvidence,
     "Please continue the edit before reporting success.",
     `Original request: ${originalPrompt}`,
   ].join("\n");
@@ -158,7 +176,7 @@ function buildMissingMutationSummary(
 function promptRequestsMutation(originalPrompt: string): boolean {
   const normalizedPrompt = originalPrompt.toLowerCase();
   const mutationPattern =
-    /\b(add|edit|update|modify|fix|create|implement|refactor|remove|rename|change|write|insert|delete|replace|append|logging|log)\b/;
+    /\b(add|edit|update|modify|fix|create|implement|refactor|remove|rename|change|write|insert|delete|replace|append)\b(?:\s+\S+)?/;
   return mutationPattern.test(normalizedPrompt);
 }
 

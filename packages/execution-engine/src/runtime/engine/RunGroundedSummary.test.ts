@@ -52,6 +52,8 @@ describe("RunGroundedSummary", () => {
     expect(summary.missingMutationSummary).toContain(
       "did not record any successful edit/write task",
     );
+    expect(summary.missingMutationSummary).toContain("What failed:");
+    expect(summary.missingMutationSummary).toContain("What is still pending:");
   });
 
   it("summarizes edit tasks from activity metadata instead of raw tool output", () => {
@@ -82,6 +84,20 @@ describe("RunGroundedSummary", () => {
       "Update landing page hero: updated src/app/page.tsx (+30 -16)",
     );
     expect(summary.evidencePrompt).not.toContain("<tool_call>");
+  });
+
+  it("does not treat logging-only prompts as file mutation requests", () => {
+    const summary = buildGroundedTaskSummary("show logging output for the last run", [
+      buildTask({
+        id: "1",
+        status: "DONE",
+        description: "Read recent logs",
+        output: "Displayed server logs",
+      }),
+    ]);
+
+    expect(summary.audit.requestedMutation).toBe(false);
+    expect(summary.missingMutationSummary).toBeNull();
   });
 });
 
