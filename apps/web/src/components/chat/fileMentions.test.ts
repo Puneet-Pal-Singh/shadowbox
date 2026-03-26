@@ -31,6 +31,19 @@ describe("fileMentions", () => {
     });
   });
 
+  it("quotes mention paths that contain spaces", () => {
+    expect(
+      applyFileMention(
+        "inspect @api please",
+        { start: 8, end: 12, query: "api" },
+        "docs/API Guide.md",
+      ),
+    ).toEqual({
+      nextValue: 'inspect @"docs/API Guide.md"  please',
+      nextCaret: 29,
+    });
+  });
+
   it("ranks closer file matches ahead of broader path matches", () => {
     expect(
       filterFileMentionCandidates(

@@ -47,6 +47,28 @@ describe("ChatMessage", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("does not rewrite code spans or markdown links when shortening mentions", () => {
+    const message = {
+      id: "user-markdown-mention",
+      role: "user",
+      content:
+        'check `@src/components/dashboard/admin/pending-approvals/PendingJobCard.tsx` and [docs](https://example.com/@repo/shared-types) plus @"docs/API Guide.md"',
+    } as Message;
+
+    render(<ChatMessage message={message} />);
+
+    expect(
+      screen.getByText(
+        "@src/components/dashboard/admin/pending-approvals/PendingJobCard.tsx",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "docs" })).toHaveAttribute(
+      "href",
+      "https://example.com/@repo/shared-types",
+    );
+    expect(screen.getByText(/@API Guide\.md/)).toBeInTheDocument();
+  });
+
   it("does not render markdown images", () => {
     const message = {
       id: "assistant-image",

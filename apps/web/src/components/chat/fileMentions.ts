@@ -29,6 +29,19 @@ export function findActiveFileMention(
   }
 
   const mentionText = beforeCaret.slice(triggerIndex + 1);
+  if (mentionText.startsWith("\"")) {
+    const quotedContent = mentionText.slice(1);
+    if (hasClosedQuotedMention(quotedContent)) {
+      return null;
+    }
+
+    return {
+      start: triggerIndex,
+      end: safeCaretIndex,
+      query: unescapeQuotedMention(quotedContent),
+    };
+  }
+
   if (/\s/.test(mentionText)) {
     return null;
   }
@@ -45,7 +58,7 @@ export function applyFileMention(
   mention: FileMentionMatch,
   filePath: string,
 ): { nextValue: string; nextCaret: number } {
-  const insertedMention = `@${filePath} `;
+  const insertedMention = `@${formatMentionPath(filePath)} `;
   const nextValue =
     input.slice(0, mention.start) + insertedMention + input.slice(mention.end);
 
@@ -72,6 +85,14 @@ export function filterFileMentionCandidates(
     });
 
   return ranked.slice(0, limit).map((candidate) => candidate.path);
+}
+
+function formatMentionPath(filePath: string): string {
+  if (!requiresQuotedMention(filePath)) {
+    return filePath;
+  }
+
+  return `"${escapeQuotedMention(filePath)}"`;
 }
 
 function rankCandidate(path: string, normalizedQuery: string): RankedCandidate | null {
@@ -103,4 +124,38 @@ function rankCandidate(path: string, normalizedQuery: string): RankedCandidate |
   }
 
   return null;
+}
+
+function requiresQuotedMention(filePath: string): boolean {
+  return /\s/.test(filePath) || /["\\]/.test(filePath);
+}
+
+function escapeQuotedMention(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/"/g, "\\\"");
+}
+
+function unescapeQuotedMention(value: string): string {
+  return value.replace(/\\"/g, "\"").replace(/\\\\/g, "\\");
+}
+
+function hasClosedQuotedMention(value: string): boolean {
+  let escaped = false;
+
+  for (const character of value) {
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+
+    if (character === "\\") {
+      escaped = true;
+      continue;
+    }
+
+    if (character === "\"") {
+      return true;
+    }
+  }
+
+  return false;
 }
