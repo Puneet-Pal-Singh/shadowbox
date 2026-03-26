@@ -18,6 +18,7 @@ type GitAction =
 interface GitPluginResult {
   success: boolean;
   error?: string;
+  output?: unknown;
 }
 
 interface GitExecutionClient {
@@ -169,6 +170,13 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
         normalized.branch,
         request.runId,
       );
+      this.logBootstrapTiming(request.runId, bootstrapResult, bootstrapStartedAt);
+      return bootstrapResult;
+    }
+
+    if (hasLocalWorkspaceChanges(statusResult.output)) {
+      setWorkspaceSyncCache(cacheKey);
+      bootstrapResult = { status: "ready" };
       this.logBootstrapTiming(request.runId, bootstrapResult, bootstrapStartedAt);
       return bootstrapResult;
     }
@@ -328,6 +336,7 @@ function toGitPluginResult(result: unknown): GitPluginResult {
   const candidate = result as {
     success?: unknown;
     error?: unknown;
+    output?: unknown;
   };
   if (typeof candidate.success !== "boolean") {
     return {
@@ -339,7 +348,29 @@ function toGitPluginResult(result: unknown): GitPluginResult {
   return {
     success: candidate.success,
     error: typeof candidate.error === "string" ? candidate.error : undefined,
+    output: candidate.output,
   };
+}
+
+function hasLocalWorkspaceChanges(output: unknown): boolean {
+  if (typeof output !== "string" || output.trim().length === 0) {
+    return false;
+  }
+
+  try {
+    const parsed = JSON.parse(output) as Partial<{
+      hasStaged: boolean;
+      hasUnstaged: boolean;
+      files: unknown[];
+    }>;
+    return (
+      parsed.hasStaged === true ||
+      parsed.hasUnstaged === true ||
+      (Array.isArray(parsed.files) && parsed.files.length > 0)
+    );
+  } catch {
+    return false;
+  }
 }
 
 function mapGitFailure(error: string): WorkspaceBootstrapResult {
