@@ -384,36 +384,12 @@ type ChatInterfaceEntry =
   | { kind: "message"; message: Message }
   | { kind: "turn"; turn: ActivityTurnViewModel };
 
-class MissingConversationTurnIdError extends Error {
-  constructor(messageId: string) {
-    super(
-      `Conversation turn for user message ${messageId} is missing a canonical turnId and cannot be correlated safely.`,
-    );
-    this.name = "MissingConversationTurnIdError";
-  }
-}
-
-class UnmatchedActivityTurnError extends Error {
-  constructor(activityTurnKeys: string[]) {
-    super(
-      `Activity turns could not be correlated to conversation turns: ${activityTurnKeys.join(", ")}`,
-    );
-    this.name = "UnmatchedActivityTurnError";
-  }
-}
-
 function buildChatEntries(
   conversationTurns: ReturnType<typeof buildConversationTurns>,
   turns: ActivityTurnViewModel[],
 ): ChatInterfaceEntry[] {
   const entries: ChatInterfaceEntry[] = [];
-  const pendingActivityTurnsByKey = new Map<string, ActivityTurnViewModel[]>();
-
-  for (const turn of turns) {
-    const matchedTurns = pendingActivityTurnsByKey.get(turn.key) ?? [];
-    matchedTurns.push(turn);
-    pendingActivityTurnsByKey.set(turn.key, matchedTurns);
-  }
+  const pendingActivityTurnsByKey = buildPendingActivityIndex(turns);
 
   for (const conversationTurn of conversationTurns) {
     if (conversationTurn.userMessage) {
@@ -422,22 +398,11 @@ function buildChatEntries(
         message: conversationTurn.userMessage,
       });
 
-      if (!conversationTurn.turnId) {
-        throw new MissingConversationTurnIdError(
-          conversationTurn.userMessage.id,
-        );
-      }
-
-      const activityKey = conversationTurn.turnId;
-      const matchedActivityTurns = pendingActivityTurnsByKey.get(activityKey);
-      if (matchedActivityTurns) {
-        pendingActivityTurnsByKey.delete(activityKey);
-        for (const activityTurn of matchedActivityTurns) {
-          if (activityTurn.hasVisibleRows) {
-            entries.push({ kind: "turn", turn: activityTurn });
-          }
-        }
-      }
+      appendMatchedActivityEntries(
+        entries,
+        conversationTurn,
+        pendingActivityTurnsByKey,
+      );
     }
 
     if (conversationTurn.assistantMessage) {
@@ -448,6 +413,56 @@ function buildChatEntries(
     }
   }
 
+  logUnmatchedActivityTurns(pendingActivityTurnsByKey);
+
+  return entries;
+}
+
+function buildPendingActivityIndex(
+  turns: ActivityTurnViewModel[],
+): Map<string, ActivityTurnViewModel[]> {
+  const pendingActivityTurnsByKey = new Map<string, ActivityTurnViewModel[]>();
+
+  for (const turn of turns) {
+    const matchedTurns = pendingActivityTurnsByKey.get(turn.key) ?? [];
+    matchedTurns.push(turn);
+    pendingActivityTurnsByKey.set(turn.key, matchedTurns);
+  }
+
+  return pendingActivityTurnsByKey;
+}
+
+function appendMatchedActivityEntries(
+  entries: ChatInterfaceEntry[],
+  conversationTurn: ReturnType<typeof buildConversationTurns>[number],
+  pendingActivityTurnsByKey: Map<string, ActivityTurnViewModel[]>,
+): void {
+  if (!conversationTurn.turnId) {
+    console.warn(
+      "[chat/transcript] Conversation turn is missing canonical turnId; skipping activity correlation for now.",
+      { messageId: conversationTurn.userMessage?.id },
+    );
+    return;
+  }
+
+  const matchedActivityTurns = pendingActivityTurnsByKey.get(
+    conversationTurn.turnId,
+  );
+  if (!matchedActivityTurns) {
+    return;
+  }
+
+  pendingActivityTurnsByKey.delete(conversationTurn.turnId);
+  for (const activityTurn of matchedActivityTurns) {
+    if (activityTurn.hasVisibleRows) {
+      entries.push({ kind: "turn", turn: activityTurn });
+    }
+  }
+}
+
+function logUnmatchedActivityTurns(
+  pendingActivityTurnsByKey: Map<string, ActivityTurnViewModel[]>,
+): void {
   const unmatchedActivityTurnKeys = Array.from(
     pendingActivityTurnsByKey.values(),
   )
@@ -456,10 +471,11 @@ function buildChatEntries(
     .map((turn) => turn.key);
 
   if (unmatchedActivityTurnKeys.length > 0) {
-    throw new UnmatchedActivityTurnError(unmatchedActivityTurnKeys);
+    console.warn(
+      "[chat/transcript] Activity turns could not be correlated yet; skipping unmatched transcript rows for this render.",
+      { activityTurnKeys: unmatchedActivityTurnKeys },
+    );
   }
-
-  return entries;
 }
 
 function resolveModelLabel(

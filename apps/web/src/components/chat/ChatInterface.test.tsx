@@ -603,7 +603,8 @@ describe("ChatInterface", () => {
     const firstHeyIndex = text.indexOf("hey");
     const secondHeyIndex = text.indexOf("hey", firstHeyIndex + 1);
 
-    expect(secondHeyIndex).toBeGreaterThanOrEqual(0);
+    expect(firstHeyIndex).toBeGreaterThan(-1);
+    expect(secondHeyIndex).toBeGreaterThan(firstHeyIndex);
     expect(text.indexOf("Worked for 3s")).toBeGreaterThan(firstHeyIndex);
     expect(text.indexOf("Worked for 3s")).toBeLessThan(
       text.indexOf("Hello! How can I help you today?"),
