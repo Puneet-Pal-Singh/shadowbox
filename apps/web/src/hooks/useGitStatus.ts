@@ -16,6 +16,10 @@ const statusCacheTimestampByRunId = new Map<string, number>();
 const inflightByRunId = new Map<string, Promise<GitStatusResponse>>();
 const retryAfterByRunId = new Map<string, number>();
 const lastLoggedErrorByRunId = new Map<string, string>();
+const listenersByRunId = new Map<
+  string,
+  Set<(status: GitStatusResponse | null) => void>
+>();
 
 const RETRY_DELAY_MS = 5000;
 const STATUS_CACHE_TTL_MS = 10_000;
@@ -32,12 +36,16 @@ export function useGitStatus(
   const [gitAvailable, setGitAvailable] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const applyStatusSnapshot = useCallback((nextStatus: GitStatusResponse | null) => {
+    setStatus(nextStatus);
+    setGitAvailable(nextStatus?.gitAvailable ?? true);
+    setError(null);
+  }, []);
 
   const fetchStatus = useCallback(async (force = false) => {
     if (!runId || !sessionId || !cacheKey) {
       setLoading(false);
-      setStatus(null);
-      setGitAvailable(true);
+      applyStatusSnapshot(null);
       setError(!runId ? null : "No session context available");
       return;
     }
@@ -45,17 +53,14 @@ export function useGitStatus(
     const cachedStatus = statusCacheByRunId.get(cacheKey);
     const cachedAt = statusCacheTimestampByRunId.get(cacheKey) ?? 0;
     if (cachedStatus) {
-      setStatus(cachedStatus);
-      setGitAvailable(cachedStatus.gitAvailable);
-      setError(null);
+      applyStatusSnapshot(cachedStatus);
       const cacheAgeMs = Date.now() - cachedAt;
       if (!force && cacheAgeMs < STATUS_CACHE_TTL_MS) {
         setLoading(false);
         return;
       }
     } else {
-      setStatus(null);
-      setGitAvailable(true);
+      applyStatusSnapshot(null);
     }
 
     const retryAfter = retryAfterByRunId.get(cacheKey);
@@ -72,16 +77,13 @@ export function useGitStatus(
       inflightByRunId.set(cacheKey, request);
       const data = await request;
 
-      statusCacheByRunId.set(cacheKey, data);
-      statusCacheTimestampByRunId.set(cacheKey, Date.now());
+      updateCachedStatus(cacheKey, data);
       retryAfterByRunId.delete(cacheKey);
-      setStatus(data);
-      setGitAvailable(data.gitAvailable);
+      applyStatusSnapshot(data);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error";
       retryAfterByRunId.set(cacheKey, Date.now() + RETRY_DELAY_MS);
-      setStatus(null);
-      setGitAvailable(true);
+      applyStatusSnapshot(null);
       setError(message);
       if (lastLoggedErrorByRunId.get(cacheKey) !== message) {
         console.error("[useGitStatus] Error:", err);
@@ -90,7 +92,32 @@ export function useGitStatus(
     } finally {
       setLoading(false);
     }
-  }, [cacheKey, runId, sessionId]);
+  }, [applyStatusSnapshot, cacheKey, runId, sessionId]);
+
+  useEffect(() => {
+    if (!cacheKey) {
+      return;
+    }
+
+    const listener = (nextStatus: GitStatusResponse | null): void => {
+      applyStatusSnapshot(nextStatus);
+    };
+
+    const listeners = listenersByRunId.get(cacheKey) ?? new Set();
+    listeners.add(listener);
+    listenersByRunId.set(cacheKey, listeners);
+
+    return () => {
+      const currentListeners = listenersByRunId.get(cacheKey);
+      if (!currentListeners) {
+        return;
+      }
+      currentListeners.delete(listener);
+      if (currentListeners.size === 0) {
+        listenersByRunId.delete(cacheKey);
+      }
+    };
+  }, [applyStatusSnapshot, cacheKey]);
 
   useEffect(() => {
     void fetchStatus();
@@ -109,4 +136,22 @@ async function createGitStatusRequest(
   } finally {
     inflightByRunId.delete(cacheKey);
   }
+}
+
+function updateCachedStatus(
+  cacheKey: string,
+  status: GitStatusResponse,
+): void {
+  statusCacheByRunId.set(cacheKey, status);
+  statusCacheTimestampByRunId.set(cacheKey, Date.now());
+  listenersByRunId.get(cacheKey)?.forEach((listener) => listener(status));
+}
+
+export function _resetGitStatusStateForTests(): void {
+  statusCacheByRunId.clear();
+  statusCacheTimestampByRunId.clear();
+  inflightByRunId.clear();
+  retryAfterByRunId.clear();
+  lastLoggedErrorByRunId.clear();
+  listenersByRunId.clear();
 }
