@@ -46,6 +46,7 @@ interface GitReviewContextValue {
 }
 
 const GitReviewContext = createContext<GitReviewContextValue | null>(null);
+const DEFAULT_COMMIT_SCOPE = "review";
 
 export function GitReviewProvider({
   children,
@@ -53,6 +54,7 @@ export function GitReviewProvider({
   onReviewOpenChange,
 }: GitReviewProviderProps) {
   const { runId, sessionId } = useRunContext();
+
   const {
     status,
     gitAvailable,
@@ -216,11 +218,8 @@ export function GitReviewProvider({
   }, [stagedFiles, status, updateManyFilesStage]);
 
   const submitCommit = useCallback(async (): Promise<boolean> => {
-    if (!commitMessage.trim()) {
-      return false;
-    }
-
-    const committed = await commit({ message: commitMessage.trim() });
+    const message = commitMessage.trim() || generateCommitMessage(status?.files ?? []);
+    const committed = await commit({ message });
     if (!committed) {
       return false;
     }
@@ -276,4 +275,16 @@ export function useGitReview(): GitReviewContextValue {
   }
 
   return context;
+}
+
+function generateCommitMessage(files: FileStatus[]): string {
+  if (files.length === 0) {
+    return `chore(${DEFAULT_COMMIT_SCOPE}): update workspace`;
+  }
+
+  if (files.length === 1) {
+    return `chore(${DEFAULT_COMMIT_SCOPE}): update ${files[0]?.path ?? "workspace"}`;
+  }
+
+  return `chore(${DEFAULT_COMMIT_SCOPE}): update ${files.length} files`;
 }
