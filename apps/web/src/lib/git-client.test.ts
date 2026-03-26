@@ -124,4 +124,34 @@ describe("git-client", () => {
       recoverableCode: "NOT_A_GIT_REPOSITORY",
     });
   });
+
+  it("fails fast on malformed git status payloads", async () => {
+    const fetchMock = vi.mocked(global.fetch);
+    fetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          branch: "main",
+          gitAvailable: true,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+
+    await expect(
+      getGitStatus({
+        runId: "run-123",
+        sessionId: "session-123",
+      }),
+    ).rejects.toThrow("Invalid git status response");
+  });
+
+  it("validates commit request payloads before posting", async () => {
+    await expect(
+      commitGitChanges({
+        runId: "",
+        sessionId: "session-123",
+        payload: { message: "feat: test" },
+      }),
+    ).rejects.toThrow();
+  });
 });

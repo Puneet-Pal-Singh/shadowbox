@@ -4,6 +4,7 @@ import type {
   GitStatusResponse,
   StageFilesRequest,
 } from "@repo/shared-types";
+import { z } from "zod";
 import {
   gitCommitPath,
   gitDiffPath,
@@ -27,10 +28,67 @@ interface GitCommitRequestContext extends GitRequestContext {
 
 interface GitStageRequestContext extends GitRequestContext, StageFilesRequest {}
 
+const gitRequestContextSchema = z.object({
+  runId: z.string().min(1),
+  sessionId: z.string().min(1).optional(),
+});
+
+const gitDiffRequestContextSchema = gitRequestContextSchema.extend({
+  path: z.string().min(1),
+  staged: z.boolean().optional(),
+});
+
+const commitPayloadSchema = z.object({
+  message: z.string().min(1),
+  files: z.array(z.string().min(1)).optional(),
+});
+
+const gitCommitRequestContextSchema = gitRequestContextSchema.extend({
+  payload: commitPayloadSchema,
+});
+
+const gitStageRequestContextSchema = gitRequestContextSchema.extend({
+  files: z.array(z.string().min(1)),
+  unstage: z.boolean().optional(),
+});
+
+const fileStatusSchema = z.object({
+  path: z.string(),
+  status: z.enum(["modified", "added", "deleted", "renamed", "untracked"]),
+  additions: z.number(),
+  deletions: z.number(),
+  isStaged: z.boolean(),
+});
+
+const gitStatusReadySchema = z.object({
+  files: z.array(fileStatusSchema),
+  ahead: z.number(),
+  behind: z.number(),
+  branch: z.string(),
+  hasStaged: z.boolean(),
+  hasUnstaged: z.boolean(),
+  gitAvailable: z.literal(true),
+});
+
+const gitSoftErrorSchema = z.object({
+  success: z.literal(false),
+  error: z.string().optional(),
+  message: z.string().optional(),
+  code: z.string().optional(),
+});
+
+const gitNotRepositorySchema = z.object({
+  gitAvailable: z.literal(false).optional(),
+  recoverableCode: z.literal("NOT_A_GIT_REPOSITORY").optional(),
+});
+
 export async function getGitStatus(
   context: GitRequestContext,
 ): Promise<GitStatusResponse> {
-  const response = await fetch(gitStatusPath(context.runId, context.sessionId));
+  const parsedContext = gitRequestContextSchema.parse(context);
+  const response = await fetch(
+    gitStatusPath(parsedContext.runId, parsedContext.sessionId),
+  );
 
   if (!response.ok) {
     throw new Error(
@@ -48,12 +106,13 @@ export async function getGitStatus(
 export async function getGitDiff(
   context: GitDiffRequestContext,
 ): Promise<DiffContent> {
+  const parsedContext = gitDiffRequestContextSchema.parse(context);
   const response = await fetch(
     gitDiffPath({
-      runId: context.runId,
-      sessionId: context.sessionId,
-      path: context.path,
-      staged: context.staged,
+      runId: parsedContext.runId,
+      sessionId: parsedContext.sessionId,
+      path: parsedContext.path,
+      staged: parsedContext.staged,
     }),
   );
 
@@ -72,14 +131,15 @@ export async function getGitDiff(
 export async function stageGitFiles(
   context: GitStageRequestContext,
 ): Promise<void> {
+  const parsedContext = gitStageRequestContextSchema.parse(context);
   const response = await fetch(gitStagePath(), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      runId: context.runId,
-      sessionId: context.sessionId,
-      files: context.files,
-      unstage: context.unstage ?? false,
+      runId: parsedContext.runId,
+      sessionId: parsedContext.sessionId,
+      files: parsedContext.files,
+      unstage: parsedContext.unstage ?? false,
     }),
   });
 
@@ -96,13 +156,14 @@ export async function stageGitFiles(
 export async function commitGitChanges(
   context: GitCommitRequestContext,
 ): Promise<void> {
+  const parsedContext = gitCommitRequestContextSchema.parse(context);
   const response = await fetch(gitCommitPath(), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      ...context.payload,
-      runId: context.runId,
-      sessionId: context.sessionId,
+      ...parsedContext.payload,
+      runId: parsedContext.runId,
+      sessionId: parsedContext.sessionId,
     }),
   });
 
@@ -138,67 +199,36 @@ async function readGitErrorMessage(
     if (typeof payload.code === "string" && payload.code.trim()) {
       return payload.code;
     }
-  } catch {
-    // No-op. Fall back to a generic message below.
+  } catch (error) {
+    console.warn("[git-client] Failed to parse git error payload", error);
   }
 
   return fallbackMessage;
 }
 
 function normalizeGitStatusResponse(payload: unknown): GitStatusResponse {
-  if (!payload || typeof payload !== "object") {
-    throw new Error("Invalid git status response: expected JSON object");
-  }
-
-  const apiErrorPayload = payload as { success?: boolean; error?: string };
-  if (
-    apiErrorPayload.success === false &&
-    typeof apiErrorPayload.error === "string"
-  ) {
-    if (apiErrorPayload.error.includes("not a git repository")) {
+  const softError = gitSoftErrorSchema.safeParse(payload);
+  if (softError.success) {
+    const errorMessage =
+      softError.data.error ?? softError.data.message ?? softError.data.code;
+    if (errorMessage?.includes("not a git repository")) {
       return getNotGitRepositoryStatus();
     }
-    throw new Error(apiErrorPayload.error);
+    throw new Error(errorMessage ?? "Invalid git status response");
   }
 
-  const candidate = payload as Partial<GitStatusResponse>;
-  const files = Array.isArray(candidate.files) ? candidate.files : [];
-  if (!Array.isArray(candidate.files) && looksLikeSoftGitStatusPayload(payload)) {
-    throw new Error("Invalid git status response: soft payload missing files");
-  }
-
-  if (candidate.recoverableCode === "NOT_A_GIT_REPOSITORY") {
+  if (gitNotRepositorySchema.safeParse(payload).success) {
     return getNotGitRepositoryStatus();
   }
 
-  if (candidate.gitAvailable === false) {
-    return getNotGitRepositoryStatus();
+  const parsedStatus = gitStatusReadySchema.safeParse(payload);
+  if (!parsedStatus.success) {
+    throw new Error(
+      `Invalid git status response: ${parsedStatus.error.issues[0]?.message ?? "missing fields"}`,
+    );
   }
 
-  return {
-    files,
-    ahead: typeof candidate.ahead === "number" ? candidate.ahead : 0,
-    behind: typeof candidate.behind === "number" ? candidate.behind : 0,
-    branch: typeof candidate.branch === "string" ? candidate.branch : "",
-    hasStaged:
-      typeof candidate.hasStaged === "boolean" ? candidate.hasStaged : false,
-    hasUnstaged:
-      typeof candidate.hasUnstaged === "boolean" ? candidate.hasUnstaged : false,
-    gitAvailable: true,
-  };
-}
-
-function looksLikeSoftGitStatusPayload(payload: unknown): boolean {
-  if (!payload || typeof payload !== "object") {
-    return false;
-  }
-
-  const objectPayload = payload as Record<string, unknown>;
-  return (
-    "success" in objectPayload ||
-    "error" in objectPayload ||
-    "message" in objectPayload
-  );
+  return parsedStatus.data;
 }
 
 function getNotGitRepositoryStatus(): GitStatusResponse {
