@@ -1,15 +1,44 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { FileDiff, GitBranch, X } from "lucide-react";
 import { ChangesPanel } from "../sidebar/ChangesPanel";
 import { useGitReview } from "./GitReviewContext";
+import { GitCommitDialog } from "./GitCommitDialog";
 
-export function GitReviewDialog() {
+interface GitReviewDialogProps {
+  initialIntent?: "review" | "commit";
+}
+
+export function GitReviewDialog({
+  initialIntent = "review",
+}: GitReviewDialogProps) {
   const {
     isReviewOpen,
     closeReview,
     status,
     stagedFiles,
+    selectedFile,
+    selectFile,
   } = useGitReview();
+  const [isCommitDialogOpen, setIsCommitDialogOpen] = useState(false);
+
+  useEffect(() => {
+    if (!isReviewOpen) {
+      setIsCommitDialogOpen(false);
+      return;
+    }
+
+    if (initialIntent === "commit") {
+      setIsCommitDialogOpen(true);
+    }
+  }, [initialIntent, isReviewOpen]);
+
+  useEffect(() => {
+    if (!isReviewOpen || selectedFile || !status?.files.length) {
+      return;
+    }
+
+    selectFile(status.files[0]);
+  }, [isReviewOpen, selectFile, selectedFile, status?.files]);
 
   useEffect(() => {
     if (!isReviewOpen) {
@@ -60,19 +89,34 @@ export function GitReviewDialog() {
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={closeReview}
-            className="rounded-lg border border-zinc-800 p-2 text-zinc-400 transition-colors hover:border-zinc-700 hover:text-white"
-            title="Close review"
-          >
-            <X size={16} />
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setIsCommitDialogOpen(true)}
+              className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm font-medium text-emerald-300 transition-colors hover:border-emerald-400/40 hover:bg-emerald-500/15 hover:text-emerald-200"
+            >
+              Commit
+            </button>
+
+            <button
+              type="button"
+              onClick={closeReview}
+              className="rounded-lg border border-zinc-800 p-2 text-zinc-400 transition-colors hover:border-zinc-700 hover:text-white"
+              title="Close review"
+            >
+              <X size={16} />
+            </button>
+          </div>
         </div>
 
         <div className="min-h-0 flex-1">
           <ChangesPanel className="h-full p-5" mode="modal" />
         </div>
+
+        <GitCommitDialog
+          isOpen={isCommitDialogOpen}
+          onClose={() => setIsCommitDialogOpen(false)}
+        />
       </div>
     </div>
   );
