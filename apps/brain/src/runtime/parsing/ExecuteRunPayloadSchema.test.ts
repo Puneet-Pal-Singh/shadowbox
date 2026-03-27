@@ -24,7 +24,7 @@ describe("ExecuteRunPayloadSchema tools validation", () => {
   it("rejects primitive tool schema values in inputSchema/parameters", () => {
     const payload = createValidPayload();
     payload.tools = {
-      run_command: {
+      bash: {
         description: "Run shell command",
         inputSchema: "not-an-object",
         parameters: 42,
@@ -38,20 +38,20 @@ describe("ExecuteRunPayloadSchema tools validation", () => {
   it("applies default empty parameters object when omitted", () => {
     const payload = createValidPayload();
     payload.tools = {
-      run_command: {
+      bash: {
         description: "Run shell command",
         inputSchema: { type: "object" },
       },
     };
 
     const result = ExecuteRunPayloadSchema.parse(payload);
-    expect(result.tools?.run_command?.parameters).toEqual({});
+    expect(result.tools?.bash?.parameters).toEqual({});
   });
 
   it("accepts object parameters for tool definitions", () => {
     const payload = createValidPayload();
     payload.tools = {
-      run_command: {
+      bash: {
         description: "Run shell command",
         parameters: {
           type: "object",
