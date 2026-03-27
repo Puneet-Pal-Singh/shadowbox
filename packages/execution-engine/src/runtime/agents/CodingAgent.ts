@@ -322,8 +322,8 @@ VALIDATION RULES:
         return this.executeListFilesTool(task);
       case "write_file":
         return this.executeWriteFileTool(task);
-      case "run_command":
-        return this.executeRunCommandTool(task);
+      case "bash":
+        return this.executeBashTool(task);
       case "git_status":
         return this.executeGitStatusTool(task);
       case "git_diff":
@@ -389,12 +389,13 @@ VALIDATION RULES:
     });
   }
 
-  private async executeRunCommandTool(task: Task): Promise<TaskResult> {
-    const validatedInput = this.validateGoldenFlowInput(
-      "run_command",
-      task.input,
+  private async executeBashTool(task: Task): Promise<TaskResult> {
+    const validatedInput = this.validateGoldenFlowInput("bash", task.input);
+    return this.executeCommandWithGuards(
+      task.id,
+      validatedInput.command,
+      validatedInput.cwd,
     );
-    return this.executeCommandWithGuards(task.id, validatedInput.command);
   }
 
   private async executeGitStatusTool(task: Task): Promise<TaskResult> {
@@ -567,9 +568,11 @@ VALIDATION RULES:
   private async executeCommandWithGuards(
     taskId: string,
     command: string,
+    cwd?: string,
   ): Promise<TaskResult> {
     validateShellCommand(command);
     const normalizedCommand = command.trim();
+    const normalizedCwd = cwd ? normalizeTaskPath(cwd) : undefined;
     if (/^git(\s|$)/i.test(normalizedCommand)) {
       return this.buildFailureResult(
         taskId,
@@ -585,8 +588,13 @@ VALIDATION RULES:
       return this.listDirectory(taskId, path);
     }
 
-    const result = await this.executeGatewayPlugin("run_command", {
+    if (normalizedCwd && normalizedCwd !== ".") {
+      validateSafePath(normalizedCwd);
+    }
+
+    const result = await this.executeGatewayPlugin("bash", {
       command: normalizedCommand,
+      cwd: normalizedCwd,
     });
     const failure = extractExecutionFailure(result);
     if (failure) {
