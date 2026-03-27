@@ -9,6 +9,7 @@ import {
   RUN_WORKFLOW_STEPS,
   type RunEvent,
   type RunEventType,
+  type ToolOutputAppendedPayload,
 } from "./run-events.js";
 import { RUN_STATUSES } from "./run-status.js";
 
@@ -77,23 +78,24 @@ const ToolStartedPayloadSchema = z.object({
   toolName: z.string().min(1),
 });
 
-const ToolOutputAppendedPayloadSchema = z
-  .object({
-    toolId: z.string().min(1),
-    toolName: z.string().min(1),
-    turnId: z.string().min(1).optional(),
-    stdoutDelta: z.string().min(1).optional(),
-    stderrDelta: z.string().min(1).optional(),
-    truncated: z.boolean().optional(),
-  })
-  .refine(
-    (value) =>
-      typeof value.stdoutDelta === "string" ||
-      typeof value.stderrDelta === "string",
-    {
-      message: "stdoutDelta or stderrDelta is required",
-    },
-  );
+const ToolOutputAppendedBaseSchema = z.object({
+  toolId: z.string().min(1),
+  toolName: z.string().min(1),
+  turnId: z.string().min(1).optional(),
+  truncated: z.boolean().optional(),
+});
+
+const ToolOutputAppendedPayloadSchema: z.ZodType<ToolOutputAppendedPayload> =
+  z.union([
+    ToolOutputAppendedBaseSchema.extend({
+      stdoutDelta: z.string().min(1),
+      stderrDelta: z.string().min(1).optional(),
+    }),
+    ToolOutputAppendedBaseSchema.extend({
+      stdoutDelta: z.string().min(1).optional(),
+      stderrDelta: z.string().min(1),
+    }),
+  ]);
 
 const ToolCompletedPayloadSchema = z.object({
   toolId: z.string().min(1),
