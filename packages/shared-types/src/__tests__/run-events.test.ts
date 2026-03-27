@@ -130,6 +130,29 @@ describe("RunEvent Schema Validation", () => {
     }
   });
 
+  it("should parse valid tool.output.appended event", () => {
+    const event = {
+      version: 1,
+      eventId: "evt-shell-1",
+      runId: "run-456",
+      timestamp: new Date().toISOString(),
+      source: "brain" as const,
+      type: RUN_EVENT_TYPES.TOOL_OUTPUT_APPENDED,
+      payload: {
+        toolId: "tool-123",
+        toolName: "bash",
+        stdoutDelta: "hello\n",
+      },
+    };
+
+    const parsed = parseRunEvent(event);
+    expect(parsed.type).toBe(RUN_EVENT_TYPES.TOOL_OUTPUT_APPENDED);
+    if (parsed.type === RUN_EVENT_TYPES.TOOL_OUTPUT_APPENDED) {
+      expect(parsed.payload.toolName).toBe("bash");
+      expect(parsed.payload.stdoutDelta).toBe("hello\n");
+    }
+  });
+
   it("should parse run.status.changed events with workflow stage context", () => {
     const event = {
       version: 1,
