@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Sandbox } from "@cloudflare/sandbox";
+import { BashPlugin } from "../BashPlugin";
 import { NodePlugin } from "../NodePlugin";
 import { FileSystemPlugin } from "../FileSystemPlugin";
 import { GitPlugin } from "../GitPlugin";
@@ -64,6 +65,20 @@ describe("secure-agent-api plugin hardening", () => {
     expect(result.success).toBe(false);
     expect(result.error).toMatch(/Unsafe shell token detected in args/i);
     expect(sandbox.execCalls).toHaveLength(1);
+  });
+
+  it("rejects dangerous bash command patterns", async () => {
+    const plugin = new BashPlugin();
+    const sandbox = createSandboxMock();
+
+    const result = await plugin.execute(asSandbox(sandbox), {
+      action: "run",
+      runId: "run-safe-bash",
+      command: "echo ok | bash",
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/Dangerous bash command pattern detected/i);
   });
 
   it("rejects filesystem traversal and absolute paths", async () => {
