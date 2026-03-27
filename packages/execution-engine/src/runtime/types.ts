@@ -319,7 +319,16 @@ export interface RuntimeExecutionService {
     plugin: string,
     action: string,
     payload: Record<string, unknown>,
+    options?: {
+      onOutput?: (chunk: ExecutionOutputChunk) => Promise<void> | void;
+    },
   ): Promise<unknown>;
+}
+
+export interface ExecutionOutputChunk {
+  message: string;
+  source?: "stdout" | "stderr";
+  timestamp?: number;
 }
 
 export interface IAgent {
