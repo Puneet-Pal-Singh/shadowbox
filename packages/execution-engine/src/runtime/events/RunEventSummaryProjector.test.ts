@@ -19,10 +19,10 @@ describe("RunEventSummaryProjector", () => {
         "README contents",
         12,
       ),
-      createToolRequestedEvent(baseToolInput("task-2", "run_command"), {
+      createToolRequestedEvent(baseToolInput("task-2", "bash"), {
         command: "pnpm test",
       }),
-      createToolStartedEvent(baseToolInput("task-2", "run_command")),
+      createToolStartedEvent(baseToolInput("task-2", "bash")),
       createRunCompletedEvent(baseRunInput(), 40, 2),
     ];
 
