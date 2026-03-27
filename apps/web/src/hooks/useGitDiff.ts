@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { DiffContent } from "@repo/shared-types";
 import { useRunContext } from "./useRunContext";
+import { getGitDiff } from "../lib/git-client.js";
 
 interface UseGitDiffResult {
   diff: DiffContent | null;
@@ -30,20 +31,13 @@ export function useGitDiff(
     setError(null);
 
     try {
-      const params = new URLSearchParams({
+      const params = {
         runId,
         sessionId,
         path,
-        staged: String(staged),
-      });
-
-      const response = await fetch(`/api/git/diff?${params}`);
-
-      if (!response.ok) {
-        throw new Error(`Failed to fetch diff: ${response.statusText}`);
-      }
-
-      const data = (await response.json()) as DiffContent;
+        staged,
+      };
+      const data = (await getGitDiff(params)) as DiffContent;
       setDiff(data);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error";

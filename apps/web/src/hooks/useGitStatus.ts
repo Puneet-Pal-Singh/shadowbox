@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import type { GitStatusResponse } from "@repo/shared-types";
 import { useRunContext } from "./useRunContext";
-import { getBrainHttpBase } from "../lib/platform-endpoints.js";
+import { getGitStatus } from "../lib/git-client.js";
 
 interface UseGitStatusResult {
   status: GitStatusResponse | null;
@@ -16,6 +16,10 @@ const statusCacheTimestampByRunId = new Map<string, number>();
 const inflightByRunId = new Map<string, Promise<GitStatusResponse>>();
 const retryAfterByRunId = new Map<string, number>();
 const lastLoggedErrorByRunId = new Map<string, string>();
+const listenersByRunId = new Map<
+  string,
+  Set<(status: GitStatusResponse | null) => void>
+>();
 
 const RETRY_DELAY_MS = 5000;
 const STATUS_CACHE_TTL_MS = 10_000;
@@ -32,12 +36,16 @@ export function useGitStatus(
   const [gitAvailable, setGitAvailable] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const applyStatusSnapshot = useCallback((nextStatus: GitStatusResponse | null) => {
+    setStatus(nextStatus);
+    setGitAvailable(nextStatus?.gitAvailable ?? true);
+    setError(null);
+  }, []);
 
   const fetchStatus = useCallback(async (force = false) => {
     if (!runId || !sessionId || !cacheKey) {
       setLoading(false);
-      setStatus(null);
-      setGitAvailable(true);
+      applyStatusSnapshot(null);
       setError(!runId ? null : "No session context available");
       return;
     }
@@ -45,17 +53,14 @@ export function useGitStatus(
     const cachedStatus = statusCacheByRunId.get(cacheKey);
     const cachedAt = statusCacheTimestampByRunId.get(cacheKey) ?? 0;
     if (cachedStatus) {
-      setStatus(cachedStatus);
-      setGitAvailable(cachedStatus.gitAvailable);
-      setError(null);
+      applyStatusSnapshot(cachedStatus);
       const cacheAgeMs = Date.now() - cachedAt;
       if (!force && cacheAgeMs < STATUS_CACHE_TTL_MS) {
         setLoading(false);
         return;
       }
     } else {
-      setStatus(null);
-      setGitAvailable(true);
+      applyStatusSnapshot(null);
     }
 
     const retryAfter = retryAfterByRunId.get(cacheKey);
@@ -72,16 +77,13 @@ export function useGitStatus(
       inflightByRunId.set(cacheKey, request);
       const data = await request;
 
-      statusCacheByRunId.set(cacheKey, data);
-      statusCacheTimestampByRunId.set(cacheKey, Date.now());
+      updateCachedStatus(cacheKey, data);
       retryAfterByRunId.delete(cacheKey);
-      setStatus(data);
-      setGitAvailable(data.gitAvailable);
+      applyStatusSnapshot(data);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error";
       retryAfterByRunId.set(cacheKey, Date.now() + RETRY_DELAY_MS);
-      setStatus(null);
-      setGitAvailable(true);
+      applyStatusSnapshot(null);
       setError(message);
       if (lastLoggedErrorByRunId.get(cacheKey) !== message) {
         console.error("[useGitStatus] Error:", err);
@@ -90,7 +92,32 @@ export function useGitStatus(
     } finally {
       setLoading(false);
     }
-  }, [cacheKey, runId, sessionId]);
+  }, [applyStatusSnapshot, cacheKey, runId, sessionId]);
+
+  useEffect(() => {
+    if (!cacheKey) {
+      return;
+    }
+
+    const listener = (nextStatus: GitStatusResponse | null): void => {
+      applyStatusSnapshot(nextStatus);
+    };
+
+    const listeners = listenersByRunId.get(cacheKey) ?? new Set();
+    listeners.add(listener);
+    listenersByRunId.set(cacheKey, listeners);
+
+    return () => {
+      const currentListeners = listenersByRunId.get(cacheKey);
+      if (!currentListeners) {
+        return;
+      }
+      currentListeners.delete(listener);
+      if (currentListeners.size === 0) {
+        listenersByRunId.delete(cacheKey);
+      }
+    };
+  }, [applyStatusSnapshot, cacheKey]);
 
   useEffect(() => {
     void fetchStatus();
@@ -105,97 +132,26 @@ async function createGitStatusRequest(
 ): Promise<GitStatusResponse> {
   const cacheKey = `${sessionId}:${runId}`;
   try {
-    const response = await fetch(
-      `${getBrainHttpBase()}/api/git/status?runId=${encodeURIComponent(runId)}&sessionId=${encodeURIComponent(sessionId)}`
-    );
-
-    if (!response.ok) {
-      const message = await readGitStatusErrorMessage(response);
-      throw new Error(message);
-    }
-
-    const payload = (await response.json()) as unknown;
-    return normalizeGitStatusResponse(payload);
+    return await getGitStatus({ runId, sessionId });
   } finally {
     inflightByRunId.delete(cacheKey);
   }
 }
 
-async function readGitStatusErrorMessage(response: Response): Promise<string> {
-  try {
-    const payload = (await response.json()) as { error?: string };
-    if (payload.error) {
-      return payload.error;
-    }
-  } catch {
-    // No-op, fallback below.
-  }
-  return `Failed to fetch git status: HTTP ${response.status}`;
+function updateCachedStatus(
+  cacheKey: string,
+  status: GitStatusResponse,
+): void {
+  statusCacheByRunId.set(cacheKey, status);
+  statusCacheTimestampByRunId.set(cacheKey, Date.now());
+  listenersByRunId.get(cacheKey)?.forEach((listener) => listener(status));
 }
 
-function normalizeGitStatusResponse(payload: unknown): GitStatusResponse {
-  if (!payload || typeof payload !== "object") {
-    throw new Error("Invalid git status response: expected JSON object");
-  }
-
-  const apiErrorPayload = payload as { success?: boolean; error?: string };
-  if (
-    apiErrorPayload.success === false &&
-    typeof apiErrorPayload.error === "string"
-  ) {
-    if (apiErrorPayload.error.includes("not a git repository")) {
-      return getNotGitRepositoryStatus();
-    }
-    throw new Error(apiErrorPayload.error);
-  }
-
-  const candidate = payload as Partial<GitStatusResponse>;
-  const files = Array.isArray(candidate.files) ? candidate.files : [];
-  if (!Array.isArray(candidate.files) && looksLikeSoftGitStatusPayload(payload)) {
-    throw new Error("Invalid git status response: soft payload missing files");
-  }
-
-  if (candidate.recoverableCode === "NOT_A_GIT_REPOSITORY") {
-    return getNotGitRepositoryStatus();
-  }
-  if (candidate.gitAvailable === false) {
-    return getNotGitRepositoryStatus();
-  }
-
-  return {
-    files,
-    ahead: typeof candidate.ahead === "number" ? candidate.ahead : 0,
-    behind: typeof candidate.behind === "number" ? candidate.behind : 0,
-    branch: typeof candidate.branch === "string" ? candidate.branch : "",
-    hasStaged:
-      typeof candidate.hasStaged === "boolean" ? candidate.hasStaged : false,
-    hasUnstaged:
-      typeof candidate.hasUnstaged === "boolean" ? candidate.hasUnstaged : false,
-    gitAvailable: true,
-  };
-}
-
-function looksLikeSoftGitStatusPayload(payload: unknown): boolean {
-  if (!payload || typeof payload !== "object") {
-    return false;
-  }
-  const objectPayload = payload as Record<string, unknown>;
-  return (
-    "success" in objectPayload ||
-    "error" in objectPayload ||
-    "message" in objectPayload
-  );
-}
-
-function getNotGitRepositoryStatus(): GitStatusResponse {
-  return {
-    files: [],
-    ahead: 0,
-    behind: 0,
-    branch: "",
-    hasStaged: false,
-    hasUnstaged: false,
-    gitAvailable: false,
-    recoverableCode: "NOT_A_GIT_REPOSITORY",
-  };
+export function _resetGitStatusStateForTests(): void {
+  statusCacheByRunId.clear();
+  statusCacheTimestampByRunId.clear();
+  inflightByRunId.clear();
+  retryAfterByRunId.clear();
+  lastLoggedErrorByRunId.clear();
+  listenersByRunId.clear();
 }

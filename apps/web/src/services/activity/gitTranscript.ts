@@ -163,6 +163,10 @@ function isGitStatusResponse(value: unknown): value is GitStatusResponse {
     typeof candidate.ahead === "number" &&
     typeof candidate.behind === "number" &&
     typeof candidate.branch === "string" &&
+    ("repoIdentity" in candidate
+      ? candidate.repoIdentity === null ||
+        typeof candidate.repoIdentity === "string"
+      : true) &&
     typeof candidate.hasStaged === "boolean" &&
     typeof candidate.hasUnstaged === "boolean" &&
     typeof candidate.gitAvailable === "boolean"

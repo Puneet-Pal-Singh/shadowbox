@@ -61,6 +61,8 @@ type GitPayload = z.infer<typeof GitPayloadSchema>;
 const SAFE_GIT_REF_REGEX = /^[A-Za-z0-9._/-]{1,200}$/;
 const CLONE_DESTINATION_NOT_EMPTY_PATTERN =
   /destination path .* already exists and is not an empty directory/i;
+const MISSING_GIT_AUTHOR_ERROR =
+  "Git commit author is not configured. Set git user.name and user.email for this workspace before committing.";
 
 export class GitPlugin implements IPlugin {
   name = "git";
@@ -331,11 +333,20 @@ export class GitPlugin implements IPlugin {
       return { success: false, error: statusResult.stderr };
     }
 
-    const parsed = this.parseStatus(statusResult.stdout);
+    const repoIdentity = await this.getRepoIdentity(
+      sandbox,
+      worktree,
+      toolboxContext,
+      runId,
+    );
+    const parsed = this.parseStatus(statusResult.stdout, repoIdentity);
     return { success: true, output: JSON.stringify(parsed) };
   }
 
-  private parseStatus(stdout: string): GitStatusResponse {
+  private parseStatus(
+    stdout: string,
+    repoIdentity: string | null,
+  ): GitStatusResponse {
     const lines = stdout.split("\n").filter((line) => line.trim().length > 0);
     const branchLine = lines[0];
     let branch = "main";
@@ -367,10 +378,36 @@ export class GitPlugin implements IPlugin {
       ahead,
       behind,
       branch,
+      repoIdentity,
       hasStaged: files.some((file) => file.isStaged),
       hasUnstaged: files.some((file) => !file.isStaged),
       gitAvailable: true,
     };
+  }
+
+  private async getRepoIdentity(
+    sandbox: Sandbox,
+    worktree: string,
+    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
+    runId: string,
+  ): Promise<string | null> {
+    const remoteResult = await this.runToolboxCommand(
+      sandbox,
+      {
+        command: "git",
+        args: ["-C", worktree, "config", "--get", "remote.origin.url"],
+        runId,
+      },
+      ["git"],
+      toolboxContext,
+      "git.status.remote",
+    );
+
+    if (remoteResult.exitCode !== 0) {
+      return null;
+    }
+
+    return normalizeRepoIdentity(remoteResult.stdout);
   }
 
   private async getDiff(
@@ -381,7 +418,14 @@ export class GitPlugin implements IPlugin {
     toolboxContext: ReturnType<typeof readToolboxCommandContext>,
     runId: string,
   ): Promise<PluginResult> {
-    const args = ["-C", worktree, "diff"];
+    const args = [
+      "-C",
+      worktree,
+      "diff",
+      "--no-ext-diff",
+      "--find-renames",
+      "--unified=999999",
+    ];
     if (staged) {
       args.push("--staged");
     }
@@ -408,6 +452,8 @@ export class GitPlugin implements IPlugin {
     const lines = diffOutput.split("\n");
     const hunks: DiffHunk[] = [];
     let currentHunk: DiffHunk | null = null;
+    let oldLineCursor = 0;
+    let newLineCursor = 0;
 
     let oldPath = filePath || "";
     let newPath = filePath || "";
@@ -432,10 +478,12 @@ export class GitPlugin implements IPlugin {
 
         const match = line.match(/@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/);
         if (match && match[1] && match[3]) {
+          oldLineCursor = Number.parseInt(match[1], 10);
+          newLineCursor = Number.parseInt(match[3], 10);
           currentHunk = {
-            oldStart: Number.parseInt(match[1], 10),
+            oldStart: oldLineCursor,
             oldLines: Number.parseInt(match[2] || "1", 10),
-            newStart: Number.parseInt(match[3], 10),
+            newStart: newLineCursor,
             newLines: Number.parseInt(match[4] || "1", 10),
             lines: [],
             header: line,
@@ -445,15 +493,14 @@ export class GitPlugin implements IPlugin {
         currentHunk &&
         (line.startsWith(" ") || line.startsWith("+") || line.startsWith("-"))
       ) {
-        const type = line.startsWith("+")
-          ? "added"
-          : line.startsWith("-")
-            ? "deleted"
-            : "unchanged";
-        currentHunk.lines.push({
-          type,
-          content: line.substring(1),
-        });
+        const nextLine = createDiffLine(
+          line,
+          oldLineCursor,
+          newLineCursor,
+        );
+        oldLineCursor = nextLine.nextOldLineNumber;
+        newLineCursor = nextLine.nextNewLineNumber;
+        currentHunk.lines.push(nextLine.line);
       }
     }
 
@@ -548,6 +595,16 @@ export class GitPlugin implements IPlugin {
       }
     }
 
+    const commitIdentityResult = await this.ensureCommitIdentity(
+      sandbox,
+      worktree,
+      toolboxContext,
+      runId,
+    );
+    if (!commitIdentityResult.success) {
+      return commitIdentityResult;
+    }
+
     const result = await this.runToolboxCommand(
       sandbox,
       {
@@ -561,6 +618,70 @@ export class GitPlugin implements IPlugin {
     );
 
     return buildGitResult(result, "Changes committed");
+  }
+
+  private async ensureCommitIdentity(
+    sandbox: Sandbox,
+    worktree: string,
+    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
+    runId: string,
+  ): Promise<PluginResult> {
+    const authorName = await this.readGitConfigValue(
+      sandbox,
+      worktree,
+      "user.name",
+      toolboxContext,
+      runId,
+      "git.commit_author_name.read",
+    );
+    if (authorName.length === 0) {
+      return {
+        success: false,
+        error: MISSING_GIT_AUTHOR_ERROR,
+      };
+    }
+
+    const authorEmail = await this.readGitConfigValue(
+      sandbox,
+      worktree,
+      "user.email",
+      toolboxContext,
+      runId,
+      "git.commit_author_email.read",
+    );
+    if (authorEmail.length === 0) {
+      return {
+        success: false,
+        error: MISSING_GIT_AUTHOR_ERROR,
+      };
+    }
+
+    return { success: true };
+  }
+
+  private async readGitConfigValue(
+    sandbox: Sandbox,
+    worktree: string,
+    key: "user.name" | "user.email",
+    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
+    runId: string,
+    toolName: string,
+  ): Promise<string> {
+    const result = await this.runToolboxCommand(
+      sandbox,
+      {
+        command: "git",
+        args: ["-C", worktree, "config", "--get", key],
+        runId,
+      },
+      ["git"],
+      toolboxContext,
+      toolName,
+    );
+    if (result.exitCode !== 0) {
+      return "";
+    }
+    return result.stdout.trim();
   }
 
   private async push(
@@ -784,6 +905,51 @@ function parseStatusLine(line: string): FileStatus[] {
   ];
 }
 
+function createDiffLine(
+  line: string,
+  oldLineNumber: number,
+  newLineNumber: number,
+): {
+  line: DiffHunk["lines"][number];
+  nextOldLineNumber: number;
+  nextNewLineNumber: number;
+} {
+  if (line.startsWith("+")) {
+    return {
+      line: {
+        type: "added",
+        content: line.substring(1),
+        newLineNumber,
+      },
+      nextOldLineNumber: oldLineNumber,
+      nextNewLineNumber: newLineNumber + 1,
+    };
+  }
+
+  if (line.startsWith("-")) {
+    return {
+      line: {
+        type: "deleted",
+        content: line.substring(1),
+        oldLineNumber,
+      },
+      nextOldLineNumber: oldLineNumber + 1,
+      nextNewLineNumber: newLineNumber,
+    };
+  }
+
+  return {
+    line: {
+      type: "unchanged",
+      content: line.substring(1),
+      oldLineNumber,
+      newLineNumber,
+    },
+    nextOldLineNumber: oldLineNumber + 1,
+    nextNewLineNumber: newLineNumber + 1,
+  };
+}
+
 function normalizeFileList(files: string[] | undefined): string[] {
   if (!files || files.length === 0) {
     return ["."];
@@ -812,6 +978,40 @@ function validateCloneUrl(url: string | undefined): string {
     throw new Error("Tokenized clone URLs are not allowed");
   }
   return parsed.toString();
+}
+
+function normalizeRepoIdentity(remoteUrl: string): string | null {
+  const trimmed = remoteUrl.trim();
+  if (trimmed.length === 0) {
+    return null;
+  }
+
+  const sshMatch = trimmed.match(/^git@([^:]+):(.+)$/);
+  if (sshMatch?.[1] && sshMatch[2]) {
+    const normalizedPath = normalizeRepoIdentityPath(sshMatch[2]);
+    return normalizedPath ? `${sshMatch[1].toLowerCase()}/${normalizedPath}` : null;
+  }
+
+  try {
+    const parsed = new URL(trimmed);
+    const normalizedPath = normalizeRepoIdentityPath(parsed.pathname);
+    if (!normalizedPath) {
+      return null;
+    }
+    return `${parsed.host.toLowerCase()}/${normalizedPath}`;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeRepoIdentityPath(pathname: string): string | null {
+  const normalized = pathname
+    .replace(/^\/+/u, "")
+    .replace(/\.git$/iu, "")
+    .replace(/\/+$/u, "")
+    .toLowerCase();
+
+  return normalized.length > 0 ? normalized : null;
 }
 
 function containsIllegalTokenChars(token: string): boolean {

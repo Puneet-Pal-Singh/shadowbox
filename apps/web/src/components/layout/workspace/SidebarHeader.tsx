@@ -9,6 +9,7 @@ interface SidebarHeaderProps {
   changesCount: number;
   onBack: () => void;
   onTabChange: (tab: TabType) => void;
+  onExpand?: () => void;
 }
 
 export function SidebarHeader({
@@ -17,7 +18,10 @@ export function SidebarHeader({
   changesCount,
   onBack,
   onTabChange,
+  onExpand,
 }: SidebarHeaderProps) {
+  const expandDisabled = activeTab !== "changes";
+
   return (
     <div className="h-10 border-b border-zinc-800 flex items-center justify-between px-3 bg-black shrink-0">
       <div className="flex gap-4 h-full">
@@ -75,7 +79,10 @@ export function SidebarHeader({
       </div>
 
       <button
-        className="text-zinc-500 hover:text-zinc-300 p-1 rounded hover:bg-zinc-900"
+        type="button"
+        onClick={onExpand}
+        disabled={!onExpand || expandDisabled}
+        className="text-zinc-500 hover:text-zinc-300 p-1 rounded hover:bg-zinc-900 disabled:cursor-not-allowed disabled:text-zinc-700 disabled:hover:bg-transparent"
         title="Expand"
       >
         <Maximize2 size={14} />

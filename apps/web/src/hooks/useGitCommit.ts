@@ -1,45 +1,49 @@
 import { useState } from "react";
 import type { CommitPayload } from "@repo/shared-types";
 import { useRunContext } from "./useRunContext";
+import { commitGitChanges } from "../lib/git-client.js";
 
 interface UseGitCommitResult {
   committing: boolean;
   error: string | null;
-  commit: (payload: CommitPayload) => Promise<void>;
+  commit: (payload: CommitPayload) => Promise<boolean>;
 }
 
-export function useGitCommit(): UseGitCommitResult {
-  const { runId, sessionId } = useRunContext();
+export function useGitCommit(
+  explicitRunId?: string,
+  explicitSessionId?: string,
+): UseGitCommitResult {
+  const { runId: contextRunId, sessionId: contextSessionId } = useRunContext();
+  const runId = explicitRunId ?? contextRunId;
+  const sessionId = explicitSessionId ?? contextSessionId;
   const [committing, setCommitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const performCommit = async (payload: CommitPayload) => {
     if (!runId) {
       setError("No run context available");
-      return;
+      return false;
     }
     if (!sessionId) {
       setError("No session context available");
-      return;
+      return false;
     }
 
     setCommitting(true);
     setError(null);
 
     try {
-      const response = await fetch("/api/git/commit", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...payload, runId, sessionId }),
+      await commitGitChanges({
+        runId,
+        sessionId,
+        payload,
       });
-
-      if (!response.ok) {
-        throw new Error(`Failed to commit: ${response.statusText}`);
-      }
+      return true;
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error";
       setError(message);
       console.error("[useGitCommit] Error:", err);
+      return false;
     } finally {
       setCommitting(false);
     }

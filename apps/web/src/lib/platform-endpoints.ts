@@ -153,12 +153,47 @@ export function chatHistoryPath(runId: string): string {
 }
 
 /**
- * Build the full git status endpoint URL
- * Used for fetching current git status from Muscle
- * Path: /api/git/status
+ * Build the canonical git status endpoint URL through Brain.
+ * Used for fetching current git status for a run-scoped workspace.
+ * Path: /api/git/status?runId=<runId>&sessionId=<sessionId?>
  */
-export function gitStatusPath(runId: string): string {
-  return `${getMuscleHttpBase()}/api/git/status/${encodeURIComponent(runId)}`;
+export function gitStatusPath(runId: string, sessionId?: string): string {
+  const params = new URLSearchParams({
+    runId,
+  });
+
+  if (sessionId) {
+    params.set("sessionId", sessionId);
+  }
+
+  return `${getBrainHttpBase()}/api/git/status?${params.toString()}`;
+}
+
+/**
+ * Build the canonical git diff endpoint URL through Brain.
+ * Used for fetching a diff for a specific path within a run-scoped workspace.
+ * Path: /api/git/diff?runId=<runId>&sessionId=<sessionId?>&path=<path>&staged=<staged?>
+ */
+export function gitDiffPath(options: {
+  runId: string;
+  sessionId?: string;
+  path: string;
+  staged?: boolean;
+}): string {
+  const params = new URLSearchParams({
+    runId: options.runId,
+    path: options.path,
+  });
+
+  if (options.sessionId) {
+    params.set("sessionId", options.sessionId);
+  }
+
+  if (typeof options.staged === "boolean") {
+    params.set("staged", String(options.staged));
+  }
+
+  return `${getBrainHttpBase()}/api/git/diff?${params.toString()}`;
 }
 
 /**
@@ -174,6 +209,15 @@ export function gitStatusPath(runId: string): string {
  */
 export function gitStagePath(): string {
   return `${getBrainHttpBase()}/api/git/stage`;
+}
+
+/**
+ * Build the canonical git commit endpoint URL through Brain.
+ * Used for committing staged changes for a run-scoped workspace.
+ * Path: /api/git/commit
+ */
+export function gitCommitPath(): string {
+  return `${getBrainHttpBase()}/api/git/commit`;
 }
 
 /**

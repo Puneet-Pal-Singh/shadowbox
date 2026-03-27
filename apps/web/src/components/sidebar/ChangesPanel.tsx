@@ -1,13 +1,7 @@
-import { useEffect, useState } from "react";
 import { LoaderCircle } from "lucide-react";
-import type { FileStatus } from "@repo/shared-types";
-import { useGitStatus } from "../../hooks/useGitStatus";
-import { useGitDiff } from "../../hooks/useGitDiff";
-import { useGitCommit } from "../../hooks/useGitCommit";
 import { ChangesList } from "../diff/ChangesList";
 import { DiffViewer } from "../diff/DiffViewer";
-import { useRunContext } from "../../hooks/useRunContext";
-import { gitStagePath } from "../../lib/platform-endpoints";
+import { useGitReview } from "../git/GitReviewContext";
 
 interface ChangesPanelProps {
   className?: string;
@@ -15,82 +9,46 @@ interface ChangesPanelProps {
   onFileSelect?: (path: string) => void;
 }
 
-export function ChangesPanel({ 
-  className = "", 
+export function ChangesPanel({
+  className = "",
   mode = "sidebar",
-  onFileSelect 
+  onFileSelect,
 }: ChangesPanelProps) {
-  const { runId, sessionId } = useRunContext();
   const {
     status,
     gitAvailable,
-    loading: statusLoading,
-    error: statusError,
-    refetch,
-  } = useGitStatus();
-  const { diff, loading: diffLoading, fetch: fetchDiff } = useGitDiff();
-  const { committing, error: commitError, commit } = useGitCommit();
+    statusLoading,
+    statusError,
+    diff,
+    diffLoading,
+    diffError,
+    stageError,
+    commitError,
+    committing,
+    selectedFile,
+    stagedFiles,
+    commitMessage,
+    setCommitMessage,
+    openReview,
+    selectFile,
+    toggleFileStaged,
+    stageAll,
+    unstageAll,
+    submitCommit,
+  } = useGitReview();
 
-  const [selectedFile, setSelectedFile] = useState<FileStatus | null>(null);
-  const [stagedFiles, setStagedFiles] = useState<Set<string>>(new Set());
-  const [commitMessage, setCommitMessage] = useState("");
-
-  useEffect(() => {
-    if (status) {
-      const staged = new Set<string>(
-        status.files.filter((f: FileStatus) => f.isStaged).map((f: FileStatus) => f.path),
-      );
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setStagedFiles(staged);
-    }
-  }, [status]);
-
-  const handleSelectFile = (file: FileStatus) => {
-    setSelectedFile(file);
-    void fetchDiff(file.path, stagedFiles.has(file.path));
-    onFileSelect?.(file.path);
-  };
-
-  const handleToggleStaged = async (path: string, staged: boolean) => {
-    if (!runId || !sessionId) return;
-
-    try {
-      const endpoint = gitStagePath();
-      const response = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          runId,
-          sessionId,
-          files: [path],
-          unstage: !staged,
-        }),
-      });
-
-      if (response.ok) {
-        const newSet = new Set(stagedFiles);
-        if (staged) {
-          newSet.add(path);
-        } else {
-          newSet.delete(path);
-        }
-        setStagedFiles(newSet);
-        await refetch(true);
-      }
-    } catch (err) {
-      console.error("[ChangesPanel] Toggle staged error:", err);
-    }
-  };
-
-  const handleCommit = async () => {
-    if (!commitMessage.trim()) {
-      alert("Please enter a commit message");
+  const handleSelectFile = (file: NonNullable<typeof selectedFile>) => {
+    if (mode === "sidebar") {
+      openReview(file.path);
       return;
     }
 
-    await commit({ message: commitMessage });
-    setCommitMessage("");
-    await refetch(true);
+    selectFile(file);
+    onFileSelect?.(file.path);
+  };
+
+  const handleCommit = async () => {
+    await submitCommit();
   };
 
   if (statusLoading && !status) {
@@ -123,8 +81,7 @@ export function ChangesPanel({
   return (
     <div className={`flex flex-col h-full gap-4 p-4 bg-black ${className}`}>
       <div className="flex-1 flex gap-4 min-h-0 overflow-hidden">
-        {/* List Section */}
-        <div 
+        <div
           className={`flex flex-col bg-black rounded-lg border border-zinc-800 overflow-y-auto scrollbar-hide ${
             mode === "sidebar" ? "w-full" : "w-80"
           }`}
@@ -134,15 +91,17 @@ export function ChangesPanel({
             selectedFile={selectedFile}
             onSelectFile={handleSelectFile}
             stagedFiles={stagedFiles}
-            onToggleStaged={handleToggleStaged}
+            onToggleStaged={toggleFileStaged}
+            onStageAll={stageAll}
+            onUnstageAll={unstageAll}
           />
         </div>
 
-        {/* Diff Section - Only visible in modal mode */}
         {mode === "modal" && (
           <div className="flex-1 flex flex-col overflow-hidden bg-zinc-900/30 rounded-lg border border-zinc-800">
             {selectedFile && diff ? (
               <DiffViewer
+                key={`${diff.oldPath}:${diff.newPath}:${diff.hunks.length}`}
                 diff={diff}
                 className="flex-1 overflow-hidden"
               />
@@ -151,7 +110,7 @@ export function ChangesPanel({
                 {selectedFile
                   ? diffLoading
                     ? "Loading diff..."
-                    : "No diff available"
+                    : diffError ?? "No diff available"
                   : "Select a file to view changes"}
               </div>
             )}
@@ -159,32 +118,34 @@ export function ChangesPanel({
         )}
       </div>
 
-      <div className="border-t border-zinc-800 pt-4 space-y-3">
-        <div>
-          <label className="block text-xs font-semibold text-zinc-400 mb-2">
-            Commit Message
-          </label>
-          <textarea
-            value={commitMessage}
-            onChange={(e) => setCommitMessage(e.target.value)}
-            placeholder="Describe your changes..."
-            className="w-full px-3 py-2 bg-zinc-900 border border-zinc-700 rounded text-sm text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-zinc-600 focus:ring-1 focus:ring-zinc-600"
-            rows={2}
-          />
+      {mode === "sidebar" && (
+        <div className="border-t border-zinc-800 pt-4 space-y-3">
+          <div>
+            <label className="block text-xs font-semibold text-zinc-400 mb-2">
+              Commit Message
+            </label>
+            <textarea
+              value={commitMessage}
+              onChange={(e) => setCommitMessage(e.target.value)}
+              placeholder="Describe your changes..."
+              className="w-full px-3 py-2 bg-zinc-900 border border-zinc-700 rounded text-sm text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-zinc-600 focus:ring-1 focus:ring-zinc-600"
+              rows={2}
+            />
+          </div>
+
+          {(stageError || commitError) && (
+            <div className="text-xs text-red-400">{stageError ?? commitError}</div>
+          )}
+
+          <button
+            onClick={handleCommit}
+            disabled={committing || !commitMessage.trim()}
+            className="w-full px-3 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-zinc-800 disabled:text-zinc-600 text-white text-sm font-medium rounded transition-colors"
+          >
+            {committing ? "Committing..." : "Commit"}
+          </button>
         </div>
-
-        {commitError && (
-          <div className="text-xs text-red-400">{commitError}</div>
-        )}
-
-        <button
-          onClick={handleCommit}
-          disabled={committing || !commitMessage.trim()}
-          className="w-full px-3 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-zinc-800 disabled:text-zinc-600 text-white text-sm font-medium rounded transition-colors"
-        >
-          {committing ? "Committing..." : "Commit"}
-        </button>
-      </div>
+      )}
     </div>
   );
 }

@@ -6,6 +6,7 @@ import { GitHubLoginButton } from "../auth/GitHubLoginButton";
 
 interface TopNavBarProps {
   onOpenIde?: (ide: string) => void;
+  onReview?: () => void;
   onCommit?: () => void;
   onPush?: () => void;
   onStash?: () => void;
@@ -21,6 +22,7 @@ interface TopNavBarProps {
 
 export function TopNavBar({
   onOpenIde,
+  onReview,
   onCommit,
   onPush,
   onStash,
@@ -70,7 +72,18 @@ export function TopNavBar({
             variant="secondary"
           />
         )}
-        <OpenDropdown onSelect={onOpenIde} />
+        <OpenDropdown onSelect={onOpenIde} disabled={!onOpenIde} />
+        <motion.button
+          onClick={onReview}
+          whileHover={{ scale: 1.02 }}
+          whileTap={{ scale: 0.98 }}
+          disabled={!onReview}
+          className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-zinc-300 hover:text-white bg-zinc-900/50 hover:bg-zinc-800/50 border border-zinc-800 rounded-md transition-all disabled:cursor-not-allowed disabled:text-zinc-600 disabled:hover:bg-zinc-900/50 disabled:hover:text-zinc-600"
+          title={onReview ? "Review changes" : "Review is not available yet"}
+        >
+          <FileDiff size={14} className="text-sky-400" />
+          <span>Review</span>
+        </motion.button>
         <CommitDropdown onCommit={onCommit} onPush={onPush} onStash={onStash} />
 
         <motion.button

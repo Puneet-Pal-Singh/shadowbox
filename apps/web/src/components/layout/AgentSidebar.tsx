@@ -102,8 +102,20 @@ export function AgentSidebar({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  const repositorySource = useMemo(() => {
+    const combined = new Set<string>();
+    repositories.forEach((repository) => combined.add(repository));
+    sessions.forEach((session) => {
+      const normalizedRepository = session.repository.trim();
+      if (normalizedRepository.length > 0) {
+        combined.add(normalizedRepository);
+      }
+    });
+    return Array.from(combined);
+  }, [repositories, sessions]);
+
   const repositorySections = useMemo(() => {
-    return repositories
+    return repositorySource
       .map((repository) => {
         const allTasks = sessions
           .filter((session) => session.repository === repository)
@@ -131,7 +143,7 @@ export function AgentSidebar({
         };
       })
       .filter((section) => section.shouldRender);
-  }, [activeSessionId, normalizedQuery, repositories, sessions, statusFilter]);
+  }, [activeSessionId, normalizedQuery, repositorySource, sessions, statusFilter]);
 
   const utility = (
     <div className="space-y-2.5">

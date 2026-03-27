@@ -27,7 +27,7 @@ interface SidebarContentProps {
   // Handlers
   handleGitHubFileSelect: (path: string) => void;
   handleFileClick: (path: string) => void;
-  handleViewChange: (path: string) => void;
+  handleViewChange?: (path: string) => void;
   
   // Explorer props
   explorerRef: RefObject<FileExplorerHandle | null>;

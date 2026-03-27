@@ -1,4 +1,4 @@
-import { useRef, useEffect, useCallback } from "react";
+import { useRef, useEffect } from "react";
 import type { RunMode } from "@repo/shared-types";
 import { motion } from "framer-motion";
 import { FileExplorerHandle } from "../FileExplorer";
@@ -7,7 +7,6 @@ import { RunContextProvider } from "../../hooks/useRunContext";
 import { useChat } from "../../hooks/useChat";
 import { cn } from "../../lib/utils";
 import { useGitStatus } from "../../hooks/useGitStatus";
-import { useGitDiff } from "../../hooks/useGitDiff";
 import { Resizer } from "../ui/Resizer";
 import { useWorkspaceState } from "./workspace/useWorkspaceState";
 import { useGitHubTree } from "./workspace/useGitHubTree";
@@ -15,6 +14,8 @@ import { useFileLoader } from "./workspace/useFileLoader";
 import { SidebarHeader } from "./workspace/SidebarHeader";
 import { SidebarContent } from "./workspace/SidebarContent";
 import { bootstrapGitWorkspace } from "../../lib/git-workspace-bootstrap";
+import { GitReviewProvider } from "../git/GitReviewContext";
+import { GitReviewDialog } from "../git/GitReviewDialog";
 
 interface WorkspaceProps {
   sessionId: string;
@@ -24,6 +25,9 @@ interface WorkspaceProps {
   onModeChange?: (mode: RunMode) => void;
   isRightSidebarOpen?: boolean;
   setIsRightSidebarOpen?: (open: boolean) => void;
+  isGitReviewOpen?: boolean;
+  gitReviewIntent?: "review" | "commit";
+  onGitReviewOpenChange?: (open: boolean) => void;
 }
 
 export function Workspace({
@@ -34,10 +38,14 @@ export function Workspace({
   onModeChange,
   isRightSidebarOpen = false,
   setIsRightSidebarOpen,
+  isGitReviewOpen = false,
+  gitReviewIntent = "review",
+  onGitReviewOpenChange,
 }: WorkspaceProps) {
   const explorerRef = useRef<FileExplorerHandle>(null);
   const workspaceBootstrapKeyRef = useRef<string | null>(null);
   const workspaceBootstrapInFlightRef = useRef<string | null>(null);
+  const previousChatLoadingRef = useRef(false);
   const sandboxId = sessionId;
 
   // Custom Hooks
@@ -85,7 +93,6 @@ export function Workspace({
     activeRunId,
     sessionId,
   );
-  const { fetch: fetchDiff, diff } = useGitDiff(activeRunId, sessionId);
   const changesCount = status?.files?.length ?? 0;
   const repositoryOwner = repo?.owner?.login?.trim() ?? "";
   const repositoryName = repo?.name?.trim() ?? "";
@@ -110,6 +117,17 @@ export function Workspace({
   useEffect(() => {
     explorerRef.current?.refresh();
   }, [activeRunId]);
+
+  useEffect(() => {
+    const runFinished = previousChatLoadingRef.current && !isLoading;
+    previousChatLoadingRef.current = isLoading;
+
+    if (!runFinished) {
+      return;
+    }
+
+    void refetchGitStatus(true);
+  }, [isLoading, refetchGitStatus]);
 
   useEffect(() => {
     if (!sessionId || !activeRunId) {
@@ -166,7 +184,7 @@ export function Workspace({
           workspaceBootstrapInFlightRef.current = null;
         }
         if (bootstrapReady) {
-          await refetchGitStatus();
+          await refetchGitStatus(true);
         }
       }
     };
@@ -182,14 +200,6 @@ export function Workspace({
     repositoryOwner,
     sessionId,
   ]);
-
-  // Sync diff from hook to local state when it loads
-  useEffect(() => {
-    if (diff && activeTab === "changes") {
-      setSelectedDiff({ path: diff.newPath, content: diff });
-      setIsViewingContent(true);
-    }
-  }, [diff, activeTab, setSelectedDiff, setIsViewingContent]);
 
   // Restore selected file on mount if we were viewing one
   useEffect(() => {
@@ -212,18 +222,13 @@ export function Workspace({
     handleFileClick,
   ]);
 
-  const handleViewChange = useCallback(
-    (path: string) => {
-      // Open changed file content in viewer and fetch git diff in parallel.
-      void handleFileClick(path);
-      void fetchDiff(path);
-    },
-    [fetchDiff, handleFileClick],
-  );
-
   return (
     <RunContextProvider runId={activeRunId} sessionId={sessionId}>
-      <div className="flex-1 flex bg-black overflow-hidden relative">
+      <GitReviewProvider
+        isReviewOpen={isGitReviewOpen}
+        onReviewOpenChange={(open) => onGitReviewOpenChange?.(open)}
+      >
+        <div className="flex-1 flex bg-black overflow-hidden relative">
         {/* Chat Area */}
         <main className="flex-1 flex flex-col min-w-0 bg-black relative">
           {isHydrating ? (
@@ -299,6 +304,10 @@ export function Workspace({
               isViewingContent={isViewingContent}
               activeTab={activeTab}
               changesCount={changesCount}
+              onExpand={() => {
+                setIsRightSidebarOpen?.(true);
+                onGitReviewOpenChange?.(true);
+              }}
               onBack={() => {
                 setIsViewingContent(false);
                 setSelectedFile(null);
@@ -321,14 +330,18 @@ export function Workspace({
               branch={branch}
               handleGitHubFileSelect={handleGitHubFileSelect}
               handleFileClick={handleFileClick}
-              handleViewChange={handleViewChange}
               explorerRef={explorerRef}
               sandboxId={sandboxId}
               runId={activeRunId}
             />
           </div>
         </motion.aside>
+        <GitReviewDialog
+          key={`${activeRunId}:${isGitReviewOpen ? "open" : "closed"}:${gitReviewIntent}`}
+          initialIntent={gitReviewIntent}
+        />
       </div>
+      </GitReviewProvider>
     </RunContextProvider>
   );
 }

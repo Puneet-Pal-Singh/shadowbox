@@ -8,6 +8,8 @@ interface ChangesListProps {
   onSelectFile: (file: FileStatus) => void;
   stagedFiles: Set<string>;
   onToggleStaged: (path: string, staged: boolean) => void;
+  onStageAll?: () => void;
+  onUnstageAll?: () => void;
   className?: string;
 }
 
@@ -17,6 +19,8 @@ export function ChangesList({
   onSelectFile,
   stagedFiles,
   onToggleStaged,
+  onStageAll,
+  onUnstageAll,
   className = "",
 }: ChangesListProps) {
   const [filter, setFilter] = useState<"all" | "staged" | "unstaged">("all");
@@ -81,6 +85,27 @@ export function ChangesList({
             Unstaged ({stats.unstaged})
           </button>
         </div>
+
+        {(onStageAll || onUnstageAll) && (
+          <div className="mt-3 flex gap-2 text-[11px]">
+            <button
+              type="button"
+              onClick={onStageAll}
+              disabled={!onStageAll || stats.unstaged === 0}
+              className="rounded border border-zinc-700 px-2 py-1 text-zinc-300 transition-colors hover:border-zinc-500 hover:text-white disabled:cursor-not-allowed disabled:border-zinc-800 disabled:text-zinc-600"
+            >
+              Stage all
+            </button>
+            <button
+              type="button"
+              onClick={onUnstageAll}
+              disabled={!onUnstageAll || stats.staged === 0}
+              className="rounded border border-zinc-700 px-2 py-1 text-zinc-300 transition-colors hover:border-zinc-500 hover:text-white disabled:cursor-not-allowed disabled:border-zinc-800 disabled:text-zinc-600"
+            >
+              Unstage all
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto bg-black">

@@ -4,6 +4,7 @@ import type {
   WorkspaceBootstrapper,
   RepositoryContext,
 } from "@shadowbox/execution-engine/runtime";
+import { z } from "zod";
 import { ExecutionService } from "../../services/ExecutionService";
 import type { Env } from "../../types/ai";
 
@@ -18,6 +19,7 @@ type GitAction =
 interface GitPluginResult {
   success: boolean;
   error?: string;
+  output?: unknown;
 }
 
 interface GitExecutionClient {
@@ -32,6 +34,7 @@ interface NormalizedRepositoryContext {
   owner: string;
   repo: string;
   branch: string;
+  repoIdentity: string;
   baseUrl?: string;
 }
 
@@ -64,6 +67,14 @@ const CLONE_DESTINATION_NOT_EMPTY_PATTERNS = [
   /destination path .* already exists and is not an empty directory/i,
 ];
 const workspaceSyncCache = new Map<string, WorkspaceSyncCacheEntry>();
+const gitStatusOutputSchema = z.object({
+  branch: z.string(),
+  files: z.array(z.unknown()),
+  repoIdentity: z.string().min(1).nullish(),
+  hasStaged: z.boolean(),
+  hasUnstaged: z.boolean(),
+  gitAvailable: z.boolean(),
+});
 
 export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
   constructor(
@@ -171,6 +182,32 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
       );
       this.logBootstrapTiming(request.runId, bootstrapResult, bootstrapStartedAt);
       return bootstrapResult;
+    }
+
+    const workspaceStatus = parseWorkspaceGitStatus(statusResult.output);
+    if (isMatchingWorkspaceStatus(workspaceStatus, normalized)) {
+      const hasLocalChanges =
+        workspaceStatus.hasStaged ||
+        workspaceStatus.hasUnstaged ||
+        workspaceStatus.files.length > 0;
+      if (hasLocalChanges) {
+        setWorkspaceSyncCache(cacheKey);
+        bootstrapResult = { status: "ready" };
+        this.logBootstrapTiming(request.runId, bootstrapResult, bootstrapStartedAt);
+        return bootstrapResult;
+      }
+    }
+
+    if (!workspaceStatus) {
+      bootstrapResult = mapGitFailure("Invalid git status response from workspace.");
+      this.logBootstrapTiming(request.runId, bootstrapResult, bootstrapStartedAt);
+      return bootstrapResult;
+    }
+
+    if (workspaceStatus.branch !== normalized.branch) {
+      console.log(
+        `[workspace/bootstrap] run=${request.runId} branch-mismatch current=${workspaceStatus.branch} target=${normalized.branch}`,
+      );
     }
 
     bootstrapResult = await this.syncBranch(
@@ -286,10 +323,9 @@ function buildWorkspaceSyncCacheKey(
   runId: string,
   context: NormalizedRepositoryContext,
 ): string {
-  return [
-    runId,
-    context.owner,
-    context.repo,
+    return [
+      runId,
+    context.repoIdentity,
     context.branch,
     context.baseUrl ?? "",
   ].join(":");
@@ -328,6 +364,7 @@ function toGitPluginResult(result: unknown): GitPluginResult {
   const candidate = result as {
     success?: unknown;
     error?: unknown;
+    output?: unknown;
   };
   if (typeof candidate.success !== "boolean") {
     return {
@@ -339,7 +376,32 @@ function toGitPluginResult(result: unknown): GitPluginResult {
   return {
     success: candidate.success,
     error: typeof candidate.error === "string" ? candidate.error : undefined,
+    output: candidate.output,
   };
+}
+
+function parseWorkspaceGitStatus(
+  output: unknown,
+): z.infer<typeof gitStatusOutputSchema> | null {
+  if (typeof output !== "string" || output.trim().length === 0) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(output) as unknown;
+    const result = gitStatusOutputSchema.safeParse(parsed);
+    if (!result.success) {
+      console.warn(
+        "[workspace/bootstrap] Invalid git status payload",
+        result.error.flatten(),
+      );
+      return null;
+    }
+    return result.data;
+  } catch (error) {
+    console.warn("[workspace/bootstrap] Failed to parse git status payload", error);
+    return null;
+  }
 }
 
 function mapGitFailure(error: string): WorkspaceBootstrapResult {
@@ -377,8 +439,41 @@ function normalizeRepositoryContext(
     owner,
     repo,
     branch,
+    repoIdentity: buildRepoIdentity(owner, repo, baseUrl),
     baseUrl: baseUrl || undefined,
   };
+}
+
+function buildRepoIdentity(
+  owner: string,
+  repo: string,
+  baseUrl?: string,
+): string {
+  const defaultHost = "github.com";
+  if (!baseUrl) {
+    return `${defaultHost}/${owner}/${repo}`.toLowerCase();
+  }
+
+  try {
+    const parsed = new URL(baseUrl);
+    return `${parsed.host}/${owner}/${repo}`.toLowerCase();
+  } catch {
+    return `${defaultHost}/${owner}/${repo}`.toLowerCase();
+  }
+}
+
+function isMatchingWorkspaceStatus(
+  workspaceStatus: z.infer<typeof gitStatusOutputSchema> | null,
+  normalized: NormalizedRepositoryContext,
+): workspaceStatus is z.infer<typeof gitStatusOutputSchema> {
+  if (!workspaceStatus) {
+    return false;
+  }
+
+  return (
+    workspaceStatus.branch === normalized.branch &&
+    workspaceStatus.repoIdentity === normalized.repoIdentity
+  );
 }
 
 function resolveCloneUrl(context: NormalizedRepositoryContext): string | null {

@@ -270,6 +270,10 @@ function MarkdownMessageContent({
   content,
   isUser = false,
 }: MarkdownMessageContentProps) {
+  const remarkPlugins = isUser
+    ? [remarkGfm, remarkShortenUserFileMentions]
+    : [remarkGfm];
+
   return (
     <div
       className={cn(
@@ -292,7 +296,7 @@ function MarkdownMessageContent({
       )}
     >
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
+        remarkPlugins={remarkPlugins}
         disallowedElements={["img"]}
         components={{
           a: ({ className, ...props }) => (
@@ -315,6 +319,64 @@ function MarkdownMessageContent({
       </ReactMarkdown>
     </div>
   );
+}
+
+function remarkShortenUserFileMentions() {
+  return (tree: unknown) => {
+    visitMarkdownTextNodes(tree, (value) => shortenTextMentions(value));
+  };
+}
+
+function visitMarkdownTextNodes(
+  node: unknown,
+  transform: (value: string) => string,
+): void {
+  if (!node || typeof node !== "object") {
+    return;
+  }
+
+  const candidate = node as {
+    type?: unknown;
+    value?: unknown;
+    children?: unknown;
+  };
+
+  if (candidate.type === "text" && typeof candidate.value === "string") {
+    candidate.value = transform(candidate.value);
+  }
+
+  if (!Array.isArray(candidate.children)) {
+    return;
+  }
+
+  for (const child of candidate.children) {
+    visitMarkdownTextNodes(child, transform);
+  }
+}
+
+function shortenTextMentions(content: string): string {
+  return content.replace(
+    /(^|\s)@(?:"((?:\\.|[^"\\])*)"|([^\s]+))/g,
+    (
+      fullMatch: string,
+      prefix: string,
+      quotedToken?: string,
+      plainToken?: string,
+    ) => {
+      const rawToken = quotedToken ?? plainToken ?? "";
+      const normalizedToken = unescapeMentionToken(rawToken.trim());
+      if (!normalizedToken) {
+        return fullMatch;
+      }
+
+      const basename = normalizedToken.split("/").pop() ?? normalizedToken;
+      return `${prefix}@${basename}`;
+    },
+  );
+}
+
+function unescapeMentionToken(token: string): string {
+  return token.replace(/\\"/g, "\"").replace(/\\\\/g, "\\");
 }
 
 function parseThinkingTags(content: string): {

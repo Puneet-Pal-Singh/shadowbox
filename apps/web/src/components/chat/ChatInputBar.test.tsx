@@ -1,8 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { act, render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { useState } from "react";
 import { ChatInputBar } from "./ChatInputBar.js";
 import * as useProviderStoreModule from "../../hooks/useProviderStore.js";
 import * as providerHelpersModule from "../../lib/provider-helpers.js";
+import * as useGitHubTreeModule from "../layout/workspace/useGitHubTree.js";
 
 const IDLE_SWITCH_WARNING =
   "Changing models mid-conversation will degrade performance.";
@@ -122,6 +124,14 @@ describe("ChatInputBar", () => {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       deletedAt: null,
+    });
+
+    vi.spyOn(useGitHubTreeModule, "useGitHubTree").mockReturnValue({
+      repoTree: [],
+      isLoadingTree: false,
+      repo: null,
+      branch: "main",
+      isGitHubLoaded: true,
     });
   });
 
@@ -282,5 +292,128 @@ describe("ChatInputBar", () => {
     fireEvent.click(screen.getByRole("button", { name: "Switch to Build" }));
 
     expect(onModeChange).toHaveBeenCalledWith("build");
+  });
+
+  it("shows repo file suggestions for @ mentions and inserts the selected file", async () => {
+    vi.spyOn(useGitHubTreeModule, "useGitHubTree").mockReturnValue({
+      repoTree: [
+        { path: "README.md", type: "blob", sha: "1" },
+        {
+          path: "apps/web/src/components/chat/ChatInputBar.tsx",
+          type: "blob",
+          sha: "2",
+        },
+      ],
+      isLoadingTree: false,
+      repo: null,
+      branch: "main",
+      isGitHubLoaded: true,
+    });
+
+    function Wrapper() {
+      const [value, setValue] = useState("");
+
+      return (
+        <ChatInputBar
+          input={value}
+          onChange={setValue}
+          onSubmit={vi.fn()}
+          sessionId="session-1"
+        />
+      );
+    }
+
+    render(<Wrapper />);
+
+    const textarea = screen.getByPlaceholderText(
+      "Ask Shadowbox anything, @ to add files, / for commands",
+    ) as HTMLTextAreaElement;
+
+    fireEvent.change(textarea, { target: { value: "@rea", selectionStart: 4 } });
+
+    expect(await screen.findByText("README.md")).toBeTruthy();
+    expect(screen.getByRole("listbox", { name: "Repository files" })).toBeTruthy();
+    expect(textarea).toHaveAttribute("aria-expanded", "true");
+
+    fireEvent.mouseDown(screen.getByText("README.md"));
+
+    await waitFor(() => {
+      expect(textarea.value).toBe("@README.md ");
+    });
+  });
+
+  it("keeps the highlighted option in sync with arrow-key navigation", async () => {
+    vi.spyOn(useGitHubTreeModule, "useGitHubTree").mockReturnValue({
+      repoTree: [
+        { path: "README.md", type: "blob", sha: "1" },
+        { path: "docs/guide.md", type: "blob", sha: "2" },
+      ],
+      isLoadingTree: false,
+      repo: null,
+      branch: "main",
+      isGitHubLoaded: true,
+    });
+
+    function Wrapper() {
+      const [value, setValue] = useState("");
+
+      return (
+        <ChatInputBar
+          input={value}
+          onChange={setValue}
+          onSubmit={vi.fn()}
+          sessionId="session-1"
+        />
+      );
+    }
+
+    render(<Wrapper />);
+
+    const textarea = screen.getByPlaceholderText(
+      "Ask Shadowbox anything, @ to add files, / for commands",
+    ) as HTMLTextAreaElement;
+
+    fireEvent.change(textarea, { target: { value: "@", selectionStart: 1 } });
+    await screen.findAllByRole("option");
+    fireEvent.keyDown(textarea, { key: "ArrowDown" });
+
+    const options = screen.getAllByRole("option");
+    const highlightedOption = options[1];
+
+    expect(highlightedOption?.getAttribute("aria-selected")).toBe("true");
+    expect(textarea.getAttribute("aria-activedescendant")).toBe(
+      highlightedOption?.id,
+    );
+  });
+
+  it("adds a separating space before inserting an @ trigger into existing text", async () => {
+    function Wrapper() {
+      const [value, setValue] = useState("add logging to");
+
+      return (
+        <ChatInputBar
+          input={value}
+          onChange={setValue}
+          onSubmit={vi.fn()}
+          sessionId="session-1"
+        />
+      );
+    }
+
+    render(<Wrapper />);
+
+    const textarea = screen.getByPlaceholderText(
+      "Ask Shadowbox anything, @ to add files, / for commands",
+    ) as HTMLTextAreaElement;
+
+    textarea.focus();
+    textarea.setSelectionRange(14, 14);
+    await act(async () => {
+      fireEvent.click(screen.getByTitle("Add files"));
+    });
+
+    await waitFor(() => {
+      expect(textarea.value).toBe("add logging to @");
+    });
   });
 });

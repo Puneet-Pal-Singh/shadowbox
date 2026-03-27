@@ -8,35 +8,49 @@ interface CommitDropdownProps {
   onStash?: () => void;
 }
 
+interface CommitDropdownAction {
+  id: string;
+  label: string;
+  action: () => void;
+}
+
 export function CommitDropdown({
   onCommit,
   onPush,
   onStash,
 }: CommitDropdownProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const actions: CommitDropdownAction[] = [
+    onCommit
+      ? { id: "commit", label: "Commit changes", action: onCommit }
+      : null,
+    onPush
+      ? { id: "push", label: "Push to remote", action: onPush }
+      : null,
+    onStash
+      ? { id: "stash", label: "Stash changes", action: onStash }
+      : null,
+  ].filter((action): action is CommitDropdownAction => action !== null);
+  const disabled = actions.length === 0;
 
-  const handleCommit = () => {
+  const handleAction = (action: () => void) => {
     setIsOpen(false);
-    onCommit?.();
-  };
-
-  const handlePush = () => {
-    setIsOpen(false);
-    onPush?.();
-  };
-
-  const handleStash = () => {
-    setIsOpen(false);
-    onStash?.();
+    action();
   };
 
   return (
     <div className="relative">
       <motion.button
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={() => {
+          if (!disabled) {
+            setIsOpen(!isOpen);
+          }
+        }}
         whileHover={{ scale: 1.02 }}
         whileTap={{ scale: 0.98 }}
-        className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-zinc-300 hover:text-white bg-zinc-900/50 hover:bg-zinc-800/50 border border-zinc-800 rounded-md transition-all"
+        disabled={disabled}
+        className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-zinc-300 hover:text-white bg-zinc-900/50 hover:bg-zinc-800/50 border border-zinc-800 rounded-md transition-all disabled:cursor-not-allowed disabled:text-zinc-600 disabled:hover:bg-zinc-900/50 disabled:hover:text-zinc-600"
+        title={disabled ? "Git review actions are not available yet" : "Git review actions"}
       >
         <GitBranch size={14} className="text-emerald-400" />
         <span>Commit</span>
@@ -46,7 +60,7 @@ export function CommitDropdown({
         />
       </motion.button>
 
-      {isOpen && (
+      {isOpen && !disabled && (
         <>
           <div
             className="fixed inset-0 z-40"
@@ -59,24 +73,16 @@ export function CommitDropdown({
             transition={{ duration: 0.15 }}
             className="absolute top-full right-0 mt-1 w-36 bg-zinc-900 border border-zinc-800 rounded-lg shadow-xl z-50 overflow-hidden"
           >
-            <button
-              onClick={handleCommit}
-              className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-zinc-400 hover:text-white hover:bg-zinc-800/50 text-left transition-colors"
-            >
-              <span>Commit changes</span>
-            </button>
-            <button
-              onClick={handlePush}
-              className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-zinc-400 hover:text-white hover:bg-zinc-800/50 text-left transition-colors"
-            >
-              <span>Push to remote</span>
-            </button>
-            <button
-              onClick={handleStash}
-              className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-zinc-400 hover:text-white hover:bg-zinc-800/50 text-left transition-colors"
-            >
-              <span>Stash changes</span>
-            </button>
+            {actions.map((action) => (
+              <button
+                key={action.id}
+                type="button"
+                onClick={() => handleAction(action.action)}
+                className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-zinc-400 hover:text-white hover:bg-zinc-800/50 text-left transition-colors"
+              >
+                <span>{action.label}</span>
+              </button>
+            ))}
           </motion.div>
         </>
       )}

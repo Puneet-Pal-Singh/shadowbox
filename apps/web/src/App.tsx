@@ -60,6 +60,11 @@ function AppContent() {
     saveSessionContext,
   } = useGitHub();
   const [showRepoPicker, setShowRepoPicker] = useState(false);
+  const [isGitReviewOpen, setIsGitReviewOpen] = useState(false);
+  const [gitReviewSessionId, setGitReviewSessionId] = useState<string | null>(null);
+  const [gitReviewIntent, setGitReviewIntent] = useState<"review" | "commit">(
+    "review",
+  );
 
   // Get active session for workspace rendering
   // Use memoized activeSession to avoid unnecessary re-renders
@@ -117,8 +122,8 @@ function AppContent() {
   // Uses SessionStateService for session-scoped storage
   useEffect(() => {
     if (!activeSessionId) return;
+    if (!activeSession) return;
 
-    // Load session-scoped context from SessionStateService
     const sessionContext = SessionStateService.loadSessionGitHubContext(
       activeSessionId,
     );
@@ -164,7 +169,14 @@ function AppContent() {
         clearContext();
       }
     }
-  }, [activeSessionId, repo, branch, setContext, clearContext]);
+  }, [
+    activeSessionId,
+    activeSession,
+    repo,
+    branch,
+    setContext,
+    clearContext,
+  ]);
 
   // Check if user needs to select a repository on load
   useEffect(() => {
@@ -172,20 +184,20 @@ function AppContent() {
       isGitHubContextLoaded,
       hasRepo: !!repo,
       isAuthenticated,
-      hasSessions: sessions.length > 0
+      hasSessions: sessions.length > 0,
     });
     
-    // ONLY show repo picker automatically if:
-    // 1. Context is loaded
-    // 2. No repo is currently selected
-    // 3. User is authenticated
-    // 4. User has NO existing sessions (it's a fresh start)
-    if (isGitHubContextLoaded && !repo && isAuthenticated && sessions.length === 0) {
-      // No repo selected and no sessions, show picker
+    if (!isGitHubContextLoaded || !isAuthenticated) return;
+
+    // Fresh start: no repo, no sessions → show picker
+    if (!repo && sessions.length === 0) {
       console.log("[App] Showing repo picker - fresh start, no repo or sessions");
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setShowRepoPicker(true);
-    } else if (isGitHubContextLoaded && repo) {
+      return;
+    }
+
+    if (repo) {
       console.log("[App] Repo already selected:", repo.full_name);
     }
   }, [isGitHubContextLoaded, repo, isAuthenticated, sessions.length]);
@@ -203,6 +215,26 @@ function AppContent() {
     );
   }, [isRightSidebarOpen]);
 
+  // Check if current session has a pending query or messages
+  const hasPendingQuery = activeSessionId
+    ? !!SessionStateService.loadSessionPendingQuery(activeSessionId)
+    : false;
+
+  // A session is considered to have "started" if:
+  // 1. It has a pending query in session-scoped storage
+  // 2. OR its name has been changed from "New Task"
+  // 3. OR its status is not "idle"
+  const isSessionStarted =
+    !!activeSession &&
+    (hasPendingQuery ||
+      (activeSession.name !== "New Task" && activeSession.name !== "") ||
+      (activeSession.status && activeSession.status !== "idle"));
+
+  // Robust visibility flags
+  const showSetup = !!activeSessionId && !!activeSession && !isSessionStarted;
+  const showWorkspace =
+    !!activeSessionId && !!activeSession && !!isSessionStarted;
+
   // Handle skip login - proceed without GitHub
   const handleSkipLogin = () => {
     // For now, we'll set a flag in localStorage to remember the choice
@@ -217,23 +249,22 @@ function AppContent() {
 
   const handleNewTask = (repositoryName?: string) => {
     console.log("[App] handleNewTask called with:", repositoryName);
+    setIsGitReviewOpen(false);
+    setGitReviewSessionId(null);
+    setGitReviewIntent("review");
 
     // If no repo name provided, try to use the currently active repo
     const targetRepo = repositoryName || repo?.full_name;
 
-    // Verify the repo actually exists in our folders list
-    const repoExists = targetRepo && repositories.includes(targetRepo);
-
-    if (targetRepo && repoExists) {
+    if (targetRepo) {
       console.log("[App] Creating new task for repo:", targetRepo);
+      setShowRepoPicker(false);
       // Create a session for this specific repository
       const sessionName = `New Task`;
       const sessionId = createSession(sessionName, targetRepo);
 
       // Clear pending query for new task
       SessionStateService.clearSessionPendingQuery(sessionId);
-
-      setActiveSessionId(sessionId);
 
       // Sync GitHub context with new session
       // Use SessionStateService for session-scoped storage
@@ -260,20 +291,23 @@ function AppContent() {
     }
   };
 
-  const handleOpenIde = (ide: string) => {
-    console.log("Opening in IDE:", ide);
+  const openGitReview = (intent: "review" | "commit") => {
+    if (!activeSessionId || !activeSession) {
+      return;
+    }
+
+    setIsRightSidebarOpen(true);
+    setGitReviewIntent(intent);
+    setIsGitReviewOpen(true);
+    setGitReviewSessionId(activeSessionId);
+  };
+
+  const handleReview = () => {
+    openGitReview("review");
   };
 
   const handleCommit = () => {
-    console.log("Commit changes");
-  };
-
-  const handlePush = () => {
-    console.log("Push to remote");
-  };
-
-  const handleStash = () => {
-    console.log("Stash changes");
+    openGitReview("commit");
   };
 
   const handleToggleSidebar = () => {
@@ -284,6 +318,15 @@ function AppContent() {
     setIsRightSidebarOpen((previous) => !previous);
   };
 
+  const handleSelectSession = (sessionId: string) => {
+    if (sessionId !== activeSessionId) {
+      setIsGitReviewOpen(false);
+      setGitReviewSessionId(null);
+      setGitReviewIntent("review");
+    }
+    setActiveSessionId(sessionId);
+  };
+
   /**
    * Handle repository selection from RepoPicker
    * Creates a session immediately for the selected repository
@@ -292,13 +335,15 @@ function AppContent() {
     selectedRepo: Repository,
     selectedBranch: string,
   ) => {
+    setIsGitReviewOpen(false);
+    setGitReviewSessionId(null);
+    setGitReviewIntent("review");
     setContext(selectedRepo, selectedBranch);
     setShowRepoPicker(false);
 
     // Create a session immediately for this repository so it shows in sidebar
     const sessionName = `New Task`;
     const sessionId = createSession(sessionName, selectedRepo.full_name);
-    setActiveSessionId(sessionId);
 
     // Store GitHub context for the session using SessionStateService
     SessionStateService.saveSessionGitHubContext(sessionId, {
@@ -347,25 +392,6 @@ function AppContent() {
     );
   }
 
-  // Check if current session has a pending query or messages
-  const hasPendingQuery = activeSessionId
-    ? !!SessionStateService.loadSessionPendingQuery(activeSessionId)
-    : false;
-
-  // A session is considered to have "started" if:
-  // 1. It has a pending query in session-scoped storage
-  // 2. OR its name has been changed from "New Task"
-  // 3. OR its status is not "idle"
-  const isSessionStarted = activeSession && (
-    hasPendingQuery ||
-    (activeSession.name !== "New Task" && activeSession.name !== "") ||
-    (activeSession.status && activeSession.status !== "idle")
-  );
-
-  // Robust visibility flags
-  const showSetup = !!activeSessionId && !!activeSession && !isSessionStarted;
-  const showWorkspace = !!activeSessionId && !!activeSession && !!isSessionStarted;
-
   return (
     <div className="h-screen w-screen bg-background text-zinc-400 flex overflow-hidden font-sans">
       {/* Sidebar - Independent */}
@@ -375,7 +401,7 @@ function AppContent() {
                         sessions={sessions}
                         repositories={repositories}
                         activeSessionId={activeSessionId}
-                        onSelect={setActiveSessionId}
+                        onSelect={handleSelectSession}
                         onCreate={handleNewTask}
                         onRemove={removeSession}
                         onRemoveRepository={removeRepository}
@@ -398,10 +424,8 @@ function AppContent() {
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
         {/* Top Navigation Bar - Only in content area */}
         <TopNavBar
-          onOpenIde={handleOpenIde}
-          onCommit={handleCommit}
-          onPush={handlePush}
-          onStash={handleStash}
+          onReview={showWorkspace ? handleReview : undefined}
+          onCommit={showWorkspace ? handleCommit : undefined}
           isSidebarOpen={isSidebarOpen}
           onToggleSidebar={handleToggleSidebar}
           isRightSidebarOpen={isRightSidebarOpen}
@@ -477,6 +501,17 @@ function AppContent() {
                   }
                   isRightSidebarOpen={isRightSidebarOpen}
                   setIsRightSidebarOpen={setIsRightSidebarOpen}
+                  isGitReviewOpen={
+                    isGitReviewOpen && gitReviewSessionId === activeSessionId
+                  }
+                  gitReviewIntent={gitReviewIntent}
+                  onGitReviewOpenChange={(open) => {
+                    setIsGitReviewOpen(open);
+                    setGitReviewSessionId(open ? activeSessionId : null);
+                    if (!open) {
+                      setGitReviewIntent("review");
+                    }
+                  }}
                 />
               </motion.div>
             ) : (

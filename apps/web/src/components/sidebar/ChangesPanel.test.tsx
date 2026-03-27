@@ -1,71 +1,87 @@
-import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
+import { describe, expect, it, beforeEach, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { ChangesPanel } from "./ChangesPanel";
 
-const mockRefetch = vi.hoisted(() => vi.fn(async () => {}));
-const mockFetchDiff = vi.hoisted(() => vi.fn(async () => {}));
-const mockCommit = vi.hoisted(() => vi.fn(async () => {}));
-const mockGitStatusState = vi.hoisted(() => ({
-  status: {
-    branch: "main",
-    files: [
-      {
-        path: "src/main.ts",
-        status: "modified",
-        staged: false,
-        isStaged: false,
-        additions: 1,
-        deletions: 0,
-      },
-    ],
-    summary: {
-      staged: 0,
-      unstaged: 1,
-      untracked: 0,
+const mockSelectFile = vi.hoisted(() => vi.fn());
+const mockToggleFileStaged = vi.hoisted(() => vi.fn(async () => {}));
+const mockStageAll = vi.hoisted(() => vi.fn(async () => {}));
+const mockUnstageAll = vi.hoisted(() => vi.fn(async () => {}));
+const mockSubmitCommit = vi.hoisted(() => vi.fn(async () => true));
+const mockSetCommitMessage = vi.hoisted(() => vi.fn());
+const mockOpenReview = vi.hoisted(() => vi.fn());
+
+vi.mock("../git/GitReviewContext", () => ({
+  useGitReview: () => ({
+    status: {
+      branch: "main",
+      files: [
+        {
+          path: "src/main.ts",
+          status: "modified",
+          isStaged: false,
+          additions: 1,
+          deletions: 0,
+        },
+      ],
     },
-  },
-  loading: false,
-  error: null,
-}));
-
-vi.mock("../../hooks/useRunContext", () => ({
-  useRunContext: () => ({ runId: "run-123", sessionId: "session-123" }),
-}));
-
-vi.mock("../../hooks/useGitStatus", () => ({
-  useGitStatus: () => ({
-    status: mockGitStatusState.status,
     gitAvailable: true,
-    loading: mockGitStatusState.loading,
-    error: mockGitStatusState.error,
-    refetch: mockRefetch,
-  }),
-}));
-
-vi.mock("../../hooks/useGitDiff", () => ({
-  useGitDiff: () => ({
+    statusLoading: false,
+    statusError: null,
     diff: null,
-    loading: false,
-    error: null,
-    fetch: mockFetchDiff,
-  }),
-}));
-
-vi.mock("../../hooks/useGitCommit", () => ({
-  useGitCommit: () => ({
+    diffLoading: false,
+    diffError: null,
+    stageError: null,
+    commitError: null,
     committing: false,
-    error: null,
-    commit: mockCommit,
+    selectedFile: null,
+    stagedFiles: new Set<string>(),
+    commitMessage: "feat: ship it",
+    setCommitMessage: mockSetCommitMessage,
+    openReview: mockOpenReview,
+    closeReview: vi.fn(),
+    selectFile: mockSelectFile,
+    toggleFileStaged: mockToggleFileStaged,
+    stageAll: mockStageAll,
+    unstageAll: mockUnstageAll,
+    submitCommit: mockSubmitCommit,
+    refetch: vi.fn(),
   }),
 }));
 
 vi.mock("../diff/ChangesList", () => ({
   ChangesList: ({
     onToggleStaged,
+    onStageAll,
+    onUnstageAll,
+    onSelectFile,
   }: {
     onToggleStaged: (path: string, staged: boolean) => void;
+    onStageAll: () => void;
+    onUnstageAll: () => void;
+    onSelectFile: (file: {
+      path: string;
+      status: "modified";
+      isStaged: boolean;
+      additions: number;
+      deletions: number;
+    }) => void;
   }) => (
     <div>
+      <button
+        type="button"
+        data-testid="select-file"
+        onClick={() =>
+          onSelectFile({
+            path: "src/main.ts",
+            status: "modified",
+            isStaged: false,
+            additions: 1,
+            deletions: 0,
+          })
+        }
+      >
+        select
+      </button>
       <button
         type="button"
         data-testid="stage-file"
@@ -73,12 +89,11 @@ vi.mock("../diff/ChangesList", () => ({
       >
         stage
       </button>
-      <button
-        type="button"
-        data-testid="unstage-file"
-        onClick={() => onToggleStaged("src/main.ts", false)}
-      >
-        unstage
+      <button type="button" data-testid="stage-all" onClick={onStageAll}>
+        stage all
+      </button>
+      <button type="button" data-testid="unstage-all" onClick={onUnstageAll}>
+        unstage all
       </button>
     </div>
   ),
@@ -88,79 +103,50 @@ vi.mock("../diff/DiffViewer", () => ({
   DiffViewer: () => <div>diff-viewer</div>,
 }));
 
-describe("ChangesPanel stage/unstage contract", () => {
-  const fetchMock = vi.fn();
-
+describe("ChangesPanel", () => {
   beforeEach(() => {
-    fetchMock.mockResolvedValue(
-      new Response(JSON.stringify({ success: true }), { status: 200 }),
-    );
-    vi.stubGlobal("fetch", fetchMock);
-    mockRefetch.mockClear();
-    mockFetchDiff.mockClear();
-    mockCommit.mockClear();
+    mockSelectFile.mockClear();
+    mockToggleFileStaged.mockClear();
+    mockStageAll.mockClear();
+    mockUnstageAll.mockClear();
+    mockSubmitCommit.mockClear();
+    mockSetCommitMessage.mockClear();
+    mockOpenReview.mockClear();
   });
 
-  afterEach(() => {
-    vi.unstubAllGlobals();
-    fetchMock.mockClear();
-  });
-
-  it("sends stage request with unstage=false", async () => {
+  it("opens the shared review dialog when selecting a file from the sidebar", async () => {
     render(<ChangesPanel />);
 
+    fireEvent.click(screen.getByTestId("select-file"));
+
+    expect(mockOpenReview).toHaveBeenCalledWith("src/main.ts");
+    expect(mockSelectFile).not.toHaveBeenCalled();
+  });
+
+  it("delegates file selection and staging actions to the shared git review state in modal mode", async () => {
+    render(<ChangesPanel mode="modal" />);
+
+    fireEvent.click(screen.getByTestId("select-file"));
     fireEvent.click(screen.getByTestId("stage-file"));
+    fireEvent.click(screen.getByTestId("stage-all"));
+    fireEvent.click(screen.getByTestId("unstage-all"));
 
-    await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledTimes(1);
-    });
-
-    const [url, init] = fetchMock.mock.calls[0] as [
-      string,
-      { body: string; method: string },
-    ];
-    const body = JSON.parse(init.body) as {
-      runId: string;
-      sessionId: string;
-      files: string[];
-      unstage: boolean;
-    };
-
-    expect(url).toContain("/api/git/stage");
-    expect(init.method).toBe("POST");
-    expect(body).toEqual({
-      runId: "run-123",
-      sessionId: "session-123",
-      files: ["src/main.ts"],
-      unstage: false,
-    });
-    expect(mockRefetch).toHaveBeenCalledTimes(1);
+    expect(mockSelectFile).toHaveBeenCalledWith(
+      expect.objectContaining({ path: "src/main.ts" }),
+    );
+    expect(mockOpenReview).not.toHaveBeenCalled();
+    expect(mockToggleFileStaged).toHaveBeenCalledWith("src/main.ts", true);
+    expect(mockStageAll).toHaveBeenCalledTimes(1);
+    expect(mockUnstageAll).toHaveBeenCalledTimes(1);
   });
 
-  it("sends unstage request with unstage=true", async () => {
+  it("uses the shared commit action", async () => {
     render(<ChangesPanel />);
 
-    fireEvent.click(screen.getByTestId("unstage-file"));
+    fireEvent.click(screen.getByRole("button", { name: "Commit" }));
 
     await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(mockSubmitCommit).toHaveBeenCalledTimes(1);
     });
-
-    const [, init] = fetchMock.mock.calls[0] as [
-      string,
-      { body: string; method: string },
-    ];
-    const body = JSON.parse(init.body) as {
-      runId: string;
-      sessionId: string;
-      files: string[];
-      unstage: boolean;
-    };
-
-    expect(init.method).toBe("POST");
-    expect(body.sessionId).toBe("session-123");
-    expect(body.unstage).toBe(true);
-    expect(body.files).toEqual(["src/main.ts"]);
-    expect(mockRefetch).toHaveBeenCalledTimes(1);
   });
 });

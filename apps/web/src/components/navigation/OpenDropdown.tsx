@@ -4,6 +4,7 @@ import { useState } from "react";
 
 interface OpenDropdownProps {
   onSelect?: (option: string) => void;
+  disabled?: boolean;
 }
 
 const OPEN_OPTIONS = [
@@ -12,12 +13,43 @@ const OPEN_OPTIONS = [
   { id: "windsurf", label: "Windsurf", icon: Code2 },
 ];
 
-export function OpenDropdown({ onSelect }: OpenDropdownProps) {
-  const [isOpen, setIsOpen] = useState(false);
+export function OpenDropdown({
+  onSelect,
+  disabled = false,
+}: OpenDropdownProps) {
   const [selected, setSelected] = useState("vscode");
 
+  return (
+    <OpenDropdownMenu
+      key={disabled ? "disabled" : "enabled"}
+      selected={selected}
+      onSelectedChange={setSelected}
+      onSelect={onSelect}
+      disabled={disabled}
+    />
+  );
+}
+
+interface OpenDropdownMenuProps {
+  selected: string;
+  onSelectedChange: (value: string) => void;
+  onSelect?: (option: string) => void;
+  disabled: boolean;
+}
+
+function OpenDropdownMenu({
+  selected,
+  onSelectedChange,
+  onSelect,
+  disabled,
+}: OpenDropdownMenuProps) {
+  const [isOpen, setIsOpen] = useState(false);
+
   const handleSelect = (optionId: string) => {
-    setSelected(optionId);
+    if (disabled) {
+      return;
+    }
+    onSelectedChange(optionId);
     setIsOpen(false);
     onSelect?.(optionId);
   };
@@ -28,10 +60,16 @@ export function OpenDropdown({ onSelect }: OpenDropdownProps) {
   return (
     <div className="relative">
       <motion.button
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={() => {
+          if (!disabled) {
+            setIsOpen(!isOpen);
+          }
+        }}
         whileHover={{ scale: 1.02 }}
         whileTap={{ scale: 0.98 }}
-        className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-zinc-300 hover:text-white bg-zinc-900/50 hover:bg-zinc-800/50 border border-zinc-800 rounded-md transition-all"
+        disabled={disabled}
+        className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-zinc-300 hover:text-white bg-zinc-900/50 hover:bg-zinc-800/50 border border-zinc-800 rounded-md transition-all disabled:cursor-not-allowed disabled:text-zinc-600 disabled:hover:bg-zinc-900/50 disabled:hover:text-zinc-600"
+        title={disabled ? "Open in IDE is not available yet" : "Open in IDE"}
       >
         <Icon size={14} className="text-blue-400" />
         <span>Open</span>
@@ -41,7 +79,7 @@ export function OpenDropdown({ onSelect }: OpenDropdownProps) {
         />
       </motion.button>
 
-      {isOpen && (
+      {isOpen && !disabled && (
         <>
           <div
             className="fixed inset-0 z-40"

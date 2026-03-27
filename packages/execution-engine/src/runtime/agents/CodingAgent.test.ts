@@ -5,6 +5,85 @@ import type { RuntimeExecutionService, ExecutionContext } from "../types";
 import type { Task } from "../task";
 
 describe("CodingAgent task-phase model selection", () => {
+  it("returns a guarded synthesis message when mutation was requested but no edit completed", async () => {
+    const llmGateway = createLLMGatewayMock();
+    const executionService = createExecutionServiceMock();
+    const agent = new CodingAgent(llmGateway, executionService);
+
+    const synthesis = await agent.synthesize({
+      runId: "run-1",
+      sessionId: "session-1",
+      originalPrompt: "add logging to PendingJobCard.tsx",
+      completedTasks: [
+        {
+          id: "task-read-1",
+          runId: "run-1",
+          type: "analyze",
+          status: "DONE",
+          dependencies: [],
+          input: { description: "Read PendingJobCard.tsx", path: "PendingJobCard.tsx" },
+          output: { content: "Read file successfully" },
+          retryCount: 0,
+          maxRetries: 0,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+      ],
+      modelId: "gpt-4o",
+      providerId: "openai",
+    });
+
+    expect(synthesis).toContain("I'm not done with that change yet.");
+    expect(synthesis).toContain("did not record any successful edit/write task");
+    expect(llmGateway.generateText).not.toHaveBeenCalled();
+  });
+
+  it("falls back to grounded summary when synthesis returns raw tool transcript markup", async () => {
+    const llmGateway = createLLMGatewayMock({
+      generateText: vi.fn(async () => ({
+        text: "<tool_call><parameters>bad transcript</parameters></tool_call>",
+      })),
+    });
+    const executionService = createExecutionServiceMock();
+    const agent = new CodingAgent(llmGateway, executionService);
+
+    const synthesis = await agent.synthesize({
+      runId: "run-1",
+      sessionId: "session-1",
+      originalPrompt: "make the landing page more beautiful",
+      completedTasks: [
+        {
+          id: "task-write-1",
+          runId: "run-1",
+          type: "write_file",
+          status: "DONE",
+          dependencies: [],
+          input: { description: "Update landing page", path: "src/app/page.tsx" },
+          output: {
+            content: "Wrote 100 bytes to src/app/page.tsx",
+            metadata: {
+              activity: {
+                family: "edit",
+                filePath: "src/app/page.tsx",
+                additions: 30,
+                deletions: 16,
+              },
+            },
+          },
+          retryCount: 0,
+          maxRetries: 0,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+      ],
+      modelId: "gpt-4o",
+      providerId: "openai",
+    });
+
+    expect(synthesis).toContain("updated src/app/page.tsx (+30 -16)");
+    expect(synthesis).not.toContain("<tool_call>");
+  });
+
   it("passes model/provider overrides to review task LLM calls", async () => {
     const llmGateway = createLLMGatewayMock();
     const executionService = createExecutionServiceMock();
@@ -370,7 +449,9 @@ describe("CodingAgent task-phase model selection", () => {
   });
 });
 
-function createLLMGatewayMock(): ILLMGateway {
+function createLLMGatewayMock(
+  overrides?: Partial<ILLMGateway>,
+): ILLMGateway {
   return {
     generateText: vi.fn(async () => ({
       text: "reviewed",
@@ -384,6 +465,7 @@ function createLLMGatewayMock(): ILLMGateway {
     })),
     generateStructured: vi.fn(),
     generateStream: vi.fn(),
+    ...overrides,
   } as unknown as ILLMGateway;
 }
 
