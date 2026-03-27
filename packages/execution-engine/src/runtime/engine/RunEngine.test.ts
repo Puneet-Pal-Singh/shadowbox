@@ -441,6 +441,7 @@ describe("RunEngine", () => {
       "filesystem",
       "read_file",
       { path: "README.md" },
+      undefined,
     );
   });
 
@@ -780,6 +781,7 @@ describe("RunEngine", () => {
         path: "README.md",
         content: "# Shadowbox",
       },
+      undefined,
     );
   });
 
@@ -951,7 +953,7 @@ describe("RunEngine", () => {
           },
           {
             id: "t4",
-            toolName: "run_command",
+            toolName: "bash",
             args: { command: "pnpm --filter @shadowbox/execution-engine test" },
           },
           { id: "t5", toolName: "git_diff", args: {} },
@@ -1012,7 +1014,7 @@ describe("RunEngine", () => {
           if (plugin === "filesystem" && action === "write_file") {
             return { success: true, output: "Wrote 17 bytes to README.md" };
           }
-          if (plugin === "node" && action === "run") {
+          if (plugin === "bash" && action === "run") {
             return { success: true, output: "test suite passed\n" };
           }
           if (plugin === "git" && action === "git_diff") {
@@ -1066,18 +1068,22 @@ describe("RunEngine", () => {
     const executeSpy = executionService.execute as ReturnType<typeof vi.fn>;
     expect(executeSpy).toHaveBeenCalledWith("filesystem", "list_files", {
       path: ".",
-    });
+    }, undefined);
     expect(executeSpy).toHaveBeenCalledWith("filesystem", "read_file", {
       path: "README.md",
-    });
+    }, undefined);
     expect(executeSpy).toHaveBeenCalledWith("filesystem", "write_file", {
       path: "README.md",
       content: "# Updated README\n",
-    });
-    expect(executeSpy).toHaveBeenCalledWith("node", "run", {
+    }, undefined);
+    expect(executeSpy).toHaveBeenCalledWith("bash", "run", {
       command: "pnpm --filter @shadowbox/execution-engine test",
+      cwd: undefined,
+      description: "Execute bash",
+    }, {
+      onOutput: expect.any(Function),
     });
-    expect(executeSpy).toHaveBeenCalledWith("git", "git_diff", {});
+    expect(executeSpy).toHaveBeenCalledWith("git", "git_diff", {}, undefined);
 
     const persisted = await (
       runEngine as unknown as {
