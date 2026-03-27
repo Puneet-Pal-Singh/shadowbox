@@ -16,41 +16,37 @@ export function findActiveFileMention(
   caretIndex: number,
 ): FileMentionMatch | null {
   const safeCaretIndex = Math.max(0, Math.min(caretIndex, input.length));
-  const beforeCaret = input.slice(0, safeCaretIndex);
-  const triggerIndex = beforeCaret.lastIndexOf("@");
+  let index = 0;
 
-  if (triggerIndex < 0) {
-    return null;
-  }
-
-  const previousChar = beforeCaret[triggerIndex - 1];
-  if (previousChar && !/\s/.test(previousChar)) {
-    return null;
-  }
-
-  const mentionText = beforeCaret.slice(triggerIndex + 1);
-  if (mentionText.startsWith("\"")) {
-    const quotedContent = mentionText.slice(1);
-    if (hasClosedQuotedMention(quotedContent)) {
-      return null;
+  while (index < input.length) {
+    if (!isMentionTrigger(input, index)) {
+      index += 1;
+      continue;
     }
 
-    return {
-      start: triggerIndex,
-      end: safeCaretIndex,
-      query: unescapeQuotedMention(quotedContent),
-    };
+    const token = parseMentionToken(input, index);
+    if (!token) {
+      index += 1;
+      continue;
+    }
+
+    if (
+      safeCaretIndex > token.start &&
+      safeCaretIndex <= token.activeEnd
+    ) {
+      return {
+        start: token.start,
+        end: token.end,
+        query: token.quoted
+          ? unescapeQuotedMention(input.slice(token.queryStart, safeCaretIndex))
+          : input.slice(token.queryStart, safeCaretIndex),
+      };
+    }
+
+    index = Math.max(token.end, index + 1);
   }
 
-  if (/\s/.test(mentionText)) {
-    return null;
-  }
-
-  return {
-    start: triggerIndex,
-    end: safeCaretIndex,
-    query: mentionText,
-  };
+  return null;
 }
 
 export function applyFileMention(
@@ -130,32 +126,103 @@ function requiresQuotedMention(filePath: string): boolean {
   return /\s/.test(filePath) || /["\\]/.test(filePath);
 }
 
+interface ParsedMentionToken {
+  start: number;
+  end: number;
+  queryStart: number;
+  activeEnd: number;
+  quoted: boolean;
+}
+
+function isMentionTrigger(input: string, index: number): boolean {
+  if (input[index] !== "@") {
+    return false;
+  }
+
+  const previousChar = input[index - 1];
+  return !previousChar || /\s/.test(previousChar);
+}
+
+function parseMentionToken(
+  input: string,
+  start: number,
+): ParsedMentionToken | null {
+  const nextCharacter = input[start + 1];
+  if (nextCharacter === "\"") {
+    return parseQuotedMentionToken(input, start);
+  }
+
+  return parseUnquotedMentionToken(input, start);
+}
+
+function parseQuotedMentionToken(
+  input: string,
+  start: number,
+): ParsedMentionToken {
+  const queryStart = start + 2;
+  let index = queryStart;
+  let escaped = false;
+
+  while (index < input.length) {
+    const character = input[index];
+
+    if (escaped) {
+      escaped = false;
+      index += 1;
+      continue;
+    }
+
+    if (character === "\\") {
+      escaped = true;
+      index += 1;
+      continue;
+    }
+
+    if (character === "\"") {
+      return {
+        start,
+        end: index + 1,
+        queryStart,
+        activeEnd: index,
+        quoted: true,
+      };
+    }
+
+    index += 1;
+  }
+
+  return {
+    start,
+    end: input.length,
+    queryStart,
+    activeEnd: input.length,
+    quoted: true,
+  };
+}
+
+function parseUnquotedMentionToken(
+  input: string,
+  start: number,
+): ParsedMentionToken {
+  let index = start + 1;
+
+  while (index < input.length && !/\s/.test(input[index] ?? "")) {
+    index += 1;
+  }
+
+  return {
+    start,
+    end: index,
+    queryStart: start + 1,
+    activeEnd: index,
+    quoted: false,
+  };
+}
+
 function escapeQuotedMention(value: string): string {
   return value.replace(/\\/g, "\\\\").replace(/"/g, "\\\"");
 }
 
 function unescapeQuotedMention(value: string): string {
   return value.replace(/\\"/g, "\"").replace(/\\\\/g, "\\");
-}
-
-function hasClosedQuotedMention(value: string): boolean {
-  let escaped = false;
-
-  for (const character of value) {
-    if (escaped) {
-      escaped = false;
-      continue;
-    }
-
-    if (character === "\\") {
-      escaped = true;
-      continue;
-    }
-
-    if (character === "\"") {
-      return true;
-    }
-  }
-
-  return false;
 }

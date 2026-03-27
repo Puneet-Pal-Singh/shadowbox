@@ -44,6 +44,29 @@ describe("fileMentions", () => {
     });
   });
 
+  it("replaces the full token when the caret is inside a mention", () => {
+    expect(
+      applyFileMention(
+        'inspect @"docs/API Guide.md" please',
+        { start: 8, end: 29, query: "docs/API" },
+        "README.md",
+      ),
+    ).toEqual({
+      nextValue: "inspect @README.md please",
+      nextCaret: 19,
+    });
+  });
+
+  it("ignores scoped @ segments inside quoted mentions", () => {
+    expect(
+      findActiveFileMention('check @"packages/@scope/pkg.ts"', 27),
+    ).toEqual({
+      start: 6,
+      end: 31,
+      query: "packages/@scope/pkg",
+    });
+  });
+
   it("ranks closer file matches ahead of broader path matches", () => {
     expect(
       filterFileMentionCandidates(

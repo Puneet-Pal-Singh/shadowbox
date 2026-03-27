@@ -58,6 +58,7 @@ export function ChatInputBar({
   onStop,
   isLoading = false,
   placeholder,
+  sessionId,
   mode = DEFAULT_RUN_MODE,
   onModeChange,
   hasMessages = false,
@@ -126,6 +127,7 @@ export function ChatInputBar({
   const activeMentionKey = activeMention
     ? `${activeMention.start}:${activeMention.end}:${activeMention.query}`
     : null;
+  const filePickerListId = `chat-input-file-picker-${sessionId}`;
   const suggestedFiles = useMemo(
     () =>
       activeMention
@@ -146,7 +148,16 @@ export function ChatInputBar({
   const shouldShowFilePicker =
     activeMention !== null && dismissedMentionKey !== activeMentionKey;
   const highlightedSuggestionIndex =
-    mentionNavigationKey === activeMentionKey ? highlightedFileIndex : 0;
+    suggestedEntries.length === 0
+      ? 0
+      : Math.min(
+          mentionNavigationKey === activeMentionKey ? highlightedFileIndex : 0,
+          suggestedEntries.length - 1,
+        );
+  const activeSuggestionId =
+    shouldShowFilePicker && suggestedEntries[highlightedSuggestionIndex]
+      ? `${filePickerListId}-option-${highlightedSuggestionIndex}`
+      : undefined;
 
   // Auto-resize textarea
   useEffect(() => {
@@ -268,13 +279,16 @@ export function ChatInputBar({
     const textarea = textareaRef.current;
     const selectionStart = textarea?.selectionStart ?? input.length;
     const selectionEnd = textarea?.selectionEnd ?? selectionStart;
+    const previousCharacter = input[selectionStart - 1];
+    const mentionTrigger =
+      previousCharacter && !/\s/.test(previousCharacter) ? " @" : "@";
     const nextValue =
-      input.slice(0, selectionStart) + "@" + input.slice(selectionEnd);
+      input.slice(0, selectionStart) + mentionTrigger + input.slice(selectionEnd);
 
     onChange(nextValue);
     setDismissedMentionKey(null);
     setMentionNavigationKey(null);
-    const nextCaret = selectionStart + 1;
+    const nextCaret = selectionStart + mentionTrigger.length;
     setCursorPosition(nextCaret);
     requestAnimationFrame(() => {
       const textarea = textareaRef.current;
@@ -327,7 +341,12 @@ export function ChatInputBar({
       >
         {shouldShowFilePicker ? (
           <div className="absolute inset-x-5 bottom-full z-30 mb-2 overflow-hidden rounded-[1.05rem] border border-zinc-800 bg-[#171717] shadow-[0_8px_24px_rgba(0,0,0,0.22)]">
-            <div className="max-h-[19rem] overflow-y-auto p-2">
+            <div
+              id={filePickerListId}
+              role="listbox"
+              aria-label="Repository files"
+              className="max-h-[19rem] overflow-y-auto p-2"
+            >
               {isLoadingTree ? (
                 <div className="px-3 py-4 text-[11px] text-zinc-500">
                   Loading repository files...
@@ -346,13 +365,16 @@ export function ChatInputBar({
                   return (
                     <button
                       key={entry.path}
+                      id={`${filePickerListId}-option-${index}`}
                       type="button"
+                      role="option"
+                      aria-selected={index === highlightedSuggestionIndex}
                       onMouseDown={(event) => {
                         event.preventDefault();
                         selectSuggestedFile(entry.path);
                       }}
                       className={`flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left transition-colors ${
-                        index === highlightedFileIndex
+                        index === highlightedSuggestionIndex
                           ? "bg-[#2b2b2d] text-white"
                           : "text-zinc-300 hover:bg-white/[0.04]"
                       }`}
@@ -403,6 +425,10 @@ export function ChatInputBar({
             onClick={syncCursorPosition}
             onKeyUp={syncCursorPosition}
             onSelect={syncCursorPosition}
+            aria-autocomplete="list"
+            aria-controls={shouldShowFilePicker ? filePickerListId : undefined}
+            aria-expanded={shouldShowFilePicker}
+            aria-activedescendant={activeSuggestionId}
             placeholder={effectivePlaceholder}
             rows={1}
             className={`w-full bg-transparent text-sm text-white placeholder-zinc-500 focus:outline-none resize-none overflow-hidden min-h-[20px] ${hasInput ? "max-h-[200px]" : "max-h-[400px]"}`}
