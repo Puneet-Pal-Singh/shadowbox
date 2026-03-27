@@ -53,6 +53,7 @@ export interface GitStatusReady {
   ahead: number;
   behind: number;
   branch: string;
+  repoIdentity?: string | null;
   hasStaged: boolean;
   hasUnstaged: boolean;
   gitAvailable: true;
@@ -64,6 +65,7 @@ export interface GitStatusNotRepository {
   ahead: 0;
   behind: 0;
   branch: "";
+  repoIdentity?: string | null;
   hasStaged: false;
   hasUnstaged: false;
   gitAvailable: false;

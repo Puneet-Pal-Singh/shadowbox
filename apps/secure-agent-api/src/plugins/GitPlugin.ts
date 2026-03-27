@@ -333,11 +333,20 @@ export class GitPlugin implements IPlugin {
       return { success: false, error: statusResult.stderr };
     }
 
-    const parsed = this.parseStatus(statusResult.stdout);
+    const repoIdentity = await this.getRepoIdentity(
+      sandbox,
+      worktree,
+      toolboxContext,
+      runId,
+    );
+    const parsed = this.parseStatus(statusResult.stdout, repoIdentity);
     return { success: true, output: JSON.stringify(parsed) };
   }
 
-  private parseStatus(stdout: string): GitStatusResponse {
+  private parseStatus(
+    stdout: string,
+    repoIdentity: string | null,
+  ): GitStatusResponse {
     const lines = stdout.split("\n").filter((line) => line.trim().length > 0);
     const branchLine = lines[0];
     let branch = "main";
@@ -369,10 +378,36 @@ export class GitPlugin implements IPlugin {
       ahead,
       behind,
       branch,
+      repoIdentity,
       hasStaged: files.some((file) => file.isStaged),
       hasUnstaged: files.some((file) => !file.isStaged),
       gitAvailable: true,
     };
+  }
+
+  private async getRepoIdentity(
+    sandbox: Sandbox,
+    worktree: string,
+    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
+    runId: string,
+  ): Promise<string | null> {
+    const remoteResult = await this.runToolboxCommand(
+      sandbox,
+      {
+        command: "git",
+        args: ["-C", worktree, "config", "--get", "remote.origin.url"],
+        runId,
+      },
+      ["git"],
+      toolboxContext,
+      "git.status.remote",
+    );
+
+    if (remoteResult.exitCode !== 0) {
+      return null;
+    }
+
+    return normalizeRepoIdentity(remoteResult.stdout);
   }
 
   private async getDiff(
@@ -943,6 +978,40 @@ function validateCloneUrl(url: string | undefined): string {
     throw new Error("Tokenized clone URLs are not allowed");
   }
   return parsed.toString();
+}
+
+function normalizeRepoIdentity(remoteUrl: string): string | null {
+  const trimmed = remoteUrl.trim();
+  if (trimmed.length === 0) {
+    return null;
+  }
+
+  const sshMatch = trimmed.match(/^git@([^:]+):(.+)$/);
+  if (sshMatch?.[1] && sshMatch[2]) {
+    const normalizedPath = normalizeRepoIdentityPath(sshMatch[2]);
+    return normalizedPath ? `${sshMatch[1].toLowerCase()}/${normalizedPath}` : null;
+  }
+
+  try {
+    const parsed = new URL(trimmed);
+    const normalizedPath = normalizeRepoIdentityPath(parsed.pathname);
+    if (!normalizedPath) {
+      return null;
+    }
+    return `${parsed.host.toLowerCase()}/${normalizedPath}`;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeRepoIdentityPath(pathname: string): string | null {
+  const normalized = pathname
+    .replace(/^\/+/u, "")
+    .replace(/\.git$/iu, "")
+    .replace(/\/+$/u, "")
+    .toLowerCase();
+
+  return normalized.length > 0 ? normalized : null;
 }
 
 function containsIllegalTokenChars(token: string): boolean {

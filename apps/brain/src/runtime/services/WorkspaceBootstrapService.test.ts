@@ -6,6 +6,7 @@ const CLEAN_GIT_STATUS_OUTPUT = JSON.stringify({
   files: [],
   ahead: 0,
   behind: 0,
+  repoIdentity: "github.com/sourcegraph/shadowbox",
   hasStaged: false,
   hasUnstaged: false,
   gitAvailable: true,
@@ -241,6 +242,7 @@ describe("WorkspaceBootstrapService", () => {
         ],
         ahead: 0,
         behind: 0,
+        repoIdentity: "github.com/sourcegraph/shadowbox",
         hasStaged: false,
         hasUnstaged: true,
         gitAvailable: true,
@@ -278,11 +280,12 @@ describe("WorkspaceBootstrapService", () => {
               isStaged: false,
             },
           ],
-          ahead: 0,
-          behind: 0,
-          hasStaged: false,
-          hasUnstaged: true,
-          gitAvailable: true,
+        ahead: 0,
+        behind: 0,
+        repoIdentity: "github.com/sourcegraph/shadowbox",
+        hasStaged: false,
+        hasUnstaged: true,
+        gitAvailable: true,
         }),
       })
       .mockResolvedValueOnce({ success: true })
@@ -345,5 +348,50 @@ describe("WorkspaceBootstrapService", () => {
     expect(result.status).toBe("sync-failed");
     expect(result.message).toContain("Invalid git status response");
     expect(execute).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not short-circuit ready when local changes belong to a different repo identity", async () => {
+    const execute = vi
+      .fn()
+      .mockResolvedValueOnce({
+        success: true,
+        output: JSON.stringify({
+          branch: "main",
+          files: [
+            {
+              path: "README.md",
+              status: "modified",
+              additions: 1,
+              deletions: 0,
+              isStaged: false,
+            },
+          ],
+          ahead: 0,
+          behind: 0,
+          repoIdentity: "github.com/sourcegraph/other-repo",
+          hasStaged: false,
+          hasUnstaged: true,
+          gitAvailable: true,
+        }),
+      })
+      .mockResolvedValueOnce({ success: true })
+      .mockResolvedValueOnce({ success: true })
+      .mockResolvedValueOnce({ success: true });
+    const service = new WorkspaceBootstrapService({ execute }, 0);
+
+    const result = await service.bootstrap({
+      runId: "run-repo-mismatch",
+      repositoryContext: {
+        owner: "sourcegraph",
+        repo: "shadowbox",
+        branch: "main",
+      },
+    });
+
+    expect(result.status).toBe("ready");
+    expect(execute).toHaveBeenCalledTimes(4);
+    expect(execute).toHaveBeenNthCalledWith(2, "git", "git_fetch", {
+      remote: "origin",
+    });
   });
 });

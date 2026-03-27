@@ -34,6 +34,7 @@ interface NormalizedRepositoryContext {
   owner: string;
   repo: string;
   branch: string;
+  repoIdentity: string;
   baseUrl?: string;
 }
 
@@ -69,6 +70,7 @@ const workspaceSyncCache = new Map<string, WorkspaceSyncCacheEntry>();
 const gitStatusOutputSchema = z.object({
   branch: z.string(),
   files: z.array(z.unknown()),
+  repoIdentity: z.string().min(1).nullish(),
   hasStaged: z.boolean(),
   hasUnstaged: z.boolean(),
   gitAvailable: z.boolean(),
@@ -183,7 +185,7 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
     }
 
     const workspaceStatus = parseWorkspaceGitStatus(statusResult.output);
-    if (workspaceStatus && workspaceStatus.branch === normalized.branch) {
+    if (isMatchingWorkspaceStatus(workspaceStatus, normalized)) {
       const hasLocalChanges =
         workspaceStatus.hasStaged ||
         workspaceStatus.hasUnstaged ||
@@ -321,10 +323,9 @@ function buildWorkspaceSyncCacheKey(
   runId: string,
   context: NormalizedRepositoryContext,
 ): string {
-  return [
-    runId,
-    context.owner,
-    context.repo,
+    return [
+      runId,
+    context.repoIdentity,
     context.branch,
     context.baseUrl ?? "",
   ].join(":");
@@ -438,8 +439,41 @@ function normalizeRepositoryContext(
     owner,
     repo,
     branch,
+    repoIdentity: buildRepoIdentity(owner, repo, baseUrl),
     baseUrl: baseUrl || undefined,
   };
+}
+
+function buildRepoIdentity(
+  owner: string,
+  repo: string,
+  baseUrl?: string,
+): string {
+  const defaultHost = "github.com";
+  if (!baseUrl) {
+    return `${defaultHost}/${owner}/${repo}`.toLowerCase();
+  }
+
+  try {
+    const parsed = new URL(baseUrl);
+    return `${parsed.host}/${owner}/${repo}`.toLowerCase();
+  } catch {
+    return `${defaultHost}/${owner}/${repo}`.toLowerCase();
+  }
+}
+
+function isMatchingWorkspaceStatus(
+  workspaceStatus: z.infer<typeof gitStatusOutputSchema> | null,
+  normalized: NormalizedRepositoryContext,
+): workspaceStatus is z.infer<typeof gitStatusOutputSchema> {
+  if (!workspaceStatus) {
+    return false;
+  }
+
+  return (
+    workspaceStatus.branch === normalized.branch &&
+    workspaceStatus.repoIdentity === normalized.repoIdentity
+  );
 }
 
 function resolveCloneUrl(context: NormalizedRepositoryContext): string | null {

@@ -558,6 +558,7 @@ function getRecoverableNotGitStatus(): GitStatusResponse {
     ahead: 0,
     behind: 0,
     branch: "",
+    repoIdentity: null,
     hasStaged: false,
     hasUnstaged: false,
     gitAvailable: false,
