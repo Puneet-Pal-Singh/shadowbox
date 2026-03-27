@@ -1,6 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
 import { WorkspaceBootstrapService } from "./WorkspaceBootstrapService";
 
+const CLEAN_GIT_STATUS_OUTPUT = JSON.stringify({
+  branch: "main",
+  files: [],
+  ahead: 0,
+  behind: 0,
+  hasStaged: false,
+  hasUnstaged: false,
+  gitAvailable: true,
+});
+
 describe("WorkspaceBootstrapService", () => {
   it("returns invalid-context when owner/repo are missing", async () => {
     const execute = vi.fn(async () => ({ success: true }));
@@ -143,7 +153,10 @@ describe("WorkspaceBootstrapService", () => {
   it("creates branch when switch fails due to missing local branch", async () => {
     const execute = vi
       .fn()
-      .mockResolvedValueOnce({ success: true }) // status
+      .mockResolvedValueOnce({
+        success: true,
+        output: CLEAN_GIT_STATUS_OUTPUT,
+      }) // status
       .mockResolvedValueOnce({ success: true }) // fetch
       .mockResolvedValueOnce({
         success: false,
@@ -176,7 +189,10 @@ describe("WorkspaceBootstrapService", () => {
   it("skips git sync when the same run/repo/branch was recently bootstrapped", async () => {
     const execute = vi
       .fn()
-      .mockResolvedValueOnce({ success: true }) // first status
+      .mockResolvedValueOnce({
+        success: true,
+        output: CLEAN_GIT_STATUS_OUTPUT,
+      }) // first status
       .mockResolvedValueOnce({ success: true }) // first fetch
       .mockResolvedValueOnce({ success: true }) // first switch
       .mockResolvedValueOnce({ success: true }); // first pull
@@ -308,5 +324,26 @@ describe("WorkspaceBootstrapService", () => {
 
     expect(result.status).toBe("sync-failed");
     expect(result.message).toContain("Invalid git status response");
+  });
+
+  it("fails closed on non-string malformed git status payloads", async () => {
+    const execute = vi.fn().mockResolvedValueOnce({
+      success: true,
+      output: { branch: "main" },
+    });
+    const service = new WorkspaceBootstrapService({ execute }, 0);
+
+    const result = await service.bootstrap({
+      runId: "run-invalid-object-status",
+      repositoryContext: {
+        owner: "sourcegraph",
+        repo: "shadowbox",
+        branch: "main",
+      },
+    });
+
+    expect(result.status).toBe("sync-failed");
+    expect(result.message).toContain("Invalid git status response");
+    expect(execute).toHaveBeenCalledTimes(1);
   });
 });

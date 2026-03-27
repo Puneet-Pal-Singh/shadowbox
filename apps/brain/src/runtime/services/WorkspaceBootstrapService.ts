@@ -196,13 +196,13 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
       }
     }
 
-    if (typeof statusResult.output === "string" && !workspaceStatus) {
+    if (!workspaceStatus) {
       bootstrapResult = mapGitFailure("Invalid git status response from workspace.");
       this.logBootstrapTiming(request.runId, bootstrapResult, bootstrapStartedAt);
       return bootstrapResult;
     }
 
-    if (workspaceStatus && workspaceStatus.branch !== normalized.branch) {
+    if (workspaceStatus.branch !== normalized.branch) {
       console.log(
         `[workspace/bootstrap] run=${request.runId} branch-mismatch current=${workspaceStatus.branch} target=${normalized.branch}`,
       );
