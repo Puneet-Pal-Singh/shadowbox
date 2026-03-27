@@ -8,6 +8,7 @@ import {
   createRunStatusChangedEvent,
   createToolCompletedEvent,
   createToolFailedEvent,
+  createToolOutputAppendedEvent,
   createToolRequestedEvent,
   createToolStartedEvent,
   mapRuntimeStatusToRunEventStatus,
@@ -75,6 +76,23 @@ export class RunEventRecorder {
     await this.append(
       createToolStartedEvent(
         toToolEventInput(this.runId, this.sessionId, task),
+      ),
+    );
+  }
+
+  async recordToolOutputAppended(
+    task: Pick<SerializedTask, "id" | "type">,
+    chunk: {
+      stdoutDelta?: string;
+      stderrDelta?: string;
+      turnId?: string;
+      truncated?: boolean;
+    },
+  ): Promise<void> {
+    await this.append(
+      createToolOutputAppendedEvent(
+        toToolEventInput(this.runId, this.sessionId, task),
+        chunk,
       ),
     );
   }

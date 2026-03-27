@@ -11,6 +11,7 @@ import {
   type RunWorkflowStep,
   type ToolCompletedEvent,
   type ToolFailedEvent,
+  type ToolOutputAppendedEvent,
   type ToolRequestedEvent,
   type ToolStartedEvent,
 } from "@repo/shared-types";
@@ -78,6 +79,25 @@ export function createToolStartedEvent(
   return createEnvelope(input, RUN_EVENT_TYPES.TOOL_STARTED, {
     toolId: input.taskId,
     toolName: input.toolName,
+  });
+}
+
+export function createToolOutputAppendedEvent(
+  input: ToolEventInput,
+  chunk: {
+    stdoutDelta?: string;
+    stderrDelta?: string;
+    turnId?: string;
+    truncated?: boolean;
+  },
+): ToolOutputAppendedEvent {
+  return createEnvelope(input, RUN_EVENT_TYPES.TOOL_OUTPUT_APPENDED, {
+    toolId: input.taskId,
+    toolName: input.toolName,
+    turnId: chunk.turnId,
+    stdoutDelta: chunk.stdoutDelta,
+    stderrDelta: chunk.stderrDelta,
+    truncated: chunk.truncated,
   });
 }
 
