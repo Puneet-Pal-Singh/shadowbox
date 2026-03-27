@@ -16,13 +16,13 @@ describe("RunDirectPlanPolicy", () => {
     });
   });
 
-  it("builds a direct run_command task for raw executable commands", () => {
+  it("builds a direct bash task for raw executable commands", () => {
     const plan = buildDirectExecutionPlan("pnpm test -- src/runtime/engine");
 
     expect(plan).toMatchObject({
       tasks: [
         {
-          type: "run_command",
+          type: "bash",
           input: { command: "pnpm test -- src/runtime/engine" },
         },
       ],
