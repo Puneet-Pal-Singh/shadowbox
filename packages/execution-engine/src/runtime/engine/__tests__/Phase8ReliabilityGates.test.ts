@@ -123,18 +123,18 @@ describe("Phase 8: Golden Scenario Reliability Tests", () => {
   });
 
   describe("Golden Scenario: Bounded Command Execution", () => {
-    it("should execute bounded run_command without planner", () => {
+    it("should execute bounded bash without planner", () => {
       const plan = buildDirectExecutionPlan("pnpm test -- --run");
 
       expect(plan).not.toBeNull();
-      expect(plan?.tasks[0].type).toBe("run_command");
+      expect(plan?.tasks[0].type).toBe("bash");
     });
 
     it("should route bounded commands to action without LLM", () => {
       const plan = buildDirectExecutionPlan("pnpm build");
 
       expect(plan).not.toBeNull();
-      expect(plan?.tasks[0].type).toBe("run_command");
+      expect(plan?.tasks[0].type).toBe("bash");
     });
   });
 
@@ -216,7 +216,7 @@ describe("Phase 8: Golden Scenario Reliability Tests", () => {
             runId,
             sessionId: "golden-session",
             taskId: "task-3",
-            toolName: "run_command",
+            toolName: "bash",
           },
           { command: "pnpm test -- --run" },
         ),
@@ -228,7 +228,7 @@ describe("Phase 8: Golden Scenario Reliability Tests", () => {
             runId,
             sessionId: "golden-session",
             taskId: "task-3",
-            toolName: "run_command",
+            toolName: "bash",
           },
           "PASS",
           5000,
@@ -298,7 +298,7 @@ describe("Phase 8: Golden Scenario Reliability Tests", () => {
             runId,
             sessionId: "timeout-session",
             taskId: "task-1",
-            toolName: "run_command",
+            toolName: "bash",
           },
           { command: "sleep 100" },
         ),
@@ -309,7 +309,7 @@ describe("Phase 8: Golden Scenario Reliability Tests", () => {
           runId,
           sessionId: "timeout-session",
           taskId: "task-1",
-          toolName: "run_command",
+          toolName: "bash",
         }),
       );
 
