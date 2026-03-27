@@ -335,7 +335,7 @@ function getExecutionLogMessage(result: ExecuteTaskResponse): string {
 function getExecutionLogSource(
   result: ExecuteTaskResponse,
 ): SessionLogEntry["source"] {
-  return result.status === "success" ? "stdout" : "stderr";
+  return undefined;
 }
 
 export async function handleCreateSession(
@@ -436,6 +436,17 @@ export async function handleExecuteTask(
     const runtimeResult = await executionPort.executeTask(
       sessionId,
       toTaskExecutionInput(validation.data),
+      {
+        onLog: async (entry) => {
+          await recordLog(
+            runtime,
+            sessionId,
+            entry.source === "stderr" ? "error" : "info",
+            entry.message,
+            entry.source,
+          );
+        },
+      },
     );
     const executionResult = parseExecutionResponse(runtimeResult);
     if (!executionResult) {
