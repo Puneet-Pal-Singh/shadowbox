@@ -11,6 +11,7 @@ import { PythonPlugin } from "../plugins/PythonPlugin";
 import { RedisPlugin } from "../plugins/RedisPlugin";
 import { FileSystemPlugin } from "../plugins/FileSystemPlugin";
 import { GitPlugin } from "../plugins/GitPlugin";
+import { BashPlugin } from "../plugins/BashPlugin";
 import { NodePlugin } from "../plugins/NodePlugin";
 import { RustPlugin } from "../plugins/RustPlugin";
 import { Env } from "../index";
@@ -20,6 +21,7 @@ import {
   type ComposeRuntimeInput,
 } from "../factories/RuntimeCompositionFactory";
 import type {
+  TaskExecutionHooks,
   TaskExecutionInput,
   TaskExecutionResult,
 } from "../ports/SandboxExecutionPort";
@@ -66,6 +68,7 @@ export class AgentRuntime extends DurableObject {
       new RedisPlugin(),
       new FileSystemPlugin(),
       new GitPlugin(),
+      new BashPlugin(),
       new NodePlugin(),
       new RustPlugin(),
     ].forEach((p) => this.plugins.set(p.name, p));
@@ -142,9 +145,10 @@ export class AgentRuntime extends DurableObject {
   async executeTask(
     sessionId: string,
     input: TaskExecutionInput,
+    hooks?: TaskExecutionHooks,
   ): Promise<TaskExecutionResult> {
     const runtime = await this.ensureComposedRuntime();
-    return runtime.executionPort.executeTask(sessionId, input);
+    return runtime.executionPort.executeTask(sessionId, input, hooks);
   }
 
   getManifest() {
@@ -184,7 +188,9 @@ export class AgentRuntime extends DurableObject {
     const list = await this.ctx.storage.list<RuntimeSessionLogEntry>({
       prefix: this.getExecutionLogPrefix(sessionId),
     });
-    const entries = Array.from(list.values());
+    const entries = Array.from(list.values()).sort(
+      (left, right) => left.timestamp - right.timestamp,
+    );
     if (since === undefined) {
       return entries;
     }
