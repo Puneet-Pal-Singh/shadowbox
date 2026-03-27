@@ -30,6 +30,13 @@ export interface TaskExecutionResult {
   };
 }
 
+export interface TaskExecutionHooks {
+  onLog?: (entry: {
+    message: string;
+    source?: "stdout" | "stderr";
+  }) => Promise<void> | void;
+}
+
 /**
  * Port for executing tasks in a sandbox environment.
  * Abstracts sandbox primitives and execution platform.
@@ -42,7 +49,11 @@ export interface SandboxExecutionPort {
    * @param input - Task input with action, params, and context
    * @returns Task result with status and output
    */
-  executeTask(sessionId: string, input: TaskExecutionInput): Promise<TaskExecutionResult>;
+  executeTask(
+    sessionId: string,
+    input: TaskExecutionInput,
+    hooks?: TaskExecutionHooks,
+  ): Promise<TaskExecutionResult>;
 
   /**
    * Cancel an ongoing task execution.
