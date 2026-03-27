@@ -486,6 +486,15 @@ export class RunEngine implements IRunEngine {
                 description: `Execute ${toolCall.toolName}`,
                 ...toolCall.args,
               },
+              onOutputAppended: async (chunk) => {
+                await this.runEventRecorder.recordToolOutputAppended(
+                  {
+                    id: toolCall.id,
+                    type: toolCall.toolName,
+                  },
+                  chunk,
+                );
+              },
             });
           }
         : undefined,
