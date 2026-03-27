@@ -10,6 +10,7 @@
 import { Sandbox } from "@cloudflare/sandbox";
 import {
   SandboxExecutionPort,
+  TaskExecutionHooks,
   TaskExecutionInput,
   TaskExecutionResult,
 } from "../ports/SandboxExecutionPort";
@@ -77,6 +78,7 @@ export class CloudflareSandboxExecutionAdapter implements SandboxExecutionPort {
   async executeTask(
     sessionId: string,
     input: TaskExecutionInput,
+    hooks?: TaskExecutionHooks,
   ): Promise<TaskExecutionResult> {
     const startTime = Date.now();
     const abortController = new AbortController();
@@ -133,6 +135,7 @@ export class CloudflareSandboxExecutionAdapter implements SandboxExecutionPort {
         sessionId,
         input.params,
         abortController.signal,
+        hooks,
       );
 
       const duration = Date.now() - startTime;
@@ -266,6 +269,7 @@ export class CloudflareSandboxExecutionAdapter implements SandboxExecutionPort {
     sessionId: string,
     params: Record<string, unknown>,
     signal: AbortSignal,
+    hooks?: TaskExecutionHooks,
   ): Promise<unknown> {
     if (mapping.method === "execute") {
       const pluginAction = resolveExecutePayloadAction(action, params);
@@ -287,7 +291,13 @@ export class CloudflareSandboxExecutionAdapter implements SandboxExecutionPort {
           message: "runId is required for plugin execution",
         };
       }
-      const result = await plugin.execute(this.sandbox, payload);
+      const result = await plugin.execute(this.sandbox, payload, (entry) => {
+        const normalized = normalizeLogEntry(entry);
+        if (!normalized) {
+          return;
+        }
+        void hooks?.onLog?.(normalized);
+      });
       if (!result.success) {
         throw {
           code: "PLUGIN_EXECUTION_FAILED",
@@ -365,6 +375,33 @@ export class CloudflareSandboxExecutionAdapter implements SandboxExecutionPort {
       details: err,
     };
   }
+}
+
+function normalizeLogEntry(
+  entry:
+    | string
+    | {
+        message: string;
+        source?: "stdout" | "stderr";
+      },
+): { message: string; source?: "stdout" | "stderr" } | null {
+  if (typeof entry === "string") {
+    if (entry.length === 0) {
+      return null;
+    }
+    return {
+      message: entry,
+    };
+  }
+
+  if (entry.message.length === 0) {
+    return null;
+  }
+
+  return {
+    message: entry.message,
+    source: entry.source,
+  };
 }
 
 function isErrorShape(
