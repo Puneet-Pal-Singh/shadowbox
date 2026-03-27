@@ -206,7 +206,7 @@ function createRunCommandPlan(
   reasoning: string,
 ): ExecutablePlan {
   return createDirectPlan({
-    type: "run_command",
+    type: "bash",
     description: `Run ${command}`,
     expectedOutput: `Command output for ${command}`,
     input: { command },
