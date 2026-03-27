@@ -27,8 +27,8 @@ export function pruneToolResults(messages: CoreMessage[] | undefined): CoreMessa
           result.substring(result.length - 1000);
       }
 
-      // 3. Prune run_command output
-      if (part.toolName === 'run_command' && typeof result === 'object' && result !== null) {
+      // 3. Prune bash output
+      if (part.toolName === 'bash' && typeof result === 'object' && result !== null) {
         const res = result as any;
         if (res.output && typeof res.output === 'string' && res.output.length > 1000) {
           res.output = 
