@@ -45,7 +45,7 @@ export const TOOL_TO_INTENT: Map<string, IntentType> = new Map([
   ["read_multiple_files", IntentType.READ_CODE],
   ["glob", IntentType.SEARCH],
   ["grep", IntentType.SEARCH],
-  ["run_command", IntentType.EXECUTE],
+  ["bash", IntentType.EXECUTE],
   ["execute_code", IntentType.EXECUTE],
   ["write_file", IntentType.MODIFY_CODE],
   ["str_replace_based_edit_tool", IntentType.MODIFY_CODE],
