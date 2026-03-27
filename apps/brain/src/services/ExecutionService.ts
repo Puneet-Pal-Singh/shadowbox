@@ -43,6 +43,7 @@ interface LegacyExecutionResult {
 }
 
 interface SecureExecutionLogEntry {
+  taskId?: string;
   timestamp: number;
   level: "info" | "warn" | "error" | "debug";
   message: string;
@@ -106,6 +107,7 @@ export class ExecutionService {
       logForwardingPromise = options?.onOutput
         ? this.forwardExecutionLogs({
             sessionId: executionSession.sessionId,
+            taskId,
             token: executionSession.token,
             timeoutMs,
             onOutput: options.onOutput,
@@ -278,6 +280,7 @@ export class ExecutionService {
 
   private async forwardExecutionLogs(input: {
     sessionId: string;
+    taskId: string;
     token: string;
     timeoutMs: number;
     onOutput: (chunk: {
@@ -292,6 +295,7 @@ export class ExecutionService {
     while (!input.isFinished()) {
       lastTimestamp = await this.pollExecutionLogs(
         input.sessionId,
+        input.taskId,
         input.token,
         input.timeoutMs,
         lastTimestamp,
@@ -302,6 +306,7 @@ export class ExecutionService {
 
     await this.pollExecutionLogs(
       input.sessionId,
+      input.taskId,
       input.token,
       input.timeoutMs,
       lastTimestamp,
@@ -311,6 +316,7 @@ export class ExecutionService {
 
   private async pollExecutionLogs(
     sessionId: string,
+    taskId: string,
     token: string,
     timeoutMs: number,
     since: number | undefined,
@@ -320,7 +326,7 @@ export class ExecutionService {
       timestamp?: number;
     }) => Promise<void> | void,
   ): Promise<number | undefined> {
-    const query = new URLSearchParams({ sessionId });
+    const query = new URLSearchParams({ sessionId, taskId });
     if (since !== undefined && since > 0) {
       query.set("since", String(since));
     }

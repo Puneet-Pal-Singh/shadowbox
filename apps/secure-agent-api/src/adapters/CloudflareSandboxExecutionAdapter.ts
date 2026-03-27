@@ -291,13 +291,17 @@ export class CloudflareSandboxExecutionAdapter implements SandboxExecutionPort {
           message: "runId is required for plugin execution",
         };
       }
+      let logDrain = Promise.resolve();
       const result = await plugin.execute(this.sandbox, payload, (entry) => {
         const normalized = normalizeLogEntry(entry);
         if (!normalized) {
           return;
         }
-        void hooks?.onLog?.(normalized);
+        logDrain = logDrain.then(async () => {
+          await hooks?.onLog?.(normalized);
+        });
       });
+      await logDrain;
       if (!result.success) {
         throw {
           code: "PLUGIN_EXECUTION_FAILED",

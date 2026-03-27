@@ -37,6 +37,7 @@ interface RuntimeSessionRecord {
 }
 
 interface RuntimeSessionLogEntry {
+  taskId?: string;
   timestamp: number;
   level: "info" | "warn" | "error" | "debug";
   message: string;
@@ -184,6 +185,7 @@ export class AgentRuntime extends DurableObject {
   async getExecutionLogs(
     sessionId: string,
     since?: number,
+    taskId?: string,
   ): Promise<RuntimeSessionLogEntry[]> {
     const list = await this.ctx.storage.list<RuntimeSessionLogEntry>({
       prefix: this.getExecutionLogPrefix(sessionId),
@@ -191,10 +193,11 @@ export class AgentRuntime extends DurableObject {
     const entries = Array.from(list.values()).sort(
       (left, right) => left.timestamp - right.timestamp,
     );
-    if (since === undefined) {
-      return entries;
-    }
-    return entries.filter((entry) => entry.timestamp > since);
+    return entries.filter((entry) => {
+      const matchesSince = since === undefined || entry.timestamp > since;
+      const matchesTask = taskId === undefined || entry.taskId === taskId;
+      return matchesSince && matchesTask;
+    });
   }
 
   async deleteExecutionSession(sessionId: string): Promise<void> {

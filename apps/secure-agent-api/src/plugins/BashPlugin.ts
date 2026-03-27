@@ -106,7 +106,7 @@ function validateBashCommand(command: string): void {
   if (!normalized) {
     throw new Error("Bash command cannot be empty");
   }
-  if (/^git(\s|$)/i.test(normalized)) {
+  if (/(^|[\n;&|()])\s*git(\s|$)/i.test(normalized)) {
     throw new Error(
       "Git shell commands are not allowed in bash tasks. Use a git tool instead.",
     );

@@ -85,14 +85,16 @@ export interface ToolStartedPayload {
   toolName: string;
 }
 
-export interface ToolOutputAppendedPayload {
+type ToolOutputDelta =
+  | { stdoutDelta: string; stderrDelta?: string }
+  | { stdoutDelta?: string; stderrDelta: string };
+
+export type ToolOutputAppendedPayload = {
   toolId: string;
   toolName: string;
   turnId?: string;
-  stdoutDelta?: string;
-  stderrDelta?: string;
   truncated?: boolean;
-}
+} & ToolOutputDelta;
 
 export interface ToolCompletedPayload {
   toolId: string;

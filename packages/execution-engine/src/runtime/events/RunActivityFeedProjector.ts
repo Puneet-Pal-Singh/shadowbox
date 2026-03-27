@@ -343,7 +343,6 @@ function buildToolMetadata(
     case "grep":
       return buildSearchMetadata(toolName, input, outputText);
     case "bash":
-    case "run_command":
       return {
         family: TOOL_ACTIVITY_FAMILIES.SHELL,
         command: readString(input?.command) ?? toolName,

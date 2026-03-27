@@ -43,6 +43,7 @@ interface PublicSessionRecord {
 }
 
 interface SessionLogEntry {
+  taskId?: string;
   timestamp: number;
   level: "info" | "warn" | "error" | "debug";
   message: string;
@@ -62,6 +63,7 @@ interface RuntimeSessionStore {
   getExecutionLogs: (
     sessionId: string,
     since?: number,
+    taskId?: string,
   ) => Promise<SessionLogEntry[]>;
   deleteExecutionSession: (sessionId: string) => Promise<void>;
 }
@@ -196,6 +198,7 @@ async function recordLog(
   level: SessionLogEntry["level"],
   message: string,
   source?: SessionLogEntry["source"],
+  taskId?: string,
 ): Promise<void> {
   const sessionStore = getRuntimeSessionStore(runtime);
   if (!sessionStore) {
@@ -203,6 +206,7 @@ async function recordLog(
   }
 
   await sessionStore.appendExecutionLog(sessionId, {
+    taskId,
     timestamp: Date.now(),
     level,
     message,
@@ -425,6 +429,7 @@ export async function handleExecuteTask(
         "warn",
         "Execution endpoint called but runtime task execution is not implemented",
         "stderr",
+        validation.data.taskId,
       );
       return errorResponse(
         "Runtime execution is not implemented on this deployment",
@@ -444,6 +449,7 @@ export async function handleExecuteTask(
             entry.source === "stderr" ? "error" : "info",
             entry.message,
             entry.source,
+            validation.data.taskId,
           );
         },
       },
@@ -463,6 +469,7 @@ export async function handleExecuteTask(
       getExecutionLogLevel(executionResult),
       getExecutionLogMessage(executionResult),
       getExecutionLogSource(executionResult),
+      executionResult.taskId,
     );
 
     return jsonResponse(executionResult, 200);
@@ -497,13 +504,13 @@ export async function handleStreamLogs(
       );
     }
 
-    const { sessionId, since } = validation.data;
+    const { sessionId, since, taskId } = validation.data;
     const auth = await authorizeSessionRequest(request, runtime, sessionId);
     if (!auth.ok) {
       return auth.response;
     }
 
-    const logs = await sessionStore.getExecutionLogs(sessionId, since);
+    const logs = await sessionStore.getExecutionLogs(sessionId, since, taskId);
     console.log(
       `[api/logs] Streaming ${logs.length} logs for session: ${sessionId.substring(0, 8)}...`,
     );

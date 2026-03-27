@@ -1,7 +1,7 @@
 import { ToolDefinition } from "../interfaces/types";
 
 export const BashTool: ToolDefinition = {
-  name: "run_bash",
+  name: "bash",
   description: "Execute a bounded bash command in the run workspace.",
   parameters: {
     type: "object",
