@@ -1,4 +1,5 @@
 import type { CoreMessage, CoreTool } from "ai";
+import type { EditToolActivityMetadata } from "@repo/shared-types";
 import type { Run } from "../run/index.js";
 import type { AgenticLoopResult } from "./AgenticLoop.js";
 import type { AgenticLoopToolLifecycleEvent } from "../types.js";
@@ -48,12 +49,26 @@ export function recordAgenticLoopMetadata(
     stepsExecuted: result.stepsExecuted,
     toolExecutionCount: result.toolExecutionCount,
     failedToolCount: result.failedToolCount,
+    requiresMutation: result.requiresMutation,
+    completedMutatingToolCount: result.completedMutatingToolCount,
+    completedReadOnlyToolCount: result.completedReadOnlyToolCount,
     toolLifecycle: result.toolLifecycle,
     completedAt: new Date().toISOString(),
   };
 }
 
 export function buildAgenticLoopFinalOutput(result: AgenticLoopResult): string {
+  if (result.requiresMutation && result.completedMutatingToolCount === 0) {
+    return buildIncompleteMutationSummary(result);
+  }
+
+  if (result.requiresMutation && result.completedMutatingToolCount > 0) {
+    const groundedMutationSummary = buildCompletedMutationSummary(result);
+    if (groundedMutationSummary) {
+      return groundedMutationSummary;
+    }
+  }
+
   if (result.stopReason !== "llm_stop") {
     return buildFallbackLoopSummary(result);
   }
@@ -70,6 +85,44 @@ export function buildAgenticLoopFinalOutput(result: AgenticLoopResult): string {
     `Tools executed: ${result.toolExecutionCount}`,
     `Failed tools: ${result.failedToolCount}`,
   ].join("\n");
+}
+
+function buildIncompleteMutationSummary(result: AgenticLoopResult): string {
+  const completedTools = getLatestToolLifecycle(
+    result.toolLifecycle,
+    "completed",
+  );
+  const failedTools = getLatestToolLifecycle(result.toolLifecycle, "failed");
+
+  const lines = [
+    "I inspected the workspace, but I did not complete the requested change because no mutating tool succeeded.",
+  ];
+
+  if (completedTools.length > 0) {
+    lines.push(
+      `I checked ${completedTools.length} read-only tool action(s): ${completedTools
+        .map(formatLifecycleSummary)
+        .join("; ")}`,
+    );
+  }
+
+  if (failedTools.length > 0) {
+    lines.push(
+      `The run hit ${failedTools.length} failure(s): ${failedTools
+        .map(formatLifecycleSummary)
+        .join("; ")}`,
+    );
+  }
+
+  lines.push(
+    `Execution stats: ${result.stepsExecuted} step(s), ${result.toolExecutionCount} tool call(s), ${result.failedToolCount} failure(s).`,
+  );
+
+  lines.push(
+    "The task should stay incomplete until a concrete file update succeeds.",
+  );
+
+  return lines.join("\n");
 }
 
 function buildFallbackLoopSummary(result: AgenticLoopResult): string {
@@ -99,6 +152,47 @@ function buildFallbackLoopSummary(result: AgenticLoopResult): string {
   lines.push(
     `Execution stats: ${result.stepsExecuted} step(s), ${result.toolExecutionCount} tool call(s), ${result.failedToolCount} failure(s).`,
   );
+
+  return lines.join("\n");
+}
+
+function buildCompletedMutationSummary(
+  result: AgenticLoopResult,
+): string | null {
+  const editEvents = collectCompletedEditEvents(result.toolLifecycle);
+  if (editEvents.length === 0) {
+    return null;
+  }
+
+  const changes = mergeEditEvents(editEvents);
+  const changedFilesLabel =
+    changes.length === 1
+      ? "I completed the requested update and changed this file:"
+      : `I completed the requested update and changed ${changes.length} files:`;
+
+  const updatedTargets = deriveUpdatedTargets(
+    changes.map((change) => change.filePath),
+  );
+  const lines = [
+    changedFilesLabel,
+    ...changes.map(
+      (change) =>
+        `- ${change.filePath} (+${change.additions} -${change.deletions})`,
+    ),
+  ];
+
+  if (updatedTargets.length > 0) {
+    lines.push(`Updated sections/components: ${updatedTargets.join(", ")}`);
+  }
+
+  const failedTools = getLatestToolLifecycle(result.toolLifecycle, "failed");
+  if (failedTools.length > 0) {
+    lines.push(
+      `There were also ${failedTools.length} failed tool action(s): ${failedTools
+        .map(formatLifecycleSummary)
+        .join("; ")}`,
+    );
+  }
 
   return lines.join("\n");
 }
@@ -139,7 +233,7 @@ function getLastAssistantText(messages: CoreMessage[]): string | null {
 
 function extractTextContent(content: CoreMessage["content"]): string | null {
   if (typeof content === "string") {
-    const normalized = content.trim();
+    const normalized = normalizeStandaloneToolCallMarkup(content).trim();
     return normalized ? normalized : null;
   }
 
@@ -156,11 +250,20 @@ function extractTextContent(content: CoreMessage["content"]): string | null {
         text: string;
       } => part.type === "text" && typeof part.text === "string",
     )
-    .map((part) => part.text.trim())
+    .map((part) => normalizeStandaloneToolCallMarkup(part.text).trim())
     .filter(Boolean)
     .join("\n");
 
   return text || null;
+}
+
+function normalizeStandaloneToolCallMarkup(text: string): string {
+  const trimmed = text.trim();
+  if (/^<tool_call>[\s\S]*<\/tool_call>$/i.test(trimmed)) {
+    return "";
+  }
+
+  return text;
 }
 
 function describeLoopStopReason(
@@ -197,4 +300,77 @@ function getLatestToolLifecycle(
 function formatLifecycleSummary(event: AgenticLoopToolLifecycleEvent): string {
   const detailSuffix = event.detail ? `: ${event.detail}` : "";
   return `${event.toolName} (${event.toolCallId})${detailSuffix}`;
+}
+
+function collectCompletedEditEvents(
+  toolLifecycle: AgenticLoopToolLifecycleEvent[],
+): Array<
+  AgenticLoopToolLifecycleEvent & {
+    metadata: EditToolActivityMetadata;
+  }
+> {
+  return getLatestToolLifecycle(toolLifecycle, "completed").flatMap((event) => {
+    if (event.metadata?.family !== "edit") {
+      return [];
+    }
+
+    return [
+      {
+        ...event,
+        metadata: event.metadata,
+      },
+    ];
+  });
+}
+
+function mergeEditEvents(
+  editEvents: Array<
+    AgenticLoopToolLifecycleEvent & {
+      metadata: EditToolActivityMetadata;
+    }
+  >,
+): Array<{ filePath: string; additions: number; deletions: number }> {
+  const byFile = new Map<
+    string,
+    { filePath: string; additions: number; deletions: number }
+  >();
+
+  for (const event of editEvents) {
+    const existing = byFile.get(event.metadata.filePath);
+    if (existing) {
+      existing.additions += event.metadata.additions;
+      existing.deletions += event.metadata.deletions;
+      continue;
+    }
+
+    byFile.set(event.metadata.filePath, {
+      filePath: event.metadata.filePath,
+      additions: event.metadata.additions,
+      deletions: event.metadata.deletions,
+    });
+  }
+
+  return [...byFile.values()];
+}
+
+function deriveUpdatedTargets(filePaths: string[]): string[] {
+  const labels = new Set<string>();
+
+  for (const filePath of filePaths) {
+    const segments = filePath.split("/").filter(Boolean);
+    const fileName = segments.at(-1) ?? filePath;
+    const stem = fileName.replace(/\.[^.]+$/, "").trim();
+
+    if (stem && stem.toLowerCase() !== "index") {
+      labels.add(stem);
+      continue;
+    }
+
+    const parentDirectory = segments.at(-2)?.trim();
+    if (parentDirectory) {
+      labels.add(parentDirectory);
+    }
+  }
+
+  return [...labels].slice(0, 6);
 }
