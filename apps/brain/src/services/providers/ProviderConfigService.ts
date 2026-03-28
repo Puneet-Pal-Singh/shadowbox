@@ -38,7 +38,11 @@ import { ProviderCredentialService } from "./ProviderCredentialService";
 import { ProviderCatalogService } from "./ProviderCatalogService";
 import { ProviderConnectionService } from "./ProviderConnectionService";
 import { ProviderRegistryService } from "./ProviderRegistryService";
-import { AXIS_PROVIDER_ID, getAxisDiscoveredModels } from "./axis";
+import {
+  AXIS_DAILY_LIMIT,
+  AXIS_PROVIDER_ID,
+  getAxisDiscoveredModels,
+} from "./axis";
 import { ProviderModelDiscoveryService } from "./model-discovery";
 import type { ProviderModelDiscoveryService as ProviderModelDiscoveryServiceType } from "./model-discovery";
 import { ensureByokSchemaReady } from "../byok/ByokSchemaService.js";
@@ -272,7 +276,7 @@ export class ProviderConfigService {
     const used = await this.options.quotaStore.getAxisQuotaUsage(dayKey);
     return {
       used,
-      limit: 100000, // Default limit
+      limit: AXIS_DAILY_LIMIT,
       resetsAt: getNextUtcDayBoundary(),
     };
   }
@@ -285,7 +289,7 @@ export class ProviderConfigService {
     const used = await this.options.quotaStore.incrementAndGetQuota(dayKey);
     return {
       used,
-      limit: 100000,
+      limit: AXIS_DAILY_LIMIT,
       resetsAt: getNextUtcDayBoundary(),
     };
   }
