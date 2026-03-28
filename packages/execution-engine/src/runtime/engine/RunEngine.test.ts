@@ -1063,26 +1063,51 @@ describe("RunEngine", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(await response.text()).toContain("Golden flow completed");
+    const responseText = await response.text();
+    expect(responseText).toContain(
+      "I completed the requested update and changed this file:",
+    );
+    expect(responseText).toContain("README.md (+1 -1)");
+    expect(responseText).toContain("Updated sections/components: README");
 
     const executeSpy = executionService.execute as ReturnType<typeof vi.fn>;
-    expect(executeSpy).toHaveBeenCalledWith("filesystem", "list_files", {
-      path: ".",
-    }, undefined);
-    expect(executeSpy).toHaveBeenCalledWith("filesystem", "read_file", {
-      path: "README.md",
-    }, undefined);
-    expect(executeSpy).toHaveBeenCalledWith("filesystem", "write_file", {
-      path: "README.md",
-      content: "# Updated README\n",
-    }, undefined);
-    expect(executeSpy).toHaveBeenCalledWith("bash", "run", {
-      command: "pnpm --filter @shadowbox/execution-engine test",
-      cwd: undefined,
-      description: "Execute bash",
-    }, {
-      onOutput: expect.any(Function),
-    });
+    expect(executeSpy).toHaveBeenCalledWith(
+      "filesystem",
+      "list_files",
+      {
+        path: ".",
+      },
+      undefined,
+    );
+    expect(executeSpy).toHaveBeenCalledWith(
+      "filesystem",
+      "read_file",
+      {
+        path: "README.md",
+      },
+      undefined,
+    );
+    expect(executeSpy).toHaveBeenCalledWith(
+      "filesystem",
+      "write_file",
+      {
+        path: "README.md",
+        content: "# Updated README\n",
+      },
+      undefined,
+    );
+    expect(executeSpy).toHaveBeenCalledWith(
+      "bash",
+      "run",
+      {
+        command: "pnpm --filter @shadowbox/execution-engine test",
+        cwd: undefined,
+        description: "Execute bash",
+      },
+      {
+        onOutput: expect.any(Function),
+      },
+    );
     expect(executeSpy).toHaveBeenCalledWith("git", "git_diff", {}, undefined);
 
     const persisted = await (
@@ -1176,10 +1201,13 @@ describe("RunEngine", () => {
     expect(response.status).toBe(200);
     const output = await response.text();
     expect(output).toContain(
-      "I stopped because a required tool action failed.",
+      "I inspected the workspace, but I did not complete the requested change because no mutating tool succeeded.",
     );
     expect(output).toContain(
       "The run hit 1 failure(s): write_file (write-1): Permission denied",
+    );
+    expect(output).toContain(
+      "The task should stay incomplete until a concrete file update succeeds.",
     );
     expect(output).not.toContain("I'll update the file now.");
 
