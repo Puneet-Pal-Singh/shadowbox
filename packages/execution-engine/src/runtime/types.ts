@@ -1,4 +1,4 @@
-import type { RunMode } from "@repo/shared-types";
+import type { RunMode, ToolActivityMetadata } from "@repo/shared-types";
 
 export interface RuntimeStorage {
   get<T>(key: string): Promise<T | undefined>;
@@ -128,6 +128,7 @@ export interface AgenticLoopToolLifecycleEvent {
   mutating: boolean;
   recordedAt: string;
   detail?: string;
+  metadata?: ToolActivityMetadata;
 }
 
 /**
@@ -178,6 +179,9 @@ export interface RunMetadata {
     stepsExecuted?: number;
     toolExecutionCount?: number;
     failedToolCount?: number;
+    requiresMutation?: boolean;
+    completedMutatingToolCount?: number;
+    completedReadOnlyToolCount?: number;
     toolLifecycle?: AgenticLoopToolLifecycleEvent[];
     completedAt?: string;
   };
