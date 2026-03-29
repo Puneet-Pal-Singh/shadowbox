@@ -55,9 +55,10 @@ export function createStreamResponse(content: string): Response {
 export async function completeRunWithAssistantMessage(params: {
   run: Run;
   text: string;
+  metadata?: Record<string, unknown>;
   deps: RunCompletionDependencies;
 }): Promise<Response> {
-  const { run, text, deps } = params;
+  const { run, text, metadata, deps } = params;
   const sanitizedText = sanitizeUserFacingOutput(text);
   recordLifecycleStep(run, "SYNTHESIS");
   await deps.runEventRecorder.recordRunStatusChanged(
@@ -72,7 +73,11 @@ export async function completeRunWithAssistantMessage(params: {
   recordOrchestrationTerminal(run);
   run.output = { content: sanitizedText };
   await deps.runRepo.update(run);
-  await deps.runEventRecorder.recordMessageEmitted("assistant", sanitizedText);
+  await deps.runEventRecorder.recordMessageEmitted(
+    "assistant",
+    sanitizedText,
+    metadata,
+  );
   await deps.runEventRecorder.recordRunCompleted(
     getRunDurationMs(run),
     run.metadata.agenticLoop?.toolExecutionCount ?? 0,
@@ -86,9 +91,11 @@ export async function completeRunWithRecoveredAssistantMessage(params: {
   run: Run;
   text: string;
   plannerError?: unknown;
+  metadata?: Record<string, unknown>;
+  errorMetadata?: string;
   deps: RunCompletionDependencies;
 }): Promise<Response> {
-  const { run, text, plannerError, deps } = params;
+  const { run, text, plannerError, metadata, errorMetadata, deps } = params;
   const sanitizedText = sanitizeUserFacingOutput(text);
   recordLifecycleStep(run, "SYNTHESIS", "planning_recovery");
   await deps.runEventRecorder.recordRunStatusChanged(
@@ -101,12 +108,18 @@ export async function completeRunWithRecoveredAssistantMessage(params: {
   transitionRunToCompleted(run, run.id);
   if (plannerError !== undefined) {
     run.metadata.error = buildPlannerRecoveryMetadata(plannerError);
+  } else if (errorMetadata) {
+    run.metadata.error = errorMetadata;
   }
   recordLifecycleStep(run, "TERMINAL", "status=COMPLETED:recoverable");
   recordOrchestrationTerminal(run);
   run.output = { content: sanitizedText };
   await deps.runRepo.update(run);
-  await deps.runEventRecorder.recordMessageEmitted("assistant", sanitizedText);
+  await deps.runEventRecorder.recordMessageEmitted(
+    "assistant",
+    sanitizedText,
+    metadata,
+  );
   await deps.runEventRecorder.recordRunCompleted(getRunDurationMs(run), 0);
 
   console.log(`[run/engine] Completed run ${run.id} with recoverable error`);
