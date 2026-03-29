@@ -54,6 +54,7 @@ import {
 } from "./RunPermissionWorkspacePolicy.js";
 import {
   completeRunWithAssistantMessage as completeRunWithAssistantMessagePolicy,
+  completeRunWithRecoveredAssistantMessage as completeRunWithRecoveredAssistantMessagePolicy,
   getRunDurationMs as getRunDurationMsPolicy,
   tryHandlePlanningError as tryHandlePlanningErrorPolicy,
   type RunCompletionDependencies,
@@ -65,7 +66,7 @@ import {
   transitionRunToFailed,
 } from "./RunStatusPolicy.js";
 import {
-  buildAgenticLoopFinalOutput,
+  buildAgenticLoopFinalMessage,
   getAgenticLoopMaxSteps,
   recordAgenticLoopMetadata,
 } from "./RunAgenticLoopPolicy.js";
@@ -83,6 +84,8 @@ import {
 import { resetRecyclableRun } from "./RunRecyclableResetPolicy.js";
 import { applyReviewerPassIfEnabled } from "./RunReviewerPassPolicy.js";
 import { RunEventRecorder, RunEventRepository } from "../events/index.js";
+import { LLMTimeoutError } from "../llm/LLMGateway.js";
+import { detectsMutation } from "./detectsMutation.js";
 
 export interface IRunEngine {
   execute(
@@ -469,82 +472,123 @@ export class RunEngine implements IRunEngine {
       this.agent instanceof BaseAgent
         ? this.agent.getRuntimeExecutionService()
         : undefined;
-    const loopResult = await loop.execute(messages, tools, {
-      agentType: run.agentType,
-      workspaceContext: buildAgenticLoopWorkspaceContext(input),
-      executeTool: directExecutionService
-        ? async (toolCall) => {
-            if (!isGoldenFlowToolName(toolCall.toolName)) {
-              throw new Error(
-                `Unsupported direct agentic tool: ${toolCall.toolName}`,
-              );
-            }
-            return executeAgenticLoopTool(directExecutionService, {
-              taskId: toolCall.id,
-              toolName: toolCall.toolName,
-              toolInput: {
-                description: `Execute ${toolCall.toolName}`,
-                ...toolCall.args,
-              },
-              onOutputAppended: async (chunk) => {
-                await this.runEventRecorder.recordToolOutputAppended(
-                  {
-                    id: toolCall.id,
-                    type: toolCall.toolName,
-                  },
-                  chunk,
+    try {
+      const loopResult = await loop.execute(messages, tools, {
+        agentType: run.agentType,
+        workspaceContext: buildAgenticLoopWorkspaceContext(input),
+        executeTool: directExecutionService
+          ? async (toolCall) => {
+              if (!isGoldenFlowToolName(toolCall.toolName)) {
+                throw new Error(
+                  `Unsupported direct agentic tool: ${toolCall.toolName}`,
                 );
-              },
-            });
-          }
-        : undefined,
-      modelId: input.modelId,
-      providerId: input.providerId,
-      temperature: 0.2,
-      onToolRequested: async (toolCall) => {
-        await this.runEventRecorder.recordToolRequested({
-          id: toolCall.id,
-          type: toolCall.toolName,
-          input: toolCall.args,
-        });
-      },
-      onToolStarted: async (toolCall) => {
-        await this.runEventRecorder.recordToolStarted({
-          id: toolCall.id,
-          type: toolCall.toolName,
-        });
-      },
-      onToolCompleted: async (toolCall, result, executionTimeMs) => {
-        await this.runEventRecorder.recordToolCompleted(
-          {
+              }
+              return executeAgenticLoopTool(directExecutionService, {
+                taskId: toolCall.id,
+                toolName: toolCall.toolName,
+                toolInput: {
+                  description: `Execute ${toolCall.toolName}`,
+                  ...toolCall.args,
+                },
+                onOutputAppended: async (chunk) => {
+                  await this.runEventRecorder.recordToolOutputAppended(
+                    {
+                      id: toolCall.id,
+                      type: toolCall.toolName,
+                    },
+                    chunk,
+                  );
+                },
+              });
+            }
+          : undefined,
+        modelId: input.modelId,
+        providerId: input.providerId,
+        temperature: 0.2,
+        onToolRequested: async (toolCall) => {
+          await this.runEventRecorder.recordRunProgress(
+            RUN_WORKFLOW_STEPS.EXECUTION,
+            "Inspecting workspace",
+            `Running ${toolCall.toolName}.`,
+            "active",
+          );
+          await this.runEventRecorder.recordToolRequested({
             id: toolCall.id,
             type: toolCall.toolName,
-          },
-          result,
-          executionTimeMs,
-        );
-      },
-      onToolFailed: async (toolCall, error, executionTimeMs) => {
-        await this.runEventRecorder.recordToolFailed(
-          {
+            input: toolCall.args,
+          });
+        },
+        onProgress: async (progress) => {
+          await this.runEventRecorder.recordRunProgress(
+            progress.phase,
+            progress.label,
+            progress.summary,
+            progress.status,
+          );
+        },
+        onToolStarted: async (toolCall) => {
+          await this.runEventRecorder.recordToolStarted({
             id: toolCall.id,
             type: toolCall.toolName,
-          },
-          error,
-          executionTimeMs,
-        );
-      },
-    });
+          });
+        },
+        onToolCompleted: async (toolCall, result, executionTimeMs) => {
+          await this.runEventRecorder.recordToolCompleted(
+            {
+              id: toolCall.id,
+              type: toolCall.toolName,
+            },
+            result,
+            executionTimeMs,
+          );
+        },
+        onToolFailed: async (toolCall, error, executionTimeMs) => {
+          await this.runEventRecorder.recordToolFailed(
+            {
+              id: toolCall.id,
+              type: toolCall.toolName,
+            },
+            error,
+            executionTimeMs,
+          );
+        },
+      });
 
-    recordAgenticLoopMetadata(run, loopResult);
-    const loopOutput = buildAgenticLoopFinalOutput(loopResult);
-    const finalOutput = await applyReviewerPassIfEnabled({
-      run,
-      originalPrompt: input.prompt,
-      synthesisOutput: sanitizeUserFacingOutput(loopOutput),
-      llmGateway: this.llmGateway,
-    });
-    return this.completeRunWithAssistantMessage(run, finalOutput);
+      recordAgenticLoopMetadata(run, loopResult);
+      const finalMessage = buildAgenticLoopFinalMessage(loopResult);
+      await this.runEventRecorder.recordRunProgress(
+        RUN_WORKFLOW_STEPS.SYNTHESIS,
+        "Synthesizing final response",
+        finalMessage.metadata?.code === "INCOMPLETE_MUTATION"
+          ? "The run is ending with a truthful incomplete-mutation summary."
+          : "Preparing the final user-facing response from observed results.",
+        "completed",
+      );
+      const finalOutput = finalMessage.metadata
+        ? finalMessage.text
+        : await applyReviewerPassIfEnabled({
+            run,
+            originalPrompt: input.prompt,
+            synthesisOutput: sanitizeUserFacingOutput(finalMessage.text),
+            llmGateway: this.llmGateway,
+          });
+      return this.completeRunWithAssistantMessage(
+        run,
+        finalOutput,
+        finalMessage.metadata,
+      );
+    } catch (error) {
+      const recoveryResponse = await this.tryHandleTaskExecutionError(
+        run,
+        input.prompt,
+        loop,
+        error,
+      );
+      if (recoveryResponse) {
+        return recoveryResponse;
+      }
+      throw error;
+    }
   }
 
   private async persistConversationMessages(
@@ -700,10 +744,27 @@ export class RunEngine implements IRunEngine {
   private async completeRunWithAssistantMessage(
     run: Run,
     text: string,
+    metadata?: Record<string, unknown>,
   ): Promise<Response> {
     return completeRunWithAssistantMessagePolicy({
       run,
       text,
+      metadata,
+      deps: this.getRunCompletionDependencies(),
+    });
+  }
+
+  private async completeRunWithRecoveredAssistantMessage(
+    run: Run,
+    text: string,
+    metadata?: Record<string, unknown>,
+    errorMetadata?: string,
+  ): Promise<Response> {
+    return completeRunWithRecoveredAssistantMessagePolicy({
+      run,
+      text,
+      metadata,
+      errorMetadata,
       deps: this.getRunCompletionDependencies(),
     });
   }
@@ -805,6 +866,40 @@ export class RunEngine implements IRunEngine {
     return getRunDurationMsPolicy(run);
   }
 
+  private async tryHandleTaskExecutionError(
+    run: Run,
+    prompt: string,
+    loop: AgenticLoop,
+    error: unknown,
+  ): Promise<Response | null> {
+    if (!isTaskExecutionTimeout(error)) {
+      return null;
+    }
+
+    const stats = loop.getStats();
+    const requiresMutation = detectsMutation(prompt);
+    const noFileChanged = !requiresMutation || stats.completedMutatingToolCount === 0;
+    const text = buildTaskExecutionTimeoutMessage({
+      requiresMutation,
+      noFileChanged,
+      toolExecutionCount: stats.toolExecutionCount,
+      stepsExecuted: stats.stepsExecuted,
+    });
+    await this.runEventRecorder.recordRunProgress(
+      RUN_WORKFLOW_STEPS.EXECUTION,
+      "Recoverable timeout",
+      "The model timed out before choosing the next action.",
+      "completed",
+    );
+
+    return this.completeRunWithRecoveredAssistantMessage(
+      run,
+      text,
+      buildTaskExecutionTimeoutMetadata(),
+      "TASK_EXECUTION_TIMEOUT: Model timed out before choosing the next action.",
+    );
+  }
+
   private getUnknownPricingMode(env: RunEngineEnv): "warn" | "block" {
     const configuredMode = env.COST_UNKNOWN_PRICING_MODE as unknown;
     if (typeof configuredMode === "string") {
@@ -874,4 +969,51 @@ export class RunEngineError extends Error {
     super(`[run/engine] ${message}`);
     this.name = "RunEngineError";
   }
+}
+
+function isTaskExecutionTimeout(error: unknown): boolean {
+  if (error instanceof LLMTimeoutError) {
+    return error.phase === "task";
+  }
+
+  return (
+    error instanceof Error &&
+    error.name === "LLMTimeoutError" &&
+    error.message.includes("(phase=task)")
+  );
+}
+
+function buildTaskExecutionTimeoutMessage(input: {
+  requiresMutation: boolean;
+  noFileChanged: boolean;
+  toolExecutionCount: number;
+  stepsExecuted: number;
+}): string {
+  const lines = [
+    "The model timed out before choosing the next action.",
+    input.noFileChanged
+      ? "No file was changed before the timeout."
+      : "The run timed out after some progress, but before it could finish the next step.",
+    `Execution stats so far: ${input.stepsExecuted} step(s), ${input.toolExecutionCount} tool call(s).`,
+  ];
+
+  if (input.requiresMutation) {
+    lines.push(
+      "Retry this task with a more specific file or component target, or switch to a faster or more reliable model.",
+    );
+  } else {
+    lines.push("Retry the task or switch to a faster or more reliable model.");
+  }
+
+  return lines.join("\n");
+}
+
+function buildTaskExecutionTimeoutMetadata(): Record<string, unknown> {
+  return {
+    code: "TASK_EXECUTION_TIMEOUT",
+    retryable: true,
+    resumeHint:
+      "Retry the task or switch to a faster or more reliable model.",
+    resumeActions: ["retry", "switch_model"],
+  };
 }
