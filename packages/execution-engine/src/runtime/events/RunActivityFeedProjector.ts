@@ -57,6 +57,9 @@ export function projectRunActivityFeed(
         }
         break;
       }
+      case RUN_EVENT_TYPES.RUN_PROGRESS:
+        items.push(createProgressPart(event, currentTurnId));
+        break;
       case RUN_EVENT_TYPES.TOOL_REQUESTED: {
         const part = createRequestedToolPart(event, currentTurnId);
         toolParts.set(part.toolId, part);
@@ -129,6 +132,7 @@ function createTextPart(
     source: event.source,
     role: event.payload.role,
     content: event.payload.content,
+    metadata: event.payload.metadata,
   };
 }
 
@@ -154,6 +158,26 @@ function createReasoningPart(
     summary: event.payload.reason?.trim() || getReasoningSummary(workflowStep),
     phase: workflowStep,
     status: REASONING_ACTIVITY_STATUSES.COMPLETED,
+  };
+}
+
+function createProgressPart(
+  event: Extract<RunEvent, { type: typeof RUN_EVENT_TYPES.RUN_PROGRESS }>,
+  turnId: string | undefined,
+): ReasoningActivityPart {
+  return {
+    id: event.eventId,
+    runId: event.runId,
+    sessionId: event.sessionId,
+    turnId,
+    kind: ACTIVITY_PART_KINDS.REASONING,
+    createdAt: event.timestamp,
+    updatedAt: event.timestamp,
+    source: event.source,
+    label: event.payload.label,
+    summary: event.payload.summary,
+    phase: event.payload.phase,
+    status: event.payload.status,
   };
 }
 
