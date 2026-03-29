@@ -19,7 +19,10 @@ import type {
 const TOKEN_CHAR_RATIO = 4;
 const DEFAULT_COMPLETION_TOKENS = 500;
 const DEFAULT_TEXT_TIMEOUT_MS = 20_000;
-const DEFAULT_TASK_TEXT_TIMEOUT_MS = 60_000;
+const FAST_TASK_TEXT_TIMEOUT_MS = 60_000;
+const STANDARD_TASK_TEXT_TIMEOUT_MS = 90_000;
+const SLOW_TASK_TEXT_TIMEOUT_MS = 150_000;
+const MAX_TASK_TEXT_TIMEOUT_MS = 180_000;
 const DEFAULT_STRUCTURED_TIMEOUT_MS = 45_000;
 
 export interface LLMGatewayDependencies {
@@ -79,7 +82,7 @@ export class LLMGateway implements ILLMGateway {
         tools: req.tools,
       }),
       {
-        timeoutMs: resolveTextTimeoutMs(req),
+        timeoutMs: this.resolveTextTimeoutMs(req),
         phase: req.context.phase,
         operation: "text",
       },
@@ -518,18 +521,52 @@ export class LLMGateway implements ILLMGateway {
       usage.totalTokens.toString(),
     ].join(":");
   }
+
+  private resolveTextTimeoutMs(req: LLMTextRequest): number {
+    if (req.context.phase !== "task") {
+      return typeof req.timeoutMs === "number"
+        ? req.timeoutMs
+        : DEFAULT_TEXT_TIMEOUT_MS;
+    }
+
+    const requestedTimeoutMs =
+      typeof req.timeoutMs === "number"
+        ? req.timeoutMs
+        : this.resolveTaskTimeoutByLatencyTier(req.providerId, req.model);
+
+    return clampTaskTextTimeoutMs(requestedTimeoutMs);
+  }
+
+  private resolveTaskTimeoutByLatencyTier(
+    providerId?: string,
+    modelId?: string,
+  ): number {
+    if (!providerId || !modelId) {
+      return STANDARD_TASK_TEXT_TIMEOUT_MS;
+    }
+
+    const profile = this.deps.providerCapabilityResolver?.getExecutionProfile(
+      providerId,
+      modelId,
+    );
+    switch (profile?.latencyTier) {
+      case "fast":
+        return FAST_TASK_TEXT_TIMEOUT_MS;
+      case "slow":
+        return SLOW_TASK_TEXT_TIMEOUT_MS;
+      case "standard":
+      default:
+        return STANDARD_TASK_TEXT_TIMEOUT_MS;
+    }
+  }
 }
 
-function resolveTextTimeoutMs(req: LLMTextRequest): number {
-  if (typeof req.timeoutMs === "number") {
-    return req.timeoutMs;
+function clampTaskTextTimeoutMs(timeoutMs: number): number {
+  if (!Number.isFinite(timeoutMs)) {
+    return STANDARD_TASK_TEXT_TIMEOUT_MS;
   }
 
-  if (req.context.phase === "task") {
-    return DEFAULT_TASK_TEXT_TIMEOUT_MS;
-  }
-
-  return DEFAULT_TEXT_TIMEOUT_MS;
+  return Math.min(Math.max(1, timeoutMs), MAX_TASK_TEXT_TIMEOUT_MS);
 }
 
 export class UnknownPricingError extends Error {
