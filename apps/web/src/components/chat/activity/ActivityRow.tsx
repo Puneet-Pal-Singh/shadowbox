@@ -20,8 +20,16 @@ export function ActivityRow({
 }: ActivityRowProps) {
   switch (row.kind) {
     case "text":
-      return (
+      return isRecoveryTextRow(row) ? (
         <RecoveryTextRow
+          row={row}
+          expanded={expanded}
+          onToggle={onToggle}
+          displayMode={displayMode}
+          collapsible={collapsible}
+        />
+      ) : (
+        <TextRow
           row={row}
           expanded={expanded}
           onToggle={onToggle}
@@ -82,6 +90,55 @@ export function ActivityRow({
         />
       );
   }
+}
+
+function isRecoveryTextRow(
+  row: Extract<ActivityFeedRowViewModel, { kind: "text" }>,
+): boolean {
+  const typedRow = row as Record<string, unknown>;
+  if (typedRow.recovery === true || typedRow.isRecovery === true) {
+    return true;
+  }
+  if (typedRow.subtype === "recovery") {
+    return true;
+  }
+
+  if (row.metadata?.recovery === true) {
+    return true;
+  }
+
+  const code = typeof row.metadata?.code === "string" ? row.metadata.code : undefined;
+  return code === "INCOMPLETE_MUTATION" || code === "TASK_EXECUTION_TIMEOUT";
+}
+
+function TextRow({
+  row,
+  expanded,
+  onToggle,
+  displayMode,
+  collapsible,
+}: {
+  row: Extract<ActivityFeedRowViewModel, { kind: "text" }>;
+  expanded: boolean;
+  onToggle: (expanded: boolean) => void;
+  displayMode: "card" | "transcript";
+  collapsible: boolean;
+}) {
+  return (
+    <ExpandableRow
+      label={deriveTextLabel(row.role)}
+      summary={deriveTextSummary(row.content)}
+      expanded={expanded}
+      onToggle={onToggle}
+      tone="completed"
+      displayMode={displayMode}
+      collapsible={collapsible}
+    >
+      <pre className="overflow-x-auto rounded-xl border border-zinc-800/70 bg-black/40 px-3 py-2 text-xs text-zinc-200">
+        {row.content}
+      </pre>
+    </ExpandableRow>
+  );
 }
 
 function RecoveryTextRow({
@@ -159,6 +216,21 @@ function deriveRecoverySummary(
   resumeHint: string,
 ): string {
   return resumeHint || rowContent.split("\n")[0] || "";
+}
+
+function deriveTextLabel(role: "user" | "assistant" | "system"): string {
+  switch (role) {
+    case "assistant":
+      return "Assistant update";
+    case "system":
+      return "System message";
+    default:
+      return "Message";
+  }
+}
+
+function deriveTextSummary(content: string): string {
+  return content.split("\n")[0] || "";
 }
 
 function ReasoningRow({
