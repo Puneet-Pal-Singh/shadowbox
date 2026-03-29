@@ -316,7 +316,7 @@ describe("LLMGateway provider capabilities", () => {
     expect(deps.costLedger.append).toHaveBeenCalledTimes(1);
   });
 
-  it("uses a longer default timeout for task-phase text calls", async () => {
+  it("uses the standard task timeout for standard-latency models", async () => {
     vi.useFakeTimers();
     try {
       const deps = createDependencies({
@@ -342,12 +342,86 @@ describe("LLMGateway provider capabilities", () => {
       await vi.advanceTimersByTimeAsync(20_001);
       expect(settled).toBe(false);
 
+      await vi.advanceTimersByTimeAsync(69_999);
+
+      const rejection = expect(outcome).rejects.toMatchObject({
+        timeoutMs: 90_000,
+        phase: "task",
+        operation: "text",
+      });
+      await rejection;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("uses the fast task timeout for fast-latency models", async () => {
+    vi.useFakeTimers();
+    try {
+      const deps = createDependencies({
+        getCapabilities: () => ({
+          streaming: true,
+          tools: true,
+          structuredOutputs: true,
+          jsonMode: true,
+        }),
+        isModelAllowed: () => true,
+        getExecutionProfile: () => ({
+          latencyTier: "fast",
+          reliabilityTier: "hardened",
+          supportedLanes: {
+            chat_only: { supported: true },
+            single_agent_action: { supported: true },
+            structured_planning_required: { supported: true },
+          },
+        }),
+      });
+      deps.aiService.generateText.mockImplementationOnce(
+        () => new Promise(() => {}),
+      );
+      const gateway = new LLMGateway(deps);
+
+      const outcome = gateway.generateText(baseRequest);
       const rejection = expect(outcome).rejects.toMatchObject({
         timeoutMs: 60_000,
         phase: "task",
         operation: "text",
       });
-      await vi.advanceTimersByTimeAsync(39_999);
+      await vi.advanceTimersByTimeAsync(60_000);
+      await rejection;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("clamps explicit task timeout overrides to the hard maximum", async () => {
+    vi.useFakeTimers();
+    try {
+      const deps = createDependencies({
+        getCapabilities: () => ({
+          streaming: true,
+          tools: true,
+          structuredOutputs: true,
+          jsonMode: true,
+        }),
+        isModelAllowed: () => true,
+      });
+      deps.aiService.generateText.mockImplementationOnce(
+        () => new Promise(() => {}),
+      );
+      const gateway = new LLMGateway(deps);
+
+      const outcome = gateway.generateText({
+        ...baseRequest,
+        timeoutMs: 250_000,
+      });
+
+      const rejection = expect(outcome).rejects.toMatchObject({
+        timeoutMs: 180_000,
+        phase: "task",
+        operation: "text",
+      });
+      await vi.advanceTimersByTimeAsync(180_000);
       await rejection;
     } finally {
       vi.useRealTimers();
