@@ -20,6 +20,7 @@ import type { TaskExecutor } from "../orchestration/index.js";
 import { isMutatingGoldenFlowToolName } from "../contracts/CodingToolGateway.js";
 import { Task } from "../task/index.js";
 import type { AgenticLoopToolLifecycleEvent, TaskResult } from "../types.js";
+import { detectsMutation } from "./detectsMutation.js";
 
 export interface AgenticLoopConfig {
   maxSteps: number;
@@ -608,9 +609,7 @@ function requestRequiresMutation(initialMessages: CoreMessage[]): boolean {
     .join("\n")
     .toLowerCase();
 
-  return /\b(edit|update|change|rewrite|refactor|fix|improve|add|remove|delete|replace|rename|make\b.+\b(prettier|better|cleaner|modern))\b/i.test(
-    userText,
-  );
+  return detectsMutation(userText);
 }
 
 function normalizeAssistantText(
