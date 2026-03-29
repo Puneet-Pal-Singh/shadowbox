@@ -4,6 +4,7 @@ import {
   createMessageEmittedEvent,
   createRunCompletedEvent,
   createRunFailedEvent,
+  createRunProgressEvent,
   createRunStartedEvent,
   createRunStatusChangedEvent,
   createToolCompletedEvent,
@@ -56,6 +57,17 @@ export class RunEventRecorder {
         workflowStep,
         reason,
       ),
+    );
+  }
+
+  async recordRunProgress(
+    phase: RunWorkflowStep,
+    label: string,
+    summary: string,
+    status: "active" | "completed",
+  ): Promise<void> {
+    await this.append(
+      createRunProgressEvent(this.baseInput(), phase, label, summary, status),
     );
   }
 
