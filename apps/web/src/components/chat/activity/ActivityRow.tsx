@@ -20,7 +20,15 @@ export function ActivityRow({
 }: ActivityRowProps) {
   switch (row.kind) {
     case "text":
-      return null;
+      return (
+        <RecoveryTextRow
+          row={row}
+          expanded={expanded}
+          onToggle={onToggle}
+          displayMode={displayMode}
+          collapsible={collapsible}
+        />
+      );
     case "reasoning":
       return (
         <ReasoningRow
@@ -74,6 +82,62 @@ export function ActivityRow({
         />
       );
   }
+}
+
+function RecoveryTextRow({
+  row,
+  expanded,
+  onToggle,
+  displayMode,
+  collapsible,
+}: {
+  row: Extract<ActivityFeedRowViewModel, { kind: "text" }>;
+  expanded: boolean;
+  onToggle: (expanded: boolean) => void;
+  displayMode: "card" | "transcript";
+  collapsible: boolean;
+}) {
+  const metadata = row.metadata ?? {};
+  const code = typeof metadata.code === "string" ? metadata.code : undefined;
+  const resumeHint =
+    typeof metadata.resumeHint === "string" ? metadata.resumeHint : "";
+  const resumeActions = Array.isArray(metadata.resumeActions)
+    ? metadata.resumeActions
+        .filter((action): action is string => typeof action === "string")
+        .join(" · ")
+    : "";
+
+  const label =
+    code === "TASK_EXECUTION_TIMEOUT"
+      ? "Recoverable timeout"
+      : code === "INCOMPLETE_MUTATION"
+        ? "Edit incomplete"
+        : row.role === "assistant"
+          ? "Assistant update"
+          : "System update";
+
+  const summary = resumeHint || row.content.split("\n")[0] || "";
+
+  return (
+    <ExpandableRow
+      label={label}
+      summary={summary}
+      expanded={expanded}
+      onToggle={onToggle}
+      tone="failed"
+      displayMode={displayMode}
+      collapsible={collapsible}
+    >
+      <div className="space-y-2 text-xs text-zinc-200">
+        <pre className="overflow-x-auto rounded-xl border border-zinc-800/70 bg-black/40 px-3 py-2 text-xs text-zinc-200">
+          {row.content}
+        </pre>
+        {resumeActions ? (
+          <div className="text-zinc-400">Resume options: {resumeActions}</div>
+        ) : null}
+      </div>
+    </ExpandableRow>
+  );
 }
 
 function ReasoningRow({
