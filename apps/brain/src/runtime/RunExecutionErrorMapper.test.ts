@@ -76,6 +76,22 @@ describe("RunExecutionErrorMapper", () => {
     });
   });
 
+  it("maps task execution timeout errors to typed retryable timeout", () => {
+    const timeoutError = new Error(
+      "[llm/gateway] text call timed out after 60000ms (phase=task)",
+    );
+    timeoutError.name = "LLMTimeoutError";
+
+    const mapped = mapRunExecutionErrorToDomain(timeoutError, "corr-task");
+
+    expect(mapped).toMatchObject({
+      code: "TASK_EXECUTION_TIMEOUT",
+      status: 504,
+      retryable: true,
+      correlationId: "corr-task",
+    });
+  });
+
   it("maps provider retry exhaustion to provider unavailable", () => {
     const mapped = mapRunExecutionErrorToDomain(
       new Error("Failed after 3 attempts. Last error: Provider returned error"),
