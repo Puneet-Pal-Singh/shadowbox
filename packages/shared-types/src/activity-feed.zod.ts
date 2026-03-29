@@ -27,6 +27,7 @@ const TextActivityPartSchema = BaseActivityPartSchema.extend({
   kind: z.literal(ACTIVITY_PART_KINDS.TEXT),
   role: z.enum(["user", "assistant", "system"]),
   content: z.string(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 }).strict();
 
 const ReasoningActivityPartSchema = BaseActivityPartSchema.extend({
