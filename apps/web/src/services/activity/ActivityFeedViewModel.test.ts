@@ -112,7 +112,7 @@ describe("ActivityFeedViewModel", () => {
     ).toBe(false);
   });
 
-  it("keeps explicit execution progress rows and recoverable assistant messages visible", () => {
+  it("keeps explicit execution progress rows and recovery-coded assistant messages visible", () => {
     const viewModel = buildActivityFeedViewModel({
       runId: "run-progress",
       sessionId: "session-progress",
@@ -179,6 +179,44 @@ describe("ActivityFeedViewModel", () => {
           row.metadata?.code === "TASK_EXECUTION_TIMEOUT",
       ),
     ).toBe(true);
+  });
+
+  it("keeps plain assistant transcript messages out of the activity feed", () => {
+    const viewModel = buildActivityFeedViewModel({
+      runId: "run-plain-assistant",
+      sessionId: "session-plain-assistant",
+      status: "COMPLETED",
+      items: [
+        {
+          id: "text-user",
+          runId: "run-plain-assistant",
+          sessionId: "session-plain-assistant",
+          turnId: "turn-1",
+          kind: ACTIVITY_PART_KINDS.TEXT,
+          createdAt: "2026-03-24T10:00:00.000Z",
+          updatedAt: "2026-03-24T10:00:00.000Z",
+          source: "brain",
+          role: "user",
+          content: "update the footer",
+        },
+        {
+          id: "text-assistant",
+          runId: "run-plain-assistant",
+          sessionId: "session-plain-assistant",
+          turnId: "turn-1",
+          kind: ACTIVITY_PART_KINDS.TEXT,
+          createdAt: "2026-03-24T10:00:01.000Z",
+          updatedAt: "2026-03-24T10:00:01.000Z",
+          source: "brain",
+          role: "assistant",
+          content: "I updated the footer and added the CTA.",
+        },
+      ],
+    });
+
+    expect(viewModel.turns[0]?.rows.some((row) => row.kind === "text")).toBe(
+      false,
+    );
   });
 
   it("formats git status activity like a command transcript", () => {

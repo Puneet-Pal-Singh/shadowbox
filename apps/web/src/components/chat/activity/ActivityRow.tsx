@@ -112,9 +112,7 @@ function RecoveryTextRow({
       ? "Recoverable timeout"
       : code === "INCOMPLETE_MUTATION"
         ? "Edit incomplete"
-        : row.role === "assistant"
-          ? "Assistant update"
-          : "System update";
+        : "Run update";
 
   const summary = resumeHint || row.content.split("\n")[0] || "";
 
