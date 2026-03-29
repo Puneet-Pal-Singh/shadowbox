@@ -112,6 +112,75 @@ describe("ActivityFeedViewModel", () => {
     ).toBe(false);
   });
 
+  it("keeps explicit execution progress rows and recoverable assistant messages visible", () => {
+    const viewModel = buildActivityFeedViewModel({
+      runId: "run-progress",
+      sessionId: "session-progress",
+      status: "COMPLETED",
+      items: [
+        {
+          id: "text-user",
+          runId: "run-progress",
+          sessionId: "session-progress",
+          turnId: "turn-1",
+          kind: ACTIVITY_PART_KINDS.TEXT,
+          createdAt: "2026-03-24T10:00:00.000Z",
+          updatedAt: "2026-03-24T10:00:00.000Z",
+          source: "brain",
+          role: "user",
+          content: "update the footer",
+        },
+        {
+          id: "reasoning-progress",
+          runId: "run-progress",
+          sessionId: "session-progress",
+          turnId: "turn-1",
+          kind: ACTIVITY_PART_KINDS.REASONING,
+          createdAt: "2026-03-24T10:00:01.000Z",
+          updatedAt: "2026-03-24T10:00:01.000Z",
+          source: "brain",
+          label: "Corrective retry",
+          summary: "No file changed yet. Requesting one concrete mutation.",
+          phase: "execution",
+          status: "active",
+        },
+        {
+          id: "text-assistant",
+          runId: "run-progress",
+          sessionId: "session-progress",
+          turnId: "turn-1",
+          kind: ACTIVITY_PART_KINDS.TEXT,
+          createdAt: "2026-03-24T10:00:02.000Z",
+          updatedAt: "2026-03-24T10:00:02.000Z",
+          source: "brain",
+          role: "assistant",
+          content: "No file was changed before the timeout.",
+          metadata: {
+            code: "TASK_EXECUTION_TIMEOUT",
+            retryable: true,
+            resumeHint: "Retry the task or switch models.",
+          },
+        },
+      ],
+    });
+
+    expect(
+      viewModel.turns[0]?.rows.some(
+        (row) =>
+          row.kind === "reasoning" &&
+          row.summary ===
+            "No file changed yet. Requesting one concrete mutation.",
+      ),
+    ).toBe(true);
+    expect(
+      viewModel.turns[0]?.rows.some(
+        (row) =>
+          row.kind === "text" &&
+          row.metadata?.code === "TASK_EXECUTION_TIMEOUT",
+      ),
+    ).toBe(true);
+  });
+
   it("formats git status activity like a command transcript", () => {
     const viewModel = buildActivityFeedViewModel({
       runId: "run-2",
