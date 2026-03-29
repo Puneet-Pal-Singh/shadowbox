@@ -23,6 +23,7 @@ export interface ActivityTextRowViewModel {
   key: string;
   role: "user" | "assistant" | "system";
   content: string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface ActivityReasoningRowViewModel {
@@ -181,6 +182,11 @@ function buildTurnRows(items: ActivityPart[]): ActivityFeedRowViewModel[] {
 
   for (const item of items) {
     if (item.kind === ACTIVITY_PART_KINDS.TEXT) {
+      if (shouldDisplayTextRow(item)) {
+        flushExploreGroup(rows, pendingExplore);
+        pendingExplore = [];
+        rows.push(createNonToolRow(item));
+      }
       continue;
     }
 
@@ -279,6 +285,7 @@ function createNonToolRow(item: Exclude<ActivityPart, ToolActivityPart>) {
         key: item.id,
         role: item.role,
         content: item.content,
+        metadata: item.metadata,
       } satisfies ActivityTextRowViewModel;
     case ACTIVITY_PART_KINDS.REASONING:
       return {
@@ -311,11 +318,7 @@ function createNonToolRow(item: Exclude<ActivityPart, ToolActivityPart>) {
 function isSuppressedReasoning(
   item: Extract<ActivityPart, { kind: typeof ACTIVITY_PART_KINDS.REASONING }>,
 ): boolean {
-  if (item.phase === "execution" || item.phase === "synthesis") {
-    return true;
-  }
-
-  return false;
+  return normalizeReasoningSummary(item.summary) === "";
 }
 
 function normalizeReasoningSummary(summary: string): string {
@@ -333,6 +336,18 @@ function normalizeReasoningSummary(summary: string): string {
   }
 
   return trimmed;
+}
+
+function shouldDisplayTextRow(
+  item: Extract<ActivityPart, { kind: typeof ACTIVITY_PART_KINDS.TEXT }>,
+): boolean {
+  if (item.role === "user") {
+    return false;
+  }
+
+  const code =
+    typeof item.metadata?.code === "string" ? item.metadata.code : undefined;
+  return code === "INCOMPLETE_MUTATION" || code === "TASK_EXECUTION_TIMEOUT";
 }
 
 function createToolRow(item: ToolActivityPart): ActivityToolRowViewModel {
