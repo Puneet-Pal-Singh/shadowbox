@@ -135,14 +135,14 @@ describe("HandleChatRequest", () => {
       prompt: "use tools",
       messages: [{ role: "user", content: "use tools" }],
       tools: {
-        run_command: {
+        bash: {
           description: "Run command",
         },
       },
     });
 
     expect(result.executionPayload.tools).toEqual({
-      run_command: {
+      bash: {
         description: "Run command",
       },
     });

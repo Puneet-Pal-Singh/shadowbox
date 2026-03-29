@@ -11,6 +11,7 @@ import {
 } from "../agents/ResultFormatter.js";
 import { validateSafePath } from "../agents/validation.js";
 import type {
+  ExecutionOutputChunk,
   RuntimeExecutionService,
   TaskInput,
   TaskResult,
@@ -26,6 +27,13 @@ export async function executeAgenticLoopTool(
     taskId: string;
     toolName: GoldenFlowToolName;
     toolInput: TaskInput;
+    onOutputAppended?: (
+      chunk: {
+        stdoutDelta?: string;
+        stderrDelta?: string;
+        truncated?: boolean;
+      },
+    ) => Promise<void> | void;
   },
 ): Promise<TaskResult> {
   switch (input.toolName) {
@@ -47,11 +55,12 @@ export async function executeAgenticLoopTool(
         input.taskId,
         input.toolInput,
       );
-    case "run_command":
-      return executeRunCommandTool(
+    case "bash":
+      return executeBashTool(
         executionService,
         input.taskId,
         input.toolInput,
+        input.onOutputAppended,
       );
     case "git_status":
       return executeGitStatusTool(
@@ -146,12 +155,21 @@ async function executeWriteFileTool(
   });
 }
 
-async function executeRunCommandTool(
+async function executeBashTool(
   executionService: RuntimeExecutionService,
   taskId: string,
   taskInput: TaskInput,
+  onOutputAppended?:
+    | ((
+        chunk: {
+          stdoutDelta?: string;
+          stderrDelta?: string;
+          truncated?: boolean;
+        },
+      ) => Promise<void> | void)
+    | undefined,
 ): Promise<TaskResult> {
-  const validatedInput = validateGoldenFlowToolInput("run_command", taskInput);
+  const validatedInput = validateGoldenFlowToolInput("bash", taskInput);
   const command = validatedInput.command.trim();
 
   if (!isConcreteCommandInput(command)) {
@@ -176,14 +194,48 @@ async function executeRunCommandTool(
     });
   }
 
-  const result = await executeGatewayPlugin(executionService, "run_command", {
+  const cwd = validatedInput.cwd
+    ? normalizeToolPath(validatedInput.cwd)
+    : ".";
+  if (cwd !== ".") {
+    validateSafePath(cwd);
+  }
+
+  const shellState = createShellState({
     command,
+    cwd,
+    description: validatedInput.description,
   });
+  const result = await executeGatewayPlugin(
+    executionService,
+    "bash",
+    {
+      command,
+      cwd: cwd === "." ? undefined : cwd,
+      description: validatedInput.description,
+    },
+    {
+      onOutput: async (chunk) => {
+        appendShellState(shellState, chunk);
+        await onOutputAppended?.({
+          stdoutDelta:
+            chunk.source !== "stderr" ? chunk.message : undefined,
+          stderrDelta:
+            chunk.source === "stderr" ? chunk.message : undefined,
+          truncated: shellState.truncated,
+        });
+      },
+    },
+  );
   const failure = extractExecutionFailure(result);
   if (failure) {
-    return buildFailureResult(taskId, failure);
+    return buildFailureResult(taskId, failure, {
+      activity: buildShellActivityMetadata(shellState, 1),
+    });
   }
-  return buildSuccessResult(taskId, formatExecutionResult(result));
+  return buildSuccessResult(taskId, formatExecutionResult(result), {
+    activity: buildShellActivityMetadata(shellState, 0),
+  });
 }
 
 async function executeGitStatusTool(
@@ -284,12 +336,15 @@ async function executeGatewayPlugin(
   executionService: RuntimeExecutionService,
   toolName: GoldenFlowToolName,
   payload: Record<string, unknown>,
+  options?: {
+    onOutput?: (chunk: ExecutionOutputChunk) => Promise<void> | void;
+  },
 ): Promise<unknown> {
   const route = getGoldenFlowToolRoute(toolName);
   if (!route || route.plugin === "internal") {
     throw new Error(`No executable gateway route registered for ${toolName}`);
   }
-  return executionService.execute(route.plugin, route.action, payload);
+  return executionService.execute(route.plugin, route.action, payload, options);
 }
 
 async function readExistingFileContent(
@@ -460,11 +515,21 @@ function buildSuccessResult(
   };
 }
 
-function buildFailureResult(taskId: string, message: string): TaskResult {
+function buildFailureResult(
+  taskId: string,
+  message: string,
+  metadata?: Record<string, unknown>,
+): TaskResult {
   return {
     taskId,
     status: "FAILED",
     error: { message },
+    output: metadata
+      ? {
+          content: message,
+          metadata,
+        }
+      : undefined,
     completedAt: new Date(),
   };
 }
@@ -483,6 +548,82 @@ function buildWriteActivityMetadata(
     deletions,
     diffPreview: buildDiffPreview(previousContent, nextContent),
   };
+}
+
+function createShellState(input: {
+  command: string;
+  cwd: string;
+  description?: string;
+}) {
+  return {
+    command: input.command,
+    cwd: input.cwd,
+    description: input.description,
+    stdout: "",
+    stderr: "",
+    truncated: false,
+  };
+}
+
+function appendShellState(
+  state: {
+    stdout: string;
+    stderr: string;
+    truncated: boolean;
+  },
+  chunk: ExecutionOutputChunk,
+): void {
+  const targetKey = chunk.source === "stderr" ? "stderr" : "stdout";
+  const nextValue = `${state[targetKey]}${chunk.message}`;
+  const cappedValue = nextValue.length > 64 * 1024;
+  state[targetKey] = cappedValue
+    ? nextValue.slice(nextValue.length - 64 * 1024)
+    : nextValue;
+  state.truncated = state.truncated || cappedValue;
+}
+
+function buildShellActivityMetadata(
+  state: {
+    command: string;
+    cwd: string;
+    description?: string;
+    stdout: string;
+    stderr: string;
+    truncated: boolean;
+  },
+  exitCode: number,
+): Record<string, unknown> {
+  return {
+    family: "shell",
+    command: state.command,
+    description: state.description,
+    cwd: state.cwd,
+    origin: "agent_tool",
+    stdout: state.stdout || undefined,
+    stderr: state.stderr || undefined,
+    outputTail: buildShellOutputTail(state.stdout, state.stderr) || undefined,
+    exitCode,
+    truncated: state.truncated,
+  };
+}
+
+function buildShellOutputTail(stdout: string, stderr: string): string {
+  const sections: string[] = [];
+  const trimmedStdout = stdout.trim();
+  const trimmedStderr = stderr.trim();
+
+  if (trimmedStdout) {
+    sections.push(trimmedStdout);
+  }
+  if (trimmedStderr) {
+    sections.push(`[stderr]\n${trimmedStderr}`);
+  }
+
+  const combined = sections.join("\n");
+  if (combined.length <= 128 * 1024) {
+    return combined;
+  }
+  return combined.slice(combined.length - 128 * 1024);
 }
 
 function countChangedLines(source: string, comparison: string): number {

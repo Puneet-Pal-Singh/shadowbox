@@ -25,6 +25,7 @@ export const RUN_EVENT_TYPES = {
   MESSAGE_EMITTED: "message.emitted",
   TOOL_REQUESTED: "tool.requested",
   TOOL_STARTED: "tool.started",
+  TOOL_OUTPUT_APPENDED: "tool.output.appended",
   TOOL_COMPLETED: "tool.completed",
   TOOL_FAILED: "tool.failed",
   RUN_COMPLETED: "run.completed",
@@ -84,6 +85,17 @@ export interface ToolStartedPayload {
   toolName: string;
 }
 
+type ToolOutputDelta =
+  | { stdoutDelta: string; stderrDelta?: string }
+  | { stdoutDelta?: string; stderrDelta: string };
+
+export type ToolOutputAppendedPayload = {
+  toolId: string;
+  toolName: string;
+  turnId?: string;
+  truncated?: boolean;
+} & ToolOutputDelta;
+
 export interface ToolCompletedPayload {
   toolId: string;
   toolName: string;
@@ -139,6 +151,11 @@ export type ToolStartedEvent = RunEventEnvelope<
   ToolStartedPayload
 >;
 
+export type ToolOutputAppendedEvent = RunEventEnvelope<
+  typeof RUN_EVENT_TYPES.TOOL_OUTPUT_APPENDED,
+  ToolOutputAppendedPayload
+>;
+
 export type ToolCompletedEvent = RunEventEnvelope<
   typeof RUN_EVENT_TYPES.TOOL_COMPLETED,
   ToolCompletedPayload
@@ -169,6 +186,7 @@ export type RunEvent =
   | MessageEmittedEvent
   | ToolRequestedEvent
   | ToolStartedEvent
+  | ToolOutputAppendedEvent
   | ToolCompletedEvent
   | ToolFailedEvent
   | RunCompletedEvent

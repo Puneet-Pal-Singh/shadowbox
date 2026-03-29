@@ -324,6 +324,68 @@ describe("AgenticLoop - Bounded Agentic Tool Chaining", () => {
       expect(executor.execute).not.toHaveBeenCalled();
     });
 
+    it("preserves structured edit metadata on completed mutating tool lifecycle events", async () => {
+      vi.mocked(llmGateway.generateText!)
+        .mockResolvedValueOnce({
+          text: "Updating the job detail page.",
+          toolCalls: [
+            {
+              id: "tool-call-1",
+              toolName: "write_file",
+              args: {
+                path: "src/components/jobs/JobDetailView.tsx",
+                content: "<section>updated</section>",
+              },
+            },
+          ],
+          usage: { promptTokens: 10, completionTokens: 5 },
+        })
+        .mockResolvedValueOnce({
+          text: "Done.",
+          toolCalls: [],
+          usage: { promptTokens: 12, completionTokens: 6 },
+        });
+
+      vi.mocked(executor.execute!).mockResolvedValue({
+        taskId: "tool-call-1",
+        status: "DONE",
+        output: {
+          content: "Updated src/components/jobs/JobDetailView.tsx",
+          metadata: {
+            activity: {
+              family: "edit",
+              filePath: "src/components/jobs/JobDetailView.tsx",
+              additions: 14,
+              deletions: 3,
+            },
+          },
+        },
+        completedAt: new Date(),
+      });
+
+      const result = await loop.execute(
+        [{ role: "user", content: "update my job detail page" }],
+        {
+          write_file: {
+            description: "Write a file",
+          },
+        } as unknown as Record<string, import("ai").CoreTool>,
+        { agentType: "coding" },
+      );
+
+      expect(result.completedMutatingToolCount).toBe(1);
+      expect(result.toolLifecycle[2]).toMatchObject({
+        toolName: "write_file",
+        status: "completed",
+        metadata: {
+          family: "edit",
+          filePath: "src/components/jobs/JobDetailView.tsx",
+          additions: 14,
+          deletions: 3,
+        },
+      });
+    });
+
     it("stops with tool_error when LLM requests an unregistered tool", async () => {
       vi.mocked(llmGateway.generateText!).mockResolvedValue({
         text: "calling unknown tool",
@@ -494,6 +556,150 @@ describe("AgenticLoop - Bounded Agentic Tool Chaining", () => {
       expect(finalRequest.tools).toBeUndefined();
       expect(finalRequest.system).toContain(
         "This is the final step. Do not call tools.",
+      );
+    });
+
+    it("suppresses raw tool_call markup when structured tool calls are present", async () => {
+      vi.mocked(llmGateway.generateText!)
+        .mockResolvedValueOnce({
+          text: '<tool_call>{"name":"read_file","arguments":{"path":"README.md"}}</tool_call>',
+          toolCalls: [
+            {
+              id: "tool-call-1",
+              toolName: "read_file",
+              args: { path: "README.md" },
+            },
+          ],
+          usage: { promptTokens: 10, completionTokens: 5 },
+        })
+        .mockResolvedValueOnce({
+          text: "README reviewed.",
+          toolCalls: [],
+          usage: { promptTokens: 12, completionTokens: 6 },
+        });
+
+      vi.mocked(executor.execute!).mockResolvedValue({
+        taskId: "tool-call-1",
+        status: "DONE",
+        output: { content: "README content" },
+        completedAt: new Date(),
+      });
+
+      const result = await loop.execute(
+        [{ role: "user", content: "read readme" }],
+        {
+          read_file: {
+            description: "Read a file",
+          },
+        } as unknown as Record<string, import("ai").CoreTool>,
+        { agentType: "coding" },
+      );
+
+      expect(result.messages[1]).toEqual({
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            toolCallId: "tool-call-1",
+            toolName: "read_file",
+            args: { path: "README.md" },
+          },
+        ],
+      });
+    });
+
+    it("adds a progress-correction prompt after repeated read-only inspection on edit requests", async () => {
+      const inspectionLoop = new AgenticLoop(
+        {
+          maxSteps: 6,
+          runId: "run-123",
+          sessionId: "session-123",
+        },
+        llmGateway as ILLMGateway,
+        executor as TaskExecutor,
+      );
+
+      vi.mocked(llmGateway.generateText!)
+        .mockResolvedValueOnce({
+          text: "Inspecting hero.",
+          toolCalls: [
+            {
+              id: "tool-call-1",
+              toolName: "read_file",
+              args: { path: "src/components/landing/hero/index.tsx" },
+            },
+          ],
+          usage: { promptTokens: 8, completionTokens: 6 },
+        })
+        .mockResolvedValueOnce({
+          text: "Inspecting testimonials.",
+          toolCalls: [
+            {
+              id: "tool-call-2",
+              toolName: "read_file",
+              args: { path: "src/components/landing/testimonials/index.tsx" },
+            },
+          ],
+          usage: { promptTokens: 8, completionTokens: 6 },
+        })
+        .mockResolvedValueOnce({
+          text: "Inspecting stats.",
+          toolCalls: [
+            {
+              id: "tool-call-3",
+              toolName: "read_file",
+              args: { path: "src/components/landing/stats/index.tsx" },
+            },
+          ],
+          usage: { promptTokens: 8, completionTokens: 6 },
+        })
+        .mockResolvedValueOnce({
+          text: "Inspecting blog card.",
+          toolCalls: [
+            {
+              id: "tool-call-4",
+              toolName: "read_file",
+              args: { path: "src/components/landing/BlogPreviewCard.tsx" },
+            },
+          ],
+          usage: { promptTokens: 8, completionTokens: 6 },
+        })
+        .mockResolvedValueOnce({
+          text: "Final answer.",
+          toolCalls: [],
+          usage: { promptTokens: 8, completionTokens: 6 },
+        });
+
+      vi.mocked(executor.execute!).mockResolvedValue({
+        taskId: "tool-call-1",
+        status: "DONE",
+        output: { content: "component contents" },
+        completedAt: new Date(),
+      });
+
+      await inspectionLoop.execute(
+        [
+          {
+            role: "user",
+            content: "check my landing page and update it to be prettier",
+          },
+        ],
+        {
+          read_file: {
+            description: "Read a file",
+          },
+        } as unknown as Record<string, import("ai").CoreTool>,
+        { agentType: "coding" },
+      );
+
+      const correctiveRequest = vi.mocked(llmGateway.generateText).mock
+        .calls[4]?.[0] as {
+        system?: string;
+      };
+      expect(correctiveRequest.system).toContain("Editing rule:");
+      expect(correctiveRequest.system).toContain("Progress correction:");
+      expect(correctiveRequest.system).toContain(
+        "Stop broad inspection and attempt the concrete edit now",
       );
     });
   });

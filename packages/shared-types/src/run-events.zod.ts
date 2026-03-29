@@ -9,6 +9,7 @@ import {
   RUN_WORKFLOW_STEPS,
   type RunEvent,
   type RunEventType,
+  type ToolOutputAppendedPayload,
 } from "./run-events.js";
 import { RUN_STATUSES } from "./run-status.js";
 
@@ -32,6 +33,7 @@ const RunEventTypeSchema = z.enum([
   RUN_EVENT_TYPES.MESSAGE_EMITTED,
   RUN_EVENT_TYPES.TOOL_REQUESTED,
   RUN_EVENT_TYPES.TOOL_STARTED,
+  RUN_EVENT_TYPES.TOOL_OUTPUT_APPENDED,
   RUN_EVENT_TYPES.TOOL_COMPLETED,
   RUN_EVENT_TYPES.TOOL_FAILED,
   RUN_EVENT_TYPES.RUN_COMPLETED,
@@ -75,6 +77,25 @@ const ToolStartedPayloadSchema = z.object({
   toolId: z.string().min(1),
   toolName: z.string().min(1),
 });
+
+const ToolOutputAppendedBaseSchema = z.object({
+  toolId: z.string().min(1),
+  toolName: z.string().min(1),
+  turnId: z.string().min(1).optional(),
+  truncated: z.boolean().optional(),
+});
+
+const ToolOutputAppendedPayloadSchema: z.ZodType<ToolOutputAppendedPayload> =
+  z.union([
+    ToolOutputAppendedBaseSchema.extend({
+      stdoutDelta: z.string().min(1),
+      stderrDelta: z.string().min(1).optional(),
+    }),
+    ToolOutputAppendedBaseSchema.extend({
+      stdoutDelta: z.string().min(1).optional(),
+      stderrDelta: z.string().min(1),
+    }),
+  ]);
 
 const ToolCompletedPayloadSchema = z.object({
   toolId: z.string().min(1),
@@ -187,6 +208,18 @@ const RunEventSchema = z.discriminatedUnion("type", [
       sessionId: z.string().min(1).optional(),
       timestamp: z.string().datetime(),
       source: EventSourceSchema,
+      type: z.literal(RUN_EVENT_TYPES.TOOL_OUTPUT_APPENDED),
+      payload: ToolOutputAppendedPayloadSchema,
+    })
+    .strict(),
+  z
+    .object({
+      version: z.literal(1),
+      eventId: z.string().min(1),
+      runId: z.string().min(1),
+      sessionId: z.string().min(1).optional(),
+      timestamp: z.string().datetime(),
+      source: EventSourceSchema,
       type: z.literal(RUN_EVENT_TYPES.TOOL_COMPLETED),
       payload: ToolCompletedPayloadSchema,
     })
@@ -288,6 +321,7 @@ export function getEventPayloadSchema(type: RunEventType): z.ZodSchema | null {
     [RUN_EVENT_TYPES.MESSAGE_EMITTED]: MessageEmittedPayloadSchema,
     [RUN_EVENT_TYPES.TOOL_REQUESTED]: ToolRequestedPayloadSchema,
     [RUN_EVENT_TYPES.TOOL_STARTED]: ToolStartedPayloadSchema,
+    [RUN_EVENT_TYPES.TOOL_OUTPUT_APPENDED]: ToolOutputAppendedPayloadSchema,
     [RUN_EVENT_TYPES.TOOL_COMPLETED]: ToolCompletedPayloadSchema,
     [RUN_EVENT_TYPES.TOOL_FAILED]: ToolFailedPayloadSchema,
     [RUN_EVENT_TYPES.RUN_COMPLETED]: RunCompletedPayloadSchema,

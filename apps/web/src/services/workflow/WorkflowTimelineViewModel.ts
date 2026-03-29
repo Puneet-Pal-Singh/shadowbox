@@ -222,6 +222,16 @@ export function buildWorkflowTimelineViewModel(params: {
         row.status = "running";
         break;
       }
+      case RUN_EVENT_TYPES.TOOL_OUTPUT_APPENDED: {
+        const row = getOrCreateToolRow(currentToolRows, event);
+        row.status = "running";
+        const outputDelta =
+          event.payload.stdoutDelta ?? event.payload.stderrDelta ?? "";
+        if (outputDelta) {
+          row.details.push(truncateText(outputDelta, 220));
+        }
+        break;
+      }
       case RUN_EVENT_TYPES.TOOL_COMPLETED: {
         const row = getOrCreateToolRow(currentToolRows, event);
         row.status = "success";
@@ -390,6 +400,7 @@ function getOrCreateToolRow(
   event:
     | Extract<RunEvent, { type: typeof RUN_EVENT_TYPES.TOOL_REQUESTED }>
     | Extract<RunEvent, { type: typeof RUN_EVENT_TYPES.TOOL_STARTED }>
+    | Extract<RunEvent, { type: typeof RUN_EVENT_TYPES.TOOL_OUTPUT_APPENDED }>
     | Extract<RunEvent, { type: typeof RUN_EVENT_TYPES.TOOL_COMPLETED }>
     | Extract<RunEvent, { type: typeof RUN_EVENT_TYPES.TOOL_FAILED }>,
 ): MutableToolRow {
@@ -559,6 +570,7 @@ function buildSummary(
     if (
       event.type === RUN_EVENT_TYPES.TOOL_REQUESTED ||
       event.type === RUN_EVENT_TYPES.TOOL_STARTED ||
+      event.type === RUN_EVENT_TYPES.TOOL_OUTPUT_APPENDED ||
       event.type === RUN_EVENT_TYPES.TOOL_COMPLETED ||
       event.type === RUN_EVENT_TYPES.TOOL_FAILED
     ) {

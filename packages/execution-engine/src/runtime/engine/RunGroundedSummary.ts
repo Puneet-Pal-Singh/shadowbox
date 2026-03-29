@@ -1,4 +1,5 @@
 import type { SerializedTask } from "../types.js";
+import { detectsMutation } from "./detectsMutation.js";
 
 interface TaskSections {
   completed: SerializedTask[];
@@ -174,10 +175,7 @@ function buildMissingMutationSummary(
 }
 
 function promptRequestsMutation(originalPrompt: string): boolean {
-  const normalizedPrompt = originalPrompt.toLowerCase();
-  const mutationPattern =
-    /\b(add|edit|update|modify|fix|create|implement|refactor|remove|rename|change|write|insert|delete|replace|append)\b(?:\s+\S+)?/;
-  return mutationPattern.test(normalizedPrompt);
+  return detectsMutation(originalPrompt.toLowerCase());
 }
 
 function isMutatingTask(task: SerializedTask): boolean {

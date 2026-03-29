@@ -255,7 +255,7 @@ describe("CodingAgent task-phase model selection", () => {
     });
   });
 
-  it("routes run_command and git_diff tools to bounded executable handlers", async () => {
+  it("routes bash and git_diff tools to bounded executable handlers", async () => {
     const llmGateway = createLLMGatewayMock();
     const execute = vi
       .fn()
@@ -276,7 +276,7 @@ describe("CodingAgent task-phase model selection", () => {
     const commandTask = {
       id: "task-tool-command",
       runId: "run-1",
-      type: "run_command",
+      type: "bash",
       input: { description: "run tests", command: "pnpm test" },
     } as unknown as Task;
     const commandResult = await agent.executeTask(commandTask, context);
@@ -291,7 +291,7 @@ describe("CodingAgent task-phase model selection", () => {
     const diffResult = await agent.executeTask(diffTask, context);
     expect(diffResult.status).toBe("DONE");
 
-    expect(execute).toHaveBeenCalledWith("node", "run", {
+    expect(execute).toHaveBeenCalledWith("bash", "run", {
       command: "pnpm test",
     });
     expect(execute).toHaveBeenCalledWith("git", "git_diff", {});

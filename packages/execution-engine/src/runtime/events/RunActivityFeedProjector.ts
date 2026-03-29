@@ -19,6 +19,8 @@ import {
 import type { SerializedRun } from "../types.js";
 
 const UNKNOWN_ACTIVITY_TIMESTAMP = "1970-01-01T00:00:00.000Z";
+const SHELL_OUTPUT_TAIL_CAP = 128 * 1024;
+const SHELL_STREAM_CAP_PER_CHANNEL = SHELL_OUTPUT_TAIL_CAP / 2;
 
 interface ProjectRunActivityFeedParams {
   runId: string;
@@ -67,6 +69,9 @@ export function projectRunActivityFeed(
           updatedAt: event.timestamp,
           startedAt: event.timestamp,
         });
+        break;
+      case RUN_EVENT_TYPES.TOOL_OUTPUT_APPENDED:
+        appendToolOutput(toolParts, event);
         break;
       case RUN_EVENT_TYPES.TOOL_COMPLETED:
         applyToolCompletion(toolParts, event);
@@ -191,11 +196,9 @@ function applyToolCompletion(
   part.startedAt = part.startedAt ?? event.timestamp;
   part.endedAt = event.timestamp;
   part.output = event.payload.result;
-  part.metadata = buildToolMetadata(
-    part.toolName,
-    part.input,
-    event.payload.result,
-    undefined,
+  part.metadata = mergeToolMetadata(
+    part.metadata,
+    buildToolMetadata(part.toolName, part.input, event.payload.result, undefined),
   );
 }
 
@@ -212,12 +215,47 @@ function applyToolFailure(
   part.startedAt = part.startedAt ?? event.timestamp;
   part.endedAt = event.timestamp;
   part.output = { error: event.payload.error };
-  part.metadata = buildToolMetadata(
-    part.toolName,
-    part.input,
-    undefined,
-    event.payload.error,
+  part.metadata = mergeToolMetadata(
+    part.metadata,
+    buildToolMetadata(part.toolName, part.input, undefined, event.payload.error),
   );
+}
+
+function appendToolOutput(
+  toolParts: Map<string, ToolActivityPart>,
+  event: Extract<RunEvent, { type: typeof RUN_EVENT_TYPES.TOOL_OUTPUT_APPENDED }>,
+): void {
+  const part = toolParts.get(event.payload.toolId);
+  if (!part || part.metadata.family !== TOOL_ACTIVITY_FAMILIES.SHELL) {
+    return;
+  }
+
+  const nextStdout = appendCappedText(
+    part.metadata.stdout,
+    event.payload.stdoutDelta,
+    SHELL_STREAM_CAP_PER_CHANNEL,
+  );
+  const nextStderr = appendCappedText(
+    part.metadata.stderr,
+    event.payload.stderrDelta,
+    SHELL_STREAM_CAP_PER_CHANNEL,
+  );
+
+  part.status = TOOL_ACTIVITY_STATUSES.RUNNING;
+  part.updatedAt = event.timestamp;
+  part.startedAt = part.startedAt ?? event.timestamp;
+  part.metadata = {
+    ...part.metadata,
+    stdout: nextStdout.value || undefined,
+    stderr: nextStderr.value || undefined,
+    outputTail:
+      buildShellOutputTail(nextStdout.value, nextStderr.value) || undefined,
+    truncated:
+      part.metadata.truncated ||
+      nextStdout.truncated ||
+      nextStderr.truncated ||
+      Boolean(event.payload.truncated),
+  };
 }
 
 function updateToolPart(
@@ -304,14 +342,18 @@ function buildToolMetadata(
     case "glob":
     case "grep":
       return buildSearchMetadata(toolName, input, outputText);
-    case "run_command":
+    case "bash":
       return {
         family: TOOL_ACTIVITY_FAMILIES.SHELL,
         command: readString(input?.command) ?? toolName,
+        description: readString(input?.description),
         cwd: readString(input?.cwd) ?? ".",
+        origin: "agent_tool",
         stdout: outputText || undefined,
         stderr: error,
+        outputTail: buildShellOutputTail(outputText, error ?? "") || undefined,
         exitCode: error ? 1 : 0,
+        truncated: false,
       };
     case "write_file":
       return {
@@ -335,6 +377,29 @@ function buildToolMetadata(
         summary: outputText || error || undefined,
       };
   }
+}
+
+function mergeToolMetadata(
+  current: ToolActivityMetadata,
+  next: ToolActivityMetadata,
+): ToolActivityMetadata {
+  if (
+    current.family !== TOOL_ACTIVITY_FAMILIES.SHELL ||
+    next.family !== TOOL_ACTIVITY_FAMILIES.SHELL
+  ) {
+    return next;
+  }
+
+  const stdout = next.stdout ?? current.stdout;
+  const stderr = next.stderr ?? current.stderr;
+  return {
+    ...current,
+    ...next,
+    stdout,
+    stderr,
+    outputTail: buildShellOutputTail(stdout ?? "", stderr ?? "") || undefined,
+    truncated: current.truncated || next.truncated,
+  };
 }
 
 function getStructuredActivityMetadata(
@@ -482,6 +547,43 @@ function truncateText(value: string, maxLength: number): string {
     return compact;
   }
   return `${compact.slice(0, maxLength - 3)}...`;
+}
+
+function appendCappedText(
+  current: string | undefined,
+  delta: string | undefined,
+  maxLength: number,
+): { value: string; truncated: boolean } {
+  const next = `${current ?? ""}${delta ?? ""}`;
+  if (next.length <= maxLength) {
+    return {
+      value: next,
+      truncated: false,
+    };
+  }
+  return {
+    value: next.slice(next.length - maxLength),
+    truncated: true,
+  };
+}
+
+function buildShellOutputTail(stdout: string, stderr: string): string {
+  const sections: string[] = [];
+  const trimmedStdout = stdout.trim();
+  const trimmedStderr = stderr.trim();
+
+  if (trimmedStdout) {
+    sections.push(trimmedStdout);
+  }
+  if (trimmedStderr) {
+    sections.push(`[stderr]\n${trimmedStderr}`);
+  }
+
+  const combined = sections.join("\n");
+  if (combined.length <= SHELL_OUTPUT_TAIL_CAP) {
+    return combined;
+  }
+  return combined.slice(combined.length - SHELL_OUTPUT_TAIL_CAP);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

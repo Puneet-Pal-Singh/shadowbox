@@ -11,7 +11,7 @@ export type GoldenFlowToolName =
   | "read_file"
   | "list_files"
   | "write_file"
-  | "run_command"
+  | "bash"
   | "git_status"
   | "git_diff"
   | "glob"
@@ -19,7 +19,7 @@ export type GoldenFlowToolName =
 
 export interface ToolGatewayRoute {
   toolName: GoldenFlowToolName;
-  plugin: "filesystem" | "node" | "git" | "internal";
+  plugin: "filesystem" | "node" | "git" | "bash" | "internal";
   action: string;
 }
 
@@ -42,8 +42,10 @@ const WRITE_FILE_TOOL_INPUT_SCHEMA = z.object({
   content: z.string().min(1).max(MAX_WRITE_CONTENT_LENGTH),
 });
 
-const RUN_COMMAND_TOOL_INPUT_SCHEMA = z.object({
+const BASH_TOOL_INPUT_SCHEMA = z.object({
   command: z.string().min(1).max(MAX_COMMAND_LENGTH),
+  cwd: z.string().min(1).max(MAX_PATH_LENGTH).optional(),
+  description: z.string().min(1).max(MAX_COMMAND_LENGTH).optional(),
 });
 
 const GIT_STATUS_TOOL_INPUT_SCHEMA = z.object({});
@@ -71,7 +73,7 @@ export type GoldenFlowToolInputByName = {
   read_file: z.infer<typeof READ_FILE_TOOL_INPUT_SCHEMA>;
   list_files: z.infer<typeof LIST_FILES_TOOL_INPUT_SCHEMA>;
   write_file: z.infer<typeof WRITE_FILE_TOOL_INPUT_SCHEMA>;
-  run_command: z.infer<typeof RUN_COMMAND_TOOL_INPUT_SCHEMA>;
+  bash: z.infer<typeof BASH_TOOL_INPUT_SCHEMA>;
   git_status: z.infer<typeof GIT_STATUS_TOOL_INPUT_SCHEMA>;
   git_diff: z.infer<typeof GIT_DIFF_TOOL_INPUT_SCHEMA>;
   glob: z.infer<typeof GLOB_TOOL_INPUT_SCHEMA>;
@@ -102,10 +104,10 @@ const GOLDEN_FLOW_TOOL_SPECS: Record<GoldenFlowToolName, GoldenFlowToolSpec> = {
       action: "write_file",
     },
   },
-  run_command: {
-    description: "Run a bounded Node/shell command in the workspace.",
-    parameters: RUN_COMMAND_TOOL_INPUT_SCHEMA,
-    route: { toolName: "run_command", plugin: "node", action: "run" },
+  bash: {
+    description: "Run a bounded bash command in the current workspace.",
+    parameters: BASH_TOOL_INPUT_SCHEMA,
+    route: { toolName: "bash", plugin: "bash", action: "run" },
   },
   git_status: {
     description: "Get git status for the workspace repository.",
@@ -148,7 +150,7 @@ export function isGoldenFlowToolName(
 }
 
 export function isMutatingGoldenFlowToolName(toolName: string): boolean {
-  return toolName === "write_file" || toolName === "run_command";
+  return toolName === "write_file" || toolName === "bash";
 }
 
 export function getGoldenFlowToolRoute(

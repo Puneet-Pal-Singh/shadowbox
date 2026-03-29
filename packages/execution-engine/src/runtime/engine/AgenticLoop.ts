@@ -7,6 +7,10 @@
 
 import type { CoreMessage, CoreTool } from "ai";
 import {
+  safeParseToolActivityMetadata,
+  type ToolActivityMetadata,
+} from "@repo/shared-types";
+import {
   BudgetExceededError,
   SessionBudgetExceededError,
 } from "../cost/index.js";
@@ -16,6 +20,7 @@ import type { TaskExecutor } from "../orchestration/index.js";
 import { isMutatingGoldenFlowToolName } from "../contracts/CodingToolGateway.js";
 import { Task } from "../task/index.js";
 import type { AgenticLoopToolLifecycleEvent, TaskResult } from "../types.js";
+import { detectsMutation } from "./detectsMutation.js";
 
 export interface AgenticLoopConfig {
   maxSteps: number;
@@ -51,6 +56,9 @@ export interface AgenticLoopResult {
   toolExecutionCount: number;
   failedToolCount: number;
   stepsExecuted: number;
+  requiresMutation: boolean;
+  completedMutatingToolCount: number;
+  completedReadOnlyToolCount: number;
   toolLifecycle: AgenticLoopToolLifecycleEvent[];
 }
 
@@ -83,6 +91,8 @@ export class AgenticLoop {
   private stepsExecuted: number = 0;
   private toolExecutionCount: number = 0;
   private failedToolCount: number = 0;
+  private completedMutatingToolCount: number = 0;
+  private completedReadOnlyToolCount: number = 0;
   private toolLifecycle: AgenticLoopToolLifecycleEvent[] = [];
 
   constructor(
@@ -114,6 +124,7 @@ export class AgenticLoop {
   ): Promise<AgenticLoopResult> {
     this.reset();
     const messages: CoreMessage[] = [...initialMessages];
+    const requiresMutation = requestRequiresMutation(initialMessages);
     let stopReason: StopReason | null = null;
 
     for (let step = 0; step < this.config.maxSteps; step++) {
@@ -166,6 +177,9 @@ export class AgenticLoop {
           system: buildAgenticLoopSystemPrompt({
             workspaceContext: context.workspaceContext,
             finalSynthesisOnly: isFinalSynthesisStep,
+            requiresMutation,
+            completedMutatingToolCount: this.completedMutatingToolCount,
+            completedReadOnlyToolCount: this.completedReadOnlyToolCount,
           }),
           tools: isFinalSynthesisStep ? undefined : tools,
           model: context.modelId,
@@ -255,10 +269,16 @@ export class AgenticLoop {
           const executionTimeMs = Date.now() - toolStartedAt;
 
           if (result.status === "DONE") {
+            if (isMutatingGoldenFlowToolName(toolCall.toolName)) {
+              this.completedMutatingToolCount++;
+            } else {
+              this.completedReadOnlyToolCount++;
+            }
             this.recordToolLifecycle(
               toolCall,
               "completed",
               summarizeLifecycleDetail(result.output?.content ?? null),
+              extractToolActivityMetadata(result.output?.metadata),
             );
             await context.onToolCompleted?.(
               toolCall,
@@ -337,6 +357,9 @@ export class AgenticLoop {
       toolExecutionCount: this.toolExecutionCount,
       failedToolCount: this.failedToolCount,
       stepsExecuted: this.stepsExecuted,
+      requiresMutation,
+      completedMutatingToolCount: this.completedMutatingToolCount,
+      completedReadOnlyToolCount: this.completedReadOnlyToolCount,
       toolLifecycle: [...this.toolLifecycle],
     };
   }
@@ -361,6 +384,8 @@ export class AgenticLoop {
     this.stepsExecuted = 0;
     this.toolExecutionCount = 0;
     this.failedToolCount = 0;
+    this.completedMutatingToolCount = 0;
+    this.completedReadOnlyToolCount = 0;
     this.toolLifecycle = [];
   }
 
@@ -378,6 +403,7 @@ export class AgenticLoop {
     toolCall: Pick<AgenticLoopToolCall, "id" | "toolName">,
     status: AgenticLoopToolLifecycleEvent["status"],
     detail?: string,
+    metadata?: ToolActivityMetadata,
   ): void {
     this.toolLifecycle.push({
       toolCallId: toolCall.id,
@@ -386,6 +412,7 @@ export class AgenticLoop {
       mutating: isMutatingGoldenFlowToolName(toolCall.toolName),
       recordedAt: new Date().toISOString(),
       detail,
+      metadata,
     });
   }
 }
@@ -393,6 +420,9 @@ export class AgenticLoop {
 function buildAgenticLoopSystemPrompt(input: {
   workspaceContext?: string;
   finalSynthesisOnly: boolean;
+  requiresMutation: boolean;
+  completedMutatingToolCount: number;
+  completedReadOnlyToolCount: number;
 }): string {
   const sections = [
     "You are Shadowbox's autonomous build agent.",
@@ -410,19 +440,54 @@ function buildAgenticLoopSystemPrompt(input: {
     "- Reference the files or git facts you actually observed.",
   ];
 
+  if (input.requiresMutation) {
+    sections.push(
+      [
+        "Editing rule:",
+        "- The user asked you to change the workspace, not only inspect it.",
+        "- Do not claim success until a mutating tool such as write_file has completed successfully.",
+        "- After enough inspection, choose the best concrete file and make the change.",
+      ].join("\n"),
+    );
+  }
+
   if (input.workspaceContext) {
     sections.push(`Workspace context:\n${input.workspaceContext}`);
   }
 
-  if (input.finalSynthesisOnly) {
+  if (
+    input.requiresMutation &&
+    input.completedMutatingToolCount === 0 &&
+    input.completedReadOnlyToolCount >= 4
+  ) {
     sections.push(
       [
-        "Final step rule:",
-        "- This is the final step. Do not call tools.",
-        "- Synthesize what you have already learned into the best truthful answer you can.",
-        "- If the task is incomplete, say what you checked, what you found, and what remains uncertain.",
+        "Progress correction:",
+        "- You have already used several read-only tools without making the requested change.",
+        "- Stop broad inspection and attempt the concrete edit now unless the target is still genuinely unknown.",
+        "- If you still cannot identify the right file, say that explicitly in the final answer instead of claiming completion.",
       ].join("\n"),
     );
+  }
+
+  if (input.finalSynthesisOnly) {
+    const finalStepRules = [
+      "Final step rule:",
+      "- This is the final step. Do not call tools.",
+      "- Synthesize what you have already learned into the best truthful answer you can.",
+      "- If the task is incomplete, say what you checked, what you found, and what remains uncertain.",
+    ];
+
+    if (input.requiresMutation && input.completedMutatingToolCount === 0) {
+      finalStepRules.push(
+        "- The requested change is not complete because no mutating tool succeeded.",
+      );
+      finalStepRules.push(
+        "- Do not claim that files were updated or improved unless a mutating tool actually succeeded.",
+      );
+    }
+
+    sections.push(finalStepRules.join("\n"));
   }
 
   return sections.join("\n");
@@ -436,10 +501,11 @@ function buildAssistantMessage(
   text: string,
   toolCalls: AgenticLoopToolCall[] | undefined,
 ): CoreMessage {
+  const normalizedText = normalizeAssistantText(text, toolCalls);
   if (!toolCalls || toolCalls.length === 0) {
     return {
       role: "assistant",
-      content: text,
+      content: normalizedText,
     };
   }
 
@@ -453,10 +519,10 @@ function buildAssistantMessage(
       }
   > = [];
 
-  if (text.trim()) {
+  if (normalizedText.trim()) {
     content.push({
       type: "text",
-      text,
+      text: normalizedText,
     });
   }
 
@@ -506,4 +572,63 @@ function summarizeLifecycleDetail(value: unknown): string | undefined {
 
   const compact = normalized.replace(/\s+/g, " ");
   return compact.length <= 160 ? compact : `${compact.slice(0, 157)}...`;
+}
+
+function extractToolActivityMetadata(
+  metadata: unknown,
+): ToolActivityMetadata | undefined {
+  if (!metadata || typeof metadata !== "object") {
+    return undefined;
+  }
+
+  const activity = (metadata as Record<string, unknown>).activity;
+  const parsed = safeParseToolActivityMetadata(activity);
+  return parsed.success ? parsed.data : undefined;
+}
+
+function requestRequiresMutation(initialMessages: CoreMessage[]): boolean {
+  const userText = initialMessages
+    .filter((message) => message.role === "user")
+    .map((message) =>
+      typeof message.content === "string"
+        ? message.content
+        : Array.isArray(message.content)
+          ? message.content
+              .filter(
+                (
+                  part,
+                ): part is {
+                  type: "text";
+                  text: string;
+                } => part.type === "text" && typeof part.text === "string",
+              )
+              .map((part) => part.text)
+              .join("\n")
+          : "",
+    )
+    .join("\n")
+    .toLowerCase();
+
+  return detectsMutation(userText);
+}
+
+function normalizeAssistantText(
+  text: string,
+  toolCalls: AgenticLoopToolCall[] | undefined,
+): string {
+  const trimmed = text.trim();
+  if (!toolCalls || toolCalls.length === 0 || !trimmed) {
+    return normalizeStandaloneToolCallMarkup(text);
+  }
+
+  return normalizeStandaloneToolCallMarkup(text);
+}
+
+function normalizeStandaloneToolCallMarkup(text: string): string {
+  const trimmed = text.trim();
+  if (/^<tool_call>[\s\S]*<\/tool_call>$/i.test(trimmed)) {
+    return "";
+  }
+
+  return text;
 }

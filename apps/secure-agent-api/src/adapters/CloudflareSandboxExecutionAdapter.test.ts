@@ -11,6 +11,7 @@
 import { describe, expect, it, beforeEach } from "vitest";
 import { CloudflareSandboxExecutionAdapter } from "./CloudflareSandboxExecutionAdapter";
 import type { IPlugin, ToolDefinition } from "../interfaces/types";
+import type { TaskExecutionHooks } from "../ports/SandboxExecutionPort";
 
 const TEST_RUN_ID = "run-1";
 
@@ -249,6 +250,51 @@ describe("CloudflareSandboxExecutionAdapter", () => {
 
       expect(result.status).toBe("success");
       expect(result.output).toBe("hi");
+    });
+
+    it("waits for async log hooks before returning plugin results", async () => {
+      const callOrder: string[] = [];
+
+      class LoggingPlugin implements IPlugin {
+        readonly name = "logger";
+        readonly tools: ToolDefinition[] = [];
+
+        async setup(): Promise<void> {
+          // No-op
+        }
+
+        async execute(
+          _sandbox: unknown,
+          _payload: unknown,
+          onLog?: (entry: string | { message: string; source?: "stdout" | "stderr" }) => void,
+        ): Promise<{ success: boolean; output: string }> {
+          onLog?.({ message: "chunk", source: "stdout" });
+          callOrder.push("plugin-result");
+          return { success: true, output: "done" };
+        }
+      }
+
+      pluginMap.set("logger", new LoggingPlugin());
+
+      const hooks: TaskExecutionHooks = {
+        onLog: async () => {
+          await new Promise((resolve) => setTimeout(resolve, 0));
+          callOrder.push("log-drained");
+        },
+      };
+
+      const result = await adapter.executeTask(
+        "session-1",
+        {
+          taskId: "task-log-drain",
+          action: "logger.execute",
+          params: { action: "run", runId: TEST_RUN_ID },
+        },
+        hooks,
+      );
+
+      expect(result.status).toBe("success");
+      expect(callOrder).toEqual(["plugin-result", "log-drained"]);
     });
 
     it("injects stable toolbox correlation metadata into execute-style payloads", async () => {

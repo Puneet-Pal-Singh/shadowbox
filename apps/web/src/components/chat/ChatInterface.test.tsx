@@ -238,6 +238,39 @@ describe("ChatInterface", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("shows rate-limit errors next to the composer so they remain visible after auto-scroll", () => {
+    render(
+      <ChatInterface
+        chatProps={{
+          messages: [
+            {
+              id: "user-1",
+              role: "user",
+              content: "Check my landing page.",
+            },
+          ],
+          runId: "run-1",
+          input: "",
+          handleInputChange: vi.fn(),
+          handleSubmit: vi.fn(),
+          append: vi.fn(),
+          stop: vi.fn(),
+          isLoading: false,
+          error: "Provider rate limit reached. Retry after cooldown or switch to another connected provider.",
+          debugEvents: [],
+        }}
+        sessionId="session-1"
+        mode="build"
+      />,
+    );
+
+    expect(screen.getByText("Provider rate limit was reached.")).toBeInTheDocument();
+    expect(
+      screen.getByText("Switch to another connected provider or retry after rate limits reset."),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Switch Provider" })).toBeInTheDocument();
+  });
+
   it("keeps each workflow turn attached to its matching user query", () => {
     vi.mocked(useRunSummary).mockReturnValue({
       summary: {

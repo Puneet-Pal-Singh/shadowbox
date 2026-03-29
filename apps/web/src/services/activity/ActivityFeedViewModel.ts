@@ -417,6 +417,8 @@ function getToolSummary(item: ToolActivityPart): string {
         ? "Command failed"
         : item.status === "running"
           ? "Running"
+          : item.status === "requested"
+            ? "Queued"
           : "";
     case TOOL_ACTIVITY_FAMILIES.EDIT:
       return `+${item.metadata.additions} / -${item.metadata.deletions}`;
@@ -435,8 +437,8 @@ function getToolDetails(item: ToolActivityPart): string[] {
     case TOOL_ACTIVITY_FAMILIES.SHELL:
       return [
         item.metadata.cwd ? `cwd: ${item.metadata.cwd}` : "",
-        item.metadata.stdout ?? "",
-        item.metadata.stderr ?? "",
+        item.metadata.outputTail ?? "",
+        item.metadata.truncated ? "Output truncated to the latest shell tail." : "",
       ].filter(Boolean);
     case TOOL_ACTIVITY_FAMILIES.EDIT:
       return [item.metadata.diffPreview ?? ""].filter(Boolean);

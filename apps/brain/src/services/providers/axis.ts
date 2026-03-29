@@ -4,7 +4,7 @@ import type {
 } from "@repo/shared-types";
 
 export const AXIS_PROVIDER_ID = "axis";
-export const AXIS_DAILY_LIMIT = 5;
+export const AXIS_DAILY_LIMIT = 50000;
 
 export const AXIS_CURATED_MODEL_IDS = [
   "z-ai/glm-4.5-air:free",

@@ -15,7 +15,7 @@ describe("CodingToolGateway", () => {
       "read_file",
       "list_files",
       "write_file",
-      "run_command",
+      "bash",
       "git_status",
       "git_diff",
       "glob",
@@ -32,9 +32,9 @@ describe("CodingToolGateway", () => {
       plugin: "filesystem",
       action: "read_file",
     });
-    expect(getGoldenFlowToolRoute("run_command")).toEqual({
-      toolName: "run_command",
-      plugin: "node",
+    expect(getGoldenFlowToolRoute("bash")).toEqual({
+      toolName: "bash",
+      plugin: "bash",
       action: "run",
     });
     expect(getGoldenFlowToolRoute("git_diff")).toEqual({
@@ -47,7 +47,7 @@ describe("CodingToolGateway", () => {
 
   it("classifies mutating golden-flow tools conservatively", () => {
     expect(isMutatingGoldenFlowToolName("write_file")).toBe(true);
-    expect(isMutatingGoldenFlowToolName("run_command")).toBe(true);
+    expect(isMutatingGoldenFlowToolName("bash")).toBe(true);
     expect(isMutatingGoldenFlowToolName("read_file")).toBe(false);
     expect(isMutatingGoldenFlowToolName("git_diff")).toBe(false);
   });

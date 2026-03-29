@@ -10,6 +10,7 @@ const DEFAULT_EXECUTION_TIMEOUT_MS = 120_000;
 const GIT_STATUS_TIMEOUT_MS = 12_000;
 const GIT_MUTATION_TIMEOUT_MS = 20_000;
 const EXECUTION_SESSION_REPO_PATH = ".";
+const EXECUTION_LOG_POLL_INTERVAL_MS = 250;
 
 interface SecureExecutionSession {
   sessionId: string;
@@ -41,6 +42,14 @@ interface LegacyExecutionResult {
   error?: string;
 }
 
+interface SecureExecutionLogEntry {
+  taskId?: string;
+  timestamp: number;
+  level: "info" | "warn" | "error" | "debug";
+  message: string;
+  source?: "stdout" | "stderr";
+}
+
 /**
  * ExecutionService - Handles plugin execution with secure token pass-through
  *
@@ -63,8 +72,17 @@ export class ExecutionService {
     plugin: string,
     action: string,
     payload: Record<string, unknown>,
+    options?: {
+      onOutput?: (chunk: {
+        message: string;
+        source?: "stdout" | "stderr";
+        timestamp?: number;
+      }) => Promise<void> | void;
+    },
   ) {
     const executionAction = normalizeExecutionAction(plugin, action);
+    let executionFinished = false;
+    let logForwardingPromise: Promise<void> | null = null;
     console.log(
       `[ExecutionService] ${plugin}:${executionAction}`,
       sanitizeLogPayload(payload),
@@ -85,27 +103,44 @@ export class ExecutionService {
 
       const timeoutMs = resolveExecutionTimeoutMs(plugin, executionAction);
       const executionSession = await this.getExecutionSession();
-      const res = await fetchWithTimeout(
-        this.env.SECURE_API,
-        `http://internal/api/v1/execute?session=${encodeURIComponent(this.sessionId)}`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${executionSession.token}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
+      const taskId = createExecutionTaskId(plugin, executionAction);
+      logForwardingPromise = options?.onOutput
+        ? this.forwardExecutionLogs({
             sessionId: executionSession.sessionId,
-            taskId: createExecutionTaskId(plugin, executionAction),
-            action: `${plugin}.execute`,
-            params: { ...payload, runId: this.runId, action: executionAction },
-            timeout: timeoutMs,
-          }),
-        },
-        timeoutMs,
-      );
+            taskId,
+            token: executionSession.token,
+            timeoutMs,
+            onOutput: options.onOutput,
+            isFinished: () => executionFinished,
+          })
+        : null;
+      let res: Awaited<ReturnType<Env["SECURE_API"]["fetch"]>>;
+      try {
+        res = await fetchWithTimeout(
+          this.env.SECURE_API,
+          `http://internal/api/v1/execute?session=${encodeURIComponent(this.sessionId)}`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${executionSession.token}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              sessionId: executionSession.sessionId,
+              taskId,
+              action: `${plugin}.execute`,
+              params: { ...payload, runId: this.runId, action: executionAction },
+              timeout: timeoutMs,
+            }),
+          },
+          timeoutMs,
+        );
+      } finally {
+        executionFinished = true;
+      }
 
       if (!res.ok) {
+        await logForwardingPromise;
         throw new Error(
           (await res.text()) || `Failed to execute ${plugin}:${action}`,
         );
@@ -114,8 +149,11 @@ export class ExecutionService {
       const executionResult = await parseJsonResponse<SecureExecutionTaskResponse>(
         res,
       );
+      await logForwardingPromise;
       return toLegacyExecutionResult(executionResult);
     } catch (error) {
+      executionFinished = true;
+      await logForwardingPromise;
       console.error(
         `[ExecutionService] Error:`,
         sanitizeUnknownError(error),
@@ -239,6 +277,91 @@ export class ExecutionService {
       token: session.token,
     };
   }
+
+  private async forwardExecutionLogs(input: {
+    sessionId: string;
+    taskId: string;
+    token: string;
+    timeoutMs: number;
+    onOutput: (chunk: {
+      message: string;
+      source?: "stdout" | "stderr";
+      timestamp?: number;
+    }) => Promise<void> | void;
+    isFinished: () => boolean;
+  }): Promise<void> {
+    let lastTimestamp: number | undefined;
+
+    while (!input.isFinished()) {
+      lastTimestamp = await this.pollExecutionLogs(
+        input.sessionId,
+        input.taskId,
+        input.token,
+        input.timeoutMs,
+        lastTimestamp,
+        input.onOutput,
+      );
+      await sleep(EXECUTION_LOG_POLL_INTERVAL_MS);
+    }
+
+    await this.pollExecutionLogs(
+      input.sessionId,
+      input.taskId,
+      input.token,
+      input.timeoutMs,
+      lastTimestamp,
+      input.onOutput,
+    );
+  }
+
+  private async pollExecutionLogs(
+    sessionId: string,
+    taskId: string,
+    token: string,
+    timeoutMs: number,
+    since: number | undefined,
+    onOutput: (chunk: {
+      message: string;
+      source?: "stdout" | "stderr";
+      timestamp?: number;
+    }) => Promise<void> | void,
+  ): Promise<number | undefined> {
+    const query = new URLSearchParams({ sessionId, taskId });
+    if (since !== undefined && since > 0) {
+      query.set("since", String(since));
+    }
+
+    const response = await fetchWithTimeout(
+      this.env.SECURE_API,
+      `http://internal/api/v1/logs?${query.toString()}`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      },
+      timeoutMs,
+    );
+
+    if (!response.ok) {
+      return since;
+    }
+
+    const entries = parseExecutionLogStream(await response.text());
+    let nextTimestamp = since;
+    for (const entry of entries) {
+      nextTimestamp = Math.max(nextTimestamp ?? 0, entry.timestamp);
+      if (!entry.source) {
+        continue;
+      }
+      await onOutput({
+        message: entry.message,
+        source: entry.source,
+        timestamp: entry.timestamp,
+      });
+    }
+
+    return nextTimestamp;
+  }
 }
 
 function normalizeExecutionAction(plugin: string, action: string): string {
@@ -266,6 +389,36 @@ function createSessionTaskId(sessionId: string): string {
 
 function createExecutionTaskId(plugin: string, action: string): string {
   return `${plugin}-${action}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function parseExecutionLogStream(body: string): SecureExecutionLogEntry[] {
+  if (!body.trim()) {
+    return [];
+  }
+
+  const entries: SecureExecutionLogEntry[] = [];
+  for (const block of body.split("\n\n")) {
+    const line = block
+      .split("\n")
+      .map((value) => value.trim())
+      .find((value) => value.startsWith("data: "));
+    if (!line) {
+      continue;
+    }
+
+    try {
+      entries.push(
+        JSON.parse(line.slice("data: ".length)) as SecureExecutionLogEntry,
+      );
+    } catch (error) {
+      console.warn(
+        "[ExecutionService] Failed to parse execution log entry:",
+        sanitizeUnknownError(error),
+      );
+    }
+  }
+
+  return entries;
 }
 
 async function parseJsonResponse<T>(
@@ -320,4 +473,8 @@ async function fetchWithTimeout(
       clearTimeout(timeoutId);
     }
   }
+}
+
+async function sleep(durationMs: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, durationMs));
 }

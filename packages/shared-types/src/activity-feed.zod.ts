@@ -62,10 +62,14 @@ const SearchToolMetadataSchema = z.object({
 const ShellToolMetadataSchema = z.object({
   family: z.literal(TOOL_ACTIVITY_FAMILIES.SHELL),
   command: z.string().min(1),
+  description: z.string().optional(),
   cwd: z.string().optional(),
+  origin: z.enum(["user_shell", "agent_tool"]),
   stdout: z.string().optional(),
   stderr: z.string().optional(),
+  outputTail: z.string().optional(),
   exitCode: z.number().int().optional(),
+  truncated: z.boolean(),
 });
 
 const EditToolMetadataSchema = z.object({

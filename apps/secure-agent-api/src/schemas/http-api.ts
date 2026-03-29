@@ -82,12 +82,14 @@ export type ExecuteTaskResponse = z.infer<typeof ExecuteTaskResponseSchema>;
 
 export const LogStreamQuerySchema = z.object({
   sessionId: z.string().min(1, "sessionId required"),
+  taskId: z.string().min(1, "taskId required").optional(),
   since: z.coerce.number().int().positive().optional(),
 });
 
 export type LogStreamQuery = z.infer<typeof LogStreamQuerySchema>;
 
 export const LogEntrySchema = z.object({
+  taskId: z.string().min(1).optional(),
   timestamp: z.number().int().positive(),
   level: z.enum(["info", "warn", "error", "debug"]),
   message: z.string(),

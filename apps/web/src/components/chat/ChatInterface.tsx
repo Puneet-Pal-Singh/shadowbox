@@ -24,6 +24,32 @@ import type { ActivityTurnViewModel } from "../../services/activity/ActivityFeed
 // Flip to true when you want to temporarily inspect the legacy workflow debug UI.
 const SHOW_WORKFLOW_DEBUG_PANEL = false;
 
+function ChatErrorNotice({
+  message,
+  remediation,
+  actionLabel,
+  onOpenProviders,
+}: {
+  message: string;
+  remediation: string;
+  actionLabel: string;
+  onOpenProviders: () => void;
+}) {
+  return (
+    <div className="px-4 py-3 rounded border border-red-500/40 bg-red-950/30 text-red-200 text-sm space-y-2">
+      <p>{message}</p>
+      <p className="text-red-100/80 text-xs">{remediation}</p>
+      <button
+        type="button"
+        onClick={onOpenProviders}
+        className="text-xs px-2 py-1 rounded border border-red-300/40 hover:bg-red-900/40 transition"
+      >
+        {actionLabel}
+      </button>
+    </div>
+  );
+}
+
 interface ChatInterfaceProps {
   chatProps: {
     messages: Message[];
@@ -232,22 +258,6 @@ export function ChatInterface({
       {/* Scrollable Messages Container - Centered with max-width */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 py-4">
         <div className="max-w-4xl mx-auto space-y-6">
-          {error && (
-            <div className="px-4 py-3 rounded border border-red-500/40 bg-red-950/30 text-red-200 text-sm space-y-2">
-              <p>{recoveryAdvice.message}</p>
-              <p className="text-red-100/80 text-xs">
-                {recoveryAdvice.remediation}
-              </p>
-              <button
-                type="button"
-                onClick={() => setShowProviderDialog(true)}
-                className="text-xs px-2 py-1 rounded border border-red-300/40 hover:bg-red-900/40 transition"
-              >
-                {recoveryAdvice.actionLabel}
-              </button>
-            </div>
-          )}
-
           {showDebugPanel && (
             <div className="rounded border border-cyan-800/60 bg-cyan-950/20">
               <div className="px-3 py-2 border-b border-cyan-800/40 text-cyan-200 text-xs font-semibold uppercase tracking-wider">
@@ -332,6 +342,16 @@ export function ChatInterface({
       {/* Input Area - Centered */}
       <div className="px-6 pb-4">
         <div className="max-w-4xl mx-auto">
+          {error && (
+            <div className="mb-4">
+              <ChatErrorNotice
+                message={recoveryAdvice.message}
+                remediation={recoveryAdvice.remediation}
+                actionLabel={recoveryAdvice.actionLabel}
+                onOpenProviders={() => setShowProviderDialog(true)}
+              />
+            </div>
+          )}
           <ChatInputBar
             input={input}
             onChange={handleInputChangeWrapper}

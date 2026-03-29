@@ -16,6 +16,7 @@ interface SessionRecord {
 }
 
 interface SessionLogEntry {
+  taskId?: string;
   timestamp: number;
   level: "info" | "warn" | "error" | "debug";
   message: string;
@@ -35,6 +36,7 @@ interface RuntimeStoreMock extends Record<string, unknown> {
   getExecutionLogs: (
     sessionId: string,
     since?: number,
+    taskId?: string,
   ) => Promise<SessionLogEntry[]>;
   deleteExecutionSession: (sessionId: string) => Promise<void>;
   executionPort: {
@@ -80,12 +82,13 @@ function createRuntimeStoreMock(): RuntimeStoreMock {
       entries.push(entry);
       logs.set(sessionId, entries);
     },
-    async getExecutionLogs(sessionId, since) {
+    async getExecutionLogs(sessionId, since, taskId) {
       const entries = logs.get(sessionId) ?? [];
-      if (since === undefined) {
-        return entries;
-      }
-      return entries.filter((entry) => entry.timestamp > since);
+      return entries.filter((entry) => {
+        const matchesSince = since === undefined || entry.timestamp > since;
+        const matchesTask = taskId === undefined || entry.taskId === taskId;
+        return matchesSince && matchesTask;
+      });
     },
     async deleteExecutionSession(sessionId) {
       sessions.delete(sessionId);
@@ -168,13 +171,22 @@ function createExecuteRequest(sessionId: string, authHeader?: string): Request {
   });
 }
 
-function createLogsRequest(sessionId: string, authHeader?: string): Request {
+function createLogsRequest(
+  sessionId: string,
+  authHeader?: string,
+  taskId?: string,
+): Request {
   const headers: Record<string, string> = {};
   if (authHeader) {
     headers.Authorization = authHeader;
   }
 
-  return new Request(`http://localhost/api/v1/logs?sessionId=${sessionId}`, {
+  const query = new URLSearchParams({ sessionId });
+  if (taskId) {
+    query.set("taskId", taskId);
+  }
+
+  return new Request(`http://localhost/api/v1/logs?${query.toString()}`, {
     method: "GET",
     headers,
   });
@@ -246,6 +258,36 @@ describe("session auth hardening", () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get("Content-Type")).toContain("text/event-stream");
+  });
+
+  it("filters streamed logs to the requested task id", async () => {
+    const runtime = createRuntimeStoreMock();
+    const { sessionId, token } = await createSession(runtime);
+
+    await runtime.appendExecutionLog(sessionId, {
+      taskId: "task-a",
+      timestamp: 1,
+      level: "info",
+      message: "first",
+      source: "stdout",
+    });
+    await runtime.appendExecutionLog(sessionId, {
+      taskId: "task-b",
+      timestamp: 2,
+      level: "info",
+      message: "second",
+      source: "stdout",
+    });
+
+    const response = await handleStreamLogs(
+      createLogsRequest(sessionId, `Bearer ${token}`, "task-b"),
+      runtime,
+    );
+
+    expect(response.status).toBe(200);
+    const body = await response.text();
+    expect(body).toContain("\"taskId\":\"task-b\"");
+    expect(body).not.toContain("\"taskId\":\"task-a\"");
   });
 
   it("rejects delete without authorization header", async () => {

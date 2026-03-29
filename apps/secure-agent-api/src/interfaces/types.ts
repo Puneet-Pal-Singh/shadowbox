@@ -2,7 +2,14 @@
 import { Sandbox } from "@cloudflare/sandbox";
 
 // Definition for the callback function
-export type LogCallback = (log: string) => void;
+export type LogCallback = (
+  log:
+    | string
+    | {
+        message: string;
+        source?: "stdout" | "stderr";
+      },
+) => void;
 
 export interface PluginResult {
   success: boolean;

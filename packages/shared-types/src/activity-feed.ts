@@ -112,10 +112,14 @@ export interface SearchToolActivityMetadata {
 export interface ShellToolActivityMetadata {
   family: typeof TOOL_ACTIVITY_FAMILIES.SHELL;
   command: string;
+  description?: string;
   cwd?: string;
+  origin: "user_shell" | "agent_tool";
   stdout?: string;
   stderr?: string;
+  outputTail?: string;
   exitCode?: number;
+  truncated: boolean;
 }
 
 export interface EditToolActivityMetadata {

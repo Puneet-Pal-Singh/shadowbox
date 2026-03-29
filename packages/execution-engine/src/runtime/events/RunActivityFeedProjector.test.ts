@@ -51,12 +51,12 @@ describe("RunActivityFeedProjector", () => {
         }),
         createEvent(RUN_EVENT_TYPES.TOOL_REQUESTED, {
           toolId: "tool-1",
-          toolName: "run_command",
+          toolName: "bash",
           arguments: { command: "pnpm test" },
         }),
         createEvent(RUN_EVENT_TYPES.TOOL_COMPLETED, {
           toolId: "tool-1",
-          toolName: "run_command",
+          toolName: "bash",
           executionTimeMs: 1200,
           result: { content: "ok" },
         }),
@@ -86,6 +86,51 @@ describe("RunActivityFeedProjector", () => {
     expect(
       snapshot.items.some((item) => item.kind === ACTIVITY_PART_KINDS.HANDOFF),
     ).toBe(true);
+  });
+
+  it("appends bounded shell output deltas onto the same bash row", () => {
+    const snapshot = projectRunActivityFeed({
+      runId: "run-1",
+      run: null,
+      events: [
+        createEvent(RUN_EVENT_TYPES.MESSAGE_EMITTED, {
+          content: "run tests",
+          role: "user",
+        }),
+        createEvent(RUN_EVENT_TYPES.TOOL_REQUESTED, {
+          toolId: "tool-1",
+          toolName: "bash",
+          arguments: { command: "pnpm test" },
+        }),
+        createEvent(RUN_EVENT_TYPES.TOOL_STARTED, {
+          toolId: "tool-1",
+          toolName: "bash",
+        }),
+        createEvent(RUN_EVENT_TYPES.TOOL_OUTPUT_APPENDED, {
+          toolId: "tool-1",
+          toolName: "bash",
+          stdoutDelta: "first line\n",
+        }),
+        createEvent(RUN_EVENT_TYPES.TOOL_OUTPUT_APPENDED, {
+          toolId: "tool-1",
+          toolName: "bash",
+          stderrDelta: "second line\n",
+        }),
+      ],
+    });
+
+    const tool = snapshot.items.find(
+      (item) => item.kind === ACTIVITY_PART_KINDS.TOOL,
+    );
+    expect(tool?.kind).toBe("tool");
+    if (tool?.kind !== "tool" || tool.metadata.family !== "shell") {
+      throw new Error("Expected shell tool activity part");
+    }
+
+    expect(tool.status).toBe("running");
+    expect(tool.metadata.stdout).toContain("first line");
+    expect(tool.metadata.stderr).toContain("second line");
+    expect(tool.metadata.outputTail).toContain("[stderr]");
   });
 });
 
