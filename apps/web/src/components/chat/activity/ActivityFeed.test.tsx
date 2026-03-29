@@ -161,6 +161,59 @@ describe("ActivityFeed", () => {
     expect(screen.getByText(/\$ git status/)).toBeInTheDocument();
     expect(screen.getByText(/working tree clean\./i)).toBeInTheDocument();
   });
+
+  it("renders recoverable assistant updates from activity metadata", () => {
+    render(
+      <ActivityFeed
+        feed={{
+          runId: "run-timeout",
+          sessionId: "session-timeout",
+          status: "COMPLETED",
+          items: [
+            {
+              id: "text-1",
+              runId: "run-timeout",
+              sessionId: "session-timeout",
+              turnId: "turn-1",
+              kind: ACTIVITY_PART_KINDS.TEXT,
+              createdAt: "2026-03-24T10:00:00.000Z",
+              updatedAt: "2026-03-24T10:00:00.000Z",
+              source: "brain",
+              role: "user",
+              content: "update the footer",
+            },
+            {
+              id: "text-2",
+              runId: "run-timeout",
+              sessionId: "session-timeout",
+              turnId: "turn-1",
+              kind: ACTIVITY_PART_KINDS.TEXT,
+              createdAt: "2026-03-24T10:00:01.000Z",
+              updatedAt: "2026-03-24T10:00:01.000Z",
+              source: "brain",
+              role: "assistant",
+              content:
+                "The model timed out before choosing the next action.\nNo file was changed before the timeout.",
+              metadata: {
+                code: "TASK_EXECUTION_TIMEOUT",
+                retryable: true,
+                resumeHint:
+                  "Retry the task or switch to a faster or more reliable model.",
+                resumeActions: ["retry", "switch_model"],
+              },
+            },
+          ],
+        }}
+        isLoading={false}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /worked for \d+s/i }));
+    expect(screen.getByText("Recoverable timeout")).toBeInTheDocument();
+    expect(
+      screen.getByText(/Retry the task or switch to a faster or more reliable model\./i),
+    ).toBeInTheDocument();
+  });
 });
 
 function createFeedSnapshot(): ActivityFeedSnapshot {
