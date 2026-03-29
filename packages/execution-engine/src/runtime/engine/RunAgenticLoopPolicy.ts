@@ -6,6 +6,12 @@ import type { AgenticLoopToolLifecycleEvent } from "../types.js";
 import { enforceGoldenFlowToolFloor } from "../contracts/CodingToolGateway.js";
 
 const AGENTIC_LOOP_DEFAULT_MAX_STEPS = 25;
+const INCOMPLETE_MUTATION_CODE = "INCOMPLETE_MUTATION";
+
+export interface AssistantTurnOutput {
+  text: string;
+  metadata?: Record<string, unknown>;
+}
 
 export function resolveAgenticLoopTools(
   metadata: Record<string, unknown> | undefined,
@@ -58,33 +64,44 @@ export function recordAgenticLoopMetadata(
 }
 
 export function buildAgenticLoopFinalOutput(result: AgenticLoopResult): string {
+  return buildAgenticLoopFinalMessage(result).text;
+}
+
+export function buildAgenticLoopFinalMessage(
+  result: AgenticLoopResult,
+): AssistantTurnOutput {
   if (result.requiresMutation && result.completedMutatingToolCount === 0) {
-    return buildIncompleteMutationSummary(result);
+    return {
+      text: buildIncompleteMutationSummary(result),
+      metadata: buildIncompleteMutationMetadata(),
+    };
   }
 
   if (result.requiresMutation && result.completedMutatingToolCount > 0) {
     const groundedMutationSummary = buildCompletedMutationSummary(result);
     if (groundedMutationSummary) {
-      return groundedMutationSummary;
+      return { text: groundedMutationSummary };
     }
   }
 
   if (result.stopReason !== "llm_stop") {
-    return buildFallbackLoopSummary(result);
+    return { text: buildFallbackLoopSummary(result) };
   }
 
   const assistantText = getLastAssistantText(result.messages);
   if (assistantText) {
-    return assistantText;
+    return { text: assistantText };
   }
 
-  return [
-    "Agentic loop completed without assistant synthesis output.",
-    `Stop reason: ${result.stopReason}`,
-    `Steps executed: ${result.stepsExecuted}`,
-    `Tools executed: ${result.toolExecutionCount}`,
-    `Failed tools: ${result.failedToolCount}`,
-  ].join("\n");
+  return {
+    text: [
+      "Agentic loop completed without assistant synthesis output.",
+      `Stop reason: ${result.stopReason}`,
+      `Steps executed: ${result.stepsExecuted}`,
+      `Tools executed: ${result.toolExecutionCount}`,
+      `Failed tools: ${result.failedToolCount}`,
+    ].join("\n"),
+  };
 }
 
 function buildIncompleteMutationSummary(result: AgenticLoopResult): string {
@@ -119,7 +136,7 @@ function buildIncompleteMutationSummary(result: AgenticLoopResult): string {
   );
 
   lines.push(
-    "The task should stay incomplete until a concrete file update succeeds.",
+    "No file changed in this run. Retry with a more specific target file, component, or edit instruction so I can attempt the mutation again.",
   );
 
   return lines.join("\n");
@@ -276,11 +293,23 @@ function describeLoopStopReason(
       return "I stopped because the run hit the execution budget.";
     case "max_steps_reached":
       return "I ran out of tool steps before I could finish the request.";
+    case "incomplete_mutation":
+      return "I stopped because the requested edit never reached a successful file change.";
     case "cancelled":
       return "The run was cancelled before I could finish the answer.";
     case "llm_stop":
       return "The build loop completed.";
   }
+}
+
+function buildIncompleteMutationMetadata(): Record<string, unknown> {
+  return {
+    code: INCOMPLETE_MUTATION_CODE,
+    retryable: true,
+    resumeHint:
+      "Retry with a more specific file, component, or exact edit target.",
+    resumeActions: ["retry", "refine_edit_target"],
+  };
 }
 
 function getLatestToolLifecycle(
