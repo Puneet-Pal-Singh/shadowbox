@@ -22,6 +22,7 @@ export type RunWorkflowStep =
 export const RUN_EVENT_TYPES = {
   RUN_STARTED: "run.started",
   RUN_STATUS_CHANGED: "run.status.changed",
+  RUN_PROGRESS: "run.progress",
   MESSAGE_EMITTED: "message.emitted",
   TOOL_REQUESTED: "tool.requested",
   TOOL_STARTED: "tool.started",
@@ -66,6 +67,13 @@ export interface RunStatusChangedPayload {
   newStatus: RunStatus;
   workflowStep?: RunWorkflowStep;
   reason?: string;
+}
+
+export interface RunProgressPayload {
+  phase: RunWorkflowStep;
+  label: string;
+  summary: string;
+  status: "active" | "completed";
 }
 
 export interface MessageEmittedPayload {
@@ -136,6 +144,11 @@ export type RunStatusChangedEvent = RunEventEnvelope<
   RunStatusChangedPayload
 >;
 
+export type RunProgressEvent = RunEventEnvelope<
+  typeof RUN_EVENT_TYPES.RUN_PROGRESS,
+  RunProgressPayload
+>;
+
 export type MessageEmittedEvent = RunEventEnvelope<
   typeof RUN_EVENT_TYPES.MESSAGE_EMITTED,
   MessageEmittedPayload
@@ -183,6 +196,7 @@ export type RunFailedEvent = RunEventEnvelope<
 export type RunEvent =
   | RunStartedEvent
   | RunStatusChangedEvent
+  | RunProgressEvent
   | MessageEmittedEvent
   | ToolRequestedEvent
   | ToolStartedEvent
