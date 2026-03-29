@@ -97,24 +97,11 @@ function RecoveryTextRow({
   displayMode: "card" | "transcript";
   collapsible: boolean;
 }) {
-  const metadata = row.metadata ?? {};
-  const code = typeof metadata.code === "string" ? metadata.code : undefined;
-  const resumeHint =
-    typeof metadata.resumeHint === "string" ? metadata.resumeHint : "";
-  const resumeActions = Array.isArray(metadata.resumeActions)
-    ? metadata.resumeActions
-        .filter((action): action is string => typeof action === "string")
-        .join(" · ")
-    : "";
-
-  const label =
-    code === "TASK_EXECUTION_TIMEOUT"
-      ? "Recoverable timeout"
-      : code === "INCOMPLETE_MUTATION"
-        ? "Edit incomplete"
-        : "Run update";
-
-  const summary = resumeHint || row.content.split("\n")[0] || "";
+  const { code, resumeHint, resumeActions } = parseRecoveryMetadata(
+    row.metadata,
+  );
+  const label = deriveRecoveryLabel(code);
+  const summary = deriveRecoverySummary(row.content, resumeHint);
 
   return (
     <ExpandableRow
@@ -136,6 +123,42 @@ function RecoveryTextRow({
       </div>
     </ExpandableRow>
   );
+}
+
+function parseRecoveryMetadata(metadata: Record<string, unknown> | undefined): {
+  code?: string;
+  resumeHint: string;
+  resumeActions: string;
+} {
+  return {
+    code: typeof metadata?.code === "string" ? metadata.code : undefined,
+    resumeHint:
+      typeof metadata?.resumeHint === "string" ? metadata.resumeHint : "",
+    resumeActions: Array.isArray(metadata?.resumeActions)
+      ? metadata.resumeActions
+          .filter((action): action is string => typeof action === "string")
+          .join(" · ")
+      : "",
+  };
+}
+
+function deriveRecoveryLabel(code: string | undefined): string {
+  if (code === "TASK_EXECUTION_TIMEOUT") {
+    return "Recoverable timeout";
+  }
+
+  if (code === "INCOMPLETE_MUTATION") {
+    return "Edit incomplete";
+  }
+
+  return "Run update";
+}
+
+function deriveRecoverySummary(
+  rowContent: string,
+  resumeHint: string,
+): string {
+  return resumeHint || rowContent.split("\n")[0] || "";
 }
 
 function ReasoningRow({
