@@ -235,7 +235,10 @@ export function ModelPickerPopover({
       if (group.providerId === "axis") {
         return group;
       }
-      const visibleSet = visibleModelIds[group.providerId] || new Set();
+      const visibleSet = visibleModelIds[group.providerId];
+      if (!visibleSet) {
+        return group;
+      }
       return {
         ...group,
         models: group.models.filter((model) => visibleSet.has(model.id)),

@@ -49,12 +49,13 @@ function buildProviderGroups(
   return catalog
     .map((entry) => {
       const models = providerModels[entry.providerId] || [];
-      const visibleSet = visibleModelIds[entry.providerId] || new Set();
+      const visibleSet = visibleModelIds[entry.providerId];
+      const isAxisProvider = entry.providerId === "axis";
       return {
         providerId: entry.providerId,
         displayName: entry.displayName,
         models,
-        visibleCount: visibleSet.size,
+        visibleCount: isAxisProvider ? models.length : (visibleSet ? visibleSet.size : models.length),
         totalCount: models.length,
       };
     })
@@ -213,7 +214,8 @@ export function ManageModelsDialog({
           ) : (
             <div className="space-y-5">
               {filteredGroups.map((group) => {
-                 const visibleSet = visibleModelIds[group.providerId] || new Set();
+                 const visibleSet = visibleModelIds[group.providerId];
+                 const isAxisProvider = group.providerId === "axis";
                  const filteredModels = group.filteredModels;
 
                 return (
@@ -224,14 +226,14 @@ export function ManageModelsDialog({
                         {group.displayName}
                       </h3>
                       <span className="text-[11px] text-neutral-500">
-                        {visibleSet.size} / {group.totalCount} visible
+                        {group.visibleCount} / {group.totalCount} visible
                       </span>
                     </div>
 
                     {/* Models */}
                     <div className="space-y-1">
                       {filteredModels.map((model: ProviderModelOption) => {
-                        const isVisible = visibleSet.has(model.id);
+                        const isVisible = isAxisProvider || (visibleSet ? visibleSet.has(model.id) : true);
                         return (
                           <div
                             key={model.id}
@@ -246,15 +248,19 @@ export function ManageModelsDialog({
                               type="button"
                               role="switch"
                               aria-checked={isVisible}
-                              aria-label={`${model.name} visibility`}
-                              onClick={() =>
-                                onToggleModelVisibility(group.providerId, model.id)
-                              }
+                              aria-label={isAxisProvider ? `${model.name} (always available)` : `${model.name} visibility`}
+                              onClick={() => {
+                                if (!isAxisProvider) {
+                                  onToggleModelVisibility(group.providerId, model.id);
+                                }
+                              }}
+                              disabled={isAxisProvider}
+                              title={isAxisProvider ? "Always available" : undefined}
                               className={`relative inline-flex h-5 w-8 items-center rounded-full border transition ${
                                 isVisible
                                   ? "border-blue-500 bg-blue-600"
                                   : "border-neutral-600 bg-neutral-800"
-                              }`}
+                              } ${isAxisProvider ? "opacity-60 cursor-not-allowed" : ""}`}
                             >
                               <span
                                 className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition ${
