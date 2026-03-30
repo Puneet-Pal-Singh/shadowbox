@@ -573,13 +573,6 @@ VALIDATION RULES:
     validateShellCommand(command);
     const normalizedCommand = command.trim();
     const normalizedCwd = cwd ? normalizeTaskPath(cwd) : undefined;
-    if (/^git(\s|$)/i.test(normalizedCommand)) {
-      return this.buildFailureResult(
-        taskId,
-        "Git shell commands are not allowed in shell tasks. Use a git task action instead.",
-      );
-    }
-
     if (/^ls(\s|$)/i.test(normalizedCommand)) {
       const path = extractDirectoryFromLsCommand(normalizedCommand);
       if (path !== ".") {
