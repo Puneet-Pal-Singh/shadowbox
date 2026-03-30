@@ -194,6 +194,71 @@ describe("ActivityFeedViewModel", () => {
     ).toBe(true);
   });
 
+  it("preserves authored labels when generic reasoning summaries collapse away", () => {
+    const viewModel = buildActivityFeedViewModel({
+      runId: "run-authored-reasoning",
+      sessionId: "session-authored-reasoning",
+      status: "COMPLETED",
+      items: [
+        {
+          id: "text-user",
+          runId: "run-authored-reasoning",
+          sessionId: "session-authored-reasoning",
+          turnId: "turn-1",
+          kind: ACTIVITY_PART_KINDS.TEXT,
+          createdAt: "2026-03-24T10:00:00.000Z",
+          updatedAt: "2026-03-24T10:00:00.000Z",
+          source: "brain",
+          role: "user",
+          content: "fix the footer",
+        },
+        {
+          id: "reasoning-execution",
+          runId: "run-authored-reasoning",
+          sessionId: "session-authored-reasoning",
+          turnId: "turn-1",
+          kind: ACTIVITY_PART_KINDS.REASONING,
+          createdAt: "2026-03-24T10:00:01.000Z",
+          updatedAt: "2026-03-24T10:00:01.000Z",
+          source: "brain",
+          label: "Checking footer copy",
+          summary: "Running the selected coding tools.",
+          phase: "execution",
+          status: "active",
+        },
+        {
+          id: "reasoning-synthesis",
+          runId: "run-authored-reasoning",
+          sessionId: "session-authored-reasoning",
+          turnId: "turn-1",
+          kind: ACTIVITY_PART_KINDS.REASONING,
+          createdAt: "2026-03-24T10:00:02.000Z",
+          updatedAt: "2026-03-24T10:00:02.000Z",
+          source: "brain",
+          label: "Reporting what changed",
+          summary: "Preparing the final user-facing response from the observed results.",
+          phase: "synthesis",
+          status: "completed",
+        },
+      ],
+    });
+
+    expect(viewModel.turns[0]?.rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "reasoning",
+          label: "Checking footer copy",
+          summary: "",
+        }),
+        expect.objectContaining({
+          kind: "reasoning",
+          label: "Reporting what changed",
+          summary: "Preparing the final user-facing response from the observed results.",
+        }),
+      ]),
+    );
+  });
+
   it("keeps plain assistant transcript messages out of the activity feed", () => {
     const viewModel = buildActivityFeedViewModel({
       runId: "run-plain-assistant",

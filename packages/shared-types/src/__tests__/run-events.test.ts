@@ -134,6 +134,50 @@ describe("RunEvent Schema Validation", () => {
     }
   });
 
+  it("should trim tool.requested description and displayText", () => {
+    const event = {
+      version: 1,
+      eventId: "evt-790",
+      runId: "run-456",
+      timestamp: new Date().toISOString(),
+      source: "brain" as const,
+      type: RUN_EVENT_TYPES.TOOL_REQUESTED,
+      payload: {
+        toolId: "tool-123",
+        toolName: "read_file",
+        arguments: { path: "/etc/passwd" },
+        description: "  Read /etc/passwd  ",
+        displayText: "  Reading /etc/passwd  ",
+      },
+    };
+
+    const parsed = parseRunEvent(event);
+    expect(parsed.type).toBe(RUN_EVENT_TYPES.TOOL_REQUESTED);
+    if (parsed.type === RUN_EVENT_TYPES.TOOL_REQUESTED) {
+      expect(parsed.payload.description).toBe("Read /etc/passwd");
+      expect(parsed.payload.displayText).toBe("Reading /etc/passwd");
+    }
+  });
+
+  it("should reject whitespace-only tool.requested copy", () => {
+    const event = {
+      version: 1,
+      eventId: "evt-791",
+      runId: "run-456",
+      timestamp: new Date().toISOString(),
+      source: "brain" as const,
+      type: RUN_EVENT_TYPES.TOOL_REQUESTED,
+      payload: {
+        toolId: "tool-123",
+        toolName: "read_file",
+        arguments: { path: "/etc/passwd" },
+        description: "   ",
+      },
+    };
+
+    expect(() => parseRunEvent(event)).toThrow();
+  });
+
   it("should parse valid tool.output.appended event", () => {
     const event = {
       version: 1,

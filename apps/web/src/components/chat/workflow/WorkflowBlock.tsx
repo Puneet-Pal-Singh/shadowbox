@@ -135,7 +135,9 @@ function isCompactStatusBlock(block: WorkflowBlockViewModel): boolean {
   }
 
   return block.rows.every(
-    (row) => row.kind !== "tool" || row.toolName !== "shell_exec",
+    (row) =>
+      row.kind !== "tool" ||
+      (row.toolName !== "shell_exec" && row.toolName !== "bash"),
   );
 }
 

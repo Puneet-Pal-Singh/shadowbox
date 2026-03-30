@@ -374,8 +374,9 @@ function isSuppressedReasoning(
   item: Extract<ActivityPart, { kind: typeof ACTIVITY_PART_KINDS.REASONING }>,
 ): boolean {
   return (
+    item.phase === "synthesis" &&
     normalizeReasoningSummary(item.summary, item.phase) === "" &&
-    item.phase === "synthesis"
+    item.label.trim() === ""
   );
 }
 
@@ -405,14 +406,14 @@ function normalizeReasoningSummary(
 function getReasoningLabel(
   item: Extract<ActivityPart, { kind: typeof ACTIVITY_PART_KINDS.REASONING }>,
 ): string {
-  const normalizedSummary = normalizeReasoningSummary(item.summary, item.phase);
-  if (item.phase === "execution" && normalizedSummary === "") {
-    return "Thinking";
-  }
-
   const authoredLabel = item.label.trim();
   if (authoredLabel) {
     return authoredLabel;
+  }
+
+  const normalizedSummary = normalizeReasoningSummary(item.summary, item.phase);
+  if (item.phase === "execution" && normalizedSummary === "") {
+    return "Thinking";
   }
 
   switch (item.phase) {

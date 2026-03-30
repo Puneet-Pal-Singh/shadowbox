@@ -58,7 +58,8 @@ function deriveToolPresentation(
           : "Finding matching files in the workspace.",
       };
     }
-    case "grep": {
+    case "grep":
+    case "search_code": {
       const pattern = readString(input?.pattern);
       const path = readString(input?.path);
       return {
