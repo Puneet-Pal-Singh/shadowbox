@@ -38,6 +38,24 @@ export function ActivityRow({
           collapsible={collapsible}
         />
       );
+    case "commentary":
+      return isRecoveryCommentaryRow(row) ? (
+        <RecoveryCommentaryRow
+          row={row}
+          expanded={expanded}
+          onToggle={onToggle}
+          displayMode={displayMode}
+          collapsible={collapsible}
+        />
+      ) : (
+        <CommentaryRow
+          row={row}
+          expanded={expanded}
+          onToggle={onToggle}
+          displayMode={displayMode}
+          collapsible={collapsible}
+        />
+      );
     case "reasoning":
       return (
         <ReasoningRow
@@ -93,26 +111,18 @@ export function ActivityRow({
   }
 }
 
-function isRecoveryTextRow(
-  row: Extract<ActivityFeedRowViewModel, { kind: "text" }>,
+function isRecoveryCommentaryRow(
+  row: Extract<ActivityFeedRowViewModel, { kind: "commentary" }>,
 ): boolean {
-  const typedRow = row as unknown as {
-    recovery?: boolean;
-    isRecovery?: boolean;
-    subtype?: string;
-  };
-  if (typedRow.recovery === true || typedRow.isRecovery === true) {
-    return true;
-  }
-  if (typedRow.subtype === "recovery") {
+  return hasRecoveryMetadata(row.metadata);
+}
+
+function hasRecoveryMetadata(metadata: Record<string, unknown> | undefined): boolean {
+  if (metadata?.recovery === true) {
     return true;
   }
 
-  if (row.metadata?.recovery === true) {
-    return true;
-  }
-
-  const code = typeof row.metadata?.code === "string" ? row.metadata.code : undefined;
+  const code = typeof metadata?.code === "string" ? metadata.code : undefined;
   return code === "INCOMPLETE_MUTATION" || code === "TASK_EXECUTION_TIMEOUT";
 }
 
@@ -144,6 +154,99 @@ function TextRow({
       </pre>
     </ExpandableRow>
   );
+}
+
+function CommentaryRow({
+  row,
+  expanded,
+  onToggle,
+  displayMode,
+  collapsible,
+}: {
+  row: Extract<ActivityFeedRowViewModel, { kind: "commentary" }>;
+  expanded: boolean;
+  onToggle: (expanded: boolean) => void;
+  displayMode: "card" | "transcript";
+  collapsible: boolean;
+}) {
+  return (
+    <ExpandableRow
+      label={deriveCommentaryLabel(row.phase)}
+      summary={deriveTextSummary(row.text)}
+      expanded={expanded}
+      onToggle={onToggle}
+      tone={row.status === "active" ? "running" : "completed"}
+      displayMode={displayMode}
+      collapsible={collapsible}
+    >
+      <pre className="overflow-x-auto rounded-xl border border-zinc-800/70 bg-black/40 px-3 py-2 text-xs text-zinc-200">
+        {row.text}
+      </pre>
+    </ExpandableRow>
+  );
+}
+
+function RecoveryCommentaryRow({
+  row,
+  expanded,
+  onToggle,
+  displayMode,
+  collapsible,
+}: {
+  row: Extract<ActivityFeedRowViewModel, { kind: "commentary" }>;
+  expanded: boolean;
+  onToggle: (expanded: boolean) => void;
+  displayMode: "card" | "transcript";
+  collapsible: boolean;
+}) {
+  const { code, resumeHint, resumeActions } = parseRecoveryMetadata(
+    row.metadata,
+  );
+  const label = deriveRecoveryLabel(code);
+  const summary = deriveRecoverySummary(row.text, resumeHint);
+
+  return (
+    <ExpandableRow
+      label={label}
+      summary={summary}
+      expanded={expanded}
+      onToggle={onToggle}
+      tone="failed"
+      displayMode={displayMode}
+      collapsible={collapsible}
+    >
+      <div className="space-y-2 text-xs text-zinc-200">
+        <pre className="overflow-x-auto rounded-xl border border-zinc-800/70 bg-black/40 px-3 py-2 text-xs text-zinc-200">
+          {row.text}
+        </pre>
+        {resumeActions ? (
+          <div className="text-zinc-400">Resume options: {resumeActions}</div>
+        ) : null}
+      </div>
+    </ExpandableRow>
+  );
+}
+
+function isRecoveryTextRow(
+  row: Extract<ActivityFeedRowViewModel, { kind: "text" }>,
+): boolean {
+  const typedRow = row as unknown as {
+    recovery?: boolean;
+    isRecovery?: boolean;
+    subtype?: string;
+  };
+  if (typedRow.recovery === true || typedRow.isRecovery === true) {
+    return true;
+  }
+  if (typedRow.subtype === "recovery") {
+    return true;
+  }
+
+  if (row.metadata?.recovery === true) {
+    return true;
+  }
+
+  return hasRecoveryMetadata(row.metadata);
 }
 
 function RecoveryTextRow({
@@ -232,6 +335,10 @@ function deriveTextLabel(role: "user" | "assistant" | "system"): string {
     default:
       return "Message";
   }
+}
+
+function deriveCommentaryLabel(phase: "commentary" | "final_answer"): string {
+  return phase === "final_answer" ? "Final answer" : "Commentary";
 }
 
 function deriveTextSummary(content: string): string {
