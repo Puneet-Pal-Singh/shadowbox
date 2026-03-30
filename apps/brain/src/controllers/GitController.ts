@@ -14,6 +14,10 @@ import {
   logWarnRateLimited,
 } from "../lib/rate-limited-log";
 import { toCanonicalGitExecutionAction } from "../lib/gitExecutionActions";
+import {
+  GIT_MUTATION_TIMEOUT_MS as MUSCLE_GIT_TIMEOUT_MS,
+  GIT_STATUS_TIMEOUT_MS as MUSCLE_STATUS_TIMEOUT_MS,
+} from "../services/gitExecutionTimeouts";
 
 const GitBootstrapRequestBodySchema = z.object({
   runId: z.string(),
@@ -30,8 +34,6 @@ type GitBootstrapResult = Awaited<
 >;
 const bootstrapRequestsByWorkspace = new Map<string, Promise<GitBootstrapResult>>();
 const ERROR_LOG_WINDOW_MS = 30_000;
-const MUSCLE_STATUS_TIMEOUT_MS = 12_000;
-const MUSCLE_GIT_TIMEOUT_MS = 20_000;
 const GIT_SESSION_TIMEOUT_MS = 10_000;
 type SecureApiFetch = Env["SECURE_API"]["fetch"];
 type SecureApiResponse = Awaited<ReturnType<SecureApiFetch>>;

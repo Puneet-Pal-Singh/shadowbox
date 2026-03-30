@@ -82,7 +82,7 @@ describe("secure-agent-api plugin hardening", () => {
     expect(result.error).toMatch(/Dangerous bash command pattern detected/i);
   });
 
-  it("rejects git shell commands after chained separators", async () => {
+  it("allows concrete git shell commands", async () => {
     const plugin = new BashPlugin();
     const sandbox = createSandboxMock();
 
@@ -92,8 +92,8 @@ describe("secure-agent-api plugin hardening", () => {
       command: "pwd && git status",
     });
 
-    expect(result.success).toBe(false);
-    expect(result.error).toMatch(/Git shell commands are not allowed/i);
+    expect(result.success).toBe(true);
+    expect(sandbox.execCalls).toHaveLength(2);
   });
 
   it("registers the bash tool with the canonical runtime name", () => {

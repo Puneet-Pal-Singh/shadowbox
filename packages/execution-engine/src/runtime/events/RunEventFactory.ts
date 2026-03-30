@@ -81,11 +81,17 @@ export function createRunProgressEvent(
 export function createToolRequestedEvent(
   input: ToolEventInput,
   arguments_: Record<string, unknown>,
+  presentation?: {
+    description?: string;
+    displayText?: string;
+  },
 ): ToolRequestedEvent {
   return createEnvelope(input, RUN_EVENT_TYPES.TOOL_REQUESTED, {
     toolId: input.taskId,
     toolName: input.toolName,
     arguments: arguments_,
+    description: presentation?.description,
+    displayText: presentation?.displayText,
   });
 }
 

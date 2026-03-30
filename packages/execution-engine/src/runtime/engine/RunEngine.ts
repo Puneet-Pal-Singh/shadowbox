@@ -85,6 +85,7 @@ import { resetRecyclableRun } from "./RunRecyclableResetPolicy.js";
 import { applyReviewerPassIfEnabled } from "./RunReviewerPassPolicy.js";
 import { RunEventRecorder, RunEventRepository } from "../events/index.js";
 import { LLMTimeoutError } from "../llm/LLMGateway.js";
+import { getToolPresentation } from "../lib/ToolPresentation.js";
 import { detectsMutation } from "./detectsMutation.js";
 
 export interface IRunEngine {
@@ -478,6 +479,10 @@ export class RunEngine implements IRunEngine {
         workspaceContext: buildAgenticLoopWorkspaceContext(input),
         executeTool: directExecutionService
           ? async (toolCall) => {
+              const toolPresentation = getToolPresentation(
+                toolCall.toolName,
+                toolCall.args,
+              );
               if (!isGoldenFlowToolName(toolCall.toolName)) {
                 throw new Error(
                   `Unsupported direct agentic tool: ${toolCall.toolName}`,
@@ -487,7 +492,8 @@ export class RunEngine implements IRunEngine {
                 taskId: toolCall.id,
                 toolName: toolCall.toolName,
                 toolInput: {
-                  description: `Execute ${toolCall.toolName}`,
+                  description: toolPresentation.description,
+                  displayText: toolPresentation.displayText,
                   ...toolCall.args,
                 },
                 onOutputAppended: async (chunk) => {
@@ -506,19 +512,24 @@ export class RunEngine implements IRunEngine {
         providerId: input.providerId,
         temperature: 0.2,
         onToolRequested: async (toolCall) => {
-          await this.runEventRecorder.recordRunProgress(
-            RUN_WORKFLOW_STEPS.EXECUTION,
-            "Inspecting workspace",
-            `Running ${toolCall.toolName}.`,
-            "active",
+          const toolPresentation = getToolPresentation(
+            toolCall.toolName,
+            toolCall.args,
           );
           await this.runEventRecorder.recordToolRequested({
             id: toolCall.id,
             type: toolCall.toolName,
-            input: toolCall.args,
+            input: {
+              ...toolCall.args,
+              description: toolPresentation.description,
+              displayText: toolPresentation.displayText,
+            },
           });
         },
         onProgress: async (progress) => {
+          if (!progress) {
+            return;
+          }
           await this.runEventRecorder.recordRunProgress(
             progress.phase,
             progress.label,
@@ -556,14 +567,6 @@ export class RunEngine implements IRunEngine {
 
       recordAgenticLoopMetadata(run, loopResult);
       const finalMessage = buildAgenticLoopFinalMessage(loopResult);
-      await this.runEventRecorder.recordRunProgress(
-        RUN_WORKFLOW_STEPS.SYNTHESIS,
-        "Synthesizing final response",
-        finalMessage.metadata?.code === "INCOMPLETE_MUTATION"
-          ? "The run is ending with a truthful incomplete-mutation summary."
-          : "Preparing the final user-facing response from observed results.",
-        "completed",
-      );
       const finalOutput = finalMessage.metadata
         ? finalMessage.text
         : await applyReviewerPassIfEnabled({

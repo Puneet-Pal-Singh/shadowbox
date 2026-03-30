@@ -310,9 +310,10 @@ export function ChatInterface({
 
           {/* Loading indicator */}
           {isLoading && !activeInlineTurn && (
-            <div className="flex items-center gap-2 px-4 py-2 text-xs text-zinc-500 font-medium bg-zinc-900/30 w-fit rounded-full border border-zinc-800/50 animate-pulse">
-              <div className="w-1.5 h-1.5 bg-zinc-500 rounded-full animate-bounce" />
-              <span>{`Thinking... ${formatThinkingDuration(thinkingElapsedMs)}`}</span>
+            <div className="px-4 py-2 text-sm font-medium text-zinc-500">
+              <span className="bg-[linear-gradient(90deg,rgba(113,113,122,0.9)_0%,rgba(228,228,231,0.95)_45%,rgba(113,113,122,0.9)_100%)] bg-[length:220%_100%] bg-clip-text text-transparent animate-shimmer">
+                {`Thinking ${formatThinkingDuration(thinkingElapsedMs)}`}
+              </span>
             </div>
           )}
 

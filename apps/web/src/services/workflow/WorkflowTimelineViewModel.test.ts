@@ -34,13 +34,13 @@ describe("WorkflowTimelineViewModel", () => {
     expect(first.blocks.map((block) => block.kind)).toEqual([
       "plan",
       "tool_batch",
-      "synthesis",
       "final",
     ]);
 
     const toolBatch = first.blocks.find((block) => block.kind === "tool_batch");
     expect(toolBatch?.summary).toBe("1 failed, 1 completed");
     expect(toolBatch?.defaultCollapsed).toBe(false);
+    expect(toolBatch?.title).toBe("Thinking");
 
     const readFileRow = toolBatch?.rows.find(
       (row) => row.kind === "tool" && row.toolName === "read_file",
@@ -132,7 +132,53 @@ describe("WorkflowTimelineViewModel", () => {
     });
 
     const batch = viewModel.blocks.find((block) => block.kind === "tool_batch");
-    expect(batch?.summary).toBe("1 queued");
+    expect(batch?.summary).toBe("1 file");
+    expect(batch?.title).toBe("Exploring");
+  });
+
+  it("groups exploration progress into an exploring block while keeping concrete child rows", () => {
+    const viewModel = buildWorkflowTimelineViewModel({
+      events: [
+        createRunEvent(
+          "evt-1",
+          RUN_EVENT_TYPES.RUN_PROGRESS,
+          {
+            phase: RUN_WORKFLOW_STEPS.EXECUTION,
+            label: "Reading README.md",
+            summary: "Reading file contents from README.md.",
+            status: "active",
+          },
+          "2026-03-24T10:00:01.000Z",
+        ),
+        createRunEvent(
+          "evt-2",
+          RUN_EVENT_TYPES.TOOL_REQUESTED,
+          {
+            toolId: "tool-1",
+            toolName: "read_file",
+            arguments: { path: "README.md" },
+            description: "Read README.md",
+            displayText: "Reading README.md",
+          },
+          "2026-03-24T10:00:02.000Z",
+        ),
+      ],
+      summary: {
+        runId: "run-1",
+        status: "RUNNING",
+        totalTasks: 1,
+        completedTasks: 0,
+        failedTasks: 0,
+      },
+    });
+
+    const batch = viewModel.blocks.find((block) => block.kind === "tool_batch");
+    expect(batch?.title).toBe("Exploring");
+    expect(batch?.summary).toBe("1 file");
+    expect(batch?.rows[0]).toMatchObject({
+      kind: "tool",
+      title: "Reading README.md",
+    });
   });
 });
 

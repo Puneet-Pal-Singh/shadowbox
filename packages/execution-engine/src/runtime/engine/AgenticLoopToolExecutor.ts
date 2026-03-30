@@ -179,13 +179,6 @@ async function executeBashTool(
     );
   }
 
-  if (/^git(\s|$)/i.test(command)) {
-    return buildFailureResult(
-      taskId,
-      "Git shell commands are not allowed in shell tasks. Use a git tool instead.",
-    );
-  }
-
   if (/^ls(\s|$)/i.test(command)) {
     const path = extractDirectoryFromLsCommand(command);
     return executeListFilesTool(executionService, taskId, {

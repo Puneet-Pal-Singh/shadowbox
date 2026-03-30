@@ -76,10 +76,12 @@ export class RunEventRecorder {
       input?: Record<string, unknown>;
     },
   ): Promise<void> {
+    const presentation = extractToolRequestedPresentation(task.input);
     await this.append(
       createToolRequestedEvent(
         toToolEventInput(this.runId, this.sessionId, task),
         sanitizeEventArguments(task.input),
+        presentation,
       ),
     );
   }
@@ -201,5 +203,29 @@ function sanitizeEventArguments(
   const args: Record<string, unknown> = { ...input };
   delete args.description;
   delete args.expectedOutput;
+  delete args.displayText;
   return args;
+}
+
+function extractToolRequestedPresentation(
+  input: Record<string, unknown> | undefined,
+): { description?: string; displayText?: string } | undefined {
+  if (!input) {
+    return undefined;
+  }
+
+  const description =
+    typeof input.description === "string" && input.description.trim()
+      ? input.description.trim()
+      : undefined;
+  const displayText =
+    typeof input.displayText === "string" && input.displayText.trim()
+      ? input.displayText.trim()
+      : undefined;
+
+  if (!description && !displayText) {
+    return undefined;
+  }
+
+  return { description, displayText };
 }

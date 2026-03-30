@@ -17,6 +17,7 @@ import {
   type ToolActivityPart,
 } from "@repo/shared-types";
 import type { SerializedRun } from "../types.js";
+import { getToolPresentation } from "../lib/ToolPresentation.js";
 
 const UNKNOWN_ACTIVITY_TIMESTAMP = "1970-01-01T00:00:00.000Z";
 const SHELL_OUTPUT_TAIL_CAP = 128 * 1024;
@@ -141,7 +142,7 @@ function createReasoningPart(
   turnId: string | undefined,
 ): ReasoningActivityPart | null {
   const workflowStep = event.payload.workflowStep;
-  if (!workflowStep) {
+  if (!workflowStep || workflowStep !== RUN_WORKFLOW_STEPS.PLANNING) {
     return null;
   }
 
@@ -201,6 +202,8 @@ function createRequestedToolPart(
     metadata: buildToolMetadata(
       event.payload.toolName,
       event.payload.arguments,
+      event.payload.description,
+      event.payload.displayText,
       undefined,
       undefined,
     ),
@@ -222,7 +225,14 @@ function applyToolCompletion(
   part.output = event.payload.result;
   part.metadata = mergeToolMetadata(
     part.metadata,
-    buildToolMetadata(part.toolName, part.input, event.payload.result, undefined),
+    buildToolMetadata(
+      part.toolName,
+      part.input,
+      readToolMetadataDescription(part.metadata),
+      readToolMetadataDisplayText(part.metadata),
+      event.payload.result,
+      undefined,
+    ),
   );
 }
 
@@ -241,7 +251,14 @@ function applyToolFailure(
   part.output = { error: event.payload.error };
   part.metadata = mergeToolMetadata(
     part.metadata,
-    buildToolMetadata(part.toolName, part.input, undefined, event.payload.error),
+    buildToolMetadata(
+      part.toolName,
+      part.input,
+      readToolMetadataDescription(part.metadata),
+      readToolMetadataDisplayText(part.metadata),
+      undefined,
+      event.payload.error,
+    ),
   );
 }
 
@@ -349,6 +366,8 @@ function createHandoffPart(
 function buildToolMetadata(
   toolName: string,
   input: Record<string, unknown> | undefined,
+  description: string | undefined,
+  displayText: string | undefined,
   result: unknown,
   error: string | undefined,
 ): ToolActivityMetadata {
@@ -358,19 +377,35 @@ function buildToolMetadata(
   }
 
   const outputText = getResultContent(result);
+  const toolPresentation = getToolPresentation(toolName, input);
   switch (toolName) {
     case "read_file":
-      return buildReadMetadata(input, outputText);
+      return buildReadMetadata(
+        input,
+        outputText,
+        displayText ?? toolPresentation.displayText,
+      );
     case "list_files":
-      return buildListMetadata(input, outputText);
+      return buildListMetadata(
+        input,
+        outputText,
+        displayText ?? toolPresentation.displayText,
+      );
     case "glob":
     case "grep":
-      return buildSearchMetadata(toolName, input, outputText);
+      return buildSearchMetadata(
+        toolName,
+        input,
+        outputText,
+        displayText ?? toolPresentation.displayText,
+      );
     case "bash":
       return {
         family: TOOL_ACTIVITY_FAMILIES.SHELL,
+        displayText:
+          displayText ?? toolPresentation.displayText ?? undefined,
         command: readString(input?.command) ?? toolName,
-        description: readString(input?.description),
+        description: description ?? toolPresentation.description,
         cwd: readString(input?.cwd) ?? ".",
         origin: "agent_tool",
         stdout: outputText || undefined,
@@ -382,6 +417,8 @@ function buildToolMetadata(
     case "write_file":
       return {
         family: TOOL_ACTIVITY_FAMILIES.EDIT,
+        displayText:
+          displayText ?? toolPresentation.displayText ?? undefined,
         filePath: readString(input?.path) ?? "unknown",
         additions: 0,
         deletions: 0,
@@ -391,6 +428,8 @@ function buildToolMetadata(
     case "git_diff":
       return {
         family: TOOL_ACTIVITY_FAMILIES.GIT,
+        displayText:
+          displayText ?? toolPresentation.displayText ?? undefined,
         path: readString(input?.path),
         preview: outputText || undefined,
         count: countNonEmptyLines(outputText),
@@ -398,6 +437,8 @@ function buildToolMetadata(
     default:
       return {
         family: TOOL_ACTIVITY_FAMILIES.GENERIC,
+        displayText:
+          displayText ?? toolPresentation.displayText ?? undefined,
         summary: outputText || error || undefined,
       };
   }
@@ -407,11 +448,14 @@ function mergeToolMetadata(
   current: ToolActivityMetadata,
   next: ToolActivityMetadata,
 ): ToolActivityMetadata {
+  const nextDisplayText =
+    readToolMetadataDisplayText(next) ?? readToolMetadataDisplayText(current);
+
   if (
     current.family !== TOOL_ACTIVITY_FAMILIES.SHELL ||
     next.family !== TOOL_ACTIVITY_FAMILIES.SHELL
   ) {
-    return next;
+    return nextDisplayText ? { ...next, displayText: nextDisplayText } : next;
   }
 
   const stdout = next.stdout ?? current.stdout;
@@ -419,6 +463,8 @@ function mergeToolMetadata(
   return {
     ...current,
     ...next,
+    displayText: nextDisplayText,
+    description: next.description ?? current.description,
     stdout,
     stderr,
     outputTail: buildShellOutputTail(stdout ?? "", stderr ?? "") || undefined,
@@ -455,10 +501,13 @@ function getResultContent(result: unknown): string {
 function buildReadMetadata(
   input: Record<string, unknown> | undefined,
   outputText: string,
+  displayText: string | undefined,
 ): ToolActivityMetadata {
   const path = readString(input?.path);
   return {
     family: TOOL_ACTIVITY_FAMILIES.READ,
+    displayText:
+      displayText ?? getToolPresentation("read_file", input).displayText,
     path,
     count: path ? 1 : 0,
     truncated: outputText.length > 240,
@@ -470,11 +519,14 @@ function buildReadMetadata(
 function buildListMetadata(
   input: Record<string, unknown> | undefined,
   outputText: string,
+  displayText: string | undefined,
 ): ToolActivityMetadata {
   const path = readString(input?.path);
   const lines = splitNonEmptyLines(outputText);
   return {
     family: TOOL_ACTIVITY_FAMILIES.READ,
+    displayText:
+      displayText ?? getToolPresentation("list_files", input).displayText,
     path: path ?? ".",
     count: lines.length,
     truncated: /\.\.\. and \d+ more files/i.test(outputText),
@@ -487,6 +539,7 @@ function buildSearchMetadata(
   toolName: string,
   input: Record<string, unknown> | undefined,
   outputText: string,
+  displayText: string | undefined,
 ): ToolActivityMetadata {
   const lines = splitNonEmptyLines(outputText);
   const loadedPaths =
@@ -501,6 +554,8 @@ function buildSearchMetadata(
       : lines;
   return {
     family: TOOL_ACTIVITY_FAMILIES.SEARCH,
+    displayText:
+      displayText ?? getToolPresentation(toolName, input).displayText,
     path: readString(input?.path) ?? ".",
     pattern: readString(input?.pattern),
     count: lines.length,
@@ -510,29 +565,43 @@ function buildSearchMetadata(
   };
 }
 
+function readToolMetadataDisplayText(
+  metadata: ToolActivityMetadata,
+): string | undefined {
+  return metadata.displayText;
+}
+
+function readToolMetadataDescription(
+  metadata: ToolActivityMetadata,
+): string | undefined {
+  return metadata.family === TOOL_ACTIVITY_FAMILIES.SHELL
+    ? metadata.description
+    : undefined;
+}
+
 function getReasoningLabel(step: string): string {
   switch (step) {
     case RUN_WORKFLOW_STEPS.PLANNING:
-      return "Analyzing repository";
+      return "Planning next step";
     case RUN_WORKFLOW_STEPS.EXECUTION:
-      return "Executing tools";
+      return "Preparing next action";
     case RUN_WORKFLOW_STEPS.SYNTHESIS:
-      return "Preparing final answer";
+      return "Summarizing the change";
     default:
-      return "Working";
+      return "Workflow update";
   }
 }
 
 function getReasoningSummary(step: string): string {
   switch (step) {
     case RUN_WORKFLOW_STEPS.PLANNING:
-      return "Preparing the operational plan.";
+      return "Preparing a safe execution plan for this request.";
     case RUN_WORKFLOW_STEPS.EXECUTION:
-      return "Running the selected coding tools.";
+      return "Preparing the next concrete workspace action.";
     case RUN_WORKFLOW_STEPS.SYNTHESIS:
-      return "Summarizing execution results for the final response.";
+      return "Preparing the final user-facing answer from the observed results.";
     default:
-      return "Updating run state.";
+      return "Updating workflow state.";
   }
 }
 

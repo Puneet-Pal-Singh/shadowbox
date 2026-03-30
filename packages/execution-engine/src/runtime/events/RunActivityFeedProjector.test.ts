@@ -47,12 +47,14 @@ describe("RunActivityFeedProjector", () => {
         createEvent(RUN_EVENT_TYPES.RUN_STATUS_CHANGED, {
           previousStatus: "queued",
           newStatus: "running",
-          workflowStep: "execution",
+          workflowStep: "planning",
         }),
         createEvent(RUN_EVENT_TYPES.TOOL_REQUESTED, {
           toolId: "tool-1",
           toolName: "bash",
           arguments: { command: "pnpm test" },
+          description: "Run pnpm test",
+          displayText: "Running pnpm test",
         }),
         createEvent(RUN_EVENT_TYPES.TOOL_COMPLETED, {
           toolId: "tool-1",
@@ -78,6 +80,10 @@ describe("RunActivityFeedProjector", () => {
     if (tool?.kind === "tool") {
       expect(tool.metadata.family).toBe(TOOL_ACTIVITY_FAMILIES.SHELL);
       expect(tool.status).toBe("completed");
+      if (tool.metadata.family === TOOL_ACTIVITY_FAMILIES.SHELL) {
+        expect(tool.metadata.description).toBe("Run pnpm test");
+        expect(tool.metadata.displayText).toBe("Running pnpm test");
+      }
     }
 
     expect(
@@ -175,6 +181,34 @@ describe("RunActivityFeedProjector", () => {
         }),
       ]),
     );
+  });
+
+  it("derives action-specific display text for read tools when the request payload is plain", () => {
+    const snapshot = projectRunActivityFeed({
+      runId: "run-2",
+      run: null,
+      events: [
+        createEvent(RUN_EVENT_TYPES.MESSAGE_EMITTED, {
+          content: "read the README",
+          role: "user",
+        }),
+        createEvent(RUN_EVENT_TYPES.TOOL_REQUESTED, {
+          toolId: "tool-1",
+          toolName: "read_file",
+          arguments: { path: "README.md" },
+        }),
+      ],
+    });
+
+    const tool = snapshot.items.find(
+      (item) => item.kind === ACTIVITY_PART_KINDS.TOOL,
+    );
+    expect(tool?.kind).toBe("tool");
+    if (tool?.kind !== "tool" || tool.metadata.family !== "read") {
+      throw new Error("Expected read tool activity part");
+    }
+
+    expect(tool.metadata.displayText).toBe("Reading README.md");
   });
 });
 

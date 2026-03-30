@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GitController } from "./GitController";
 import type { Env } from "../types/ai";
+import { GIT_STATUS_TIMEOUT_MS } from "../services/gitExecutionTimeouts";
 
 describe("GitController", () => {
   let fetchMock: ReturnType<typeof vi.fn>;
@@ -82,7 +83,7 @@ describe("GitController", () => {
         action: "git_status",
         runId: "run-1",
       },
-      timeout: 12000,
+      timeout: GIT_STATUS_TIMEOUT_MS,
     });
   });
 

@@ -11,12 +11,20 @@ describe("ActivityFeedViewModel", () => {
     const viewModel = buildActivityFeedViewModel(createFeedSnapshot());
     expect(viewModel.turns).toHaveLength(1);
     expect(viewModel.turns[0]?.summaryLabel).toBe(
-      "3 tool calls · 1 thinking step",
+      "3 tool calls · 1 progress update",
     );
     expect(viewModel.turns[0]?.defaultCollapsed).toBe(false);
     expect(viewModel.turns[0]?.isActiveTurn).toBe(true);
-    expect(viewModel.turns[0]?.rows[0]?.kind).toBe("reasoning");
+    expect(viewModel.turns[0]?.rows[0]).toMatchObject({
+      kind: "reasoning",
+      label: "Analyzing request",
+    });
     expect(viewModel.turns[0]?.rows[1]?.kind).toBe("group");
+    expect(viewModel.turns[0]?.rows[1]).toMatchObject({
+      kind: "group",
+      title: "Explored",
+      summary: "1 list, 1 file",
+    });
     expect(viewModel.turns[0]?.rows[2]?.kind).toBe("tool");
     if (viewModel.turns[0]?.rows[2]?.kind === "tool") {
       expect(viewModel.turns[0].rows[2].family).toBe(
@@ -35,7 +43,7 @@ describe("ActivityFeedViewModel", () => {
     expect(viewModel.turns[0]?.defaultCollapsed).toBe(true);
   });
 
-  it("labels active read and search batches as gathering context", () => {
+  it("labels active read batches with specific progress copy", () => {
     const snapshot = createFeedSnapshot();
     const runningTool = snapshot.items[3];
     if (!runningTool || runningTool.kind !== ACTIVITY_PART_KINDS.TOOL) {
@@ -58,13 +66,14 @@ describe("ActivityFeedViewModel", () => {
 
     expect(viewModel.turns[0]?.rows[1]).toMatchObject({
       kind: "group",
-      title: "Gathering context",
+      title: "Exploring",
+      summary: "1 list, 1 file",
       status: "running",
       defaultCollapsed: false,
     });
   });
 
-  it("suppresses generic execution and synthesis reasoning rows", () => {
+  it("turns generic execution progress into a compact thinking row and suppresses generic synthesis rows", () => {
     const snapshot = createFeedSnapshot();
     const viewModel = buildActivityFeedViewModel({
       ...snapshot,
@@ -103,11 +112,15 @@ describe("ActivityFeedViewModel", () => {
 
     expect(
       viewModel.turns[0]?.rows.some(
+        (row) => row.kind === "reasoning" && row.label === "Thinking",
+      ),
+    ).toBe(false);
+    expect(
+      viewModel.turns[0]?.rows.some(
         (row) =>
           row.kind === "reasoning" &&
-          (row.summary === "Running the selected coding tools." ||
-            row.summary ===
-              "Summarizing execution results for the final response."),
+          row.summary ===
+            "Summarizing execution results for the final response.",
       ),
     ).toBe(false);
   });
@@ -179,6 +192,71 @@ describe("ActivityFeedViewModel", () => {
           row.metadata?.code === "TASK_EXECUTION_TIMEOUT",
       ),
     ).toBe(true);
+  });
+
+  it("preserves authored labels when generic reasoning summaries collapse away", () => {
+    const viewModel = buildActivityFeedViewModel({
+      runId: "run-authored-reasoning",
+      sessionId: "session-authored-reasoning",
+      status: "COMPLETED",
+      items: [
+        {
+          id: "text-user",
+          runId: "run-authored-reasoning",
+          sessionId: "session-authored-reasoning",
+          turnId: "turn-1",
+          kind: ACTIVITY_PART_KINDS.TEXT,
+          createdAt: "2026-03-24T10:00:00.000Z",
+          updatedAt: "2026-03-24T10:00:00.000Z",
+          source: "brain",
+          role: "user",
+          content: "fix the footer",
+        },
+        {
+          id: "reasoning-execution",
+          runId: "run-authored-reasoning",
+          sessionId: "session-authored-reasoning",
+          turnId: "turn-1",
+          kind: ACTIVITY_PART_KINDS.REASONING,
+          createdAt: "2026-03-24T10:00:01.000Z",
+          updatedAt: "2026-03-24T10:00:01.000Z",
+          source: "brain",
+          label: "Checking footer copy",
+          summary: "Running the selected coding tools.",
+          phase: "execution",
+          status: "active",
+        },
+        {
+          id: "reasoning-synthesis",
+          runId: "run-authored-reasoning",
+          sessionId: "session-authored-reasoning",
+          turnId: "turn-1",
+          kind: ACTIVITY_PART_KINDS.REASONING,
+          createdAt: "2026-03-24T10:00:02.000Z",
+          updatedAt: "2026-03-24T10:00:02.000Z",
+          source: "brain",
+          label: "Reporting what changed",
+          summary: "Preparing the final user-facing response from the observed results.",
+          phase: "synthesis",
+          status: "completed",
+        },
+      ],
+    });
+
+    expect(viewModel.turns[0]?.rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "reasoning",
+          label: "Checking footer copy",
+          summary: "",
+        }),
+        expect.objectContaining({
+          kind: "reasoning",
+          label: "Reporting what changed",
+          summary: "Preparing the final user-facing response from the observed results.",
+        }),
+      ]),
+    );
   });
 
   it("keeps plain assistant transcript messages out of the activity feed", () => {

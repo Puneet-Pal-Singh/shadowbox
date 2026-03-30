@@ -93,6 +93,7 @@ export interface ReasoningActivityPart extends ActivityPartBase<
 
 export interface ReadToolActivityMetadata {
   family: typeof TOOL_ACTIVITY_FAMILIES.READ;
+  displayText?: string;
   path?: string;
   count: number;
   truncated: boolean;
@@ -102,6 +103,7 @@ export interface ReadToolActivityMetadata {
 
 export interface SearchToolActivityMetadata {
   family: typeof TOOL_ACTIVITY_FAMILIES.SEARCH;
+  displayText?: string;
   path?: string;
   pattern?: string;
   count: number;
@@ -112,6 +114,7 @@ export interface SearchToolActivityMetadata {
 
 export interface ShellToolActivityMetadata {
   family: typeof TOOL_ACTIVITY_FAMILIES.SHELL;
+  displayText?: string;
   command: string;
   description?: string;
   cwd?: string;
@@ -125,6 +128,7 @@ export interface ShellToolActivityMetadata {
 
 export interface EditToolActivityMetadata {
   family: typeof TOOL_ACTIVITY_FAMILIES.EDIT;
+  displayText?: string;
   filePath: string;
   additions: number;
   deletions: number;
@@ -134,6 +138,7 @@ export interface EditToolActivityMetadata {
 
 export interface GitToolActivityMetadata {
   family: typeof TOOL_ACTIVITY_FAMILIES.GIT;
+  displayText?: string;
   path?: string;
   count?: number;
   preview?: string;
@@ -141,6 +146,7 @@ export interface GitToolActivityMetadata {
 
 export interface GenericToolActivityMetadata {
   family: typeof TOOL_ACTIVITY_FAMILIES.GENERIC;
+  displayText?: string;
   summary?: string;
 }
 

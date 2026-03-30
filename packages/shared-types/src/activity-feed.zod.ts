@@ -33,7 +33,7 @@ const TextActivityPartSchema = BaseActivityPartSchema.extend({
 const ReasoningActivityPartSchema = BaseActivityPartSchema.extend({
   kind: z.literal(ACTIVITY_PART_KINDS.REASONING),
   label: z.string().min(1),
-  summary: z.string().min(1),
+  summary: z.string(),
   phase: z.enum(["planning", "execution", "synthesis"]),
   status: z.enum([
     REASONING_ACTIVITY_STATUSES.ACTIVE,
@@ -43,6 +43,7 @@ const ReasoningActivityPartSchema = BaseActivityPartSchema.extend({
 
 const ReadToolMetadataSchema = z.object({
   family: z.literal(TOOL_ACTIVITY_FAMILIES.READ),
+  displayText: z.string().optional(),
   path: z.string().optional(),
   count: z.number().int().min(0),
   truncated: z.boolean(),
@@ -52,6 +53,7 @@ const ReadToolMetadataSchema = z.object({
 
 const SearchToolMetadataSchema = z.object({
   family: z.literal(TOOL_ACTIVITY_FAMILIES.SEARCH),
+  displayText: z.string().optional(),
   path: z.string().optional(),
   pattern: z.string().optional(),
   count: z.number().int().min(0),
@@ -62,6 +64,7 @@ const SearchToolMetadataSchema = z.object({
 
 const ShellToolMetadataSchema = z.object({
   family: z.literal(TOOL_ACTIVITY_FAMILIES.SHELL),
+  displayText: z.string().optional(),
   command: z.string().min(1),
   description: z.string().optional(),
   cwd: z.string().optional(),
@@ -75,6 +78,7 @@ const ShellToolMetadataSchema = z.object({
 
 const EditToolMetadataSchema = z.object({
   family: z.literal(TOOL_ACTIVITY_FAMILIES.EDIT),
+  displayText: z.string().optional(),
   filePath: z.string().min(1),
   additions: z.number().int().min(0),
   deletions: z.number().int().min(0),
@@ -84,6 +88,7 @@ const EditToolMetadataSchema = z.object({
 
 const GitToolMetadataSchema = z.object({
   family: z.literal(TOOL_ACTIVITY_FAMILIES.GIT),
+  displayText: z.string().optional(),
   path: z.string().optional(),
   count: z.number().int().min(0).optional(),
   preview: z.string().optional(),
@@ -91,6 +96,7 @@ const GitToolMetadataSchema = z.object({
 
 const GenericToolMetadataSchema = z.object({
   family: z.literal(TOOL_ACTIVITY_FAMILIES.GENERIC),
+  displayText: z.string().optional(),
   summary: z.string().optional(),
 });
 

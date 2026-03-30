@@ -1,4 +1,5 @@
 import { Children } from "react";
+import { TOOL_ACTIVITY_FAMILIES } from "@repo/shared-types";
 import type { ActivityFeedRowViewModel } from "../../../services/activity/ActivityFeedViewModel.js";
 
 interface ActivityRowProps {
@@ -250,14 +251,16 @@ function ReasoningRow({
   displayMode: "card" | "transcript";
   collapsible: boolean;
 }) {
+  const isThinkingRow = row.label === "Thinking";
+
   if (displayMode === "transcript") {
     return (
-      <div className="space-y-1 py-1">
-        <div className="text-sm font-medium text-zinc-300">{row.label}</div>
-        {row.summary ? (
-          <div className="text-sm text-zinc-500">{row.summary}</div>
-        ) : null}
-      </div>
+      <CompactTranscriptRow
+        label={row.label}
+        detail={row.summary}
+        subtle={isThinkingRow}
+        emphasizeThinking={isThinkingRow && row.status === "active"}
+      />
     );
   }
 
@@ -270,6 +273,7 @@ function ReasoningRow({
       tone={row.status === "active" ? "running" : "completed"}
       displayMode={displayMode}
       collapsible={collapsible}
+      emphasizeThinking={isThinkingRow && row.status === "active"}
     >
       <div className="text-xs text-cyan-100/80">{row.summary}</div>
     </ExpandableRow>
@@ -364,6 +368,15 @@ function GroupRow({
   displayMode: "card" | "transcript";
   collapsible: boolean;
 }) {
+  if (isExplorationGroup(row)) {
+    return (
+      <CompactTranscriptGroup
+        label={combineCompactLabel(row.title, row.summary)}
+        rows={row.rows.map((groupRow) => getCompactExplorationTitle(groupRow))}
+      />
+    );
+  }
+
   return (
     <ExpandableRow
       label={row.title}
@@ -404,6 +417,27 @@ function ToolRow({
   displayMode: "card" | "transcript";
   collapsible: boolean;
 }) {
+  if (displayMode === "transcript" && isShellStyledTool(row)) {
+    return (
+      <ShellTranscriptRow
+        row={row}
+        expanded={expanded}
+        onToggle={onToggle}
+        collapsible={collapsible}
+      />
+    );
+  }
+
+  if (displayMode === "transcript") {
+    return (
+      <CompactTranscriptRow
+        label={row.title}
+        detail={getCompactToolDetail(row)}
+        subtle
+      />
+    );
+  }
+
   const details =
     row.details.length > 0 ? (
       <div className="space-y-2">
@@ -433,6 +467,70 @@ function ToolRow({
   );
 }
 
+function ShellTranscriptRow({
+  row,
+  expanded,
+  onToggle,
+  collapsible,
+}: {
+  row: Extract<ActivityFeedRowViewModel, { kind: "tool" }>;
+  expanded: boolean;
+  onToggle: (expanded: boolean) => void;
+  collapsible: boolean;
+}) {
+  const details = row.details.filter(Boolean);
+  const isExpandable = collapsible && details.length > 0;
+
+  if (!isExpandable) {
+    return (
+      <CompactTranscriptRow
+        label={getShellTranscriptLabel(row)}
+        detail={row.status === "failed" ? row.summary : undefined}
+        subtle
+      />
+    );
+  }
+
+  return (
+    <div className="space-y-2 py-1">
+      <button
+        type="button"
+        onClick={() => onToggle(expanded)}
+        className="flex w-full items-start gap-2 text-left"
+      >
+        <span className="mt-0.5">
+          <ChevronIcon expanded={expanded} muted />
+        </span>
+        <div className="min-w-0">
+          <div className="text-sm font-medium text-zinc-400">
+            {getShellTranscriptLabel(row)}
+          </div>
+        </div>
+      </button>
+      {expanded ? (
+        <div className="ml-5 rounded-2xl border border-zinc-700/60 bg-zinc-800/55 px-4 py-3">
+          <div className="flex items-center justify-between gap-4">
+            <div className="text-sm font-medium text-zinc-100">Shell</div>
+            <div className={getShellStatusClassName(row.status)}>
+              {getShellStatusLabel(row.status)}
+            </div>
+          </div>
+          <div className="mt-3 space-y-2">
+            {details.map((detail, index) => (
+              <pre
+                key={`${row.key}-detail-${index}`}
+                className="overflow-x-auto whitespace-pre-wrap break-words rounded-xl bg-transparent text-xs leading-6 text-zinc-100"
+              >
+                {detail}
+              </pre>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function ExpandableRow({
   label,
   summary,
@@ -442,6 +540,7 @@ function ExpandableRow({
   tone = "completed",
   displayMode = "card",
   collapsible = true,
+  emphasizeThinking = false,
 }: {
   label: string;
   summary: string;
@@ -451,6 +550,7 @@ function ExpandableRow({
   tone?: "requested" | "running" | "completed" | "failed";
   displayMode?: "card" | "transcript";
   collapsible?: boolean;
+  emphasizeThinking?: boolean;
 }) {
   const hasChildren = Children.count(children) > 0;
 
@@ -489,12 +589,20 @@ function ExpandableRow({
             <span className="mt-0.5">
               <ChevronIcon expanded={expanded} muted />
             </span>
-          ) : (
-            <span className="mt-[7px] h-1.5 w-1.5 rounded-full bg-zinc-600" />
-          )}
+          ) : !emphasizeThinking ? (
+            <span
+              className={
+                "mt-[7px] h-1.5 w-1.5 rounded-full bg-zinc-600"
+              }
+            />
+          ) : null}
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="truncate text-sm font-medium text-zinc-200">
+              <span
+                className={`truncate text-sm font-medium ${getTranscriptLabelClass(
+                  emphasizeThinking,
+                )}`}
+              >
                 {label}
               </span>
               {summary ? (
@@ -532,10 +640,61 @@ function ExpandableRow({
   );
 }
 
+function CompactTranscriptRow({
+  label,
+  detail,
+  subtle = false,
+  emphasizeThinking = false,
+}: {
+  label: string;
+  detail?: string;
+  subtle?: boolean;
+  emphasizeThinking?: boolean;
+}) {
+  return (
+    <div className="space-y-1 py-1">
+      <div
+        className={`flex items-center gap-2 text-sm font-medium ${
+          subtle ? "text-zinc-500" : "text-zinc-200"
+        }`}
+      >
+        <span className={getTranscriptLabelClass(emphasizeThinking)}>
+          {label}
+        </span>
+      </div>
+      {detail ? <div className="pl-4 text-sm text-zinc-500">{detail}</div> : null}
+    </div>
+  );
+}
+
+function CompactTranscriptGroup({
+  label,
+  rows,
+}: {
+  label: string;
+  rows: string[];
+}) {
+  return (
+    <div className="space-y-1 py-1">
+      <div className="text-sm font-medium text-zinc-500">{label}</div>
+      <div className="space-y-1 pl-4">
+        {rows.map((rowTitle, index) => (
+          <div
+            key={`${label}-${index}`}
+            className="text-sm font-medium text-zinc-500"
+          >
+            {rowTitle}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function toneClassName(tone: string): string {
   switch (tone) {
     case "running":
-      return "text-cyan-300";
+      return "text-zinc-500";
     case "failed":
       return "text-red-300";
     case "requested":
@@ -571,4 +730,109 @@ function ChevronIcon({
       <path d="m9 18 6-6-6-6" />
     </svg>
   );
+}
+
+function isExplorationGroup(
+  row: Extract<ActivityFeedRowViewModel, { kind: "group" }>,
+): boolean {
+  return row.rows.every(
+    (groupRow) =>
+      groupRow.family === TOOL_ACTIVITY_FAMILIES.READ ||
+      groupRow.family === TOOL_ACTIVITY_FAMILIES.SEARCH,
+  );
+}
+
+function combineCompactLabel(label: string, summary: string): string {
+  return summary ? `${label} ${summary}` : label;
+}
+
+function isShellStyledTool(
+  row: Extract<ActivityFeedRowViewModel, { kind: "tool" }>,
+): boolean {
+  return row.family === TOOL_ACTIVITY_FAMILIES.SHELL;
+}
+
+function getCompactToolDetail(
+  row: Extract<ActivityFeedRowViewModel, { kind: "tool" }>,
+): string | undefined {
+  if (row.status === "failed") {
+    return row.summary;
+  }
+
+  return undefined;
+}
+
+function getCompactExplorationTitle(
+  row: Extract<ActivityFeedRowViewModel, { kind: "tool" }>,
+): string {
+  switch (row.toolName) {
+    case "read_file":
+      return row.title.replace(/^Reading /, "Read ");
+    case "list_files":
+      return row.title.replace(/^Listing /, "List ");
+    case "grep":
+    case "search_code":
+      return row.title
+        .replace(/^Searching for /, "Search ")
+        .replace(/^Searched for /, "Search ");
+    case "glob":
+      return row.title.replace(/^Finding /, "Find ");
+    default:
+      return row.title;
+  }
+}
+
+function getShellTranscriptLabel(
+  row: Extract<ActivityFeedRowViewModel, { kind: "tool" }>,
+): string {
+  const command = extractCommandLabel(row.details[0] ?? "");
+  const prefix =
+    row.status === "requested" || row.status === "running" ? "Running" : "Ran";
+
+  return command ? `${prefix} ${command}` : `${prefix} command`;
+}
+
+function extractCommandLabel(detail: string): string {
+  const firstLine = detail.split("\n")[0]?.trim() ?? "";
+  if (!firstLine.startsWith("$ ")) {
+    return "";
+  }
+
+  return firstLine.slice(2).trim();
+}
+
+function getShellStatusLabel(
+  status: Extract<ActivityFeedRowViewModel, { kind: "tool" }>["status"],
+): string {
+  switch (status) {
+    case "failed":
+      return "Failed";
+    case "requested":
+    case "running":
+      return "Running";
+    default:
+      return "Success";
+  }
+}
+
+function getShellStatusClassName(
+  status: Extract<ActivityFeedRowViewModel, { kind: "tool" }>["status"],
+): string {
+  switch (status) {
+    case "failed":
+      return "text-xs font-medium text-red-200";
+    case "requested":
+    case "running":
+      return "text-xs font-medium text-amber-200";
+    default:
+      return "text-xs font-medium text-zinc-200";
+  }
+}
+
+function getTranscriptLabelClass(emphasizeThinking: boolean): string {
+  if (!emphasizeThinking) {
+    return "text-zinc-500";
+  }
+
+  return "bg-[linear-gradient(90deg,rgba(113,113,122,0.9)_0%,rgba(228,228,231,0.95)_45%,rgba(113,113,122,0.9)_100%)] bg-[length:220%_100%] bg-clip-text text-transparent animate-shimmer";
 }

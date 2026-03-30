@@ -805,7 +805,16 @@ describe("RunEngine", () => {
       events.some(
         (event) =>
           event.type === RUN_EVENT_TYPES.RUN_PROGRESS &&
-          event.payload.label === "Synthesizing final response",
+          event.payload.label === "Thinking",
+      ),
+    ).toBe(true);
+    expect(
+      events.some(
+        (event) =>
+          event.type === RUN_EVENT_TYPES.TOOL_REQUESTED &&
+          event.payload.toolName === "read_file" &&
+          event.payload.description === "Read README.md" &&
+          event.payload.displayText === "Reading README.md",
       ),
     ).toBe(true);
     expect(
@@ -1193,7 +1202,7 @@ describe("RunEngine", () => {
       {
         command: "pnpm --filter @shadowbox/execution-engine test",
         cwd: undefined,
-        description: "Execute bash",
+        description: "Run pnpm --filter @shadowbox/execution-engine test",
       },
       {
         onOutput: expect.any(Function),

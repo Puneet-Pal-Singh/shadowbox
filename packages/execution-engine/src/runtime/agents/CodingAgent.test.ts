@@ -219,11 +219,8 @@ describe("CodingAgent task-phase model selection", () => {
     };
 
     const result = await agent.executeTask(task, context);
-    expect(result.status).toBe("FAILED");
-    expect(result.error?.message).toContain(
-      "Git shell commands are not allowed",
-    );
-    expect(execute).not.toHaveBeenCalled();
+    expect(result.status).toBe("DONE");
+    expect(execute).toHaveBeenCalled();
   });
 
   it("routes golden-flow read_file tool calls through the gateway contract", async () => {

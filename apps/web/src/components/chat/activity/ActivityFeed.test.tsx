@@ -23,7 +23,8 @@ describe("ActivityFeed", () => {
     ).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /worked for 3s/i }));
-    expect(screen.getByText("Gathered context")).toBeInTheDocument();
+    expect(screen.getByText("Explored 1 list, 1 file")).toBeInTheDocument();
+    expect(screen.getByText("Read README.md")).toBeInTheDocument();
     expect(screen.getByText("Build Handoff")).toBeInTheDocument();
 
     fireEvent.click(
@@ -63,7 +64,7 @@ describe("ActivityFeed", () => {
     expect(
       screen.queryByRole("button", { name: /worked for/i }),
     ).not.toBeInTheDocument();
-    expect(screen.getByText("Thinking")).toBeInTheDocument();
+    expect(screen.getByText("Analyzing repository")).toBeInTheDocument();
     expect(
       screen.getByText("Inspecting the repository before the next tool call."),
     ).toBeInTheDocument();
@@ -75,7 +76,7 @@ describe("ActivityFeed", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: /worked for 3s/i }));
-    expect(screen.getByText("Gathered context")).toBeInTheDocument();
+    expect(screen.getByText("Explored 1 list, 1 file")).toBeInTheDocument();
 
     rerender(
       <ActivityFeed
@@ -91,26 +92,25 @@ describe("ActivityFeed", () => {
       />,
     );
 
-    expect(screen.queryByText("Explore")).not.toBeInTheDocument();
+    expect(screen.queryByText("Explored 1 list, 1 file")).not.toBeInTheDocument();
   });
 
-  it("renders grouped child rows without nested show-hide controls", () => {
+  it("renders grouped exploration rows as a compact status lane", () => {
     render(<ActivityFeed feed={createFeedSnapshot()} isLoading={false} />);
 
     fireEvent.click(screen.getByRole("button", { name: /worked for 3s/i }));
-    fireEvent.click(
-      screen.getByRole("button", {
-        name: /Gathered context 2 low-noise context actions/i,
-      }),
-    );
 
+    expect(screen.getByText("Explored 1 list, 1 file")).toBeInTheDocument();
     expect(screen.getByText("Read README.md")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Explored 1 list, 1 file/i }),
+    ).not.toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "Read README.md" }),
     ).not.toBeInTheDocument();
   });
 
-  it("renders git status rows as command-style transcript details", () => {
+  it("renders git status rows as compact transcript lines", () => {
     render(
       <ActivityFeed
         feed={{
@@ -155,11 +155,8 @@ describe("ActivityFeed", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: /worked for \d+s/i }));
-    expect(
-      screen.getByRole("button", { name: /git status on main/i }),
-    ).toBeInTheDocument();
-    expect(screen.getByText(/\$ git status/)).toBeInTheDocument();
-    expect(screen.getByText(/working tree clean\./i)).toBeInTheDocument();
+    expect(screen.getByText("git status")).toBeInTheDocument();
+    expect(screen.queryByText(/\$ git status/)).not.toBeInTheDocument();
   });
 
   it("renders recoverable assistant updates from activity metadata", () => {

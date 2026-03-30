@@ -1,0 +1,2 @@
+export const GIT_STATUS_TIMEOUT_MS = 30_000;
+export const GIT_MUTATION_TIMEOUT_MS = 60_000;

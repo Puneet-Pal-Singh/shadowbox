@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { ExecutionService } from "./ExecutionService";
 import type { Env } from "../types/ai";
+import { GIT_STATUS_TIMEOUT_MS } from "./gitExecutionTimeouts";
 
 describe("ExecutionService", () => {
   it("creates a secure session once and executes canonical task requests", async () => {
@@ -182,7 +183,7 @@ describe("ExecutionService", () => {
         action: "git_status",
         runId: "run-git",
       },
-      timeout: 12000,
+      timeout: GIT_STATUS_TIMEOUT_MS,
     });
   });
 

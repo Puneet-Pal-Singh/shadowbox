@@ -18,18 +18,20 @@ describe("WorkflowTimeline", () => {
       />,
     );
 
-    expect(screen.getByRole("button", { name: /tool batch/i })).toHaveAttribute(
+    expect(
+      screen.getByRole("button", { name: /thinking/i }),
+    ).toHaveAttribute(
       "aria-expanded",
       "true",
     );
-    expect(screen.getByRole("button", { name: /shell exec/i })).toHaveAttribute(
-      "aria-expanded",
-      "true",
-    );
+    expect(
+      screen.getByRole("button", { name: /ran npm test/i }),
+    ).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByText("Command exited with code 1")).toBeInTheDocument();
+    expect(screen.getByText("Shell")).toBeInTheDocument();
   });
 
-  it("supports compaction controls and shows new-event indicators for collapsed blocks", () => {
+  it("renders exploration batches as compact non-expandable status rows", () => {
     const { rerender } = render(
       <WorkflowTimeline
         events={createCompactedEvents(2)}
@@ -38,8 +40,11 @@ describe("WorkflowTimeline", () => {
       />,
     );
 
-    const blockToggle = screen.getByRole("button", { name: /tool batch/i });
-    expect(blockToggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByText("Explored 2 files")).toBeInTheDocument();
+    expect(screen.getByText("Read src/file-2.ts")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /explored.*2 files/i }),
+    ).not.toBeInTheDocument();
 
     rerender(
       <WorkflowTimeline
@@ -50,19 +55,25 @@ describe("WorkflowTimeline", () => {
     );
 
     expect(screen.getByText("+3 new")).toBeInTheDocument();
+  });
 
-    fireEvent.click(screen.getByRole("button", { name: "Expand all" }));
-    expect(screen.getByRole("button", { name: /tool batch/i })).toHaveAttribute(
-      "aria-expanded",
-      "true",
+  it("keeps bash-backed thinking blocks expandable like shell rows", () => {
+    render(
+      <WorkflowTimeline
+        events={createBashThinkingEvents()}
+        summary={createSummary(1, 0)}
+        isLoading={false}
+      />,
     );
-    expect(screen.queryByText("+3 new")).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: "Collapse all" }));
-    expect(screen.getByRole("button", { name: /tool batch/i })).toHaveAttribute(
-      "aria-expanded",
-      "false",
-    );
+    expect(
+      screen.getByRole("button", { name: /thinking/i }),
+    ).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(screen.getByRole("button", { name: /thinking/i }));
+    expect(
+      screen.getByRole("button", { name: /ran git status/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Shell")).toBeInTheDocument();
   });
 
   it("shows a first-class plan handoff action when one is available", () => {
@@ -241,6 +252,71 @@ function createCompactedEvents(toolCount: number): RunEvent[] {
   }
 
   return events;
+}
+
+function createBashThinkingEvents(): RunEvent[] {
+  return [
+    createRunEvent(
+      "evt-1",
+      RUN_EVENT_TYPES.RUN_STARTED,
+      {
+        status: "running",
+      },
+      "2026-03-24T10:00:00.000Z",
+    ),
+    createRunEvent(
+      "evt-2",
+      RUN_EVENT_TYPES.RUN_PROGRESS,
+      {
+        phase: RUN_WORKFLOW_STEPS.EXECUTION,
+        label: "Thinking",
+        summary: "",
+        status: "active",
+      },
+      "2026-03-24T10:00:01.000Z",
+    ),
+    createRunEvent(
+      "evt-3",
+      RUN_EVENT_TYPES.TOOL_REQUESTED,
+      {
+        toolId: "tool-1",
+        toolName: "bash",
+        arguments: { command: "git status" },
+        displayText: "Running git status",
+      },
+      "2026-03-24T10:00:02.000Z",
+    ),
+    createRunEvent(
+      "evt-4",
+      RUN_EVENT_TYPES.TOOL_STARTED,
+      {
+        toolId: "tool-1",
+        toolName: "bash",
+      },
+      "2026-03-24T10:00:03.000Z",
+    ),
+    createRunEvent(
+      "evt-5",
+      RUN_EVENT_TYPES.TOOL_OUTPUT_APPENDED,
+      {
+        toolId: "tool-1",
+        toolName: "bash",
+        stdoutDelta: "$ git status\nOn branch feat/example\n",
+      },
+      "2026-03-24T10:00:03.500Z",
+    ),
+    createRunEvent(
+      "evt-6",
+      RUN_EVENT_TYPES.TOOL_COMPLETED,
+      {
+        toolId: "tool-1",
+        toolName: "bash",
+        executionTimeMs: 800,
+        result: "On branch feat/example",
+      },
+      "2026-03-24T10:00:04.000Z",
+    ),
+  ];
 }
 
 function createRunEvent<T extends RunEvent["type"]>(

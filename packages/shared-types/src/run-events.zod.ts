@@ -83,6 +83,8 @@ const ToolRequestedPayloadSchema = z.object({
   toolId: z.string().min(1),
   toolName: z.string().min(1),
   arguments: z.record(z.string(), z.unknown()),
+  description: z.string().trim().min(1).optional(),
+  displayText: z.string().trim().min(1).optional(),
 });
 
 const ToolStartedPayloadSchema = z.object({
