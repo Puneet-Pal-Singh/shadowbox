@@ -6,7 +6,7 @@
  *
  * Usage:
  *   const { credentials, connectCredential } = useProviderStore();
- *   
+ *
  *   useEffect(() => {
  *     if (credentials.length === 0) {
  *       store.bootstrap();
@@ -46,22 +46,22 @@ type UseProviderStoreResult = ProviderStoreState & {
   disconnectCredential: (credentialId: string) => Promise<void>;
   validateCredential: (
     credentialId: string,
-    mode: "format" | "live"
+    mode: "format" | "live",
   ) => Promise<void>;
   loadProviderModels: (
     providerId: string,
-    options?: LoadProviderModelsOptions
+    options?: LoadProviderModelsOptions,
   ) => Promise<ProviderModelOption[]>;
-  loadMoreProviderModels: (providerId: string) => Promise<ProviderModelOption[]>;
+  loadMoreProviderModels: (
+    providerId: string,
+  ) => Promise<ProviderModelOption[]>;
   refreshProviderModels: (providerId: string) => Promise<void>;
   setModelView: (view: ProviderModelDiscoveryView) => Promise<void>;
-  updatePreferences: (
-    partial: BYOKPreferencesUpdateRequest
-  ) => Promise<void>;
+  updatePreferences: (partial: BYOKPreferencesUpdateRequest) => Promise<void>;
   setSelection: (
     providerId: string,
     credentialId: string,
-    modelId?: string
+    modelId?: string,
   ) => void;
   applySessionSelection: (
     request: SessionSelectionRequest,
@@ -96,72 +96,69 @@ export function useProviderStore(
     }
 
     persistRunId(runId);
-    store.setActiveRunId(runId);
+    const needsBootstrap = store.setActiveRunId(runId);
 
-    if (state.status === "idle") {
+    if (needsBootstrap) {
       store.bootstrap().catch((error) => {
         console.error("[provider/store] bootstrap failed", error);
       });
     }
-  }, [runId, state.status, store]);
+  }, [runId, store]);
 
   const bootstrap = useCallback(() => store.bootstrap(), [store]);
   const connectCredential = useCallback(
     (req: ConnectCredentialRequest) => store.connectCredential(req),
-    [store]
+    [store],
   );
   const disconnectCredential = useCallback(
     (credentialId: string) => store.disconnectCredential(credentialId),
-    [store]
+    [store],
   );
   const validateCredential = useCallback(
     (credentialId: string, mode: "format" | "live") =>
       store.validateCredential(credentialId, mode),
-    [store]
+    [store],
   );
   const loadProviderModels = useCallback(
     (providerId: string, options?: LoadProviderModelsOptions) =>
       store.loadProviderModels(providerId, options),
-    [store]
+    [store],
   );
   const loadMoreProviderModels = useCallback(
     (providerId: string) => store.loadMoreProviderModels(providerId),
-    [store]
+    [store],
   );
   const refreshProviderModels = useCallback(
     (providerId: string) => store.refreshProviderModels(providerId),
-    [store]
+    [store],
   );
   const setModelView = useCallback(
     (view: ProviderModelDiscoveryView) => store.setModelView(view),
-    [store]
+    [store],
   );
   const updatePreferences = useCallback(
     (partial: BYOKPreferencesUpdateRequest) => store.updatePreferences(partial),
-    [store]
+    [store],
   );
   const setSelection = useCallback(
     (providerId: string, credentialId: string, modelId?: string) =>
       store.setSelection(providerId, credentialId, modelId),
-    [store]
+    [store],
   );
   const applySessionSelection = useCallback(
     (request: SessionSelectionRequest) => store.applySessionSelection(request),
     [store],
   );
-  const resolveForChat = useCallback(
-    () => store.resolveForChat(),
-    [store]
-  );
+  const resolveForChat = useCallback(() => store.resolveForChat(), [store]);
   const toggleModelVisibility = useCallback(
     (providerId: string, modelId: string) =>
       store.toggleModelVisibility(providerId, modelId),
-    [store]
+    [store],
   );
   const setProviderVisibleModels = useCallback(
     (providerId: string, modelIds: string[]) =>
       store.setProviderVisibleModels(providerId, modelIds),
-    [store]
+    [store],
   );
   const clearError = useCallback(() => store.clearError(), [store]);
   const reset = useCallback(() => store.reset(), [store]);

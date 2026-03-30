@@ -205,10 +205,11 @@ export class ProviderStore {
   /**
    * Bind store state to active run scope.
    * Resets store when run changes to prevent cross-run leakage.
+   * Returns true if bootstrap should be called.
    */
-  setActiveRunId(runId: string): void {
+  setActiveRunId(runId: string): boolean {
     if (!runId || this.activeRunId === runId) {
-      return;
+      return false;
     }
 
     const previousRunId = this.activeRunId;
@@ -221,7 +222,9 @@ export class ProviderStore {
         nextRunId: runId,
       });
       this.reset();
+      return true;
     }
+    return false;
   }
 
   /**
