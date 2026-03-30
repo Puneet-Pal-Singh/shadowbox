@@ -89,6 +89,36 @@ describe("activity-feed contract", () => {
     expect(snapshot.items[1]?.kind).toBe("handoff");
   });
 
+  it("accepts reasoning parts with an empty summary", () => {
+    const snapshot = parseActivityFeedSnapshot({
+      runId: "run-1",
+      sessionId: "session-1",
+      status: "RUNNING",
+      items: [
+        {
+          id: "reasoning-1",
+          runId: "run-1",
+          sessionId: "session-1",
+          turnId: "turn-1",
+          kind: ACTIVITY_PART_KINDS.REASONING,
+          createdAt: "2026-03-24T10:00:00.000Z",
+          updatedAt: "2026-03-24T10:00:00.000Z",
+          source: "brain",
+          label: "Thinking",
+          summary: "",
+          phase: "execution",
+          status: "active",
+        },
+      ],
+    });
+
+    expect(snapshot.items[0]?.kind).toBe("reasoning");
+    if (snapshot.items[0]?.kind !== "reasoning") {
+      throw new Error("Expected reasoning activity part");
+    }
+    expect(snapshot.items[0].summary).toBe("");
+  });
+
   it("rejects malformed parts safely", () => {
     const result = safeParseActivityPart({
       id: "broken",
