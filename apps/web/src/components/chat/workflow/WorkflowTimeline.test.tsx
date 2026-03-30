@@ -25,12 +25,13 @@ describe("WorkflowTimeline", () => {
       "true",
     );
     expect(
-      screen.getByRole("button", { name: /running npm test/i }),
+      screen.getByRole("button", { name: /ran npm test/i }),
     ).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByText("Command exited with code 1")).toBeInTheDocument();
+    expect(screen.getByText("Shell")).toBeInTheDocument();
   });
 
-  it("supports compaction controls and shows new-event indicators for collapsed blocks", () => {
+  it("renders exploration batches as compact non-expandable status rows", () => {
     const { rerender } = render(
       <WorkflowTimeline
         events={createCompactedEvents(2)}
@@ -39,10 +40,11 @@ describe("WorkflowTimeline", () => {
       />,
     );
 
-    const blockToggle = screen.getByRole("button", {
-      name: /explored.*2 files/i,
-    });
-    expect(blockToggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByText("Explored 2 files")).toBeInTheDocument();
+    expect(screen.getByText("Read src/file-2.ts")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /explored.*2 files/i }),
+    ).not.toBeInTheDocument();
 
     rerender(
       <WorkflowTimeline
@@ -53,17 +55,6 @@ describe("WorkflowTimeline", () => {
     );
 
     expect(screen.getByText("+3 new")).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "Expand all" }));
-    expect(
-      screen.getByRole("button", { name: /explored.*3 files/i }),
-    ).toHaveAttribute("aria-expanded", "true");
-    expect(screen.queryByText("+3 new")).toBeNull();
-
-    fireEvent.click(screen.getByRole("button", { name: "Collapse all" }));
-    expect(
-      screen.getByRole("button", { name: /explored.*3 files/i }),
-    ).toHaveAttribute("aria-expanded", "false");
   });
 
   it("shows a first-class plan handoff action when one is available", () => {
