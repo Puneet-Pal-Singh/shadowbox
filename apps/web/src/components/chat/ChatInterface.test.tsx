@@ -458,6 +458,105 @@ describe("ChatInterface", () => {
     );
   });
 
+  it("suppresses intermediary assistant chatter and keeps the latest assistant reply for the turn", () => {
+    vi.mocked(useRunSummary).mockReturnValue({
+      summary: {
+        runId: "run-1",
+        status: "RUNNING",
+        totalTasks: 0,
+        completedTasks: 0,
+        failedTasks: 0,
+        planArtifact: null,
+      },
+    });
+    vi.mocked(useRunActivityFeed).mockReturnValue({
+      feed: {
+        runId: "run-1",
+        sessionId: "session-1",
+        status: "RUNNING",
+        items: [
+          {
+            id: "turn-1-user",
+            runId: "run-1",
+            sessionId: "session-1",
+            turnId: "turn-1",
+            kind: "text",
+            createdAt: "2026-03-24T10:00:00.000Z",
+            updatedAt: "2026-03-24T10:00:00.000Z",
+            source: "brain",
+            role: "user",
+            content: "make the workflow ui look like codex",
+          },
+          {
+            id: "turn-1-reasoning",
+            runId: "run-1",
+            sessionId: "session-1",
+            turnId: "turn-1",
+            kind: "reasoning",
+            createdAt: "2026-03-24T10:00:01.000Z",
+            updatedAt: "2026-03-24T10:00:01.000Z",
+            source: "brain",
+            label: "Thinking",
+            summary: "",
+            phase: "execution",
+            status: "active",
+          },
+        ],
+      },
+    });
+
+    render(
+      <ChatInterface
+        chatProps={{
+          messages: [
+            {
+              id: "user-1",
+              role: "user",
+              content: "make the workflow ui look like codex",
+            },
+            {
+              id: "assistant-progress-1",
+              role: "assistant",
+              content: "I'm checking the current renderer first.",
+            },
+            {
+              id: "assistant-progress-2",
+              role: "assistant",
+              content: "I've narrowed it down to the workflow lane.",
+            },
+            {
+              id: "assistant-final",
+              role: "assistant",
+              content: "I updated the workflow UI to match the compact design.",
+            },
+          ],
+          runId: "run-1",
+          input: "",
+          handleInputChange: vi.fn(),
+          handleSubmit: vi.fn(),
+          append: vi.fn(),
+          stop: vi.fn(),
+          isLoading: true,
+          error: null,
+          debugEvents: [],
+        }}
+        sessionId="session-1"
+        mode="build"
+      />,
+    );
+
+    expect(
+      screen.queryByText("I'm checking the current renderer first."),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("I've narrowed it down to the workflow lane."),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByText("I updated the workflow UI to match the compact design."),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Thinking")).toBeInTheDocument();
+  });
+
   it("keeps repeated user prompts attached to distinct workflow turns", () => {
     vi.mocked(useRunSummary).mockReturnValue({
       summary: {

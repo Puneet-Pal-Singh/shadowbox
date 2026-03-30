@@ -35,4 +35,33 @@ describe("messageMetadata", () => {
     expect(turns[1]?.userMessage?.id).toBe("user-2");
     expect(turns[1]?.assistantMessage?.id).toBe("assistant-2");
   });
+
+  it("keeps the latest assistant message for a user turn when progress chatter streams first", () => {
+    const turns = buildConversationTurns([
+      {
+        id: "user-1",
+        role: "user",
+        content: "update the workflow ui",
+      },
+      {
+        id: "assistant-progress-1",
+        role: "assistant",
+        content: "I'm checking the current renderer first.",
+      },
+      {
+        id: "assistant-progress-2",
+        role: "assistant",
+        content: "I've narrowed it down to the workflow lane.",
+      },
+      {
+        id: "assistant-final",
+        role: "assistant",
+        content: "I updated the workflow UI to match the new compact design.",
+      },
+    ] satisfies Message[]);
+
+    expect(turns).toHaveLength(1);
+    expect(turns[0]?.userMessage?.id).toBe("user-1");
+    expect(turns[0]?.assistantMessage?.id).toBe("assistant-final");
+  });
 });
