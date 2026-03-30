@@ -97,10 +97,10 @@ export interface ProviderApiClientContract {
   getCatalog(): Promise<ProviderRegistryEntry[]>;
   getProviderModels(
     providerId: string,
-    query?: ProviderModelsQuery
+    query?: ProviderModelsQuery,
   ): Promise<ProviderModelsPageResult>;
   refreshProviderModels(
-    providerId: string
+    providerId: string,
   ): Promise<BYOKDiscoveredProviderModelsRefreshResponse>;
   getCredentials(): Promise<ProviderCredential[]>;
   getPreferences(): Promise<ProviderPreference>;
@@ -108,9 +108,11 @@ export interface ProviderApiClientContract {
   disconnectCredential(credentialId: string): Promise<void>;
   validateCredential(
     credentialId: string,
-    req: ValidateCredentialRequest
+    req: ValidateCredentialRequest,
   ): Promise<BYOKCredentialValidateResponse>;
-  updatePreferences(req: BYOKPreferencesUpdateRequest): Promise<ProviderPreference>;
+  updatePreferences(
+    req: BYOKPreferencesUpdateRequest,
+  ): Promise<ProviderPreference>;
   resolveForChat(req: BYOKResolveRequest): Promise<ProviderResolution>;
 }
 
@@ -158,7 +160,10 @@ export class ProviderStore {
   private epoch = 0;
   private enableLogging: boolean;
 
-  private constructor(apiClient: ProviderApiClientContract, enableLogging = false) {
+  private constructor(
+    apiClient: ProviderApiClientContract,
+    enableLogging = false,
+  ) {
     this.apiClient = apiClient;
     this.enableLogging = enableLogging;
     this.state = {
@@ -191,7 +196,7 @@ export class ProviderStore {
       const apiClient = options?.apiClient || new ProviderApiClient();
       ProviderStore.instance = new ProviderStore(
         apiClient,
-        options?.enableLogging ?? false
+        options?.enableLogging ?? false,
       );
     }
     return ProviderStore.instance;
@@ -233,7 +238,7 @@ export class ProviderStore {
    * Deep copy visibleModelIds to prevent external mutations
    */
   private copyVisibleModelIds(
-    visibleModelIds: Record<string, Set<string>>
+    visibleModelIds: Record<string, Set<string>>,
   ): Record<string, Set<string>> {
     const copy: Record<string, Set<string>> = {};
     for (const [providerId, modelSet] of Object.entries(visibleModelIds)) {
@@ -295,10 +300,7 @@ export class ProviderStore {
         selectedModelId: this.state.selectedModelId,
       });
 
-      const visibleModelIds = this.hydrateVisibleModelIds(
-        preferences,
-        catalog
-      );
+      const visibleModelIds = this.hydrateVisibleModelIds(preferences);
 
       this.setState({
         catalog,
@@ -336,7 +338,9 @@ export class ProviderStore {
         return;
       }
       const message =
-        error instanceof Error ? error.message : "Failed to bootstrap provider state";
+        error instanceof Error
+          ? error.message
+          : "Failed to bootstrap provider state";
       this.setState({
         status: "error",
         error: message,
@@ -352,7 +356,6 @@ export class ProviderStore {
    */
   private hydrateVisibleModelIds(
     preferences: ProviderPreference | null,
-    catalog: ProviderRegistryEntry[]
   ): Record<string, Set<string>> {
     const result: Record<string, Set<string>> = {};
 
@@ -363,7 +366,7 @@ export class ProviderStore {
     // Convert arrays from preference to Sets
     // Only add entries that exist in preferences (missing = show all)
     for (const [providerId, modelIds] of Object.entries(
-      preferences.visibleModelIds
+      preferences.visibleModelIds,
     )) {
       if (modelIds.length > 0) {
         result[providerId] = new Set(modelIds);
@@ -432,7 +435,7 @@ export class ProviderStore {
           ?.defaultModelId ??
         null;
       const currentCredentialIndex = this.state.credentials.findIndex(
-        (existing) => existing.credentialId === credential.credentialId
+        (existing) => existing.credentialId === credential.credentialId,
       );
       const nextCredentials =
         currentCredentialIndex === -1
@@ -440,7 +443,7 @@ export class ProviderStore {
           : this.state.credentials.map((existing) =>
               existing.credentialId === credential.credentialId
                 ? credential
-                : existing
+                : existing,
             );
       const selection = this.deriveSelectionSnapshot({
         catalog: this.state.catalog,
@@ -510,7 +513,7 @@ export class ProviderStore {
 
       // Remove from credentials list
       const nextCredentials = this.state.credentials.filter(
-        (credential) => credential.credentialId !== credentialId
+        (credential) => credential.credentialId !== credentialId,
       );
       const selection = this.deriveSelectionSnapshot({
         catalog: this.state.catalog,
@@ -547,7 +550,7 @@ export class ProviderStore {
    */
   async validateCredential(
     credentialId: string,
-    mode: "format" | "live"
+    mode: "format" | "live",
   ): Promise<void> {
     const key = `validate:${credentialId}:${mode}`;
 
@@ -575,7 +578,7 @@ export class ProviderStore {
    */
   private async executeValidate(
     credentialId: string,
-    mode: "format" | "live"
+    mode: "format" | "live",
   ): Promise<void> {
     this.log("[validateCredential] Starting", { credentialId, mode });
     const epoch = this.epoch;
@@ -588,13 +591,13 @@ export class ProviderStore {
 
       // Update credential status if validation succeeded
       const credential = this.state.credentials.find(
-        (c) => c.credentialId === credentialId
+        (c) => c.credentialId === credentialId,
       );
       if (credential) {
         const updated = { ...credential, status: "connected" as const };
         this.setState({
           credentials: this.state.credentials.map((c) =>
-            c.credentialId === credentialId ? updated : c
+            c.credentialId === credentialId ? updated : c,
           ),
         });
       }
@@ -602,9 +605,7 @@ export class ProviderStore {
       this.log("[validateCredential] Success", { credentialId, mode });
     } catch (error) {
       const message =
-        error instanceof Error
-          ? error.message
-          : "Validation failed";
+        error instanceof Error ? error.message : "Validation failed";
       this.log("[validateCredential] Error", { error: message });
       throw error;
     }
@@ -614,7 +615,7 @@ export class ProviderStore {
    * Update workspace preferences
    */
   async updatePreferences(
-    partial: BYOKPreferencesUpdateRequest
+    partial: BYOKPreferencesUpdateRequest,
   ): Promise<void> {
     const key = "preferences";
 
@@ -636,7 +637,7 @@ export class ProviderStore {
 
   async loadProviderModels(
     providerId: string,
-    options: LoadProviderModelsOptions = {}
+    options: LoadProviderModelsOptions = {},
   ): Promise<ProviderModelOption[]> {
     const resolvedOptions = this.resolveLoadOptions(providerId, options);
     const key = [
@@ -674,7 +675,9 @@ export class ProviderStore {
     }
   }
 
-  async loadMoreProviderModels(providerId: string): Promise<ProviderModelOption[]> {
+  async loadMoreProviderModels(
+    providerId: string,
+  ): Promise<ProviderModelOption[]> {
     const pageState = this.state.providerModelsPage[providerId];
     if (!pageState?.hasMore || !pageState.nextCursor) {
       return this.state.providerModels[providerId] ?? [];
@@ -723,7 +726,7 @@ export class ProviderStore {
   private async executeLoadProviderModels(
     providerId: string,
     options: ResolvedLoadProviderModelsOptions,
-    epoch: number
+    epoch: number,
   ): Promise<ProviderModelOption[]> {
     this.log("[loadProviderModels] Starting", { providerId, ...options });
     const result = await this.apiClient.getProviderModels(providerId, {
@@ -760,7 +763,10 @@ export class ProviderStore {
       selectedModelView: result.view,
       selectedModelId:
         this.state.selectedProviderId === providerId
-          ? this.resolveSelectedModelId(this.state.selectedModelId, mergedModels)
+          ? this.resolveSelectedModelId(
+              this.state.selectedModelId,
+              mergedModels,
+            )
           : this.state.selectedModelId,
     });
     this.log("[loadProviderModels] Success", {
@@ -775,7 +781,7 @@ export class ProviderStore {
 
   private async executeRefreshProviderModels(
     providerId: string,
-    epoch: number
+    epoch: number,
   ): Promise<void> {
     this.log("[refreshProviderModels] Starting", { providerId });
     await this.apiClient.refreshProviderModels(providerId);
@@ -792,7 +798,7 @@ export class ProviderStore {
    * Internal preferences update implementation
    */
   private async executeUpdatePreferences(
-    partial: BYOKPreferencesUpdateRequest
+    partial: BYOKPreferencesUpdateRequest,
   ): Promise<void> {
     this.log("[updatePreferences] Starting", partial);
     const epoch = this.epoch;
@@ -834,7 +840,7 @@ export class ProviderStore {
   setSelection(
     providerId: string,
     credentialId: string,
-    modelId?: string
+    modelId?: string,
   ): void {
     this.log("[setSelection] Updating", {
       providerId,
@@ -854,12 +860,12 @@ export class ProviderStore {
    * Updates selection and resolves runtime config in one operation.
    */
   async applySessionSelection(
-    request: SessionSelectionRequest
+    request: SessionSelectionRequest,
   ): Promise<ProviderResolution> {
     this.setSelection(
       request.providerId,
       request.credentialId,
-      request.modelId
+      request.modelId,
     );
     await this.updatePreferences({
       defaultProviderId: request.providerId,
@@ -892,7 +898,10 @@ export class ProviderStore {
     ) {
       return this.state.lastResolvedConfig;
     }
-    if (this.lastResolveError && this.lastResolveSelectionKey === selectionKey) {
+    if (
+      this.lastResolveError &&
+      this.lastResolveSelectionKey === selectionKey
+    ) {
       throw this.lastResolveError;
     }
 
@@ -924,7 +933,7 @@ export class ProviderStore {
   private async executeResolve(
     selection: ProviderSelectionSnapshot,
     selectionKey: string,
-    epoch: number
+    epoch: number,
   ): Promise<void> {
     this.log("[resolveForChat] Starting");
     const request: {
@@ -1001,7 +1010,9 @@ export class ProviderStore {
     } else {
       // Provider was unconfigured (all visible). Initialize from loaded models
       // and remove the toggled model to transition into curated state.
-      const allModelIds = (this.state.providerModels[providerId] ?? []).map(m => m.id);
+      const allModelIds = (this.state.providerModels[providerId] ?? []).map(
+        (m) => m.id,
+      );
       next = new Set(allModelIds);
       next.delete(modelId);
     }
@@ -1047,7 +1058,7 @@ export class ProviderStore {
    * Converts Sets to arrays for API payload
    */
   private async persistVisibilityChanges(
-    visibleModelIds: Record<string, Set<string>>
+    visibleModelIds: Record<string, Set<string>>,
   ): Promise<void> {
     // Convert Sets to arrays for API
     const visibleModelIdsRecord: Record<string, string[]> = {};
@@ -1132,7 +1143,9 @@ export class ProviderStore {
     }
   }
 
-  private shouldInvalidateResolution(partial: Partial<ProviderStoreState>): boolean {
+  private shouldInvalidateResolution(
+    partial: Partial<ProviderStoreState>,
+  ): boolean {
     return (
       partial.catalog !== undefined ||
       partial.credentials !== undefined ||
@@ -1146,7 +1159,9 @@ export class ProviderStore {
     );
   }
 
-  private buildResolveSelectionKey(selection: ProviderSelectionSnapshot): string {
+  private buildResolveSelectionKey(
+    selection: ProviderSelectionSnapshot,
+  ): string {
     return [
       selection.selectedProviderId ?? "none",
       selection.selectedCredentialId ?? "none",
@@ -1156,7 +1171,7 @@ export class ProviderStore {
 
   private resolveLoadOptions(
     providerId: string,
-    options: LoadProviderModelsOptions
+    options: LoadProviderModelsOptions,
   ): ResolvedLoadProviderModelsOptions {
     const pageState = this.state.providerModelsPage[providerId];
     return {
@@ -1169,14 +1184,14 @@ export class ProviderStore {
 
   private resolveSelectedModelId(
     currentModelId: string | null,
-    models: ProviderModelOption[]
+    models: ProviderModelOption[],
   ): string | null {
     if (!currentModelId) {
       return models[0]?.id ?? null;
     }
     return models.some((model) => model.id === currentModelId)
       ? currentModelId
-      : models[0]?.id ?? null;
+      : (models[0]?.id ?? null);
   }
 
   private deriveSelectionSnapshot(input: {
@@ -1199,11 +1214,13 @@ export class ProviderStore {
     } = input;
     const selectedCredential = selectedCredentialId
       ? credentials.find(
-          (credential) => credential.credentialId === selectedCredentialId
+          (credential) => credential.credentialId === selectedCredentialId,
         )
       : undefined;
     const hasSelectedProviderCredential = selectedProviderId
-      ? credentials.some((credential) => credential.providerId === selectedProviderId)
+      ? credentials.some(
+          (credential) => credential.providerId === selectedProviderId,
+        )
       : false;
 
     const providerId =
@@ -1211,7 +1228,7 @@ export class ProviderStore {
       (hasSelectedProviderCredential ? selectedProviderId : null) ??
       (preferences?.defaultProviderId &&
       credentials.some(
-        (credential) => credential.providerId === preferences.defaultProviderId
+        (credential) => credential.providerId === preferences.defaultProviderId,
       )
         ? preferences.defaultProviderId
         : null) ??
@@ -1223,11 +1240,12 @@ export class ProviderStore {
       : [];
     const credentialId =
       providerCredentials.find(
-        (credential) => credential.credentialId === selectedCredentialId
+        (credential) => credential.credentialId === selectedCredentialId,
       )?.credentialId ??
       (preferences?.defaultCredentialId &&
       providerCredentials.some(
-        (credential) => credential.credentialId === preferences.defaultCredentialId
+        (credential) =>
+          credential.credentialId === preferences.defaultCredentialId,
       )
         ? preferences.defaultCredentialId
         : null) ??
@@ -1243,7 +1261,8 @@ export class ProviderStore {
         : undefined) ??
       (providerId ? providerModels[providerId]?.[0]?.id : undefined) ??
       (providerId
-        ? catalog.find((entry) => entry.providerId === providerId)?.defaultModelId
+        ? catalog.find((entry) => entry.providerId === providerId)
+            ?.defaultModelId
         : undefined) ??
       null;
 
@@ -1282,7 +1301,7 @@ export class ProviderStore {
 
 function mergeModelsById(
   existingModels: ProviderModelOption[],
-  nextModels: ProviderModelOption[]
+  nextModels: ProviderModelOption[],
 ): ProviderModelOption[] {
   if (existingModels.length === 0) {
     return [...nextModels];

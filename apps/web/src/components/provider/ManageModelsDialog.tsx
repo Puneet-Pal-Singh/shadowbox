@@ -44,18 +44,17 @@ const CONNECT_PROVIDER_BUTTON_CLASS =
 function buildProviderGroups(
   catalog: ProviderRegistryEntry[],
   providerModels: Record<string, ProviderModelOption[]>,
-  visibleModelIds: Record<string, Set<string>>
+  visibleModelIds: Record<string, Set<string>>,
 ): ProviderGroup[] {
   return catalog
     .map((entry) => {
       const models = providerModels[entry.providerId] || [];
       const visibleSet = visibleModelIds[entry.providerId];
-      const isAxisProvider = entry.providerId === "axis";
       return {
         providerId: entry.providerId,
         displayName: entry.displayName,
         models,
-        visibleCount: isAxisProvider ? models.length : (visibleSet ? visibleSet.size : models.length),
+        visibleCount: visibleSet ? visibleSet.size : models.length,
         totalCount: models.length,
       };
     })
@@ -67,7 +66,7 @@ function buildProviderGroups(
  */
 function filterProviderGroups(
   providerGroups: ProviderGroup[],
-  searchQuery: string
+  searchQuery: string,
 ): FilteredProviderGroup[] {
   if (!searchQuery.trim()) {
     return providerGroups.map((group) => ({
@@ -84,7 +83,7 @@ function filterProviderGroups(
         (model) =>
           model.name.toLowerCase().includes(query) ||
           model.id.toLowerCase().includes(query) ||
-          group.displayName.toLowerCase().includes(query)
+          group.displayName.toLowerCase().includes(query),
       ),
     }))
     .filter((group) => group.filteredModels.length > 0);
@@ -167,7 +166,10 @@ export function ManageModelsDialog({
         {/* Header */}
         <div className="flex items-center justify-between gap-3 border-b border-neutral-700 px-6 py-4">
           <div className="space-y-1">
-            <h2 id="manage-models-title" className="text-base font-semibold tracking-tight">
+            <h2
+              id="manage-models-title"
+              className="text-base font-semibold tracking-tight"
+            >
               Manage models
             </h2>
             <p className="text-xs text-neutral-400">
@@ -191,7 +193,10 @@ export function ManageModelsDialog({
         {/* Search */}
         <div className="px-6 py-3">
           <div className="relative">
-            <Search size={16} className="absolute left-3 top-2.5 text-neutral-500" />
+            <Search
+              size={16}
+              className="absolute left-3 top-2.5 text-neutral-500"
+            />
             <input
               type="text"
               placeholder="Search models"
@@ -206,7 +211,11 @@ export function ManageModelsDialog({
         <div className="flex-1 overflow-auto px-6 pb-4">
           {filteredGroups.length === 0 ? (
             <div className="py-8 text-center text-neutral-500 space-y-3">
-              <p>{searchQuery ? "No models match your search" : "No providers connected"}</p>
+              <p>
+                {searchQuery
+                  ? "No models match your search"
+                  : "No providers connected"}
+              </p>
               {!searchQuery && onConnectProvider && (
                 <ConnectProviderButton onConnectProvider={onConnectProvider} />
               )}
@@ -214,9 +223,8 @@ export function ManageModelsDialog({
           ) : (
             <div className="space-y-5">
               {filteredGroups.map((group) => {
-                 const visibleSet = visibleModelIds[group.providerId];
-                 const isAxisProvider = group.providerId === "axis";
-                 const filteredModels = group.filteredModels;
+                const visibleSet = visibleModelIds[group.providerId];
+                const filteredModels = group.filteredModels;
 
                 return (
                   <div key={group.providerId} className="space-y-2.5">
@@ -233,7 +241,9 @@ export function ManageModelsDialog({
                     {/* Models */}
                     <div className="space-y-1">
                       {filteredModels.map((model: ProviderModelOption) => {
-                        const isVisible = isAxisProvider || (visibleSet ? visibleSet.has(model.id) : true);
+                        const isVisible = visibleSet
+                          ? visibleSet.has(model.id)
+                          : true;
                         return (
                           <div
                             key={model.id}
@@ -248,23 +258,24 @@ export function ManageModelsDialog({
                               type="button"
                               role="switch"
                               aria-checked={isVisible}
-                              aria-label={isAxisProvider ? `${model.name} (always available)` : `${model.name} visibility`}
+                              aria-label={`${model.name} visibility`}
                               onClick={() => {
-                                if (!isAxisProvider) {
-                                  onToggleModelVisibility(group.providerId, model.id);
-                                }
+                                onToggleModelVisibility(
+                                  group.providerId,
+                                  model.id,
+                                );
                               }}
-                              disabled={isAxisProvider}
-                              title={isAxisProvider ? "Always available" : undefined}
                               className={`relative inline-flex h-5 w-8 items-center rounded-full border transition ${
                                 isVisible
                                   ? "border-blue-500 bg-blue-600"
                                   : "border-neutral-600 bg-neutral-800"
-                              } ${isAxisProvider ? "opacity-60 cursor-not-allowed" : ""}`}
+                              }`}
                             >
                               <span
                                 className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition ${
-                                  isVisible ? "translate-x-4" : "translate-x-0.5"
+                                  isVisible
+                                    ? "translate-x-4"
+                                    : "translate-x-0.5"
                                 }`}
                               />
                             </button>
