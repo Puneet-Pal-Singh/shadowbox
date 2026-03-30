@@ -129,46 +129,82 @@ export function buildWorkflowTimelineViewModel(params: {
         if (step === RUN_WORKFLOW_STEPS.PLANNING) {
           currentToolBatch = null;
           currentToolRows = new Map<string, MutableToolRow>();
-          currentContextBlock = createBlock(
-            "plan",
-            "Plan",
-            event,
-            blockCounters,
-          );
-          blocks.push(currentContextBlock);
+          const existingPlanBlock: MutableBlock | null = currentContextBlock;
+          const planningBlock: MutableBlock =
+            existingPlanBlock && existingPlanBlock.kind === "plan"
+              ? existingPlanBlock
+              : createAndPushBlock(
+                  blocks,
+                  blockCounters,
+                  "plan",
+                  "Planning next step",
+                  event,
+                );
+          currentContextBlock = planningBlock;
           appendDetail(
-            currentContextBlock,
+            planningBlock,
             event.payload.reason
               ? toSentence(event.payload.reason)
-              : "Preparing an actionable workflow.",
+              : "Preparing a safe execution plan for this request.",
           );
         } else if (step === RUN_WORKFLOW_STEPS.EXECUTION) {
           currentContextBlock = null;
-          currentToolBatch = createBlock(
-            "tool_batch",
-            "Tool Batch",
-            event,
-            blockCounters,
-          );
+          currentToolBatch =
+            currentToolBatch ??
+            createAndPushBlock(
+              blocks,
+              blockCounters,
+              "tool_batch",
+              "Preparing next action",
+              event,
+            );
           currentToolBatch.tone = "running";
-          blocks.push(currentToolBatch);
           currentToolRows = new Map<string, MutableToolRow>();
         } else if (step === RUN_WORKFLOW_STEPS.SYNTHESIS) {
           finalizeToolBatch(currentToolBatch, currentToolRows);
           currentToolBatch = null;
           currentToolRows = new Map<string, MutableToolRow>();
-          currentContextBlock = createBlock(
-            "synthesis",
-            "Synthesis",
-            event,
-            blockCounters,
-          );
-          currentContextBlock.tone = "running";
-          blocks.push(currentContextBlock);
+          const existingSynthesisBlock: MutableBlock | null = currentContextBlock;
+          const synthesisBlock: MutableBlock =
+            existingSynthesisBlock && existingSynthesisBlock.kind === "synthesis"
+              ? existingSynthesisBlock
+              : createAndPushBlock(
+                  blocks,
+                  blockCounters,
+                  "synthesis",
+                  "Summarizing the change",
+                  event,
+                );
+          currentContextBlock = synthesisBlock;
+          synthesisBlock.tone = "running";
           appendDetail(
-            currentContextBlock,
-            "Summarizing the observed execution state.",
+            synthesisBlock,
+            "Preparing the final user-facing answer from the observed results.",
           );
+        }
+        break;
+      }
+      case RUN_EVENT_TYPES.RUN_PROGRESS: {
+        const block = getOrCreateProgressBlock({
+          event,
+          currentContextBlock,
+          currentToolBatch,
+          blocks,
+          blockCounters,
+        });
+
+        if (event.payload.phase === RUN_WORKFLOW_STEPS.EXECUTION) {
+          currentToolBatch = block;
+          currentContextBlock = null;
+        } else {
+          currentContextBlock = block;
+        }
+
+        block.title = event.payload.label;
+        appendDetail(block, event.payload.summary);
+        if (block.tone !== "failed") {
+          block.tone =
+            event.payload.status === "completed" ? "success" : "running";
         }
         break;
       }
@@ -180,7 +216,7 @@ export function buildWorkflowTimelineViewModel(params: {
               blocks,
               blockCounters,
               "discovery",
-              "Discovery",
+              "Reviewing request",
               event,
             );
           currentContextBlock = block;
@@ -205,7 +241,7 @@ export function buildWorkflowTimelineViewModel(params: {
             blocks,
             blockCounters,
             "tool_batch",
-            "Tool Batch",
+            "Preparing next action",
             event,
           );
         currentToolBatch = block;
@@ -360,7 +396,7 @@ function getOrCreateAssistantBlock(
     return lastBlock;
   }
 
-  return createAndPushBlock(blocks, counters, "final", "Final", event);
+  return createAndPushBlock(blocks, counters, "final", "Final answer", event);
 }
 
 function getOrCreateTerminalBlock(
@@ -382,7 +418,45 @@ function getOrCreateTerminalBlock(
     return lastBlock;
   }
 
-  return createAndPushBlock(blocks, counters, "final", "Final", event);
+  return createAndPushBlock(blocks, counters, "final", "Final answer", event);
+}
+
+function getOrCreateProgressBlock(params: {
+  event: Extract<RunEvent, { type: typeof RUN_EVENT_TYPES.RUN_PROGRESS }>;
+  currentContextBlock: MutableBlock | null;
+  currentToolBatch: MutableBlock | null;
+  blocks: MutableBlock[];
+  blockCounters: Map<WorkflowBlockViewModel["kind"], number>;
+}): MutableBlock {
+  const { event, currentContextBlock, currentToolBatch, blocks, blockCounters } =
+    params;
+
+  if (event.payload.phase === RUN_WORKFLOW_STEPS.EXECUTION) {
+    return (
+      currentToolBatch ??
+      createAndPushBlock(
+        blocks,
+        blockCounters,
+        "tool_batch",
+        event.payload.label,
+        event,
+      )
+    );
+  }
+
+  const expectedKind =
+    event.payload.phase === RUN_WORKFLOW_STEPS.PLANNING ? "plan" : "synthesis";
+  if (currentContextBlock?.kind === expectedKind) {
+    return currentContextBlock;
+  }
+
+  return createAndPushBlock(
+    blocks,
+    blockCounters,
+    expectedKind,
+    event.payload.label,
+    event,
+  );
 }
 
 function appendDetail(block: MutableBlock, detail: string): void {
@@ -409,13 +483,17 @@ function getOrCreateToolRow(
   if (existing) {
     return existing;
   }
+  const title =
+    event.type === RUN_EVENT_TYPES.TOOL_REQUESTED
+      ? getToolRowTitle(event.payload)
+      : humanizeToolName(payload.toolName);
 
   const created: MutableToolRow = {
     kind: "tool",
     key: `${payload.toolName}-${payload.toolId}`,
     toolId: payload.toolId,
     toolName: payload.toolName,
-    title: humanizeToolName(payload.toolName),
+    title,
     status: "warning",
     durationMs: null,
     details: [],
@@ -515,7 +593,7 @@ function buildBlockSummary(
         : `${queuedCount} queued`;
     }
     if (rows.length === 0) {
-      return "Waiting for first tool call";
+      return block.details[0] ?? "Waiting for first tool call";
     }
     return `${rows.length} tool call${rows.length === 1 ? "" : "s"} completed`;
   }
@@ -690,6 +768,54 @@ function humanizeToolName(toolName: string): string {
     .filter(Boolean)
     .map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`)
     .join(" ");
+}
+
+function getToolRowTitle(
+  payload: Extract<
+    RunEvent,
+    { type: typeof RUN_EVENT_TYPES.TOOL_REQUESTED }
+  >["payload"],
+): string {
+  if (payload.displayText) {
+    return payload.displayText;
+  }
+
+  if (payload.description) {
+    return payload.description;
+  }
+
+  const path =
+    typeof payload.arguments.path === "string" ? payload.arguments.path : undefined;
+  const pattern =
+    typeof payload.arguments.pattern === "string"
+      ? payload.arguments.pattern
+      : undefined;
+  const command =
+    typeof payload.arguments.command === "string"
+      ? payload.arguments.command
+      : undefined;
+
+  switch (payload.toolName) {
+    case "read_file":
+      return path ? `Reading ${path}` : "Reading file";
+    case "list_files":
+      return path && path !== "." ? `Listing ${path}` : "Listing project files";
+    case "glob":
+      return pattern ? `Finding ${pattern}` : "Finding files";
+    case "grep":
+      return pattern ? `Searching for ${pattern}` : "Searching project";
+    case "write_file":
+      return path ? `Editing ${path}` : "Editing file";
+    case "bash":
+    case "shell_exec":
+      return command ? `Running ${command}` : "Running command";
+    case "git_status":
+      return "Checking git status";
+    case "git_diff":
+      return path ? `Checking git diff for ${path}` : "Checking git diff";
+    default:
+      return humanizeToolName(payload.toolName);
+  }
 }
 
 function truncateText(text: string, maxLength: number): string {

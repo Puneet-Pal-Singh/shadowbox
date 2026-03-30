@@ -18,14 +18,15 @@ describe("WorkflowTimeline", () => {
       />,
     );
 
-    expect(screen.getByRole("button", { name: /tool batch/i })).toHaveAttribute(
+    expect(
+      screen.getByRole("button", { name: /preparing next action/i }),
+    ).toHaveAttribute(
       "aria-expanded",
       "true",
     );
-    expect(screen.getByRole("button", { name: /shell exec/i })).toHaveAttribute(
-      "aria-expanded",
-      "true",
-    );
+    expect(
+      screen.getByRole("button", { name: /running npm test/i }),
+    ).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByText("Command exited with code 1")).toBeInTheDocument();
   });
 
@@ -38,7 +39,9 @@ describe("WorkflowTimeline", () => {
       />,
     );
 
-    const blockToggle = screen.getByRole("button", { name: /tool batch/i });
+    const blockToggle = screen.getByRole("button", {
+      name: /preparing next action/i,
+    });
     expect(blockToggle).toHaveAttribute("aria-expanded", "false");
 
     rerender(
@@ -52,17 +55,15 @@ describe("WorkflowTimeline", () => {
     expect(screen.getByText("+3 new")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Expand all" }));
-    expect(screen.getByRole("button", { name: /tool batch/i })).toHaveAttribute(
-      "aria-expanded",
-      "true",
-    );
+    expect(
+      screen.getByRole("button", { name: /preparing next action/i }),
+    ).toHaveAttribute("aria-expanded", "true");
     expect(screen.queryByText("+3 new")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Collapse all" }));
-    expect(screen.getByRole("button", { name: /tool batch/i })).toHaveAttribute(
-      "aria-expanded",
-      "false",
-    );
+    expect(
+      screen.getByRole("button", { name: /preparing next action/i }),
+    ).toHaveAttribute("aria-expanded", "false");
   });
 
   it("shows a first-class plan handoff action when one is available", () => {
