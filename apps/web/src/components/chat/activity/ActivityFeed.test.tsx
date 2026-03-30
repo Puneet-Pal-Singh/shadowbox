@@ -23,7 +23,7 @@ describe("ActivityFeed", () => {
     ).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /worked for 3s/i }));
-    expect(screen.getByText("Read project files")).toBeInTheDocument();
+    expect(screen.getByText("Explored")).toBeInTheDocument();
     expect(screen.getByText("Build Handoff")).toBeInTheDocument();
 
     fireEvent.click(
@@ -75,7 +75,7 @@ describe("ActivityFeed", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: /worked for 3s/i }));
-    expect(screen.getByText("Read project files")).toBeInTheDocument();
+    expect(screen.getByText("Explored")).toBeInTheDocument();
 
     rerender(
       <ActivityFeed
@@ -91,7 +91,7 @@ describe("ActivityFeed", () => {
       />,
     );
 
-    expect(screen.queryByText("Explore")).not.toBeInTheDocument();
+    expect(screen.queryByText("Explored")).not.toBeInTheDocument();
   });
 
   it("renders grouped child rows without nested show-hide controls", () => {
@@ -100,7 +100,7 @@ describe("ActivityFeed", () => {
     fireEvent.click(screen.getByRole("button", { name: /worked for 3s/i }));
     fireEvent.click(
       screen.getByRole("button", {
-        name: /Read project files List project files · Read README.md/i,
+        name: /Explored 2 files/i,
       }),
     );
 

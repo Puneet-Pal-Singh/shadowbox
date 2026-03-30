@@ -22,8 +22,8 @@ describe("ActivityFeedViewModel", () => {
     expect(viewModel.turns[0]?.rows[1]?.kind).toBe("group");
     expect(viewModel.turns[0]?.rows[1]).toMatchObject({
       kind: "group",
-      title: "Read project files",
-      summary: "List project files · Read README.md",
+      title: "Explored",
+      summary: "2 files",
     });
     expect(viewModel.turns[0]?.rows[2]?.kind).toBe("tool");
     if (viewModel.turns[0]?.rows[2]?.kind === "tool") {
@@ -66,14 +66,14 @@ describe("ActivityFeedViewModel", () => {
 
     expect(viewModel.turns[0]?.rows[1]).toMatchObject({
       kind: "group",
-      title: "Reading project files",
-      summary: "List project files · Read README.md",
+      title: "Exploring",
+      summary: "2 files",
       status: "running",
       defaultCollapsed: false,
     });
   });
 
-  it("suppresses generic execution and synthesis reasoning rows", () => {
+  it("turns generic execution progress into a compact thinking row and suppresses generic synthesis rows", () => {
     const snapshot = createFeedSnapshot();
     const viewModel = buildActivityFeedViewModel({
       ...snapshot,
@@ -110,13 +110,19 @@ describe("ActivityFeedViewModel", () => {
       ],
     });
 
+    expect(viewModel.turns[0]?.rows).toContainEqual(
+      expect.objectContaining({
+        kind: "reasoning",
+        label: "Thinking",
+        summary: "",
+      }),
+    );
     expect(
       viewModel.turns[0]?.rows.some(
         (row) =>
           row.kind === "reasoning" &&
-          (row.summary === "Running the selected coding tools." ||
-            row.summary ===
-              "Summarizing execution results for the final response."),
+          row.summary ===
+            "Summarizing execution results for the final response.",
       ),
     ).toBe(false);
   });

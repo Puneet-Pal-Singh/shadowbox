@@ -41,7 +41,7 @@ describe("WorkflowTimelineViewModel", () => {
     const toolBatch = first.blocks.find((block) => block.kind === "tool_batch");
     expect(toolBatch?.summary).toBe("1 failed, 1 completed");
     expect(toolBatch?.defaultCollapsed).toBe(false);
-    expect(toolBatch?.title).toBe("Preparing next action");
+    expect(toolBatch?.title).toBe("Thinking");
 
     const readFileRow = toolBatch?.rows.find(
       (row) => row.kind === "tool" && row.toolName === "read_file",
@@ -133,11 +133,11 @@ describe("WorkflowTimelineViewModel", () => {
     });
 
     const batch = viewModel.blocks.find((block) => block.kind === "tool_batch");
-    expect(batch?.summary).toBe("1 queued");
-    expect(batch?.title).toBe("Preparing next action");
+    expect(batch?.summary).toBe("1 file");
+    expect(batch?.title).toBe("Exploring");
   });
 
-  it("uses authored run.progress labels to title workflow blocks", () => {
+  it("groups exploration progress into an exploring block while keeping concrete child rows", () => {
     const viewModel = buildWorkflowTimelineViewModel({
       events: [
         createRunEvent(
@@ -174,7 +174,8 @@ describe("WorkflowTimelineViewModel", () => {
     });
 
     const batch = viewModel.blocks.find((block) => block.kind === "tool_batch");
-    expect(batch?.title).toBe("Reading README.md");
+    expect(batch?.title).toBe("Exploring");
+    expect(batch?.summary).toBe("1 file");
     expect(batch?.rows[0]).toMatchObject({
       kind: "tool",
       title: "Reading README.md",

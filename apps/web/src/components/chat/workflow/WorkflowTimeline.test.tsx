@@ -19,7 +19,7 @@ describe("WorkflowTimeline", () => {
     );
 
     expect(
-      screen.getByRole("button", { name: /preparing next action/i }),
+      screen.getByRole("button", { name: /thinking/i }),
     ).toHaveAttribute(
       "aria-expanded",
       "true",
@@ -40,7 +40,7 @@ describe("WorkflowTimeline", () => {
     );
 
     const blockToggle = screen.getByRole("button", {
-      name: /preparing next action/i,
+      name: /explored.*2 files/i,
     });
     expect(blockToggle).toHaveAttribute("aria-expanded", "false");
 
@@ -56,13 +56,13 @@ describe("WorkflowTimeline", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Expand all" }));
     expect(
-      screen.getByRole("button", { name: /preparing next action/i }),
+      screen.getByRole("button", { name: /explored.*3 files/i }),
     ).toHaveAttribute("aria-expanded", "true");
     expect(screen.queryByText("+3 new")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Collapse all" }));
     expect(
-      screen.getByRole("button", { name: /preparing next action/i }),
+      screen.getByRole("button", { name: /explored.*3 files/i }),
     ).toHaveAttribute("aria-expanded", "false");
   });
 
