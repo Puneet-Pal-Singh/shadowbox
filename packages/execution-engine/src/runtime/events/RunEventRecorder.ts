@@ -1,6 +1,8 @@
 import type { RunEvent, RunWorkflowStep } from "@repo/shared-types";
 import type { RunStatus, SerializedTask } from "../types.js";
 import {
+  DEFAULT_ASSISTANT_FINAL_TRANSCRIPT,
+  DEFAULT_USER_PROMPT_TRANSCRIPT,
   createMessageEmittedEvent,
   createRunCompletedEvent,
   createRunFailedEvent,
@@ -143,13 +145,31 @@ export class RunEventRecorder {
     role: "user" | "assistant" | "system",
     content: string,
     metadata?: Record<string, unknown>,
+    transcript?: {
+      phase?: "prompt" | "commentary" | "final_answer";
+      status?: "active" | "completed";
+    },
   ): Promise<void> {
     if (!content.trim()) {
       return;
     }
 
+    const normalizedTranscript =
+      transcript ??
+      (role === "user"
+        ? DEFAULT_USER_PROMPT_TRANSCRIPT
+        : role === "assistant"
+          ? DEFAULT_ASSISTANT_FINAL_TRANSCRIPT
+          : undefined);
+
     await this.append(
-      createMessageEmittedEvent(this.baseInput(), content, role, metadata),
+      createMessageEmittedEvent(
+        this.baseInput(),
+        content,
+        role,
+        metadata,
+        normalizedTranscript,
+      ),
     );
   }
 
