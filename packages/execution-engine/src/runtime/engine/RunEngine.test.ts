@@ -824,12 +824,21 @@ describe("RunEngine", () => {
         payload: {
           role: "user",
           content: "read README.md",
+          transcriptPhase: "prompt",
+        },
+      },
+      {
+        payload: {
+          role: "assistant",
+          content: "Reading the requested file.",
+          transcriptPhase: "commentary",
         },
       },
       {
         payload: {
           role: "assistant",
           content: "README reviewed.",
+          transcriptPhase: "final_answer",
         },
       },
     ]);
