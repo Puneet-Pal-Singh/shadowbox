@@ -73,6 +73,112 @@ describe("ActivityFeedViewModel", () => {
     });
   });
 
+  it("keeps exploring rows grouped when generic thinking updates are interleaved", () => {
+    const viewModel = buildActivityFeedViewModel({
+      runId: "run-explore-group",
+      sessionId: "session-explore-group",
+      status: "COMPLETED",
+      items: [
+        {
+          id: "text-user",
+          runId: "run-explore-group",
+          sessionId: "session-explore-group",
+          turnId: "turn-1",
+          kind: ACTIVITY_PART_KINDS.TEXT,
+          createdAt: "2026-03-24T10:00:00.000Z",
+          updatedAt: "2026-03-24T10:00:00.000Z",
+          source: "brain",
+          role: "user",
+          content: "inspect the footer",
+        },
+        {
+          id: "thinking-1",
+          runId: "run-explore-group",
+          sessionId: "session-explore-group",
+          turnId: "turn-1",
+          kind: ACTIVITY_PART_KINDS.REASONING,
+          createdAt: "2026-03-24T10:00:00.500Z",
+          updatedAt: "2026-03-24T10:00:00.500Z",
+          source: "brain",
+          label: "Thinking",
+          summary: "",
+          phase: "execution",
+          status: "active",
+        },
+        {
+          id: "tool-list",
+          runId: "run-explore-group",
+          sessionId: "session-explore-group",
+          turnId: "turn-1",
+          kind: ACTIVITY_PART_KINDS.TOOL,
+          createdAt: "2026-03-24T10:00:01.000Z",
+          updatedAt: "2026-03-24T10:00:01.000Z",
+          source: "brain",
+          toolId: "tool-list",
+          toolName: "list_files",
+          status: "completed",
+          metadata: {
+            family: TOOL_ACTIVITY_FAMILIES.READ,
+            count: 3,
+            truncated: false,
+            preview: "src\nREADME.md",
+            loadedPaths: ["src"],
+            path: "./src",
+          },
+        },
+        {
+          id: "thinking-2",
+          runId: "run-explore-group",
+          sessionId: "session-explore-group",
+          turnId: "turn-1",
+          kind: ACTIVITY_PART_KINDS.REASONING,
+          createdAt: "2026-03-24T10:00:01.500Z",
+          updatedAt: "2026-03-24T10:00:01.500Z",
+          source: "brain",
+          label: "Thinking",
+          summary: "",
+          phase: "execution",
+          status: "active",
+        },
+        {
+          id: "tool-read",
+          runId: "run-explore-group",
+          sessionId: "session-explore-group",
+          turnId: "turn-1",
+          kind: ACTIVITY_PART_KINDS.TOOL,
+          createdAt: "2026-03-24T10:00:02.000Z",
+          updatedAt: "2026-03-24T10:00:02.000Z",
+          source: "brain",
+          toolId: "tool-read",
+          toolName: "read_file",
+          status: "completed",
+          metadata: {
+            family: TOOL_ACTIVITY_FAMILIES.READ,
+            count: 1,
+            truncated: false,
+            preview: "footer content",
+            loadedPaths: ["./src/components/layout/Footer.tsx"],
+            path: "./src/components/layout/Footer.tsx",
+          },
+        },
+      ],
+    });
+
+    expect(viewModel.turns[0]?.rows).toEqual([
+      expect.objectContaining({
+        kind: "group",
+        title: "Explored",
+        summary: "1 list, 1 file",
+        rows: expect.arrayContaining([
+          expect.objectContaining({ title: "List ./src" }),
+          expect.objectContaining({
+            title: "Read ./src/components/layout/Footer.tsx",
+          }),
+        ]),
+      }),
+    ]);
+  });
+
   it("turns generic execution progress into a compact thinking row and suppresses generic synthesis rows", () => {
     const snapshot = createFeedSnapshot();
     const viewModel = buildActivityFeedViewModel({
@@ -123,6 +229,172 @@ describe("ActivityFeedViewModel", () => {
             "Summarizing execution results for the final response.",
       ),
     ).toBe(false);
+  });
+
+  it("renders thinking only while it remains the latest unresolved state", () => {
+    const viewModel = buildActivityFeedViewModel({
+      runId: "run-active-thinking",
+      sessionId: "session-active-thinking",
+      status: "RUNNING",
+      items: [
+        {
+          id: "text-user",
+          runId: "run-active-thinking",
+          sessionId: "session-active-thinking",
+          turnId: "turn-1",
+          kind: ACTIVITY_PART_KINDS.TEXT,
+          createdAt: "2026-03-24T10:00:00.000Z",
+          updatedAt: "2026-03-24T10:00:00.000Z",
+          source: "brain",
+          role: "user",
+          content: "inspect the footer",
+        },
+        {
+          id: "tool-read",
+          runId: "run-active-thinking",
+          sessionId: "session-active-thinking",
+          turnId: "turn-1",
+          kind: ACTIVITY_PART_KINDS.TOOL,
+          createdAt: "2026-03-24T10:00:01.000Z",
+          updatedAt: "2026-03-24T10:00:01.000Z",
+          source: "brain",
+          toolId: "tool-read",
+          toolName: "read_file",
+          status: "completed",
+          metadata: {
+            family: TOOL_ACTIVITY_FAMILIES.READ,
+            count: 1,
+            truncated: false,
+            preview: "footer content",
+            loadedPaths: ["./src/components/layout/Footer.tsx"],
+            path: "./src/components/layout/Footer.tsx",
+          },
+        },
+        {
+          id: "thinking-1",
+          runId: "run-active-thinking",
+          sessionId: "session-active-thinking",
+          turnId: "turn-1",
+          kind: ACTIVITY_PART_KINDS.REASONING,
+          createdAt: "2026-03-24T10:00:01.500Z",
+          updatedAt: "2026-03-24T10:00:01.500Z",
+          source: "brain",
+          label: "Thinking",
+          summary: "",
+          phase: "execution",
+          status: "active",
+        },
+        {
+          id: "thinking-2",
+          runId: "run-active-thinking",
+          sessionId: "session-active-thinking",
+          turnId: "turn-1",
+          kind: ACTIVITY_PART_KINDS.REASONING,
+          createdAt: "2026-03-24T10:00:02.000Z",
+          updatedAt: "2026-03-24T10:00:02.000Z",
+          source: "brain",
+          label: "Thinking",
+          summary: "",
+          phase: "execution",
+          status: "active",
+        },
+      ],
+    });
+
+    expect(
+      viewModel.turns[0]?.rows.filter(
+        (row) => row.kind === "reasoning" && row.label === "Thinking",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("drops thinking as soon as commentary or tool work supersedes it", () => {
+    const viewModel = buildActivityFeedViewModel({
+      runId: "run-thinking-superseded",
+      sessionId: "session-thinking-superseded",
+      status: "RUNNING",
+      items: [
+        {
+          id: "text-user",
+          runId: "run-thinking-superseded",
+          sessionId: "session-thinking-superseded",
+          turnId: "turn-1",
+          kind: ACTIVITY_PART_KINDS.TEXT,
+          createdAt: "2026-03-24T10:00:00.000Z",
+          updatedAt: "2026-03-24T10:00:00.000Z",
+          source: "brain",
+          role: "user",
+          content: "inspect the footer",
+        },
+        {
+          id: "thinking-1",
+          runId: "run-thinking-superseded",
+          sessionId: "session-thinking-superseded",
+          turnId: "turn-1",
+          kind: ACTIVITY_PART_KINDS.REASONING,
+          createdAt: "2026-03-24T10:00:00.500Z",
+          updatedAt: "2026-03-24T10:00:00.500Z",
+          source: "brain",
+          label: "Thinking",
+          summary: "",
+          phase: "execution",
+          status: "active",
+        },
+        {
+          id: "commentary-1",
+          runId: "run-thinking-superseded",
+          sessionId: "session-thinking-superseded",
+          turnId: "turn-1",
+          kind: ACTIVITY_PART_KINDS.COMMENTARY,
+          createdAt: "2026-03-24T10:00:01.000Z",
+          updatedAt: "2026-03-24T10:00:01.000Z",
+          source: "brain",
+          phase: "commentary",
+          status: "active",
+          text: "Checking the footer before I make the edit.",
+        },
+        {
+          id: "tool-read",
+          runId: "run-thinking-superseded",
+          sessionId: "session-thinking-superseded",
+          turnId: "turn-1",
+          kind: ACTIVITY_PART_KINDS.TOOL,
+          createdAt: "2026-03-24T10:00:02.000Z",
+          updatedAt: "2026-03-24T10:00:02.000Z",
+          source: "brain",
+          toolId: "tool-read",
+          toolName: "read_file",
+          status: "running",
+          metadata: {
+            family: TOOL_ACTIVITY_FAMILIES.READ,
+            count: 1,
+            truncated: false,
+            preview: "footer content",
+            loadedPaths: ["./src/components/layout/Footer.tsx"],
+            path: "./src/components/layout/Footer.tsx",
+          },
+        },
+      ],
+    });
+
+    expect(
+      viewModel.turns[0]?.rows.some(
+        (row) => row.kind === "reasoning" && row.label === "Thinking",
+      ),
+    ).toBe(false);
+    expect(viewModel.turns[0]?.rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "commentary",
+          text: "Checking the footer before I make the edit.",
+        }),
+        expect.objectContaining({
+          kind: "tool",
+          title: "Read ./src/components/layout/Footer.tsx",
+          status: "running",
+        }),
+      ]),
+    );
   });
 
   it("keeps explicit execution progress rows and recovery-coded assistant messages visible", () => {
@@ -194,7 +466,7 @@ describe("ActivityFeedViewModel", () => {
     ).toBe(true);
   });
 
-  it("renders authored commentary rows faithfully and keeps final-answer commentary out of the activity lane", () => {
+  it("renders authored commentary rows faithfully and keeps final answers in the main chat transcript", () => {
     const viewModel = buildActivityFeedViewModel({
       runId: "run-commentary",
       sessionId: "session-commentary",
