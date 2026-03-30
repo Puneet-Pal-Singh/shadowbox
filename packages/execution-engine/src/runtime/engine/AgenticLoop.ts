@@ -67,12 +67,16 @@ interface AgenticLoopHooks {
   workspaceContext?: string;
   executeTool?: (toolCall: AgenticLoopToolCall) => Promise<TaskResult>;
   onAssistantMessage?: (content: string) => Promise<void>;
-  onProgress?: (progress: {
-    phase: "planning" | "execution" | "synthesis";
-    label: string;
-    summary: string;
-    status: "active" | "completed";
-  }) => Promise<void>;
+  onProgress?: (
+    progress:
+      | {
+          phase: "planning" | "execution" | "synthesis";
+          label: string;
+          summary: string;
+          status: "active" | "completed";
+        }
+      | null,
+  ) => Promise<void>;
   onToolRequested?: (toolCall: AgenticLoopToolCall) => Promise<void>;
   onToolStarted?: (toolCall: AgenticLoopToolCall) => Promise<void>;
   onToolCompleted?: (
@@ -163,14 +167,15 @@ export class AgenticLoop {
         `[agentic-loop] Step ${step + 1}/${this.config.maxSteps} for run ${this.config.runId}`,
       );
 
-      await context.onProgress?.(
-        buildLoopProgressUpdate({
-          isFinalSynthesisStep,
-          requiresMutation,
-          completedMutatingToolCount: this.completedMutatingToolCount,
-          completedReadOnlyToolCount: this.completedReadOnlyToolCount,
-        }),
-      );
+      const progress = buildLoopProgressUpdate({
+        isFinalSynthesisStep,
+        requiresMutation,
+        completedMutatingToolCount: this.completedMutatingToolCount,
+        completedReadOnlyToolCount: this.completedReadOnlyToolCount,
+      });
+      if (progress) {
+        await context.onProgress?.(progress);
+      }
 
       // Call LLM with tool definitions for this step.
       let response;
@@ -487,7 +492,8 @@ function buildAgenticLoopSystemPrompt(input: {
     "Your job is to inspect the real workspace, decide which tools to use, and answer the user's request in clear natural language.",
     "Start with the real workspace before concluding anything. Never invent file contents, project structure, git state, or completed work.",
     "Tool strategy:",
-    "- For repository or git status questions, use git_status before answering.",
+    "- For concrete git commands such as git status, git switch, or git branch, you may use bash so the terminal transcript stays intact.",
+    "- For repository or git status questions without a specific command, use git_status before answering.",
     "- For vague component, page, route, or file questions, discover with list_files, glob, or grep before read_file.",
     "- Prefer narrowing search after one broad listing. Do not repeat the same missing path after a file-not-found error.",
     "- If a non-mutating tool returns no match or not found, keep exploring with different tools or paths instead of stopping.",
@@ -707,19 +713,16 @@ function buildLoopProgressUpdate(input: {
   requiresMutation: boolean;
   completedMutatingToolCount: number;
   completedReadOnlyToolCount: number;
-}): {
-  phase: "planning" | "execution" | "synthesis";
-  label: string;
-  summary: string;
-  status: "active" | "completed";
-} {
+}):
+  | {
+      phase: "planning" | "execution" | "synthesis";
+      label: string;
+      summary: string;
+      status: "active" | "completed";
+    }
+  | null {
   if (input.isFinalSynthesisStep) {
-    return {
-      phase: "synthesis",
-      label: "Summarizing the change",
-      summary: "Preparing the final user-facing answer from the observed results.",
-      status: "active",
-    };
+    return null;
   }
 
   if (
@@ -729,18 +732,16 @@ function buildLoopProgressUpdate(input: {
   ) {
     return {
       phase: "execution",
-      label: "Preparing the next edit",
-      summary:
-        "Inspection is complete enough to attempt the requested workspace change.",
+      label: "Thinking",
+      summary: "",
       status: "active",
     };
   }
 
   return {
     phase: "execution",
-    label: "Preparing next action",
-    summary:
-      "Deciding whether to read, search, edit, run a command, or respond.",
+    label: "Thinking",
+    summary: "",
     status: "active",
   };
 }
