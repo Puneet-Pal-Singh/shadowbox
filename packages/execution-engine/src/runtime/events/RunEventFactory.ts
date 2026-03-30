@@ -1,6 +1,10 @@
 import {
+  MESSAGE_TRANSCRIPT_PHASES,
+  MESSAGE_TRANSCRIPT_STATUSES,
   RUN_EVENT_TYPES,
   type EventSource,
+  type MessageTranscriptPhase,
+  type MessageTranscriptStatus,
   type MessageEmittedEvent,
   type RunCompletedEvent,
   type RunEvent,
@@ -178,13 +182,29 @@ export function createMessageEmittedEvent(
   content: string,
   role: "user" | "assistant" | "system",
   metadata?: Record<string, unknown>,
+  transcript?: {
+    phase?: MessageTranscriptPhase;
+    status?: MessageTranscriptStatus;
+  },
 ): MessageEmittedEvent {
   return createEnvelope(input, RUN_EVENT_TYPES.MESSAGE_EMITTED, {
     content,
     role,
     metadata,
+    transcriptPhase: transcript?.phase,
+    transcriptStatus: transcript?.status,
   });
 }
+
+export const DEFAULT_USER_PROMPT_TRANSCRIPT = {
+  phase: MESSAGE_TRANSCRIPT_PHASES.PROMPT,
+  status: MESSAGE_TRANSCRIPT_STATUSES.COMPLETED,
+} as const;
+
+export const DEFAULT_ASSISTANT_FINAL_TRANSCRIPT = {
+  phase: MESSAGE_TRANSCRIPT_PHASES.FINAL_ANSWER,
+  status: MESSAGE_TRANSCRIPT_STATUSES.COMPLETED,
+} as const;
 
 export function mapRuntimeStatusToRunEventStatus(
   status: RuntimeStatus,
