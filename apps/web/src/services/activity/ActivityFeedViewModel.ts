@@ -194,7 +194,7 @@ function buildTurnRows(items: ActivityPart[]): ActivityFeedRowViewModel[] {
       if (shouldDisplayTextRow(item)) {
         flushExploreGroup(rows, pendingExplore);
         pendingExplore = [];
-        rows.push(createNonToolRow(item));
+        pushActivityRow(rows, createNonToolRow(item));
       }
       continue;
     }
@@ -220,11 +220,51 @@ function buildTurnRows(items: ActivityPart[]): ActivityFeedRowViewModel[] {
 
     flushExploreGroup(rows, pendingExplore);
     pendingExplore = [];
-    rows.push(createNonToolRow(item));
+    pushActivityRow(rows, createNonToolRow(item));
   }
 
   flushExploreGroup(rows, pendingExplore);
-  return rows;
+  return finalizeTurnRows(rows);
+}
+
+function finalizeTurnRows(
+  rows: ActivityFeedRowViewModel[],
+): ActivityFeedRowViewModel[] {
+  const hasConcreteRows = rows.some(
+    (row) =>
+      row.kind === "tool" ||
+      row.kind === "group" ||
+      row.kind === "approval" ||
+      row.kind === "handoff" ||
+      row.kind === "text" ||
+      (row.kind === "reasoning" && row.label !== "Thinking"),
+  );
+
+  if (!hasConcreteRows) {
+    return rows;
+  }
+
+  return rows.filter(
+    (row) =>
+      row.kind !== "reasoning" ||
+      row.label !== "Thinking" ||
+      row.status !== "completed",
+  );
+}
+
+function pushActivityRow(
+  rows: ActivityFeedRowViewModel[],
+  nextRow: ActivityFeedRowViewModel,
+): void {
+  if (isThinkingReasoningRow(nextRow)) {
+    const lastRow = rows[rows.length - 1];
+    if (isThinkingReasoningRow(lastRow)) {
+      rows[rows.length - 1] = nextRow;
+      return;
+    }
+  }
+
+  rows.push(nextRow);
 }
 
 function getTurnUserPrompt(items: ActivityPart[]): string | null {
@@ -284,6 +324,12 @@ function buildTurnSummary(rows: ActivityFeedRowViewModel[]): string {
   }
 
   return parts[0] ? parts.slice(0, 3).join(" · ") : "Workflow captured";
+}
+
+function isThinkingReasoningRow(
+  row: ActivityFeedRowViewModel | undefined,
+): row is ActivityReasoningRowViewModel {
+  return row?.kind === "reasoning" && row.label === "Thinking";
 }
 
 function createNonToolRow(item: Exclude<ActivityPart, ToolActivityPart>) {
@@ -478,18 +524,37 @@ function resolveExploreGroupTitle(input: {
 
 function summarizeExploreGroup(
   exploreRows: ActivityToolRowViewModel[],
-  input: { hasReadRows: boolean; hasSearchRows: boolean },
+  _input: { hasReadRows: boolean; hasSearchRows: boolean },
 ): string {
-  const count = exploreRows.length;
-  if (input.hasReadRows && !input.hasSearchRows) {
-    return `${count} file${count === 1 ? "" : "s"}`;
+  const listCount = exploreRows.filter((row) => row.toolName === "list_files").length;
+  const fileCount = exploreRows.filter(
+    (row) => row.family === TOOL_ACTIVITY_FAMILIES.READ && row.toolName !== "list_files",
+  ).length;
+  const searchCount = exploreRows.filter(
+    (row) => row.family === TOOL_ACTIVITY_FAMILIES.SEARCH,
+  ).length;
+  const parts = [
+    formatExploreCount(listCount, "list"),
+    formatExploreCount(fileCount, "file"),
+    formatExploreCount(searchCount, "search"),
+  ].filter(Boolean);
+
+  return parts.join(", ") || `${exploreRows.length} step${exploreRows.length === 1 ? "" : "s"}`;
+}
+
+function formatExploreCount(
+  count: number,
+  label: "list" | "file" | "search",
+): string {
+  if (count === 0) {
+    return "";
   }
 
-  if (input.hasSearchRows && !input.hasReadRows) {
+  if (label === "search") {
     return `${count} search${count === 1 ? "" : "es"}`;
   }
 
-  return `${count} step${count === 1 ? "" : "s"}`;
+  return `${count} ${label}${count === 1 ? "" : "s"}`;
 }
 
 function isGenericExecutionReasoningSummary(
@@ -595,8 +660,11 @@ function getToolDetails(item: ToolActivityPart): string[] {
   switch (item.metadata.family) {
     case TOOL_ACTIVITY_FAMILIES.SHELL:
       return [
+        item.metadata.command ? `$ ${item.metadata.command}` : "",
         item.metadata.cwd ? `cwd: ${item.metadata.cwd}` : "",
-        item.metadata.outputTail ?? "",
+        item.metadata.outputTail
+          ? `${item.metadata.command ? "\n" : ""}${item.metadata.outputTail}`
+          : "",
         item.metadata.truncated ? "Output truncated to the latest shell tail." : "",
       ].filter(Boolean);
     case TOOL_ACTIVITY_FAMILIES.EDIT:
