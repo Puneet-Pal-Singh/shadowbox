@@ -23,7 +23,7 @@ describe("ActivityFeedViewModel", () => {
     expect(viewModel.turns[0]?.rows[1]).toMatchObject({
       kind: "group",
       title: "Explored",
-      summary: "2 files",
+      summary: "1 list, 1 file",
     });
     expect(viewModel.turns[0]?.rows[2]?.kind).toBe("tool");
     if (viewModel.turns[0]?.rows[2]?.kind === "tool") {
@@ -67,7 +67,7 @@ describe("ActivityFeedViewModel", () => {
     expect(viewModel.turns[0]?.rows[1]).toMatchObject({
       kind: "group",
       title: "Exploring",
-      summary: "2 files",
+      summary: "1 list, 1 file",
       status: "running",
       defaultCollapsed: false,
     });
@@ -110,13 +110,11 @@ describe("ActivityFeedViewModel", () => {
       ],
     });
 
-    expect(viewModel.turns[0]?.rows).toContainEqual(
-      expect.objectContaining({
-        kind: "reasoning",
-        label: "Thinking",
-        summary: "",
-      }),
-    );
+    expect(
+      viewModel.turns[0]?.rows.some(
+        (row) => row.kind === "reasoning" && row.label === "Thinking",
+      ),
+    ).toBe(false);
     expect(
       viewModel.turns[0]?.rows.some(
         (row) =>
