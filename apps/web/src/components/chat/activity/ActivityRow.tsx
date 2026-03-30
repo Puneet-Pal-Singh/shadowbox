@@ -95,7 +95,11 @@ export function ActivityRow({
 function isRecoveryTextRow(
   row: Extract<ActivityFeedRowViewModel, { kind: "text" }>,
 ): boolean {
-  const typedRow = row as Record<string, unknown>;
+  const typedRow = row as unknown as {
+    recovery?: boolean;
+    isRecovery?: boolean;
+    subtype?: string;
+  };
   if (typedRow.recovery === true || typedRow.isRecovery === true) {
     return true;
   }
