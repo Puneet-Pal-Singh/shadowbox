@@ -143,8 +143,8 @@ export function buildActivityFeedViewModel(
         return [];
       }
 
-      const rows = buildTurnRows(turn.items);
       const isActiveTurn = feed.status === "RUNNING" && index === lastTurnIndex;
+      const rows = buildTurnRows(turn.items, isActiveTurn);
       return [
         {
           key: turnKey,
@@ -195,15 +195,20 @@ function groupItemsIntoTurns(
   return grouped;
 }
 
-function buildTurnRows(items: ActivityPart[]): ActivityFeedRowViewModel[] {
+function buildTurnRows(
+  items: ActivityPart[],
+  isActiveTurn: boolean,
+): ActivityFeedRowViewModel[] {
   const rows: ActivityFeedRowViewModel[] = [];
   let pendingExplore: ActivityToolRowViewModel[] = [];
+  let trailingThinkingRow: ActivityReasoningRowViewModel | null = null;
 
   for (const item of items) {
     if (item.kind === ACTIVITY_PART_KINDS.TEXT) {
       if (shouldDisplayTextRow(item)) {
         flushExploreGroup(rows, pendingExplore);
         pendingExplore = [];
+        trailingThinkingRow = null;
         pushActivityRow(rows, createLegacyCommentaryRow(item));
       }
       continue;
@@ -213,6 +218,7 @@ function buildTurnRows(items: ActivityPart[]): ActivityFeedRowViewModel[] {
       if (shouldDisplayCommentaryRow(item)) {
         flushExploreGroup(rows, pendingExplore);
         pendingExplore = [];
+        trailingThinkingRow = null;
         pushActivityRow(rows, createNonToolRow(item));
       }
       continue;
@@ -225,6 +231,22 @@ function buildTurnRows(items: ActivityPart[]): ActivityFeedRowViewModel[] {
       continue;
     }
 
+    if (item.kind === ACTIVITY_PART_KINDS.REASONING) {
+      const reasoningRow = createNonToolRow(item);
+      if (isThinkingReasoningRow(reasoningRow)) {
+        // "Thinking" is only a live trailing state indicator. Once commentary
+        // or concrete work happens after it, we drop it from transcript history.
+        trailingThinkingRow = reasoningRow;
+        continue;
+      }
+
+      flushExploreGroup(rows, pendingExplore);
+      pendingExplore = [];
+      trailingThinkingRow = null;
+      pushActivityRow(rows, reasoningRow);
+      continue;
+    }
+
     if (item.kind === ACTIVITY_PART_KINDS.TOOL) {
       const row = createToolRow(item);
       if (isExplorationTool(row)) {
@@ -233,42 +255,37 @@ function buildTurnRows(items: ActivityPart[]): ActivityFeedRowViewModel[] {
       }
       flushExploreGroup(rows, pendingExplore);
       pendingExplore = [];
+      trailingThinkingRow = null;
       rows.push(row);
       continue;
     }
 
     flushExploreGroup(rows, pendingExplore);
     pendingExplore = [];
+    trailingThinkingRow = null;
     pushActivityRow(rows, createNonToolRow(item));
   }
 
   flushExploreGroup(rows, pendingExplore);
-  return finalizeTurnRows(rows);
+  if (shouldRenderTrailingThinkingRow(trailingThinkingRow, isActiveTurn)) {
+    pushActivityRow(rows, trailingThinkingRow);
+  }
+  return finalizeTurnRows(rows, isActiveTurn);
+}
+
+function shouldRenderTrailingThinkingRow(
+  row: ActivityReasoningRowViewModel | null,
+  isActiveTurn: boolean,
+): row is ActivityReasoningRowViewModel {
+  return Boolean(row && isActiveTurn && row.status === "active");
 }
 
 function finalizeTurnRows(
   rows: ActivityFeedRowViewModel[],
+  isActiveTurn: boolean,
 ): ActivityFeedRowViewModel[] {
-  const hasConcreteRows = rows.some(
-    (row) =>
-      row.kind === "tool" ||
-      row.kind === "group" ||
-      row.kind === "commentary" ||
-      row.kind === "approval" ||
-      row.kind === "handoff" ||
-      row.kind === "text" ||
-      (row.kind === "reasoning" && row.label !== "Thinking"),
-  );
-
-  if (!hasConcreteRows) {
-    return rows;
-  }
-
   return rows.filter(
-    (row) =>
-      row.kind !== "reasoning" ||
-      row.label !== "Thinking" ||
-      row.status !== "completed",
+    (row) => !isThinkingReasoningRow(row) || (isActiveTurn && row.status === "active"),
   );
 }
 
@@ -487,16 +504,11 @@ function createLegacyCommentaryRow(
 function shouldDisplayCommentaryRow(
   item: Extract<ActivityPart, { kind: typeof ACTIVITY_PART_KINDS.COMMENTARY }>,
 ): boolean {
-  if (isRecoveryMetadata(item.metadata)) {
-    return true;
+  if (item.phase === "final_answer") {
+    return false;
   }
 
-  return item.phase !== "final_answer";
-}
-
-function isRecoveryMetadata(metadata: Record<string, unknown> | undefined): boolean {
-  const code = typeof metadata?.code === "string" ? metadata.code : undefined;
-  return code === "INCOMPLETE_MUTATION" || code === "TASK_EXECUTION_TIMEOUT";
+  return true;
 }
 
 function createToolRow(item: ToolActivityPart): ActivityToolRowViewModel {
