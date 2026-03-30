@@ -26,6 +26,15 @@ export interface ActivityTextRowViewModel {
   metadata?: Record<string, unknown>;
 }
 
+export interface ActivityCommentaryRowViewModel {
+  kind: "commentary";
+  key: string;
+  phase: "commentary" | "final_answer";
+  status: "active" | "completed";
+  text: string;
+  metadata?: Record<string, unknown>;
+}
+
 export interface ActivityReasoningRowViewModel {
   kind: "reasoning";
   key: string;
@@ -75,6 +84,7 @@ export interface ActivityGroupRowViewModel {
 
 export type ActivityFeedRowViewModel =
   | ActivityTextRowViewModel
+  | ActivityCommentaryRowViewModel
   | ActivityReasoningRowViewModel
   | ActivityApprovalRowViewModel
   | ActivityHandoffRowViewModel
@@ -194,6 +204,15 @@ function buildTurnRows(items: ActivityPart[]): ActivityFeedRowViewModel[] {
       if (shouldDisplayTextRow(item)) {
         flushExploreGroup(rows, pendingExplore);
         pendingExplore = [];
+        pushActivityRow(rows, createLegacyCommentaryRow(item));
+      }
+      continue;
+    }
+
+    if (item.kind === ACTIVITY_PART_KINDS.COMMENTARY) {
+      if (shouldDisplayCommentaryRow(item)) {
+        flushExploreGroup(rows, pendingExplore);
+        pendingExplore = [];
         pushActivityRow(rows, createNonToolRow(item));
       }
       continue;
@@ -234,6 +253,7 @@ function finalizeTurnRows(
     (row) =>
       row.kind === "tool" ||
       row.kind === "group" ||
+      row.kind === "commentary" ||
       row.kind === "approval" ||
       row.kind === "handoff" ||
       row.kind === "text" ||
@@ -342,6 +362,15 @@ function createNonToolRow(item: Exclude<ActivityPart, ToolActivityPart>) {
         content: item.content,
         metadata: item.metadata,
       } satisfies ActivityTextRowViewModel;
+    case ACTIVITY_PART_KINDS.COMMENTARY:
+      return {
+        kind: "commentary",
+        key: item.id,
+        phase: item.phase,
+        status: item.status,
+        text: item.text,
+        metadata: item.metadata,
+      } satisfies ActivityCommentaryRowViewModel;
     case ACTIVITY_PART_KINDS.REASONING:
       return {
         kind: "reasoning",
@@ -439,6 +468,34 @@ function shouldDisplayTextRow(
   // Normal assistant replies stay in the main chat transcript instead of duplicating here.
   const code =
     typeof item.metadata?.code === "string" ? item.metadata.code : undefined;
+  return code === "INCOMPLETE_MUTATION" || code === "TASK_EXECUTION_TIMEOUT";
+}
+
+function createLegacyCommentaryRow(
+  item: Extract<ActivityPart, { kind: typeof ACTIVITY_PART_KINDS.TEXT }>,
+): ActivityCommentaryRowViewModel {
+  return {
+    kind: "commentary",
+    key: item.id,
+    phase: "commentary",
+    status: "completed",
+    text: item.content,
+    metadata: item.metadata,
+  };
+}
+
+function shouldDisplayCommentaryRow(
+  item: Extract<ActivityPart, { kind: typeof ACTIVITY_PART_KINDS.COMMENTARY }>,
+): boolean {
+  if (isRecoveryMetadata(item.metadata)) {
+    return true;
+  }
+
+  return item.phase !== "final_answer";
+}
+
+function isRecoveryMetadata(metadata: Record<string, unknown> | undefined): boolean {
+  const code = typeof metadata?.code === "string" ? metadata.code : undefined;
   return code === "INCOMPLETE_MUTATION" || code === "TASK_EXECUTION_TIMEOUT";
 }
 

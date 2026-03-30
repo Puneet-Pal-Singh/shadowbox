@@ -188,10 +188,74 @@ describe("ActivityFeedViewModel", () => {
     expect(
       viewModel.turns[0]?.rows.some(
         (row) =>
-          row.kind === "text" &&
+          row.kind === "commentary" &&
           row.metadata?.code === "TASK_EXECUTION_TIMEOUT",
       ),
     ).toBe(true);
+  });
+
+  it("renders authored commentary rows faithfully and keeps final-answer commentary out of the activity lane", () => {
+    const viewModel = buildActivityFeedViewModel({
+      runId: "run-commentary",
+      sessionId: "session-commentary",
+      status: "COMPLETED",
+      items: [
+        {
+          id: "text-user",
+          runId: "run-commentary",
+          sessionId: "session-commentary",
+          turnId: "turn-1",
+          kind: ACTIVITY_PART_KINDS.TEXT,
+          createdAt: "2026-03-24T10:00:00.000Z",
+          updatedAt: "2026-03-24T10:00:00.000Z",
+          source: "brain",
+          role: "user",
+          content: "fix the footer",
+        },
+        {
+          id: "commentary-progress",
+          runId: "run-commentary",
+          sessionId: "session-commentary",
+          turnId: "turn-1",
+          kind: ACTIVITY_PART_KINDS.COMMENTARY,
+          createdAt: "2026-03-24T10:00:01.000Z",
+          updatedAt: "2026-03-24T10:00:01.000Z",
+          source: "brain",
+          phase: "commentary",
+          status: "active",
+          text: "I'm checking the footer rendering path before I patch it.",
+        },
+        {
+          id: "commentary-final",
+          runId: "run-commentary",
+          sessionId: "session-commentary",
+          turnId: "turn-1",
+          kind: ACTIVITY_PART_KINDS.COMMENTARY,
+          createdAt: "2026-03-24T10:00:02.000Z",
+          updatedAt: "2026-03-24T10:00:02.000Z",
+          source: "brain",
+          phase: "final_answer",
+          status: "completed",
+          text: "Footer updated.",
+        },
+      ],
+    });
+
+    expect(viewModel.turns[0]?.rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "commentary",
+          phase: "commentary",
+          status: "active",
+          text: "I'm checking the footer rendering path before I patch it.",
+        }),
+      ]),
+    );
+    expect(
+      viewModel.turns[0]?.rows.some(
+        (row) => row.kind === "commentary" && row.phase === "final_answer",
+      ),
+    ).toBe(false);
   });
 
   it("preserves authored labels when generic reasoning summaries collapse away", () => {
@@ -292,9 +356,11 @@ describe("ActivityFeedViewModel", () => {
       ],
     });
 
-    expect(viewModel.turns[0]?.rows.some((row) => row.kind === "text")).toBe(
-      false,
-    );
+    expect(
+      viewModel.turns[0]?.rows.some(
+        (row) => row.kind === "text" || row.kind === "commentary",
+      ),
+    ).toBe(false);
   });
 
   it("formats git status activity like a command transcript", () => {
