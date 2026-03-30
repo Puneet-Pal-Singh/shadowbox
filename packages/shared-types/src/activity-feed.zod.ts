@@ -33,7 +33,7 @@ const TextActivityPartSchema = BaseActivityPartSchema.extend({
 const ReasoningActivityPartSchema = BaseActivityPartSchema.extend({
   kind: z.literal(ACTIVITY_PART_KINDS.REASONING),
   label: z.string().min(1),
-  summary: z.string().min(1),
+  summary: z.string(),
   phase: z.enum(["planning", "execution", "synthesis"]),
   status: z.enum([
     REASONING_ACTIVITY_STATUSES.ACTIVE,
