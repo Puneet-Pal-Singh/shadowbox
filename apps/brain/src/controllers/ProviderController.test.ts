@@ -52,6 +52,10 @@ function createMockEnv(options?: {
         name: "arcee-ai/trinity-large-preview:free",
       },
       { id: "stepfun/step-3.5-flash:free", name: "stepfun/step-3.5-flash:free" },
+      {
+        id: "qwen/qwen3.6-plus-preview:free",
+        name: "qwen/qwen3.6-plus-preview:free",
+      },
     ],
     openai: [{ id: "gpt-4o", name: "GPT-4o" }],
     openrouter: [{ id: "openrouter/auto", name: "Auto" }],
