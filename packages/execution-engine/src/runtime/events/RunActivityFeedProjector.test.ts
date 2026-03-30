@@ -47,7 +47,7 @@ describe("RunActivityFeedProjector", () => {
         createEvent(RUN_EVENT_TYPES.RUN_STATUS_CHANGED, {
           previousStatus: "queued",
           newStatus: "running",
-          workflowStep: "execution",
+          workflowStep: "planning",
         }),
         createEvent(RUN_EVENT_TYPES.TOOL_REQUESTED, {
           toolId: "tool-1",
