@@ -120,6 +120,8 @@ describe("RunEvent Schema Validation", () => {
         toolId: "tool-123",
         toolName: "read_file",
         arguments: { path: "/etc/passwd" },
+        description: "Read /etc/passwd",
+        displayText: "Reading /etc/passwd",
       },
     };
 
@@ -127,6 +129,8 @@ describe("RunEvent Schema Validation", () => {
     expect(parsed.type).toBe(RUN_EVENT_TYPES.TOOL_REQUESTED);
     if (parsed.type === RUN_EVENT_TYPES.TOOL_REQUESTED) {
       expect(parsed.payload.toolName).toBe("read_file");
+      expect(parsed.payload.description).toBe("Read /etc/passwd");
+      expect(parsed.payload.displayText).toBe("Reading /etc/passwd");
     }
   });
 
@@ -295,6 +299,8 @@ describe("Legacy Event Compatibility", () => {
       const payload = converted!.payload;
       expect(payload.toolName).toBe("read_file");
       expect(payload.arguments).toEqual({ path: "/tmp/test.txt" });
+      expect(payload.description).toBeUndefined();
+      expect(payload.displayText).toBeUndefined();
     }
   });
 
