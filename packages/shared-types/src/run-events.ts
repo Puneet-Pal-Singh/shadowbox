@@ -86,6 +86,8 @@ export interface ToolRequestedPayload {
   toolId: string;
   toolName: string;
   arguments: Record<string, unknown>;
+  description?: string;
+  displayText?: string;
 }
 
 export interface ToolStartedPayload {
