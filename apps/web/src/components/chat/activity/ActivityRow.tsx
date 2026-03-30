@@ -1,5 +1,8 @@
 import { Children } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { TOOL_ACTIVITY_FAMILIES } from "@repo/shared-types";
+import { cn } from "../../../lib/utils.js";
 import type { ActivityFeedRowViewModel } from "../../../services/activity/ActivityFeedViewModel.js";
 
 interface ActivityRowProps {
@@ -169,6 +172,15 @@ function CommentaryRow({
   displayMode: "card" | "transcript";
   collapsible: boolean;
 }) {
+  if (displayMode === "transcript") {
+    return (
+      <TranscriptCommentaryRow
+        text={row.text}
+        active={row.status === "active"}
+      />
+    );
+  }
+
   return (
     <ExpandableRow
       label={deriveCommentaryLabel(row.phase)}
@@ -183,6 +195,20 @@ function CommentaryRow({
         {row.text}
       </pre>
     </ExpandableRow>
+  );
+}
+
+function TranscriptCommentaryRow({
+  text,
+  active,
+}: {
+  text: string;
+  active: boolean;
+}) {
+  return (
+    <div className={cn("py-1", active ? "" : "opacity-95")}>
+      <MessageMarkdownContent content={text} />
+    </div>
   );
 }
 
@@ -477,10 +503,26 @@ function GroupRow({
 }) {
   if (isExplorationGroup(row)) {
     return (
-      <CompactTranscriptGroup
+      <ExpandableRow
         label={combineCompactLabel(row.title, row.summary)}
-        rows={row.rows.map((groupRow) => getCompactExplorationTitle(groupRow))}
-      />
+        summary=""
+        expanded={expanded}
+        onToggle={onToggle}
+        tone={row.status}
+        displayMode={displayMode}
+        collapsible={collapsible}
+      >
+        <div className="space-y-1 pl-4">
+          {row.rows.map((groupRow) => (
+            <div
+              key={groupRow.key}
+              className="text-sm font-medium text-zinc-500"
+            >
+              {getCompactExplorationTitle(groupRow)}
+            </div>
+          ))}
+        </div>
+      </ExpandableRow>
     );
   }
 
@@ -774,26 +816,44 @@ function CompactTranscriptRow({
   );
 }
 
-function CompactTranscriptGroup({
-  label,
-  rows,
-}: {
-  label: string;
-  rows: string[];
-}) {
+function MessageMarkdownContent({ content }: { content: string }) {
   return (
-    <div className="space-y-1 py-1">
-      <div className="text-sm font-medium text-zinc-500">{label}</div>
-      <div className="space-y-1 pl-4">
-        {rows.map((rowTitle, index) => (
-          <div
-            key={`${label}-${index}`}
-            className="text-sm font-medium text-zinc-500"
-          >
-            {rowTitle}
-          </div>
-        ))}
-      </div>
+    <div
+      className={cn(
+        "break-words text-sm leading-relaxed text-zinc-100",
+        "[&_p]:m-0 [&_p+*]:mt-3",
+        "[&_ul]:my-3 [&_ul]:list-disc [&_ul]:pl-5",
+        "[&_ol]:my-3 [&_ol]:list-decimal [&_ol]:pl-5",
+        "[&_li]:my-1",
+        "[&_hr]:my-4 [&_hr]:border-zinc-700/60",
+        "[&_blockquote]:my-3 [&_blockquote]:border-l-2 [&_blockquote]:border-zinc-600/80 [&_blockquote]:pl-3 [&_blockquote]:italic",
+        "[&_code]:rounded [&_code]:bg-zinc-900/80 [&_code]:px-1 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-[0.85em]",
+        "[&_pre]:my-3 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:bg-zinc-950/80 [&_pre]:p-3",
+        "[&_pre_code]:bg-transparent [&_pre_code]:p-0",
+        "[&_table]:my-3 [&_table]:w-full [&_table]:border-collapse [&_table]:text-left",
+        "[&_th]:border [&_th]:border-zinc-700/80 [&_th]:px-2 [&_th]:py-1 [&_th]:font-semibold",
+        "[&_td]:border [&_td]:border-zinc-800/80 [&_td]:px-2 [&_td]:py-1",
+      )}
+    >
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        disallowedElements={["img"]}
+        components={{
+          a: ({ className, ...props }) => (
+            <a
+              {...props}
+              target="_blank"
+              rel="noreferrer noopener"
+              className={cn(
+                "text-emerald-300 underline decoration-dotted underline-offset-2 transition-colors hover:text-emerald-200",
+                className,
+              )}
+            />
+          ),
+        }}
+      >
+        {content}
+      </ReactMarkdown>
     </div>
   );
 }
