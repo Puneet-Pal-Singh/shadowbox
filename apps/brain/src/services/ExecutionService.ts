@@ -5,10 +5,12 @@ import {
   sanitizeUnknownError,
 } from "../core/security/LogSanitizer";
 import { toCanonicalGitExecutionAction } from "../lib/gitExecutionActions";
+import {
+  GIT_MUTATION_TIMEOUT_MS,
+  GIT_STATUS_TIMEOUT_MS,
+} from "./gitExecutionTimeouts";
 
 const DEFAULT_EXECUTION_TIMEOUT_MS = 120_000;
-const GIT_STATUS_TIMEOUT_MS = 12_000;
-const GIT_MUTATION_TIMEOUT_MS = 20_000;
 const EXECUTION_SESSION_REPO_PATH = ".";
 const EXECUTION_LOG_POLL_INTERVAL_MS = 250;
 
