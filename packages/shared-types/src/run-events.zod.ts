@@ -5,6 +5,8 @@
 
 import { z } from "zod";
 import {
+  MESSAGE_TRANSCRIPT_PHASES,
+  MESSAGE_TRANSCRIPT_STATUSES,
   RUN_EVENT_TYPES,
   RUN_WORKFLOW_STEPS,
   type RunEvent,
@@ -77,6 +79,19 @@ const MessageEmittedPayloadSchema = z.object({
   content: z.string(),
   role: z.enum(["user", "assistant", "system"]),
   metadata: z.record(z.string(), z.unknown()).optional(),
+  transcriptPhase: z
+    .enum([
+      MESSAGE_TRANSCRIPT_PHASES.PROMPT,
+      MESSAGE_TRANSCRIPT_PHASES.COMMENTARY,
+      MESSAGE_TRANSCRIPT_PHASES.FINAL_ANSWER,
+    ])
+    .optional(),
+  transcriptStatus: z
+    .enum([
+      MESSAGE_TRANSCRIPT_STATUSES.ACTIVE,
+      MESSAGE_TRANSCRIPT_STATUSES.COMPLETED,
+    ])
+    .optional(),
 });
 
 const ToolRequestedPayloadSchema = z.object({

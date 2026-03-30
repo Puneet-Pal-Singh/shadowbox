@@ -18,6 +18,23 @@ export const RUN_WORKFLOW_STEPS = {
 export type RunWorkflowStep =
   (typeof RUN_WORKFLOW_STEPS)[keyof typeof RUN_WORKFLOW_STEPS];
 
+export const MESSAGE_TRANSCRIPT_PHASES = {
+  PROMPT: "prompt",
+  COMMENTARY: "commentary",
+  FINAL_ANSWER: "final_answer",
+} as const;
+
+export type MessageTranscriptPhase =
+  (typeof MESSAGE_TRANSCRIPT_PHASES)[keyof typeof MESSAGE_TRANSCRIPT_PHASES];
+
+export const MESSAGE_TRANSCRIPT_STATUSES = {
+  ACTIVE: "active",
+  COMPLETED: "completed",
+} as const;
+
+export type MessageTranscriptStatus =
+  (typeof MESSAGE_TRANSCRIPT_STATUSES)[keyof typeof MESSAGE_TRANSCRIPT_STATUSES];
+
 /** Canonical run event types */
 export const RUN_EVENT_TYPES = {
   RUN_STARTED: "run.started",
@@ -80,6 +97,8 @@ export interface MessageEmittedPayload {
   content: string;
   role: "user" | "assistant" | "system";
   metadata?: Record<string, unknown>;
+  transcriptPhase?: MessageTranscriptPhase;
+  transcriptStatus?: MessageTranscriptStatus;
 }
 
 export interface ToolRequestedPayload {
