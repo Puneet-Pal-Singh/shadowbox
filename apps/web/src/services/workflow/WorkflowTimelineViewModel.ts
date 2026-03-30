@@ -105,6 +105,21 @@ const READ_ONLY_TOOL_NAMES = new Set([
   "search_code",
   "git_diff",
 ]);
+const EXPLORATION_TOOL_NAMES = new Set([
+  "read_file",
+  "list_files",
+  "glob",
+  "grep",
+  "search_code",
+]);
+const GENERIC_EXECUTION_PROGRESS_LABELS = new Set([
+  "Preparing next action",
+]);
+const GENERIC_EXECUTION_PROGRESS_SUMMARIES = new Set([
+  "Preparing the next concrete workspace action.",
+  "Deciding whether to read, search, edit, run a command, or respond.",
+  "Running the selected coding tools.",
+]);
 
 export function buildWorkflowTimelineViewModel(params: {
   events: RunEvent[];
@@ -152,12 +167,12 @@ export function buildWorkflowTimelineViewModel(params: {
           currentToolBatch =
             currentToolBatch ??
             createAndPushBlock(
-              blocks,
-              blockCounters,
-              "tool_batch",
-              "Preparing next action",
-              event,
-            );
+                  blocks,
+                  blockCounters,
+                  "tool_batch",
+                  "Thinking",
+                  event,
+                );
           currentToolBatch.tone = "running";
           currentToolRows = new Map<string, MutableToolRow>();
         } else if (step === RUN_WORKFLOW_STEPS.SYNTHESIS) {
@@ -200,8 +215,10 @@ export function buildWorkflowTimelineViewModel(params: {
           currentContextBlock = block;
         }
 
-        block.title = event.payload.label;
-        appendDetail(block, event.payload.summary);
+        block.title = resolveProgressBlockTitle(event, block);
+        if (shouldAppendProgressDetail(event)) {
+          appendDetail(block, event.payload.summary);
+        }
         if (block.tone !== "failed") {
           block.tone =
             event.payload.status === "completed" ? "success" : "running";
@@ -241,7 +258,7 @@ export function buildWorkflowTimelineViewModel(params: {
             blocks,
             blockCounters,
             "tool_batch",
-            "Preparing next action",
+            "Thinking",
             event,
           );
         currentToolBatch = block;
@@ -251,11 +268,13 @@ export function buildWorkflowTimelineViewModel(params: {
           summarizeArguments(event.payload.arguments) ??
             "Tool arguments captured.",
         );
+        syncToolBatchPresentation(block, currentToolRows);
         break;
       }
       case RUN_EVENT_TYPES.TOOL_STARTED: {
         const row = getOrCreateToolRow(currentToolRows, event);
         row.status = "running";
+        syncToolBatchPresentation(currentToolBatch, currentToolRows);
         break;
       }
       case RUN_EVENT_TYPES.TOOL_OUTPUT_APPENDED: {
@@ -266,6 +285,7 @@ export function buildWorkflowTimelineViewModel(params: {
         if (outputDelta) {
           row.details.push(truncateText(outputDelta, 220));
         }
+        syncToolBatchPresentation(currentToolBatch, currentToolRows);
         break;
       }
       case RUN_EVENT_TYPES.TOOL_COMPLETED: {
@@ -278,6 +298,7 @@ export function buildWorkflowTimelineViewModel(params: {
             currentToolBatch.tone === "failed" ? "failed" : "success";
           currentToolBatch.endedAt = event.timestamp;
         }
+        syncToolBatchPresentation(currentToolBatch, currentToolRows);
         break;
       }
       case RUN_EVENT_TYPES.TOOL_FAILED: {
@@ -289,6 +310,7 @@ export function buildWorkflowTimelineViewModel(params: {
           currentToolBatch.tone = "failed";
           currentToolBatch.endedAt = event.timestamp;
         }
+        syncToolBatchPresentation(currentToolBatch, currentToolRows);
         break;
       }
       case RUN_EVENT_TYPES.RUN_COMPLETED: {
@@ -533,9 +555,12 @@ function finalizeToolBatch(
       details: row.details.filter(Boolean),
     } satisfies WorkflowToolRowViewModel;
   });
+  syncToolBatchPresentation(block, rows);
 
   if (block.rows.length === 0) {
-    appendDetail(block, "Execution started.");
+    if (block.title !== "Thinking") {
+      appendDetail(block, "Execution started.");
+    }
   }
 }
 
@@ -569,6 +594,12 @@ function buildBlockSummary(
   rows: WorkflowRowViewModel[],
 ): string {
   if (block.kind === "tool_batch") {
+    if (isExplorationToolBatchRows(rows)) {
+      return describeExplorationBatch(rows);
+    }
+    if (block.title === "Thinking" && rows.length === 0) {
+      return "";
+    }
     const queuedCount = rows.filter(
       (row) => row.kind === "tool" && row.status === "warning",
     ).length;
@@ -593,7 +624,9 @@ function buildBlockSummary(
         : `${queuedCount} queued`;
     }
     if (rows.length === 0) {
-      return block.details[0] ?? "Waiting for first tool call";
+      return block.title === "Thinking"
+        ? ""
+        : (block.details[0] ?? "Waiting for first tool call");
     }
     return `${rows.length} tool call${rows.length === 1 ? "" : "s"} completed`;
   }
@@ -634,6 +667,117 @@ function isLowSignalToolRow(row: MutableToolRow): boolean {
     READ_ONLY_TOOL_NAMES.has(row.toolName) &&
     detailSize <= LOW_SIGNAL_RESULT_LENGTH
   );
+}
+
+function resolveProgressBlockTitle(
+  event: Extract<RunEvent, { type: typeof RUN_EVENT_TYPES.RUN_PROGRESS }>,
+  block: MutableBlock,
+): string {
+  if (
+    event.payload.phase === RUN_WORKFLOW_STEPS.EXECUTION &&
+    isGenericExecutionProgress(event.payload.label, event.payload.summary)
+  ) {
+    return "Thinking";
+  }
+
+  if (block.kind === "tool_batch" && block.title === "Exploring") {
+    return "Exploring";
+  }
+
+  return event.payload.label;
+}
+
+function shouldAppendProgressDetail(
+  event: Extract<RunEvent, { type: typeof RUN_EVENT_TYPES.RUN_PROGRESS }>,
+): boolean {
+  if (event.payload.phase !== RUN_WORKFLOW_STEPS.EXECUTION) {
+    return true;
+  }
+
+  return !isGenericExecutionProgress(event.payload.label, event.payload.summary);
+}
+
+function isGenericExecutionProgress(label: string, summary: string): boolean {
+  return (
+    GENERIC_EXECUTION_PROGRESS_LABELS.has(label) ||
+    GENERIC_EXECUTION_PROGRESS_SUMMARIES.has(summary)
+  );
+}
+
+function syncToolBatchPresentation(
+  block: MutableBlock | null,
+  rows: Map<string, MutableToolRow>,
+): void {
+  if (!block || block.kind !== "tool_batch") {
+    return;
+  }
+
+  const toolRows = Array.from(rows.values());
+  if (toolRows.length === 0) {
+    block.title = "Thinking";
+    return;
+  }
+
+  if (isExplorationToolBatch(toolRows)) {
+    const hasActiveRows = toolRows.some(
+      (row) => row.status === "warning" || row.status === "running",
+    );
+    block.title = hasActiveRows ? "Exploring" : "Explored";
+    return;
+  }
+
+  if (
+    block.title === "Preparing next action" ||
+    block.title === "Thinking" ||
+    block.title === "Exploring" ||
+    block.title === "Explored" ||
+    isGenericExecutionProgress(block.title, "")
+  ) {
+    block.title = "Thinking";
+  }
+}
+
+function isExplorationToolBatch(rows: MutableToolRow[]): boolean {
+  return (
+    rows.length > 0 &&
+    rows.every((row) => EXPLORATION_TOOL_NAMES.has(row.toolName)) &&
+    rows.every((row) => row.status !== "failed")
+  );
+}
+
+function isExplorationToolBatchRows(rows: WorkflowRowViewModel[]): boolean {
+  const toolRows = rows.filter(
+    (row): row is WorkflowToolRowViewModel => row.kind === "tool",
+  );
+  return (
+    toolRows.length > 0 &&
+    toolRows.length === rows.length &&
+    toolRows.every((row) => EXPLORATION_TOOL_NAMES.has(row.toolName)) &&
+    toolRows.every((row) => row.status !== "failed")
+  );
+}
+
+function describeExplorationBatch(rows: WorkflowRowViewModel[]): string {
+  const toolRows = rows.filter(
+    (row): row is WorkflowToolRowViewModel => row.kind === "tool",
+  );
+  const count = toolRows.length;
+  const hasSearchRows = toolRows.some(
+    (row) => row.toolName === "glob" || row.toolName === "grep" || row.toolName === "search_code",
+  );
+  const hasReadRows = toolRows.some(
+    (row) => row.toolName === "read_file" || row.toolName === "list_files",
+  );
+
+  if (hasReadRows && !hasSearchRows) {
+    return `${count} file${count === 1 ? "" : "s"}`;
+  }
+
+  if (hasSearchRows && !hasReadRows) {
+    return `${count} search${count === 1 ? "" : "es"}`;
+  }
+
+  return `${count} step${count === 1 ? "" : "s"}`;
 }
 
 function buildSummary(

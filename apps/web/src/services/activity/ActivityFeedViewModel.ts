@@ -98,6 +98,15 @@ export interface ActivityFeedViewModel {
 }
 
 const LOW_SIGNAL_EXPLORATION_THRESHOLD = 2;
+const GENERIC_EXECUTION_REASONING_SUMMARIES = new Set([
+  "Preparing the next concrete workspace action.",
+  "Running the selected coding tools.",
+  "Deciding whether to read, search, edit, run a command, or respond.",
+]);
+const GENERIC_SYNTHESIS_REASONING_SUMMARIES = new Set([
+  "Preparing the operational plan.",
+  "Summarizing execution results for the final response.",
+]);
 
 export function buildActivityFeedViewModel(
   feed: ActivityFeedSnapshot | null,
@@ -292,7 +301,7 @@ function createNonToolRow(item: Exclude<ActivityPart, ToolActivityPart>) {
         kind: "reasoning",
         key: item.id,
         label: getReasoningLabel(item),
-        summary: normalizeReasoningSummary(item.summary),
+        summary: normalizeReasoningSummary(item.summary, item.phase),
         status: item.status,
       } satisfies ActivityReasoningRowViewModel;
     case ACTIVITY_PART_KINDS.APPROVAL:
@@ -318,20 +327,29 @@ function createNonToolRow(item: Exclude<ActivityPart, ToolActivityPart>) {
 function isSuppressedReasoning(
   item: Extract<ActivityPart, { kind: typeof ACTIVITY_PART_KINDS.REASONING }>,
 ): boolean {
-  return normalizeReasoningSummary(item.summary) === "";
+  return (
+    normalizeReasoningSummary(item.summary, item.phase) === "" &&
+    item.phase === "synthesis"
+  );
 }
 
-function normalizeReasoningSummary(summary: string): string {
+function normalizeReasoningSummary(
+  summary: string,
+  phase?: Extract<
+    ActivityPart,
+    { kind: typeof ACTIVITY_PART_KINDS.REASONING }
+  >["phase"],
+): string {
   const trimmed = summary.trim();
   if (!trimmed) {
     return "";
   }
 
-  if (
-    trimmed === "Preparing the operational plan." ||
-    trimmed === "Running the selected coding tools." ||
-    trimmed === "Summarizing execution results for the final response."
-  ) {
+  if (isGenericExecutionReasoningSummary(trimmed, phase)) {
+    return "";
+  }
+
+  if (isGenericSynthesisReasoningSummary(trimmed, phase)) {
     return "";
   }
 
@@ -341,6 +359,11 @@ function normalizeReasoningSummary(summary: string): string {
 function getReasoningLabel(
   item: Extract<ActivityPart, { kind: typeof ACTIVITY_PART_KINDS.REASONING }>,
 ): string {
+  const normalizedSummary = normalizeReasoningSummary(item.summary, item.phase);
+  if (item.phase === "execution" && normalizedSummary === "") {
+    return "Thinking";
+  }
+
   const authoredLabel = item.label.trim();
   if (authoredLabel) {
     return authoredLabel;
@@ -436,54 +459,59 @@ function buildExploreGroupCopy(
     (row) => row.family === TOOL_ACTIVITY_FAMILIES.SEARCH,
   );
   const title = resolveExploreGroupTitle({
-    hasReadRows,
-    hasSearchRows,
     hasRunningRows,
   });
   return {
     title,
-    summary: summarizeExploreTargets(exploreRows),
+    summary: summarizeExploreGroup(exploreRows, {
+      hasReadRows,
+      hasSearchRows,
+    }),
   };
 }
 
 function resolveExploreGroupTitle(input: {
-  hasReadRows: boolean;
-  hasSearchRows: boolean;
   hasRunningRows: boolean;
 }): string {
-  if (input.hasReadRows && input.hasSearchRows) {
-    return input.hasRunningRows
-      ? "Reading and searching project"
-      : "Read and searched project";
-  }
-
-  if (input.hasSearchRows) {
-    return input.hasRunningRows ? "Searching project" : "Searched project";
-  }
-
-  return input.hasRunningRows ? "Reading project files" : "Read project files";
+  return input.hasRunningRows ? "Exploring" : "Explored";
 }
 
-function summarizeExploreTargets(
+function summarizeExploreGroup(
   exploreRows: ActivityToolRowViewModel[],
+  input: { hasReadRows: boolean; hasSearchRows: boolean },
 ): string {
-  const uniqueTitles = Array.from(
-    new Set(
-      exploreRows
-        .map((row) => row.title.trim())
-        .filter((title) => title.length > 0),
-    ),
-  );
-
-  if (uniqueTitles.length === 0) {
-    return `${exploreRows.length} context action${exploreRows.length === 1 ? "" : "s"}`;
+  const count = exploreRows.length;
+  if (input.hasReadRows && !input.hasSearchRows) {
+    return `${count} file${count === 1 ? "" : "s"}`;
   }
 
-  const visibleTitles = uniqueTitles.slice(0, 2);
-  const remainingCount = uniqueTitles.length - visibleTitles.length;
-  const summary = visibleTitles.join(" · ");
+  if (input.hasSearchRows && !input.hasReadRows) {
+    return `${count} search${count === 1 ? "" : "es"}`;
+  }
 
-  return remainingCount > 0 ? `${summary} · +${remainingCount} more` : summary;
+  return `${count} step${count === 1 ? "" : "s"}`;
+}
+
+function isGenericExecutionReasoningSummary(
+  summary: string,
+  phase?: Extract<
+    ActivityPart,
+    { kind: typeof ACTIVITY_PART_KINDS.REASONING }
+  >["phase"],
+): boolean {
+  return (
+    phase === "execution" && GENERIC_EXECUTION_REASONING_SUMMARIES.has(summary)
+  );
+}
+
+function isGenericSynthesisReasoningSummary(
+  summary: string,
+  phase?: Extract<
+    ActivityPart,
+    { kind: typeof ACTIVITY_PART_KINDS.REASONING }
+  >["phase"],
+): boolean {
+  return phase === "synthesis" && GENERIC_SYNTHESIS_REASONING_SUMMARIES.has(summary);
 }
 
 function getToolTitle(item: ToolActivityPart): string {

@@ -250,10 +250,17 @@ function ReasoningRow({
   displayMode: "card" | "transcript";
   collapsible: boolean;
 }) {
+  const isThinkingRow = row.label === "Thinking";
+
   if (displayMode === "transcript") {
     return (
       <div className="space-y-1 py-1">
-        <div className="text-sm font-medium text-zinc-300">{row.label}</div>
+        <div className="flex items-center gap-2 text-sm font-medium text-zinc-300">
+          {isThinkingRow ? (
+            <span className="h-2 w-2 rounded-full bg-cyan-300 shadow-[0_0_14px_rgba(103,232,249,0.9)] animate-pulse-slow" />
+          ) : null}
+          <span className={isThinkingRow ? "text-zinc-100" : ""}>{row.label}</span>
+        </div>
         {row.summary ? (
           <div className="text-sm text-zinc-500">{row.summary}</div>
         ) : null}
@@ -270,6 +277,7 @@ function ReasoningRow({
       tone={row.status === "active" ? "running" : "completed"}
       displayMode={displayMode}
       collapsible={collapsible}
+      emphasizeThinking={isThinkingRow && row.status === "active"}
     >
       <div className="text-xs text-cyan-100/80">{row.summary}</div>
     </ExpandableRow>
@@ -442,6 +450,7 @@ function ExpandableRow({
   tone = "completed",
   displayMode = "card",
   collapsible = true,
+  emphasizeThinking = false,
 }: {
   label: string;
   summary: string;
@@ -451,6 +460,7 @@ function ExpandableRow({
   tone?: "requested" | "running" | "completed" | "failed";
   displayMode?: "card" | "transcript";
   collapsible?: boolean;
+  emphasizeThinking?: boolean;
 }) {
   const hasChildren = Children.count(children) > 0;
 
@@ -490,11 +500,21 @@ function ExpandableRow({
               <ChevronIcon expanded={expanded} muted />
             </span>
           ) : (
-            <span className="mt-[7px] h-1.5 w-1.5 rounded-full bg-zinc-600" />
+            <span
+              className={
+                emphasizeThinking
+                  ? "mt-[5px] h-2 w-2 rounded-full bg-cyan-300 shadow-[0_0_14px_rgba(103,232,249,0.9)] animate-pulse-slow"
+                  : "mt-[7px] h-1.5 w-1.5 rounded-full bg-zinc-600"
+              }
+            />
           )}
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="truncate text-sm font-medium text-zinc-200">
+              <span
+                className={`truncate text-sm font-medium ${
+                  emphasizeThinking ? "text-zinc-100" : "text-zinc-200"
+                }`}
+              >
                 {label}
               </span>
               {summary ? (

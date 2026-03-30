@@ -23,6 +23,8 @@ export function WorkflowBlock({
   onToggle,
   onToggleRow,
 }: WorkflowBlockProps) {
+  const isThinkingBlock = block.title === "Thinking" && block.tone === "running";
+
   return (
     <section
       className={cn(
@@ -41,10 +43,13 @@ export function WorkflowBlock({
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
+            {isThinkingBlock ? (
+              <span className="h-2 w-2 rounded-full bg-cyan-300 shadow-[0_0_14px_rgba(103,232,249,0.9)] animate-pulse-slow" />
+            ) : null}
             <h3 className="text-sm font-semibold text-zinc-100">
               {block.title}
             </h3>
-            <ToneBadge tone={block.tone} />
+            {!isThinkingBlock ? <ToneBadge tone={block.tone} /> : null}
             {block.durationLabel ? (
               <span className="text-xs text-zinc-500">
                 {block.durationLabel}
@@ -56,7 +61,9 @@ export function WorkflowBlock({
               </span>
             ) : null}
           </div>
-          <p className="mt-1 text-sm text-zinc-400">{block.summary}</p>
+          {block.summary ? (
+            <p className="mt-1 text-sm text-zinc-400">{block.summary}</p>
+          ) : null}
         </div>
       </button>
       {expanded ? (
