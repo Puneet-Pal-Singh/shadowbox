@@ -197,6 +197,52 @@ describe("AgenticLoop - Bounded Agentic Tool Chaining", () => {
       });
     });
 
+    it("emits assistant commentary only when the model is about to call tools", async () => {
+      const onAssistantMessage = vi.fn();
+      vi.mocked(llmGateway.generateText!)
+        .mockResolvedValueOnce({
+          text: "I found the footer file and will read it now.",
+          toolCalls: [
+            {
+              id: "tool-call-1",
+              toolName: "read_file",
+              args: { path: "src/components/Footer.tsx" },
+            },
+          ],
+          usage: { promptTokens: 10, completionTokens: 5 },
+        })
+        .mockResolvedValueOnce({
+          text: "Done.",
+          toolCalls: [],
+          usage: { promptTokens: 12, completionTokens: 6 },
+        });
+
+      vi.mocked(executor.execute!).mockResolvedValue({
+        taskId: "tool-call-1",
+        status: "DONE",
+        output: { content: "footer content" },
+        completedAt: new Date(),
+      });
+
+      await loop.execute(
+        [{ role: "user", content: "inspect the footer" }],
+        {
+          read_file: {
+            description: "Read a file",
+          },
+        } as unknown as Record<string, import("ai").CoreTool>,
+        {
+          agentType: "coding",
+          onAssistantMessage,
+        },
+      );
+
+      expect(onAssistantMessage).toHaveBeenCalledTimes(1);
+      expect(onAssistantMessage).toHaveBeenCalledWith(
+        "I found the footer file and will read it now.",
+      );
+    });
+
     it("executes tool calls and appends tool results for next LLM step", async () => {
       vi.mocked(llmGateway.generateText!)
         .mockResolvedValueOnce({

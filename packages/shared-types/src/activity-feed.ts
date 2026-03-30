@@ -3,6 +3,7 @@ import type { EventSource } from "./run-events.js";
 
 export const ACTIVITY_PART_KINDS = {
   TEXT: "text",
+  COMMENTARY: "commentary",
   REASONING: "reasoning",
   TOOL: "tool",
   APPROVAL: "approval",
@@ -29,6 +30,22 @@ export const REASONING_ACTIVITY_STATUSES = {
 
 export type ReasoningActivityStatus =
   (typeof REASONING_ACTIVITY_STATUSES)[keyof typeof REASONING_ACTIVITY_STATUSES];
+
+export const COMMENTARY_ACTIVITY_PHASES = {
+  COMMENTARY: "commentary",
+  FINAL_ANSWER: "final_answer",
+} as const;
+
+export type CommentaryActivityPhase =
+  (typeof COMMENTARY_ACTIVITY_PHASES)[keyof typeof COMMENTARY_ACTIVITY_PHASES];
+
+export const COMMENTARY_ACTIVITY_STATUSES = {
+  ACTIVE: "active",
+  COMPLETED: "completed",
+} as const;
+
+export type CommentaryActivityStatus =
+  (typeof COMMENTARY_ACTIVITY_STATUSES)[keyof typeof COMMENTARY_ACTIVITY_STATUSES];
 
 export const APPROVAL_ACTIVITY_STATUSES = {
   REQUESTED: "requested",
@@ -79,6 +96,15 @@ export interface TextActivityPart extends ActivityPartBase<
 > {
   role: "user" | "assistant" | "system";
   content: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface CommentaryActivityPart extends ActivityPartBase<
+  typeof ACTIVITY_PART_KINDS.COMMENTARY
+> {
+  phase: CommentaryActivityPhase;
+  status: CommentaryActivityStatus;
+  text: string;
   metadata?: Record<string, unknown>;
 }
 
@@ -192,6 +218,7 @@ export interface HandoffActivityPart extends ActivityPartBase<
 
 export type ActivityPart =
   | TextActivityPart
+  | CommentaryActivityPart
   | ReasoningActivityPart
   | ToolActivityPart
   | ApprovalActivityPart

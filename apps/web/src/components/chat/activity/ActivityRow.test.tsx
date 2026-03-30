@@ -4,27 +4,28 @@ import { ActivityRow } from "./ActivityRow.js";
 import type { ActivityFeedRowViewModel } from "../../../services/activity/ActivityFeedViewModel.js";
 
 describe("ActivityRow", () => {
-  it("renders normal text rows with the generic text renderer", () => {
+  it("renders commentary rows with the commentary renderer", () => {
     render(
       <ActivityRow
-        row={createTextRow({
-          content: "Regular assistant response",
+        row={createCommentaryRow({
+          text: "Regular assistant response",
         })}
         expanded={true}
         onToggle={vi.fn()}
+        displayMode="transcript"
       />,
     );
 
-    expect(screen.getByText("Assistant update")).toBeInTheDocument();
-    expect(screen.getAllByText("Regular assistant response")).toHaveLength(2);
-    expect(screen.queryByText("Run update")).not.toBeInTheDocument();
+    expect(screen.getByText("Regular assistant response")).toBeInTheDocument();
+    expect(screen.queryByText("Commentary")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 
-  it("renders recovery text rows with the recovery renderer", () => {
+  it("renders recovery commentary rows with the recovery renderer", () => {
     render(
       <ActivityRow
-        row={createTextRow({
-          content: "The model timed out before choosing the next action.",
+        row={createCommentaryRow({
+          text: "The model timed out before choosing the next action.",
           metadata: {
             code: "TASK_EXECUTION_TIMEOUT",
             resumeHint: "Retry the task.",
@@ -41,14 +42,17 @@ describe("ActivityRow", () => {
   });
 });
 
-function createTextRow(
-  overrides: Partial<Extract<ActivityFeedRowViewModel, { kind: "text" }>> = {},
-): Extract<ActivityFeedRowViewModel, { kind: "text" }> {
+function createCommentaryRow(
+  overrides: Partial<
+    Extract<ActivityFeedRowViewModel, { kind: "commentary" }>
+  > = {},
+): Extract<ActivityFeedRowViewModel, { kind: "commentary" }> {
   return {
-    kind: "text",
-    key: "text-row-1",
-    role: "assistant",
-    content: "Default content",
+    kind: "commentary",
+    key: "commentary-row-1",
+    phase: "commentary",
+    status: "completed",
+    text: "Default content",
     ...overrides,
   };
 }

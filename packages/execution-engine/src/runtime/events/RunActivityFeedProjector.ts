@@ -1,7 +1,10 @@
 import {
   safeParseToolActivityMetadata,
   ACTIVITY_PART_KINDS,
+  COMMENTARY_ACTIVITY_PHASES,
+  COMMENTARY_ACTIVITY_STATUSES,
   HANDOFF_ACTIVITY_STATUSES,
+  MESSAGE_TRANSCRIPT_PHASES,
   REASONING_ACTIVITY_STATUSES,
   RUN_EVENT_TYPES,
   RUN_WORKFLOW_STEPS,
@@ -10,6 +13,7 @@ import {
   type ActivityFeedSnapshot,
   type ActivityPart,
   type ApprovalActivityPart,
+  type CommentaryActivityPart,
   type HandoffActivityPart,
   type ReasoningActivityPart,
   type RunEvent,
@@ -48,9 +52,13 @@ export function projectRunActivityFeed(
     });
 
     switch (event.type) {
-      case RUN_EVENT_TYPES.MESSAGE_EMITTED:
-        items.push(createTextPart(event, currentTurnId));
+      case RUN_EVENT_TYPES.MESSAGE_EMITTED: {
+        const part = createMessagePart(event, currentTurnId);
+        if (part) {
+          items.push(part);
+        }
         break;
+      }
       case RUN_EVENT_TYPES.RUN_STATUS_CHANGED: {
         const part = createReasoningPart(event, currentTurnId);
         if (part) {
@@ -118,10 +126,15 @@ function updateTurnId(
   return currentTurnId;
 }
 
-function createTextPart(
+function createMessagePart(
   event: Extract<RunEvent, { type: typeof RUN_EVENT_TYPES.MESSAGE_EMITTED }>,
   turnId: string | undefined,
-): ActivityPart {
+): ActivityPart | null {
+  const commentaryPart = createCommentaryPart(event, turnId);
+  if (commentaryPart) {
+    return commentaryPart;
+  }
+
   return {
     id: event.eventId,
     runId: event.runId,
@@ -133,6 +146,31 @@ function createTextPart(
     source: event.source,
     role: event.payload.role,
     content: event.payload.content,
+    metadata: event.payload.metadata,
+  };
+}
+
+function createCommentaryPart(
+  event: Extract<RunEvent, { type: typeof RUN_EVENT_TYPES.MESSAGE_EMITTED }>,
+  turnId: string | undefined,
+): CommentaryActivityPart | null {
+  if (!shouldProjectCommentary(event)) {
+    return null;
+  }
+
+  return {
+    id: event.eventId,
+    runId: event.runId,
+    sessionId: event.sessionId,
+    turnId,
+    kind: ACTIVITY_PART_KINDS.COMMENTARY,
+    createdAt: event.timestamp,
+    updatedAt: event.timestamp,
+    source: event.source,
+    phase: mapTranscriptPhaseToCommentaryPhase(event.payload.transcriptPhase),
+    status:
+      event.payload.transcriptStatus ?? COMMENTARY_ACTIVITY_STATUSES.COMPLETED,
+    text: event.payload.content,
     metadata: event.payload.metadata,
   };
 }
@@ -180,6 +218,39 @@ function createProgressPart(
     phase: event.payload.phase,
     status: event.payload.status,
   };
+}
+
+function shouldProjectCommentary(
+  event: Extract<RunEvent, { type: typeof RUN_EVENT_TYPES.MESSAGE_EMITTED }>,
+): boolean {
+  if (event.payload.role !== "assistant") {
+    return false;
+  }
+
+  if (
+    event.payload.transcriptPhase === MESSAGE_TRANSCRIPT_PHASES.COMMENTARY ||
+    event.payload.transcriptPhase === MESSAGE_TRANSCRIPT_PHASES.FINAL_ANSWER
+  ) {
+    return true;
+  }
+
+  return isRecoveryMessage(event.payload.metadata);
+}
+
+function mapTranscriptPhaseToCommentaryPhase(
+  phase: Extract<
+    RunEvent,
+    { type: typeof RUN_EVENT_TYPES.MESSAGE_EMITTED }
+  >["payload"]["transcriptPhase"],
+): CommentaryActivityPart["phase"] {
+  return phase === MESSAGE_TRANSCRIPT_PHASES.FINAL_ANSWER
+    ? COMMENTARY_ACTIVITY_PHASES.FINAL_ANSWER
+    : COMMENTARY_ACTIVITY_PHASES.COMMENTARY;
+}
+
+function isRecoveryMessage(metadata: Record<string, unknown> | undefined): boolean {
+  const code = typeof metadata?.code === "string" ? metadata.code : undefined;
+  return code === "INCOMPLETE_MUTATION" || code === "TASK_EXECUTION_TIMEOUT";
 }
 
 function createRequestedToolPart(

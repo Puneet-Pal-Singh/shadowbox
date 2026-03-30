@@ -91,4 +91,15 @@ describe("CodingToolGateway", () => {
       }),
     ).toThrow("Invalid grep input");
   });
+
+  it("normalizes nullish input for tools that allow empty argument objects", () => {
+    expect(validateGoldenFlowToolInput("git_status", null)).toEqual({});
+    expect(validateGoldenFlowToolInput("list_files", null)).toEqual({});
+    expect(validateGoldenFlowToolInput("git_diff", undefined)).toEqual({});
+
+    const registry = getGoldenFlowToolRegistry();
+    expect(registry.git_status?.parameters.safeParse(null).success).toBe(true);
+    expect(registry.list_files?.parameters.safeParse(null).success).toBe(true);
+    expect(registry.git_diff?.parameters.safeParse(null).success).toBe(true);
+  });
 });

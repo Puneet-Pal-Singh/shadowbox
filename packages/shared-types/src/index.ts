@@ -80,6 +80,8 @@ export { RunModeSchema, DEFAULT_RUN_MODE, type RunMode } from "./run-mode.js";
 // Activity feed contract
 export {
   ACTIVITY_PART_KINDS,
+  COMMENTARY_ACTIVITY_PHASES,
+  COMMENTARY_ACTIVITY_STATUSES,
   TOOL_ACTIVITY_STATUSES,
   REASONING_ACTIVITY_STATUSES,
   APPROVAL_ACTIVITY_STATUSES,
@@ -87,6 +89,8 @@ export {
   TOOL_ACTIVITY_FAMILIES,
   isActivityPart,
   type ActivityPartKind,
+  type CommentaryActivityPhase,
+  type CommentaryActivityStatus,
   type ToolActivityStatus,
   type ReasoningActivityStatus,
   type ApprovalActivityStatus,
@@ -94,6 +98,7 @@ export {
   type ToolActivityFamily,
   type ActivityPartBase,
   type TextActivityPart,
+  type CommentaryActivityPart,
   type ReasoningActivityPart,
   type ToolActivityPart,
   type ApprovalActivityPart,
@@ -119,9 +124,13 @@ export {
 
 // Run event types
 export {
+  MESSAGE_TRANSCRIPT_PHASES,
+  MESSAGE_TRANSCRIPT_STATUSES,
   RUN_EVENT_TYPES,
   RUN_WORKFLOW_STEPS,
   type EventSource,
+  type MessageTranscriptPhase,
+  type MessageTranscriptStatus,
   type RunEventType,
   type RunEventEnvelope,
   type RunWorkflowStep,

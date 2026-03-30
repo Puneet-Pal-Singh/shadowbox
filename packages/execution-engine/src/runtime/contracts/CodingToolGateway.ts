@@ -29,39 +29,63 @@ interface GoldenFlowToolSpec {
   route: ToolGatewayRoute;
 }
 
-const READ_FILE_TOOL_INPUT_SCHEMA = z.object({
+function createToolInputSchema<TShape extends z.ZodRawShape>(
+  shape: TShape,
+  options: { allowNullishEmptyObject?: boolean } = {},
+) {
+  const baseSchema = z.object(shape);
+  if (!options.allowNullishEmptyObject) {
+    return baseSchema;
+  }
+
+  return z.preprocess(
+    (value) => (value == null ? {} : value),
+    baseSchema,
+  );
+}
+
+const READ_FILE_TOOL_INPUT_SCHEMA = createToolInputSchema({
   path: z.string().min(1).max(MAX_PATH_LENGTH),
 });
 
-const LIST_FILES_TOOL_INPUT_SCHEMA = z.object({
-  path: z.string().min(1).max(MAX_PATH_LENGTH).optional(),
-});
+const LIST_FILES_TOOL_INPUT_SCHEMA = createToolInputSchema(
+  {
+    path: z.string().min(1).max(MAX_PATH_LENGTH).optional(),
+  },
+  { allowNullishEmptyObject: true },
+);
 
-const WRITE_FILE_TOOL_INPUT_SCHEMA = z.object({
+const WRITE_FILE_TOOL_INPUT_SCHEMA = createToolInputSchema({
   path: z.string().min(1).max(MAX_PATH_LENGTH),
   content: z.string().min(1).max(MAX_WRITE_CONTENT_LENGTH),
 });
 
-const BASH_TOOL_INPUT_SCHEMA = z.object({
+const BASH_TOOL_INPUT_SCHEMA = createToolInputSchema({
   command: z.string().min(1).max(MAX_COMMAND_LENGTH),
   cwd: z.string().min(1).max(MAX_PATH_LENGTH).optional(),
   description: z.string().min(1).max(MAX_COMMAND_LENGTH).optional(),
 });
 
-const GIT_STATUS_TOOL_INPUT_SCHEMA = z.object({});
+const GIT_STATUS_TOOL_INPUT_SCHEMA = createToolInputSchema(
+  {},
+  { allowNullishEmptyObject: true },
+);
 
-const GIT_DIFF_TOOL_INPUT_SCHEMA = z.object({
-  path: z.string().min(1).max(MAX_PATH_LENGTH).optional(),
-  staged: z.boolean().optional(),
-});
+const GIT_DIFF_TOOL_INPUT_SCHEMA = createToolInputSchema(
+  {
+    path: z.string().min(1).max(MAX_PATH_LENGTH).optional(),
+    staged: z.boolean().optional(),
+  },
+  { allowNullishEmptyObject: true },
+);
 
-const GLOB_TOOL_INPUT_SCHEMA = z.object({
+const GLOB_TOOL_INPUT_SCHEMA = createToolInputSchema({
   pattern: z.string().min(1).max(MAX_PATTERN_LENGTH),
   path: z.string().min(1).max(MAX_PATH_LENGTH).optional(),
   maxResults: z.number().int().min(1).max(MAX_SEARCH_RESULTS).optional(),
 });
 
-const GREP_TOOL_INPUT_SCHEMA = z.object({
+const GREP_TOOL_INPUT_SCHEMA = createToolInputSchema({
   pattern: z.string().min(1).max(MAX_PATTERN_LENGTH),
   path: z.string().min(1).max(MAX_PATH_LENGTH).optional(),
   glob: z.string().min(1).max(MAX_PATTERN_LENGTH).optional(),
