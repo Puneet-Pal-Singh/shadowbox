@@ -2,6 +2,7 @@ import { ChevronDown, ChevronRight } from "lucide-react";
 import type {
   WorkflowBlockViewModel,
   WorkflowDetailRowViewModel,
+  WorkflowToolRowViewModel,
 } from "../../../services/workflow/WorkflowTimelineViewModel.js";
 import { cn } from "../../../lib/utils.js";
 import { ToolCallRow } from "./ToolCallRow.js";
@@ -24,6 +25,33 @@ export function WorkflowBlock({
   onToggleRow,
 }: WorkflowBlockProps) {
   const isThinkingBlock = block.title === "Thinking" && block.tone === "running";
+  const isCompactProgressBlock = isCompactStatusBlock(block);
+
+  if (isCompactProgressBlock) {
+    return (
+      <section className="space-y-1 py-1">
+        <div className="text-sm font-medium text-zinc-500">
+          <span className={isThinkingBlock ? thinkingWaveClassName() : ""}>
+            {formatCompactBlockLabel(block)}
+          </span>
+          {newEventCount > 0 ? (
+            <span className="ml-2 text-xs text-zinc-600">+{newEventCount} new</span>
+          ) : null}
+        </div>
+        {block.rows.length > 0 ? (
+          <div className="space-y-1 pl-4">
+            {block.rows
+              .filter((row): row is WorkflowToolRowViewModel => row.kind === "tool")
+              .map((row) => (
+                <div key={row.key} className="text-sm font-medium text-zinc-500">
+                  {getCompactToolTitle(row)}
+                </div>
+              ))}
+          </div>
+        ) : null}
+      </section>
+    );
+  }
 
   return (
     <section
@@ -97,6 +125,24 @@ function DetailRow({ row }: { row: WorkflowDetailRowViewModel }) {
   );
 }
 
+function isCompactStatusBlock(block: WorkflowBlockViewModel): boolean {
+  if (block.title === "Exploring" || block.title === "Explored") {
+    return true;
+  }
+
+  if (block.title !== "Thinking") {
+    return false;
+  }
+
+  return block.rows.every(
+    (row) => row.kind !== "tool" || row.toolName !== "shell_exec",
+  );
+}
+
+function formatCompactBlockLabel(block: WorkflowBlockViewModel): string {
+  return block.summary ? `${block.title} ${block.summary}` : block.title;
+}
+
 function ToneBadge({ tone }: { tone: WorkflowBlockViewModel["tone"] }) {
   return (
     <span
@@ -137,5 +183,27 @@ function getToneBadgeClass(tone: WorkflowBlockViewModel["tone"]): string {
       return "bg-yellow-950/80 text-yellow-200";
     default:
       return "bg-zinc-900 text-zinc-300";
+  }
+}
+
+function thinkingWaveClassName(): string {
+  return "bg-[linear-gradient(90deg,rgba(113,113,122,0.9)_0%,rgba(228,228,231,0.95)_45%,rgba(113,113,122,0.9)_100%)] bg-[length:220%_100%] bg-clip-text text-transparent animate-shimmer";
+}
+
+function getCompactToolTitle(row: WorkflowToolRowViewModel): string {
+  switch (row.toolName) {
+    case "read_file":
+      return row.title.replace(/^Reading /, "Read ");
+    case "list_files":
+      return row.title.replace(/^Listing /, "List ");
+    case "grep":
+    case "search_code":
+      return row.title
+        .replace(/^Searching for /, "Search ")
+        .replace(/^Searched for /, "Search ");
+    case "glob":
+      return row.title.replace(/^Finding /, "Find ");
+    default:
+      return row.title;
   }
 }
