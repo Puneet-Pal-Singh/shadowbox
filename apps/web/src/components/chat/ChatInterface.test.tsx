@@ -198,7 +198,7 @@ describe("ChatInterface", () => {
     fireEvent.click(screen.getByRole("button", { name: /worked for 1s/i }));
 
     expect(screen.queryByText("Workflow overview")).not.toBeInTheDocument();
-    expect(screen.getByText("Thinking")).toBeInTheDocument();
+    expect(screen.getByText("Preparing handoff")).toBeInTheDocument();
     expect(screen.getByText("Build Handoff")).toBeInTheDocument();
   });
 

@@ -11,12 +11,20 @@ describe("ActivityFeedViewModel", () => {
     const viewModel = buildActivityFeedViewModel(createFeedSnapshot());
     expect(viewModel.turns).toHaveLength(1);
     expect(viewModel.turns[0]?.summaryLabel).toBe(
-      "3 tool calls · 1 thinking step",
+      "3 tool calls · 1 progress update",
     );
     expect(viewModel.turns[0]?.defaultCollapsed).toBe(false);
     expect(viewModel.turns[0]?.isActiveTurn).toBe(true);
-    expect(viewModel.turns[0]?.rows[0]?.kind).toBe("reasoning");
+    expect(viewModel.turns[0]?.rows[0]).toMatchObject({
+      kind: "reasoning",
+      label: "Analyzing request",
+    });
     expect(viewModel.turns[0]?.rows[1]?.kind).toBe("group");
+    expect(viewModel.turns[0]?.rows[1]).toMatchObject({
+      kind: "group",
+      title: "Read project files",
+      summary: "List project files · Read README.md",
+    });
     expect(viewModel.turns[0]?.rows[2]?.kind).toBe("tool");
     if (viewModel.turns[0]?.rows[2]?.kind === "tool") {
       expect(viewModel.turns[0].rows[2].family).toBe(
@@ -35,7 +43,7 @@ describe("ActivityFeedViewModel", () => {
     expect(viewModel.turns[0]?.defaultCollapsed).toBe(true);
   });
 
-  it("labels active read and search batches as gathering context", () => {
+  it("labels active read batches with specific progress copy", () => {
     const snapshot = createFeedSnapshot();
     const runningTool = snapshot.items[3];
     if (!runningTool || runningTool.kind !== ACTIVITY_PART_KINDS.TOOL) {
@@ -58,7 +66,8 @@ describe("ActivityFeedViewModel", () => {
 
     expect(viewModel.turns[0]?.rows[1]).toMatchObject({
       kind: "group",
-      title: "Gathering context",
+      title: "Reading project files",
+      summary: "List project files · Read README.md",
       status: "running",
       defaultCollapsed: false,
     });
