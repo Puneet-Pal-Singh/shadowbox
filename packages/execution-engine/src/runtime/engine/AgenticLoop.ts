@@ -716,8 +716,8 @@ function buildLoopProgressUpdate(input: {
   if (input.isFinalSynthesisStep) {
     return {
       phase: "synthesis",
-      label: "Synthesizing final response",
-      summary: "Summarizing the observed tool results into a final answer.",
+      label: "Summarizing the change",
+      summary: "Preparing the final user-facing answer from the observed results.",
       status: "active",
     };
   }
@@ -729,7 +729,7 @@ function buildLoopProgressUpdate(input: {
   ) {
     return {
       phase: "execution",
-      label: "Preparing mutation",
+      label: "Preparing the next edit",
       summary:
         "Inspection is complete enough to attempt the requested workspace change.",
       status: "active",
@@ -738,8 +738,9 @@ function buildLoopProgressUpdate(input: {
 
   return {
     phase: "execution",
-    label: "Waiting for model decision",
-    summary: "Choosing the next tool or response for this run.",
+    label: "Preparing next action",
+    summary:
+      "Deciding whether to read, search, edit, run a command, or respond.",
     status: "active",
   };
 }
