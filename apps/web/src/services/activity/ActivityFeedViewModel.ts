@@ -261,7 +261,7 @@ function buildTurnSummary(rows: ActivityFeedRowViewModel[]): string {
   }
   if (reasoningCount > 0) {
     parts.push(
-      `${reasoningCount} thinking step${reasoningCount === 1 ? "" : "s"}`,
+      `${reasoningCount} progress update${reasoningCount === 1 ? "" : "s"}`,
     );
   }
   if (approvalCount > 0) {
@@ -291,7 +291,7 @@ function createNonToolRow(item: Exclude<ActivityPart, ToolActivityPart>) {
       return {
         kind: "reasoning",
         key: item.id,
-        label: "Thinking",
+        label: getReasoningLabel(item),
         summary: normalizeReasoningSummary(item.summary),
         status: item.status,
       } satisfies ActivityReasoningRowViewModel;
@@ -336,6 +336,26 @@ function normalizeReasoningSummary(summary: string): string {
   }
 
   return trimmed;
+}
+
+function getReasoningLabel(
+  item: Extract<ActivityPart, { kind: typeof ACTIVITY_PART_KINDS.REASONING }>,
+): string {
+  const authoredLabel = item.label.trim();
+  if (authoredLabel) {
+    return authoredLabel;
+  }
+
+  switch (item.phase) {
+    case "planning":
+      return "Planning next step";
+    case "execution":
+      return "Preparing next action";
+    case "synthesis":
+      return "Summarizing the change";
+    default:
+      return "Workflow update";
+  }
 }
 
 function shouldDisplayTextRow(
@@ -393,38 +413,132 @@ function flushExploreGroup(
   const hasRunningRows = exploreRows.some(
     (row) => row.status === "requested" || row.status === "running",
   );
+  const groupCopy = buildExploreGroupCopy(exploreRows, hasRunningRows);
   rows.push({
     kind: "group",
     key: `explore-${exploreRows[0]?.key ?? "group"}`,
-    title: hasRunningRows ? "Gathering context" : "Gathered context",
-    summary: hasRunningRows
-      ? `${exploreRows.length} read/search actions in progress`
-      : `${exploreRows.length} low-noise context actions`,
+    title: groupCopy.title,
+    summary: groupCopy.summary,
     status: hasFailedRows ? "failed" : hasRunningRows ? "running" : "completed",
     defaultCollapsed: !hasRunningRows,
     rows: [...exploreRows],
   });
 }
 
+function buildExploreGroupCopy(
+  exploreRows: ActivityToolRowViewModel[],
+  hasRunningRows: boolean,
+): { title: string; summary: string } {
+  const hasReadRows = exploreRows.some(
+    (row) => row.family === TOOL_ACTIVITY_FAMILIES.READ,
+  );
+  const hasSearchRows = exploreRows.some(
+    (row) => row.family === TOOL_ACTIVITY_FAMILIES.SEARCH,
+  );
+  const title = resolveExploreGroupTitle({
+    hasReadRows,
+    hasSearchRows,
+    hasRunningRows,
+  });
+  return {
+    title,
+    summary: summarizeExploreTargets(exploreRows),
+  };
+}
+
+function resolveExploreGroupTitle(input: {
+  hasReadRows: boolean;
+  hasSearchRows: boolean;
+  hasRunningRows: boolean;
+}): string {
+  if (input.hasReadRows && input.hasSearchRows) {
+    return input.hasRunningRows
+      ? "Reading and searching project"
+      : "Read and searched project";
+  }
+
+  if (input.hasSearchRows) {
+    return input.hasRunningRows ? "Searching project" : "Searched project";
+  }
+
+  return input.hasRunningRows ? "Reading project files" : "Read project files";
+}
+
+function summarizeExploreTargets(
+  exploreRows: ActivityToolRowViewModel[],
+): string {
+  const uniqueTitles = Array.from(
+    new Set(
+      exploreRows
+        .map((row) => row.title.trim())
+        .filter((title) => title.length > 0),
+    ),
+  );
+
+  if (uniqueTitles.length === 0) {
+    return `${exploreRows.length} context action${exploreRows.length === 1 ? "" : "s"}`;
+  }
+
+  const visibleTitles = uniqueTitles.slice(0, 2);
+  const remainingCount = uniqueTitles.length - visibleTitles.length;
+  const summary = visibleTitles.join(" · ");
+
+  return remainingCount > 0 ? `${summary} · +${remainingCount} more` : summary;
+}
+
 function getToolTitle(item: ToolActivityPart): string {
+  if (item.metadata.displayText) {
+    return item.metadata.displayText;
+  }
+
   switch (item.metadata.family) {
     case TOOL_ACTIVITY_FAMILIES.SHELL:
       return item.metadata.command;
     case TOOL_ACTIVITY_FAMILIES.EDIT:
       return `Edit ${item.metadata.filePath}`;
     case TOOL_ACTIVITY_FAMILIES.READ:
-      return item.metadata.path
-        ? `Read ${item.metadata.path}`
-        : humanizeToolName(item.toolName);
+      return getReadToolTitle(item);
     case TOOL_ACTIVITY_FAMILIES.SEARCH:
-      return item.metadata.pattern
-        ? `Search ${item.metadata.pattern}`
-        : humanizeToolName(item.toolName);
+      return getSearchToolTitle(item);
     case TOOL_ACTIVITY_FAMILIES.GIT:
       return getGitCommandLabel(item);
     default:
       return humanizeToolName(item.toolName);
   }
+}
+
+function getReadToolTitle(item: ToolActivityPart): string {
+  if (item.metadata.family !== TOOL_ACTIVITY_FAMILIES.READ) {
+    return humanizeToolName(item.toolName);
+  }
+
+  if (item.toolName === "list_files") {
+    return item.metadata.path && item.metadata.path !== "."
+      ? `List ${item.metadata.path}`
+      : "List project files";
+  }
+
+  return item.metadata.path ? `Read ${item.metadata.path}` : "Read file";
+}
+
+function getSearchToolTitle(item: ToolActivityPart): string {
+  if (item.metadata.family !== TOOL_ACTIVITY_FAMILIES.SEARCH) {
+    return humanizeToolName(item.toolName);
+  }
+
+  if (item.toolName === "glob") {
+    return item.metadata.pattern
+      ? `Find ${item.metadata.pattern}`
+      : "Find files";
+  }
+
+  if (item.metadata.pattern) {
+    return `Search ${item.metadata.pattern}`;
+  }
+
+  return item.metadata.path && item.metadata.path !== "."
+    ? `Search ${item.metadata.path}`
+    : "Search project";
 }
 
 function getToolSummary(item: ToolActivityPart): string {
