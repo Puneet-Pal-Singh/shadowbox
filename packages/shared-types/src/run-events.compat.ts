@@ -154,6 +154,14 @@ function transformPayload(
         toolId: (p.toolId as string) || (p.id as string) || "",
         toolName: (p.toolName as string) || (p.name as string) || "",
         arguments: (p.arguments as Record<string, unknown>) || (p.args as Record<string, unknown>) || {},
+        description:
+          typeof p.description === "string" && p.description.trim()
+            ? p.description
+            : undefined,
+        displayText:
+          typeof p.displayText === "string" && p.displayText.trim()
+            ? p.displayText
+            : undefined,
       };
 
     case LEGACY_EVENT_NAMES.TOOL_COMPLETED_LEGACY:
