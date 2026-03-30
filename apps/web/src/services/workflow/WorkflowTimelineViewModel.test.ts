@@ -34,7 +34,6 @@ describe("WorkflowTimelineViewModel", () => {
     expect(first.blocks.map((block) => block.kind)).toEqual([
       "plan",
       "tool_batch",
-      "synthesis",
       "final",
     ]);
 
