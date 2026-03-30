@@ -2,6 +2,8 @@ import { z } from "zod";
 import {
   ACTIVITY_PART_KINDS,
   APPROVAL_ACTIVITY_STATUSES,
+  COMMENTARY_ACTIVITY_PHASES,
+  COMMENTARY_ACTIVITY_STATUSES,
   HANDOFF_ACTIVITY_STATUSES,
   REASONING_ACTIVITY_STATUSES,
   TOOL_ACTIVITY_FAMILIES,
@@ -27,6 +29,20 @@ const TextActivityPartSchema = BaseActivityPartSchema.extend({
   kind: z.literal(ACTIVITY_PART_KINDS.TEXT),
   role: z.enum(["user", "assistant", "system"]),
   content: z.string(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+}).strict();
+
+const CommentaryActivityPartSchema = BaseActivityPartSchema.extend({
+  kind: z.literal(ACTIVITY_PART_KINDS.COMMENTARY),
+  phase: z.enum([
+    COMMENTARY_ACTIVITY_PHASES.COMMENTARY,
+    COMMENTARY_ACTIVITY_PHASES.FINAL_ANSWER,
+  ]),
+  status: z.enum([
+    COMMENTARY_ACTIVITY_STATUSES.ACTIVE,
+    COMMENTARY_ACTIVITY_STATUSES.COMPLETED,
+  ]),
+  text: z.string(),
   metadata: z.record(z.string(), z.unknown()).optional(),
 }).strict();
 
@@ -154,6 +170,7 @@ const HandoffActivityPartSchema = BaseActivityPartSchema.extend({
 
 export const ActivityPartSchema = z.discriminatedUnion("kind", [
   TextActivityPartSchema,
+  CommentaryActivityPartSchema,
   ReasoningActivityPartSchema,
   ToolActivityPartSchema,
   ApprovalActivityPartSchema,

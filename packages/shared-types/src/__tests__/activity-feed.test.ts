@@ -119,6 +119,30 @@ describe("activity-feed contract", () => {
     expect(snapshot.items[0].summary).toBe("");
   });
 
+  it("parses commentary parts with explicit phase and status", () => {
+    const part = parseActivityPart({
+      id: "commentary-1",
+      runId: "run-1",
+      sessionId: "session-1",
+      turnId: "turn-1",
+      kind: ACTIVITY_PART_KINDS.COMMENTARY,
+      createdAt: "2026-03-24T10:00:00.000Z",
+      updatedAt: "2026-03-24T10:00:00.000Z",
+      source: "brain",
+      phase: "commentary",
+      status: "active",
+      text: "Checking the footer before editing.",
+    });
+
+    expect(part.kind).toBe("commentary");
+    if (part.kind !== "commentary") {
+      throw new Error("Expected commentary activity part");
+    }
+    expect(part.phase).toBe("commentary");
+    expect(part.status).toBe("active");
+    expect(part.text).toBe("Checking the footer before editing.");
+  });
+
   it("rejects malformed parts safely", () => {
     const result = safeParseActivityPart({
       id: "broken",
