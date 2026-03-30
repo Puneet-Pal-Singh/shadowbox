@@ -805,14 +805,7 @@ describe("RunEngine", () => {
       events.some(
         (event) =>
           event.type === RUN_EVENT_TYPES.RUN_PROGRESS &&
-          event.payload.label === "Summarizing the change",
-      ),
-    ).toBe(true);
-    expect(
-      events.some(
-        (event) =>
-          event.type === RUN_EVENT_TYPES.RUN_PROGRESS &&
-          event.payload.label === "Reading README.md",
+          event.payload.label === "Thinking",
       ),
     ).toBe(true);
     expect(
