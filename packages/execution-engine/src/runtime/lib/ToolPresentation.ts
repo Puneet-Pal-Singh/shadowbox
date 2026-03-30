@@ -1,11 +1,24 @@
+import {
+  isGoldenFlowToolName,
+  type GoldenFlowToolInputByName,
+  type GoldenFlowToolName,
+  validateGoldenFlowToolInput,
+} from "../contracts/CodingToolGateway.js";
+
 export interface ToolPresentation {
   description: string;
   displayText: string;
   summary: string;
 }
 
-type ToolPresenter = (
-  input: Record<string, unknown> | undefined,
+type ToolPresentationToolName = GoldenFlowToolName | "search_code";
+
+type ToolPresentationInputByName = GoldenFlowToolInputByName & {
+  search_code: GoldenFlowToolInputByName["grep"];
+};
+
+type ToolPresenter<T extends ToolPresentationToolName> = (
+  input: ToolPresentationInputByName[T],
 ) => ToolPresentation;
 
 export function getToolPresentation(
@@ -19,7 +32,10 @@ export function getToolPresentation(
   return {
     description: explicitDescription ?? derived.description,
     displayText:
-      explicitDisplayText ?? derived.displayText ?? explicitDescription ?? derived.description,
+      explicitDisplayText ??
+      explicitDescription ??
+      derived.displayText ??
+      derived.description,
     summary: derived.summary,
   };
 }
@@ -28,15 +44,21 @@ function deriveToolPresentation(
   toolName: string,
   input: Record<string, unknown> | undefined,
 ): ToolPresentation {
+  if (!isToolPresentationToolName(toolName)) {
+    return presentDefaultTool(toolName);
+  }
+
   const presenter = TOOL_PRESENTERS[toolName];
   if (presenter) {
-    return presenter(input);
+    return presenter(validateToolPresentationInput(toolName, input));
   }
 
   return presentDefaultTool(toolName);
 }
 
-const TOOL_PRESENTERS: Record<string, ToolPresenter> = {
+const TOOL_PRESENTERS: {
+  [K in ToolPresentationToolName]: ToolPresenter<K>;
+} = {
   read_file: presentReadFile,
   list_files: presentListFiles,
   glob: presentGlob,
@@ -49,9 +71,9 @@ const TOOL_PRESENTERS: Record<string, ToolPresenter> = {
 };
 
 function presentReadFile(
-  input: Record<string, unknown> | undefined,
+  input: ToolPresentationInputByName["read_file"],
 ): ToolPresentation {
-  const path = readString(input?.path);
+  const path = input.path;
   return {
     description: path ? `Read ${path}` : "Read file",
     displayText: path ? `Reading ${path}` : "Reading file",
@@ -62,9 +84,9 @@ function presentReadFile(
 }
 
 function presentListFiles(
-  input: Record<string, unknown> | undefined,
+  input: ToolPresentationInputByName["list_files"],
 ): ToolPresentation {
-  const path = readString(input?.path);
+  const path = input.path;
   const target = path && path !== "." ? path : "project files";
   return {
     description: path && path !== "." ? `List ${path}` : "List project files",
@@ -77,9 +99,9 @@ function presentListFiles(
 }
 
 function presentGlob(
-  input: Record<string, unknown> | undefined,
+  input: ToolPresentationInputByName["glob"],
 ): ToolPresentation {
-  const pattern = readString(input?.pattern);
+  const pattern = input.pattern;
   return {
     description: pattern ? `Find ${pattern}` : "Find files",
     displayText: pattern ? `Finding ${pattern}` : "Finding files",
@@ -90,10 +112,12 @@ function presentGlob(
 }
 
 function presentGrepOrSearchCode(
-  input: Record<string, unknown> | undefined,
+  input:
+    | ToolPresentationInputByName["grep"]
+    | ToolPresentationInputByName["search_code"],
 ): ToolPresentation {
-  const pattern = readString(input?.pattern);
-  const path = readString(input?.path);
+  const pattern = input.pattern;
+  const path = input.path;
   return {
     description: pattern ? `Search for ${pattern}` : "Search project",
     displayText: pattern ? `Searching for ${pattern}` : "Searching project",
@@ -107,9 +131,9 @@ function presentGrepOrSearchCode(
 }
 
 function presentWriteFile(
-  input: Record<string, unknown> | undefined,
+  input: ToolPresentationInputByName["write_file"],
 ): ToolPresentation {
-  const path = readString(input?.path);
+  const path = input.path;
   return {
     description: path ? `Edit ${path}` : "Edit file",
     displayText: path ? `Editing ${path}` : "Editing file",
@@ -119,10 +143,8 @@ function presentWriteFile(
   };
 }
 
-function presentBash(
-  input: Record<string, unknown> | undefined,
-): ToolPresentation {
-  const command = readString(input?.command);
+function presentBash(input: ToolPresentationInputByName["bash"]): ToolPresentation {
+  const command = input.command;
   return {
     description: command ? `Run ${command}` : "Run command",
     displayText: command ? `Running ${command}` : "Running command",
@@ -141,9 +163,9 @@ function presentGitStatus(): ToolPresentation {
 }
 
 function presentGitDiff(
-  input: Record<string, unknown> | undefined,
+  input: ToolPresentationInputByName["git_diff"],
 ): ToolPresentation {
-  const path = readString(input?.path);
+  const path = input.path;
   return {
     description: path ? `Check git diff for ${path}` : "Check git diff",
     displayText: path ? `Checking git diff for ${path}` : "Checking git diff",
@@ -172,4 +194,26 @@ function humanizeToolName(toolName: string): string {
 
 function readString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function isToolPresentationToolName(
+  toolName: string,
+): toolName is ToolPresentationToolName {
+  return toolName === "search_code" || isGoldenFlowToolName(toolName);
+}
+
+function validateToolPresentationInput<T extends ToolPresentationToolName>(
+  toolName: T,
+  input: unknown,
+): ToolPresentationInputByName[T] {
+  try {
+    if (toolName === "search_code") {
+      return validateGoldenFlowToolInput("grep", input) as ToolPresentationInputByName[T];
+    }
+
+    return validateGoldenFlowToolInput(toolName, input) as ToolPresentationInputByName[T];
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown validation error";
+    throw new Error(`[tool-presentation/${toolName}] ${message}`);
+  }
 }
