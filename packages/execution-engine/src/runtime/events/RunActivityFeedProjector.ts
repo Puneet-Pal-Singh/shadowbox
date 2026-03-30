@@ -142,7 +142,7 @@ function createReasoningPart(
   turnId: string | undefined,
 ): ReasoningActivityPart | null {
   const workflowStep = event.payload.workflowStep;
-  if (!workflowStep) {
+  if (!workflowStep || workflowStep !== RUN_WORKFLOW_STEPS.PLANNING) {
     return null;
   }
 
