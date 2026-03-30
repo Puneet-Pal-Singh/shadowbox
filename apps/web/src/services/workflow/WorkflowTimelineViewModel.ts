@@ -179,23 +179,7 @@ export function buildWorkflowTimelineViewModel(params: {
           finalizeToolBatch(currentToolBatch, currentToolRows);
           currentToolBatch = null;
           currentToolRows = new Map<string, MutableToolRow>();
-          const existingSynthesisBlock: MutableBlock | null = currentContextBlock;
-          const synthesisBlock: MutableBlock =
-            existingSynthesisBlock && existingSynthesisBlock.kind === "synthesis"
-              ? existingSynthesisBlock
-              : createAndPushBlock(
-                  blocks,
-                  blockCounters,
-                  "synthesis",
-                  "Summarizing the change",
-                  event,
-                );
-          currentContextBlock = synthesisBlock;
-          synthesisBlock.tone = "running";
-          appendDetail(
-            synthesisBlock,
-            "Preparing the final user-facing answer from the observed results.",
-          );
+          currentContextBlock = null;
         }
         break;
       }
@@ -265,7 +249,7 @@ export function buildWorkflowTimelineViewModel(params: {
         const row = getOrCreateToolRow(currentToolRows, event);
         row.status = "warning";
         row.details.push(
-          summarizeArguments(event.payload.arguments) ??
+          summarizeToolRequest(event.payload) ??
             "Tool arguments captured.",
         );
         syncToolBatchPresentation(block, currentToolRows);
@@ -761,23 +745,36 @@ function describeExplorationBatch(rows: WorkflowRowViewModel[]): string {
   const toolRows = rows.filter(
     (row): row is WorkflowToolRowViewModel => row.kind === "tool",
   );
-  const count = toolRows.length;
-  const hasSearchRows = toolRows.some(
-    (row) => row.toolName === "glob" || row.toolName === "grep" || row.toolName === "search_code",
-  );
-  const hasReadRows = toolRows.some(
-    (row) => row.toolName === "read_file" || row.toolName === "list_files",
-  );
+  const listCount = toolRows.filter((row) => row.toolName === "list_files").length;
+  const fileCount = toolRows.filter((row) => row.toolName === "read_file").length;
+  const searchCount = toolRows.filter(
+    (row) =>
+      row.toolName === "glob" ||
+      row.toolName === "grep" ||
+      row.toolName === "search_code",
+  ).length;
+  const parts = [
+    formatExplorationCount(listCount, "list"),
+    formatExplorationCount(fileCount, "file"),
+    formatExplorationCount(searchCount, "search"),
+  ].filter(Boolean);
 
-  if (hasReadRows && !hasSearchRows) {
-    return `${count} file${count === 1 ? "" : "s"}`;
+  return parts.join(", ") || `${toolRows.length} step${toolRows.length === 1 ? "" : "s"}`;
+}
+
+function formatExplorationCount(
+  count: number,
+  label: "list" | "file" | "search",
+): string {
+  if (count === 0) {
+    return "";
   }
 
-  if (hasSearchRows && !hasReadRows) {
+  if (label === "search") {
     return `${count} search${count === 1 ? "" : "es"}`;
   }
 
-  return `${count} step${count === 1 ? "" : "s"}`;
+  return `${count} ${label}${count === 1 ? "" : "s"}`;
 }
 
 function buildSummary(
@@ -884,6 +881,24 @@ function summarizeArguments(
   );
 }
 
+function summarizeToolRequest(
+  payload: Extract<RunEvent, { type: typeof RUN_EVENT_TYPES.TOOL_REQUESTED }>["payload"],
+): string | null {
+  const command =
+    typeof payload.arguments.command === "string"
+      ? payload.arguments.command.trim()
+      : "";
+
+  if (
+    (payload.toolName === "shell_exec" || payload.toolName === "bash") &&
+    command
+  ) {
+    return `$ ${command}`;
+  }
+
+  return summarizeArguments(payload.arguments);
+}
+
 function summarizeToolResult(result: unknown): string {
   const rendered = summarizeUnknown(result);
   if (!rendered.trim()) {
@@ -941,15 +956,15 @@ function getToolRowTitle(
 
   switch (payload.toolName) {
     case "read_file":
-      return path ? `Reading ${path}` : "Reading file";
+      return path ? `Read ${path}` : "Read file";
     case "list_files":
-      return path && path !== "." ? `Listing ${path}` : "Listing project files";
+      return path && path !== "." ? `List ${path}` : "List project files";
     case "glob":
-      return pattern ? `Finding ${pattern}` : "Finding files";
+      return pattern ? `Find ${pattern}` : "Find files";
     case "grep":
-      return pattern ? `Searching for ${pattern}` : "Searching project";
+      return pattern ? `Search ${pattern}` : "Search project";
     case "write_file":
-      return path ? `Editing ${path}` : "Editing file";
+      return path ? `Edit ${path}` : "Edit file";
     case "bash":
     case "shell_exec":
       return command ? `Running ${command}` : "Running command";
