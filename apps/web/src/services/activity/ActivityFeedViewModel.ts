@@ -498,21 +498,12 @@ function buildExploreGroupCopy(
   exploreRows: ActivityToolRowViewModel[],
   hasRunningRows: boolean,
 ): { title: string; summary: string } {
-  const hasReadRows = exploreRows.some(
-    (row) => row.family === TOOL_ACTIVITY_FAMILIES.READ,
-  );
-  const hasSearchRows = exploreRows.some(
-    (row) => row.family === TOOL_ACTIVITY_FAMILIES.SEARCH,
-  );
   const title = resolveExploreGroupTitle({
     hasRunningRows,
   });
   return {
     title,
-    summary: summarizeExploreGroup(exploreRows, {
-      hasReadRows,
-      hasSearchRows,
-    }),
+    summary: summarizeExploreGroup(exploreRows),
   };
 }
 
@@ -522,10 +513,7 @@ function resolveExploreGroupTitle(input: {
   return input.hasRunningRows ? "Exploring" : "Explored";
 }
 
-function summarizeExploreGroup(
-  exploreRows: ActivityToolRowViewModel[],
-  _input: { hasReadRows: boolean; hasSearchRows: boolean },
-): string {
+function summarizeExploreGroup(exploreRows: ActivityToolRowViewModel[]): string {
   const listCount = exploreRows.filter((row) => row.toolName === "list_files").length;
   const fileCount = exploreRows.filter(
     (row) => row.family === TOOL_ACTIVITY_FAMILIES.READ && row.toolName !== "list_files",
