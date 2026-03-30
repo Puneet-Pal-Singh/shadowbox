@@ -2,9 +2,7 @@ import { useRef, useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import {
   Plus,
-  Mic,
   ArrowUp,
-  Paperclip,
   Square,
   X,
   FileText,
@@ -558,28 +556,8 @@ export function ChatInputBar({
               ) : null}
             </div>
 
-            {/* Right: Attachment, Mic, Send */}
+            {/* Attachment and voice actions stay hidden until they trigger real flows. */}
             <div className="flex items-center gap-1.5">
-              <motion.button
-                type="button"
-                whileHover={{ scale: 1.1 }}
-                whileTap={{ scale: 0.9 }}
-                className="p-1 text-zinc-500 hover:text-zinc-300 transition-colors"
-                title="Attach file"
-              >
-                <Paperclip size={16} />
-              </motion.button>
-
-              <motion.button
-                type="button"
-                whileHover={{ scale: 1.1 }}
-                whileTap={{ scale: 0.9 }}
-                className="p-1 text-zinc-500 hover:text-zinc-300 transition-colors"
-                title="Voice input"
-              >
-                <Mic size={16} />
-              </motion.button>
-
               <motion.button
                 type="button"
                 onClick={isLoading ? onStop : onSubmit}

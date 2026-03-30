@@ -75,6 +75,79 @@ describe("AgenticLoop - Bounded Agentic Tool Chaining", () => {
       expect(result.stepsExecuted).toBe(1);
     });
 
+    it("stops with incomplete_mutation after one corrective retry when an edit request never reaches a mutating tool", async () => {
+      vi.mocked(llmGateway.generateText!)
+        .mockResolvedValueOnce({
+          text: "I'll inspect the target first.",
+          toolCalls: [
+            {
+              id: "tool-call-1",
+              toolName: "read_file",
+              args: { path: "src/app.tsx" },
+            },
+          ],
+          usage: { promptTokens: 10, completionTokens: 5 },
+        })
+        .mockResolvedValueOnce({
+          text: "Done.",
+          toolCalls: [],
+          usage: { promptTokens: 12, completionTokens: 6 },
+        })
+        .mockResolvedValueOnce({
+          text: "I still could not identify the correct file to edit.",
+          toolCalls: [],
+          usage: { promptTokens: 14, completionTokens: 7 },
+        });
+
+      vi.mocked(executor.execute!).mockResolvedValue({
+        taskId: "tool-call-1",
+        status: "DONE",
+        output: { content: "export default function App() {}" },
+        completedAt: new Date(),
+      });
+
+      const result = await loop.execute(
+        [{ role: "user", content: "update my footer copy" }],
+        {
+          read_file: {
+            description: "Read a file",
+          },
+        } as unknown as Record<string, import("ai").CoreTool>,
+        { agentType: "coding" },
+      );
+
+      expect(result.stopReason).toBe("incomplete_mutation");
+      expect(result.completedMutatingToolCount).toBe(0);
+      expect(result.completedReadOnlyToolCount).toBe(1);
+      expect(llmGateway.generateText).toHaveBeenCalledTimes(3);
+      const correctiveRetryRequest = vi.mocked(llmGateway.generateText).mock
+        .calls[2]?.[0] as {
+        system?: string;
+      };
+      expect(correctiveRetryRequest.system).toContain("Corrective retry:");
+    });
+
+    it("skips the corrective retry when the run is already over budget", async () => {
+      vi.mocked(llmGateway.generateText!).mockResolvedValueOnce({
+        text: "I think I'm done.",
+        toolCalls: [],
+        usage: { promptTokens: 10, completionTokens: 5 },
+      });
+
+      vi.mocked(budgetManager.isOverBudget!)
+        .mockResolvedValueOnce(false)
+        .mockResolvedValueOnce(true);
+
+      const result = await loop.execute(
+        [{ role: "user", content: "edit the footer" }],
+        {},
+        { agentType: "coding" },
+      );
+
+      expect(result.stopReason).toBe("incomplete_mutation");
+      expect(llmGateway.generateText).toHaveBeenCalledTimes(1);
+    });
+
     it("should stop with budget_exceeded when budget is over", async () => {
       vi.mocked(budgetManager.isOverBudget!).mockResolvedValue(true);
 
@@ -666,6 +739,11 @@ describe("AgenticLoop - Bounded Agentic Tool Chaining", () => {
         })
         .mockResolvedValueOnce({
           text: "Final answer.",
+          toolCalls: [],
+          usage: { promptTokens: 8, completionTokens: 6 },
+        })
+        .mockResolvedValueOnce({
+          text: "I still need a concrete edit target.",
           toolCalls: [],
           usage: { promptTokens: 8, completionTokens: 6 },
         });

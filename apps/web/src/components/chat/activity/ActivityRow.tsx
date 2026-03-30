@@ -20,7 +20,23 @@ export function ActivityRow({
 }: ActivityRowProps) {
   switch (row.kind) {
     case "text":
-      return null;
+      return isRecoveryTextRow(row) ? (
+        <RecoveryTextRow
+          row={row}
+          expanded={expanded}
+          onToggle={onToggle}
+          displayMode={displayMode}
+          collapsible={collapsible}
+        />
+      ) : (
+        <TextRow
+          row={row}
+          expanded={expanded}
+          onToggle={onToggle}
+          displayMode={displayMode}
+          collapsible={collapsible}
+        />
+      );
     case "reasoning":
       return (
         <ReasoningRow
@@ -74,6 +90,151 @@ export function ActivityRow({
         />
       );
   }
+}
+
+function isRecoveryTextRow(
+  row: Extract<ActivityFeedRowViewModel, { kind: "text" }>,
+): boolean {
+  const typedRow = row as unknown as {
+    recovery?: boolean;
+    isRecovery?: boolean;
+    subtype?: string;
+  };
+  if (typedRow.recovery === true || typedRow.isRecovery === true) {
+    return true;
+  }
+  if (typedRow.subtype === "recovery") {
+    return true;
+  }
+
+  if (row.metadata?.recovery === true) {
+    return true;
+  }
+
+  const code = typeof row.metadata?.code === "string" ? row.metadata.code : undefined;
+  return code === "INCOMPLETE_MUTATION" || code === "TASK_EXECUTION_TIMEOUT";
+}
+
+function TextRow({
+  row,
+  expanded,
+  onToggle,
+  displayMode,
+  collapsible,
+}: {
+  row: Extract<ActivityFeedRowViewModel, { kind: "text" }>;
+  expanded: boolean;
+  onToggle: (expanded: boolean) => void;
+  displayMode: "card" | "transcript";
+  collapsible: boolean;
+}) {
+  return (
+    <ExpandableRow
+      label={deriveTextLabel(row.role)}
+      summary={deriveTextSummary(row.content)}
+      expanded={expanded}
+      onToggle={onToggle}
+      tone="completed"
+      displayMode={displayMode}
+      collapsible={collapsible}
+    >
+      <pre className="overflow-x-auto rounded-xl border border-zinc-800/70 bg-black/40 px-3 py-2 text-xs text-zinc-200">
+        {row.content}
+      </pre>
+    </ExpandableRow>
+  );
+}
+
+function RecoveryTextRow({
+  row,
+  expanded,
+  onToggle,
+  displayMode,
+  collapsible,
+}: {
+  row: Extract<ActivityFeedRowViewModel, { kind: "text" }>;
+  expanded: boolean;
+  onToggle: (expanded: boolean) => void;
+  displayMode: "card" | "transcript";
+  collapsible: boolean;
+}) {
+  const { code, resumeHint, resumeActions } = parseRecoveryMetadata(
+    row.metadata,
+  );
+  const label = deriveRecoveryLabel(code);
+  const summary = deriveRecoverySummary(row.content, resumeHint);
+
+  return (
+    <ExpandableRow
+      label={label}
+      summary={summary}
+      expanded={expanded}
+      onToggle={onToggle}
+      tone="failed"
+      displayMode={displayMode}
+      collapsible={collapsible}
+    >
+      <div className="space-y-2 text-xs text-zinc-200">
+        <pre className="overflow-x-auto rounded-xl border border-zinc-800/70 bg-black/40 px-3 py-2 text-xs text-zinc-200">
+          {row.content}
+        </pre>
+        {resumeActions ? (
+          <div className="text-zinc-400">Resume options: {resumeActions}</div>
+        ) : null}
+      </div>
+    </ExpandableRow>
+  );
+}
+
+function parseRecoveryMetadata(metadata: Record<string, unknown> | undefined): {
+  code?: string;
+  resumeHint: string;
+  resumeActions: string;
+} {
+  return {
+    code: typeof metadata?.code === "string" ? metadata.code : undefined,
+    resumeHint:
+      typeof metadata?.resumeHint === "string" ? metadata.resumeHint : "",
+    resumeActions: Array.isArray(metadata?.resumeActions)
+      ? metadata.resumeActions
+          .filter((action): action is string => typeof action === "string")
+          .join(" · ")
+      : "",
+  };
+}
+
+function deriveRecoveryLabel(code: string | undefined): string {
+  if (code === "TASK_EXECUTION_TIMEOUT") {
+    return "Recoverable timeout";
+  }
+
+  if (code === "INCOMPLETE_MUTATION") {
+    return "Edit incomplete";
+  }
+
+  return "Run update";
+}
+
+function deriveRecoverySummary(
+  rowContent: string,
+  resumeHint: string,
+): string {
+  return resumeHint || rowContent.split("\n")[0] || "";
+}
+
+function deriveTextLabel(role: "user" | "assistant" | "system"): string {
+  switch (role) {
+    case "assistant":
+      return "Assistant update";
+    case "system":
+      return "System message";
+    default:
+      return "Message";
+  }
+}
+
+function deriveTextSummary(content: string): string {
+  return content.split("\n")[0] || "";
 }
 
 function ReasoningRow({

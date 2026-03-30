@@ -174,6 +174,7 @@ export interface RunMetadata {
       | "max_steps_reached"
       | "budget_exceeded"
       | "llm_stop"
+      | "incomplete_mutation"
       | "tool_error"
       | "cancelled";
     stepsExecuted?: number;

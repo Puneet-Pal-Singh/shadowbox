@@ -79,6 +79,7 @@ export interface TextActivityPart extends ActivityPartBase<
 > {
   role: "user" | "assistant" | "system";
   content: string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface ReasoningActivityPart extends ActivityPartBase<

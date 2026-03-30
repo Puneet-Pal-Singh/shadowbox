@@ -406,14 +406,31 @@ describe("ChatInputBar", () => {
       "Ask Shadowbox anything, @ to add files, / for commands",
     ) as HTMLTextAreaElement;
 
-    textarea.focus();
-    textarea.setSelectionRange(14, 14);
     await act(async () => {
+      textarea.focus();
+      textarea.setSelectionRange(14, 14);
       fireEvent.click(screen.getByTitle("Add files"));
+      await new Promise<void>((resolve) => {
+        window.requestAnimationFrame(() => resolve());
+      });
     });
 
     await waitFor(() => {
       expect(textarea.value).toBe("add logging to @");
     });
+  });
+
+  it("keeps unfinished attachment and voice controls hidden", () => {
+    render(
+      <ChatInputBar
+        input=""
+        onChange={vi.fn()}
+        onSubmit={vi.fn()}
+        sessionId="session-1"
+      />,
+    );
+
+    expect(screen.queryByTitle("Attach file")).toBeNull();
+    expect(screen.queryByTitle("Voice input")).toBeNull();
   });
 });

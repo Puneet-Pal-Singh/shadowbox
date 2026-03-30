@@ -47,6 +47,7 @@ export type StopReason =
   | "max_steps_reached"
   | "budget_exceeded"
   | "llm_stop"
+  | "incomplete_mutation"
   | "tool_error"
   | "cancelled";
 
@@ -66,6 +67,12 @@ interface AgenticLoopHooks {
   workspaceContext?: string;
   executeTool?: (toolCall: AgenticLoopToolCall) => Promise<TaskResult>;
   onAssistantMessage?: (content: string) => Promise<void>;
+  onProgress?: (progress: {
+    phase: "planning" | "execution" | "synthesis";
+    label: string;
+    summary: string;
+    status: "active" | "completed";
+  }) => Promise<void>;
   onToolRequested?: (toolCall: AgenticLoopToolCall) => Promise<void>;
   onToolStarted?: (toolCall: AgenticLoopToolCall) => Promise<void>;
   onToolCompleted?: (
@@ -126,6 +133,7 @@ export class AgenticLoop {
     const messages: CoreMessage[] = [...initialMessages];
     const requiresMutation = requestRequiresMutation(initialMessages);
     let stopReason: StopReason | null = null;
+    let correctiveMutationRetryIssued = false;
 
     for (let step = 0; step < this.config.maxSteps; step++) {
       this.stepsExecuted = step + 1;
@@ -134,16 +142,8 @@ export class AgenticLoop {
 
       // Check budget before LLM call
       try {
-        if (this.config.budget) {
-          // Note: AgenticLoop doesn't have actual LLM usage data yet,
-          // so we skip budget check here. In production, this would use
-          // estimated token counts based on message history.
-          const isOverBudget = await this.config.budget.isOverBudget(
-            this.config.runId,
-          );
-          if (isOverBudget) {
-            throw new BudgetExceededError(this.config.runId, 0, 0);
-          }
+        if (await this.isRunOverBudget()) {
+          throw new BudgetExceededError(this.config.runId, 0, 0);
         }
       } catch (error) {
         if (
@@ -163,6 +163,15 @@ export class AgenticLoop {
         `[agentic-loop] Step ${step + 1}/${this.config.maxSteps} for run ${this.config.runId}`,
       );
 
+      await context.onProgress?.(
+        buildLoopProgressUpdate({
+          isFinalSynthesisStep,
+          requiresMutation,
+          completedMutatingToolCount: this.completedMutatingToolCount,
+          completedReadOnlyToolCount: this.completedReadOnlyToolCount,
+        }),
+      );
+
       // Call LLM with tool definitions for this step.
       let response;
       try {
@@ -180,6 +189,7 @@ export class AgenticLoop {
             requiresMutation,
             completedMutatingToolCount: this.completedMutatingToolCount,
             completedReadOnlyToolCount: this.completedReadOnlyToolCount,
+            correctiveRetryRequested: correctiveMutationRetryIssued,
           }),
           tools: isFinalSynthesisStep ? undefined : tools,
           model: context.modelId,
@@ -200,8 +210,40 @@ export class AgenticLoop {
         console.log(
           `[agentic-loop] LLM finished (no tool calls) at step ${step}`,
         );
-        stopReason = "llm_stop";
-        break;
+        if (
+          !requiresMutation ||
+          this.completedMutatingToolCount > 0 ||
+          isFinalSynthesisStep
+        ) {
+          stopReason =
+            requiresMutation && this.completedMutatingToolCount === 0
+              ? "incomplete_mutation"
+              : "llm_stop";
+          break;
+        }
+
+        const isOverBudget = await this.isRunOverBudget();
+        if (isOverBudget || correctiveMutationRetryIssued) {
+          await context.onProgress?.({
+            phase: "execution",
+            label: "Run incomplete",
+            summary:
+              "No file changed before the run stopped, so the edit remains incomplete.",
+            status: "completed",
+          });
+          stopReason = "incomplete_mutation";
+          break;
+        }
+
+        correctiveMutationRetryIssued = true;
+        await context.onProgress?.({
+          phase: "execution",
+          label: "Corrective retry",
+          summary:
+            "No file changed yet. Requesting one concrete mutation before ending the run.",
+          status: "active",
+        });
+        continue;
       }
 
       // Execute requested tools
@@ -214,13 +256,8 @@ export class AgenticLoop {
 
         // Check budget before tool execution
         try {
-          if (this.config.budget) {
-            const isOverBudget = await this.config.budget.isOverBudget(
-              this.config.runId,
-            );
-            if (isOverBudget) {
-              throw new BudgetExceededError(this.config.runId, 0, 0);
-            }
+          if (await this.isRunOverBudget()) {
+            throw new BudgetExceededError(this.config.runId, 0, 0);
           }
         } catch (error) {
           if (
@@ -373,6 +410,8 @@ export class AgenticLoop {
       toolExecutionCount: this.toolExecutionCount,
       failedToolCount: this.failedToolCount,
       toolLifecycleCount: this.toolLifecycle.length,
+      completedMutatingToolCount: this.completedMutatingToolCount,
+      completedReadOnlyToolCount: this.completedReadOnlyToolCount,
       maxSteps: this.config.maxSteps,
     };
   }
@@ -415,6 +454,24 @@ export class AgenticLoop {
       metadata,
     });
   }
+
+  private async isRunOverBudget(): Promise<boolean> {
+    if (!this.config.budget) {
+      return false;
+    }
+
+    try {
+      return await this.config.budget.isOverBudget(this.config.runId);
+    } catch (error) {
+      if (
+        error instanceof BudgetExceededError ||
+        error instanceof SessionBudgetExceededError
+      ) {
+        return true;
+      }
+      throw error;
+    }
+  }
 }
 
 function buildAgenticLoopSystemPrompt(input: {
@@ -423,6 +480,7 @@ function buildAgenticLoopSystemPrompt(input: {
   requiresMutation: boolean;
   completedMutatingToolCount: number;
   completedReadOnlyToolCount: number;
+  correctiveRetryRequested: boolean;
 }): string {
   const sections = [
     "You are Shadowbox's autonomous build agent.",
@@ -466,6 +524,17 @@ function buildAgenticLoopSystemPrompt(input: {
         "- You have already used several read-only tools without making the requested change.",
         "- Stop broad inspection and attempt the concrete edit now unless the target is still genuinely unknown.",
         "- If you still cannot identify the right file, say that explicitly in the final answer instead of claiming completion.",
+      ].join("\n"),
+    );
+  }
+
+  if (input.correctiveRetryRequested) {
+    sections.push(
+      [
+        "Corrective retry:",
+        "- The last response stopped without changing any files.",
+        "- You must now either call a concrete mutating tool or clearly admit that no file was changed.",
+        "- Do not end with a success claim unless a mutating tool succeeds in this run.",
       ].join("\n"),
     );
   }
@@ -631,4 +700,46 @@ function normalizeStandaloneToolCallMarkup(text: string): string {
   }
 
   return text;
+}
+
+function buildLoopProgressUpdate(input: {
+  isFinalSynthesisStep: boolean;
+  requiresMutation: boolean;
+  completedMutatingToolCount: number;
+  completedReadOnlyToolCount: number;
+}): {
+  phase: "planning" | "execution" | "synthesis";
+  label: string;
+  summary: string;
+  status: "active" | "completed";
+} {
+  if (input.isFinalSynthesisStep) {
+    return {
+      phase: "synthesis",
+      label: "Synthesizing final response",
+      summary: "Summarizing the observed tool results into a final answer.",
+      status: "active",
+    };
+  }
+
+  if (
+    input.requiresMutation &&
+    input.completedMutatingToolCount === 0 &&
+    input.completedReadOnlyToolCount > 0
+  ) {
+    return {
+      phase: "execution",
+      label: "Preparing mutation",
+      summary:
+        "Inspection is complete enough to attempt the requested workspace change.",
+      status: "active",
+    };
+  }
+
+  return {
+    phase: "execution",
+    label: "Waiting for model decision",
+    summary: "Choosing the next tool or response for this run.",
+    status: "active",
+  };
 }

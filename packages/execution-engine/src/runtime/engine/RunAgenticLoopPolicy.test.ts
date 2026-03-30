@@ -292,7 +292,7 @@ describe("RunAgenticLoopPolicy", () => {
       "I inspected the workspace, but I did not complete the requested change because no mutating tool succeeded.",
     );
     expect(output).toContain(
-      "The task should stay incomplete until a concrete file update succeeds.",
+      "No file changed in this run. Retry with a more specific target file, component, or edit instruction so I can attempt the mutation again.",
     );
     expect(output).not.toContain("Done! I updated the landing page.");
   });

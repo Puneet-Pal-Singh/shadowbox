@@ -132,6 +132,50 @@ describe("RunActivityFeedProjector", () => {
     expect(tool.metadata.stderr).toContain("second line");
     expect(tool.metadata.outputTail).toContain("[stderr]");
   });
+
+  it("projects run.progress into reasoning rows and preserves assistant metadata", () => {
+    const snapshot = projectRunActivityFeed({
+      runId: "run-1",
+      run: null,
+      events: [
+        createEvent(RUN_EVENT_TYPES.MESSAGE_EMITTED, {
+          content: "update footer",
+          role: "user",
+        }),
+        createEvent(RUN_EVENT_TYPES.RUN_PROGRESS, {
+          phase: "execution",
+          label: "Corrective retry",
+          summary: "No file changed yet. Requesting one concrete mutation.",
+          status: "active",
+        }),
+        createEvent(RUN_EVENT_TYPES.MESSAGE_EMITTED, {
+          content: "No file was changed before the timeout.",
+          role: "assistant",
+          metadata: {
+            code: "TASK_EXECUTION_TIMEOUT",
+            retryable: true,
+          },
+        }),
+      ],
+    });
+
+    expect(snapshot.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: ACTIVITY_PART_KINDS.REASONING,
+          label: "Corrective retry",
+          summary: "No file changed yet. Requesting one concrete mutation.",
+        }),
+        expect.objectContaining({
+          kind: ACTIVITY_PART_KINDS.TEXT,
+          metadata: {
+            code: "TASK_EXECUTION_TIMEOUT",
+            retryable: true,
+          },
+        }),
+      ]),
+    );
+  });
 });
 
 function createEvent<T extends RunEvent["type"]>(

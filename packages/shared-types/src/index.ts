@@ -130,6 +130,7 @@ export {
   // Event types
   type RunStartedEvent,
   type RunStatusChangedEvent,
+  type RunProgressEvent,
   type MessageEmittedEvent,
   type ToolRequestedEvent,
   type ToolStartedEvent,
@@ -142,6 +143,7 @@ export {
   // Payload types
   type RunStartedPayload,
   type RunStatusChangedPayload,
+  type RunProgressPayload,
   type MessageEmittedPayload,
   type ToolRequestedPayload,
   type ToolStartedPayload,

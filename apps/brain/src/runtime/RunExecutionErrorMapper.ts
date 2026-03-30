@@ -14,6 +14,10 @@ const PLAN_GENERATION_TIMEOUT_CODE = "PLAN_GENERATION_TIMEOUT";
 const PLAN_GENERATION_TIMEOUT_STATUS = 504;
 const PLAN_GENERATION_TIMEOUT_MESSAGE =
   "Planning timed out before executable tasks could be generated. Retry with a narrower request.";
+const TASK_EXECUTION_TIMEOUT_CODE = "TASK_EXECUTION_TIMEOUT";
+const TASK_EXECUTION_TIMEOUT_STATUS = 504;
+const TASK_EXECUTION_TIMEOUT_MESSAGE =
+  "The model timed out before choosing the next action. Retry the task or switch to a faster or more reliable model.";
 const PLAN_SCHEMA_MISMATCH_SENTINEL =
   "No object generated: response did not match schema";
 const PLANNER_SCHEMA_MISMATCH_SENTINEL =
@@ -159,6 +163,16 @@ export function mapRunExecutionErrorToDomain(
     );
   }
 
+  if (isTaskExecutionTimeout(error)) {
+    return new DomainError(
+      TASK_EXECUTION_TIMEOUT_CODE,
+      TASK_EXECUTION_TIMEOUT_MESSAGE,
+      TASK_EXECUTION_TIMEOUT_STATUS,
+      true,
+      correlationId,
+    );
+  }
+
   if (isProviderRateLimited(error)) {
     return new DomainError(
       PROVIDER_RATE_LIMITED_CODE,
@@ -282,6 +296,19 @@ function isPlanGenerationTimeout(error: unknown): boolean {
     (error.name === "LLMTimeoutError" &&
       signalText.includes("(phase=planning)")) ||
     signalText.includes(PLAN_TIMEOUT_SENTINEL.toLowerCase())
+  );
+}
+
+function isTaskExecutionTimeout(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  const signalText = getErrorSignalText(error);
+  return (
+    (error.name === "LLMTimeoutError" &&
+      signalText.includes("(phase=task)")) ||
+    signalText.includes("text call timed out") ||
+    signalText.includes("task execution timed out")
   );
 }
 

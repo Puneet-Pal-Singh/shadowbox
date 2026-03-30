@@ -5,6 +5,7 @@ import {
   type RunCompletedEvent,
   type RunEvent,
   type RunFailedEvent,
+  type RunProgressEvent,
   type RunStartedEvent,
   type RunStatus,
   type RunStatusChangedEvent,
@@ -59,6 +60,21 @@ export function createRunStatusChangedEvent(
     newStatus,
     workflowStep,
     reason,
+  });
+}
+
+export function createRunProgressEvent(
+  input: EventBaseInput,
+  phase: RunWorkflowStep,
+  label: string,
+  summary: string,
+  status: "active" | "completed",
+): RunProgressEvent {
+  return createEnvelope(input, RUN_EVENT_TYPES.RUN_PROGRESS, {
+    phase,
+    label,
+    summary,
+    status,
   });
 }
 

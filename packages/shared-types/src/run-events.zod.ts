@@ -30,6 +30,7 @@ const RunStatusSchema = z.enum([
 const RunEventTypeSchema = z.enum([
   RUN_EVENT_TYPES.RUN_STARTED,
   RUN_EVENT_TYPES.RUN_STATUS_CHANGED,
+  RUN_EVENT_TYPES.RUN_PROGRESS,
   RUN_EVENT_TYPES.MESSAGE_EMITTED,
   RUN_EVENT_TYPES.TOOL_REQUESTED,
   RUN_EVENT_TYPES.TOOL_STARTED,
@@ -59,6 +60,17 @@ const RunStatusChangedPayloadSchema = z.object({
     ])
     .optional(),
   reason: z.string().optional(),
+});
+
+const RunProgressPayloadSchema = z.object({
+  phase: z.enum([
+    RUN_WORKFLOW_STEPS.PLANNING,
+    RUN_WORKFLOW_STEPS.EXECUTION,
+    RUN_WORKFLOW_STEPS.SYNTHESIS,
+  ]),
+  label: z.string().min(1),
+  summary: z.string(),
+  status: z.enum(["active", "completed"]),
 });
 
 const MessageEmittedPayloadSchema = z.object({
@@ -162,6 +174,18 @@ const RunEventSchema = z.discriminatedUnion("type", [
       source: EventSourceSchema,
       type: z.literal(RUN_EVENT_TYPES.RUN_STATUS_CHANGED),
       payload: RunStatusChangedPayloadSchema,
+    })
+    .strict(),
+  z
+    .object({
+      version: z.literal(1),
+      eventId: z.string().min(1),
+      runId: z.string().min(1),
+      sessionId: z.string().min(1).optional(),
+      timestamp: z.string().datetime(),
+      source: EventSourceSchema,
+      type: z.literal(RUN_EVENT_TYPES.RUN_PROGRESS),
+      payload: RunProgressPayloadSchema,
     })
     .strict(),
   z
@@ -318,6 +342,7 @@ export function getEventPayloadSchema(type: RunEventType): z.ZodSchema | null {
   const schemas: Record<RunEventType, z.ZodSchema> = {
     [RUN_EVENT_TYPES.RUN_STARTED]: RunStartedPayloadSchema,
     [RUN_EVENT_TYPES.RUN_STATUS_CHANGED]: RunStatusChangedPayloadSchema,
+    [RUN_EVENT_TYPES.RUN_PROGRESS]: RunProgressPayloadSchema,
     [RUN_EVENT_TYPES.MESSAGE_EMITTED]: MessageEmittedPayloadSchema,
     [RUN_EVENT_TYPES.TOOL_REQUESTED]: ToolRequestedPayloadSchema,
     [RUN_EVENT_TYPES.TOOL_STARTED]: ToolStartedPayloadSchema,
