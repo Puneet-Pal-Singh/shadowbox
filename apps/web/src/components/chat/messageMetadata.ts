@@ -56,10 +56,10 @@ export function buildConversationTurns(
     if (message.role !== "assistant") {
       continue;
     }
-    const pendingTurn = findPendingConversationTurn(turns);
-    if (pendingTurn) {
-      pendingTurn.assistantMessage = message;
-      pendingTurn.assistantAtMs = messageAtMs;
+    const latestUserTurn = findLatestUserConversationTurn(turns);
+    if (latestUserTurn) {
+      latestUserTurn.assistantMessage = message;
+      latestUserTurn.assistantAtMs = messageAtMs;
       continue;
     }
     turns.push({
@@ -71,11 +71,11 @@ export function buildConversationTurns(
   return turns;
 }
 
-function findPendingConversationTurn(
+function findLatestUserConversationTurn(
   turns: ConversationTurn[],
 ): ConversationTurn | undefined {
   for (let i = turns.length - 1; i >= 0; i -= 1) {
-    if (turns[i]?.userMessage && !turns[i]?.assistantMessage) {
+    if (turns[i]?.userMessage) {
       return turns[i];
     }
   }
