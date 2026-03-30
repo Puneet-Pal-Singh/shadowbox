@@ -215,6 +215,38 @@ describe("RunActivityFeedProjector", () => {
     );
   });
 
+  it("projects assistant commentary messages into commentary items before tool execution", () => {
+    const snapshot = projectRunActivityFeed({
+      runId: "run-4",
+      run: null,
+      events: [
+        createEvent(RUN_EVENT_TYPES.MESSAGE_EMITTED, {
+          content: "fix the footer",
+          role: "user",
+          transcriptPhase: "prompt",
+          transcriptStatus: "completed",
+        }),
+        createEvent(RUN_EVENT_TYPES.MESSAGE_EMITTED, {
+          content: "I found the footer file and I'm going to edit it next.",
+          role: "assistant",
+          transcriptPhase: "commentary",
+          transcriptStatus: "completed",
+        }),
+      ],
+    });
+
+    expect(snapshot.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: ACTIVITY_PART_KINDS.COMMENTARY,
+          phase: "commentary",
+          status: "completed",
+          text: "I found the footer file and I'm going to edit it next.",
+        }),
+      ]),
+    );
+  });
+
   it("derives action-specific display text for read tools when the request payload is plain", () => {
     const snapshot = projectRunActivityFeed({
       runId: "run-2",
