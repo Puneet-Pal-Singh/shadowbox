@@ -352,7 +352,9 @@ export class ProviderStore {
 
   /**
    * Hydrate visibility state from persisted preferences
-   * Falls back to showing all models if preference is not set
+   * - If provider is in preferences with models: show only those models
+   * - If provider is in preferences with empty array: show no models
+   * - If provider is not in preferences: show all models (default)
    */
   private hydrateVisibleModelIds(
     preferences: ProviderPreference | null,
@@ -364,13 +366,11 @@ export class ProviderStore {
     }
 
     // Convert arrays from preference to Sets
-    // Only add entries that exist in preferences (missing = show all)
     for (const [providerId, modelIds] of Object.entries(
       preferences.visibleModelIds,
     )) {
-      if (modelIds.length > 0) {
-        result[providerId] = new Set(modelIds);
-      }
+      // Empty array = no models visible, non-empty = only those models visible
+      result[providerId] = new Set(modelIds);
     }
 
     return result;
@@ -1008,13 +1008,10 @@ export class ProviderStore {
         next.add(modelId);
       }
     } else {
-      // Provider was unconfigured (all visible). Initialize from loaded models
-      // and remove the toggled model to transition into curated state.
-      const allModelIds = (this.state.providerModels[providerId] ?? []).map(
-        (m) => m.id,
-      );
-      next = new Set(allModelIds);
-      next.delete(modelId);
+      // Provider was unconfigured. Initialize as empty (no models visible)
+      // so user must explicitly select models to show.
+      next = new Set();
+      next.add(modelId);
     }
     const newVisibleModelIds = {
       ...this.state.visibleModelIds,
