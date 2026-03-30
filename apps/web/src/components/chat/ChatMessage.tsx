@@ -292,7 +292,7 @@ function MarkdownMessageContent({
         "[&_td]:border [&_td]:px-2 [&_td]:py-1",
         isUser
           ? "text-white [&_blockquote]:border-zinc-400/60 [&_code]:bg-zinc-800/80 [&_pre]:bg-zinc-900/70 [&_th]:border-zinc-500/70 [&_td]:border-zinc-500/60"
-          : "text-zinc-300 [&_blockquote]:border-zinc-600/80 [&_code]:bg-zinc-900/80 [&_pre]:bg-zinc-950/80 [&_th]:border-zinc-700/80 [&_td]:border-zinc-800/80",
+          : "text-zinc-100 [&_blockquote]:border-zinc-600/80 [&_code]:bg-zinc-900/80 [&_pre]:bg-zinc-950/80 [&_th]:border-zinc-700/80 [&_td]:border-zinc-800/80",
       )}
     >
       <ReactMarkdown
