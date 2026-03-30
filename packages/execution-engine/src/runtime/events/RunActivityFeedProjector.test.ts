@@ -173,11 +173,43 @@ describe("RunActivityFeedProjector", () => {
           summary: "No file changed yet. Requesting one concrete mutation.",
         }),
         expect.objectContaining({
-          kind: ACTIVITY_PART_KINDS.TEXT,
+          kind: ACTIVITY_PART_KINDS.COMMENTARY,
           metadata: {
             code: "TASK_EXECUTION_TIMEOUT",
             retryable: true,
           },
+        }),
+      ]),
+    );
+  });
+
+  it("projects assistant final messages into commentary items with transcript phase metadata", () => {
+    const snapshot = projectRunActivityFeed({
+      runId: "run-3",
+      run: null,
+      events: [
+        createEvent(RUN_EVENT_TYPES.MESSAGE_EMITTED, {
+          content: "fix the footer",
+          role: "user",
+          transcriptPhase: "prompt",
+          transcriptStatus: "completed",
+        }),
+        createEvent(RUN_EVENT_TYPES.MESSAGE_EMITTED, {
+          content: "Footer updated.",
+          role: "assistant",
+          transcriptPhase: "final_answer",
+          transcriptStatus: "completed",
+        }),
+      ],
+    });
+
+    expect(snapshot.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: ACTIVITY_PART_KINDS.COMMENTARY,
+          phase: "final_answer",
+          status: "completed",
+          text: "Footer updated.",
         }),
       ]),
     );
