@@ -21,6 +21,8 @@ type ToolPresenter<T extends ToolPresentationToolName> = (
   input: ToolPresentationInputByName[T],
 ) => ToolPresentation;
 
+type ToolPresentationDispatcher = (input: unknown) => ToolPresentation;
+
 export function getToolPresentation(
   toolName: string,
   input: Record<string, unknown> | undefined,
@@ -50,24 +52,32 @@ function deriveToolPresentation(
 
   const presenter = TOOL_PRESENTERS[toolName];
   if (presenter) {
-    return presenter(validateToolPresentationInput(toolName, input));
+    return presenter(input);
   }
 
   return presentDefaultTool(toolName);
 }
 
-const TOOL_PRESENTERS: {
-  [K in ToolPresentationToolName]: ToolPresenter<K>;
-} = {
-  read_file: presentReadFile,
-  list_files: presentListFiles,
-  glob: presentGlob,
-  grep: presentGrepOrSearchCode,
-  search_code: presentGrepOrSearchCode,
-  write_file: presentWriteFile,
-  bash: presentBash,
-  git_status: presentGitStatus,
-  git_diff: presentGitDiff,
+const TOOL_PRESENTERS: Record<
+  ToolPresentationToolName,
+  ToolPresentationDispatcher
+> = {
+  read_file: (input) =>
+    presentReadFile(validateToolPresentationInput("read_file", input)),
+  list_files: (input) =>
+    presentListFiles(validateToolPresentationInput("list_files", input)),
+  glob: (input) => presentGlob(validateToolPresentationInput("glob", input)),
+  grep: (input) =>
+    presentGrepOrSearchCode(validateToolPresentationInput("grep", input)),
+  search_code: (input) =>
+    presentGrepOrSearchCode(validateToolPresentationInput("search_code", input)),
+  write_file: (input) =>
+    presentWriteFile(validateToolPresentationInput("write_file", input)),
+  bash: (input) => presentBash(validateToolPresentationInput("bash", input)),
+  git_status: (input) =>
+    presentGitStatus(validateToolPresentationInput("git_status", input)),
+  git_diff: (input) =>
+    presentGitDiff(validateToolPresentationInput("git_diff", input)),
 };
 
 function presentReadFile(
@@ -154,7 +164,9 @@ function presentBash(input: ToolPresentationInputByName["bash"]): ToolPresentati
   };
 }
 
-function presentGitStatus(): ToolPresentation {
+function presentGitStatus(
+  _input: ToolPresentationInputByName["git_status"],
+): ToolPresentation {
   return {
     description: "Check git status",
     displayText: "Checking git status",
