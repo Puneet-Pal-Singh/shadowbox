@@ -155,11 +155,13 @@ export const BYOKPreferencesPatchSchema = z
   .object({
     defaultProviderId: ProviderIdSchema.optional(),
     defaultModelId: z.string().min(1).optional(),
+    visibleModelIds: z.record(z.string(), z.array(z.string())).optional(),
   })
   .refine(
     (value) =>
       value.defaultProviderId !== undefined ||
-      value.defaultModelId !== undefined,
+      value.defaultModelId !== undefined ||
+      value.visibleModelIds !== undefined,
     {
       message: "At least one preference field is required",
     },

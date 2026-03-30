@@ -357,24 +357,16 @@ export class ProviderStore {
     const result: Record<string, Set<string>> = {};
 
     if (!preferences?.visibleModelIds) {
-      // Default: show all models from catalog
-      for (const entry of catalog) {
-        result[entry.providerId] = new Set();
-      }
       return result;
     }
 
     // Convert arrays from preference to Sets
+    // Only add entries that exist in preferences (missing = show all)
     for (const [providerId, modelIds] of Object.entries(
       preferences.visibleModelIds
     )) {
-      result[providerId] = new Set(modelIds);
-    }
-
-    // Add empty sets for any providers not in preferences
-    for (const entry of catalog) {
-      if (!result[entry.providerId]) {
-        result[entry.providerId] = new Set();
+      if (modelIds.length > 0) {
+        result[providerId] = new Set(modelIds);
       }
     }
 
@@ -997,12 +989,21 @@ export class ProviderStore {
    * Toggle model visibility for a provider and persist to backend
    */
   toggleModelVisibility(providerId: string, modelId: string): void {
-    const current = this.state.visibleModelIds[providerId] || new Set();
-    const next = new Set(current);
-    if (next.has(modelId)) {
-      next.delete(modelId);
+    const currentSet = this.state.visibleModelIds[providerId];
+    let next: Set<string>;
+    if (currentSet) {
+      next = new Set(currentSet);
+      if (next.has(modelId)) {
+        next.delete(modelId);
+      } else {
+        next.add(modelId);
+      }
     } else {
-      next.add(modelId);
+      // Provider was unconfigured (all visible). Initialize from loaded models
+      // and remove the toggled model to transition into curated state.
+      const allModelIds = (this.state.providerModels[providerId] ?? []).map(m => m.id);
+      next = new Set(allModelIds);
+      next.delete(modelId);
     }
     const newVisibleModelIds = {
       ...this.state.visibleModelIds,

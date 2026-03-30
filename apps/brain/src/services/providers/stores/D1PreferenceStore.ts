@@ -63,7 +63,7 @@ export class D1PreferenceStore implements PreferenceStore {
     const merged: BYOKPreferences = {
       defaultProviderId: patch.defaultProviderId ?? current.defaultProviderId,
       defaultModelId: patch.defaultModelId ?? current.defaultModelId,
-      visibleModelIds: current.visibleModelIds,
+      visibleModelIds: patch.visibleModelIds ?? current.visibleModelIds,
       credentialLabels: current.credentialLabels,
       updatedAt: now,
     };
