@@ -208,7 +208,9 @@ export class AgenticLoop {
 
       // Add LLM response to messages
       messages.push(buildAssistantMessage(response.text, response.toolCalls));
-      await context.onAssistantMessage?.(response.text);
+      if (response.toolCalls && response.toolCalls.length > 0) {
+        await context.onAssistantMessage?.(response.text);
+      }
 
       // Check if LLM requested tool calls
       if (!response.toolCalls || response.toolCalls.length === 0) {

@@ -537,6 +537,17 @@ export class RunEngine implements IRunEngine {
             progress.status,
           );
         },
+        onAssistantMessage: async (content) => {
+          await this.runEventRecorder.recordMessageEmitted(
+            "assistant",
+            content,
+            undefined,
+            {
+              phase: "commentary",
+              status: "completed",
+            },
+          );
+        },
         onToolStarted: async (toolCall) => {
           await this.runEventRecorder.recordToolStarted({
             id: toolCall.id,
