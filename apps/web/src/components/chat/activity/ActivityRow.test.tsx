@@ -12,12 +12,13 @@ describe("ActivityRow", () => {
         })}
         expanded={true}
         onToggle={vi.fn()}
+        displayMode="transcript"
       />,
     );
 
-    expect(screen.getByText("Commentary")).toBeInTheDocument();
-    expect(screen.getAllByText("Regular assistant response")).toHaveLength(2);
-    expect(screen.queryByText("Run update")).not.toBeInTheDocument();
+    expect(screen.getByText("Regular assistant response")).toBeInTheDocument();
+    expect(screen.queryByText("Commentary")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 
   it("renders recovery commentary rows with the recovery renderer", () => {

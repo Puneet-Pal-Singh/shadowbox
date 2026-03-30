@@ -23,7 +23,13 @@ describe("ActivityFeed", () => {
     ).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /worked for 3s/i }));
-    expect(screen.getByText("Explored 1 list, 1 file")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Explored 1 list, 1 file/i }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Read README.md")).not.toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", { name: /Explored 1 list, 1 file/i }),
+    );
     expect(screen.getByText("Read README.md")).toBeInTheDocument();
     expect(screen.getByText("Build Handoff")).toBeInTheDocument();
 
@@ -95,19 +101,213 @@ describe("ActivityFeed", () => {
     expect(screen.queryByText("Explored 1 list, 1 file")).not.toBeInTheDocument();
   });
 
-  it("renders grouped exploration rows as a compact status lane", () => {
+  it("renders completed exploration rows as collapsible transcript items", () => {
     render(<ActivityFeed feed={createFeedSnapshot()} isLoading={false} />);
 
     fireEvent.click(screen.getByRole("button", { name: /worked for 3s/i }));
 
-    expect(screen.getByText("Explored 1 list, 1 file")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Explored 1 list, 1 file/i }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Read README.md")).not.toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /Explored 1 list, 1 file/i }),
+    );
+
     expect(screen.getByText("Read README.md")).toBeInTheDocument();
+  });
+
+  it("removes stale thinking rows from completed turns and keeps exploration children visible", () => {
+    render(
+      <ActivityFeed
+        feed={{
+          runId: "run-explore-thinking",
+          sessionId: "session-explore-thinking",
+          status: "COMPLETED",
+          items: [
+            {
+              id: "text-1",
+              runId: "run-explore-thinking",
+              sessionId: "session-explore-thinking",
+              turnId: "turn-1",
+              kind: ACTIVITY_PART_KINDS.TEXT,
+              createdAt: "2026-03-24T10:00:00.000Z",
+              updatedAt: "2026-03-24T10:00:00.000Z",
+              source: "brain",
+              role: "user",
+              content: "inspect the footer",
+            },
+            {
+              id: "reasoning-1",
+              runId: "run-explore-thinking",
+              sessionId: "session-explore-thinking",
+              turnId: "turn-1",
+              kind: ACTIVITY_PART_KINDS.REASONING,
+              createdAt: "2026-03-24T10:00:00.500Z",
+              updatedAt: "2026-03-24T10:00:00.500Z",
+              source: "brain",
+              label: "Thinking",
+              summary: "",
+              phase: "execution",
+              status: "active",
+            },
+            {
+              id: "tool-1",
+              runId: "run-explore-thinking",
+              sessionId: "session-explore-thinking",
+              turnId: "turn-1",
+              kind: ACTIVITY_PART_KINDS.TOOL,
+              createdAt: "2026-03-24T10:00:01.000Z",
+              updatedAt: "2026-03-24T10:00:01.000Z",
+              source: "brain",
+              toolId: "tool-1",
+              toolName: "list_files",
+              status: "completed",
+              metadata: {
+                family: TOOL_ACTIVITY_FAMILIES.READ,
+                count: 2,
+                truncated: false,
+                preview: "components\nlayout",
+                loadedPaths: ["./src"],
+                path: "./src",
+              },
+            },
+            {
+              id: "reasoning-2",
+              runId: "run-explore-thinking",
+              sessionId: "session-explore-thinking",
+              turnId: "turn-1",
+              kind: ACTIVITY_PART_KINDS.REASONING,
+              createdAt: "2026-03-24T10:00:01.500Z",
+              updatedAt: "2026-03-24T10:00:01.500Z",
+              source: "brain",
+              label: "Thinking",
+              summary: "",
+              phase: "execution",
+              status: "active",
+            },
+            {
+              id: "tool-2",
+              runId: "run-explore-thinking",
+              sessionId: "session-explore-thinking",
+              turnId: "turn-1",
+              kind: ACTIVITY_PART_KINDS.TOOL,
+              createdAt: "2026-03-24T10:00:02.000Z",
+              updatedAt: "2026-03-24T10:00:02.000Z",
+              source: "brain",
+              toolId: "tool-2",
+              toolName: "read_file",
+              status: "completed",
+              metadata: {
+                family: TOOL_ACTIVITY_FAMILIES.READ,
+                count: 1,
+                truncated: false,
+                preview: "footer",
+                loadedPaths: ["./src/components/layout/Footer.tsx"],
+                path: "./src/components/layout/Footer.tsx",
+              },
+            },
+          ],
+        }}
+        isLoading={false}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /worked for \d+s/i }));
     expect(
-      screen.queryByRole("button", { name: /Explored 1 list, 1 file/i }),
-    ).not.toBeInTheDocument();
+      screen.getByRole("button", { name: /Explored 1 list, 1 file/i }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("List ./src")).not.toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", { name: /Explored 1 list, 1 file/i }),
+    );
+    expect(screen.getByText("List ./src")).toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: "Read README.md" }),
-    ).not.toBeInTheDocument();
+      screen.getByText("Read ./src/components/layout/Footer.tsx"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Thinking")).not.toBeInTheDocument();
+  });
+
+  it("hides thinking once live commentary or exploration work has taken over", () => {
+    render(
+      <ActivityFeed
+        feed={{
+          runId: "run-live-commentary",
+          sessionId: "session-live-commentary",
+          status: "RUNNING",
+          items: [
+            {
+              id: "text-1",
+              runId: "run-live-commentary",
+              sessionId: "session-live-commentary",
+              turnId: "turn-1",
+              kind: ACTIVITY_PART_KINDS.TEXT,
+              createdAt: "2026-03-24T10:00:00.000Z",
+              updatedAt: "2026-03-24T10:00:00.000Z",
+              source: "brain",
+              role: "user",
+              content: "inspect the footer",
+            },
+            {
+              id: "reasoning-1",
+              runId: "run-live-commentary",
+              sessionId: "session-live-commentary",
+              turnId: "turn-1",
+              kind: ACTIVITY_PART_KINDS.REASONING,
+              createdAt: "2026-03-24T10:00:00.500Z",
+              updatedAt: "2026-03-24T10:00:00.500Z",
+              source: "brain",
+              label: "Thinking",
+              summary: "",
+              phase: "execution",
+              status: "active",
+            },
+            {
+              id: "commentary-1",
+              runId: "run-live-commentary",
+              sessionId: "session-live-commentary",
+              turnId: "turn-1",
+              kind: ACTIVITY_PART_KINDS.COMMENTARY,
+              createdAt: "2026-03-24T10:00:01.000Z",
+              updatedAt: "2026-03-24T10:00:01.000Z",
+              source: "brain",
+              phase: "commentary",
+              status: "active",
+              text: "Checking the footer before I make the edit.",
+            },
+            {
+              id: "tool-1",
+              runId: "run-live-commentary",
+              sessionId: "session-live-commentary",
+              turnId: "turn-1",
+              kind: ACTIVITY_PART_KINDS.TOOL,
+              createdAt: "2026-03-24T10:00:02.000Z",
+              updatedAt: "2026-03-24T10:00:02.000Z",
+              source: "brain",
+              toolId: "tool-1",
+              toolName: "read_file",
+              status: "running",
+              metadata: {
+                family: TOOL_ACTIVITY_FAMILIES.READ,
+                count: 1,
+                truncated: false,
+                preview: "footer",
+                loadedPaths: ["./src/components/layout/Footer.tsx"],
+                path: "./src/components/layout/Footer.tsx",
+              },
+            },
+          ],
+        }}
+        isLoading={true}
+      />,
+    );
+
+    expect(screen.queryByText("Thinking")).not.toBeInTheDocument();
+    expect(screen.getByText("Checking the footer before I make the edit.")).toBeInTheDocument();
+    expect(
+      screen.getByText("Read ./src/components/layout/Footer.tsx"),
+    ).toBeInTheDocument();
   });
 
   it("renders git status rows as compact transcript lines", () => {
