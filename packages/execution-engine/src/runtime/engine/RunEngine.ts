@@ -516,12 +516,6 @@ export class RunEngine implements IRunEngine {
             toolCall.toolName,
             toolCall.args,
           );
-          await this.runEventRecorder.recordRunProgress(
-            RUN_WORKFLOW_STEPS.EXECUTION,
-            toolPresentation.displayText,
-            toolPresentation.summary,
-            "active",
-          );
           await this.runEventRecorder.recordToolRequested({
             id: toolCall.id,
             type: toolCall.toolName,
@@ -533,6 +527,9 @@ export class RunEngine implements IRunEngine {
           });
         },
         onProgress: async (progress) => {
+          if (!progress) {
+            return;
+          }
           await this.runEventRecorder.recordRunProgress(
             progress.phase,
             progress.label,
@@ -570,14 +567,6 @@ export class RunEngine implements IRunEngine {
 
       recordAgenticLoopMetadata(run, loopResult);
       const finalMessage = buildAgenticLoopFinalMessage(loopResult);
-      await this.runEventRecorder.recordRunProgress(
-        RUN_WORKFLOW_STEPS.SYNTHESIS,
-        "Summarizing the change",
-        finalMessage.metadata?.code === "INCOMPLETE_MUTATION"
-          ? "Writing a truthful incomplete-update summary for the user."
-          : "Preparing the final user-facing response from the observed results.",
-        "completed",
-      );
       const finalOutput = finalMessage.metadata
         ? finalMessage.text
         : await applyReviewerPassIfEnabled({
