@@ -50,11 +50,14 @@ function buildProviderGroups(
     .map((entry) => {
       const models = providerModels[entry.providerId] || [];
       const visibleSet = visibleModelIds[entry.providerId];
+      const visibleCount = visibleSet
+        ? models.filter((model) => visibleSet.has(model.id)).length
+        : models.length;
       return {
         providerId: entry.providerId,
         displayName: entry.displayName,
         models,
-        visibleCount: visibleSet ? visibleSet.size : models.length,
+        visibleCount,
         totalCount: models.length,
       };
     })

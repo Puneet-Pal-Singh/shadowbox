@@ -10,7 +10,9 @@ import { ProviderDialog } from "./ProviderDialog.js";
 import * as useProviderStoreModule from "../../hooks/useProviderStore.js";
 
 describe("ProviderDialog", () => {
-  type UseProviderStoreResult = ReturnType<typeof useProviderStoreModule.useProviderStore>;
+  type UseProviderStoreResult = ReturnType<
+    typeof useProviderStoreModule.useProviderStore
+  >;
   let mockStore: UseProviderStoreResult;
   const credentialId = "550e8400-e29b-41d4-a716-446655440000";
 
@@ -134,9 +136,11 @@ describe("ProviderDialog", () => {
       setProviderVisibleModels: vi.fn(),
       clearError: vi.fn(),
       reset: vi.fn(),
-      };
+    };
 
-    vi.spyOn(useProviderStoreModule, "useProviderStore").mockReturnValue(mockStore);
+    vi.spyOn(useProviderStoreModule, "useProviderStore").mockReturnValue(
+      mockStore,
+    );
   });
 
   describe("rendering", () => {
@@ -149,7 +153,7 @@ describe("ProviderDialog", () => {
 
     it("does not render dialog when isOpen is false", () => {
       const { container } = render(
-        <ProviderDialog isOpen={false} onClose={vi.fn()} />
+        <ProviderDialog isOpen={false} onClose={vi.fn()} />,
       );
 
       expect(container.firstChild).toBeNull();
@@ -169,7 +173,7 @@ describe("ProviderDialog", () => {
       render(<ProviderDialog isOpen={true} onClose={vi.fn()} />);
 
       expect(
-        screen.getByText(/No provider keys connected yet/)
+        screen.getByText(/No provider keys connected yet/),
       ).toBeInTheDocument();
       expect(screen.getByText("Add Provider Key")).toBeInTheDocument();
     });
@@ -181,7 +185,9 @@ describe("ProviderDialog", () => {
       fireEvent.click(removeButton);
 
       await waitFor(() => {
-        expect(mockStore.disconnectCredential).toHaveBeenCalledWith(credentialId);
+        expect(mockStore.disconnectCredential).toHaveBeenCalledWith(
+          credentialId,
+        );
       });
     });
 
@@ -194,7 +200,7 @@ describe("ProviderDialog", () => {
       await waitFor(() => {
         expect(mockStore.validateCredential).toHaveBeenCalledWith(
           credentialId,
-          "format"
+          "format",
         );
       });
     });
@@ -210,38 +216,43 @@ describe("ProviderDialog", () => {
       // ConnectProviderChooser shows "Find Provider" label
       expect(screen.getByText("Find Provider")).toBeInTheDocument();
       // And the search input
-      expect(screen.getByPlaceholderText(/search providers/i)).toBeInTheDocument();
+      expect(
+        screen.getByPlaceholderText(/search providers/i),
+      ).toBeInTheDocument();
     });
 
     it("calls connectCredential with form data", async () => {
-       const onClose = vi.fn();
-       render(<ProviderDialog isOpen={true} onClose={onClose} />);
+      const onClose = vi.fn();
+      render(<ProviderDialog isOpen={true} onClose={onClose} />);
 
-       const availableTab = screen.getByText("Available");
-       fireEvent.click(availableTab);
+      const availableTab = screen.getByText("Available");
+      fireEvent.click(availableTab);
 
-       // Click provider in the list
-       const openaiButton = screen.getByText("OpenAI").closest("button");
-       fireEvent.click(openaiButton!);
+      // Click provider in the list
+      const openaiButton = screen.getByText("OpenAI").closest("button");
+      fireEvent.click(openaiButton!);
 
-       // Fill in API key
-       const secretInput = await screen.findByPlaceholderText(/api key/i);
-       fireEvent.change(secretInput, { target: { value: "sk-test123" } });
+      // Fill in API key
+      const secretInput = await screen.findByPlaceholderText(/api key/i);
+      fireEvent.change(secretInput, { target: { value: "sk-test123" } });
 
-       const connectButton = screen.getByRole("button", {
-         name: /submit/i,
-       });
-       fireEvent.click(connectButton);
+      const connectButton = screen.getByRole("button", {
+        name: /submit/i,
+      });
+      fireEvent.click(connectButton);
 
-       await waitFor(() => {
-         expect(mockStore.connectCredential).toHaveBeenCalledWith({
-           providerId: "openai",
-           secret: "sk-test123",
-           label: undefined,
-         });
-         expect(onClose).toHaveBeenCalled();
-       });
-     });
+      await waitFor(() => {
+        expect(mockStore.connectCredential).toHaveBeenCalledWith({
+          providerId: "openai",
+          secret: "sk-test123",
+          label: undefined,
+        });
+        // In full mode, stays open and navigates to manage models instead of closing
+        expect(onClose).not.toHaveBeenCalled();
+        // Verify manage models view is shown
+        expect(screen.getByText(/manage models/i)).toBeInTheDocument();
+      });
+    });
 
     it("opens Available tab when initialTab is provided", () => {
       render(
@@ -249,7 +260,7 @@ describe("ProviderDialog", () => {
           isOpen={true}
           onClose={vi.fn()}
           initialTab="available"
-        />
+        />,
       );
 
       expect(screen.getByText("Find Provider")).toBeInTheDocument();
@@ -265,7 +276,7 @@ describe("ProviderDialog", () => {
 
       expect(screen.getByText(/Explicit Selection Policy/)).toBeInTheDocument();
       expect(
-        screen.getByText(/No hidden provider fallback is applied/)
+        screen.getByText(/No hidden provider fallback is applied/),
       ).toBeInTheDocument();
     });
 
@@ -283,7 +294,9 @@ describe("ProviderDialog", () => {
 
   describe("Session tab", () => {
     it("shows provider/credential/model selector", () => {
-      render(<ProviderDialog isOpen={true} onClose={vi.fn()} mode="composer" />);
+      render(
+        <ProviderDialog isOpen={true} onClose={vi.fn()} mode="composer" />,
+      );
 
       // Session tab should be active in composer mode
       expect(screen.getByText("Active Session")).toBeInTheDocument();
@@ -295,11 +308,11 @@ describe("ProviderDialog", () => {
           isOpen={true}
           onClose={vi.fn()}
           initialView="manage-models"
-        />
+        />,
       );
 
       expect(
-        screen.getByRole("heading", { name: /manage models/i })
+        screen.getByRole("heading", { name: /manage models/i }),
       ).toBeInTheDocument();
     });
   });
@@ -319,7 +332,9 @@ describe("ProviderDialog", () => {
       const onClose = vi.fn();
       render(<ProviderDialog isOpen={true} onClose={onClose} />);
 
-      const footerCloseButtons = screen.getAllByRole("button", { name: /Close/i });
+      const footerCloseButtons = screen.getAllByRole("button", {
+        name: /Close/i,
+      });
       const footerCloseButton = footerCloseButtons[1];
       expect(footerCloseButton).toBeDefined();
       if (footerCloseButton) {
@@ -354,18 +369,18 @@ describe("ProviderDialog", () => {
           isOpen={true}
           onClose={onClose}
           initialView="manage-models"
-        />
+        />,
       );
 
       expect(
-        screen.getByRole("heading", { name: /manage models/i })
+        screen.getByRole("heading", { name: /manage models/i }),
       ).toBeInTheDocument();
 
       fireEvent.keyDown(window, { key: "Escape" });
 
       await waitFor(() => {
         expect(
-          screen.queryByRole("heading", { name: /manage models/i })
+          screen.queryByRole("heading", { name: /manage models/i }),
         ).not.toBeInTheDocument();
       });
       expect(onClose).not.toHaveBeenCalled();
@@ -382,14 +397,16 @@ describe("ProviderDialog", () => {
           isOpen={true}
           onClose={vi.fn()}
           variant="connect-only"
-        />
+        />,
       );
 
       expect(
-        screen.getByRole("heading", { level: 2, name: "Connect provider" })
+        screen.getByRole("heading", { level: 2, name: "Connect provider" }),
       ).toBeInTheDocument();
       expect(screen.queryByText("Connected")).not.toBeInTheDocument();
-      expect(screen.getByPlaceholderText(/search providers/i)).toBeInTheDocument();
+      expect(
+        screen.getByPlaceholderText(/search providers/i),
+      ).toBeInTheDocument();
     });
 
     it("closes on escape", () => {
@@ -399,7 +416,7 @@ describe("ProviderDialog", () => {
           isOpen={true}
           onClose={onClose}
           variant="connect-only"
-        />
+        />,
       );
 
       fireEvent.keyDown(window, { key: "Escape" });
@@ -414,13 +431,17 @@ describe("ProviderDialog", () => {
           isOpen={true}
           onClose={vi.fn()}
           variant="manage-models-only"
-        />
+        />,
       );
 
-      expect(screen.getByRole("heading", { name: /manage models/i })).toBeInTheDocument();
-      expect(screen.queryByText("Provider & Model Settings")).not.toBeInTheDocument();
       expect(
-        screen.getAllByRole("button", { name: /connect provider/i }).length
+        screen.getByRole("heading", { name: /manage models/i }),
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByText("Provider & Model Settings"),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.getAllByRole("button", { name: /connect provider/i }).length,
       ).toBeGreaterThan(0);
     });
 
@@ -430,17 +451,21 @@ describe("ProviderDialog", () => {
           isOpen={true}
           onClose={vi.fn()}
           variant="manage-models-only"
-        />
+        />,
       );
 
-      const connectButtons = screen.getAllByRole("button", { name: /connect provider/i });
+      const connectButtons = screen.getAllByRole("button", {
+        name: /connect provider/i,
+      });
       const firstConnectButton = connectButtons[0];
       expect(firstConnectButton).toBeDefined();
       if (firstConnectButton) {
         fireEvent.click(firstConnectButton);
       }
 
-      expect(screen.getByRole("heading", { level: 2, name: /connect provider/i })).toBeInTheDocument();
+      expect(
+        screen.getByRole("heading", { level: 2, name: /connect provider/i }),
+      ).toBeInTheDocument();
     });
 
     it("closes when manage models backdrop is clicked", () => {
@@ -450,7 +475,7 @@ describe("ProviderDialog", () => {
           isOpen={true}
           onClose={onClose}
           variant="manage-models-only"
-        />
+        />,
       );
 
       fireEvent.click(screen.getByTestId("manage-models-overlay"));
@@ -464,7 +489,7 @@ describe("ProviderDialog", () => {
           isOpen={true}
           onClose={onClose}
           variant="manage-models-only"
-        />
+        />,
       );
 
       fireEvent.keyDown(window, { key: "Escape" });
