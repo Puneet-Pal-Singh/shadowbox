@@ -1011,10 +1011,13 @@ export class ProviderStore {
         next.add(modelId);
       }
     } else {
-      // Provider was unconfigured. Initialize as empty (no models visible)
-      // so user must explicitly select models to show.
-      next = new Set();
-      next.add(modelId);
+      // Provider was unconfigured. Initialize from all loaded models,
+      // then remove the toggled model to hide it.
+      const allModelIds = (this.state.providerModels[providerId] ?? []).map(
+        (m) => m.id,
+      );
+      next = new Set(allModelIds);
+      next.delete(modelId);
     }
     const newVisibleModelIds = {
       ...this.state.visibleModelIds,
