@@ -93,7 +93,7 @@ describe("ModelPickerPopover", () => {
   };
 
   const mockVisibleModelIds: Record<string, Set<string>> = {
-    axis: new Set(),
+    // axis not included = show all (default behavior)
     openai: new Set(["gpt-4", "gpt-4-turbo"]),
     anthropic: new Set(["claude-3-opus", "claude-3-sonnet"]),
   };
@@ -114,15 +114,11 @@ describe("ModelPickerPopover", () => {
 
   describe("Rendering", () => {
     it("renders trigger button with axis default label", () => {
-      render(
-        <ModelPickerPopover
-          {...defaultProps}
-        />
-      );
+      render(<ModelPickerPopover {...defaultProps} />);
 
-      expect(screen.getByRole("button", { name: /open model picker/i })).toHaveTextContent(
-        "Axis (Free): z-ai/glm-4.5-air:free"
-      );
+      expect(
+        screen.getByRole("button", { name: /open model picker/i }),
+      ).toHaveTextContent("Axis (Free): z-ai/glm-4.5-air:free");
     });
 
     it("renders trigger button with selected model label", () => {
@@ -131,12 +127,12 @@ describe("ModelPickerPopover", () => {
           {...defaultProps}
           selectedProviderId="openai"
           selectedModelId="gpt-4"
-        />
+        />,
       );
 
-      expect(screen.getByRole("button", { name: /open model picker/i })).toHaveTextContent(
-        "OpenAI: GPT-4"
-      );
+      expect(
+        screen.getByRole("button", { name: /open model picker/i }),
+      ).toHaveTextContent("OpenAI: GPT-4");
     });
 
     it("falls back to axis default label when persisted explicit selection is no longer valid", () => {
@@ -145,12 +141,12 @@ describe("ModelPickerPopover", () => {
           {...defaultProps}
           selectedProviderId="openai"
           selectedModelId="removed-model"
-        />
+        />,
       );
 
-      expect(screen.getByRole("button", { name: /open model picker/i })).toHaveTextContent(
-        "Axis (Free): z-ai/glm-4.5-air:free"
-      );
+      expect(
+        screen.getByRole("button", { name: /open model picker/i }),
+      ).toHaveTextContent("Axis (Free): z-ai/glm-4.5-air:free");
     });
 
     it("opens popover on button click", async () => {
@@ -159,14 +155,18 @@ describe("ModelPickerPopover", () => {
           {...defaultProps}
           selectedProviderId={null}
           selectedModelId={null}
-        />
+        />,
       );
 
-      const triggerButton = screen.getByRole("button", { name: /open model picker/i });
+      const triggerButton = screen.getByRole("button", {
+        name: /open model picker/i,
+      });
       fireEvent.click(triggerButton);
 
       await waitFor(() => {
-        expect(screen.getByPlaceholderText(/search models/i)).toBeInTheDocument();
+        expect(
+          screen.getByPlaceholderText(/search models/i),
+        ).toBeInTheDocument();
       });
     });
 
@@ -182,7 +182,7 @@ describe("ModelPickerPopover", () => {
           {...defaultProps}
           selectedProviderId={null}
           selectedModelId={null}
-        />
+        />,
       );
 
       const triggerButton = screen.getByRole("button", {
@@ -225,7 +225,7 @@ describe("ModelPickerPopover", () => {
           {...defaultProps}
           selectedProviderId={null}
           selectedModelId={null}
-        />
+        />,
       );
 
       const triggerButton = screen.getByRole("button", {
@@ -264,10 +264,12 @@ describe("ModelPickerPopover", () => {
           {...defaultProps}
           selectedProviderId={null}
           selectedModelId={null}
-        />
+        />,
       );
 
-      const triggerButton = screen.getByRole("button", { name: /open model picker/i });
+      const triggerButton = screen.getByRole("button", {
+        name: /open model picker/i,
+      });
       fireEvent.click(triggerButton);
 
       await waitFor(() => {
@@ -282,10 +284,12 @@ describe("ModelPickerPopover", () => {
           {...defaultProps}
           selectedProviderId={null}
           selectedModelId={null}
-        />
+        />,
       );
 
-      const triggerButton = screen.getByRole("button", { name: /open model picker/i });
+      const triggerButton = screen.getByRole("button", {
+        name: /open model picker/i,
+      });
       fireEvent.click(triggerButton);
 
       await waitFor(() => {
@@ -303,10 +307,12 @@ describe("ModelPickerPopover", () => {
           {...defaultProps}
           selectedProviderId="openai"
           selectedModelId="gpt-4"
-        />
+        />,
       );
 
-      const triggerButton = screen.getByRole("button", { name: /open model picker/i });
+      const triggerButton = screen.getByRole("button", {
+        name: /open model picker/i,
+      });
       fireEvent.click(triggerButton);
 
       await waitFor(() => {
@@ -324,10 +330,12 @@ describe("ModelPickerPopover", () => {
           {...defaultProps}
           selectedProviderId={null}
           selectedModelId={null}
-        />
+        />,
       );
 
-      const triggerButton = screen.getByRole("button", { name: /open model picker/i });
+      const triggerButton = screen.getByRole("button", {
+        name: /open model picker/i,
+      });
       fireEvent.click(triggerButton);
 
       const searchInput = await screen.findByPlaceholderText(/search models/i);
@@ -346,10 +354,12 @@ describe("ModelPickerPopover", () => {
           {...defaultProps}
           selectedProviderId={null}
           selectedModelId={null}
-        />
+        />,
       );
 
-      const triggerButton = screen.getByRole("button", { name: /open model picker/i });
+      const triggerButton = screen.getByRole("button", {
+        name: /open model picker/i,
+      });
       fireEvent.click(triggerButton);
 
       const searchInput = await screen.findByPlaceholderText(/search models/i);
@@ -367,17 +377,21 @@ describe("ModelPickerPopover", () => {
           {...defaultProps}
           selectedProviderId={null}
           selectedModelId={null}
-        />
+        />,
       );
 
-      const triggerButton = screen.getByRole("button", { name: /open model picker/i });
+      const triggerButton = screen.getByRole("button", {
+        name: /open model picker/i,
+      });
       fireEvent.click(triggerButton);
 
       const searchInput = await screen.findByPlaceholderText(/search models/i);
       fireEvent.change(searchInput, { target: { value: "nonexistent" } });
 
       await waitFor(() => {
-        expect(screen.getByText(/no models match your search/i)).toBeInTheDocument();
+        expect(
+          screen.getByText(/no models match your search/i),
+        ).toBeInTheDocument();
       });
     });
   });
@@ -389,10 +403,12 @@ describe("ModelPickerPopover", () => {
           {...defaultProps}
           selectedProviderId={null}
           selectedModelId={null}
-        />
+        />,
       );
 
-      const triggerButton = screen.getByRole("button", { name: /open model picker/i });
+      const triggerButton = screen.getByRole("button", {
+        name: /open model picker/i,
+      });
       fireEvent.click(triggerButton);
 
       const gpt4Button = await screen.findByText("GPT-4");
@@ -401,7 +417,10 @@ describe("ModelPickerPopover", () => {
       fireEvent.click(modelButton!);
 
       await waitFor(() => {
-        expect(mockHandlers.onSelectModel).toHaveBeenCalledWith("openai", "gpt-4");
+        expect(mockHandlers.onSelectModel).toHaveBeenCalledWith(
+          "openai",
+          "gpt-4",
+        );
       });
     });
 
@@ -411,10 +430,12 @@ describe("ModelPickerPopover", () => {
           {...defaultProps}
           selectedProviderId={null}
           selectedModelId={null}
-        />
+        />,
       );
 
-      const triggerButton = screen.getByRole("button", { name: /open model picker/i });
+      const triggerButton = screen.getByRole("button", {
+        name: /open model picker/i,
+      });
       fireEvent.click(triggerButton);
 
       const gpt4Button = await screen.findByText("GPT-4");
@@ -423,7 +444,9 @@ describe("ModelPickerPopover", () => {
       fireEvent.click(modelButton!);
 
       await waitFor(() => {
-        expect(screen.queryByPlaceholderText(/search models/i)).not.toBeInTheDocument();
+        expect(
+          screen.queryByPlaceholderText(/search models/i),
+        ).not.toBeInTheDocument();
       });
     });
 
@@ -433,13 +456,17 @@ describe("ModelPickerPopover", () => {
           {...defaultProps}
           selectedProviderId={null}
           selectedModelId={null}
-        />
+        />,
       );
 
-      const triggerButton = screen.getByRole("button", { name: /open model picker/i });
+      const triggerButton = screen.getByRole("button", {
+        name: /open model picker/i,
+      });
       fireEvent.click(triggerButton);
 
-      const searchInput = (await screen.findByPlaceholderText(/search models/i)) as HTMLInputElement;
+      const searchInput = (await screen.findByPlaceholderText(
+        /search models/i,
+      )) as HTMLInputElement;
       fireEvent.change(searchInput, { target: { value: "gpt" } });
 
       const gpt4Button = await screen.findByText("GPT-4");
@@ -449,13 +476,17 @@ describe("ModelPickerPopover", () => {
 
       // Wait for async selection flow to close popover first
       await waitFor(() => {
-        expect(screen.queryByPlaceholderText(/search models/i)).not.toBeInTheDocument();
+        expect(
+          screen.queryByPlaceholderText(/search models/i),
+        ).not.toBeInTheDocument();
       });
 
       // Reopen and verify search is reset
-      fireEvent.click(screen.getByRole("button", { name: /open model picker/i }));
+      fireEvent.click(
+        screen.getByRole("button", { name: /open model picker/i }),
+      );
       const newSearchInput = (await screen.findByPlaceholderText(
-        /search models/i
+        /search models/i,
       )) as HTMLInputElement;
       expect(newSearchInput.value).toBe("");
     });
@@ -468,10 +499,12 @@ describe("ModelPickerPopover", () => {
           {...defaultProps}
           selectedProviderId={null}
           selectedModelId={null}
-        />
+        />,
       );
 
-      const triggerButton = screen.getByRole("button", { name: /open model picker/i });
+      const triggerButton = screen.getByRole("button", {
+        name: /open model picker/i,
+      });
       fireEvent.click(triggerButton);
 
       const connectButton = await screen.findByRole("button", {
@@ -488,10 +521,12 @@ describe("ModelPickerPopover", () => {
           {...defaultProps}
           selectedProviderId={null}
           selectedModelId={null}
-        />
+        />,
       );
 
-      const triggerButton = screen.getByRole("button", { name: /open model picker/i });
+      const triggerButton = screen.getByRole("button", {
+        name: /open model picker/i,
+      });
       fireEvent.click(triggerButton);
 
       const connectButton = await screen.findByRole("button", {
@@ -500,7 +535,9 @@ describe("ModelPickerPopover", () => {
       fireEvent.click(connectButton);
 
       await waitFor(() => {
-        expect(screen.queryByPlaceholderText(/search models/i)).not.toBeInTheDocument();
+        expect(
+          screen.queryByPlaceholderText(/search models/i),
+        ).not.toBeInTheDocument();
       });
     });
 
@@ -510,13 +547,17 @@ describe("ModelPickerPopover", () => {
         <ModelPickerPopover
           {...defaultProps}
           onManageModels={handleManageModels}
-        />
+        />,
       );
 
-      const triggerButton = screen.getByRole("button", { name: /open model picker/i });
+      const triggerButton = screen.getByRole("button", {
+        name: /open model picker/i,
+      });
       fireEvent.click(triggerButton);
 
-      const manageButton = await screen.findByRole("button", { name: /manage model visibility/i });
+      const manageButton = await screen.findByRole("button", {
+        name: /manage model visibility/i,
+      });
       expect(manageButton).not.toBeDisabled();
 
       fireEvent.click(manageButton);
@@ -529,10 +570,12 @@ describe("ModelPickerPopover", () => {
           {...defaultProps}
           selectedProviderId="openai"
           selectedModelId="gpt-4"
-        />
+        />,
       );
 
-      fireEvent.click(screen.getByRole("button", { name: /open model picker/i }));
+      fireEvent.click(
+        screen.getByRole("button", { name: /open model picker/i }),
+      );
       const allButton = await screen.findByRole("button", { name: "All" });
       fireEvent.click(allButton);
 
@@ -553,17 +596,19 @@ describe("ModelPickerPopover", () => {
             source: "cache",
             staleReason: "provider_api_unavailable",
           }}
-        />
+        />,
       );
 
-      fireEvent.click(screen.getByRole("button", { name: /open model picker/i }));
+      fireEvent.click(
+        screen.getByRole("button", { name: /open model picker/i }),
+      );
       expect(await screen.findByText("Stale")).toBeInTheDocument();
 
       fireEvent.click(screen.getByRole("button", { name: /refresh/i }));
       await waitFor(() => {
-        expect(mockHandlers.onRefreshSelectedProviderModels).toHaveBeenCalledWith(
-          "openai"
-        );
+        expect(
+          mockHandlers.onRefreshSelectedProviderModels,
+        ).toHaveBeenCalledWith("openai");
       });
     });
 
@@ -574,10 +619,12 @@ describe("ModelPickerPopover", () => {
           selectedProviderId="openai"
           selectedModelId="gpt-4"
           hasMoreSelectedProviderModels={true}
-        />
+        />,
       );
 
-      fireEvent.click(screen.getByRole("button", { name: /open model picker/i }));
+      fireEvent.click(
+        screen.getByRole("button", { name: /open model picker/i }),
+      );
       const loadMoreButton = await screen.findByRole("button", {
         name: /load more/i,
       });
@@ -585,7 +632,7 @@ describe("ModelPickerPopover", () => {
 
       await waitFor(() => {
         expect(
-          mockHandlers.onLoadMoreSelectedProviderModels
+          mockHandlers.onLoadMoreSelectedProviderModels,
         ).toHaveBeenCalledWith("openai");
       });
     });
@@ -600,18 +647,24 @@ describe("ModelPickerPopover", () => {
           onSelectModelView={undefined}
           onRefreshSelectedProviderModels={undefined}
           onLoadMoreSelectedProviderModels={undefined}
-        />
+        />,
       );
 
-      fireEvent.click(screen.getByRole("button", { name: /open model picker/i }));
+      fireEvent.click(
+        screen.getByRole("button", { name: /open model picker/i }),
+      );
       expect(await screen.findByRole("button", { name: "All" })).toBeDisabled();
       expect(screen.getByRole("button", { name: "Popular" })).toBeDisabled();
       expect(screen.getByRole("button", { name: /refresh/i })).toBeDisabled();
-      expect(screen.queryByRole("button", { name: /load more/i })).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole("button", { name: /load more/i }),
+      ).not.toBeInTheDocument();
     });
 
     it("logs async handler errors instead of leaking unhandled rejections", async () => {
-      const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const consoleErrorSpy = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
       const onRefreshSelectedProviderModels = vi.fn(async () => {
         throw new Error("refresh failed");
       });
@@ -623,16 +676,20 @@ describe("ModelPickerPopover", () => {
             selectedProviderId="openai"
             selectedModelId="gpt-4"
             onRefreshSelectedProviderModels={onRefreshSelectedProviderModels}
-          />
+          />,
         );
 
-        fireEvent.click(screen.getByRole("button", { name: /open model picker/i }));
-        fireEvent.click(await screen.findByRole("button", { name: /refresh/i }));
+        fireEvent.click(
+          screen.getByRole("button", { name: /open model picker/i }),
+        );
+        fireEvent.click(
+          await screen.findByRole("button", { name: /refresh/i }),
+        );
 
         await waitFor(() => {
           expect(consoleErrorSpy).toHaveBeenCalledWith(
             "[model-picker/refresh] Failed to refresh models:",
-            expect.any(Error)
+            expect.any(Error),
           );
         });
       } finally {
@@ -646,40 +703,43 @@ describe("ModelPickerPopover", () => {
       render(
         <div>
           <ModelPickerPopover
-          {...defaultProps}
-          selectedProviderId={null}
-          selectedModelId={null}
-        />
+            {...defaultProps}
+            selectedProviderId={null}
+            selectedModelId={null}
+          />
           <div data-testid="outside">Outside element</div>
-        </div>
+        </div>,
       );
 
-      const triggerButton = screen.getByRole("button", { name: /open model picker/i });
+      const triggerButton = screen.getByRole("button", {
+        name: /open model picker/i,
+      });
       fireEvent.click(triggerButton);
 
       await waitFor(() => {
-        expect(screen.getByPlaceholderText(/search models/i)).toBeInTheDocument();
+        expect(
+          screen.getByPlaceholderText(/search models/i),
+        ).toBeInTheDocument();
       });
 
       const outside = screen.getByTestId("outside");
       fireEvent.mouseDown(outside);
 
       await waitFor(() => {
-        expect(screen.queryByPlaceholderText(/search models/i)).not.toBeInTheDocument();
+        expect(
+          screen.queryByPlaceholderText(/search models/i),
+        ).not.toBeInTheDocument();
       });
     });
   });
 
   describe("Loading State", () => {
     it("disables trigger button when isLoading is true", () => {
-      render(
-        <ModelPickerPopover
-          {...defaultProps}
-          isLoading={true}
-        />
-      );
+      render(<ModelPickerPopover {...defaultProps} isLoading={true} />);
 
-      const triggerButton = screen.getByRole("button", { name: /open model picker/i });
+      const triggerButton = screen.getByRole("button", {
+        name: /open model picker/i,
+      });
       expect(triggerButton).toBeDisabled();
     });
   });
@@ -690,15 +750,17 @@ describe("ModelPickerPopover", () => {
         <ModelPickerPopover
           {...defaultProps}
           providerModels={{}} // No models
-        />
+        />,
       );
 
-      const triggerButton = screen.getByRole("button", { name: /open model picker/i });
+      const triggerButton = screen.getByRole("button", {
+        name: /open model picker/i,
+      });
       fireEvent.click(triggerButton);
 
       await waitFor(() => {
         expect(
-          screen.getByText(/no models available yet/i)
+          screen.getByText(/no models available yet/i),
         ).toBeInTheDocument();
       });
     });

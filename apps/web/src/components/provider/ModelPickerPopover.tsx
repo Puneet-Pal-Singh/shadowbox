@@ -34,7 +34,7 @@ interface PopoverPlacement {
 
 function isSamePlacement(
   first: PopoverPlacement,
-  second: PopoverPlacement
+  second: PopoverPlacement,
 ): boolean {
   return (
     first.vertical === second.vertical &&
@@ -60,7 +60,7 @@ export interface ModelPickerPopoverProps {
   onSelectModel: (providerId: string, modelId: string) => Promise<void>;
   onSelectModelView?: (view: ProviderModelDiscoveryView) => Promise<void>;
   onLoadMoreSelectedProviderModels?: (
-    providerId: string
+    providerId: string,
   ) => Promise<ProviderModelOption[]>;
   onRefreshSelectedProviderModels?: (providerId: string) => Promise<void>;
   onConnectProvider: () => void;
@@ -84,7 +84,7 @@ interface EffectiveSelection {
 
 function formatProviderDisplayName(
   providerId: string,
-  displayName: string
+  displayName: string,
 ): string {
   return providerId === "axis" ? "Axis (Free)" : displayName;
 }
@@ -93,14 +93,14 @@ function resolveEffectiveSelection(
   catalog: ProviderRegistryEntry[],
   providerModels: Record<string, ProviderModelOption[]>,
   selectedProviderId: string | null,
-  selectedModelId: string | null
+  selectedModelId: string | null,
 ): EffectiveSelection {
   if (selectedProviderId && selectedModelId) {
     if (
       isValidExplicitSelection(
         providerModels,
         selectedProviderId,
-        selectedModelId
+        selectedModelId,
       )
     ) {
       return { providerId: selectedProviderId, modelId: selectedModelId };
@@ -112,7 +112,7 @@ function resolveEffectiveSelection(
     isValidExplicitSelection(
       providerModels,
       selectedProviderId,
-      selectedModelId
+      selectedModelId,
     )
   ) {
     return { providerId: selectedProviderId, modelId: selectedModelId };
@@ -131,7 +131,7 @@ function resolveEffectiveSelection(
 function isValidExplicitSelection(
   providerModels: Record<string, ProviderModelOption[]>,
   selectedProviderId: string | null,
-  selectedModelId: string | null
+  selectedModelId: string | null,
 ): boolean {
   if (!selectedProviderId || !selectedModelId) {
     return false;
@@ -142,14 +142,14 @@ function isValidExplicitSelection(
 
 function hasProvider(
   catalog: ProviderRegistryEntry[],
-  providerId: string
+  providerId: string,
 ): boolean {
   return catalog.some((entry) => entry.providerId === providerId);
 }
 
 function resolveAxisDefaultSelection(
   catalog: ProviderRegistryEntry[],
-  providerModels: Record<string, ProviderModelOption[]>
+  providerModels: Record<string, ProviderModelOption[]>,
 ): EffectiveSelection {
   const axisProvider = catalog.find((entry) => entry.providerId === "axis");
   const axisModels = providerModels.axis ?? [];
@@ -212,9 +212,9 @@ export function ModelPickerPopover({
         catalog,
         providerModels,
         selectedProviderId,
-        selectedModelId
+        selectedModelId,
       ),
-    [catalog, providerModels, selectedProviderId, selectedModelId]
+    [catalog, providerModels, selectedProviderId, selectedModelId],
   );
 
   // Build provider groups from catalog and models
@@ -222,7 +222,10 @@ export function ModelPickerPopover({
     return catalog
       .map((entry) => ({
         providerId: entry.providerId,
-        displayName: formatProviderDisplayName(entry.providerId, entry.displayName),
+        displayName: formatProviderDisplayName(
+          entry.providerId,
+          entry.displayName,
+        ),
         models: providerModels[entry.providerId] || [],
       }))
       .filter((group) => group.models.length > 0);
@@ -232,10 +235,10 @@ export function ModelPickerPopover({
   const filteredGroups = useMemo((): ProviderGroup[] => {
     const query = searchQuery.toLowerCase();
     const byVisibility = providerGroups.map((group) => {
-      if (group.providerId === "axis") {
+      const visibleSet = visibleModelIds[group.providerId];
+      if (!visibleSet) {
         return group;
       }
-      const visibleSet = visibleModelIds[group.providerId] || new Set();
       return {
         ...group,
         models: group.models.filter((model) => visibleSet.has(model.id)),
@@ -253,16 +256,16 @@ export function ModelPickerPopover({
           (model) =>
             model.name.toLowerCase().includes(query) ||
             model.id.toLowerCase().includes(query) ||
-            group.displayName.toLowerCase().includes(query)
+            group.displayName.toLowerCase().includes(query),
         ),
       }))
       .filter((group) => group.models.length > 0);
   }, [providerGroups, searchQuery, visibleModelIds]);
   const axisDefaultGroup = filteredGroups.find(
-    (group) => group.providerId === "axis"
+    (group) => group.providerId === "axis",
   );
   const connectedProviderGroups = filteredGroups.filter(
-    (group) => group.providerId !== "axis"
+    (group) => group.providerId !== "axis",
   );
 
   // Get currently selected model label
@@ -272,10 +275,10 @@ export function ModelPickerPopover({
     }
 
     const provider = catalog.find(
-      (p) => p.providerId === effectiveSelection.providerId
+      (p) => p.providerId === effectiveSelection.providerId,
     );
     const model = providerModels[effectiveSelection.providerId]?.find(
-      (m) => m.id === effectiveSelection.modelId
+      (m) => m.id === effectiveSelection.modelId,
     );
 
     if (!provider || !model) {
@@ -288,7 +291,7 @@ export function ModelPickerPopover({
   // Handle model selection
   const handleSelectModel = async (
     providerId: string,
-    modelId: string
+    modelId: string,
   ): Promise<void> => {
     setSelectingModelId(modelId);
     try {
@@ -301,16 +304,23 @@ export function ModelPickerPopover({
   };
 
   const handleModelViewChange = async (
-    nextView: ProviderModelDiscoveryView
+    nextView: ProviderModelDiscoveryView,
   ): Promise<void> => {
-    if (!onSelectModelView || nextView === selectedModelView || isSwitchingView) {
+    if (
+      !onSelectModelView ||
+      nextView === selectedModelView ||
+      isSwitchingView
+    ) {
       return;
     }
     setIsSwitchingView(true);
     try {
       await onSelectModelView(nextView);
     } catch (error) {
-      console.error("[model-picker/view-change] Failed to switch model view:", error);
+      console.error(
+        "[model-picker/view-change] Failed to switch model view:",
+        error,
+      );
     } finally {
       setIsSwitchingView(false);
     }
@@ -323,7 +333,10 @@ export function ModelPickerPopover({
     try {
       await onLoadMoreSelectedProviderModels(selectedProviderId);
     } catch (error) {
-      console.error("[model-picker/load-more] Failed to load more models:", error);
+      console.error(
+        "[model-picker/load-more] Failed to load more models:",
+        error,
+      );
     }
   };
 
@@ -339,8 +352,12 @@ export function ModelPickerPopover({
   };
 
   const canSelectModelView = Boolean(onSelectModelView);
-  const canRefreshSelectedProviderModels = Boolean(onRefreshSelectedProviderModels);
-  const canLoadMoreSelectedProviderModels = Boolean(onLoadMoreSelectedProviderModels);
+  const canRefreshSelectedProviderModels = Boolean(
+    onRefreshSelectedProviderModels,
+  );
+  const canLoadMoreSelectedProviderModels = Boolean(
+    onLoadMoreSelectedProviderModels,
+  );
 
   // Close on outside click
   useEffect(() => {
@@ -382,7 +399,8 @@ export function ModelPickerPopover({
     const vertical: "up" | "down" =
       spaceBelow < requiredHeight && spaceAbove > spaceBelow ? "up" : "down";
 
-    const spaceRight = window.innerWidth - triggerRect.left - VIEWPORT_PADDING_PX;
+    const spaceRight =
+      window.innerWidth - triggerRect.left - VIEWPORT_PADDING_PX;
     const spaceLeft = triggerRect.right - VIEWPORT_PADDING_PX;
     const horizontal: "start" | "end" =
       spaceRight < PREFERRED_POPOVER_WIDTH_PX && spaceLeft > spaceRight
@@ -392,7 +410,7 @@ export function ModelPickerPopover({
     const availableWidth = horizontal === "start" ? spaceRight : spaceLeft;
     const widthPx = Math.max(
       MIN_POPOVER_WIDTH_PX,
-      Math.min(PREFERRED_POPOVER_WIDTH_PX, Math.floor(availableWidth))
+      Math.min(PREFERRED_POPOVER_WIDTH_PX, Math.floor(availableWidth)),
     );
 
     return {
@@ -422,7 +440,7 @@ export function ModelPickerPopover({
       setPlacement((currentPlacement) =>
         isSamePlacement(currentPlacement, nextPlacement)
           ? currentPlacement
-          : nextPlacement
+          : nextPlacement,
       );
     };
 
@@ -481,7 +499,10 @@ export function ModelPickerPopover({
           {/* Search + Actions */}
           <div className="flex items-center gap-1.5 border-b border-neutral-800 p-1.5">
             <div className="relative flex-1">
-              <Search size={14} className="absolute left-2.5 top-2.5 text-neutral-500" />
+              <Search
+                size={14}
+                className="absolute left-2.5 top-2.5 text-neutral-500"
+              />
               <input
                 ref={searchInputRef}
                 type="text"
@@ -569,7 +590,9 @@ export function ModelPickerPopover({
               >
                 <RefreshCw
                   size={11}
-                  className={isRefreshingSelectedProviderModels ? "animate-spin" : ""}
+                  className={
+                    isRefreshingSelectedProviderModels ? "animate-spin" : ""
+                  }
                 />
                 Refresh
               </button>
@@ -579,118 +602,138 @@ export function ModelPickerPopover({
           {/* Provider Groups */}
           <div className="flex flex-1 flex-col overflow-hidden">
             <div className="overflow-y-auto flex-1">
-            {isLoading ? (
-              <div className="p-6 text-center text-neutral-400 text-sm">
-                Loading models...
-              </div>
-            ) : filteredGroups.length === 0 ? (
-              <div className="p-6 text-center text-neutral-400 text-sm">
-                {searchQuery
-                  ? "No models match your search"
-                  : "No models available yet."}
-              </div>
-            ) : (
-              <>
-                {axisDefaultGroup && (
-                  <div className="border-b border-neutral-800/80">
-                    <div className="sticky top-0 bg-neutral-900/95 px-3 py-2">
-                      <h3 className="text-[10px] font-semibold text-neutral-500 uppercase tracking-wide">
-                        Shadowbox Axis
-                      </h3>
-                    </div>
-                    <div className="py-1">
-                      {axisDefaultGroup.models.map((model) => (
-                        <button
-                          type="button"
-                          key={model.id}
-                          onClick={() =>
-                            handleSelectModel(axisDefaultGroup.providerId, model.id)
-                          }
-                          disabled={selectingModelId === model.id}
-                          className={`
+              {isLoading ? (
+                <div className="p-6 text-center text-neutral-400 text-sm">
+                  Loading models...
+                </div>
+              ) : filteredGroups.length === 0 ? (
+                <div className="p-6 text-center text-neutral-400 text-sm">
+                  {searchQuery
+                    ? "No models match your search"
+                    : "No models available yet."}
+                </div>
+              ) : (
+                <>
+                  {axisDefaultGroup && (
+                    <div className="border-b border-neutral-800/80">
+                      <div className="sticky top-0 bg-neutral-900/95 px-3 py-2">
+                        <h3 className="text-[10px] font-semibold text-neutral-500 uppercase tracking-wide">
+                          Shadowbox Axis
+                        </h3>
+                      </div>
+                      <div className="py-1">
+                        {axisDefaultGroup.models.map((model) => (
+                          <button
+                            type="button"
+                            key={model.id}
+                            onClick={() =>
+                              handleSelectModel(
+                                axisDefaultGroup.providerId,
+                                model.id,
+                              )
+                            }
+                            disabled={selectingModelId === model.id}
+                            className={`
                             w-full px-3 py-2 text-left text-xs
                             transition-colors disabled:opacity-50
                             ${
-                              effectiveSelection.providerId === axisDefaultGroup.providerId &&
+                              effectiveSelection.providerId ===
+                                axisDefaultGroup.providerId &&
                               effectiveSelection.modelId === model.id
                                 ? "bg-neutral-800 text-neutral-100"
                                 : "text-neutral-400 hover:bg-neutral-800/50"
                             }
                           `}
-                          title={`${model.name} (${model.id})`}
-                        >
-                          <div className="flex min-w-0 items-center gap-2">
-                            <p className="truncate font-medium">{model.name}</p>
-                            {effectiveSelection.providerId === axisDefaultGroup.providerId &&
-                              effectiveSelection.modelId === model.id && (
-                                <span className="ml-auto text-neutral-200">✓</span>
-                              )}
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {connectedProviderGroups.length > 0 &&
-                  connectedProviderGroups.map((group) => (
-                    <div
-                      key={group.providerId}
-                      className="border-b border-neutral-800/80 last:border-b-0"
-                    >
-                      <div className="sticky top-0 bg-neutral-900/95 px-3 py-2">
-                        <h3 className="text-[10px] font-semibold text-neutral-500 uppercase tracking-wide">
-                          {group.displayName}
-                        </h3>
-                      </div>
-                      <div className="py-1">
-                        {group.models.map((model) => (
-                          <button
-                            type="button"
-                            key={model.id}
-                            onClick={() => handleSelectModel(group.providerId, model.id)}
-                            disabled={selectingModelId === model.id}
-                            className={`
-                              w-full px-3 py-2 text-left text-xs
-                              transition-colors disabled:opacity-50
-                              ${
-                                effectiveSelection.providerId === group.providerId &&
-                                effectiveSelection.modelId === model.id
-                                  ? "bg-neutral-800 text-neutral-100"
-                                  : "text-neutral-400 hover:bg-neutral-800/50"
-                              }
-                            `}
                             title={`${model.name} (${model.id})`}
                           >
                             <div className="flex min-w-0 items-center gap-2">
-                              <p className="truncate font-medium">{model.name}</p>
-                              {effectiveSelection.providerId === group.providerId &&
+                              <p className="truncate font-medium">
+                                {model.name}
+                              </p>
+                              {effectiveSelection.providerId ===
+                                axisDefaultGroup.providerId &&
                                 effectiveSelection.modelId === model.id && (
-                                  <span className="ml-auto text-neutral-200">✓</span>
+                                  <span className="ml-auto text-neutral-200">
+                                    ✓
+                                  </span>
                                 )}
                             </div>
                           </button>
                         ))}
                       </div>
                     </div>
-                  ))}
-              </>
-            )}
+                  )}
+
+                  {connectedProviderGroups.length > 0 &&
+                    connectedProviderGroups.map((group) => (
+                      <div
+                        key={group.providerId}
+                        className="border-b border-neutral-800/80 last:border-b-0"
+                      >
+                        <div className="sticky top-0 bg-neutral-900/95 px-3 py-2">
+                          <h3 className="text-[10px] font-semibold text-neutral-500 uppercase tracking-wide">
+                            {group.displayName}
+                          </h3>
+                        </div>
+                        <div className="py-1">
+                          {group.models.map((model) => (
+                            <button
+                              type="button"
+                              key={model.id}
+                              onClick={() =>
+                                handleSelectModel(group.providerId, model.id)
+                              }
+                              disabled={selectingModelId === model.id}
+                              className={`
+                              w-full px-3 py-2 text-left text-xs
+                              transition-colors disabled:opacity-50
+                              ${
+                                effectiveSelection.providerId ===
+                                  group.providerId &&
+                                effectiveSelection.modelId === model.id
+                                  ? "bg-neutral-800 text-neutral-100"
+                                  : "text-neutral-400 hover:bg-neutral-800/50"
+                              }
+                            `}
+                              title={`${model.name} (${model.id})`}
+                            >
+                              <div className="flex min-w-0 items-center gap-2">
+                                <p className="truncate font-medium">
+                                  {model.name}
+                                </p>
+                                {effectiveSelection.providerId ===
+                                  group.providerId &&
+                                  effectiveSelection.modelId === model.id && (
+                                    <span className="ml-auto text-neutral-200">
+                                      ✓
+                                    </span>
+                                  )}
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                </>
+              )}
             </div>
-            {hasMoreSelectedProviderModels && canLoadMoreSelectedProviderModels && (
-              <div className="border-t border-neutral-800 p-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    void handleLoadMore();
-                  }}
-                  disabled={isLoadingMoreSelectedProviderModels || isLoading}
-                  className="w-full rounded-md border border-neutral-700 px-2 py-1.5 text-xs text-neutral-300 transition-colors hover:bg-neutral-800 disabled:opacity-50"
-                >
-                  {isLoadingMoreSelectedProviderModels ? "Loading..." : "Load more"}
-                </button>
-              </div>
-            )}
+            {hasMoreSelectedProviderModels &&
+              canLoadMoreSelectedProviderModels && (
+                <div className="border-t border-neutral-800 p-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void handleLoadMore();
+                    }}
+                    disabled={isLoadingMoreSelectedProviderModels || isLoading}
+                    className="w-full rounded-md border border-neutral-700 px-2 py-1.5 text-xs text-neutral-300 transition-colors hover:bg-neutral-800 disabled:opacity-50"
+                  >
+                    {isLoadingMoreSelectedProviderModels
+                      ? "Loading..."
+                      : "Load more"}
+                  </button>
+                </div>
+              )}
           </div>
         </div>
       )}

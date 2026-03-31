@@ -149,8 +149,15 @@ export function ProviderDialog({
       });
 
       setConnectSuccess("API key saved and provider connected.");
-      setActiveTab("connected");
-      onClose();
+
+      if (variant === "manage-models-only") {
+        setManageOnlyView("manage");
+      } else if (variant === "full") {
+        setActiveTab("connected");
+        setShowManageModels(true);
+      } else {
+        onClose();
+      }
     } catch (err) {
       setConnectError(
         err instanceof Error ? err.message : "Failed to connect credential"

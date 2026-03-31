@@ -50,7 +50,7 @@ const READ_FILE_TOOL_INPUT_SCHEMA = createToolInputSchema({
 
 const LIST_FILES_TOOL_INPUT_SCHEMA = createToolInputSchema(
   {
-    path: z.string().min(1).max(MAX_PATH_LENGTH).optional(),
+    path: z.string().max(MAX_PATH_LENGTH).optional(),
   },
   { allowNullishEmptyObject: true },
 );
