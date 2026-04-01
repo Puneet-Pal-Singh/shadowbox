@@ -23,6 +23,7 @@ import {
 import {
   createOpenAIAdapter,
   createAnthropicAdapter,
+  createGoogleAdapter,
   createLiteLLMAdapter,
 } from "./ProviderAdapterFactory";
 import type { Env } from "../../types/ai";
@@ -147,11 +148,9 @@ const ADAPTER_FAMILY_FACTORIES: Record<
     }
     return createOpenAIAdapter(env, overrideApiKey, providerEntry.baseUrl);
   },
-  "google-native": () => {
-    throw new ValidationError(
-      "Google-native adapter family is not wired for runtime inference yet.",
-      "UNKNOWN_PROVIDER",
-    );
+  "google-native": (providerId, env, overrideApiKey) => {
+    const providerEntry = providerRegistryService.getProvider(providerId ?? "google");
+    return createGoogleAdapter(env, overrideApiKey, providerEntry?.baseUrl);
   },
   "custom-http": () => {
     throw new ValidationError(
