@@ -74,6 +74,11 @@ export class ProviderValidationService {
       case "axis":
       case "openrouter":
       case "groq":
+      case "google":
+      case "together":
+      case "cerebras":
+      case "mistral":
+      case "cohere":
         break;
       default:
         if (activeProviderId) {
