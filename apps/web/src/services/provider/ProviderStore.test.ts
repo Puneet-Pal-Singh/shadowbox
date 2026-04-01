@@ -44,6 +44,19 @@ describe("ProviderStore", () => {
         },
         modelSource: "static",
       },
+      {
+        providerId: "google",
+        displayName: "Google AI (Gemini)",
+        authModes: ["api_key"],
+        adapterFamily: "google-native",
+        capabilities: {
+          streaming: true,
+          tools: true,
+          jsonMode: false,
+          structuredOutputs: true,
+        },
+        modelSource: "remote",
+      },
     ];
 
     const credentials: BYOKCredential[] = [
@@ -317,7 +330,7 @@ describe("ProviderStore", () => {
 
       const state = store.getState();
       expect(state.status).toBe("ready");
-      expect(state.catalog).toHaveLength(1);
+      expect(state.catalog).toHaveLength(2);
       expect(state.credentials).toHaveLength(1);
       expect(state.selectedProviderId).toBe("openai");
       expect(state.selectedCredentialId).toBe(credential1Id);
@@ -362,6 +375,40 @@ describe("ProviderStore", () => {
       expect(
         state.credentials.some((c) => c.credentialId === credential2Id)
       ).toBe(true);
+    });
+
+    it("defaults newly connected provider models to hidden", async () => {
+      await store.bootstrap();
+      vi.mocked(mockApiClient.connectCredential).mockResolvedValueOnce({
+        credentialId: credential2Id,
+        userId: "user-1",
+        workspaceId: "ws-1",
+        providerId: "google",
+        label: "Testing",
+        keyFingerprint: "def456uvw",
+        encryptedSecretJson: "{}",
+        keyVersion: "1",
+        status: "connected",
+        lastValidatedAt: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      });
+
+      const req: ConnectCredentialRequest = {
+        providerId: "google",
+        secret: "sk-test",
+      };
+
+      await store.connectCredential(req);
+
+      const state = store.getState();
+      expect(state.visibleModelIds.google).toEqual(new Set());
+      expect(mockApiClient.updatePreferences).toHaveBeenCalledWith({
+        visibleModelIds: {
+          google: [],
+        },
+      });
     });
 
     it("deduplicates concurrent connect requests", async () => {
