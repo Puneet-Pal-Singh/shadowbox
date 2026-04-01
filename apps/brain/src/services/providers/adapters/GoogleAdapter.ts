@@ -42,23 +42,35 @@ export class GoogleAdapter implements ProviderAdapter {
 
   async generate(params: GenerationParams): Promise<GenerationResult> {
     const model = params.model ?? this.defaultModel;
-    const result = await generateText({
-      model: this.client(model),
-      messages: params.messages,
-      system: params.system,
-      tools: params.tools,
-      temperature: params.temperature,
-    });
+    try {
+      const result = await generateText({
+        model: this.client(model),
+        messages: params.messages,
+        system: params.system,
+        tools: params.tools,
+        temperature: params.temperature,
+      });
 
-    return {
-      content: result.text,
-      usage: this.standardizeUsage(result.usage, model),
-      finishReason: result.finishReason,
-      toolCalls: result.toolCalls?.map((toolCall) => ({
-        toolName: toolCall.toolName,
-        args: toolCall.args,
-      })),
-    };
+      return {
+        content: result.text,
+        usage: this.standardizeUsage(result.usage, model),
+        finishReason: result.finishReason,
+        toolCalls: result.toolCalls?.map((toolCall) => ({
+          toolName: toolCall.toolName,
+          args: toolCall.args,
+        })),
+      };
+    } catch (error) {
+      const recovered = this.recoverEmptyCandidateResponse(error, model);
+      if (recovered) {
+        console.warn(
+          "[provider/google] Normalized empty candidate response from Gemini API",
+          { model },
+        );
+        return recovered;
+      }
+      throw error;
+    }
   }
 
   async *generateStream(
@@ -186,4 +198,135 @@ export class GoogleAdapter implements ProviderAdapter {
       raw: usage,
     };
   }
+
+  private recoverEmptyCandidateResponse(
+    error: unknown,
+    model: string,
+  ): GenerationResult | null {
+    const payload = parseRecoverableGoogleEmptyResponse(error);
+    if (!payload) {
+      return null;
+    }
+
+    return {
+      content: "",
+      usage: this.standardizeUsage(
+        {
+          promptTokens: payload.promptTokens,
+          completionTokens: payload.completionTokens,
+        },
+        model,
+      ),
+      finishReason: payload.finishReason,
+      toolCalls: [],
+    };
+  }
+}
+
+interface RecoverableGoogleEmptyResponse {
+  promptTokens: number;
+  completionTokens: number;
+  finishReason?: string;
+}
+
+function parseRecoverableGoogleEmptyResponse(
+  error: unknown,
+): RecoverableGoogleEmptyResponse | null {
+  const responseBody = getErrorStringField(error, "responseBody");
+  const statusCode = getErrorNumberField(error, "statusCode");
+  if (!responseBody || (statusCode !== undefined && statusCode !== 200)) {
+    return null;
+  }
+
+  const payload = safeParseGoogleResponsePayload(responseBody);
+  if (!payload) {
+    return null;
+  }
+
+  const firstCandidate = payload.candidates[0];
+  if (!firstCandidate) {
+    return null;
+  }
+  const parts = firstCandidate.content?.parts;
+  if (Array.isArray(parts) && parts.length > 0) {
+    return null;
+  }
+
+  const promptTokens = payload.usageMetadata?.promptTokenCount ?? 0;
+  const totalTokens = payload.usageMetadata?.totalTokenCount ?? promptTokens;
+
+  return {
+    promptTokens,
+    completionTokens: Math.max(totalTokens - promptTokens, 0),
+    finishReason: normalizeGoogleFinishReason(firstCandidate.finishReason),
+  };
+}
+
+function safeParseGoogleResponsePayload(
+  responseBody: string,
+): GoogleResponsePayload | null {
+  try {
+    const parsed = JSON.parse(responseBody) as unknown;
+    return isGoogleResponsePayload(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+interface GoogleResponsePayload {
+  candidates: Array<{
+    content?: {
+      role?: string;
+      parts?: unknown[];
+    };
+    finishReason?: string;
+  }>;
+  usageMetadata?: {
+    promptTokenCount?: number;
+    totalTokenCount?: number;
+  };
+}
+
+function isGoogleResponsePayload(value: unknown): value is GoogleResponsePayload {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  return Array.isArray(value.candidates);
+}
+
+function normalizeGoogleFinishReason(finishReason: string | undefined): string | undefined {
+  if (!finishReason) {
+    return undefined;
+  }
+
+  return finishReason.toLowerCase();
+}
+
+function getErrorStringField(
+  error: unknown,
+  field: string,
+): string | undefined {
+  if (!isRecord(error)) {
+    return undefined;
+  }
+
+  const value = error[field];
+  return typeof value === "string" ? value : undefined;
+}
+
+function getErrorNumberField(
+  error: unknown,
+  field: string,
+): number | undefined {
+  if (!isRecord(error)) {
+    return undefined;
+  }
+
+  const value = error[field];
+  return typeof value === "number" ? value : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
