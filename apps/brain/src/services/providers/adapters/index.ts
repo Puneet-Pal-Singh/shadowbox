@@ -4,6 +4,7 @@
 export { LiteLLMAdapter } from "./LiteLLMAdapter";
 export { OpenAIAdapter } from "./OpenAIAdapter";
 export { AnthropicAdapter } from "./AnthropicAdapter";
+export { GoogleAdapter } from "./GoogleAdapter";
 export {
   OpenAICompatibleAdapter,
   streamGenerationHelper,
