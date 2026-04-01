@@ -153,7 +153,7 @@ export function resolveProviderKey(
     }
     const baseURL =
       registryService.getProvider(providerId ?? "google")?.baseUrl ??
-      "https://generativelanguage.googleapis.com";
+      "https://generativelanguage.googleapis.com/v1beta";
     return { apiKey, baseURL };
   }
 
