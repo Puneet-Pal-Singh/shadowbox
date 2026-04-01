@@ -119,6 +119,7 @@ export interface ManageModelsDialogProps {
   providerModels: Record<string, ProviderModelOption[]>;
   visibleModelIds: Record<string, Set<string>>;
   onToggleModelVisibility: (providerId: string, modelId: string) => void;
+  onSetProviderVisibleModels: (providerId: string, modelIds: string[]) => void;
   onConnectProvider?: () => void;
 }
 
@@ -132,6 +133,7 @@ export function ManageModelsDialog({
   providerModels,
   visibleModelIds,
   onToggleModelVisibility,
+  onSetProviderVisibleModels,
   onConnectProvider,
 }: ManageModelsDialogProps): React.ReactElement | null {
   const [searchQuery, setSearchQuery] = useState("");
@@ -228,17 +230,47 @@ export function ManageModelsDialog({
               {filteredGroups.map((group) => {
                 const visibleSet = visibleModelIds[group.providerId];
                 const filteredModels = group.filteredModels;
+                const isProviderVisible = visibleSet
+                  ? visibleSet.size > 0
+                  : group.models.length > 0;
 
                 return (
                   <div key={group.providerId} className="space-y-2.5">
                     {/* Provider Header */}
                     <div className="flex items-center justify-between">
-                      <h3 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">
-                        {group.displayName}
-                      </h3>
-                      <span className="text-[11px] text-neutral-500">
-                        {group.visibleCount} / {group.totalCount} visible
-                      </span>
+                      <div>
+                        <h3 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">
+                          {group.displayName}
+                        </h3>
+                        <span className="text-[11px] text-neutral-500">
+                          {group.visibleCount} / {group.totalCount} visible
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={isProviderVisible}
+                        aria-label={`${group.displayName} provider visibility`}
+                        onClick={() =>
+                          onSetProviderVisibleModels(
+                            group.providerId,
+                            isProviderVisible ? [] : group.models.map((model) => model.id),
+                          )
+                        }
+                        className={`relative inline-flex h-5 w-8 items-center rounded-full border transition ${
+                          isProviderVisible
+                            ? "border-blue-500 bg-blue-600"
+                            : "border-neutral-600 bg-neutral-800"
+                        }`}
+                      >
+                        <span
+                          className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition ${
+                            isProviderVisible
+                              ? "translate-x-4"
+                              : "translate-x-0.5"
+                          }`}
+                        />
+                      </button>
                     </div>
 
                     {/* Models */}
