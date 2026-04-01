@@ -34,6 +34,8 @@ interface FilteredProviderGroup extends ProviderGroup {
 
 const CONNECT_PROVIDER_BUTTON_CLASS =
   "inline-flex items-center gap-1 rounded-md border border-neutral-700 px-2.5 py-1.5 text-xs text-neutral-200 transition hover:bg-neutral-800";
+const VISIBILITY_ROW_CLASS =
+  "grid grid-cols-[minmax(0,1fr)_2rem] items-center gap-3 px-2";
 
 /**
  * Build provider groups from catalog, models, and visibility state
@@ -227,8 +229,8 @@ export function ManageModelsDialog({
                 return (
                   <div key={group.providerId} className="space-y-2.5">
                     {/* Provider Header */}
-                    <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3">
-                      <div className="min-w-0">
+                    <div className={`${VISIBILITY_ROW_CLASS} py-0.5`}>
+                      <div className="min-w-0 text-left">
                         <h3 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">
                           {group.displayName}
                         </h3>
@@ -244,7 +246,7 @@ export function ManageModelsDialog({
                             isProviderVisible ? [] : group.models.map((model) => model.id),
                           )
                         }
-                        className={`relative inline-flex h-5 w-8 shrink-0 items-center rounded-full border transition ${
+                        className={`relative inline-flex h-5 w-8 shrink-0 items-center justify-self-end rounded-full border transition ${
                           isProviderVisible
                             ? "border-blue-500 bg-blue-600"
                             : "border-neutral-600 bg-neutral-800"
@@ -269,7 +271,7 @@ export function ManageModelsDialog({
                         return (
                           <div
                             key={model.id}
-                            className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-md px-2 py-1.5 transition-colors hover:bg-neutral-800/60"
+                            className={`${VISIBILITY_ROW_CLASS} rounded-md py-1.5 transition-colors hover:bg-neutral-800/60`}
                           >
                             <div className="min-w-0 text-left">
                               <p className="text-xs font-medium text-neutral-300">
@@ -287,7 +289,7 @@ export function ManageModelsDialog({
                                   model.id,
                                 );
                               }}
-                              className={`relative inline-flex h-5 w-8 shrink-0 items-center rounded-full border transition ${
+                              className={`relative inline-flex h-5 w-8 shrink-0 items-center justify-self-end rounded-full border transition ${
                                 isVisible
                                   ? "border-blue-500 bg-blue-600"
                                   : "border-neutral-600 bg-neutral-800"
