@@ -13,6 +13,7 @@ describe("ConnectProviderChooser", () => {
       providerId: "openai",
       displayName: "OpenAI",
       authModes: ["api_key"],
+      launchStage: "supported",
       adapterFamily: "openai-compatible",
       capabilities: {
         streaming: true,
@@ -30,6 +31,7 @@ describe("ConnectProviderChooser", () => {
       providerId: "anthropic",
       displayName: "Anthropic",
       authModes: ["api_key"],
+      launchStage: "supported",
       adapterFamily: "anthropic-native",
       capabilities: {
         streaming: true,
@@ -47,6 +49,7 @@ describe("ConnectProviderChooser", () => {
       providerId: "groq",
       displayName: "Groq",
       authModes: ["api_key"],
+      launchStage: "supported",
       adapterFamily: "openai-compatible",
       capabilities: {
         streaming: true,
