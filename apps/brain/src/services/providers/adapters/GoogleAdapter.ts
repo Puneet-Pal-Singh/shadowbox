@@ -6,6 +6,7 @@ import type {
   GenerationResult,
   StreamChunk,
 } from "../base/ProviderAdapter";
+import { ProviderError } from "../base/ProviderAdapter";
 import type { LLMUsage } from "@shadowbox/execution-engine/runtime/cost";
 
 interface GoogleAdapterConfig {
@@ -21,6 +22,9 @@ export class GoogleAdapter implements ProviderAdapter {
   private readonly defaultModel: string;
 
   constructor(config: GoogleAdapterConfig) {
+    if (!config.apiKey?.trim()) {
+      throw new ProviderError("google", "Missing Google API key");
+    }
     this.client = createGoogleGenerativeAI({
       apiKey: config.apiKey,
       baseURL: config.baseURL,
@@ -74,39 +78,79 @@ export class GoogleAdapter implements ProviderAdapter {
     let finishReason: string | undefined;
 
     for await (const chunk of streamResult.fullStream) {
-      switch (chunk.type) {
-        case "text-delta":
-          fullText += chunk.textDelta;
-          yield {
-            type: "text",
-            content: chunk.textDelta,
-          };
-          break;
-
-        case "tool-call":
-          yield {
-            type: "tool-call",
-            toolCall: {
-              toolName: chunk.toolName,
-              args: chunk.args,
-            },
-          };
-          break;
-
-        case "finish":
-          finishReason = chunk.finishReason;
-          if (chunk.usage) {
-            finalUsage = this.standardizeUsage(chunk.usage, model);
-            yield {
-              type: "finish",
-              usage: finalUsage,
-              finishReason: chunk.finishReason,
-            };
-          }
-          break;
-      }
+      const yielded = this.handleStreamChunk(
+        chunk,
+        model,
+        fullText,
+        finalUsage,
+      );
+      fullText = yielded.fullText;
+      finalUsage = yielded.finalUsage;
+      finishReason = yielded.finishReason;
     }
 
+    return await this.finalizeStreamResult(
+      streamResult,
+      fullText,
+      model,
+      finalUsage,
+      finishReason,
+    );
+  }
+
+  private handleStreamChunk(
+    chunk: {
+      type: string;
+      textDelta?: string;
+      toolName?: string;
+      args?: unknown;
+      finishReason?: string;
+      usage?: { promptTokens: number; completionTokens: number };
+    },
+    model: string,
+    fullText: string,
+    currentUsage: LLMUsage | undefined,
+  ): {
+    fullText: string;
+    finalUsage: LLMUsage | undefined;
+    finishReason: string | undefined;
+  } {
+    switch (chunk.type) {
+      case "text-delta":
+        return {
+          fullText: fullText + (chunk.textDelta ?? ""),
+          finalUsage: currentUsage,
+          finishReason: undefined,
+        };
+
+      case "tool-call":
+        return { fullText, finalUsage: currentUsage, finishReason: undefined };
+
+      case "finish":
+        const usage = chunk.usage
+          ? this.standardizeUsage(chunk.usage, model)
+          : currentUsage;
+        return {
+          fullText,
+          finalUsage: usage,
+          finishReason: chunk.finishReason,
+        };
+    }
+    return { fullText, finalUsage: currentUsage, finishReason: undefined };
+  }
+
+  private async finalizeStreamResult(
+    streamResult: {
+      usage: Promise<{ promptTokens: number; completionTokens: number }>;
+      text: Promise<string>;
+      finishReason: Promise<string>;
+      toolCalls: Promise<{ toolName: string; args: unknown }[]>;
+    },
+    fullText: string,
+    model: string,
+    existingUsage: LLMUsage | undefined,
+    existingFinishReason: string | undefined,
+  ): Promise<GenerationResult> {
     const [finalUsageResult, finalText, finalFinishReason, finalToolCalls] =
       await Promise.all([
         streamResult.usage,
@@ -115,17 +159,16 @@ export class GoogleAdapter implements ProviderAdapter {
         streamResult.toolCalls,
       ]);
 
-    if (!finalUsage) {
-      finalUsage = this.standardizeUsage(finalUsageResult, model);
-    }
+    const finalUsage =
+      existingUsage ?? this.standardizeUsage(finalUsageResult, model);
 
     return {
       content: fullText || finalText,
       usage: finalUsage,
-      finishReason: finishReason ?? finalFinishReason,
-      toolCalls: finalToolCalls?.map((toolCall) => ({
-        toolName: toolCall.toolName,
-        args: toolCall.args,
+      finishReason: existingFinishReason ?? finalFinishReason,
+      toolCalls: finalToolCalls?.map((tc) => ({
+        toolName: tc.toolName,
+        args: tc.args,
       })),
     };
   }

@@ -13,13 +13,8 @@
 
 import type { ProviderAdapter } from "../providers";
 import type { ProviderConfigService } from "../providers";
-import type {
-  ModelSelection,
-  RuntimeProvider,
-} from "./ModelSelectionPolicy";
-import {
-  getRuntimeProviderFromAdapter,
-} from "./ModelSelectionPolicy";
+import type { ModelSelection, RuntimeProvider } from "./ModelSelectionPolicy";
+import { getRuntimeProviderFromAdapter } from "./ModelSelectionPolicy";
 import {
   createOpenAIAdapter,
   createAnthropicAdapter,
@@ -80,7 +75,8 @@ export async function selectAdapter(
 
   if (!overrideApiKey && selection.providerId === "axis") {
     const axisApiKey = env.AXIS_OPENROUTER_API_KEY?.trim();
-    overrideApiKey = axisApiKey && axisApiKey.length > 0 ? axisApiKey : undefined;
+    overrideApiKey =
+      axisApiKey && axisApiKey.length > 0 ? axisApiKey : undefined;
   }
 
   // Provider was selected but not connected
@@ -131,7 +127,11 @@ const providerRegistryService = new ProviderRegistryService();
 
 const ADAPTER_FAMILY_FACTORIES: Record<
   RuntimeProvider,
-  (providerId: string | undefined, env: Env, overrideApiKey: string) => ProviderAdapter
+  (
+    providerId: string | undefined,
+    env: Env,
+    overrideApiKey: string,
+  ) => ProviderAdapter
 > = {
   "anthropic-native": (_providerId, env, overrideApiKey) =>
     createAnthropicAdapter(env, overrideApiKey),
@@ -149,8 +149,16 @@ const ADAPTER_FAMILY_FACTORIES: Record<
     return createOpenAIAdapter(env, overrideApiKey, providerEntry.baseUrl);
   },
   "google-native": (providerId, env, overrideApiKey) => {
-    const providerEntry = providerRegistryService.getProvider(providerId ?? "google");
-    return createGoogleAdapter(env, overrideApiKey, providerEntry?.baseUrl);
+    const resolvedProviderId = providerId ?? "google";
+    const providerEntry =
+      providerRegistryService.getProvider(resolvedProviderId);
+    if (!providerEntry) {
+      throw new ValidationError(
+        `Provider "${resolvedProviderId}" is not registered for adapter dispatch.`,
+        "INVALID_PROVIDER_SELECTION",
+      );
+    }
+    return createGoogleAdapter(env, overrideApiKey, providerEntry.baseUrl);
   },
   "custom-http": () => {
     throw new ValidationError(
