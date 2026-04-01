@@ -412,13 +412,13 @@ export function getKnownProviderIds(): string[] {
 }
 
 export function isLaunchVisibleProvider(entry: ProviderRegistryEntry): boolean {
-  return (entry.launchStage ?? "supported") !== "hidden";
+  return (entry.launchStage ?? "hidden") !== "hidden";
 }
 
 export function isLaunchSupportedProvider(
   entry: ProviderRegistryEntry,
 ): boolean {
-  return (entry.launchStage ?? "supported") === "supported";
+  return (entry.launchStage ?? "hidden") === "supported";
 }
 
 export function getLaunchVisibleProviders(

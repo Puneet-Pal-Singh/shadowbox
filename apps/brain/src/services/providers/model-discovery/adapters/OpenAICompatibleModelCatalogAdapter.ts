@@ -138,7 +138,7 @@ async function requestOpenAICompatibleModels(
       `${providerId} models request failed with status ${response.status}${errorDetail}`,
       {
         status: response.status,
-        retryable: response.status >= 500 || isAuthError,
+        retryable: response.status >= 500 && !isAuthError,
       },
     );
   }

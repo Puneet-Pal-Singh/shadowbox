@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { OpenAICompatibleModelCatalogAdapter } from "./OpenAICompatibleModelCatalogAdapter";
+import { ProviderModelDiscoveryApiError } from "../errors";
 
 describe("OpenAICompatibleModelCatalogAdapter", () => {
   afterEach(() => {
@@ -72,5 +73,36 @@ describe("OpenAICompatibleModelCatalogAdapter", () => {
       }),
     ).rejects.toThrow("Invalid pagination cursor");
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("marks auth failures as non-retryable", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          error: { message: "invalid api key" },
+        }),
+        { status: 401 },
+      ),
+    );
+
+    const adapter = new OpenAICompatibleModelCatalogAdapter(
+      "openai",
+      "https://api.openai.com/v1",
+    );
+
+    try {
+      await adapter.fetchAll("openai", {
+        userId: "user-1",
+        workspaceId: "ws-1",
+        apiKey: "sk-test",
+      });
+      throw new Error("Expected fetchAll to throw");
+    } catch (error) {
+      expect(error).toBeInstanceOf(ProviderModelDiscoveryApiError);
+      expect(
+        (error as ProviderModelDiscoveryApiError).retryable,
+      ).toBe(false);
+      expect((error as ProviderModelDiscoveryApiError).status).toBe(401);
+    }
   });
 });

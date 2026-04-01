@@ -8,7 +8,6 @@
  * - Group models by provider
  * - Toggle visibility per model
  * - Search/filter models
- * - Show count of visible vs total models
  * - Preserve current selection validity
  */
 
@@ -24,8 +23,6 @@ interface ProviderGroup {
   providerId: string;
   displayName: string;
   models: ProviderModelOption[];
-  visibleCount: number;
-  totalCount: number;
 }
 
 /**
@@ -44,21 +41,14 @@ const CONNECT_PROVIDER_BUTTON_CLASS =
 function buildProviderGroups(
   catalog: ProviderRegistryEntry[],
   providerModels: Record<string, ProviderModelOption[]>,
-  visibleModelIds: Record<string, Set<string>>,
 ): ProviderGroup[] {
   return catalog
     .map((entry) => {
       const models = providerModels[entry.providerId] || [];
-      const visibleSet = visibleModelIds[entry.providerId];
-      const visibleCount = visibleSet
-        ? models.filter((model) => visibleSet.has(model.id)).length
-        : models.length;
       return {
         providerId: entry.providerId,
         displayName: entry.displayName,
         models,
-        visibleCount,
-        totalCount: models.length,
       };
     })
     .filter((group) => group.models.length > 0);
@@ -140,8 +130,8 @@ export function ManageModelsDialog({
 
   // Build provider groups with visibility state
   const providerGroups = useMemo(() => {
-    return buildProviderGroups(catalog, providerModels, visibleModelIds);
-  }, [catalog, providerModels, visibleModelIds]);
+    return buildProviderGroups(catalog, providerModels);
+  }, [catalog, providerModels]);
 
   // Filter groups and models based on search
   const filteredGroups = useMemo(() => {
@@ -237,14 +227,11 @@ export function ManageModelsDialog({
                 return (
                   <div key={group.providerId} className="space-y-2.5">
                     {/* Provider Header */}
-                    <div className="flex items-center justify-between">
-                      <div>
+                    <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3">
+                      <div className="min-w-0">
                         <h3 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">
                           {group.displayName}
                         </h3>
-                        <span className="text-[11px] text-neutral-500">
-                          {group.visibleCount} / {group.totalCount} visible
-                        </span>
                       </div>
                       <button
                         type="button"
@@ -257,7 +244,7 @@ export function ManageModelsDialog({
                             isProviderVisible ? [] : group.models.map((model) => model.id),
                           )
                         }
-                        className={`relative inline-flex h-5 w-8 items-center rounded-full border transition ${
+                        className={`relative inline-flex h-5 w-8 shrink-0 items-center rounded-full border transition ${
                           isProviderVisible
                             ? "border-blue-500 bg-blue-600"
                             : "border-neutral-600 bg-neutral-800"
@@ -282,9 +269,9 @@ export function ManageModelsDialog({
                         return (
                           <div
                             key={model.id}
-                            className="flex items-center justify-between rounded-md px-2 py-1.5 transition-colors hover:bg-neutral-800/60"
+                            className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-md px-2 py-1.5 transition-colors hover:bg-neutral-800/60"
                           >
-                            <div className="flex-1 text-left">
+                            <div className="min-w-0 text-left">
                               <p className="text-xs font-medium text-neutral-300">
                                 {model.name}
                               </p>
@@ -300,7 +287,7 @@ export function ManageModelsDialog({
                                   model.id,
                                 );
                               }}
-                              className={`relative inline-flex h-5 w-8 items-center rounded-full border transition ${
+                              className={`relative inline-flex h-5 w-8 shrink-0 items-center rounded-full border transition ${
                                 isVisible
                                   ? "border-blue-500 bg-blue-600"
                                   : "border-neutral-600 bg-neutral-800"

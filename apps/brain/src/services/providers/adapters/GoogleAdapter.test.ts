@@ -2,12 +2,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { GoogleAdapter } from "./GoogleAdapter";
 
 const mockGenerateText = vi.fn();
+const mockStreamText = vi.fn();
 const mockGoogleModel = vi.fn();
 const mockCreateGoogleGenerativeAI = vi.fn(() => mockGoogleModel);
 
 vi.mock("ai", () => ({
   generateText: (...args: unknown[]) => mockGenerateText(...args),
-  streamText: vi.fn(),
+  streamText: (...args: unknown[]) => mockStreamText(...args),
 }));
 
 vi.mock("@ai-sdk/google", () => ({
@@ -84,4 +85,82 @@ describe("GoogleAdapter", () => {
       }),
     ).rejects.toThrow("boom");
   });
+
+  it("streams text, tool calls, and finish chunks incrementally", async () => {
+    mockStreamText.mockReturnValueOnce({
+      fullStream: createAsyncIterable([
+        { type: "text-delta", textDelta: "Hello " },
+        {
+          type: "tool-call",
+          toolName: "read_file",
+          args: { path: "README.md" },
+        },
+        { type: "finish", finishReason: "stop" },
+      ]),
+      usage: Promise.resolve({ promptTokens: 10, completionTokens: 4 }),
+      text: Promise.resolve("Hello "),
+      finishReason: Promise.resolve("stop"),
+      toolCalls: Promise.resolve([
+        { toolName: "read_file", args: { path: "README.md" } },
+      ]),
+    });
+
+    const adapter = new GoogleAdapter({
+      apiKey: "google-test-key",
+    });
+
+    const stream = adapter.generateStream({
+      messages: [],
+      model: "gemini-2.5-flash-lite",
+    });
+
+    await expect(stream.next()).resolves.toMatchObject({
+      done: false,
+      value: { type: "text", content: "Hello " },
+    });
+    await expect(stream.next()).resolves.toMatchObject({
+      done: false,
+      value: {
+        type: "tool-call",
+        toolCall: {
+          toolName: "read_file",
+          args: { path: "README.md" },
+        },
+      },
+    });
+    await expect(stream.next()).resolves.toMatchObject({
+      done: false,
+      value: {
+        type: "finish",
+        finishReason: "stop",
+      },
+    });
+    await expect(stream.next()).resolves.toMatchObject({
+      done: true,
+      value: {
+        content: "Hello ",
+        finishReason: "stop",
+        toolCalls: [
+          { toolName: "read_file", args: { path: "README.md" } },
+        ],
+        usage: {
+          provider: "google",
+          model: "gemini-2.5-flash-lite",
+          promptTokens: 10,
+          completionTokens: 4,
+          totalTokens: 14,
+        },
+      },
+    });
+  });
 });
+
+function createAsyncIterable<T>(items: T[]): AsyncIterable<T> {
+  return {
+    async *[Symbol.asyncIterator]() {
+      for (const item of items) {
+        yield item;
+      }
+    },
+  };
+}

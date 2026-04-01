@@ -90,15 +90,18 @@ export class GoogleAdapter implements ProviderAdapter {
     let finishReason: string | undefined;
 
     for await (const chunk of streamResult.fullStream) {
-      const yielded = this.handleStreamChunk(
+      const state = this.handleStreamChunk(
         chunk,
         model,
         fullText,
         finalUsage,
       );
-      fullText = yielded.fullText;
-      finalUsage = yielded.finalUsage;
-      finishReason = yielded.finishReason;
+      fullText = state.fullText;
+      finalUsage = state.finalUsage;
+      finishReason = state.finishReason;
+      if (state.yieldedChunk) {
+        yield state.yieldedChunk;
+      }
     }
 
     return await this.finalizeStreamResult(
@@ -126,6 +129,7 @@ export class GoogleAdapter implements ProviderAdapter {
     fullText: string;
     finalUsage: LLMUsage | undefined;
     finishReason: string | undefined;
+    yieldedChunk?: StreamChunk;
   } {
     switch (chunk.type) {
       case "text-delta":
@@ -133,12 +137,27 @@ export class GoogleAdapter implements ProviderAdapter {
           fullText: fullText + (chunk.textDelta ?? ""),
           finalUsage: currentUsage,
           finishReason: undefined,
+          yieldedChunk: {
+            type: "text",
+            content: chunk.textDelta ?? "",
+          },
         };
 
       case "tool-call":
-        return { fullText, finalUsage: currentUsage, finishReason: undefined };
+        return {
+          fullText,
+          finalUsage: currentUsage,
+          finishReason: undefined,
+          yieldedChunk: {
+            type: "tool-call",
+            toolCall: {
+              toolName: chunk.toolName ?? "",
+              args: chunk.args,
+            },
+          },
+        };
 
-      case "finish":
+      case "finish": {
         const usage = chunk.usage
           ? this.standardizeUsage(chunk.usage, model)
           : currentUsage;
@@ -146,7 +165,13 @@ export class GoogleAdapter implements ProviderAdapter {
           fullText,
           finalUsage: usage,
           finishReason: chunk.finishReason,
+          yieldedChunk: {
+            type: "finish",
+            usage,
+            finishReason: chunk.finishReason,
+          },
         };
+      }
     }
     return { fullText, finalUsage: currentUsage, finishReason: undefined };
   }

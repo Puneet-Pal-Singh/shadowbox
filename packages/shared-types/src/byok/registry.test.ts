@@ -142,7 +142,7 @@ describe("Provider launch visibility", () => {
     expect(supportedProviderIds).not.toContain("cohere");
   });
 
-  it("treats missing launch stage as supported for raw object literals", () => {
+  it("treats missing launch stage as hidden for raw object literals", () => {
     const rawEntry: ProviderRegistryEntry = {
       providerId: "test-provider",
       displayName: "Test Provider",
@@ -157,7 +157,7 @@ describe("Provider launch visibility", () => {
       modelSource: "static" as const,
     };
 
-    expect(isLaunchVisibleProvider(rawEntry)).toBe(true);
-    expect(isLaunchSupportedProvider(rawEntry)).toBe(true);
+    expect(isLaunchVisibleProvider(rawEntry)).toBe(false);
+    expect(isLaunchSupportedProvider(rawEntry)).toBe(false);
   });
 });
