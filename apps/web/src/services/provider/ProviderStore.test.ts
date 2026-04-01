@@ -193,6 +193,17 @@ describe("ProviderStore", () => {
       const store2 = ProviderStore.getInstance({ apiClient: mockApiClient });
       expect(store1).toBe(store2);
     });
+
+    it("requests bootstrap when binding the first active run", () => {
+      expect(store.setActiveRunId("run-1")).toBe(true);
+    });
+
+    it("does not request bootstrap again once the active run is ready", async () => {
+      expect(store.setActiveRunId("run-1")).toBe(true);
+      await store.bootstrap();
+
+      expect(store.setActiveRunId("run-1")).toBe(false);
+    });
   });
 
   describe("bootstrap", () => {

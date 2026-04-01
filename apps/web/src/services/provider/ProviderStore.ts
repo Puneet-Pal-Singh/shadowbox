@@ -208,8 +208,12 @@ export class ProviderStore {
    * Returns true if bootstrap should be called.
    */
   setActiveRunId(runId: string): boolean {
-    if (!runId || this.activeRunId === runId) {
+    if (!runId) {
       return false;
+    }
+
+    if (this.activeRunId === runId) {
+      return this.state.status === "idle";
     }
 
     const previousRunId = this.activeRunId;
@@ -224,7 +228,7 @@ export class ProviderStore {
       this.reset();
       return true;
     }
-    return false;
+    return true;
   }
 
   /**
