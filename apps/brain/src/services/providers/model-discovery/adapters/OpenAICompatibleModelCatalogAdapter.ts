@@ -41,7 +41,10 @@ export class OpenAICompatibleModelCatalogAdapter implements ProviderModelCatalog
       this.modelsEndpoint,
       credentialContext.apiKey,
     );
-    const payload = await parseOpenAICompatibleModels(response, this.providerId);
+    const payload = await parseOpenAICompatibleModels(
+      response,
+      this.providerId,
+    );
     return payload.data.map((item) => ({
       id: item.id,
       name: item.id,
@@ -49,9 +52,14 @@ export class OpenAICompatibleModelCatalogAdapter implements ProviderModelCatalog
     }));
   }
 
-  async fetchPage(input: ProviderModelFetchPageInput): Promise<ProviderModelPageFetchResult> {
+  async fetchPage(
+    input: ProviderModelFetchPageInput,
+  ): Promise<ProviderModelPageFetchResult> {
     const offset = parseCursor(input.cursor);
-    const models = await this.fetchAll(input.providerId, input.credentialContext);
+    const models = await this.fetchAll(
+      input.providerId,
+      input.credentialContext,
+    );
     const nextOffset = offset + input.limit;
     return {
       providerId: input.providerId,
@@ -97,6 +105,7 @@ async function requestOpenAICompatibleModels(
       signal: abortController.signal,
     });
   } catch (error) {
+    clearTimeout(timeoutId);
     if (isAbortError(error)) {
       throw new ProviderModelDiscoveryApiError(
         `${providerId} models request timed out.`,
@@ -107,14 +116,30 @@ async function requestOpenAICompatibleModels(
       `${providerId} models request failed due to network error: ${toErrorMessage(error)}`,
       { retryable: true },
     );
-  } finally {
-    clearTimeout(timeoutId);
   }
+  clearTimeout(timeoutId);
 
   if (!response.ok) {
+    let errorDetail = "";
+    try {
+      const errorBody = (await response.clone().json()) as
+        | {
+            error?: { message?: string };
+          }
+        | undefined;
+      if (errorBody?.error?.message) {
+        errorDetail = ` - ${errorBody.error.message}`;
+      }
+    } catch {
+      /* ignore parse errors */
+    }
+    const isAuthError = response.status === 401 || response.status === 403;
     throw new ProviderModelDiscoveryApiError(
-      `${providerId} models request failed with status ${response.status}.`,
-      { status: response.status, retryable: response.status >= 500 },
+      `${providerId} models request failed with status ${response.status}${errorDetail}`,
+      {
+        status: response.status,
+        retryable: response.status >= 500 || isAuthError,
+      },
     );
   }
   return response;
