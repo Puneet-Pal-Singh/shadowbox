@@ -11,6 +11,7 @@ import type { ZodSchema } from "zod";
 import type { LLMUsage } from "@shadowbox/execution-engine/runtime/cost";
 import type { RuntimeProvider } from "./ModelSelectionPolicy";
 import type { SDKModelConfig } from "./SDKModelFactory";
+import { inferUsageProvider } from "./usage-provider";
 
 /**
  * Result from structured generation with usage
@@ -62,5 +63,46 @@ export function prepareStructuredGenerationRequest<T>({
     messages,
     schema,
     temperature,
+  };
+}
+
+export function getStructuredGenerationMode(
+  provider: RuntimeProvider,
+): "json" | undefined {
+  if (
+    provider === "anthropic-native" ||
+    provider === "google-native"
+  ) {
+    return undefined;
+  }
+
+  return "json";
+}
+
+export function buildStructuredGenerationUsage({
+  provider,
+  providerId,
+  baseURL,
+  model,
+  usage,
+}: {
+  provider: RuntimeProvider;
+  providerId?: string;
+  baseURL: string;
+  model: string;
+  usage?: {
+    promptTokens?: number;
+    completionTokens?: number;
+  };
+}): LLMUsage {
+  const promptTokens = usage?.promptTokens ?? 0;
+  const completionTokens = usage?.completionTokens ?? 0;
+
+  return {
+    provider: inferUsageProvider(provider, providerId, baseURL),
+    model,
+    promptTokens,
+    completionTokens,
+    totalTokens: promptTokens + completionTokens,
   };
 }

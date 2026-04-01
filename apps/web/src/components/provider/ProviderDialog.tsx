@@ -64,6 +64,7 @@ export function ProviderDialog({
     loadProviderModels,
     applySessionSelection,
     toggleModelVisibility,
+    setProviderVisibleModels,
   } = useProviderStore();
 
   const [activeTab, setActiveTab] = useState<
@@ -291,6 +292,7 @@ export function ProviderDialog({
         providerModels={providerModels}
         visibleModelIds={visibleModelIds}
         onToggleModelVisibility={toggleModelVisibility}
+        onSetProviderVisibleModels={setProviderVisibleModels}
         onConnectProvider={() => setManageOnlyView("connect")}
       />
     );
@@ -451,6 +453,7 @@ export function ProviderDialog({
         providerModels={providerModels}
         visibleModelIds={visibleModelIds}
         onToggleModelVisibility={toggleModelVisibility}
+        onSetProviderVisibleModels={setProviderVisibleModels}
         onConnectProvider={() => {
           setShowManageModels(false);
           setActiveTab("available");

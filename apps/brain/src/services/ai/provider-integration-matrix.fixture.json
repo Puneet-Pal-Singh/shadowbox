@@ -1,5 +1,5 @@
 {
-  "version": "2026-03-22",
+  "version": "2026-04-01",
   "owners": {
     "schemas": "packages/shared-types/src/provider.ts",
     "apiBoundary": "apps/brain/src/controllers/ProviderController.ts",
@@ -59,6 +59,60 @@
       "supportsValidate": true,
       "supportsDisconnect": true,
       "strictModelGuard": true
+    },
+    {
+      "providerId": "anthropic",
+      "supportsConnect": true,
+      "supportsCatalog": true,
+      "supportsValidate": true,
+      "supportsDisconnect": true,
+      "strictModelGuard": true
+    },
+    {
+      "providerId": "mistral",
+      "supportsConnect": true,
+      "supportsCatalog": false,
+      "supportsValidate": true,
+      "supportsDisconnect": true,
+      "strictModelGuard": true,
+      "notes": [
+        "hidden from launch catalog until product support is completed"
+      ]
+    },
+    {
+      "providerId": "google",
+      "supportsConnect": true,
+      "supportsCatalog": true,
+      "supportsValidate": true,
+      "supportsDisconnect": true,
+      "strictModelGuard": true
+    },
+    {
+      "providerId": "together",
+      "supportsConnect": true,
+      "supportsCatalog": true,
+      "supportsValidate": true,
+      "supportsDisconnect": true,
+      "strictModelGuard": true
+    },
+    {
+      "providerId": "cerebras",
+      "supportsConnect": true,
+      "supportsCatalog": true,
+      "supportsValidate": true,
+      "supportsDisconnect": true,
+      "strictModelGuard": true
+    },
+    {
+      "providerId": "cohere",
+      "supportsConnect": true,
+      "supportsCatalog": false,
+      "supportsValidate": false,
+      "supportsDisconnect": true,
+      "strictModelGuard": true,
+      "notes": [
+        "hidden from launch catalog until custom-http runtime inference is wired"
+      ]
     }
   ],
   "tests": [

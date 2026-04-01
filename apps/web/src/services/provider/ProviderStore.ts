@@ -208,8 +208,12 @@ export class ProviderStore {
    * Returns true if bootstrap should be called.
    */
   setActiveRunId(runId: string): boolean {
-    if (!runId || this.activeRunId === runId) {
+    if (!runId) {
       return false;
+    }
+
+    if (this.activeRunId === runId) {
+      return this.state.status === "idle";
     }
 
     const previousRunId = this.activeRunId;
@@ -224,7 +228,7 @@ export class ProviderStore {
       this.reset();
       return true;
     }
-    return false;
+    return true;
   }
 
   /**
@@ -379,6 +383,27 @@ export class ProviderStore {
     return result;
   }
 
+  private seedHiddenVisibilityForNewProvider(
+    preferences: ProviderPreference,
+    providerId: string,
+    hasExistingCredential: boolean,
+  ): Record<string, Set<string>> | null {
+    if (hasExistingCredential) {
+      return null;
+    }
+
+    if (
+      Object.prototype.hasOwnProperty.call(preferences.visibleModelIds, providerId)
+    ) {
+      return null;
+    }
+
+    return {
+      ...this.copyVisibleModelIds(this.state.visibleModelIds),
+      [providerId]: new Set<string>(),
+    };
+  }
+
   /**
    * Connect a new credential
    */
@@ -410,12 +435,15 @@ export class ProviderStore {
 
     try {
       const credential = await this.apiClient.connectCredential(req);
-      const preferences = await this.apiClient.getPreferences();
+      let preferences = await this.apiClient.getPreferences();
       if (this.isStaleEpoch("connectCredential", epoch)) {
         return;
       }
 
       let providerModels = this.state.providerModels;
+      const hasExistingCredential = this.state.credentials.some(
+        (existing) => existing.providerId === req.providerId,
+      );
       try {
         const models = await this.loadProviderModels(req.providerId);
         if (this.isStaleEpoch("connectCredential", epoch)) {
@@ -427,6 +455,18 @@ export class ProviderStore {
         };
       } catch (error) {
         this.log("[connectCredential] model preload failed", { error });
+      }
+
+      const nextVisibleModelIds = this.seedHiddenVisibilityForNewProvider(
+        preferences,
+        req.providerId,
+        hasExistingCredential,
+      );
+      if (nextVisibleModelIds) {
+        preferences = {
+          ...preferences,
+          visibleModelIds: serializeVisibleModelIds(nextVisibleModelIds),
+        };
       }
 
       const defaultModelId =
@@ -462,11 +502,23 @@ export class ProviderStore {
       this.setState({
         credentials: nextCredentials,
         preferences,
+        ...(nextVisibleModelIds
+          ? { visibleModelIds: nextVisibleModelIds }
+          : undefined),
         providerModels,
         selectedProviderId: selection.selectedProviderId,
         selectedCredentialId: selection.selectedCredentialId,
         selectedModelId: selection.selectedModelId,
       });
+
+      if (nextVisibleModelIds) {
+        void this.persistVisibilityChanges(nextVisibleModelIds).catch((error) => {
+          this.log("[connectCredential] failed to persist hidden model defaults", {
+            providerId: req.providerId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
+      }
 
       this.log("[connectCredential] Success", {
         credentialId: credential.credentialId,
@@ -1063,14 +1115,8 @@ export class ProviderStore {
   private async persistVisibilityChanges(
     visibleModelIds: Record<string, Set<string>>,
   ): Promise<void> {
-    // Convert Sets to arrays for API
-    const visibleModelIdsRecord: Record<string, string[]> = {};
-    for (const [providerId, modelSet] of Object.entries(visibleModelIds)) {
-      visibleModelIdsRecord[providerId] = Array.from(modelSet);
-    }
-
     await this.updatePreferences({
-      visibleModelIds: visibleModelIdsRecord,
+      visibleModelIds: serializeVisibleModelIds(visibleModelIds),
     });
   }
 
@@ -1300,6 +1346,16 @@ export class ProviderStore {
     });
     return true;
   }
+}
+
+function serializeVisibleModelIds(
+  visibleModelIds: Record<string, Set<string>>,
+): Record<string, string[]> {
+  const visibleModelIdsRecord: Record<string, string[]> = {};
+  for (const [providerId, modelSet] of Object.entries(visibleModelIds)) {
+    visibleModelIdsRecord[providerId] = Array.from(modelSet);
+  }
+  return visibleModelIdsRecord;
 }
 
 function mergeModelsById(

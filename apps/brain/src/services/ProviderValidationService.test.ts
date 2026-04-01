@@ -183,6 +183,34 @@ describe("ProviderValidationService", () => {
     });
   });
 
+  describe("Expanded BYOK provider validation", () => {
+    it("accepts google as a known runtime-selected provider", () => {
+      const result = ProviderValidationService.validate(
+        withSecurityConfig({
+          LLM_PROVIDER: "google",
+        }),
+      );
+
+      expect(result.valid).toBe(true);
+      expect(result.errors).toHaveLength(0);
+    });
+
+    it("accepts together, cerebras, mistral, and cohere as known BYOK providers", () => {
+      const providerIds = ["together", "cerebras", "mistral", "cohere"] as const;
+
+      for (const providerId of providerIds) {
+        const result = ProviderValidationService.validate(
+          withSecurityConfig({
+            LLM_PROVIDER: providerId,
+          }),
+        );
+
+        expect(result.valid).toBe(true);
+        expect(result.errors).toHaveLength(0);
+      }
+    });
+  });
+
   describe("Error formatting", () => {
     it("should format errors as readable message when critical config missing", () => {
       const env: Env = {

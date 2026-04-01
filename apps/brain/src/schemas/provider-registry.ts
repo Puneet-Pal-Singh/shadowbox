@@ -11,14 +11,18 @@ interface ProviderRegistryEntry {
   apiKeyPrefixes: readonly string[];
 }
 
-export const PROVIDER_REGISTRY: Record<ProviderId, ProviderRegistryEntry> =
-  {
-    axis: { apiKeyPrefixes: [] },
-    openrouter: { apiKeyPrefixes: ["sk-or-"] },
-    openai: { apiKeyPrefixes: ["sk-"] },
-    groq: { apiKeyPrefixes: ["gsk_"] },
-    google: { apiKeyPrefixes: ["AIza"] },
-  };
+export const PROVIDER_REGISTRY: Record<ProviderId, ProviderRegistryEntry> = {
+  axis: { apiKeyPrefixes: [] },
+  openrouter: { apiKeyPrefixes: ["sk-or-"] },
+  openai: { apiKeyPrefixes: ["sk-"] },
+  groq: { apiKeyPrefixes: ["gsk_"] },
+  anthropic: { apiKeyPrefixes: ["sk-ant-"] },
+  google: { apiKeyPrefixes: ["AIza"] },
+  together: { apiKeyPrefixes: [] },
+  cerebras: { apiKeyPrefixes: [] },
+  mistral: { apiKeyPrefixes: [] },
+  cohere: { apiKeyPrefixes: [] },
+};
 
 export function isProviderApiKeyFormatValid(
   providerId: ProviderId,
@@ -27,6 +31,9 @@ export function isProviderApiKeyFormatValid(
   const prefixes = PROVIDER_REGISTRY[providerId]?.apiKeyPrefixes;
   if (!prefixes) {
     return false;
+  }
+  if (prefixes.length === 0) {
+    return apiKey.length > 0;
   }
   return prefixes.some((prefix) => apiKey.startsWith(prefix));
 }

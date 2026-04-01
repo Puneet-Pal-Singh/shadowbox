@@ -6,6 +6,11 @@ import {
   findBuiltinProvider,
   isKnownProvider,
   getKnownProviderIds,
+  getLaunchSupportedProviders,
+  getLaunchVisibleProviders,
+  isLaunchSupportedProvider,
+  isLaunchVisibleProvider,
+  type ProviderRegistryEntry,
 } from "./registry.js";
 
 describe("Provider Registry", () => {
@@ -98,5 +103,61 @@ describe("Provider Capabilities", () => {
       expect(axis.authModes).toEqual(["platform_managed"]);
       expect(axis.defaultModelId).toBe("z-ai/glm-4.5-air:free");
     }
+  });
+
+  it("marks hidden and launch-ready providers truthfully", () => {
+    expect(BUILTIN_PROVIDERS.google?.launchStage).toBe("supported");
+    expect(BUILTIN_PROVIDERS.cohere?.launchStage).toBe("hidden");
+    expect(BUILTIN_PROVIDERS.mistral?.launchStage).toBe("hidden");
+    expect(BUILTIN_PROVIDERS.together?.launchStage).toBe("supported");
+    expect(BUILTIN_PROVIDERS.cerebras?.launchStage).toBe("supported");
+  });
+});
+
+describe("Provider launch visibility", () => {
+  it("returns only launch-visible providers from the builtin registry", () => {
+    const visibleProviderIds = getLaunchVisibleProviders().map(
+      (entry) => entry.providerId,
+    );
+
+    expect(visibleProviderIds).toContain("openai");
+    expect(visibleProviderIds).toContain("anthropic");
+    expect(visibleProviderIds).toContain("google");
+    expect(visibleProviderIds).toContain("together");
+    expect(visibleProviderIds).toContain("cerebras");
+    expect(visibleProviderIds).not.toContain("mistral");
+    expect(visibleProviderIds).not.toContain("cohere");
+  });
+
+  it("returns only launch-supported providers from the builtin registry", () => {
+    const supportedProviderIds = getLaunchSupportedProviders().map(
+      (entry) => entry.providerId,
+    );
+
+    expect(supportedProviderIds).toContain("groq");
+    expect(supportedProviderIds).toContain("google");
+    expect(supportedProviderIds).toContain("together");
+    expect(supportedProviderIds).toContain("cerebras");
+    expect(supportedProviderIds).not.toContain("mistral");
+    expect(supportedProviderIds).not.toContain("cohere");
+  });
+
+  it("treats missing launch stage as hidden for raw object literals", () => {
+    const rawEntry: ProviderRegistryEntry = {
+      providerId: "test-provider",
+      displayName: "Test Provider",
+      authModes: ["api_key"],
+      capabilities: {
+        streaming: true,
+        tools: true,
+        jsonMode: true,
+        structuredOutputs: true,
+      },
+      adapterFamily: "openai-compatible" as const,
+      modelSource: "static" as const,
+    };
+
+    expect(isLaunchVisibleProvider(rawEntry)).toBe(false);
+    expect(isLaunchSupportedProvider(rawEntry)).toBe(false);
   });
 });

@@ -7,7 +7,10 @@
 
 import React, { useMemo, useState, useRef, useEffect } from "react";
 import { Search, AlertCircle, CheckCircle, ArrowLeft } from "lucide-react";
-import { type ProviderRegistryEntry } from "@repo/shared-types";
+import {
+  isLaunchSupportedProvider,
+  type ProviderRegistryEntry,
+} from "@repo/shared-types";
 import { getProviderRecoveryAdvice } from "../../lib/provider-recovery.js";
 
 /**
@@ -55,7 +58,9 @@ export function ConnectProviderChooser({
     return catalog
       .filter(
         (entry) =>
-          entry.providerId !== "axis" && entry.authModes.includes("api_key")
+          entry.providerId !== "axis" &&
+          entry.authModes.includes("api_key") &&
+          isLaunchSupportedProvider(entry)
       )
       .map((entry) => ({
         entry,

@@ -54,9 +54,10 @@ export class ProviderValidationService {
     // Provider validation: known providers get specific checks, unknown get warnings
     const provider = (env.LLM_PROVIDER ?? "litellm").trim().toLowerCase();
     const activeProviderId = options?.activeProviderId?.trim().toLowerCase();
-    const providerToValidate = activeProviderId && activeProviderId.length > 0
-      ? activeProviderId
-      : provider;
+    const providerToValidate =
+      activeProviderId && activeProviderId.length > 0
+        ? activeProviderId
+        : provider;
 
     // Check provider configuration
     switch (providerToValidate) {
@@ -74,6 +75,18 @@ export class ProviderValidationService {
       case "axis":
       case "openrouter":
       case "groq":
+      case "google":
+      case "together":
+      case "cerebras":
+      case "mistral":
+        break;
+      case "cohere":
+        errors.push({
+          code: "UNSUPPORTED_PROVIDER",
+          message: 'LLM_PROVIDER "cohere" is not executable yet',
+          severity: "error",
+          hint: "Cohere remains hidden until the custom-http runtime lane is wired.",
+        });
         break;
       default:
         if (activeProviderId) {
@@ -127,7 +140,8 @@ export class ProviderValidationService {
     if (!env.BYOK_CREDENTIAL_ENCRYPTION_KEY) {
       errors.push({
         code: "MISSING_BYOK_ENCRYPTION_KEY",
-        message: "BYOK_CREDENTIAL_ENCRYPTION_KEY is required for credential storage",
+        message:
+          "BYOK_CREDENTIAL_ENCRYPTION_KEY is required for credential storage",
         severity: "error",
         hint: "Set BYOK_CREDENTIAL_ENCRYPTION_KEY for encrypted BYOK credential persistence",
       });

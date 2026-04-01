@@ -1,6 +1,7 @@
 import { generateObject, type CoreMessage, type CoreTool } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createAnthropic } from "@ai-sdk/anthropic";
+import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import type { ZodSchema } from "zod";
 import type { Env } from "../types/ai";
 import type {
@@ -23,10 +24,11 @@ import {
   getSDKModelConfig,
   type SDKModelConfig,
   type GenerateStructuredResult,
+  buildStructuredGenerationUsage,
+  getStructuredGenerationMode,
 } from "./ai";
 import { resolveSelectionWithPreferences } from "./ai/preference-selection";
 import { DefaultAdapterService } from "./ai/DefaultAdapterService";
-import { inferUsageProvider } from "./ai/usage-provider";
 import { consumeAxisQuotaIfNeeded } from "./ai/axis-quota";
 import { AXIS_PROVIDER_ID } from "./providers/axis";
 import { normalizeFinishCallback } from "./ai/normalize-finish-callback";
@@ -160,31 +162,18 @@ export class AIService {
       messages,
       schema,
       temperature,
-      // OpenRouter often rejects tool-based structured generation for some models.
-      // Force JSON mode for OpenAI-compatible providers to avoid `tool_choice` routing failures.
-      ...(selection.runtimeProvider === "anthropic-native"
-        ? {}
-        : { mode: "json" as const }),
+      mode: getStructuredGenerationMode(selection.runtimeProvider),
     });
-
-    // Standardize usage
-    const usage: LLMUsage = {
-      provider: inferUsageProvider(
-        selection.runtimeProvider,
-        selection.providerId,
-        sdkModelConfig.baseURL,
-      ),
-      model: selection.model,
-      promptTokens: result.usage?.promptTokens ?? 0,
-      completionTokens: result.usage?.completionTokens ?? 0,
-      totalTokens:
-        (result.usage?.promptTokens ?? 0) +
-        (result.usage?.completionTokens ?? 0),
-    };
 
     return {
       object: result.object,
-      usage,
+      usage: buildStructuredGenerationUsage({
+        provider: selection.runtimeProvider,
+        providerId: selection.providerId,
+        baseURL: sdkModelConfig.baseURL,
+        model: selection.model,
+        usage: result.usage,
+      }),
     };
   }
 
@@ -252,6 +241,14 @@ export class AIService {
 
     if (provider === "anthropic-native") {
       const client = createAnthropic({
+        apiKey,
+        baseURL,
+      });
+      return client(model);
+    }
+
+    if (provider === "google-native") {
+      const client = createGoogleGenerativeAI({
         apiKey,
         baseURL,
       });

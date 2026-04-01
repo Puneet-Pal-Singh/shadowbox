@@ -1352,6 +1352,7 @@ function mapCatalogEntryToRegistry(
     providerId: entry.providerId,
     displayName: entry.displayName,
     authModes: builtin?.authModes ?? ["api_key"],
+    launchStage: builtin?.launchStage ?? "supported",
     adapterFamily: builtin?.adapterFamily ?? "custom-http",
     capabilities: {
       streaming: entry.capabilities.streaming,

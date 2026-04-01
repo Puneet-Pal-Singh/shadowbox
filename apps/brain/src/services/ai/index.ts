@@ -32,6 +32,7 @@ export {
   createLiteLLMAdapter,
   createOpenAIAdapter,
   createAnthropicAdapter,
+  createGoogleAdapter,
   createOpenRouterAdapter,
   createGroqAdapter,
 } from "./ProviderAdapterFactory";
@@ -49,6 +50,8 @@ export {
 export {
   type GenerateStructuredResult,
   type StructuredGenerationRequest,
+  buildStructuredGenerationUsage,
+  getStructuredGenerationMode,
   prepareStructuredGenerationRequest,
 } from "./StructuredGenerationService";
 

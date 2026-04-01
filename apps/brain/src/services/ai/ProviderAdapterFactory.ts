@@ -16,6 +16,7 @@ import {
   LiteLLMAdapter,
   OpenAIAdapter,
   AnthropicAdapter,
+  GoogleAdapter,
   type ProviderAdapter,
 } from "../providers";
 import {
@@ -24,6 +25,7 @@ import {
   resolveOpenRouterKey,
   resolveGroqKey,
   resolveLiteLLMKey,
+  resolveProviderKey,
 } from "./ProviderKeyValidator";
 import { ValidationError } from "../../domain/errors";
 
@@ -106,6 +108,25 @@ export function createAnthropicAdapter(
 
   return new AnthropicAdapter({
     apiKey,
+    defaultModel: env.DEFAULT_MODEL,
+  });
+}
+
+export function createGoogleAdapter(
+  env: Env,
+  overrideApiKey?: string,
+  baseURL?: string,
+): GoogleAdapter {
+  const resolved = resolveProviderKey(
+    "google-native",
+    env,
+    overrideApiKey,
+    "google",
+  );
+
+  return new GoogleAdapter({
+    apiKey: resolved.apiKey,
+    baseURL: baseURL ?? resolved.baseURL,
     defaultModel: env.DEFAULT_MODEL,
   });
 }

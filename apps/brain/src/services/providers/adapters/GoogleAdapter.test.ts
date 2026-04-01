@@ -1,0 +1,166 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { GoogleAdapter } from "./GoogleAdapter";
+
+const mockGenerateText = vi.fn();
+const mockStreamText = vi.fn();
+const mockGoogleModel = vi.fn();
+const mockCreateGoogleGenerativeAI = vi.fn(() => mockGoogleModel);
+
+vi.mock("ai", () => ({
+  generateText: (...args: unknown[]) => mockGenerateText(...args),
+  streamText: (...args: unknown[]) => mockStreamText(...args),
+}));
+
+vi.mock("@ai-sdk/google", () => ({
+  createGoogleGenerativeAI: (...args: unknown[]) =>
+    mockCreateGoogleGenerativeAI(...args),
+}));
+
+describe("GoogleAdapter", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGoogleModel.mockReturnValue({ modelId: "gemini-2.5-flash-lite" });
+  });
+
+  it("normalizes malformed empty candidate responses from Gemini", async () => {
+    mockGenerateText.mockRejectedValueOnce({
+      statusCode: 200,
+      responseBody: JSON.stringify({
+        candidates: [
+          {
+            content: {
+              role: "model",
+            },
+            finishReason: "STOP",
+            index: 0,
+          },
+        ],
+        usageMetadata: {
+          promptTokenCount: 3338,
+          totalTokenCount: 3338,
+        },
+      }),
+    });
+
+    const adapter = new GoogleAdapter({
+      apiKey: "google-test-key",
+    });
+
+    const result = await adapter.generate({
+      messages: [],
+      model: "gemini-2.5-flash-lite",
+      tools: {},
+      temperature: 0.2,
+    });
+
+    expect(result).toEqual({
+      content: "",
+      usage: {
+        provider: "google",
+        model: "gemini-2.5-flash-lite",
+        promptTokens: 3338,
+        completionTokens: 0,
+        totalTokens: 3338,
+        raw: {
+          promptTokens: 3338,
+          completionTokens: 0,
+        },
+      },
+      finishReason: "stop",
+      toolCalls: [],
+    });
+  });
+
+  it("rethrows non-recoverable generation errors", async () => {
+    mockGenerateText.mockRejectedValueOnce(new Error("boom"));
+
+    const adapter = new GoogleAdapter({
+      apiKey: "google-test-key",
+    });
+
+    await expect(
+      adapter.generate({
+        messages: [],
+        model: "gemini-2.5-flash-lite",
+      }),
+    ).rejects.toThrow("boom");
+  });
+
+  it("streams text, tool calls, and finish chunks incrementally", async () => {
+    mockStreamText.mockReturnValueOnce({
+      fullStream: createAsyncIterable([
+        { type: "text-delta", textDelta: "Hello " },
+        {
+          type: "tool-call",
+          toolName: "read_file",
+          args: { path: "README.md" },
+        },
+        { type: "finish", finishReason: "stop" },
+      ]),
+      usage: Promise.resolve({ promptTokens: 10, completionTokens: 4 }),
+      text: Promise.resolve("Hello "),
+      finishReason: Promise.resolve("stop"),
+      toolCalls: Promise.resolve([
+        { toolName: "read_file", args: { path: "README.md" } },
+      ]),
+    });
+
+    const adapter = new GoogleAdapter({
+      apiKey: "google-test-key",
+    });
+
+    const stream = adapter.generateStream({
+      messages: [],
+      model: "gemini-2.5-flash-lite",
+    });
+
+    await expect(stream.next()).resolves.toMatchObject({
+      done: false,
+      value: { type: "text", content: "Hello " },
+    });
+    await expect(stream.next()).resolves.toMatchObject({
+      done: false,
+      value: {
+        type: "tool-call",
+        toolCall: {
+          toolName: "read_file",
+          args: { path: "README.md" },
+        },
+      },
+    });
+    await expect(stream.next()).resolves.toMatchObject({
+      done: false,
+      value: {
+        type: "finish",
+        finishReason: "stop",
+      },
+    });
+    await expect(stream.next()).resolves.toMatchObject({
+      done: true,
+      value: {
+        content: "Hello ",
+        finishReason: "stop",
+        toolCalls: [
+          { toolName: "read_file", args: { path: "README.md" } },
+        ],
+        usage: {
+          provider: "google",
+          model: "gemini-2.5-flash-lite",
+          promptTokens: 10,
+          completionTokens: 4,
+          totalTokens: 14,
+        },
+      },
+    });
+  });
+});
+
+function createAsyncIterable<T>(items: T[]): AsyncIterable<T> {
+  return {
+    async *[Symbol.asyncIterator]() {
+      for (const item of items) {
+        yield item;
+      }
+    },
+  };
+}

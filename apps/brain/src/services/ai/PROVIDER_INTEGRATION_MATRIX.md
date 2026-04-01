@@ -21,14 +21,22 @@ This document defines provider behavior expectations, ownership, and test covera
 
 ## Provider Capability Matrix
 
-| Provider   | Connection       | Catalog   | Validate       | Disconnect     | Strict Model Guard |
-| ---------- | ---------------- | --------- | -------------- | -------------- | ------------------ |
-| axis       | Platform-managed | Supported | Not applicable | Not applicable | Curated            |
-| openrouter | Supported        | Supported | Supported      | Supported      | Enforced           |
-| openai     | Supported        | Supported | Supported      | Supported      | Enforced           |
-| groq       | Supported        | Supported | Supported      | Supported      | Enforced           |
+| Provider   | Connection       | Catalog        | Validate       | Disconnect     | Strict Model Guard |
+| ---------- | ---------------- | -------------- | -------------- | -------------- | ------------------ |
+| axis       | Platform-managed | Supported      | Not applicable | Not applicable | Curated            |
+| openrouter | Supported        | Supported      | Supported      | Supported      | Enforced           |
+| openai     | Supported        | Supported      | Supported      | Supported      | Enforced           |
+| groq       | Supported        | Supported      | Supported      | Supported      | Enforced           |
+| anthropic  | Supported        | Supported      | Supported      | Supported      | Enforced           |
+| google     | Supported        | Supported      | Supported      | Supported      | Enforced           |
+| together   | Supported        | Supported      | Supported      | Supported      | Enforced           |
+| cerebras   | Supported        | Supported      | Supported      | Supported      | Enforced           |
+| mistral    | Supported        | Hidden         | Supported      | Supported      | Enforced           |
+| cohere     | Supported        | Hidden         | Not supported  | Supported      | Enforced           |
 
 Axis remains a managed starter provider with curated free models and quota behavior, but its execution-lane admission is still governed by the same capability-driven policy as other providers.
+
+Cohere and Mistral remain hidden from the launch catalog until product support is completed.
 
 ## Execution Lane Policy (Plan 82)
 
@@ -38,7 +46,7 @@ Lane admission is **capability-driven only**. No lane rejection is based on prov
 | ------------------------------ | ------------------------------------------------------------------------------------------------- |
 | `chat_only`                    | Always supported                                                                                  |
 | `single_agent_action`          | `capabilities.tools`                                                                              |
-| `structured_planning_required` | `capabilities.tools` + `capabilities.structuredOutputs` + JSON mode or anthropic-native transport |
+| `structured_planning_required` | `capabilities.tools` + `capabilities.structuredOutputs` + JSON mode or anthropic-native/google-native transport |
 
 `latencyTier` and `reliabilityTier` are **informational only** (telemetry, UI hints). They do not influence lane admission.
 

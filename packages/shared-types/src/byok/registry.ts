@@ -34,6 +34,13 @@ export const ProviderAuthModeSchema = z.enum([
 ]);
 export type ProviderAuthMode = z.infer<typeof ProviderAuthModeSchema>;
 
+export const ProviderLaunchStageSchema = z.enum([
+  "supported",
+  "coming_soon",
+  "hidden",
+]);
+export type ProviderLaunchStage = z.infer<typeof ProviderLaunchStageSchema>;
+
 /**
  * ProviderRegistryEntry - Metadata for a provider (static catalog)
  *
@@ -49,6 +56,9 @@ export const ProviderRegistryEntrySchema = z.object({
 
   /** Auth modes supported by this provider */
   authModes: z.array(ProviderAuthModeSchema).min(1),
+
+  /** Launch catalog exposure state for truthful provider UX. */
+  launchStage: ProviderLaunchStageSchema.optional(),
 
   /** Optional base URL for custom endpoints */
   baseUrl: z.string().url().optional(),
@@ -120,6 +130,7 @@ export const BUILTIN_PROVIDERS: Record<string, ProviderRegistryEntry> = {
     providerId: "axis",
     displayName: "Axis",
     authModes: ["platform_managed"],
+    launchStage: "supported",
     baseUrl: "https://openrouter.ai/api/v1",
     capabilities: {
       streaming: true,
@@ -136,6 +147,7 @@ export const BUILTIN_PROVIDERS: Record<string, ProviderRegistryEntry> = {
     providerId: "openai",
     displayName: "OpenAI",
     authModes: ["api_key"],
+    launchStage: "supported",
     baseUrl: "https://api.openai.com/v1",
     keyFormat: {
       prefix: "sk-",
@@ -161,6 +173,7 @@ export const BUILTIN_PROVIDERS: Record<string, ProviderRegistryEntry> = {
     providerId: "groq",
     displayName: "Groq",
     authModes: ["api_key"],
+    launchStage: "supported",
     baseUrl: "https://api.groq.com/openai/v1",
     keyFormat: {
       prefix: "gsk_",
@@ -186,6 +199,7 @@ export const BUILTIN_PROVIDERS: Record<string, ProviderRegistryEntry> = {
     providerId: "openrouter",
     displayName: "OpenRouter",
     authModes: ["api_key"],
+    launchStage: "supported",
     baseUrl: "https://openrouter.ai/api/v1",
     keyFormat: {
       prefix: "sk-or-",
@@ -214,6 +228,7 @@ export const BUILTIN_PROVIDERS: Record<string, ProviderRegistryEntry> = {
     providerId: "anthropic",
     displayName: "Anthropic",
     authModes: ["api_key"],
+    launchStage: "supported",
     baseUrl: "https://api.anthropic.com/v1",
     keyFormat: {
       prefix: "sk-ant-",
@@ -238,6 +253,7 @@ export const BUILTIN_PROVIDERS: Record<string, ProviderRegistryEntry> = {
     providerId: "cohere",
     displayName: "Cohere",
     authModes: ["api_key"],
+    launchStage: "hidden",
     baseUrl: "https://api.cohere.com",
     keyFormat: {
       description: "Cohere API key",
@@ -256,6 +272,7 @@ export const BUILTIN_PROVIDERS: Record<string, ProviderRegistryEntry> = {
     providerId: "mistral",
     displayName: "Mistral AI",
     authModes: ["api_key"],
+    launchStage: "hidden",
     baseUrl: "https://api.mistral.ai/v1",
     keyFormat: {
       description: "Mistral API key",
@@ -268,13 +285,20 @@ export const BUILTIN_PROVIDERS: Record<string, ProviderRegistryEntry> = {
     },
     adapterFamily: "openai-compatible",
     modelSource: "remote",
+    modelsEndpoint: "https://api.mistral.ai/v1/models",
+    validation: {
+      endpoint: "https://api.mistral.ai/v1/models",
+      authMode: "bearer",
+    },
+    defaultModelId: "mistral-large-latest",
   },
 
   google: {
     providerId: "google",
     displayName: "Google AI (Gemini)",
     authModes: ["api_key"],
-    baseUrl: "https://generativelanguage.googleapis.com",
+    launchStage: "supported",
+    baseUrl: "https://generativelanguage.googleapis.com/v1beta",
     keyFormat: {
       description: "Google AI API key",
     },
@@ -290,6 +314,55 @@ export const BUILTIN_PROVIDERS: Record<string, ProviderRegistryEntry> = {
     validation: {
       endpoint: "https://generativelanguage.googleapis.com/v1beta/models",
       authMode: "googleApiKey",
+    },
+    defaultModelId: "gemini-2.5-flash-lite",
+  },
+
+  together: {
+    providerId: "together",
+    displayName: "Together AI",
+    authModes: ["api_key"],
+    launchStage: "supported",
+    baseUrl: "https://api.together.xyz/v1",
+    keyFormat: {
+      description: "Together AI API key",
+    },
+    capabilities: {
+      streaming: true,
+      tools: true,
+      jsonMode: true,
+      structuredOutputs: true,
+    },
+    adapterFamily: "openai-compatible",
+    modelSource: "remote",
+    modelsEndpoint: "https://api.together.xyz/v1/models",
+    validation: {
+      endpoint: "https://api.together.xyz/v1/models",
+      authMode: "bearer",
+    },
+  },
+
+  cerebras: {
+    providerId: "cerebras",
+    displayName: "Cerebras",
+    authModes: ["api_key"],
+    launchStage: "supported",
+    baseUrl: "https://api.cerebras.ai/v1",
+    keyFormat: {
+      description: "Cerebras API key",
+    },
+    capabilities: {
+      streaming: true,
+      tools: true,
+      jsonMode: true,
+      structuredOutputs: true,
+    },
+    adapterFamily: "openai-compatible",
+    modelSource: "remote",
+    modelsEndpoint: "https://api.cerebras.ai/v1/models",
+    validation: {
+      endpoint: "https://api.cerebras.ai/v1/models",
+      authMode: "bearer",
     },
   },
 };
@@ -336,4 +409,26 @@ export function isKnownProvider(providerId: string): boolean {
  */
 export function getKnownProviderIds(): string[] {
   return Object.keys(BUILTIN_PROVIDERS);
+}
+
+export function isLaunchVisibleProvider(entry: ProviderRegistryEntry): boolean {
+  return (entry.launchStage ?? "hidden") !== "hidden";
+}
+
+export function isLaunchSupportedProvider(
+  entry: ProviderRegistryEntry,
+): boolean {
+  return (entry.launchStage ?? "hidden") === "supported";
+}
+
+export function getLaunchVisibleProviders(
+  entries: ProviderRegistryEntry[] = Object.values(BUILTIN_PROVIDERS),
+): ProviderRegistryEntry[] {
+  return entries.filter(isLaunchVisibleProvider);
+}
+
+export function getLaunchSupportedProviders(
+  entries: ProviderRegistryEntry[] = Object.values(BUILTIN_PROVIDERS),
+): ProviderRegistryEntry[] {
+  return entries.filter(isLaunchSupportedProvider);
 }

@@ -13,6 +13,7 @@ describe("ConnectProviderChooser", () => {
       providerId: "openai",
       displayName: "OpenAI",
       authModes: ["api_key"],
+      launchStage: "supported",
       adapterFamily: "openai-compatible",
       capabilities: {
         streaming: true,
@@ -30,6 +31,7 @@ describe("ConnectProviderChooser", () => {
       providerId: "anthropic",
       displayName: "Anthropic",
       authModes: ["api_key"],
+      launchStage: "supported",
       adapterFamily: "anthropic-native",
       capabilities: {
         streaming: true,
@@ -47,6 +49,7 @@ describe("ConnectProviderChooser", () => {
       providerId: "groq",
       displayName: "Groq",
       authModes: ["api_key"],
+      launchStage: "supported",
       adapterFamily: "openai-compatible",
       capabilities: {
         streaming: true,
@@ -60,6 +63,7 @@ describe("ConnectProviderChooser", () => {
       providerId: "axis",
       displayName: "Axis",
       authModes: ["platform_managed"],
+      launchStage: "supported",
       adapterFamily: "openai-compatible",
       capabilities: {
         streaming: true,
@@ -68,6 +72,48 @@ describe("ConnectProviderChooser", () => {
         structuredOutputs: true,
       },
       modelSource: "static",
+    },
+    {
+      providerId: "google",
+      displayName: "Google AI (Gemini)",
+      authModes: ["api_key"],
+      launchStage: "supported",
+      adapterFamily: "google-native",
+      capabilities: {
+        streaming: true,
+        tools: true,
+        jsonMode: false,
+        structuredOutputs: true,
+      },
+      modelSource: "remote",
+    },
+    {
+      providerId: "together",
+      displayName: "Together AI",
+      authModes: ["api_key"],
+      launchStage: "supported",
+      adapterFamily: "openai-compatible",
+      capabilities: {
+        streaming: true,
+        tools: true,
+        jsonMode: true,
+        structuredOutputs: true,
+      },
+      modelSource: "remote",
+    },
+    {
+      providerId: "cerebras",
+      displayName: "Cerebras",
+      authModes: ["api_key"],
+      launchStage: "supported",
+      adapterFamily: "openai-compatible",
+      capabilities: {
+        streaming: true,
+        tools: true,
+        jsonMode: true,
+        structuredOutputs: true,
+      },
+      modelSource: "remote",
     },
   ];
 
@@ -87,6 +133,9 @@ describe("ConnectProviderChooser", () => {
     expect(screen.getByText("OpenAI")).toBeInTheDocument();
     expect(screen.getByText("Anthropic")).toBeInTheDocument();
     expect(screen.getByText("Groq")).toBeInTheDocument();
+    expect(screen.getByText("Google AI (Gemini)")).toBeInTheDocument();
+    expect(screen.getByText("Together AI")).toBeInTheDocument();
+    expect(screen.getByText("Cerebras")).toBeInTheDocument();
     expect(screen.queryByText("Axis")).not.toBeInTheDocument();
   });
 
@@ -110,6 +159,18 @@ describe("ConnectProviderChooser", () => {
     );
 
     expect(screen.queryByText("Axis")).not.toBeInTheDocument();
+  });
+
+  it("excludes hidden launch providers from the connect list", () => {
+    const hiddenCatalog = mockCatalog.map((entry) =>
+      entry.providerId === "google"
+        ? { ...entry, launchStage: "hidden" as const }
+        : entry
+    );
+
+    render(<ConnectProviderChooser catalog={hiddenCatalog} {...mockHandlers} />);
+
+    expect(screen.queryByText("Google AI (Gemini)")).not.toBeInTheDocument();
   });
 
   it("filters providers by query", () => {
