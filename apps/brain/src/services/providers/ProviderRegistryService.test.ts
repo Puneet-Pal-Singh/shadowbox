@@ -4,6 +4,30 @@ import { ProviderRegistryService } from "./ProviderRegistryService";
 describe("ProviderRegistryService execution profiles", () => {
   const service = new ProviderRegistryService();
 
+  it("exposes only truthful launch-visible providers for the public catalog", () => {
+    const providerIds = service.listLaunchVisibleProviders().map(
+      (provider) => provider.providerId,
+    );
+
+    expect(providerIds).toContain("axis");
+    expect(providerIds).toContain("anthropic");
+    expect(providerIds).toContain("google");
+    expect(providerIds).toContain("mistral");
+    expect(providerIds).toContain("together");
+    expect(providerIds).toContain("cerebras");
+    expect(providerIds).not.toContain("cohere");
+  });
+
+  it("admits google-native providers to structured planning when capabilities qualify", () => {
+    const profile = service.getExecutionProfile("google", "gemini-2.5-flash-lite");
+
+    expect(profile).toMatchObject({
+      supportedLanes: {
+        structured_planning_required: { supported: true },
+      },
+    });
+  });
+
   it("admits Axis free models to action and structured lanes when capabilities qualify", () => {
     const profile = service.getExecutionProfile(
       "axis",
