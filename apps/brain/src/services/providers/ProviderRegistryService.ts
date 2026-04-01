@@ -1,5 +1,7 @@
 import {
   getBuiltinRegistry,
+  isLaunchSupportedProvider,
+  isLaunchVisibleProvider,
   type ProviderAdapterFamily,
   type ProviderCapabilityFlags,
   type ProviderRegistryEntry,
@@ -39,6 +41,14 @@ export class ProviderRegistryService {
 
   listProviders(): ProviderRegistryEntry[] {
     return Array.from(this.entriesById.values()).map((entry) => ({ ...entry }));
+  }
+
+  listLaunchVisibleProviders(): ProviderRegistryEntry[] {
+    return this.listProviders().filter(isLaunchVisibleProvider);
+  }
+
+  listLaunchSupportedProviders(): ProviderRegistryEntry[] {
+    return this.listProviders().filter(isLaunchSupportedProvider);
   }
 
   listProviderIds(): string[] {
@@ -215,7 +225,8 @@ function supportsStructuredPlanningTransport(
 ): boolean {
   return (
     provider.capabilities.jsonMode ||
-    provider.adapterFamily === "anthropic-native"
+    provider.adapterFamily === "anthropic-native" ||
+    provider.adapterFamily === "google-native"
   );
 }
 
@@ -247,5 +258,3 @@ function resolveReliabilityTier(
   }
   return "baseline";
 }
-
-
