@@ -38,9 +38,9 @@ describe("ProviderCatalogService", () => {
     expect(providerIds).toContain("axis");
     expect(providerIds).toContain("anthropic");
     expect(providerIds).toContain("google");
-    expect(providerIds).toContain("mistral");
     expect(providerIds).toContain("together");
     expect(providerIds).toContain("cerebras");
+    expect(providerIds).not.toContain("mistral");
     expect(providerIds).not.toContain("cohere");
     expect(modelDiscoveryService.getDiscoveredModels).not.toHaveBeenCalledWith(
       "cohere",

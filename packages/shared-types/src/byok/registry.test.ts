@@ -108,7 +108,7 @@ describe("Provider Capabilities", () => {
   it("marks hidden and launch-ready providers truthfully", () => {
     expect(BUILTIN_PROVIDERS.google?.launchStage).toBe("supported");
     expect(BUILTIN_PROVIDERS.cohere?.launchStage).toBe("hidden");
-    expect(BUILTIN_PROVIDERS.mistral?.launchStage).toBe("supported");
+    expect(BUILTIN_PROVIDERS.mistral?.launchStage).toBe("hidden");
     expect(BUILTIN_PROVIDERS.together?.launchStage).toBe("supported");
     expect(BUILTIN_PROVIDERS.cerebras?.launchStage).toBe("supported");
   });
@@ -123,9 +123,9 @@ describe("Provider launch visibility", () => {
     expect(visibleProviderIds).toContain("openai");
     expect(visibleProviderIds).toContain("anthropic");
     expect(visibleProviderIds).toContain("google");
-    expect(visibleProviderIds).toContain("mistral");
     expect(visibleProviderIds).toContain("together");
     expect(visibleProviderIds).toContain("cerebras");
+    expect(visibleProviderIds).not.toContain("mistral");
     expect(visibleProviderIds).not.toContain("cohere");
   });
 
@@ -136,9 +136,9 @@ describe("Provider launch visibility", () => {
 
     expect(supportedProviderIds).toContain("groq");
     expect(supportedProviderIds).toContain("google");
-    expect(supportedProviderIds).toContain("mistral");
     expect(supportedProviderIds).toContain("together");
     expect(supportedProviderIds).toContain("cerebras");
+    expect(supportedProviderIds).not.toContain("mistral");
     expect(supportedProviderIds).not.toContain("cohere");
   });
 

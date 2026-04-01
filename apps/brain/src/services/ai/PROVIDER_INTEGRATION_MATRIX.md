@@ -31,12 +31,12 @@ This document defines provider behavior expectations, ownership, and test covera
 | google     | Supported        | Supported      | Supported      | Supported      | Enforced           |
 | together   | Supported        | Supported      | Supported      | Supported      | Enforced           |
 | cerebras   | Supported        | Supported      | Supported      | Supported      | Enforced           |
-| mistral    | Supported        | Supported      | Supported      | Supported      | Enforced           |
+| mistral    | Supported        | Hidden         | Supported      | Supported      | Enforced           |
 | cohere     | Supported        | Hidden         | Not supported  | Supported      | Enforced           |
 
 Axis remains a managed starter provider with curated free models and quota behavior, but its execution-lane admission is still governed by the same capability-driven policy as other providers.
 
-Cohere remains hidden until the `custom-http` runtime lane exists.
+Cohere and Mistral remain hidden from the launch catalog until product support is completed.
 
 ## Execution Lane Policy (Plan 82)
 

@@ -71,10 +71,13 @@
     {
       "providerId": "mistral",
       "supportsConnect": true,
-      "supportsCatalog": true,
+      "supportsCatalog": false,
       "supportsValidate": true,
       "supportsDisconnect": true,
-      "strictModelGuard": true
+      "strictModelGuard": true,
+      "notes": [
+        "hidden from launch catalog until product support is completed"
+      ]
     },
     {
       "providerId": "google",

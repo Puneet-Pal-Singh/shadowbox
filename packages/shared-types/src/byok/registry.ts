@@ -272,7 +272,7 @@ export const BUILTIN_PROVIDERS: Record<string, ProviderRegistryEntry> = {
     providerId: "mistral",
     displayName: "Mistral AI",
     authModes: ["api_key"],
-    launchStage: "supported",
+    launchStage: "hidden",
     baseUrl: "https://api.mistral.ai/v1",
     keyFormat: {
       description: "Mistral API key",
