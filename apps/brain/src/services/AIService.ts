@@ -1,6 +1,7 @@
 import { generateObject, type CoreMessage, type CoreTool } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createAnthropic } from "@ai-sdk/anthropic";
+import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import type { ZodSchema } from "zod";
 import type { Env } from "../types/ai";
 import type {
@@ -161,8 +162,9 @@ export class AIService {
       schema,
       temperature,
       // OpenRouter often rejects tool-based structured generation for some models.
-      // Force JSON mode for OpenAI-compatible providers to avoid `tool_choice` routing failures.
-      ...(selection.runtimeProvider === "anthropic-native"
+      // Native structured-output providers handle schema enforcement without OpenAI JSON mode.
+      ...(selection.runtimeProvider === "anthropic-native" ||
+      selection.runtimeProvider === "google-native"
         ? {}
         : { mode: "json" as const }),
     });
@@ -252,6 +254,14 @@ export class AIService {
 
     if (provider === "anthropic-native") {
       const client = createAnthropic({
+        apiKey,
+        baseURL,
+      });
+      return client(model);
+    }
+
+    if (provider === "google-native") {
+      const client = createGoogleGenerativeAI({
         apiKey,
         baseURL,
       });
