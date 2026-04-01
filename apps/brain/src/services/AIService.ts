@@ -24,10 +24,11 @@ import {
   getSDKModelConfig,
   type SDKModelConfig,
   type GenerateStructuredResult,
+  buildStructuredGenerationUsage,
+  getStructuredGenerationMode,
 } from "./ai";
 import { resolveSelectionWithPreferences } from "./ai/preference-selection";
 import { DefaultAdapterService } from "./ai/DefaultAdapterService";
-import { inferUsageProvider } from "./ai/usage-provider";
 import { consumeAxisQuotaIfNeeded } from "./ai/axis-quota";
 import { AXIS_PROVIDER_ID } from "./providers/axis";
 import { normalizeFinishCallback } from "./ai/normalize-finish-callback";
@@ -161,32 +162,18 @@ export class AIService {
       messages,
       schema,
       temperature,
-      // OpenRouter often rejects tool-based structured generation for some models.
-      // Native structured-output providers handle schema enforcement without OpenAI JSON mode.
-      ...(selection.runtimeProvider === "anthropic-native" ||
-      selection.runtimeProvider === "google-native"
-        ? {}
-        : { mode: "json" as const }),
+      mode: getStructuredGenerationMode(selection.runtimeProvider),
     });
-
-    // Standardize usage
-    const usage: LLMUsage = {
-      provider: inferUsageProvider(
-        selection.runtimeProvider,
-        selection.providerId,
-        sdkModelConfig.baseURL,
-      ),
-      model: selection.model,
-      promptTokens: result.usage?.promptTokens ?? 0,
-      completionTokens: result.usage?.completionTokens ?? 0,
-      totalTokens:
-        (result.usage?.promptTokens ?? 0) +
-        (result.usage?.completionTokens ?? 0),
-    };
 
     return {
       object: result.object,
-      usage,
+      usage: buildStructuredGenerationUsage({
+        provider: selection.runtimeProvider,
+        providerId: selection.providerId,
+        baseURL: sdkModelConfig.baseURL,
+        model: selection.model,
+        usage: result.usage,
+      }),
     };
   }
 

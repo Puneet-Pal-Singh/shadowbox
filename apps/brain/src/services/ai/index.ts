@@ -50,6 +50,8 @@ export {
 export {
   type GenerateStructuredResult,
   type StructuredGenerationRequest,
+  buildStructuredGenerationUsage,
+  getStructuredGenerationMode,
   prepareStructuredGenerationRequest,
 } from "./StructuredGenerationService";
 
