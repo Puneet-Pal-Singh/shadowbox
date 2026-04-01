@@ -32,6 +32,7 @@ export {
   createLiteLLMAdapter,
   createOpenAIAdapter,
   createAnthropicAdapter,
+  createGoogleAdapter,
   createOpenRouterAdapter,
   createGroqAdapter,
 } from "./ProviderAdapterFactory";
