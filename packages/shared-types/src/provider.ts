@@ -12,7 +12,12 @@ export const PROVIDER_IDS = [
   "openrouter",
   "openai",
   "groq",
+  "anthropic",
   "google",
+  "together",
+  "cerebras",
+  "mistral",
+  "cohere",
 ] as const;
 
 export const ProviderIdSchema = z
