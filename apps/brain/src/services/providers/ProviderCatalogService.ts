@@ -38,7 +38,7 @@ export class ProviderCatalogService {
   ) {}
 
   async getCatalog(): Promise<ProviderCatalogResponse> {
-    const registryProviders = this.registryService.listProviders();
+    const registryProviders = this.registryService.listLaunchVisibleProviders();
     const providers: ProviderCatalogEntry[] = [];
 
     for (const provider of registryProviders) {
