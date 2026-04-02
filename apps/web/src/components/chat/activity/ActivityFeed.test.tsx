@@ -411,6 +411,59 @@ describe("ActivityFeed", () => {
       screen.getByText(/Retry the task or switch to a faster or more reliable model\./i),
     ).toBeInTheDocument();
   });
+
+  it("renders model-stall recovery updates from activity metadata", () => {
+    render(
+      <ActivityFeed
+        feed={{
+          runId: "run-model-stall",
+          sessionId: "session-model-stall",
+          status: "COMPLETED",
+          items: [
+            {
+              id: "text-1",
+              runId: "run-model-stall",
+              sessionId: "session-model-stall",
+              turnId: "turn-1",
+              kind: ACTIVITY_PART_KINDS.TEXT,
+              createdAt: "2026-03-24T10:00:00.000Z",
+              updatedAt: "2026-03-24T10:00:00.000Z",
+              source: "brain",
+              role: "user",
+              content: "update the footer",
+            },
+            {
+              id: "text-2",
+              runId: "run-model-stall",
+              sessionId: "session-model-stall",
+              turnId: "turn-1",
+              kind: ACTIVITY_PART_KINDS.TEXT,
+              createdAt: "2026-03-24T10:00:01.000Z",
+              updatedAt: "2026-03-24T10:00:01.000Z",
+              source: "brain",
+              role: "assistant",
+              content:
+                "The model did not return a usable next action for this edit request.\nNo file was changed in this run.",
+              metadata: {
+                code: "TASK_MODEL_NO_ACTION",
+                retryable: true,
+                resumeHint:
+                  "Retry the task or switch to a faster or more reliable model.",
+                resumeActions: ["retry", "switch_model"],
+              },
+            },
+          ],
+        }}
+        isLoading={false}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /worked for \d+s/i }));
+    expect(screen.getByText("Model stalled")).toBeInTheDocument();
+    expect(
+      screen.getByText(/Retry the task or switch to a faster or more reliable model\./i),
+    ).toBeInTheDocument();
+  });
 });
 
 function createFeedSnapshot(): ActivityFeedSnapshot {
