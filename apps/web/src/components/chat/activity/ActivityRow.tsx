@@ -126,7 +126,11 @@ function hasRecoveryMetadata(metadata: Record<string, unknown> | undefined): boo
   }
 
   const code = typeof metadata?.code === "string" ? metadata.code : undefined;
-  return code === "INCOMPLETE_MUTATION" || code === "TASK_EXECUTION_TIMEOUT";
+  return (
+    code === "INCOMPLETE_MUTATION" ||
+    code === "TASK_EXECUTION_TIMEOUT" ||
+    code === "TASK_MODEL_NO_ACTION"
+  );
 }
 
 function TextRow({
@@ -336,6 +340,10 @@ function parseRecoveryMetadata(metadata: Record<string, unknown> | undefined): {
 function deriveRecoveryLabel(code: string | undefined): string {
   if (code === "TASK_EXECUTION_TIMEOUT") {
     return "Recoverable timeout";
+  }
+
+  if (code === "TASK_MODEL_NO_ACTION") {
+    return "Model stalled";
   }
 
   if (code === "INCOMPLETE_MUTATION") {
