@@ -250,7 +250,11 @@ function mapTranscriptPhaseToCommentaryPhase(
 
 function isRecoveryMessage(metadata: Record<string, unknown> | undefined): boolean {
   const code = typeof metadata?.code === "string" ? metadata.code : undefined;
-  return code === "INCOMPLETE_MUTATION" || code === "TASK_EXECUTION_TIMEOUT";
+  return (
+    code === "INCOMPLETE_MUTATION" ||
+    code === "TASK_EXECUTION_TIMEOUT" ||
+    code === "TASK_MODEL_NO_ACTION"
+  );
 }
 
 function createRequestedToolPart(
