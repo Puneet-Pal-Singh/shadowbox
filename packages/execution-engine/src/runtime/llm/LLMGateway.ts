@@ -54,6 +54,43 @@ export class LLMTimeoutError extends Error {
   }
 }
 
+export class LLMUnusableResponseError extends Error {
+  readonly providerId: string;
+  readonly modelId: string;
+  readonly anomalyCode: string;
+  readonly finishReason?: string;
+  readonly statusCode?: number;
+  readonly usage?: LLMUsage;
+
+  constructor(input: {
+    providerId: string;
+    modelId: string;
+    anomalyCode: string;
+    finishReason?: string;
+    statusCode?: number;
+    usage?: LLMUsage;
+  }) {
+    const {
+      providerId,
+      modelId,
+      anomalyCode,
+      finishReason,
+      statusCode,
+      usage,
+    } = input;
+    super(
+      `[llm/gateway] Unusable response from ${providerId}:${modelId} (${anomalyCode})`,
+    );
+    this.name = "LLMUnusableResponseError";
+    this.providerId = providerId;
+    this.modelId = modelId;
+    this.anomalyCode = anomalyCode;
+    this.finishReason = finishReason;
+    this.statusCode = statusCode;
+    this.usage = usage;
+  }
+}
+
 export class LLMGateway implements ILLMGateway {
   constructor(private deps: LLMGatewayDependencies) {}
 
@@ -72,21 +109,38 @@ export class LLMGateway implements ILLMGateway {
         this.createIdempotencyKey(req.context, estimatedUsage),
     );
 
-    const result = await this.withTimeout(
-      this.deps.aiService.generateText({
-        messages: req.messages,
-        model: req.model,
-        providerId: req.providerId,
-        temperature: req.temperature,
-        system: req.system,
-        tools: req.tools,
-      }),
-      {
-        timeoutMs: this.resolveTextTimeoutMs(req),
-        phase: req.context.phase,
-        operation: "text",
-      },
-    );
+    let result: Awaited<ReturnType<LLMRuntimeAIService["generateText"]>>;
+    try {
+      result = await this.withTimeout(
+        this.deps.aiService.generateText({
+          messages: req.messages,
+          model: req.model,
+          providerId: req.providerId,
+          temperature: req.temperature,
+          system: req.system,
+          tools: req.tools,
+        }),
+        {
+          timeoutMs: this.resolveTextTimeoutMs(req),
+          phase: req.context.phase,
+          operation: "text",
+        },
+      );
+    } catch (error) {
+      const unusableResponse = this.normalizeUnusableResponseError(
+        error,
+        req,
+        estimatedUsage,
+      );
+      if (unusableResponse) {
+        await this.persistCostEvent(
+          requestWithIdempotency,
+          this.normalizeUsage(unusableResponse.usage ?? estimatedUsage, req.model),
+        );
+        throw unusableResponse;
+      }
+      throw error;
+    }
 
     const usage = this.normalizeUsage(result.usage, req.model);
     await this.persistCostEvent(requestWithIdempotency, usage);
@@ -100,6 +154,7 @@ export class LLMGateway implements ILLMGateway {
     return {
       text: result.text,
       usage,
+      finishReason: result.finishReason,
       toolCalls,
     };
   }
@@ -335,6 +390,25 @@ export class LLMGateway implements ILLMGateway {
       completionTokens,
       totalTokens,
     };
+  }
+
+  private normalizeUnusableResponseError(
+    error: unknown,
+    req: LLMTextRequest,
+    fallbackUsage: LLMUsage,
+  ): LLMUnusableResponseError | null {
+    if (!(error instanceof LLMUnusableResponseError)) {
+      return null;
+    }
+
+    return new LLMUnusableResponseError({
+      providerId: error.providerId || req.providerId || fallbackUsage.provider,
+      modelId: error.modelId || req.model || fallbackUsage.model,
+      anomalyCode: error.anomalyCode,
+      finishReason: error.finishReason,
+      statusCode: error.statusCode,
+      usage: error.usage ?? fallbackUsage,
+    });
   }
 
   private async persistCostEvent(

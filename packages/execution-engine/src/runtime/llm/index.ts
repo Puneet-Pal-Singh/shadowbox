@@ -1,6 +1,7 @@
 export {
   LLMGateway,
   LLMTimeoutError,
+  LLMUnusableResponseError,
   ProviderCapabilityError,
   UnknownPricingError,
   type LLMGatewayDependencies,
