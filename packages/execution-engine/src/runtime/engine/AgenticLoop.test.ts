@@ -4,6 +4,7 @@ import {
   SessionBudgetExceededError,
 } from "../cost/index.js";
 import type { ILLMGateway } from "../llm/index.js";
+import { LLMUnusableResponseError } from "../llm/index.js";
 import type { IBudgetManager } from "../cost/index.js";
 import type { TaskExecutor } from "../orchestration/index.js";
 import { AgenticLoop, type AgenticLoopConfig } from "./AgenticLoop.js";
@@ -146,6 +147,41 @@ describe("AgenticLoop - Bounded Agentic Tool Chaining", () => {
 
       expect(result.stopReason).toBe("incomplete_mutation");
       expect(llmGateway.generateText).toHaveBeenCalledTimes(1);
+    });
+
+    it("retries once when the provider returns an unusable response", async () => {
+      vi.mocked(llmGateway.generateText!)
+        .mockRejectedValueOnce(
+          new LLMUnusableResponseError({
+            providerId: "google",
+            modelId: "gemini-2.5-flash-lite",
+            anomalyCode: "EMPTY_CANDIDATE",
+            finishReason: "stop",
+            statusCode: 200,
+          }),
+        )
+        .mockResolvedValueOnce({
+          text: "Done",
+          toolCalls: [],
+          finishReason: "stop",
+          usage: {
+            provider: "google",
+            model: "gemini-2.5-flash-lite",
+            promptTokens: 10,
+            completionTokens: 5,
+            totalTokens: 15,
+          },
+        });
+
+      const result = await loop.execute(
+        [{ role: "user", content: "inspect the repository" }],
+        {},
+        { agentType: "coding" },
+      );
+
+      expect(result.stopReason).toBe("llm_stop");
+      expect(result.llmRetryCount).toBe(1);
+      expect(llmGateway.generateText).toHaveBeenCalledTimes(2);
     });
 
     it("should stop with budget_exceeded when budget is over", async () => {
