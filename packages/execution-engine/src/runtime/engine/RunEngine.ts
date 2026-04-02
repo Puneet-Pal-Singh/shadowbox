@@ -66,8 +66,11 @@ import {
   transitionRunToFailed,
 } from "./RunStatusPolicy.js";
 import {
+  buildTaskModelNoActionMetadata,
+  buildTaskModelNoActionSummary,
   buildAgenticLoopFinalMessage,
   getAgenticLoopMaxSteps,
+  recordRecoveredAgenticLoopMetadata,
   recordAgenticLoopMetadata,
 } from "./RunAgenticLoopPolicy.js";
 import {
@@ -84,7 +87,10 @@ import {
 import { resetRecyclableRun } from "./RunRecyclableResetPolicy.js";
 import { applyReviewerPassIfEnabled } from "./RunReviewerPassPolicy.js";
 import { RunEventRecorder, RunEventRepository } from "../events/index.js";
-import { LLMTimeoutError } from "../llm/LLMGateway.js";
+import {
+  LLMTimeoutError,
+  LLMUnusableResponseError,
+} from "../llm/LLMGateway.js";
 import { getToolPresentation } from "../lib/ToolPresentation.js";
 import { detectsMutation } from "./detectsMutation.js";
 
@@ -886,31 +892,79 @@ export class RunEngine implements IRunEngine {
     loop: AgenticLoop,
     error: unknown,
   ): Promise<Response | null> {
-    if (!isTaskExecutionTimeout(error)) {
+    if (isTaskExecutionTimeout(error)) {
+      const stats = loop.getStats();
+      const requiresMutation = detectsMutation(prompt);
+      const noFileChanged =
+        !requiresMutation || stats.completedMutatingToolCount === 0;
+      const text = buildTaskExecutionTimeoutMessage({
+        requiresMutation,
+        noFileChanged,
+        toolExecutionCount: stats.toolExecutionCount,
+        stepsExecuted: stats.stepsExecuted,
+      });
+      await this.runEventRecorder.recordRunProgress(
+        RUN_WORKFLOW_STEPS.EXECUTION,
+        "Recoverable timeout",
+        "The model timed out before choosing the next action.",
+        "completed",
+      );
+
+      return this.completeRunWithRecoveredAssistantMessage(
+        run,
+        text,
+        buildTaskExecutionTimeoutMetadata(),
+        "TASK_EXECUTION_TIMEOUT: Model timed out before choosing the next action.",
+      );
+    }
+
+    if (!isTaskExecutionUnusableResponse(error)) {
       return null;
     }
 
     const stats = loop.getStats();
     const requiresMutation = detectsMutation(prompt);
-    const noFileChanged = !requiresMutation || stats.completedMutatingToolCount === 0;
-    const text = buildTaskExecutionTimeoutMessage({
-      requiresMutation,
-      noFileChanged,
-      toolExecutionCount: stats.toolExecutionCount,
+    const recoveryStopReason =
+      requiresMutation && stats.completedMutatingToolCount === 0
+        ? "incomplete_mutation"
+        : "llm_stop";
+
+    recordRecoveredAgenticLoopMetadata(run, {
+      stopReason: recoveryStopReason,
       stepsExecuted: stats.stepsExecuted,
+      toolExecutionCount: stats.toolExecutionCount,
+      failedToolCount: stats.failedToolCount,
+      requiresMutation,
+      completedMutatingToolCount: stats.completedMutatingToolCount,
+      completedReadOnlyToolCount: stats.completedReadOnlyToolCount,
+      llmRetryCount: stats.llmRetryCount,
+      terminalLlmIssue:
+        stats.terminalLlmIssue ?? buildTerminalLlmIssueFromError(error),
+      recoveryCode: "TASK_MODEL_NO_ACTION",
+      toolLifecycle: stats.toolLifecycle,
     });
+
     await this.runEventRecorder.recordRunProgress(
       RUN_WORKFLOW_STEPS.EXECUTION,
-      "Recoverable timeout",
-      "The model timed out before choosing the next action.",
+      "Recoverable model issue",
+      "The model returned an unusable response before the run could continue.",
       "completed",
     );
 
     return this.completeRunWithRecoveredAssistantMessage(
       run,
-      text,
-      buildTaskExecutionTimeoutMetadata(),
-      "TASK_EXECUTION_TIMEOUT: Model timed out before choosing the next action.",
+      buildTaskModelNoActionSummary({
+        requiresMutation,
+        stepsExecuted: stats.stepsExecuted,
+        toolExecutionCount: stats.toolExecutionCount,
+        failedToolCount: stats.failedToolCount,
+        toolLifecycle: stats.toolLifecycle,
+      }),
+      buildTaskModelNoActionMetadata(),
+      buildUnusableResponseErrorMetadata(
+        error,
+        stats.terminalLlmIssue ?? buildTerminalLlmIssueFromError(error),
+      ),
     );
   }
 
@@ -997,6 +1051,12 @@ function isTaskExecutionTimeout(error: unknown): boolean {
   );
 }
 
+function isTaskExecutionUnusableResponse(
+  error: unknown,
+): error is LLMUnusableResponseError {
+  return error instanceof LLMUnusableResponseError;
+}
+
 function buildTaskExecutionTimeoutMessage(input: {
   requiresMutation: boolean;
   noFileChanged: boolean;
@@ -1030,4 +1090,36 @@ function buildTaskExecutionTimeoutMetadata(): Record<string, unknown> {
       "Retry the task or switch to a faster or more reliable model.",
     resumeActions: ["retry", "switch_model"],
   };
+}
+
+function buildTerminalLlmIssueFromError(
+  error: LLMUnusableResponseError,
+): NonNullable<Run["metadata"]["agenticLoop"]>["terminalLlmIssue"] {
+  return {
+    type: "unusable_response",
+    providerId: error.providerId,
+    modelId: error.modelId,
+    anomalyCode: error.anomalyCode,
+    finishReason: error.finishReason,
+    statusCode: error.statusCode,
+    attempts: 2,
+  };
+}
+
+function buildUnusableResponseErrorMetadata(
+  error: LLMUnusableResponseError,
+  terminalLlmIssue:
+    | NonNullable<Run["metadata"]["agenticLoop"]>["terminalLlmIssue"]
+    | undefined,
+): string {
+  const attempts = terminalLlmIssue?.attempts ?? 2;
+  const finishReason =
+    terminalLlmIssue?.finishReason ?? error.finishReason ?? "unknown";
+  const statusCode = terminalLlmIssue?.statusCode ?? error.statusCode;
+  const suffix =
+    typeof statusCode === "number"
+      ? ` finishReason=${finishReason} statusCode=${statusCode}`
+      : ` finishReason=${finishReason}`;
+
+  return `TASK_MODEL_NO_ACTION: Unusable model response after ${attempts} attempt(s). provider=${error.providerId} model=${error.modelId} anomaly=${error.anomalyCode}${suffix}`;
 }
