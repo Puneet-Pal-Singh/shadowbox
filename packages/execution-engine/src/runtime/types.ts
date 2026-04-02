@@ -131,6 +131,16 @@ export interface AgenticLoopToolLifecycleEvent {
   metadata?: ToolActivityMetadata;
 }
 
+export interface AgenticLoopTerminalLlmIssue {
+  type: "unusable_response";
+  providerId: string;
+  modelId: string;
+  anomalyCode: string;
+  attempts: number;
+  finishReason?: string;
+  statusCode?: number;
+}
+
 /**
  * RunManifest - Immutable run configuration determined at creation.
  *
@@ -183,6 +193,9 @@ export interface RunMetadata {
     requiresMutation?: boolean;
     completedMutatingToolCount?: number;
     completedReadOnlyToolCount?: number;
+    recoveryCode?: "INCOMPLETE_MUTATION" | "TASK_MODEL_NO_ACTION";
+    llmRetryCount?: number;
+    terminalLlmIssue?: AgenticLoopTerminalLlmIssue;
     toolLifecycle?: AgenticLoopToolLifecycleEvent[];
     completedAt?: string;
   };
