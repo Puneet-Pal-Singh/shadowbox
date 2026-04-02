@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   buildAgenticLoopFinalOutput,
+  buildAgenticLoopFinalMessage,
   getAgenticLoopMaxSteps,
   recordAgenticLoopMetadata,
+  TASK_MODEL_NO_ACTION_CODE,
 } from "./RunAgenticLoopPolicy.js";
 import { Run } from "../run/index.js";
 import type { AgenticLoopResult } from "./AgenticLoop.js";
@@ -253,6 +255,7 @@ describe("RunAgenticLoopPolicy", () => {
     );
     expect(run.metadata.agenticLoop?.requiresMutation).toBe(false);
     expect(run.metadata.agenticLoop?.completedReadOnlyToolCount).toBe(1);
+    expect(run.metadata.agenticLoop?.llmRetryCount).toBe(0);
   });
 
   it("raises the default max steps to support repo discovery flows", () => {
@@ -295,6 +298,66 @@ describe("RunAgenticLoopPolicy", () => {
       "No file changed in this run. Retry with a more specific target file, component, or edit instruction so I can attempt the mutation again.",
     );
     expect(output).not.toContain("Done! I updated the landing page.");
+  });
+
+  it("classifies zero-action mutation runs as recoverable model stalls", () => {
+    const result: AgenticLoopResult = {
+      stopReason: "incomplete_mutation",
+      messages: [
+        { role: "user", content: "update the footer copy" },
+        { role: "assistant", content: "Done." },
+      ],
+      toolExecutionCount: 0,
+      failedToolCount: 0,
+      stepsExecuted: 2,
+      requiresMutation: true,
+      completedMutatingToolCount: 0,
+      completedReadOnlyToolCount: 0,
+      llmRetryCount: 0,
+      toolLifecycle: [],
+    };
+
+    const output = buildAgenticLoopFinalMessage(result);
+
+    expect(output.metadata).toMatchObject({
+      code: TASK_MODEL_NO_ACTION_CODE,
+      retryable: true,
+      resumeActions: ["retry", "switch_model"],
+    });
+    expect(output.text).toContain(
+      "The model did not return a usable next action for this edit request.",
+    );
+    expect(output.text).toContain("No file was changed in this run.");
+    expect(output.text).not.toContain("more specific target file");
+  });
+
+  it("preserves substantive clarification text for zero-action mutation runs", () => {
+    const result: AgenticLoopResult = {
+      stopReason: "incomplete_mutation",
+      messages: [
+        { role: "user", content: "update the footer copy" },
+        {
+          role: "assistant",
+          content:
+            "Which file should I update for the footer copy, or do you want me to choose one?",
+        },
+      ],
+      toolExecutionCount: 0,
+      failedToolCount: 0,
+      stepsExecuted: 1,
+      requiresMutation: true,
+      completedMutatingToolCount: 0,
+      completedReadOnlyToolCount: 0,
+      llmRetryCount: 0,
+      toolLifecycle: [],
+    };
+
+    const output = buildAgenticLoopFinalMessage(result);
+
+    expect(output.metadata).toBeUndefined();
+    expect(output.text).toContain(
+      "Which file should I update for the footer copy, or do you want me to choose one?",
+    );
   });
 
   it("ignores raw standalone tool-call markup when extracting assistant text", () => {
