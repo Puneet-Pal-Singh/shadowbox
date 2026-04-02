@@ -14,12 +14,19 @@ import {
   BudgetExceededError,
   SessionBudgetExceededError,
 } from "../cost/index.js";
-import type { ILLMGateway } from "../llm/index.js";
+import {
+  LLMUnusableResponseError,
+  type ILLMGateway,
+} from "../llm/index.js";
 import type { IBudgetManager } from "../cost/index.js";
 import type { TaskExecutor } from "../orchestration/index.js";
 import { isMutatingGoldenFlowToolName } from "../contracts/CodingToolGateway.js";
 import { Task } from "../task/index.js";
-import type { AgenticLoopToolLifecycleEvent, TaskResult } from "../types.js";
+import type {
+  AgenticLoopTerminalLlmIssue,
+  AgenticLoopToolLifecycleEvent,
+  TaskResult,
+} from "../types.js";
 import { detectsMutation } from "./detectsMutation.js";
 
 export interface AgenticLoopConfig {
@@ -60,6 +67,8 @@ export interface AgenticLoopResult {
   requiresMutation: boolean;
   completedMutatingToolCount: number;
   completedReadOnlyToolCount: number;
+  llmRetryCount?: number;
+  terminalLlmIssue?: AgenticLoopTerminalLlmIssue;
   toolLifecycle: AgenticLoopToolLifecycleEvent[];
 }
 
@@ -104,6 +113,8 @@ export class AgenticLoop {
   private failedToolCount: number = 0;
   private completedMutatingToolCount: number = 0;
   private completedReadOnlyToolCount: number = 0;
+  private llmRetryCount: number = 0;
+  private terminalLlmIssue?: AgenticLoopTerminalLlmIssue;
   private toolLifecycle: AgenticLoopToolLifecycleEvent[] = [];
 
   constructor(
@@ -180,27 +191,30 @@ export class AgenticLoop {
       // Call LLM with tool definitions for this step.
       let response;
       try {
-        response = await this.llmGateway.generateText({
-          context: {
-            runId: this.config.runId,
-            sessionId: this.config.sessionId,
-            agentType: context.agentType,
-            phase: "task",
+        response = await this.generateLoopText(
+          {
+            context: {
+              runId: this.config.runId,
+              sessionId: this.config.sessionId,
+              agentType: context.agentType,
+              phase: "task",
+            },
+            messages,
+            system: buildAgenticLoopSystemPrompt({
+              workspaceContext: context.workspaceContext,
+              finalSynthesisOnly: isFinalSynthesisStep,
+              requiresMutation,
+              completedMutatingToolCount: this.completedMutatingToolCount,
+              completedReadOnlyToolCount: this.completedReadOnlyToolCount,
+              correctiveRetryRequested: correctiveMutationRetryIssued,
+            }),
+            tools: isFinalSynthesisStep ? undefined : tools,
+            model: context.modelId,
+            providerId: context.providerId,
+            temperature: context.temperature,
           },
-          messages,
-          system: buildAgenticLoopSystemPrompt({
-            workspaceContext: context.workspaceContext,
-            finalSynthesisOnly: isFinalSynthesisStep,
-            requiresMutation,
-            completedMutatingToolCount: this.completedMutatingToolCount,
-            completedReadOnlyToolCount: this.completedReadOnlyToolCount,
-            correctiveRetryRequested: correctiveMutationRetryIssued,
-          }),
-          tools: isFinalSynthesisStep ? undefined : tools,
-          model: context.modelId,
-          providerId: context.providerId,
-          temperature: context.temperature,
-        });
+          step,
+        );
       } catch (error) {
         console.error(`[agentic-loop] LLM call failed at step ${step}:`, error);
         throw error;
@@ -404,6 +418,8 @@ export class AgenticLoop {
       requiresMutation,
       completedMutatingToolCount: this.completedMutatingToolCount,
       completedReadOnlyToolCount: this.completedReadOnlyToolCount,
+      llmRetryCount: this.llmRetryCount,
+      terminalLlmIssue: this.terminalLlmIssue,
       toolLifecycle: [...this.toolLifecycle],
     };
   }
@@ -419,6 +435,9 @@ export class AgenticLoop {
       toolLifecycleCount: this.toolLifecycle.length,
       completedMutatingToolCount: this.completedMutatingToolCount,
       completedReadOnlyToolCount: this.completedReadOnlyToolCount,
+      llmRetryCount: this.llmRetryCount,
+      terminalLlmIssue: this.terminalLlmIssue,
+      toolLifecycle: [...this.toolLifecycle],
       maxSteps: this.config.maxSteps,
     };
   }
@@ -432,7 +451,67 @@ export class AgenticLoop {
     this.failedToolCount = 0;
     this.completedMutatingToolCount = 0;
     this.completedReadOnlyToolCount = 0;
+    this.llmRetryCount = 0;
+    this.terminalLlmIssue = undefined;
     this.toolLifecycle = [];
+  }
+
+  private async generateLoopText(
+    request: Parameters<ILLMGateway["generateText"]>[0],
+    step: number,
+  ): ReturnType<ILLMGateway["generateText"]> {
+    const maxAttempts = 2;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        return await this.llmGateway.generateText({
+          ...request,
+          context: {
+            ...request.context,
+            idempotencyKey: buildAgenticLoopTextAttemptIdempotencyKey(
+              this.config.runId,
+              step,
+              attempt,
+            ),
+          },
+        });
+      } catch (error) {
+        if (!(error instanceof LLMUnusableResponseError)) {
+          throw error;
+        }
+
+        if (attempt >= maxAttempts) {
+          this.terminalLlmIssue = {
+            type: "unusable_response",
+            providerId: error.providerId,
+            modelId: error.modelId,
+            anomalyCode: error.anomalyCode,
+            finishReason: error.finishReason,
+            statusCode: error.statusCode,
+            attempts: attempt,
+          };
+          console.warn(
+            `[agentic-loop] Unusable LLM response exhausted retry for run ${this.config.runId}`,
+            this.terminalLlmIssue,
+          );
+          throw error;
+        }
+
+        this.llmRetryCount++;
+        console.warn(
+          `[agentic-loop] Unusable LLM response for run ${this.config.runId}; retrying once`,
+          {
+            providerId: error.providerId,
+            modelId: error.modelId,
+            anomalyCode: error.anomalyCode,
+            finishReason: error.finishReason,
+            statusCode: error.statusCode,
+          },
+        );
+      }
+    }
+
+    throw new Error("[agentic-loop] unreachable LLM retry state");
   }
 
   private createToolTask(
@@ -568,6 +647,14 @@ function buildAgenticLoopSystemPrompt(input: {
   }
 
   return sections.join("\n");
+}
+
+function buildAgenticLoopTextAttemptIdempotencyKey(
+  runId: string,
+  step: number,
+  attempt: number,
+): string {
+  return `agentic-loop:${runId}:step:${step + 1}:attempt:${attempt}`;
 }
 
 function isTerminalToolFailure(toolName: string): boolean {
