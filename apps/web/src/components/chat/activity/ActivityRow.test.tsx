@@ -40,6 +40,29 @@ describe("ActivityRow", () => {
     expect(screen.getByText("Recoverable timeout")).toBeInTheDocument();
     expect(screen.getByText(/Retry the task\./i)).toBeInTheDocument();
   });
+
+  it("renders TASK_MODEL_NO_ACTION rows with a non-blaming label", () => {
+    render(
+      <ActivityRow
+        row={createCommentaryRow({
+          text: "The model did not return a usable next action for this edit request.",
+          metadata: {
+            code: "TASK_MODEL_NO_ACTION",
+            resumeHint:
+              "Retry the task or switch to a faster or more reliable model.",
+            resumeActions: ["retry", "switch_model"],
+          },
+        })}
+        expanded={true}
+        onToggle={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Model stalled")).toBeInTheDocument();
+    expect(
+      screen.getByText(/Retry the task or switch to a faster or more reliable model\./i),
+    ).toBeInTheDocument();
+  });
 });
 
 function createCommentaryRow(
