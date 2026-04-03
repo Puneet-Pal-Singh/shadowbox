@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
-import type { ProviderRegistryEntry } from "@repo/shared-types";
+import {
+  BYOKCredential as ProviderCredential,
+  type ProviderRegistryEntry,
+} from "@repo/shared-types";
 import { ManageModelsDialog } from "./ManageModelsDialog.js";
 
 describe("ManageModelsDialog", () => {
@@ -27,6 +30,24 @@ describe("ManageModelsDialog", () => {
     ],
   };
 
+  const credentials: ProviderCredential[] = [
+    {
+      credentialId: "550e8400-e29b-41d4-a716-446655440000",
+      userId: "user-1",
+      workspaceId: "ws-1",
+      providerId: "google",
+      label: "Gemini",
+      keyFingerprint: "abc123",
+      encryptedSecretJson: "{}",
+      keyVersion: "1",
+      status: "connected",
+      lastValidatedAt: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      deletedAt: null,
+    },
+  ];
+
   it("hides all models when turning a visible provider off", () => {
     const onToggleModelVisibility = vi.fn();
     const onSetProviderVisibleModels = vi.fn();
@@ -36,6 +57,7 @@ describe("ManageModelsDialog", () => {
         isOpen={true}
         onClose={vi.fn()}
         catalog={catalog}
+        credentials={credentials}
         providerModels={providerModels}
         visibleModelIds={{ google: new Set(["gemini-2.5-pro"]) }}
         onToggleModelVisibility={onToggleModelVisibility}
@@ -59,6 +81,7 @@ describe("ManageModelsDialog", () => {
         isOpen={true}
         onClose={vi.fn()}
         catalog={catalog}
+        credentials={credentials}
         providerModels={providerModels}
         visibleModelIds={{ google: new Set() }}
         onToggleModelVisibility={vi.fn()}
@@ -76,5 +99,23 @@ describe("ManageModelsDialog", () => {
       "gemini-2.5-pro",
       "gemini-2.5-flash",
     ]);
+  });
+
+  it("keeps connected provider rows visible while models are still loading", () => {
+    render(
+      <ManageModelsDialog
+        isOpen={true}
+        onClose={vi.fn()}
+        catalog={catalog}
+        credentials={credentials}
+        providerModels={{}}
+        visibleModelIds={{}}
+        onToggleModelVisibility={vi.fn()}
+        onSetProviderVisibleModels={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Google AI (Gemini)")).toBeInTheDocument();
+    expect(screen.getByText(/models loading/i)).toBeInTheDocument();
   });
 });
