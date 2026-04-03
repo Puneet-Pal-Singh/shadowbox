@@ -447,8 +447,17 @@ function correlateActivityTurnsToMessages(
       continue;
     }
 
-    availableConversationTurnIndexes.delete(matchedIndex);
     const matchedConversationTurn = conversationUserTurns[matchedIndex];
+    if (!matchedConversationTurn) {
+      console.warn(
+        "[chat/transcript] Activity turn matched an unavailable user message index.",
+        { activityTurnKey: activityTurn.key, matchedIndex },
+      );
+      availableConversationTurnIndexes.delete(matchedIndex);
+      continue;
+    }
+
+    availableConversationTurnIndexes.delete(matchedIndex);
     const existingAssignments =
       assignments.get(matchedConversationTurn.userMessage.id) ?? [];
     existingAssignments.unshift(activityTurn);
