@@ -13,7 +13,10 @@
 
 import React, { useMemo, useState } from "react";
 import { Search, Plus } from "lucide-react";
-import { type ProviderRegistryEntry } from "@repo/shared-types";
+import {
+  BYOKCredential as ProviderCredential,
+  type ProviderRegistryEntry,
+} from "@repo/shared-types";
 import { type ProviderModelOption } from "../../services/api/providerClient.js";
 
 /**
@@ -23,6 +26,7 @@ interface ProviderGroup {
   providerId: string;
   displayName: string;
   models: ProviderModelOption[];
+  isModelListLoaded: boolean;
 }
 
 /**
@@ -42,18 +46,30 @@ const VISIBILITY_ROW_CLASS =
  */
 function buildProviderGroups(
   catalog: ProviderRegistryEntry[],
+  credentials: ProviderCredential[],
   providerModels: Record<string, ProviderModelOption[]>,
 ): ProviderGroup[] {
+  const connectedProviderIds = new Set(
+    credentials.map((credential) => credential.providerId),
+  );
+
   return catalog
+    .filter(
+      (entry) =>
+        entry.providerId === "axis" || connectedProviderIds.has(entry.providerId),
+    )
     .map((entry) => {
       const models = providerModels[entry.providerId] || [];
       return {
         providerId: entry.providerId,
         displayName: entry.displayName,
         models,
+        isModelListLoaded: Object.prototype.hasOwnProperty.call(
+          providerModels,
+          entry.providerId,
+        ),
       };
-    })
-    .filter((group) => group.models.length > 0);
+    });
 }
 
 /**
@@ -74,14 +90,19 @@ function filterProviderGroups(
   return providerGroups
     .map((group) => ({
       ...group,
-      filteredModels: group.models.filter(
-        (model) =>
-          model.name.toLowerCase().includes(query) ||
-          model.id.toLowerCase().includes(query) ||
-          group.displayName.toLowerCase().includes(query),
-      ),
+      filteredModels: group.displayName.toLowerCase().includes(query)
+        ? group.models
+        : group.models.filter(
+            (model) =>
+              model.name.toLowerCase().includes(query) ||
+              model.id.toLowerCase().includes(query),
+          ),
     }))
-    .filter((group) => group.filteredModels.length > 0);
+    .filter(
+      (group) =>
+        group.filteredModels.length > 0 ||
+        group.displayName.toLowerCase().includes(query),
+    );
 }
 
 function ConnectProviderButton({
@@ -108,6 +129,7 @@ export interface ManageModelsDialogProps {
   isOpen: boolean;
   onClose: () => void;
   catalog: ProviderRegistryEntry[];
+  credentials: ProviderCredential[];
   providerModels: Record<string, ProviderModelOption[]>;
   visibleModelIds: Record<string, Set<string>>;
   onToggleModelVisibility: (providerId: string, modelId: string) => void;
@@ -122,6 +144,7 @@ export function ManageModelsDialog({
   isOpen,
   onClose,
   catalog,
+  credentials,
   providerModels,
   visibleModelIds,
   onToggleModelVisibility,
@@ -132,8 +155,8 @@ export function ManageModelsDialog({
 
   // Build provider groups with visibility state
   const providerGroups = useMemo(() => {
-    return buildProviderGroups(catalog, providerModels);
-  }, [catalog, providerModels]);
+    return buildProviderGroups(catalog, credentials, providerModels);
+  }, [catalog, credentials, providerModels]);
 
   // Filter groups and models based on search
   const filteredGroups = useMemo(() => {
@@ -225,6 +248,7 @@ export function ManageModelsDialog({
                 const isProviderVisible = visibleSet
                   ? visibleSet.size > 0
                   : group.models.length > 0;
+                const canToggleProviderVisibility = group.models.length > 0;
 
                 return (
                   <div key={group.providerId} className="space-y-2.5">
@@ -240,6 +264,7 @@ export function ManageModelsDialog({
                         role="switch"
                         aria-checked={isProviderVisible}
                         aria-label={`${group.displayName} provider visibility`}
+                        disabled={!canToggleProviderVisibility}
                         onClick={() =>
                           onSetProviderVisibleModels(
                             group.providerId,
@@ -264,6 +289,13 @@ export function ManageModelsDialog({
 
                     {/* Models */}
                     <div className="space-y-1">
+                      {filteredModels.length === 0 && (
+                        <div className="px-2 py-1.5 text-xs text-neutral-500">
+                          {group.isModelListLoaded
+                            ? "No models available yet."
+                            : "Models loading..."}
+                        </div>
+                      )}
                       {filteredModels.map((model: ProviderModelOption) => {
                         const isVisible = visibleSet
                           ? visibleSet.has(model.id)
