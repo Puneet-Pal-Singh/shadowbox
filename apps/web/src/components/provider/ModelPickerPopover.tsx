@@ -173,7 +173,9 @@ function shouldPreservePendingSelection(
     return true;
   }
 
-  return (providerModels[selectedProviderId] ?? []).length === 0;
+  return !(providerModels[selectedProviderId] ?? []).some(
+    (model) => model.id === selectedModelId,
+  );
 }
 
 function hasProvider(
@@ -763,7 +765,7 @@ export function ModelPickerPopover({
                         <div className="py-1">
                           {effectiveSelection.providerId === group.providerId &&
                             effectiveSelection.modelId !== null &&
-                            !group.models.some(
+                            !providerModels[group.providerId]?.some(
                               (model) => model.id === effectiveSelection.modelId,
                             ) && (
                               <div

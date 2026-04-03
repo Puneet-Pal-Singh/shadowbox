@@ -172,7 +172,7 @@ describe("ModelPickerPopover", () => {
       ).toHaveTextContent("OpenAI: GPT-4");
     });
 
-    it("falls back to axis default label when persisted explicit selection is no longer valid", () => {
+    it("preserves the explicit selection label when the selected model is not in the current loaded slice", () => {
       render(
         <ModelPickerPopover
           {...defaultProps}
@@ -183,7 +183,7 @@ describe("ModelPickerPopover", () => {
 
       expect(
         screen.getByRole("button", { name: /open model picker/i }),
-      ).toHaveTextContent("Axis (Free): z-ai/glm-4.5-air:free");
+      ).toHaveTextContent("OpenAI: removed-model");
     });
 
     it("preserves explicit selected model label while provider models are hydrating", () => {
@@ -410,6 +410,56 @@ describe("ModelPickerPopover", () => {
       await waitFor(() => {
         expect(screen.getByText("gpt-4-turbo")).toBeInTheDocument();
         expect(screen.getByText("Loading...")).toBeInTheDocument();
+      });
+    });
+
+    it("keeps explicit selection pending when provider models are only partially loaded", async () => {
+      render(
+        <ModelPickerPopover
+          {...defaultProps}
+          providerModels={{
+            axis: mockModels.axis ?? [],
+            openai: [{ id: "gpt-4", name: "GPT-4" }],
+          }}
+          selectedProviderId="openai"
+          selectedModelId="gpt-4-turbo"
+        />,
+      );
+
+      expect(
+        screen.getByRole("button", { name: /open model picker/i }),
+      ).toHaveTextContent("OpenAI: gpt-4-turbo");
+
+      fireEvent.click(
+        screen.getByRole("button", { name: /open model picker/i }),
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText("gpt-4-turbo")).toBeInTheDocument();
+        expect(screen.getByText("Pending")).toBeInTheDocument();
+      });
+    });
+
+    it("does not show pending selection when the selected model is hydrated but hidden", async () => {
+      render(
+        <ModelPickerPopover
+          {...defaultProps}
+          visibleModelIds={{
+            ...mockVisibleModelIds,
+            openai: new Set(["gpt-4"]),
+          }}
+          selectedProviderId="openai"
+          selectedModelId="gpt-4-turbo"
+        />,
+      );
+
+      fireEvent.click(
+        screen.getByRole("button", { name: /open model picker/i }),
+      );
+
+      await waitFor(() => {
+        expect(screen.queryByText("Pending")).not.toBeInTheDocument();
+        expect(screen.queryByText("Loading...")).not.toBeInTheDocument();
       });
     });
   });

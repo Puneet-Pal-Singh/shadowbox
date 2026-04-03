@@ -229,22 +229,30 @@ describe("ProviderStore", () => {
       await store.bootstrap();
       await store.loadProviderModels("openai");
 
-      store.setActiveRunId("run-2");
+      expect(store.setActiveRunId("run-2")).toBe(false);
 
       const state = store.getState();
       expect(state.catalog).toHaveLength(2);
       expect(state.credentials).toHaveLength(1);
       expect(state.preferences?.defaultProviderId).toBe("openai");
       expect(state.providerModels.openai).toHaveLength(1);
-      expect(state.selectedProviderId).toBeNull();
-      expect(state.selectedCredentialId).toBeNull();
-      expect(state.selectedModelId).toBeNull();
+      expect(state.selectedProviderId).toBe("openai");
+      expect(state.selectedCredentialId).toBe(credential1Id);
+      expect(state.selectedModelId).toBe("gpt-4");
+      expect(mockApiClient.getCatalog).toHaveBeenCalledTimes(1);
+      expect(mockApiClient.getCredentials).toHaveBeenCalledTimes(1);
+      expect(mockApiClient.getPreferences).toHaveBeenCalledTimes(1);
     });
 
     it("resetAll clears workspace-global and run-scoped state", async () => {
       store.setActiveRunId("run-1");
       await store.bootstrap();
       await store.loadProviderModels("openai");
+      await store.applySessionSelection({
+        providerId: "openai",
+        credentialId: credential1Id,
+        modelId: "gpt-4-turbo",
+      });
 
       store.resetAll();
 
@@ -255,6 +263,13 @@ describe("ProviderStore", () => {
       expect(state.providerModels).toEqual({});
       expect(state.selectedProviderId).toBeNull();
       expect(state.status).toBe("idle");
+
+      (ProviderStore as unknown as { instance?: ProviderStore }).instance = undefined;
+      const restoredStore = ProviderStore.getInstance({ apiClient: mockApiClient });
+      expect(restoredStore.setActiveRunId("run-1")).toBe(true);
+      expect(restoredStore.getState().selectedProviderId).toBeNull();
+      expect(restoredStore.getState().selectedCredentialId).toBeNull();
+      expect(restoredStore.getState().selectedModelId).toBeNull();
     });
   });
 

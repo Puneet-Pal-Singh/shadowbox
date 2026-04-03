@@ -246,6 +246,11 @@ export class ProviderStore {
     }
 
     this.restoreRunScopedSelection(runId);
+    if (hasWorkspaceGlobalState(this.state)) {
+      this.hydrateRunScopedSelectionFromWorkspaceState();
+      return false;
+    }
+
     return true;
   }
 
@@ -1178,6 +1183,8 @@ export class ProviderStore {
     this.bootstrapPromise = null;
     this.lastResolveSelectionKey = null;
     this.lastResolveError = null;
+    this.activeRunId = null;
+    clearPersistedRunScopedSelections();
     this.state = createInitialStoreState();
     this.emit();
   }
@@ -1254,6 +1261,24 @@ export class ProviderStore {
       modelId: persistedSelection.selectedModelId,
     });
     this.setState(persistedSelection);
+  }
+
+  private hydrateRunScopedSelectionFromWorkspaceState(): void {
+    const selection = this.deriveSelectionSnapshot({
+      catalog: this.state.catalog,
+      credentials: this.state.credentials,
+      preferences: this.state.preferences,
+      providerModels: this.state.providerModels,
+      selectedProviderId: this.state.selectedProviderId,
+      selectedCredentialId: this.state.selectedCredentialId,
+      selectedModelId: this.state.selectedModelId,
+    });
+
+    this.setState({
+      selectedProviderId: selection.selectedProviderId,
+      selectedCredentialId: selection.selectedCredentialId,
+      selectedModelId: selection.selectedModelId,
+    });
   }
 
   private persistRunScopedSelection(
@@ -1510,6 +1535,30 @@ function readRunScopedSelection(
 
 function buildRunScopedSelectionStorageKey(runId: string): string {
   return `${RUN_SCOPED_SELECTION_STORAGE_KEY_PREFIX}${runId}`;
+}
+
+function clearPersistedRunScopedSelections(): void {
+  try {
+    const keysToRemove: string[] = [];
+    for (let index = 0; index < sessionStorage.length; index += 1) {
+      const key = sessionStorage.key(index);
+      if (
+        key &&
+        key.startsWith(RUN_SCOPED_SELECTION_STORAGE_KEY_PREFIX)
+      ) {
+        keysToRemove.push(key);
+      }
+    }
+
+    for (const key of keysToRemove) {
+      sessionStorage.removeItem(key);
+    }
+  } catch (error) {
+    console.warn(
+      "[provider/store] failed to clear persisted run-scoped selections",
+      error,
+    );
+  }
 }
 
 function isProviderSelectionSnapshot(
