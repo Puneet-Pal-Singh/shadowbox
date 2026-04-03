@@ -57,6 +57,7 @@ export function useChatCore(
     crypto.randomUUID(),
   );
   const [error, setError] = useState<string | null>(null);
+  const [isStopping, setIsStopping] = useState(false);
   const [debugEvents, setDebugEvents] = useState<ChatDebugEvent[]>([]);
   const lastLoggedStreamErrorRef = useRef<{
     message: string;
@@ -175,6 +176,7 @@ export function useChatCore(
         );
       }
       setError(null);
+      setIsStopping(false);
 
       const resolvedConfig = await resolveForChat();
       const providerId = resolvedConfig.providerId;
@@ -288,25 +290,35 @@ export function useChatCore(
   );
 
   const stop = useCallback(() => {
+    setIsStopping(true);
     stopStream();
+    dispatchRunSummaryRefresh(runId);
 
     const cancelRun = async (): Promise<void> => {
       try {
-        await fetch(`${getBrainHttpBase()}/api/run/cancel`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
+        const response = await authenticatedChatFetch(
+          `${getBrainHttpBase()}/api/run/cancel`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ runId }),
           },
-          credentials: "include",
-          body: JSON.stringify({ runId }),
-        });
+        );
+        if (!response.ok) {
+          throw new Error(`Cancel failed with HTTP ${response.status}`);
+        }
+        dispatchRunSummaryRefresh(runId);
       } catch (error) {
         console.warn("[chat/stop] Failed to cancel run", { runId, error });
+      } finally {
+        setIsStopping(false);
       }
     };
 
     void cancelRun();
-  }, [runId, stopStream]);
+  }, [authenticatedChatFetch, runId, stopStream]);
 
   return {
     messages,
@@ -314,7 +326,7 @@ export function useChatCore(
     handleInputChange,
     handleSubmit,
     append: appendWithResolution,
-    isLoading,
+    isLoading: isLoading || isStopping,
     stop,
     setMessages,
     runId,

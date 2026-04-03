@@ -47,6 +47,7 @@ export interface LLMTextResponse {
   text: string;
   usage: LLMUsage;
   providerRequestId?: string;
+  finishReason?: string;
   toolCalls?: LLMToolCall[];
 }
 
@@ -104,6 +105,7 @@ export interface LLMRuntimeAIService {
   }): Promise<{
     text: string;
     usage: LLMUsage;
+    finishReason?: string;
     toolCalls?: Array<{
       toolName: string;
       args: unknown;

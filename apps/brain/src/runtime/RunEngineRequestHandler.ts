@@ -1,9 +1,14 @@
 import type { DurableObjectState as LegacyDurableObjectState } from "@cloudflare/workers-types";
 import type { CoreMessage, CoreTool } from "ai";
 import { z } from "zod";
-import { RUN_EVENT_TYPES, type RunEvent } from "@repo/shared-types";
+import {
+  RUN_EVENT_TYPES,
+  RUN_WORKFLOW_STEPS,
+  type RunEvent,
+} from "@repo/shared-types";
 import {
   RunEngine,
+  RunEventRecorder,
   RunEventRepository,
   projectRunActivityFeed,
   projectRunSummaryFromEvents,
@@ -235,53 +240,66 @@ export class RunEngineRequestHandler {
       );
     }
 
-    return this.withExecutionLock(async () => {
-      const runtimeState = this.createRuntimeState();
-      const runRepo = new RunRepository(runtimeState);
-      const taskRepo = new TaskRepository(runtimeState);
+    const runtimeState = this.createRuntimeState();
+    const runRepo = new RunRepository(runtimeState);
+    const taskRepo = new TaskRepository(runtimeState);
 
-      const run = await runRepo.getById(runId);
-      if (!run) {
-        return runEngineJsonResponse(request, this.env, {
-          runId,
-          cancelled: false,
-          status: null,
-        });
-      }
-
-      const isTerminal =
-        run.status === "COMPLETED" ||
-        run.status === "FAILED" ||
-        run.status === "CANCELLED";
-      if (isTerminal) {
-        return runEngineJsonResponse(request, this.env, {
-          runId,
-          cancelled: false,
-          status: run.status,
-        });
-      }
-
-      run.transition("CANCELLED");
-      await runRepo.update(run);
-
-      let cancelledTasks = 0;
-      const tasks = await taskRepo.getByRun(runId);
-      for (const task of tasks) {
-        if (["PENDING", "READY", "RUNNING"].includes(task.status)) {
-          task.transition("CANCELLED");
-          await taskRepo.update(task);
-          cancelledTasks += 1;
-        }
-      }
-
-      this.eventStream?.complete(runId);
-
+    const run = await runRepo.getById(runId);
+    if (!run) {
       return runEngineJsonResponse(request, this.env, {
         runId,
-        cancelled: true,
-        status: "CANCELLED",
-        cancelledTasks,
+        cancelled: false,
+        status: null,
       });
+    }
+    const runEventRecorder = new RunEventRecorder(
+      new RunEventRepository(runtimeState),
+      runId,
+      run.sessionId,
+      (event) => {
+        this.emitLiveEvent(event);
+      },
+    );
+
+    const isTerminal =
+      run.status === "COMPLETED" ||
+      run.status === "FAILED" ||
+      run.status === "CANCELLED";
+    if (isTerminal) {
+      return runEngineJsonResponse(request, this.env, {
+        runId,
+        cancelled: false,
+        status: run.status,
+      });
+    }
+
+    const previousStatus = run.status;
+    run.transition("CANCELLED");
+    await runRepo.update(run);
+    await runEventRecorder.recordRunStatusChanged(
+      previousStatus,
+      run.status,
+      RUN_WORKFLOW_STEPS.EXECUTION,
+      "user_cancelled",
+    );
+
+    let cancelledTasks = 0;
+    const tasks = await taskRepo.getByRun(runId);
+    for (const task of tasks) {
+      if (["PENDING", "READY", "RUNNING"].includes(task.status)) {
+        task.transition("CANCELLED");
+        await taskRepo.update(task);
+        cancelledTasks += 1;
+      }
+    }
+
+    this.eventStream?.complete(runId);
+
+    return runEngineJsonResponse(request, this.env, {
+      runId,
+      cancelled: true,
+      status: "CANCELLED",
+      cancelledTasks,
     });
   }
 

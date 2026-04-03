@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { GoogleAdapter } from "./GoogleAdapter";
+import { LLMUnusableResponseError } from "@shadowbox/execution-engine/runtime/llm";
 
 const mockGenerateText = vi.fn();
 const mockStreamText = vi.fn();
@@ -22,7 +23,7 @@ describe("GoogleAdapter", () => {
     mockGoogleModel.mockReturnValue({ modelId: "gemini-2.5-flash-lite" });
   });
 
-  it("normalizes malformed empty candidate responses from Gemini", async () => {
+  it("classifies malformed empty candidate responses from Gemini as unusable", async () => {
     mockGenerateText.mockRejectedValueOnce({
       statusCode: 200,
       responseBody: JSON.stringify({
@@ -46,15 +47,21 @@ describe("GoogleAdapter", () => {
       apiKey: "google-test-key",
     });
 
-    const result = await adapter.generate({
+    const result = adapter.generate({
       messages: [],
       model: "gemini-2.5-flash-lite",
       tools: {},
       temperature: 0.2,
     });
 
-    expect(result).toEqual({
-      content: "",
+    await expect(result).rejects.toBeInstanceOf(LLMUnusableResponseError);
+    await expect(result).rejects.toMatchObject({
+      name: "LLMUnusableResponseError",
+      providerId: "google",
+      modelId: "gemini-2.5-flash-lite",
+      anomalyCode: "EMPTY_CANDIDATE",
+      finishReason: "stop",
+      statusCode: 200,
       usage: {
         provider: "google",
         model: "gemini-2.5-flash-lite",
@@ -66,8 +73,6 @@ describe("GoogleAdapter", () => {
           completionTokens: 0,
         },
       },
-      finishReason: "stop",
-      toolCalls: [],
     });
   });
 

@@ -14,12 +14,19 @@ import {
   BudgetExceededError,
   SessionBudgetExceededError,
 } from "../cost/index.js";
-import type { ILLMGateway } from "../llm/index.js";
+import {
+  LLMUnusableResponseError,
+  type ILLMGateway,
+} from "../llm/index.js";
 import type { IBudgetManager } from "../cost/index.js";
 import type { TaskExecutor } from "../orchestration/index.js";
 import { isMutatingGoldenFlowToolName } from "../contracts/CodingToolGateway.js";
 import { Task } from "../task/index.js";
-import type { AgenticLoopToolLifecycleEvent, TaskResult } from "../types.js";
+import type {
+  AgenticLoopTerminalLlmIssue,
+  AgenticLoopToolLifecycleEvent,
+  TaskResult,
+} from "../types.js";
 import { detectsMutation } from "./detectsMutation.js";
 
 export interface AgenticLoopConfig {
@@ -27,6 +34,7 @@ export interface AgenticLoopConfig {
   runId: string;
   sessionId: string;
   budget?: IBudgetManager;
+  executionNonce?: string;
 }
 
 interface AgenticLoopToolCall {
@@ -60,6 +68,8 @@ export interface AgenticLoopResult {
   requiresMutation: boolean;
   completedMutatingToolCount: number;
   completedReadOnlyToolCount: number;
+  llmRetryCount?: number;
+  terminalLlmIssue?: AgenticLoopTerminalLlmIssue;
   toolLifecycle: AgenticLoopToolLifecycleEvent[];
 }
 
@@ -67,6 +77,7 @@ interface AgenticLoopHooks {
   workspaceContext?: string;
   executeTool?: (toolCall: AgenticLoopToolCall) => Promise<TaskResult>;
   onAssistantMessage?: (content: string) => Promise<void>;
+  isRunCancelled?: () => Promise<boolean>;
   onProgress?: (
     progress:
       | {
@@ -104,7 +115,10 @@ export class AgenticLoop {
   private failedToolCount: number = 0;
   private completedMutatingToolCount: number = 0;
   private completedReadOnlyToolCount: number = 0;
+  private llmRetryCount: number = 0;
+  private terminalLlmIssue?: AgenticLoopTerminalLlmIssue;
   private toolLifecycle: AgenticLoopToolLifecycleEvent[] = [];
+  private completedReadOnlyToolFingerprints = new Set<string>();
 
   constructor(
     config: AgenticLoopConfig,
@@ -144,6 +158,11 @@ export class AgenticLoop {
       const isFinalSynthesisStep =
         step === this.config.maxSteps - 1 && this.toolExecutionCount > 0;
 
+      if (await isCancellationRequested(context)) {
+        stopReason = "cancelled";
+        break;
+      }
+
       // Check budget before LLM call
       try {
         if (await this.isRunOverBudget()) {
@@ -180,27 +199,30 @@ export class AgenticLoop {
       // Call LLM with tool definitions for this step.
       let response;
       try {
-        response = await this.llmGateway.generateText({
-          context: {
-            runId: this.config.runId,
-            sessionId: this.config.sessionId,
-            agentType: context.agentType,
-            phase: "task",
+        response = await this.generateLoopText(
+          {
+            context: {
+              runId: this.config.runId,
+              sessionId: this.config.sessionId,
+              agentType: context.agentType,
+              phase: "task",
+            },
+            messages,
+            system: buildAgenticLoopSystemPrompt({
+              workspaceContext: context.workspaceContext,
+              finalSynthesisOnly: isFinalSynthesisStep,
+              requiresMutation,
+              completedMutatingToolCount: this.completedMutatingToolCount,
+              completedReadOnlyToolCount: this.completedReadOnlyToolCount,
+              correctiveRetryRequested: correctiveMutationRetryIssued,
+            }),
+            tools: isFinalSynthesisStep ? undefined : tools,
+            model: context.modelId,
+            providerId: context.providerId,
+            temperature: context.temperature,
           },
-          messages,
-          system: buildAgenticLoopSystemPrompt({
-            workspaceContext: context.workspaceContext,
-            finalSynthesisOnly: isFinalSynthesisStep,
-            requiresMutation,
-            completedMutatingToolCount: this.completedMutatingToolCount,
-            completedReadOnlyToolCount: this.completedReadOnlyToolCount,
-            correctiveRetryRequested: correctiveMutationRetryIssued,
-          }),
-          tools: isFinalSynthesisStep ? undefined : tools,
-          model: context.modelId,
-          providerId: context.providerId,
-          temperature: context.temperature,
-        });
+          step,
+        );
       } catch (error) {
         console.error(`[agentic-loop] LLM call failed at step ${step}:`, error);
         throw error;
@@ -261,6 +283,27 @@ export class AgenticLoop {
         this.recordToolLifecycle(toolCall, "requested");
         await context.onToolRequested?.(toolCall);
 
+        if (await isCancellationRequested(context)) {
+          stopReason = "cancelled";
+          break;
+        }
+
+        const duplicateToolCallMessage =
+          this.getDuplicateReadOnlyToolCallMessage(toolCall);
+        if (duplicateToolCallMessage) {
+          this.failedToolCount++;
+          this.recordToolLifecycle(toolCall, "failed", duplicateToolCallMessage);
+          await context.onToolFailed?.(toolCall, duplicateToolCallMessage, 0);
+          toolResults.push({
+            toolId: toolCall.id,
+            toolName: toolCall.toolName,
+            result: null,
+            error: duplicateToolCallMessage,
+            terminalError: false,
+          });
+          continue;
+        }
+
         // Check budget before tool execution
         try {
           if (await this.isRunOverBudget()) {
@@ -317,6 +360,9 @@ export class AgenticLoop {
               this.completedMutatingToolCount++;
             } else {
               this.completedReadOnlyToolCount++;
+              this.completedReadOnlyToolFingerprints.add(
+                buildReadOnlyToolFingerprint(toolCall),
+              );
             }
             this.recordToolLifecycle(
               toolCall,
@@ -373,6 +419,10 @@ export class AgenticLoop {
         break;
       }
 
+      if (stopReason === "cancelled") {
+        break;
+      }
+
       // Add tool results to messages for next LLM call
       if (toolResults.length > 0) {
         messages.push(buildToolResultMessage(toolResults));
@@ -404,6 +454,8 @@ export class AgenticLoop {
       requiresMutation,
       completedMutatingToolCount: this.completedMutatingToolCount,
       completedReadOnlyToolCount: this.completedReadOnlyToolCount,
+      llmRetryCount: this.llmRetryCount,
+      terminalLlmIssue: this.terminalLlmIssue,
       toolLifecycle: [...this.toolLifecycle],
     };
   }
@@ -419,6 +471,9 @@ export class AgenticLoop {
       toolLifecycleCount: this.toolLifecycle.length,
       completedMutatingToolCount: this.completedMutatingToolCount,
       completedReadOnlyToolCount: this.completedReadOnlyToolCount,
+      llmRetryCount: this.llmRetryCount,
+      terminalLlmIssue: this.terminalLlmIssue,
+      toolLifecycle: [...this.toolLifecycle],
       maxSteps: this.config.maxSteps,
     };
   }
@@ -432,7 +487,69 @@ export class AgenticLoop {
     this.failedToolCount = 0;
     this.completedMutatingToolCount = 0;
     this.completedReadOnlyToolCount = 0;
+    this.llmRetryCount = 0;
+    this.terminalLlmIssue = undefined;
     this.toolLifecycle = [];
+    this.completedReadOnlyToolFingerprints.clear();
+  }
+
+  private async generateLoopText(
+    request: Parameters<ILLMGateway["generateText"]>[0],
+    step: number,
+  ): ReturnType<ILLMGateway["generateText"]> {
+    const maxAttempts = 2;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        return await this.llmGateway.generateText({
+          ...request,
+          context: {
+            ...request.context,
+            idempotencyKey: buildAgenticLoopTextAttemptIdempotencyKey(
+              this.config.runId,
+              step,
+              attempt,
+              this.config.executionNonce,
+            ),
+          },
+        });
+      } catch (error) {
+        if (!(error instanceof LLMUnusableResponseError)) {
+          throw error;
+        }
+
+        if (attempt >= maxAttempts) {
+          this.terminalLlmIssue = {
+            type: "unusable_response",
+            providerId: error.providerId,
+            modelId: error.modelId,
+            anomalyCode: error.anomalyCode,
+            finishReason: error.finishReason,
+            statusCode: error.statusCode,
+            attempts: attempt,
+          };
+          console.warn(
+            `[agentic-loop] Unusable LLM response exhausted retry for run ${this.config.runId}`,
+            this.terminalLlmIssue,
+          );
+          throw error;
+        }
+
+        this.llmRetryCount++;
+        console.warn(
+          `[agentic-loop] Unusable LLM response for run ${this.config.runId}; retrying once`,
+          {
+            providerId: error.providerId,
+            modelId: error.modelId,
+            anomalyCode: error.anomalyCode,
+            finishReason: error.finishReason,
+            statusCode: error.statusCode,
+          },
+        );
+      }
+    }
+
+    throw new Error("[agentic-loop] unreachable LLM retry state");
   }
 
   private createToolTask(
@@ -478,6 +595,21 @@ export class AgenticLoop {
       }
       throw error;
     }
+  }
+
+  private getDuplicateReadOnlyToolCallMessage(
+    toolCall: Pick<AgenticLoopToolCall, "toolName" | "args">,
+  ): string | null {
+    if (isMutatingGoldenFlowToolName(toolCall.toolName)) {
+      return null;
+    }
+
+    const fingerprint = buildReadOnlyToolFingerprint(toolCall);
+    if (!this.completedReadOnlyToolFingerprints.has(fingerprint)) {
+      return null;
+    }
+
+    return `Skipped duplicate ${toolCall.toolName} call because the same request already completed in this run. Choose a different tool or proceed with the edit.`;
   }
 }
 
@@ -568,6 +700,44 @@ function buildAgenticLoopSystemPrompt(input: {
   }
 
   return sections.join("\n");
+}
+
+function buildAgenticLoopTextAttemptIdempotencyKey(
+  runId: string,
+  step: number,
+  attempt: number,
+  executionNonce?: string,
+): string {
+  return `agentic-loop:${runId}:${executionNonce ?? "default"}:step:${step + 1}:attempt:${attempt}`;
+}
+
+async function isCancellationRequested(
+  context: Pick<AgenticLoopHooks, "isRunCancelled">,
+): Promise<boolean> {
+  return (await context.isRunCancelled?.()) ?? false;
+}
+
+function buildReadOnlyToolFingerprint(
+  toolCall: Pick<AgenticLoopToolCall, "toolName" | "args">,
+): string {
+  return `${toolCall.toolName}:${stableSerialize(toolCall.args)}`;
+}
+
+function stableSerialize(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map((entry) => stableSerialize(entry)).join(",")}]`;
+  }
+
+  if (value && typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>).sort(
+      ([left], [right]) => left.localeCompare(right),
+    );
+    return `{${entries
+      .map(([key, entryValue]) => `${JSON.stringify(key)}:${stableSerialize(entryValue)}`)
+      .join(",")}}`;
+  }
+
+  return JSON.stringify(value);
 }
 
 function isTerminalToolFailure(toolName: string): boolean {

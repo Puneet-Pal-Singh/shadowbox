@@ -12,7 +12,7 @@ export const AXIS_CURATED_MODEL_IDS = [
   "nvidia/nemotron-3-super-120b-a12b:free",
   "arcee-ai/trinity-large-preview:free",
   "stepfun/step-3.5-flash:free",
-  "qwen/qwen3.6-plus-preview:free",
+  "qwen/qwen3.6-plus:free",
 ] as const;
 
 export function getAxisCatalogModels(): ModelDescriptor[] {

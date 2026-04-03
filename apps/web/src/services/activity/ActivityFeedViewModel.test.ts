@@ -466,6 +466,55 @@ describe("ActivityFeedViewModel", () => {
     ).toBe(true);
   });
 
+  it("keeps TASK_MODEL_NO_ACTION assistant messages visible as recovery commentary", () => {
+    const viewModel = buildActivityFeedViewModel({
+      runId: "run-model-stall",
+      sessionId: "session-model-stall",
+      status: "COMPLETED",
+      items: [
+        {
+          id: "text-user",
+          runId: "run-model-stall",
+          sessionId: "session-model-stall",
+          turnId: "turn-1",
+          kind: ACTIVITY_PART_KINDS.TEXT,
+          createdAt: "2026-03-24T10:00:00.000Z",
+          updatedAt: "2026-03-24T10:00:00.000Z",
+          source: "brain",
+          role: "user",
+          content: "update the footer",
+        },
+        {
+          id: "text-assistant",
+          runId: "run-model-stall",
+          sessionId: "session-model-stall",
+          turnId: "turn-1",
+          kind: ACTIVITY_PART_KINDS.TEXT,
+          createdAt: "2026-03-24T10:00:02.000Z",
+          updatedAt: "2026-03-24T10:00:02.000Z",
+          source: "brain",
+          role: "assistant",
+          content:
+            "The model did not return a usable next action for this edit request.",
+          metadata: {
+            code: "TASK_MODEL_NO_ACTION",
+            retryable: true,
+            resumeHint:
+              "Retry the task or switch to a faster or more reliable model.",
+          },
+        },
+      ],
+    });
+
+    expect(
+      viewModel.turns[0]?.rows.some(
+        (row) =>
+          row.kind === "commentary" &&
+          row.metadata?.code === "TASK_MODEL_NO_ACTION",
+      ),
+    ).toBe(true);
+  });
+
   it("renders authored commentary rows faithfully and keeps final answers in the main chat transcript", () => {
     const viewModel = buildActivityFeedViewModel({
       runId: "run-commentary",

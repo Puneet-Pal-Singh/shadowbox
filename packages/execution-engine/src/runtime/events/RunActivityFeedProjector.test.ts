@@ -183,6 +183,41 @@ describe("RunActivityFeedProjector", () => {
     );
   });
 
+  it("projects TASK_MODEL_NO_ACTION assistant messages as recovery commentary", () => {
+    const snapshot = projectRunActivityFeed({
+      runId: "run-106",
+      run: null,
+      events: [
+        createEvent(RUN_EVENT_TYPES.MESSAGE_EMITTED, {
+          content: "update footer",
+          role: "user",
+        }),
+        createEvent(RUN_EVENT_TYPES.MESSAGE_EMITTED, {
+          content: "The model did not return a usable next action for this edit request.",
+          role: "assistant",
+          metadata: {
+            code: "TASK_MODEL_NO_ACTION",
+            retryable: true,
+            resumeActions: ["retry", "switch_model"],
+          },
+        }),
+      ],
+    });
+
+    expect(snapshot.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: ACTIVITY_PART_KINDS.COMMENTARY,
+          metadata: {
+            code: "TASK_MODEL_NO_ACTION",
+            retryable: true,
+            resumeActions: ["retry", "switch_model"],
+          },
+        }),
+      ]),
+    );
+  });
+
   it("projects assistant final messages into commentary items with transcript phase metadata", () => {
     const snapshot = projectRunActivityFeed({
       runId: "run-3",

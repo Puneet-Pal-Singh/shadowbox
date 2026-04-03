@@ -8,6 +8,7 @@ import type {
 } from "../base/ProviderAdapter";
 import { ProviderError } from "../base/ProviderAdapter";
 import type { LLMUsage } from "@shadowbox/execution-engine/runtime/cost";
+import { LLMUnusableResponseError } from "@shadowbox/execution-engine/runtime/llm";
 
 interface GoogleAdapterConfig {
   apiKey: string;
@@ -61,13 +62,18 @@ export class GoogleAdapter implements ProviderAdapter {
         })),
       };
     } catch (error) {
-      const recovered = this.recoverEmptyCandidateResponse(error, model);
-      if (recovered) {
+      const unusableResponseError = this.buildUnusableResponseError(error, model);
+      if (unusableResponseError) {
         console.warn(
-          "[provider/google] Normalized empty candidate response from Gemini API",
-          { model },
+          "[provider/google] Classified unusable Gemini response from Gemini API",
+          {
+            model,
+            anomalyCode: unusableResponseError.anomalyCode,
+            finishReason: unusableResponseError.finishReason,
+            statusCode: unusableResponseError.statusCode,
+          },
         );
-        return recovered;
+        throw unusableResponseError;
       }
       throw error;
     }
@@ -224,17 +230,21 @@ export class GoogleAdapter implements ProviderAdapter {
     };
   }
 
-  private recoverEmptyCandidateResponse(
+  private buildUnusableResponseError(
     error: unknown,
     model: string,
-  ): GenerationResult | null {
+  ): LLMUnusableResponseError | null {
     const payload = parseRecoverableGoogleEmptyResponse(error);
     if (!payload) {
       return null;
     }
 
-    return {
-      content: "",
+    return new LLMUnusableResponseError({
+      providerId: this.provider,
+      modelId: model,
+      anomalyCode: "EMPTY_CANDIDATE",
+      finishReason: payload.finishReason,
+      statusCode: payload.statusCode,
       usage: this.standardizeUsage(
         {
           promptTokens: payload.promptTokens,
@@ -242,9 +252,7 @@ export class GoogleAdapter implements ProviderAdapter {
         },
         model,
       ),
-      finishReason: payload.finishReason,
-      toolCalls: [],
-    };
+    });
   }
 }
 
@@ -252,6 +260,7 @@ interface RecoverableGoogleEmptyResponse {
   promptTokens: number;
   completionTokens: number;
   finishReason?: string;
+  statusCode?: number;
 }
 
 function parseRecoverableGoogleEmptyResponse(
@@ -284,6 +293,7 @@ function parseRecoverableGoogleEmptyResponse(
     promptTokens,
     completionTokens: Math.max(totalTokens - promptTokens, 0),
     finishReason: normalizeGoogleFinishReason(firstCandidate.finishReason),
+    statusCode,
   };
 }
 

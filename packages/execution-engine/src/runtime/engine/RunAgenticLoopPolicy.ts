@@ -2,11 +2,15 @@ import type { CoreMessage, CoreTool } from "ai";
 import type { EditToolActivityMetadata } from "@repo/shared-types";
 import type { Run } from "../run/index.js";
 import type { AgenticLoopResult } from "./AgenticLoop.js";
-import type { AgenticLoopToolLifecycleEvent } from "../types.js";
+import type {
+  AgenticLoopTerminalLlmIssue,
+  AgenticLoopToolLifecycleEvent,
+} from "../types.js";
 import { enforceGoldenFlowToolFloor } from "../contracts/CodingToolGateway.js";
 
 const AGENTIC_LOOP_DEFAULT_MAX_STEPS = 25;
 const INCOMPLETE_MUTATION_CODE = "INCOMPLETE_MUTATION";
+export const TASK_MODEL_NO_ACTION_CODE = "TASK_MODEL_NO_ACTION";
 
 export interface AssistantTurnOutput {
   text: string;
@@ -58,7 +62,43 @@ export function recordAgenticLoopMetadata(
     requiresMutation: result.requiresMutation,
     completedMutatingToolCount: result.completedMutatingToolCount,
     completedReadOnlyToolCount: result.completedReadOnlyToolCount,
+    recoveryCode: deriveAgenticLoopRecoveryCode(result),
+    llmRetryCount: result.llmRetryCount ?? 0,
+    terminalLlmIssue: result.terminalLlmIssue,
     toolLifecycle: result.toolLifecycle,
+    completedAt: new Date().toISOString(),
+  };
+}
+
+export function recordRecoveredAgenticLoopMetadata(
+  run: Run,
+  input: {
+    stopReason: AgenticLoopResult["stopReason"];
+    stepsExecuted: number;
+    toolExecutionCount: number;
+    failedToolCount: number;
+    requiresMutation: boolean;
+    completedMutatingToolCount: number;
+    completedReadOnlyToolCount: number;
+    llmRetryCount: number;
+    toolLifecycle: AgenticLoopToolLifecycleEvent[];
+    recoveryCode?: "INCOMPLETE_MUTATION" | typeof TASK_MODEL_NO_ACTION_CODE;
+    terminalLlmIssue?: AgenticLoopTerminalLlmIssue;
+  },
+): void {
+  run.metadata.agenticLoop = {
+    enabled: true,
+    stopReason: input.stopReason,
+    stepsExecuted: input.stepsExecuted,
+    toolExecutionCount: input.toolExecutionCount,
+    failedToolCount: input.failedToolCount,
+    requiresMutation: input.requiresMutation,
+    completedMutatingToolCount: input.completedMutatingToolCount,
+    completedReadOnlyToolCount: input.completedReadOnlyToolCount,
+    recoveryCode: input.recoveryCode,
+    llmRetryCount: input.llmRetryCount,
+    terminalLlmIssue: input.terminalLlmIssue,
+    toolLifecycle: input.toolLifecycle,
     completedAt: new Date().toISOString(),
   };
 }
@@ -70,6 +110,29 @@ export function buildAgenticLoopFinalOutput(result: AgenticLoopResult): string {
 export function buildAgenticLoopFinalMessage(
   result: AgenticLoopResult,
 ): AssistantTurnOutput {
+  const assistantText = getLastAssistantText(result.messages);
+
+  if (isZeroActionMutationModelIssue(result)) {
+    return {
+      text: buildTaskModelNoActionSummary({
+        requiresMutation: result.requiresMutation,
+        stepsExecuted: result.stepsExecuted,
+        toolExecutionCount: result.toolExecutionCount,
+        failedToolCount: result.failedToolCount,
+        toolLifecycle: result.toolLifecycle,
+      }),
+      metadata: buildTaskModelNoActionMetadata(),
+    };
+  }
+
+  if (
+    result.requiresMutation &&
+    result.completedMutatingToolCount === 0 &&
+    shouldPreserveAssistantText(assistantText)
+  ) {
+    return { text: assistantText! };
+  }
+
   if (result.requiresMutation && result.completedMutatingToolCount === 0) {
     return {
       text: buildIncompleteMutationSummary(result),
@@ -88,7 +151,6 @@ export function buildAgenticLoopFinalMessage(
     return { text: buildFallbackLoopSummary(result) };
   }
 
-  const assistantText = getLastAssistantText(result.messages);
   if (assistantText) {
     return { text: assistantText };
   }
@@ -102,6 +164,55 @@ export function buildAgenticLoopFinalMessage(
       `Failed tools: ${result.failedToolCount}`,
     ].join("\n"),
   };
+}
+
+export function buildTaskModelNoActionSummary(input: {
+  requiresMutation: boolean;
+  stepsExecuted: number;
+  toolExecutionCount: number;
+  failedToolCount: number;
+  toolLifecycle: AgenticLoopToolLifecycleEvent[];
+}): string {
+  const lines = [
+    input.requiresMutation
+      ? "The model did not return a usable next action for this edit request."
+      : "The model did not return a usable response for this run.",
+  ];
+
+  if (input.requiresMutation) {
+    lines.push("No file was changed in this run.");
+  }
+
+  const completedTools = getLatestToolLifecycle(
+    input.toolLifecycle,
+    "completed",
+  );
+  const failedTools = getLatestToolLifecycle(input.toolLifecycle, "failed");
+
+  if (completedTools.length > 0) {
+    lines.push(
+      `I completed ${completedTools.length} tool action(s): ${completedTools
+        .map(formatLifecycleSummary)
+        .join("; ")}`,
+    );
+  }
+
+  if (failedTools.length > 0) {
+    lines.push(
+      `The run hit ${failedTools.length} failure(s): ${failedTools
+        .map(formatLifecycleSummary)
+        .join("; ")}`,
+    );
+  }
+
+  lines.push(
+    `Execution stats: ${input.stepsExecuted} step(s), ${input.toolExecutionCount} tool call(s), ${input.failedToolCount} failure(s).`,
+  );
+  lines.push(
+    "Retry the task or switch to a faster or more reliable model.",
+  );
+
+  return lines.join("\n");
 }
 
 function buildIncompleteMutationSummary(result: AgenticLoopResult): string {
@@ -310,6 +421,99 @@ function buildIncompleteMutationMetadata(): Record<string, unknown> {
       "Retry with a more specific file, component, or exact edit target.",
     resumeActions: ["retry", "refine_edit_target"],
   };
+}
+
+export function buildTaskModelNoActionMetadata(): Record<string, unknown> {
+  return {
+    code: TASK_MODEL_NO_ACTION_CODE,
+    retryable: true,
+    resumeHint: "Retry the task or switch to a faster or more reliable model.",
+    resumeActions: ["retry", "switch_model"],
+  };
+}
+
+function deriveAgenticLoopRecoveryCode(
+  result: AgenticLoopResult,
+): "INCOMPLETE_MUTATION" | typeof TASK_MODEL_NO_ACTION_CODE | undefined {
+  if (isZeroActionMutationModelIssue(result)) {
+    return TASK_MODEL_NO_ACTION_CODE;
+  }
+
+  if (
+    result.requiresMutation &&
+    result.completedMutatingToolCount === 0 &&
+    shouldPreserveAssistantText(getLastAssistantText(result.messages))
+  ) {
+    return undefined;
+  }
+
+  if (result.requiresMutation && result.completedMutatingToolCount === 0) {
+    return INCOMPLETE_MUTATION_CODE;
+  }
+
+  return undefined;
+}
+
+function isZeroActionMutationModelIssue(result: AgenticLoopResult): boolean {
+  if (!result.requiresMutation) {
+    return false;
+  }
+
+  if (
+    result.toolExecutionCount !== 0 ||
+    result.completedMutatingToolCount !== 0
+  ) {
+    return false;
+  }
+
+  return !shouldPreserveAssistantText(getLastAssistantText(result.messages));
+}
+
+function shouldPreserveAssistantText(text: string | null): boolean {
+  if (!text) {
+    return false;
+  }
+
+  const normalized = text.trim().toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+
+  if (normalized.includes("?")) {
+    return true;
+  }
+
+  const clarificationSignals = [
+    "please clarify",
+    "please provide",
+    "could you clarify",
+    "which file",
+    "which component",
+    "which path",
+    "what file",
+    "what component",
+    "what path",
+    "do you want",
+    "i need",
+    "need the exact",
+    "need more context",
+  ];
+  if (clarificationSignals.some((signal) => normalized.includes(signal))) {
+    return true;
+  }
+
+  const refusalSignals = [
+    "i can't",
+    "i cannot",
+    "unable to",
+    "won't",
+    "not able to",
+    "permission",
+    "refuse",
+    "policy",
+    "not allowed",
+  ];
+  return refusalSignals.some((signal) => normalized.includes(signal));
 }
 
 function getLatestToolLifecycle(

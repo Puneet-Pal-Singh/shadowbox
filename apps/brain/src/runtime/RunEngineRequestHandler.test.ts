@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   ACTIVITY_PART_KINDS,
   RUN_EVENT_TYPES,
@@ -334,6 +334,42 @@ describe("RunEngineRequestHandler", () => {
 
     expect(cancelResponse.status).toBe(200);
     await expect(streamResponse.text()).resolves.toBe("");
+  });
+
+  it("does not queue cancel behind the execution lock", async () => {
+    const ctx = new MockDurableObjectState();
+    const runtimeState = tagRuntimeStateSemantics(ctx, "do");
+    const runRepo = new RunRepository(runtimeState);
+    const runId = "123e4567-e89b-42d3-a456-426614174212";
+    await runRepo.create(
+      new Run(runId, "session-1", "RUNNING", "coding", {
+        agentType: "coding",
+        prompt: "cancel this run",
+        sessionId: "session-1",
+      }),
+    );
+
+    const withExecutionLock = vi.fn(async (operation: () => Promise<Response>) =>
+      operation(),
+    );
+    const handler = new RunEngineRequestHandler(
+      ctx as unknown as DurableObjectState,
+      {} as Env,
+      withExecutionLock,
+    );
+
+    const cancelResponse = await handler.handleCancelRequest(
+      new Request("https://brain.local/cancel", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ runId }),
+      }),
+    );
+
+    expect(cancelResponse.status).toBe(200);
+    expect(withExecutionLock).not.toHaveBeenCalled();
   });
 
   it("projects a typed activity feed snapshot", async () => {

@@ -555,6 +555,7 @@ describe("ChatInterface", () => {
       screen.getByText("I updated the workflow UI to match the compact design."),
     ).toBeInTheDocument();
     expect(screen.getByText("Thinking")).toBeInTheDocument();
+    expect(screen.queryByText(/Thinking \d+:\d{2}/)).not.toBeInTheDocument();
   });
 
   it("keeps repeated user prompts attached to distinct workflow turns", () => {
@@ -883,6 +884,99 @@ describe("ChatInterface", () => {
     );
     expect(text.indexOf("Worked for 5s")).toBeGreaterThan(
       text.indexOf("second reply"),
+    );
+  });
+
+  it("attaches a recycled run's turn-1 workflow to the latest matching user query", () => {
+    vi.mocked(useRunSummary).mockReturnValue({
+      summary: {
+        runId: "run-2",
+        status: "RUNNING",
+        totalTasks: 0,
+        completedTasks: 0,
+        failedTasks: 0,
+        planArtifact: null,
+      },
+    });
+    vi.mocked(useRunActivityFeed).mockReturnValue({
+      feed: {
+        runId: "run-2",
+        sessionId: "session-1",
+        status: "RUNNING",
+        items: [
+          {
+            id: "run-2-user",
+            runId: "run-2",
+            sessionId: "session-1",
+            turnId: "turn-1",
+            kind: "text",
+            createdAt: "2026-03-24T10:10:00.000Z",
+            updatedAt: "2026-03-24T10:10:00.000Z",
+            source: "brain",
+            role: "user",
+            content: "check my hero page do you liked it?",
+          },
+          {
+            id: "run-2-tool-1",
+            runId: "run-2",
+            sessionId: "session-1",
+            turnId: "turn-1",
+            kind: "tool",
+            createdAt: "2026-03-24T10:10:01.000Z",
+            updatedAt: "2026-03-24T10:10:03.000Z",
+            source: "brain",
+            toolId: "tool-1",
+            toolName: "list_files",
+            status: "completed",
+            metadata: {
+              family: "read",
+              count: 1,
+              truncated: false,
+              loadedPaths: ["src/app"],
+              path: "src/app",
+            },
+          },
+        ],
+      },
+    });
+
+    const { container } = render(
+      <ChatInterface
+        chatProps={{
+          messages: [
+            { id: "user-1", role: "user", content: "hey" },
+            {
+              id: "assistant-1",
+              role: "assistant",
+              content: "Hello! I'm here to help you with your project.",
+            },
+            {
+              id: "user-2",
+              role: "user",
+              content: "check my hero page do you liked it?",
+            },
+          ],
+          runId: "run-2",
+          input: "",
+          handleInputChange: vi.fn(),
+          handleSubmit: vi.fn(),
+          append: vi.fn(),
+          stop: vi.fn(),
+          isLoading: true,
+          error: null,
+          debugEvents: [],
+        }}
+        sessionId="session-1"
+        mode="build"
+      />,
+    );
+
+    const text = container.textContent ?? "";
+    expect(text.indexOf("List src/app")).toBeGreaterThan(
+      text.indexOf("check my hero page do you liked it?"),
+    );
+    expect(text.indexOf("List src/app")).toBeGreaterThan(
+      text.indexOf("Hello! I'm here to help you with your project."),
     );
   });
 });

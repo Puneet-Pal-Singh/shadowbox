@@ -485,7 +485,11 @@ function shouldDisplayTextRow(
   // Normal assistant replies stay in the main chat transcript instead of duplicating here.
   const code =
     typeof item.metadata?.code === "string" ? item.metadata.code : undefined;
-  return code === "INCOMPLETE_MUTATION" || code === "TASK_EXECUTION_TIMEOUT";
+  return (
+    code === "INCOMPLETE_MUTATION" ||
+    code === "TASK_EXECUTION_TIMEOUT" ||
+    code === "TASK_MODEL_NO_ACTION"
+  );
 }
 
 function createLegacyCommentaryRow(

@@ -53,6 +53,7 @@ import {
   processPermissionDirectives as processPermissionDirectivesPolicy,
 } from "./RunPermissionWorkspacePolicy.js";
 import {
+  createStreamResponse,
   completeRunWithAssistantMessage as completeRunWithAssistantMessagePolicy,
   completeRunWithRecoveredAssistantMessage as completeRunWithRecoveredAssistantMessagePolicy,
   getRunDurationMs as getRunDurationMsPolicy,
@@ -84,9 +85,8 @@ import {
 import { resetRecyclableRun } from "./RunRecyclableResetPolicy.js";
 import { applyReviewerPassIfEnabled } from "./RunReviewerPassPolicy.js";
 import { RunEventRecorder, RunEventRepository } from "../events/index.js";
-import { LLMTimeoutError } from "../llm/LLMGateway.js";
 import { getToolPresentation } from "../lib/ToolPresentation.js";
-import { detectsMutation } from "./detectsMutation.js";
+import { tryHandleTaskExecutionErrorPolicy } from "./RunTaskExecutionRecoveryPolicy.js";
 
 export interface IRunEngine {
   execute(
@@ -465,6 +465,7 @@ export class RunEngine implements IRunEngine {
         runId: run.id,
         sessionId: run.sessionId,
         budget: this.budgetManager,
+        executionNonce: run.createdAt.toISOString(),
       },
       this.llmGateway,
       this.taskExecutor,
@@ -477,6 +478,10 @@ export class RunEngine implements IRunEngine {
       const loopResult = await loop.execute(messages, tools, {
         agentType: run.agentType,
         workspaceContext: buildAgenticLoopWorkspaceContext(input),
+        isRunCancelled: async () => {
+          const currentRun = await this.runRepo.getById(run.id);
+          return currentRun?.status === "CANCELLED";
+        },
         executeTool: directExecutionService
           ? async (toolCall) => {
               const toolPresentation = getToolPresentation(
@@ -577,6 +582,10 @@ export class RunEngine implements IRunEngine {
       });
 
       recordAgenticLoopMetadata(run, loopResult);
+      if (loopResult.stopReason === "cancelled") {
+        console.log(`[run/engine] Agentic loop observed cancellation for run ${run.id}`);
+        return createStreamResponse("");
+      }
       const finalMessage = buildAgenticLoopFinalMessage(loopResult);
       const finalOutput = finalMessage.metadata
         ? finalMessage.text
@@ -653,10 +662,17 @@ export class RunEngine implements IRunEngine {
     ) {
       return false;
     }
+    const previousStatus = run.status;
     run.transition("CANCELLED");
     recordLifecycleStep(run, "TERMINAL", "status=CANCELLED");
     recordOrchestrationTerminal(run);
     await this.runRepo.update(run);
+    await this.runEventRecorder.recordRunStatusChanged(
+      previousStatus,
+      run.status,
+      RUN_WORKFLOW_STEPS.EXECUTION,
+      "user_cancelled",
+    );
     const tasks = await this.taskRepo.getByRun(runId);
     for (const task of tasks) {
       if (["PENDING", "READY", "RUNNING"].includes(task.status)) {
@@ -688,7 +704,7 @@ export class RunEngine implements IRunEngine {
         (await this.taskRepo.getByRun(runId)).length === 0;
 
       if (isTerminal || isIdleCreated) {
-        return resetRecyclableRun({
+        const resetRun = await resetRecyclableRun({
           runId,
           sessionId,
           input,
@@ -697,6 +713,8 @@ export class RunEngine implements IRunEngine {
           runRepo: this.runRepo,
           createFreshRun: this.createFreshRun.bind(this),
         });
+        await this.runEventRecorder.clear();
+        return resetRun;
       }
 
       const requestedManifest = createRunManifest(input);
@@ -886,32 +904,17 @@ export class RunEngine implements IRunEngine {
     loop: AgenticLoop,
     error: unknown,
   ): Promise<Response | null> {
-    if (!isTaskExecutionTimeout(error)) {
-      return null;
-    }
-
-    const stats = loop.getStats();
-    const requiresMutation = detectsMutation(prompt);
-    const noFileChanged = !requiresMutation || stats.completedMutatingToolCount === 0;
-    const text = buildTaskExecutionTimeoutMessage({
-      requiresMutation,
-      noFileChanged,
-      toolExecutionCount: stats.toolExecutionCount,
-      stepsExecuted: stats.stepsExecuted,
-    });
-    await this.runEventRecorder.recordRunProgress(
-      RUN_WORKFLOW_STEPS.EXECUTION,
-      "Recoverable timeout",
-      "The model timed out before choosing the next action.",
-      "completed",
-    );
-
-    return this.completeRunWithRecoveredAssistantMessage(
+    return tryHandleTaskExecutionErrorPolicy({
       run,
-      text,
-      buildTaskExecutionTimeoutMetadata(),
-      "TASK_EXECUTION_TIMEOUT: Model timed out before choosing the next action.",
-    );
+      prompt,
+      loop,
+      error,
+      deps: {
+        completeRunWithRecoveredAssistantMessage:
+          this.completeRunWithRecoveredAssistantMessage.bind(this),
+        runEventRecorder: this.runEventRecorder,
+      },
+    });
   }
 
   private getUnknownPricingMode(env: RunEngineEnv): "warn" | "block" {
@@ -983,51 +986,4 @@ export class RunEngineError extends Error {
     super(`[run/engine] ${message}`);
     this.name = "RunEngineError";
   }
-}
-
-function isTaskExecutionTimeout(error: unknown): boolean {
-  if (error instanceof LLMTimeoutError) {
-    return error.phase === "task";
-  }
-
-  return (
-    error instanceof Error &&
-    error.name === "LLMTimeoutError" &&
-    error.message.includes("(phase=task)")
-  );
-}
-
-function buildTaskExecutionTimeoutMessage(input: {
-  requiresMutation: boolean;
-  noFileChanged: boolean;
-  toolExecutionCount: number;
-  stepsExecuted: number;
-}): string {
-  const lines = [
-    "The model timed out before choosing the next action.",
-    input.noFileChanged
-      ? "No file was changed before the timeout."
-      : "The run timed out after some progress, but before it could finish the next step.",
-    `Execution stats so far: ${input.stepsExecuted} step(s), ${input.toolExecutionCount} tool call(s).`,
-  ];
-
-  if (input.requiresMutation) {
-    lines.push(
-      "Retry this task with a more specific file or component target, or switch to a faster or more reliable model.",
-    );
-  } else {
-    lines.push("Retry the task or switch to a faster or more reliable model.");
-  }
-
-  return lines.join("\n");
-}
-
-function buildTaskExecutionTimeoutMetadata(): Record<string, unknown> {
-  return {
-    code: "TASK_EXECUTION_TIMEOUT",
-    retryable: true,
-    resumeHint:
-      "Retry the task or switch to a faster or more reliable model.",
-    resumeActions: ["retry", "switch_model"],
-  };
 }

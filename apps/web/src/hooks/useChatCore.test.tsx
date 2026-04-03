@@ -36,18 +36,20 @@ vi.mock("../services/SessionStateService", () => ({
 
 describe("useChatCore", () => {
   let appendSpy: ReturnType<typeof vi.fn>;
+  let stopStreamSpy: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     vi.restoreAllMocks();
     mockResolveForChat.mockReset();
     mockUseChat.mockReset();
     appendSpy = vi.fn();
+    stopStreamSpy = vi.fn();
     mockUseChat.mockReturnValue({
       messages: [],
       input: "",
       handleInputChange: vi.fn(),
       isLoading: false,
-      stop: vi.fn(),
+      stop: stopStreamSpy,
       setMessages: vi.fn(),
       append: appendSpy,
     });
@@ -135,5 +137,40 @@ describe("useChatCore", () => {
         }),
       }),
     );
+  });
+
+  it("keeps stop active until the cancel request settles", async () => {
+    let resolveFetch: ((value: Response) => void) | null = null;
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolveFetch = resolve;
+          }),
+      );
+
+    const { result } = renderHook(() => useChatCore("session-1"));
+
+    act(() => {
+      result.current.stop();
+    });
+
+    expect(stopStreamSpy).toHaveBeenCalledTimes(1);
+    expect(result.current.isLoading).toBe(true);
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "https://brain.local/api/run/cancel",
+      expect.objectContaining({
+        method: "POST",
+        credentials: "include",
+      }),
+    );
+
+    await act(async () => {
+      resolveFetch?.(new Response("{}", { status: 200 }));
+      await Promise.resolve();
+    });
+
+    expect(result.current.isLoading).toBe(false);
   });
 });

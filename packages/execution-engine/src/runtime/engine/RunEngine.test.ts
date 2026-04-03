@@ -12,7 +12,10 @@ import type { ILLMGateway } from "../llm/types.js";
 import { Run, RunRepository } from "../run/index.js";
 import { CodingAgent } from "../agents/CodingAgent.js";
 import { RunEventRepository } from "../events/index.js";
-import { LLMTimeoutError } from "../llm/LLMGateway.js";
+import {
+  LLMTimeoutError,
+  LLMUnusableResponseError,
+} from "../llm/LLMGateway.js";
 
 const TEST_RUN_ID = "f462a003-5c36-4c86-a95d-367b92bf46c9";
 
@@ -292,6 +295,173 @@ describe("RunEngine", () => {
         },
       },
     });
+    expect(
+      events.some((event) => event.type === RUN_EVENT_TYPES.RUN_FAILED),
+    ).toBe(false);
+  });
+
+  it("keeps zero-action mutation runs on the normal completion path with TASK_MODEL_NO_ACTION", async () => {
+    const state = new MockRuntimeState();
+    const llmGateway: ILLMGateway = {
+      generateText: vi.fn().mockResolvedValue({
+        text: "Done.",
+        toolCalls: [],
+        finishReason: "stop",
+        usage: {
+          provider: "mock",
+          model: "mock-model",
+          promptTokens: 1,
+          completionTokens: 1,
+          totalTokens: 2,
+        },
+      }),
+      generateStructured: async () => ({
+        object: { tasks: [], metadata: { estimatedSteps: 1 } },
+        usage: {
+          provider: "mock",
+          model: "mock-model",
+          promptTokens: 1,
+          completionTokens: 1,
+          totalTokens: 2,
+        },
+      }),
+      generateStream: async () =>
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.close();
+          },
+        }),
+    };
+    const runEngine = createRunEngineForRun({
+      state,
+      dependencies: { llmGateway },
+    });
+
+    const response = await runEngine.execute(
+      {
+        agentType: "coding",
+        prompt: "update the footer CTA",
+        sessionId: "session-1",
+      },
+      [{ role: "user", content: "update the footer CTA" }],
+      {},
+    );
+
+    expect(response.status).toBe(200);
+    const output = await response.text();
+    expect(output).toContain(
+      "The model did not return a usable next action for this edit request.",
+    );
+    expect(output).toContain("No file was changed in this run.");
+
+    const persisted = await (
+      runEngine as unknown as {
+        getRun(runId: string): Promise<Run | null>;
+      }
+    ).getRun(TEST_RUN_ID);
+    expect(persisted?.status).toBe("COMPLETED");
+    expect(persisted?.metadata.error).toBeUndefined();
+    expect(persisted?.metadata.agenticLoop?.recoveryCode).toBe(
+      "TASK_MODEL_NO_ACTION",
+    );
+
+    const events = await new RunEventRepository(state).getByRun(TEST_RUN_ID);
+    const assistantMessageEvent = [...events]
+      .reverse()
+      .find((event) => event.type === RUN_EVENT_TYPES.MESSAGE_EMITTED);
+    expect(assistantMessageEvent).toMatchObject({
+      type: RUN_EVENT_TYPES.MESSAGE_EMITTED,
+      payload: {
+        role: "assistant",
+        metadata: {
+          code: "TASK_MODEL_NO_ACTION",
+          retryable: true,
+        },
+      },
+    });
+  });
+
+  it("recovers exhausted unusable-response retries without failing the run", async () => {
+    const state = new MockRuntimeState();
+    const llmGateway: ILLMGateway = {
+      generateText: vi
+        .fn()
+        .mockRejectedValueOnce(
+          new LLMUnusableResponseError({
+            providerId: "google",
+            modelId: "gemini-2.5-flash-lite",
+            anomalyCode: "EMPTY_CANDIDATE",
+            finishReason: "stop",
+            statusCode: 200,
+          }),
+        )
+        .mockRejectedValueOnce(
+          new LLMUnusableResponseError({
+            providerId: "google",
+            modelId: "gemini-2.5-flash-lite",
+            anomalyCode: "EMPTY_CANDIDATE",
+            finishReason: "stop",
+            statusCode: 200,
+          }),
+        ),
+      generateStructured: async () => ({
+        object: { tasks: [], metadata: { estimatedSteps: 1 } },
+        usage: {
+          provider: "mock",
+          model: "mock-model",
+          promptTokens: 1,
+          completionTokens: 1,
+          totalTokens: 2,
+        },
+      }),
+      generateStream: async () =>
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.close();
+          },
+        }),
+    };
+    const runEngine = createRunEngineForRun({
+      state,
+      dependencies: { llmGateway },
+    });
+
+    const response = await runEngine.execute(
+      {
+        agentType: "coding",
+        prompt: "update the footer CTA",
+        sessionId: "session-1",
+      },
+      [{ role: "user", content: "update the footer CTA" }],
+      {},
+    );
+
+    expect(response.status).toBe(200);
+    const output = await response.text();
+    expect(output).toContain(
+      "The model did not return a usable next action for this edit request.",
+    );
+
+    const persisted = await (
+      runEngine as unknown as {
+        getRun(runId: string): Promise<Run | null>;
+      }
+    ).getRun(TEST_RUN_ID);
+    expect(persisted?.status).toBe("COMPLETED");
+    expect(persisted?.metadata.error).toContain("TASK_MODEL_NO_ACTION:");
+    expect(persisted?.metadata.agenticLoop?.recoveryCode).toBe(
+      "TASK_MODEL_NO_ACTION",
+    );
+    expect(persisted?.metadata.agenticLoop?.llmRetryCount).toBe(1);
+    expect(persisted?.metadata.agenticLoop?.terminalLlmIssue).toMatchObject({
+      providerId: "google",
+      modelId: "gemini-2.5-flash-lite",
+      anomalyCode: "EMPTY_CANDIDATE",
+      attempts: 2,
+      statusCode: 200,
+    });
+
+    const events = await new RunEventRepository(state).getByRun(TEST_RUN_ID);
     expect(
       events.some((event) => event.type === RUN_EVENT_TYPES.RUN_FAILED),
     ).toBe(false);
@@ -1616,6 +1786,68 @@ describe("RunEngine", () => {
     expect(resetRun.input.modelId).toBe("llama-3.3-70b-versatile");
     expect(resetRun.metadata.manifest?.providerId).toBe("groq");
     expect(resetRun.metadata.manifest?.modelId).toBe("llama-3.3-70b-versatile");
+  });
+
+  it("clears prior run events when recycling a terminal run", async () => {
+    const state = new MockRuntimeState();
+    const runEngine = createRunEngineForRun({ state });
+    const privateApi = runEngine as unknown as {
+      getOrCreateRun(
+        input: {
+          agentType: "coding";
+          prompt: string;
+          sessionId: string;
+          providerId?: string;
+          modelId?: string;
+        },
+        runId: string,
+        sessionId: string,
+      ): Promise<Run>;
+      runRepo: {
+        update(run: Run): Promise<void>;
+      };
+      runEventRecorder: {
+        recordMessageEmitted(
+          role: "user" | "assistant" | "system",
+          content: string,
+          metadata?: Record<string, unknown>,
+        ): Promise<void>;
+      };
+    };
+
+    const initialRun = await privateApi.getOrCreateRun(
+      {
+        agentType: "coding",
+        prompt: "first run",
+        sessionId: "session-1",
+        providerId: "openai",
+        modelId: "gpt-4o",
+      },
+      TEST_RUN_ID,
+      "session-1",
+    );
+    await privateApi.runEventRecorder.recordMessageEmitted(
+      "assistant",
+      "First run output",
+    );
+    initialRun.transition("RUNNING");
+    initialRun.transition("COMPLETED");
+    await privateApi.runRepo.update(initialRun);
+
+    await privateApi.getOrCreateRun(
+      {
+        agentType: "coding",
+        prompt: "second run",
+        sessionId: "session-1",
+        providerId: "groq",
+        modelId: "llama-3.3-70b-versatile",
+      },
+      TEST_RUN_ID,
+      "session-1",
+    );
+
+    const events = await new RunEventRepository(state).getByRun(TEST_RUN_ID);
+    expect(events).toHaveLength(0);
   });
 
   it("restores tasks if recyclable-run reset fails after deleting tasks", async () => {

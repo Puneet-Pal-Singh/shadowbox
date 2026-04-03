@@ -4,6 +4,7 @@ import { z } from "zod";
 import {
   LLMGateway,
   LLMTimeoutError,
+  LLMUnusableResponseError,
   ProviderCapabilityError,
 } from "./LLMGateway.js";
 import type { LLMGatewayDependencies } from "./LLMGateway.js";
@@ -168,6 +169,38 @@ describe("LLMGateway provider capabilities", () => {
     expect(response.toolCalls?.[0]?.toolName).toBe("read_file");
     expect(response.toolCalls?.[0]?.args).toEqual({ path: "README.md" });
     expect(response.toolCalls?.[0]?.id).toBeTruthy();
+  });
+
+  it("preserves typed unusable-response errors with provider metadata", async () => {
+    const deps = createDependencies({
+      getCapabilities: () => ({
+        streaming: true,
+        tools: true,
+        structuredOutputs: true,
+        jsonMode: true,
+      }),
+      isModelAllowed: () => true,
+    });
+    deps.aiService.generateText.mockRejectedValueOnce(
+      new LLMUnusableResponseError({
+        providerId: "google",
+        modelId: "gemini-2.5-flash-lite",
+        anomalyCode: "EMPTY_CANDIDATE",
+        finishReason: "stop",
+        statusCode: 200,
+      }),
+    );
+    const gateway = new LLMGateway(deps);
+
+    await expect(gateway.generateText(baseRequest)).rejects.toMatchObject({
+      name: "LLMUnusableResponseError",
+      providerId: "google",
+      modelId: "gemini-2.5-flash-lite",
+      anomalyCode: "EMPTY_CANDIDATE",
+      finishReason: "stop",
+      statusCode: 200,
+    });
+    expect(deps.costLedger.append).toHaveBeenCalledTimes(1);
   });
 
   it("throws TOOLS_NOT_SUPPORTED when tools are requested for unsupported providers", async () => {

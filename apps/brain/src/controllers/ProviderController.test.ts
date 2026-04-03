@@ -53,8 +53,8 @@ function createMockEnv(options?: {
       },
       { id: "stepfun/step-3.5-flash:free", name: "stepfun/step-3.5-flash:free" },
       {
-        id: "qwen/qwen3.6-plus-preview:free",
-        name: "qwen/qwen3.6-plus-preview:free",
+        id: "qwen/qwen3.6-plus:free",
+        name: "qwen/qwen3.6-plus:free",
       },
     ],
     openai: [{ id: "gpt-4o", name: "GPT-4o" }],
