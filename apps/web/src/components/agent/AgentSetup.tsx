@@ -510,6 +510,7 @@ export function AgentSetup({
 
                   <ModelPickerPopover
                     catalog={catalog}
+                    credentials={credentials}
                     providerModels={providerModels}
                     visibleModelIds={visibleModelIds}
                     selectedProviderId={selectedProviderId}
