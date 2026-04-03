@@ -5,7 +5,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { ModelPickerPopover } from "./ModelPickerPopover";
-import { type ProviderRegistryEntry } from "@repo/shared-types";
+import {
+  BYOKCredential as ProviderCredential,
+  type ProviderRegistryEntry,
+} from "@repo/shared-types";
 import { type ProviderModelOption } from "../../services/api/providerClient";
 
 describe("ModelPickerPopover", () => {
@@ -98,8 +101,42 @@ describe("ModelPickerPopover", () => {
     anthropic: new Set(["claude-3-opus", "claude-3-sonnet"]),
   };
 
+  const mockCredentials: ProviderCredential[] = [
+    {
+      credentialId: "550e8400-e29b-41d4-a716-446655440000",
+      userId: "user-1",
+      workspaceId: "ws-1",
+      providerId: "openai",
+      label: "OpenAI",
+      keyFingerprint: "abc123",
+      encryptedSecretJson: "{}",
+      keyVersion: "1",
+      status: "connected",
+      lastValidatedAt: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      deletedAt: null,
+    },
+    {
+      credentialId: "550e8400-e29b-41d4-a716-446655440001",
+      userId: "user-1",
+      workspaceId: "ws-1",
+      providerId: "anthropic",
+      label: "Anthropic",
+      keyFingerprint: "def456",
+      encryptedSecretJson: "{}",
+      keyVersion: "1",
+      status: "connected",
+      lastValidatedAt: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      deletedAt: null,
+    },
+  ];
+
   const defaultProps = {
     catalog: mockCatalog,
+    credentials: mockCredentials,
     providerModels: mockModels,
     visibleModelIds: mockVisibleModelIds,
     selectedProviderId: null as string | null,
@@ -135,7 +172,7 @@ describe("ModelPickerPopover", () => {
       ).toHaveTextContent("OpenAI: GPT-4");
     });
 
-    it("falls back to axis default label when persisted explicit selection is no longer valid", () => {
+    it("preserves the explicit selection label when the selected model is not in the current loaded slice", () => {
       render(
         <ModelPickerPopover
           {...defaultProps}
@@ -146,7 +183,22 @@ describe("ModelPickerPopover", () => {
 
       expect(
         screen.getByRole("button", { name: /open model picker/i }),
-      ).toHaveTextContent("Axis (Free): z-ai/glm-4.5-air:free");
+      ).toHaveTextContent("OpenAI: removed-model");
+    });
+
+    it("preserves explicit selected model label while provider models are hydrating", () => {
+      render(
+        <ModelPickerPopover
+          {...defaultProps}
+          providerModels={{ axis: mockModels.axis ?? [] }}
+          selectedProviderId="openai"
+          selectedModelId="gpt-4-turbo"
+        />,
+      );
+
+      expect(
+        screen.getByRole("button", { name: /open model picker/i }),
+      ).toHaveTextContent("OpenAI: gpt-4-turbo");
     });
 
     it("opens popover on button click", async () => {
@@ -319,6 +371,95 @@ describe("ModelPickerPopover", () => {
         const gpt4Button = screen.getByText("GPT-4").closest("button");
         expect(gpt4Button).toHaveClass("bg-neutral-800");
         expect(gpt4Button?.textContent).toContain("✓");
+      });
+    });
+
+    it("shows connected provider sections even when models are still loading", async () => {
+      render(
+        <ModelPickerPopover
+          {...defaultProps}
+          providerModels={{ axis: mockModels.axis ?? [] }}
+        />,
+      );
+
+      fireEvent.click(
+        screen.getByRole("button", { name: /open model picker/i }),
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText("OpenAI")).toBeInTheDocument();
+        expect(screen.getByText("Anthropic")).toBeInTheDocument();
+        expect(screen.getAllByText(/models loading/i).length).toBeGreaterThan(0);
+      });
+    });
+
+    it("shows pending selected model while provider models are hydrating", async () => {
+      render(
+        <ModelPickerPopover
+          {...defaultProps}
+          providerModels={{ axis: mockModels.axis ?? [] }}
+          selectedProviderId="openai"
+          selectedModelId="gpt-4-turbo"
+        />,
+      );
+
+      fireEvent.click(
+        screen.getByRole("button", { name: /open model picker/i }),
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText("gpt-4-turbo")).toBeInTheDocument();
+        expect(screen.getByText("Loading...")).toBeInTheDocument();
+      });
+    });
+
+    it("keeps explicit selection pending when provider models are only partially loaded", async () => {
+      render(
+        <ModelPickerPopover
+          {...defaultProps}
+          providerModels={{
+            axis: mockModels.axis ?? [],
+            openai: [{ id: "gpt-4", name: "GPT-4" }],
+          }}
+          selectedProviderId="openai"
+          selectedModelId="gpt-4-turbo"
+        />,
+      );
+
+      expect(
+        screen.getByRole("button", { name: /open model picker/i }),
+      ).toHaveTextContent("OpenAI: gpt-4-turbo");
+
+      fireEvent.click(
+        screen.getByRole("button", { name: /open model picker/i }),
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText("gpt-4-turbo")).toBeInTheDocument();
+        expect(screen.getByText("Pending")).toBeInTheDocument();
+      });
+    });
+
+    it("does not show pending selection when the selected model is hydrated but hidden", async () => {
+      render(
+        <ModelPickerPopover
+          {...defaultProps}
+          visibleModelIds={{
+            ...mockVisibleModelIds,
+            openai: new Set(["gpt-4"]),
+          }}
+          selectedProviderId="openai"
+          selectedModelId="gpt-4-turbo"
+        />,
+      );
+
+      fireEvent.click(
+        screen.getByRole("button", { name: /open model picker/i }),
+      );
+
+      await waitFor(() => {
+        expect(screen.queryByText("Pending")).not.toBeInTheDocument();
+        expect(screen.queryByText("Loading...")).not.toBeInTheDocument();
       });
     });
   });
@@ -749,7 +890,9 @@ describe("ModelPickerPopover", () => {
       render(
         <ModelPickerPopover
           {...defaultProps}
-          providerModels={{}} // No models
+          catalog={[]}
+          credentials={[]}
+          providerModels={{}}
         />,
       );
 

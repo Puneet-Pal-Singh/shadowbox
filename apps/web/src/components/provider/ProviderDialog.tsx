@@ -289,6 +289,7 @@ export function ProviderDialog({
         isOpen={isOpen}
         onClose={onClose}
         catalog={catalog}
+        credentials={credentials}
         providerModels={providerModels}
         visibleModelIds={visibleModelIds}
         onToggleModelVisibility={toggleModelVisibility}
@@ -450,6 +451,7 @@ export function ProviderDialog({
         isOpen={showManageModels}
         onClose={() => setShowManageModels(false)}
         catalog={catalog}
+        credentials={credentials}
         providerModels={providerModels}
         visibleModelIds={visibleModelIds}
         onToggleModelVisibility={toggleModelVisibility}

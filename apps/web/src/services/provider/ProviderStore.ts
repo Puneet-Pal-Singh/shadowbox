@@ -80,11 +80,51 @@ export interface ProviderStoreState {
   refreshingModelsForProviderId: string | null;
 }
 
+type ProviderWorkspaceGlobalState = Pick<
+  ProviderStoreState,
+  | "catalog"
+  | "credentials"
+  | "preferences"
+  | "providerModels"
+  | "providerModelsMetadata"
+  | "providerModelsPage"
+  | "visibleModelIds"
+>;
+
+type ProviderRunScopedState = Pick<
+  ProviderStoreState,
+  | "selectedProviderId"
+  | "selectedCredentialId"
+  | "selectedModelId"
+  | "lastResolvedConfig"
+  | "axisQuota"
+>;
+
+type ProviderOperationalState = Pick<
+  ProviderStoreState,
+  | "status"
+  | "error"
+  | "isValidating"
+  | "loadingModelsForProviderId"
+  | "selectedModelView"
+  | "refreshingModelsForProviderId"
+>;
+
 interface ProviderSelectionSnapshot {
   selectedProviderId: string | null;
   selectedCredentialId: string | null;
   selectedModelId: string | null;
 }
+
+type InflightScope = "workspace" | "run";
+
+interface InflightRequest {
+  promise: Promise<unknown>;
+  scope: InflightScope;
+}
+
+const RUN_SCOPED_SELECTION_STORAGE_KEY_PREFIX =
+  "provider:run-scoped-selection:";
 
 export type ConnectCredentialRequest = BYOKCredentialConnectRequest;
 export type ValidateCredentialRequest = BYOKCredentialValidateRequest;
@@ -153,11 +193,12 @@ export class ProviderStore {
   private activeRunId: string | null = null;
   private apiClient: ProviderApiClientContract;
   private listeners: Set<(state: ProviderStoreState) => void> = new Set();
-  private inflight: Map<string, Promise<unknown>> = new Map();
+  private inflight: Map<string, InflightRequest> = new Map();
   private bootstrapPromise: Promise<void> | null = null;
   private lastResolveSelectionKey: string | null = null;
   private lastResolveError: Error | null = null;
-  private epoch = 0;
+  private workspaceEpoch = 0;
+  private runScopeEpoch = 0;
   private enableLogging: boolean;
 
   private constructor(
@@ -166,26 +207,7 @@ export class ProviderStore {
   ) {
     this.apiClient = apiClient;
     this.enableLogging = enableLogging;
-    this.state = {
-      catalog: [],
-      credentials: [],
-      preferences: null,
-      providerModels: {},
-      providerModelsMetadata: {},
-      providerModelsPage: {},
-      visibleModelIds: {},
-      selectedProviderId: null,
-      selectedCredentialId: null,
-      selectedModelId: null,
-      lastResolvedConfig: null,
-      axisQuota: null,
-      status: "idle",
-      error: null,
-      isValidating: false,
-      loadingModelsForProviderId: null,
-      selectedModelView: "popular",
-      refreshingModelsForProviderId: null,
-    };
+    this.state = createInitialStoreState();
   }
 
   /**
@@ -204,7 +226,7 @@ export class ProviderStore {
 
   /**
    * Bind store state to active run scope.
-   * Resets store when run changes to prevent cross-run leakage.
+   * Resets run-scoped state when run changes to prevent cross-run leakage.
    * Returns true if bootstrap should be called.
    */
   setActiveRunId(runId: string): boolean {
@@ -213,6 +235,9 @@ export class ProviderStore {
     }
 
     if (this.activeRunId === runId) {
+      if (this.state.status === "idle") {
+        this.restoreRunScopedSelection(runId);
+      }
       return this.state.status === "idle";
     }
 
@@ -221,13 +246,19 @@ export class ProviderStore {
     this.activeRunId = runId;
 
     if (didSwitchRun) {
-      this.log("[run] switched active run, resetting store", {
+      this.log("[run] switched active run, resetting run-scoped state", {
         previousRunId,
         nextRunId: runId,
       });
-      this.reset();
-      return true;
+      this.resetRunScope();
     }
+
+    this.restoreRunScopedSelection(runId);
+    if (hasWorkspaceGlobalState(this.state)) {
+      this.hydrateRunScopedSelectionFromWorkspaceState();
+      return false;
+    }
+
     return true;
   }
 
@@ -274,7 +305,7 @@ export class ProviderStore {
       return;
     }
 
-    const epoch = this.epoch;
+    const epoch = this.workspaceEpoch;
     const promise = this.executeBootstrap(epoch);
     this.bootstrapPromise = promise;
     try {
@@ -294,7 +325,7 @@ export class ProviderStore {
         this.apiClient.getCredentials(),
         this.apiClient.getPreferences(),
       ]);
-      if (this.isStaleEpoch("bootstrap", epoch)) {
+      if (this.isWorkspaceEpochStale("bootstrap", epoch)) {
         return;
       }
       const selection = this.deriveSelectionSnapshot({
@@ -322,7 +353,7 @@ export class ProviderStore {
 
       const preloadProviderIds = this.collectBootstrapModelPreloadProviderIds(
         catalog,
-        selection.selectedProviderId,
+        credentials,
       );
       for (const providerId of preloadProviderIds) {
         if (this.state.providerModels[providerId]) {
@@ -341,7 +372,7 @@ export class ProviderStore {
         credentials: credentials.length,
       });
     } catch (error) {
-      if (this.isStaleEpoch("bootstrap", epoch)) {
+      if (this.isWorkspaceEpochStale("bootstrap", epoch)) {
         return;
       }
       const message =
@@ -412,12 +443,12 @@ export class ProviderStore {
 
     if (this.inflight.has(key)) {
       this.log("[connectCredential] Request already in flight");
-      await this.inflight.get(key);
+      await this.inflight.get(key)?.promise;
       return;
     }
 
     const promise = this.executeConnect(req);
-    this.inflight.set(key, promise);
+    this.trackInflight(key, promise, "workspace");
 
     try {
       await promise;
@@ -431,12 +462,12 @@ export class ProviderStore {
    */
   private async executeConnect(req: ConnectCredentialRequest): Promise<void> {
     this.log("[connectCredential] Starting", { providerId: req.providerId });
-    const epoch = this.epoch;
+    const epoch = this.workspaceEpoch;
 
     try {
       const credential = await this.apiClient.connectCredential(req);
       let preferences = await this.apiClient.getPreferences();
-      if (this.isStaleEpoch("connectCredential", epoch)) {
+      if (this.isWorkspaceEpochStale("connectCredential", epoch)) {
         return;
       }
 
@@ -446,7 +477,7 @@ export class ProviderStore {
       );
       try {
         const models = await this.loadProviderModels(req.providerId);
-        if (this.isStaleEpoch("connectCredential", epoch)) {
+        if (this.isWorkspaceEpochStale("connectCredential", epoch)) {
           return;
         }
         providerModels = {
@@ -539,12 +570,12 @@ export class ProviderStore {
 
     if (this.inflight.has(key)) {
       this.log("[disconnectCredential] Request already in flight");
-      await this.inflight.get(key);
+      await this.inflight.get(key)?.promise;
       return;
     }
 
     const promise = this.executeDisconnect(credentialId);
-    this.inflight.set(key, promise);
+    this.trackInflight(key, promise, "workspace");
 
     try {
       await promise;
@@ -558,11 +589,11 @@ export class ProviderStore {
    */
   private async executeDisconnect(credentialId: string): Promise<void> {
     this.log("[disconnectCredential] Starting", { credentialId });
-    const epoch = this.epoch;
+    const epoch = this.workspaceEpoch;
 
     try {
       await this.apiClient.disconnectCredential(credentialId);
-      if (this.isStaleEpoch("disconnectCredential", epoch)) {
+      if (this.isWorkspaceEpochStale("disconnectCredential", epoch)) {
         return;
       }
 
@@ -611,14 +642,14 @@ export class ProviderStore {
 
     if (this.inflight.has(key)) {
       this.log("[validateCredential] Request already in flight");
-      await this.inflight.get(key);
+      await this.inflight.get(key)?.promise;
       return;
     }
 
     this.setState({ isValidating: true });
 
     const promise = this.executeValidate(credentialId, mode);
-    this.inflight.set(key, promise);
+    this.trackInflight(key, promise, "workspace");
 
     try {
       await promise;
@@ -636,11 +667,11 @@ export class ProviderStore {
     mode: "format" | "live",
   ): Promise<void> {
     this.log("[validateCredential] Starting", { credentialId, mode });
-    const epoch = this.epoch;
+    const epoch = this.workspaceEpoch;
 
     try {
       await this.apiClient.validateCredential(credentialId, { mode });
-      if (this.isStaleEpoch("validateCredential", epoch)) {
+      if (this.isWorkspaceEpochStale("validateCredential", epoch)) {
         return;
       }
 
@@ -676,12 +707,12 @@ export class ProviderStore {
 
     if (this.inflight.has(key)) {
       this.log("[updatePreferences] Request already in flight");
-      await this.inflight.get(key);
+      await this.inflight.get(key)?.promise;
       return;
     }
 
     const promise = this.executeUpdatePreferences(partial);
-    this.inflight.set(key, promise);
+    this.trackInflight(key, promise, "workspace");
 
     try {
       await promise;
@@ -709,16 +740,16 @@ export class ProviderStore {
         providerId,
         ...resolvedOptions,
       });
-      return (await this.inflight.get(key)) as ProviderModelOption[];
+      return (await this.inflight.get(key)?.promise) as ProviderModelOption[];
     }
 
     this.setState({ loadingModelsForProviderId: providerId });
     const promise = this.executeLoadProviderModels(
       providerId,
       resolvedOptions,
-      this.epoch,
+      this.workspaceEpoch,
     );
-    this.inflight.set(key, promise);
+    this.trackInflight(key, promise, "workspace");
 
     try {
       return (await promise) as ProviderModelOption[];
@@ -747,13 +778,16 @@ export class ProviderStore {
   async refreshProviderModels(providerId: string): Promise<void> {
     const key = `refresh-models:${providerId}`;
     if (this.inflight.has(key)) {
-      await this.inflight.get(key);
+      await this.inflight.get(key)?.promise;
       return;
     }
 
     this.setState({ refreshingModelsForProviderId: providerId });
-    const promise = this.executeRefreshProviderModels(providerId, this.epoch);
-    this.inflight.set(key, promise);
+    const promise = this.executeRefreshProviderModels(
+      providerId,
+      this.workspaceEpoch,
+    );
+    this.trackInflight(key, promise, "workspace");
     try {
       await promise;
     } finally {
@@ -789,7 +823,7 @@ export class ProviderStore {
       limit: options.limit,
       cursor: options.cursor,
     });
-    if (this.isStaleEpoch("loadProviderModels", epoch)) {
+    if (this.isWorkspaceEpochStale("loadProviderModels", epoch)) {
       return result.models;
     }
 
@@ -840,7 +874,7 @@ export class ProviderStore {
   ): Promise<void> {
     this.log("[refreshProviderModels] Starting", { providerId });
     await this.apiClient.refreshProviderModels(providerId);
-    if (this.isStaleEpoch("refreshProviderModels", epoch)) {
+    if (this.isWorkspaceEpochStale("refreshProviderModels", epoch)) {
       return;
     }
     await this.loadProviderModels(providerId, {
@@ -856,11 +890,11 @@ export class ProviderStore {
     partial: BYOKPreferencesUpdateRequest,
   ): Promise<void> {
     this.log("[updatePreferences] Starting", partial);
-    const epoch = this.epoch;
+    const epoch = this.workspaceEpoch;
 
     try {
       const updated = await this.apiClient.updatePreferences(partial);
-      if (this.isStaleEpoch("updatePreferences", epoch)) {
+      if (this.isWorkspaceEpochStale("updatePreferences", epoch)) {
         return;
       }
       const selection = this.deriveSelectionSnapshot({
@@ -917,15 +951,17 @@ export class ProviderStore {
   async applySessionSelection(
     request: SessionSelectionRequest,
   ): Promise<ProviderResolution> {
+    const selection = {
+      selectedProviderId: request.providerId,
+      selectedCredentialId: request.credentialId,
+      selectedModelId: request.modelId ?? null,
+    } satisfies ProviderSelectionSnapshot;
     this.setSelection(
-      request.providerId,
-      request.credentialId,
-      request.modelId,
+      selection.selectedProviderId,
+      selection.selectedCredentialId,
+      selection.selectedModelId ?? undefined,
     );
-    await this.updatePreferences({
-      defaultProviderId: request.providerId,
-      ...(request.modelId ? { defaultModelId: request.modelId } : {}),
-    });
+    this.persistRunScopedSelection(selection);
     return this.resolveForChat();
   }
 
@@ -964,15 +1000,19 @@ export class ProviderStore {
 
     if (this.inflight.has(key)) {
       this.log("[resolveForChat] Request already in flight");
-      await this.inflight.get(key);
+      await this.inflight.get(key)?.promise;
       if (this.state.lastResolvedConfig) {
         return this.state.lastResolvedConfig;
       }
       throw new Error("Provider resolution failed.");
     }
 
-    const promise = this.executeResolve(selection, selectionKey, this.epoch);
-    this.inflight.set(key, promise);
+    const promise = this.executeResolve(
+      selection,
+      selectionKey,
+      this.runScopeEpoch,
+    );
+    this.trackInflight(key, promise, "run");
 
     try {
       await promise;
@@ -1008,7 +1048,7 @@ export class ProviderStore {
 
     try {
       const config = await this.apiClient.resolveForChat(request);
-      if (this.isStaleEpoch("resolveForChat", epoch)) {
+      if (this.isRunScopeEpochStale("resolveForChat", epoch)) {
         return;
       }
 
@@ -1131,31 +1171,32 @@ export class ProviderStore {
    * Reset store to initial state
    */
   reset(): void {
-    this.epoch += 1;
+    this.resetAll();
+  }
+
+  resetRunScope(): void {
+    this.runScopeEpoch += 1;
+    this.clearInflightByScope("run");
+    this.lastResolveSelectionKey = null;
+    this.lastResolveError = null;
+    this.state = {
+      ...this.state,
+      ...createInitialRunScopedState(),
+      error: null,
+    };
+    this.emit();
+  }
+
+  resetAll(): void {
+    this.workspaceEpoch += 1;
+    this.runScopeEpoch += 1;
     this.inflight.clear();
     this.bootstrapPromise = null;
     this.lastResolveSelectionKey = null;
     this.lastResolveError = null;
-    this.state = {
-      catalog: [],
-      credentials: [],
-      preferences: null,
-      providerModels: {},
-      providerModelsMetadata: {},
-      providerModelsPage: {},
-      visibleModelIds: {},
-      selectedProviderId: null,
-      selectedCredentialId: null,
-      selectedModelId: null,
-      lastResolvedConfig: null,
-      axisQuota: null,
-      status: "idle",
-      error: null,
-      isValidating: false,
-      loadingModelsForProviderId: null,
-      selectedModelView: "popular",
-      refreshingModelsForProviderId: null,
-    };
+    this.activeRunId = null;
+    clearPersistedRunScopedSelections();
+    this.state = createInitialStoreState();
     this.emit();
   }
 
@@ -1216,6 +1257,68 @@ export class ProviderStore {
       selection.selectedCredentialId ?? "none",
       selection.selectedModelId ?? "none",
     ].join("|");
+  }
+
+  private restoreRunScopedSelection(runId: string): void {
+    const persistedSelection = readRunScopedSelection(runId);
+    if (!persistedSelection) {
+      return;
+    }
+
+    this.log("[run] restoring persisted run-scoped selection", {
+      runId,
+      providerId: persistedSelection.selectedProviderId,
+      credentialId: persistedSelection.selectedCredentialId,
+      modelId: persistedSelection.selectedModelId,
+    });
+    this.setState(persistedSelection);
+  }
+
+  private hydrateRunScopedSelectionFromWorkspaceState(): void {
+    const selection = this.deriveSelectionSnapshot({
+      catalog: this.state.catalog,
+      credentials: this.state.credentials,
+      preferences: this.state.preferences,
+      providerModels: this.state.providerModels,
+      selectedProviderId: this.state.selectedProviderId,
+      selectedCredentialId: this.state.selectedCredentialId,
+      selectedModelId: this.state.selectedModelId,
+    });
+
+    this.setState({
+      selectedProviderId: selection.selectedProviderId,
+      selectedCredentialId: selection.selectedCredentialId,
+      selectedModelId: selection.selectedModelId,
+    });
+  }
+
+  private persistRunScopedSelection(
+    selection: ProviderSelectionSnapshot,
+  ): void {
+    if (!this.activeRunId) {
+      return;
+    }
+
+    writeRunScopedSelection(this.activeRunId, selection);
+  }
+
+  private trackInflight(
+    key: string,
+    promise: Promise<unknown>,
+    scope: InflightScope,
+  ): void {
+    this.inflight.set(key, {
+      promise,
+      scope,
+    });
+  }
+
+  private clearInflightByScope(scope: InflightScope): void {
+    for (const [key, request] of this.inflight.entries()) {
+      if (request.scope === scope) {
+        this.inflight.delete(key);
+      }
+    }
   }
 
   private resolveLoadOptions(
@@ -1324,25 +1427,44 @@ export class ProviderStore {
 
   private collectBootstrapModelPreloadProviderIds(
     catalog: ProviderRegistryEntry[],
-    selectedProviderId: string | null,
+    credentials: ProviderCredential[],
   ): string[] {
     const providerIds = new Set<string>();
-    if (catalog.some((entry) => entry.providerId === "axis")) {
+    const catalogProviderIds = new Set(
+      catalog.map((entry) => entry.providerId),
+    );
+
+    if (catalogProviderIds.has("axis")) {
       providerIds.add("axis");
     }
-    if (selectedProviderId) {
-      providerIds.add(selectedProviderId);
+
+    for (const credential of credentials) {
+      if (catalogProviderIds.has(credential.providerId)) {
+        providerIds.add(credential.providerId);
+      }
     }
+
     return Array.from(providerIds);
   }
 
-  private isStaleEpoch(operation: string, epoch: number): boolean {
-    if (epoch === this.epoch) {
+  private isWorkspaceEpochStale(operation: string, epoch: number): boolean {
+    if (epoch === this.workspaceEpoch) {
       return false;
     }
-    this.log(`[${operation}] skipping stale async result`, {
+    this.log(`[${operation}] skipping stale workspace async result`, {
       operationEpoch: epoch,
-      currentEpoch: this.epoch,
+      currentEpoch: this.workspaceEpoch,
+    });
+    return true;
+  }
+
+  private isRunScopeEpochStale(operation: string, epoch: number): boolean {
+    if (epoch === this.runScopeEpoch) {
+      return false;
+    }
+    this.log(`[${operation}] skipping stale run-scoped async result`, {
+      operationEpoch: epoch,
+      currentEpoch: this.runScopeEpoch,
     });
     return true;
   }
@@ -1356,6 +1478,147 @@ function serializeVisibleModelIds(
     visibleModelIdsRecord[providerId] = Array.from(modelSet);
   }
   return visibleModelIdsRecord;
+}
+
+function createInitialStoreState(): ProviderStoreState {
+  return {
+    ...createInitialWorkspaceGlobalState(),
+    ...createInitialRunScopedState(),
+    ...createInitialOperationalState(),
+  };
+}
+
+function createInitialWorkspaceGlobalState(): ProviderWorkspaceGlobalState {
+  return {
+    catalog: [],
+    credentials: [],
+    preferences: null,
+    providerModels: {},
+    providerModelsMetadata: {},
+    providerModelsPage: {},
+    visibleModelIds: {},
+  };
+}
+
+function createInitialRunScopedState(): ProviderRunScopedState {
+  return {
+    selectedProviderId: null,
+    selectedCredentialId: null,
+    selectedModelId: null,
+    lastResolvedConfig: null,
+    axisQuota: null,
+  };
+}
+
+function createInitialOperationalState(): ProviderOperationalState {
+  return {
+    status: "idle",
+    error: null,
+    isValidating: false,
+    loadingModelsForProviderId: null,
+    selectedModelView: "popular",
+    refreshingModelsForProviderId: null,
+  };
+}
+
+function hasWorkspaceGlobalState(state: ProviderStoreState): boolean {
+  return (
+    state.catalog.length > 0 ||
+    state.credentials.length > 0 ||
+    state.preferences !== null ||
+    Object.keys(state.providerModels).length > 0 ||
+    Object.keys(state.visibleModelIds).length > 0
+  );
+}
+
+function writeRunScopedSelection(
+  runId: string,
+  selection: ProviderSelectionSnapshot,
+): void {
+  try {
+    sessionStorage.setItem(
+      buildRunScopedSelectionStorageKey(runId),
+      JSON.stringify(selection),
+    );
+  } catch (error) {
+    console.warn(
+      "[provider/store] failed to persist run-scoped selection",
+      error,
+    );
+  }
+}
+
+function readRunScopedSelection(
+  runId: string,
+): ProviderSelectionSnapshot | null {
+  try {
+    const serialized = sessionStorage.getItem(
+      buildRunScopedSelectionStorageKey(runId),
+    );
+    if (!serialized) {
+      return null;
+    }
+
+    const parsed: unknown = JSON.parse(serialized);
+    if (!isProviderSelectionSnapshot(parsed)) {
+      return null;
+    }
+
+    return parsed;
+  } catch (error) {
+    console.warn(
+      "[provider/store] failed to restore run-scoped selection",
+      error,
+    );
+    return null;
+  }
+}
+
+function buildRunScopedSelectionStorageKey(runId: string): string {
+  return `${RUN_SCOPED_SELECTION_STORAGE_KEY_PREFIX}${runId}`;
+}
+
+function clearPersistedRunScopedSelections(): void {
+  try {
+    const keysToRemove: string[] = [];
+    for (let index = 0; index < sessionStorage.length; index += 1) {
+      const key = sessionStorage.key(index);
+      if (
+        key &&
+        key.startsWith(RUN_SCOPED_SELECTION_STORAGE_KEY_PREFIX)
+      ) {
+        keysToRemove.push(key);
+      }
+    }
+
+    for (const key of keysToRemove) {
+      sessionStorage.removeItem(key);
+    }
+  } catch (error) {
+    console.warn(
+      "[provider/store] failed to clear persisted run-scoped selections",
+      error,
+    );
+  }
+}
+
+function isProviderSelectionSnapshot(
+  value: unknown,
+): value is ProviderSelectionSnapshot {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const record = value as Record<string, unknown>;
+  return (
+    isNullableString(record.selectedProviderId) &&
+    isNullableString(record.selectedCredentialId) &&
+    isNullableString(record.selectedModelId)
+  );
+}
+
+function isNullableString(value: unknown): value is string | null {
+  return value === null || typeof value === "string";
 }
 
 function mergeModelsById(

@@ -13,7 +13,10 @@
 
 import React, { useMemo, useState, useRef, useEffect } from "react";
 import { ChevronDown, Search, Plus, Settings, RefreshCw } from "lucide-react";
-import { type ProviderRegistryEntry } from "@repo/shared-types";
+import {
+  BYOKCredential as ProviderCredential,
+  type ProviderRegistryEntry,
+} from "@repo/shared-types";
 import {
   type ProviderModelDiscoveryView,
   type ProviderModelOption,
@@ -48,6 +51,7 @@ function isSamePlacement(
  */
 export interface ModelPickerPopoverProps {
   catalog: ProviderRegistryEntry[];
+  credentials: ProviderCredential[];
   providerModels: Record<string, ProviderModelOption[]>;
   visibleModelIds: Record<string, Set<string>>;
   selectedProviderId: string | null;
@@ -75,6 +79,12 @@ interface ProviderGroup {
   providerId: string;
   displayName: string;
   models: ProviderModelOption[];
+  isConnected: boolean;
+  isModelListLoaded: boolean;
+}
+
+interface FilteredProviderGroup extends ProviderGroup {
+  hasModelsHiddenByVisibility: boolean;
 }
 
 interface EffectiveSelection {
@@ -102,6 +112,16 @@ function resolveEffectiveSelection(
         selectedProviderId,
         selectedModelId,
       )
+    ) {
+      return { providerId: selectedProviderId, modelId: selectedModelId };
+    }
+    if (
+      shouldPreservePendingSelection(
+        providerModels,
+        selectedProviderId,
+        selectedModelId,
+      ) &&
+      hasProvider(catalog, selectedProviderId)
     ) {
       return { providerId: selectedProviderId, modelId: selectedModelId };
     }
@@ -140,6 +160,24 @@ function isValidExplicitSelection(
   return models.some((model) => model.id === selectedModelId);
 }
 
+function shouldPreservePendingSelection(
+  providerModels: Record<string, ProviderModelOption[]>,
+  selectedProviderId: string,
+  selectedModelId: string,
+): boolean {
+  if (!selectedProviderId || !selectedModelId) {
+    return false;
+  }
+
+  if (!Object.prototype.hasOwnProperty.call(providerModels, selectedProviderId)) {
+    return true;
+  }
+
+  return !(providerModels[selectedProviderId] ?? []).some(
+    (model) => model.id === selectedModelId,
+  );
+}
+
 function hasProvider(
   catalog: ProviderRegistryEntry[],
   providerId: string,
@@ -172,11 +210,18 @@ function resolveAxisDefaultSelection(
   };
 }
 
+function buildConnectedProviderIds(
+  credentials: ProviderCredential[],
+): Set<string> {
+  return new Set(credentials.map((credential) => credential.providerId));
+}
+
 /**
  * ModelPickerPopover Component
  */
 export function ModelPickerPopover({
   catalog,
+  credentials,
   providerModels,
   visibleModelIds,
   selectedProviderId,
@@ -206,6 +251,10 @@ export function ModelPickerPopover({
   const popoverRef = useRef<HTMLDivElement>(null);
   const triggerButtonRef = useRef<HTMLButtonElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const connectedProviderIds = useMemo(
+    () => buildConnectedProviderIds(credentials),
+    [credentials],
+  );
   const effectiveSelection = useMemo(
     () =>
       resolveEffectiveSelection(
@@ -220,6 +269,16 @@ export function ModelPickerPopover({
   // Build provider groups from catalog and models
   const providerGroups = useMemo((): ProviderGroup[] => {
     return catalog
+      .filter((entry) => {
+        if (entry.providerId === "axis") {
+          return true;
+        }
+
+        return (
+          connectedProviderIds.has(entry.providerId) ||
+          (providerModels[entry.providerId]?.length ?? 0) > 0
+        );
+      })
       .map((entry) => ({
         providerId: entry.providerId,
         displayName: formatProviderDisplayName(
@@ -227,39 +286,59 @@ export function ModelPickerPopover({
           entry.displayName,
         ),
         models: providerModels[entry.providerId] || [],
+        isConnected:
+          entry.providerId === "axis" || connectedProviderIds.has(entry.providerId),
+        isModelListLoaded: Object.prototype.hasOwnProperty.call(
+          providerModels,
+          entry.providerId,
+        ),
       }))
-      .filter((group) => group.models.length > 0);
-  }, [catalog, providerModels]);
+      .filter((group) => group.providerId === "axis" || group.isConnected || group.models.length > 0);
+  }, [catalog, connectedProviderIds, providerModels]);
 
   // Filter groups and models based on search and visibility
-  const filteredGroups = useMemo((): ProviderGroup[] => {
+  const filteredGroups = useMemo((): FilteredProviderGroup[] => {
     const query = searchQuery.toLowerCase();
     const byVisibility = providerGroups.map((group) => {
       const visibleSet = visibleModelIds[group.providerId];
-      if (!visibleSet) {
-        return group;
-      }
+      const visibleModels = visibleSet
+        ? group.models.filter((model) => visibleSet.has(model.id))
+        : group.models;
+
       return {
         ...group,
-        models: group.models.filter((model) => visibleSet.has(model.id)),
+        models: visibleModels,
+        hasModelsHiddenByVisibility:
+          group.models.length > 0 && visibleModels.length === 0,
       };
     });
 
     if (!query.trim()) {
-      return byVisibility.filter((group) => group.models.length > 0);
+      return byVisibility.filter(
+        (group) =>
+          group.models.length > 0 ||
+          (group.isConnected && !group.hasModelsHiddenByVisibility),
+      );
     }
 
     return byVisibility
       .map((group) => ({
         ...group,
-        models: group.models.filter(
-          (model) =>
-            model.name.toLowerCase().includes(query) ||
-            model.id.toLowerCase().includes(query) ||
-            group.displayName.toLowerCase().includes(query),
-        ),
+        models: group.displayName.toLowerCase().includes(query)
+          ? group.models
+          : group.models.filter(
+              (model) =>
+                model.name.toLowerCase().includes(query) ||
+                model.id.toLowerCase().includes(query),
+            ),
       }))
-      .filter((group) => group.models.length > 0);
+      .filter(
+        (group) =>
+          group.models.length > 0 ||
+          (group.isConnected &&
+            !group.hasModelsHiddenByVisibility &&
+            group.displayName.toLowerCase().includes(query)),
+      );
   }, [providerGroups, searchQuery, visibleModelIds]);
   const axisDefaultGroup = filteredGroups.find(
     (group) => group.providerId === "axis",
@@ -281,7 +360,15 @@ export function ModelPickerPopover({
       (m) => m.id === effectiveSelection.modelId,
     );
 
-    if (!provider || !model) {
+    if (!provider) {
+      return "Select Model";
+    }
+
+    if (!model && effectiveSelection.modelId) {
+      return `${formatProviderDisplayName(provider.providerId, provider.displayName)}: ${effectiveSelection.modelId}`;
+    }
+
+    if (!model) {
       return "Select Model";
     }
 
@@ -676,6 +763,25 @@ export function ModelPickerPopover({
                           </h3>
                         </div>
                         <div className="py-1">
+                          {effectiveSelection.providerId === group.providerId &&
+                            effectiveSelection.modelId !== null &&
+                            !providerModels[group.providerId]?.some(
+                              (model) => model.id === effectiveSelection.modelId,
+                            ) && (
+                              <div
+                                className="px-3 py-2 text-left text-xs bg-neutral-800 text-neutral-100"
+                                title={effectiveSelection.modelId}
+                              >
+                                <div className="flex min-w-0 items-center gap-2">
+                                  <p className="truncate font-medium">
+                                    {effectiveSelection.modelId}
+                                  </p>
+                                  <span className="ml-auto rounded border border-amber-700/60 bg-amber-900/30 px-1.5 py-0.5 text-[10px] text-amber-200">
+                                    {group.isModelListLoaded ? "Pending" : "Loading..."}
+                                  </span>
+                                </div>
+                              </div>
+                            )}
                           {group.models.map((model) => (
                             <button
                               type="button"
@@ -711,6 +817,17 @@ export function ModelPickerPopover({
                               </div>
                             </button>
                           ))}
+                          {group.models.length === 0 &&
+                            !(
+                              effectiveSelection.providerId === group.providerId &&
+                              effectiveSelection.modelId !== null
+                            ) && (
+                              <div className="px-3 py-2 text-xs text-neutral-500">
+                                {group.isModelListLoaded
+                                  ? "No models available yet."
+                                  : "Models loading..."}
+                              </div>
+                            )}
                         </div>
                       </div>
                     ))}

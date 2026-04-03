@@ -483,6 +483,7 @@ export function ChatInputBar({
 
               <ModelPickerPopover
                 catalog={catalog}
+                credentials={credentials}
                 providerModels={providerModels}
                 visibleModelIds={visibleModelIds}
                 selectedProviderId={selectedProviderId}
