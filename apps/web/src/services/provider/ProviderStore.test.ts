@@ -18,6 +18,17 @@ import {
   ConnectCredentialRequest,
   ProviderApiClientContract,
 } from "./ProviderStore.js";
+import type { ProviderModelOption } from "../api/providerClient.js";
+
+function createDeferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
 
 describe("ProviderStore", () => {
   let store: ProviderStore;
@@ -242,6 +253,65 @@ describe("ProviderStore", () => {
       expect(mockApiClient.getCatalog).toHaveBeenCalledTimes(1);
       expect(mockApiClient.getCredentials).toHaveBeenCalledTimes(1);
       expect(mockApiClient.getPreferences).toHaveBeenCalledTimes(1);
+    });
+
+    it("allows workspace-global model loads to complete after a run switch", async () => {
+      const deferred = createDeferred<{
+        providerId: string;
+        view: "popular";
+        models: ProviderModelOption[];
+        page: {
+          limit: number;
+          hasMore: boolean;
+        };
+        metadata: {
+          fetchedAt: string;
+          stale: false;
+          source: "provider_api";
+        };
+      }>();
+
+      vi.mocked(mockApiClient.getProviderModels).mockReturnValueOnce(
+        deferred.promise,
+      );
+
+      store.setActiveRunId("run-1");
+      await store.bootstrap();
+
+      const loadPromise = store.loadProviderModels("openai");
+
+      expect(store.setActiveRunId("run-2")).toBe(false);
+
+      deferred.resolve({
+        providerId: "openai",
+        view: "popular",
+        models: [{ id: "gpt-4", name: "GPT-4", provider: "openai" }],
+        page: {
+          limit: 50,
+          hasMore: false,
+        },
+        metadata: {
+          fetchedAt: new Date().toISOString(),
+          stale: false,
+          source: "provider_api",
+        },
+      });
+
+      await expect(loadPromise).resolves.toEqual([
+        {
+          id: "gpt-4",
+          name: "GPT-4",
+          provider: "openai",
+        },
+      ]);
+
+      expect(store.getState().providerModels.openai).toEqual([
+        {
+          id: "gpt-4",
+          name: "GPT-4",
+          provider: "openai",
+        },
+      ]);
     });
 
     it("resetAll clears workspace-global and run-scoped state", async () => {

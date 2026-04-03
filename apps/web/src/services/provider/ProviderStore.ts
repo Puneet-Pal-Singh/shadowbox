@@ -116,6 +116,13 @@ interface ProviderSelectionSnapshot {
   selectedModelId: string | null;
 }
 
+type InflightScope = "workspace" | "run";
+
+interface InflightRequest {
+  promise: Promise<unknown>;
+  scope: InflightScope;
+}
+
 const RUN_SCOPED_SELECTION_STORAGE_KEY_PREFIX =
   "provider:run-scoped-selection:";
 
@@ -186,11 +193,12 @@ export class ProviderStore {
   private activeRunId: string | null = null;
   private apiClient: ProviderApiClientContract;
   private listeners: Set<(state: ProviderStoreState) => void> = new Set();
-  private inflight: Map<string, Promise<unknown>> = new Map();
+  private inflight: Map<string, InflightRequest> = new Map();
   private bootstrapPromise: Promise<void> | null = null;
   private lastResolveSelectionKey: string | null = null;
   private lastResolveError: Error | null = null;
-  private epoch = 0;
+  private workspaceEpoch = 0;
+  private runScopeEpoch = 0;
   private enableLogging: boolean;
 
   private constructor(
@@ -297,7 +305,7 @@ export class ProviderStore {
       return;
     }
 
-    const epoch = this.epoch;
+    const epoch = this.workspaceEpoch;
     const promise = this.executeBootstrap(epoch);
     this.bootstrapPromise = promise;
     try {
@@ -317,7 +325,7 @@ export class ProviderStore {
         this.apiClient.getCredentials(),
         this.apiClient.getPreferences(),
       ]);
-      if (this.isStaleEpoch("bootstrap", epoch)) {
+      if (this.isWorkspaceEpochStale("bootstrap", epoch)) {
         return;
       }
       const selection = this.deriveSelectionSnapshot({
@@ -364,7 +372,7 @@ export class ProviderStore {
         credentials: credentials.length,
       });
     } catch (error) {
-      if (this.isStaleEpoch("bootstrap", epoch)) {
+      if (this.isWorkspaceEpochStale("bootstrap", epoch)) {
         return;
       }
       const message =
@@ -435,12 +443,12 @@ export class ProviderStore {
 
     if (this.inflight.has(key)) {
       this.log("[connectCredential] Request already in flight");
-      await this.inflight.get(key);
+      await this.inflight.get(key)?.promise;
       return;
     }
 
     const promise = this.executeConnect(req);
-    this.inflight.set(key, promise);
+    this.trackInflight(key, promise, "workspace");
 
     try {
       await promise;
@@ -454,12 +462,12 @@ export class ProviderStore {
    */
   private async executeConnect(req: ConnectCredentialRequest): Promise<void> {
     this.log("[connectCredential] Starting", { providerId: req.providerId });
-    const epoch = this.epoch;
+    const epoch = this.workspaceEpoch;
 
     try {
       const credential = await this.apiClient.connectCredential(req);
       let preferences = await this.apiClient.getPreferences();
-      if (this.isStaleEpoch("connectCredential", epoch)) {
+      if (this.isWorkspaceEpochStale("connectCredential", epoch)) {
         return;
       }
 
@@ -469,7 +477,7 @@ export class ProviderStore {
       );
       try {
         const models = await this.loadProviderModels(req.providerId);
-        if (this.isStaleEpoch("connectCredential", epoch)) {
+        if (this.isWorkspaceEpochStale("connectCredential", epoch)) {
           return;
         }
         providerModels = {
@@ -562,12 +570,12 @@ export class ProviderStore {
 
     if (this.inflight.has(key)) {
       this.log("[disconnectCredential] Request already in flight");
-      await this.inflight.get(key);
+      await this.inflight.get(key)?.promise;
       return;
     }
 
     const promise = this.executeDisconnect(credentialId);
-    this.inflight.set(key, promise);
+    this.trackInflight(key, promise, "workspace");
 
     try {
       await promise;
@@ -581,11 +589,11 @@ export class ProviderStore {
    */
   private async executeDisconnect(credentialId: string): Promise<void> {
     this.log("[disconnectCredential] Starting", { credentialId });
-    const epoch = this.epoch;
+    const epoch = this.workspaceEpoch;
 
     try {
       await this.apiClient.disconnectCredential(credentialId);
-      if (this.isStaleEpoch("disconnectCredential", epoch)) {
+      if (this.isWorkspaceEpochStale("disconnectCredential", epoch)) {
         return;
       }
 
@@ -634,14 +642,14 @@ export class ProviderStore {
 
     if (this.inflight.has(key)) {
       this.log("[validateCredential] Request already in flight");
-      await this.inflight.get(key);
+      await this.inflight.get(key)?.promise;
       return;
     }
 
     this.setState({ isValidating: true });
 
     const promise = this.executeValidate(credentialId, mode);
-    this.inflight.set(key, promise);
+    this.trackInflight(key, promise, "workspace");
 
     try {
       await promise;
@@ -659,11 +667,11 @@ export class ProviderStore {
     mode: "format" | "live",
   ): Promise<void> {
     this.log("[validateCredential] Starting", { credentialId, mode });
-    const epoch = this.epoch;
+    const epoch = this.workspaceEpoch;
 
     try {
       await this.apiClient.validateCredential(credentialId, { mode });
-      if (this.isStaleEpoch("validateCredential", epoch)) {
+      if (this.isWorkspaceEpochStale("validateCredential", epoch)) {
         return;
       }
 
@@ -699,12 +707,12 @@ export class ProviderStore {
 
     if (this.inflight.has(key)) {
       this.log("[updatePreferences] Request already in flight");
-      await this.inflight.get(key);
+      await this.inflight.get(key)?.promise;
       return;
     }
 
     const promise = this.executeUpdatePreferences(partial);
-    this.inflight.set(key, promise);
+    this.trackInflight(key, promise, "workspace");
 
     try {
       await promise;
@@ -732,16 +740,16 @@ export class ProviderStore {
         providerId,
         ...resolvedOptions,
       });
-      return (await this.inflight.get(key)) as ProviderModelOption[];
+      return (await this.inflight.get(key)?.promise) as ProviderModelOption[];
     }
 
     this.setState({ loadingModelsForProviderId: providerId });
     const promise = this.executeLoadProviderModels(
       providerId,
       resolvedOptions,
-      this.epoch,
+      this.workspaceEpoch,
     );
-    this.inflight.set(key, promise);
+    this.trackInflight(key, promise, "workspace");
 
     try {
       return (await promise) as ProviderModelOption[];
@@ -770,13 +778,16 @@ export class ProviderStore {
   async refreshProviderModels(providerId: string): Promise<void> {
     const key = `refresh-models:${providerId}`;
     if (this.inflight.has(key)) {
-      await this.inflight.get(key);
+      await this.inflight.get(key)?.promise;
       return;
     }
 
     this.setState({ refreshingModelsForProviderId: providerId });
-    const promise = this.executeRefreshProviderModels(providerId, this.epoch);
-    this.inflight.set(key, promise);
+    const promise = this.executeRefreshProviderModels(
+      providerId,
+      this.workspaceEpoch,
+    );
+    this.trackInflight(key, promise, "workspace");
     try {
       await promise;
     } finally {
@@ -812,7 +823,7 @@ export class ProviderStore {
       limit: options.limit,
       cursor: options.cursor,
     });
-    if (this.isStaleEpoch("loadProviderModels", epoch)) {
+    if (this.isWorkspaceEpochStale("loadProviderModels", epoch)) {
       return result.models;
     }
 
@@ -863,7 +874,7 @@ export class ProviderStore {
   ): Promise<void> {
     this.log("[refreshProviderModels] Starting", { providerId });
     await this.apiClient.refreshProviderModels(providerId);
-    if (this.isStaleEpoch("refreshProviderModels", epoch)) {
+    if (this.isWorkspaceEpochStale("refreshProviderModels", epoch)) {
       return;
     }
     await this.loadProviderModels(providerId, {
@@ -879,11 +890,11 @@ export class ProviderStore {
     partial: BYOKPreferencesUpdateRequest,
   ): Promise<void> {
     this.log("[updatePreferences] Starting", partial);
-    const epoch = this.epoch;
+    const epoch = this.workspaceEpoch;
 
     try {
       const updated = await this.apiClient.updatePreferences(partial);
-      if (this.isStaleEpoch("updatePreferences", epoch)) {
+      if (this.isWorkspaceEpochStale("updatePreferences", epoch)) {
         return;
       }
       const selection = this.deriveSelectionSnapshot({
@@ -989,15 +1000,19 @@ export class ProviderStore {
 
     if (this.inflight.has(key)) {
       this.log("[resolveForChat] Request already in flight");
-      await this.inflight.get(key);
+      await this.inflight.get(key)?.promise;
       if (this.state.lastResolvedConfig) {
         return this.state.lastResolvedConfig;
       }
       throw new Error("Provider resolution failed.");
     }
 
-    const promise = this.executeResolve(selection, selectionKey, this.epoch);
-    this.inflight.set(key, promise);
+    const promise = this.executeResolve(
+      selection,
+      selectionKey,
+      this.runScopeEpoch,
+    );
+    this.trackInflight(key, promise, "run");
 
     try {
       await promise;
@@ -1033,7 +1048,7 @@ export class ProviderStore {
 
     try {
       const config = await this.apiClient.resolveForChat(request);
-      if (this.isStaleEpoch("resolveForChat", epoch)) {
+      if (this.isRunScopeEpochStale("resolveForChat", epoch)) {
         return;
       }
 
@@ -1160,25 +1175,21 @@ export class ProviderStore {
   }
 
   resetRunScope(): void {
-    this.epoch += 1;
-    this.inflight.clear();
-    this.bootstrapPromise = null;
+    this.runScopeEpoch += 1;
+    this.clearInflightByScope("run");
     this.lastResolveSelectionKey = null;
     this.lastResolveError = null;
     this.state = {
       ...this.state,
       ...createInitialRunScopedState(),
-      status: hasWorkspaceGlobalState(this.state) ? "ready" : "idle",
       error: null,
-      isValidating: false,
-      loadingModelsForProviderId: null,
-      refreshingModelsForProviderId: null,
     };
     this.emit();
   }
 
   resetAll(): void {
-    this.epoch += 1;
+    this.workspaceEpoch += 1;
+    this.runScopeEpoch += 1;
     this.inflight.clear();
     this.bootstrapPromise = null;
     this.lastResolveSelectionKey = null;
@@ -1289,6 +1300,25 @@ export class ProviderStore {
     }
 
     writeRunScopedSelection(this.activeRunId, selection);
+  }
+
+  private trackInflight(
+    key: string,
+    promise: Promise<unknown>,
+    scope: InflightScope,
+  ): void {
+    this.inflight.set(key, {
+      promise,
+      scope,
+    });
+  }
+
+  private clearInflightByScope(scope: InflightScope): void {
+    for (const [key, request] of this.inflight.entries()) {
+      if (request.scope === scope) {
+        this.inflight.delete(key);
+      }
+    }
   }
 
   private resolveLoadOptions(
@@ -1417,13 +1447,24 @@ export class ProviderStore {
     return Array.from(providerIds);
   }
 
-  private isStaleEpoch(operation: string, epoch: number): boolean {
-    if (epoch === this.epoch) {
+  private isWorkspaceEpochStale(operation: string, epoch: number): boolean {
+    if (epoch === this.workspaceEpoch) {
       return false;
     }
-    this.log(`[${operation}] skipping stale async result`, {
+    this.log(`[${operation}] skipping stale workspace async result`, {
       operationEpoch: epoch,
-      currentEpoch: this.epoch,
+      currentEpoch: this.workspaceEpoch,
+    });
+    return true;
+  }
+
+  private isRunScopeEpochStale(operation: string, epoch: number): boolean {
+    if (epoch === this.runScopeEpoch) {
+      return false;
+    }
+    this.log(`[${operation}] skipping stale run-scoped async result`, {
+      operationEpoch: epoch,
+      currentEpoch: this.runScopeEpoch,
     });
     return true;
   }
