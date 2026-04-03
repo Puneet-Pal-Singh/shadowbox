@@ -209,6 +209,55 @@ describe("AgenticLoop - Bounded Agentic Tool Chaining", () => {
 
       expect(result.stopReason).toBe("budget_exceeded");
     });
+
+    it("stops quickly when the run is cancelled between steps", async () => {
+      const isRunCancelled = vi
+        .fn<() => Promise<boolean>>()
+        .mockResolvedValueOnce(false)
+        .mockResolvedValueOnce(true);
+
+      vi.mocked(llmGateway.generateText!)
+        .mockResolvedValueOnce({
+          text: "Inspecting the page.",
+          toolCalls: [
+            {
+              id: "tool-call-1",
+              toolName: "read_file",
+              args: { path: "src/app/page.tsx" },
+            },
+          ],
+          usage: { promptTokens: 10, completionTokens: 5 },
+        })
+        .mockResolvedValueOnce({
+          text: "This call should never happen.",
+          toolCalls: [],
+          usage: { promptTokens: 10, completionTokens: 5 },
+        });
+
+      vi.mocked(executor.execute!).mockResolvedValue({
+        taskId: "tool-call-1",
+        status: "DONE",
+        output: { content: "export default function Page() {}" },
+        completedAt: new Date(),
+      });
+
+      const result = await loop.execute(
+        [{ role: "user", content: "update the hero section" }],
+        {
+          read_file: {
+            description: "Read a file",
+          },
+        } as unknown as Record<string, import("ai").CoreTool>,
+        {
+          agentType: "coding",
+          isRunCancelled,
+        },
+      );
+
+      expect(result.stopReason).toBe("cancelled");
+      expect(llmGateway.generateText).toHaveBeenCalledTimes(1);
+      expect(executor.execute).toHaveBeenCalledTimes(0);
+    });
   });
 
   describe("Message Handling", () => {
@@ -356,6 +405,71 @@ describe("AgenticLoop - Bounded Agentic Tool Chaining", () => {
         ],
       });
       expect(executor.execute).toHaveBeenCalledTimes(1);
+    });
+
+    it("skips repeated identical read-only tool calls after one successful result", async () => {
+      vi.mocked(llmGateway.generateText!)
+        .mockResolvedValueOnce({
+          text: "I'll list the target folder.",
+          toolCalls: [
+            {
+              id: "tool-call-1",
+              toolName: "list_files",
+              args: { path: "src/components/landing" },
+            },
+          ],
+          usage: { promptTokens: 10, completionTokens: 5 },
+        })
+        .mockResolvedValueOnce({
+          text: "I'll retry the same listing.",
+          toolCalls: [
+            {
+              id: "tool-call-2",
+              toolName: "list_files",
+              args: { path: "src/components/landing" },
+            },
+          ],
+          usage: { promptTokens: 12, completionTokens: 6 },
+        })
+        .mockResolvedValueOnce({
+          text: "Done.",
+          toolCalls: [],
+          usage: { promptTokens: 14, completionTokens: 7 },
+        })
+        .mockResolvedValueOnce({
+          text: "I still did not make the change.",
+          toolCalls: [],
+          usage: { promptTokens: 16, completionTokens: 8 },
+        });
+
+      vi.mocked(executor.execute!).mockResolvedValue({
+        taskId: "tool-call-1",
+        status: "DONE",
+        output: { content: "Hero.tsx\nFooter.tsx" },
+        completedAt: new Date(),
+      });
+
+      const onToolFailed = vi.fn(async () => undefined);
+      const result = await loop.execute(
+        [{ role: "user", content: "update the landing page CTA" }],
+        {
+          list_files: {
+            description: "List files",
+          },
+        } as unknown as Record<string, import("ai").CoreTool>,
+        {
+          agentType: "coding",
+          onToolFailed,
+        },
+      );
+
+      expect(result.stopReason).toBe("incomplete_mutation");
+      expect(executor.execute).toHaveBeenCalledTimes(1);
+      expect(onToolFailed).toHaveBeenCalledWith(
+        expect.objectContaining({ id: "tool-call-2", toolName: "list_files" }),
+        expect.stringContaining("Skipped duplicate list_files call"),
+        0,
+      );
     });
 
     it("injects workspace context into the task-phase system prompt", async () => {

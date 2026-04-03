@@ -1788,6 +1788,68 @@ describe("RunEngine", () => {
     expect(resetRun.metadata.manifest?.modelId).toBe("llama-3.3-70b-versatile");
   });
 
+  it("clears prior run events when recycling a terminal run", async () => {
+    const state = new MockRuntimeState();
+    const runEngine = createRunEngineForRun({ state });
+    const privateApi = runEngine as unknown as {
+      getOrCreateRun(
+        input: {
+          agentType: "coding";
+          prompt: string;
+          sessionId: string;
+          providerId?: string;
+          modelId?: string;
+        },
+        runId: string,
+        sessionId: string,
+      ): Promise<Run>;
+      runRepo: {
+        update(run: Run): Promise<void>;
+      };
+      runEventRecorder: {
+        recordMessageEmitted(
+          role: "user" | "assistant" | "system",
+          content: string,
+          metadata?: Record<string, unknown>,
+        ): Promise<void>;
+      };
+    };
+
+    const initialRun = await privateApi.getOrCreateRun(
+      {
+        agentType: "coding",
+        prompt: "first run",
+        sessionId: "session-1",
+        providerId: "openai",
+        modelId: "gpt-4o",
+      },
+      TEST_RUN_ID,
+      "session-1",
+    );
+    await privateApi.runEventRecorder.recordMessageEmitted(
+      "assistant",
+      "First run output",
+    );
+    initialRun.transition("RUNNING");
+    initialRun.transition("COMPLETED");
+    await privateApi.runRepo.update(initialRun);
+
+    await privateApi.getOrCreateRun(
+      {
+        agentType: "coding",
+        prompt: "second run",
+        sessionId: "session-1",
+        providerId: "groq",
+        modelId: "llama-3.3-70b-versatile",
+      },
+      TEST_RUN_ID,
+      "session-1",
+    );
+
+    const events = await new RunEventRepository(state).getByRun(TEST_RUN_ID);
+    expect(events).toHaveLength(0);
+  });
+
   it("restores tasks if recyclable-run reset fails after deleting tasks", async () => {
     const runEngine = createRunEngine();
     const privateApi = runEngine as unknown as {
