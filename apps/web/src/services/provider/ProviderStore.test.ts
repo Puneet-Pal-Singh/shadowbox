@@ -27,6 +27,8 @@ describe("ProviderStore", () => {
   const credential2Id = "550e8400-e29b-41d4-a716-446655440001";
 
   beforeEach(() => {
+    sessionStorage.clear();
+
     // Reset singleton between tests
     (ProviderStore as unknown as { instance?: ProviderStore }).instance = undefined;
 
@@ -167,8 +169,7 @@ describe("ProviderStore", () => {
           };
         }
       ),
-      updatePreferences: vi.fn(
-        async (partial: BYOKPreferencesUpdateRequest) => {
+      updatePreferences: vi.fn(async (partial: BYOKPreferencesUpdateRequest) => {
         void partial;
         return {
           ...preferences,
@@ -181,8 +182,13 @@ describe("ProviderStore", () => {
           credentialId?: string;
           modelId?: string;
         }) => {
-          void req;
-          return resolvedConfig;
+          return {
+            providerId: req.providerId ?? resolvedConfig.providerId,
+            credentialId: req.credentialId ?? resolvedConfig.credentialId,
+            modelId: req.modelId ?? resolvedConfig.modelId,
+            resolvedAt: resolvedConfig.resolvedAt,
+            resolvedAtTime: resolvedConfig.resolvedAtTime,
+          };
         }
       ),
     } satisfies ProviderApiClientContract;
@@ -216,6 +222,39 @@ describe("ProviderStore", () => {
       await store.bootstrap();
 
       expect(store.setActiveRunId("run-1")).toBe(false);
+    });
+
+    it("preserves workspace-global state across run switches", async () => {
+      store.setActiveRunId("run-1");
+      await store.bootstrap();
+      await store.loadProviderModels("openai");
+
+      store.setActiveRunId("run-2");
+
+      const state = store.getState();
+      expect(state.catalog).toHaveLength(2);
+      expect(state.credentials).toHaveLength(1);
+      expect(state.preferences?.defaultProviderId).toBe("openai");
+      expect(state.providerModels.openai).toHaveLength(1);
+      expect(state.selectedProviderId).toBeNull();
+      expect(state.selectedCredentialId).toBeNull();
+      expect(state.selectedModelId).toBeNull();
+    });
+
+    it("resetAll clears workspace-global and run-scoped state", async () => {
+      store.setActiveRunId("run-1");
+      await store.bootstrap();
+      await store.loadProviderModels("openai");
+
+      store.resetAll();
+
+      const state = store.getState();
+      expect(state.catalog).toEqual([]);
+      expect(state.credentials).toEqual([]);
+      expect(state.preferences).toBeNull();
+      expect(state.providerModels).toEqual({});
+      expect(state.selectedProviderId).toBeNull();
+      expect(state.status).toBe("idle");
     });
   });
 
@@ -337,6 +376,84 @@ describe("ProviderStore", () => {
       expect(state.selectedModelId).toBe("gpt-4");
     });
 
+    it("preloads models for all connected providers during bootstrap", async () => {
+      vi.mocked(mockApiClient.getCredentials).mockResolvedValueOnce([
+        {
+          credentialId: credential1Id,
+          userId: "user-1",
+          workspaceId: "ws-1",
+          providerId: "openai",
+          label: "Production",
+          keyFingerprint: "abc123xyz",
+          encryptedSecretJson: "{}",
+          keyVersion: "1",
+          status: "connected",
+          lastValidatedAt: null,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          deletedAt: null,
+        },
+        {
+          credentialId: credential2Id,
+          userId: "user-1",
+          workspaceId: "ws-1",
+          providerId: "google",
+          label: "Gemini",
+          keyFingerprint: "gem123",
+          encryptedSecretJson: "{}",
+          keyVersion: "1",
+          status: "connected",
+          lastValidatedAt: null,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          deletedAt: null,
+        },
+      ]);
+      vi.mocked(mockApiClient.getProviderModels).mockImplementation(
+        async (providerId: string, query?: unknown) => {
+          void query;
+          return {
+            providerId,
+            view: "popular" as const,
+            models: [
+              {
+                id: `${providerId}-model`,
+                name: `${providerId} model`,
+                provider: providerId,
+              },
+            ],
+            page: {
+              limit: 50,
+              hasMore: false,
+            },
+            metadata: {
+              fetchedAt: new Date().toISOString(),
+              stale: false,
+              source: "provider_api" as const,
+            },
+          };
+        },
+      );
+
+      await store.bootstrap();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(mockApiClient.getProviderModels).toHaveBeenCalledWith(
+        "openai",
+        expect.objectContaining({
+          view: "popular",
+          limit: 50,
+        }),
+      );
+      expect(mockApiClient.getProviderModels).toHaveBeenCalledWith(
+        "google",
+        expect.objectContaining({
+          view: "popular",
+          limit: 50,
+        }),
+      );
+    });
+
     it("sets status to error on failure", async () => {
       vi.mocked(mockApiClient.getCatalog).mockRejectedValueOnce(
         new Error("Network error")
@@ -455,23 +572,73 @@ describe("ProviderStore", () => {
     });
 
     it("applies session selection through single store-owned path", async () => {
+      store.setActiveRunId("run-1");
       await store.bootstrap();
 
       const resolved = await store.applySessionSelection({
         providerId: "openai",
         credentialId: credential1Id,
-        modelId: "gpt-4",
+        modelId: "gpt-4-turbo",
       });
 
       const state = store.getState();
       expect(state.selectedProviderId).toBe("openai");
       expect(state.selectedCredentialId).toBe(credential1Id);
       expect(state.lastResolvedConfig).toEqual(resolved);
-      expect(mockApiClient.updatePreferences).toHaveBeenCalledWith({
+      expect(mockApiClient.updatePreferences).not.toHaveBeenCalledWith({
         defaultProviderId: "openai",
-        defaultModelId: "gpt-4",
+        defaultModelId: "gpt-4-turbo",
       });
-      expect(mockApiClient.resolveForChat).toHaveBeenCalledTimes(1);
+      expect(mockApiClient.updatePreferences).not.toHaveBeenCalled();
+      expect(mockApiClient.resolveForChat).toHaveBeenCalledWith({
+        providerId: "openai",
+        credentialId: credential1Id,
+        modelId: "gpt-4-turbo",
+      });
+    });
+
+    it("restores persisted run-scoped selection for the same run", async () => {
+      store.setActiveRunId("run-1");
+      await store.bootstrap();
+
+      await store.applySessionSelection({
+        providerId: "openai",
+        credentialId: credential1Id,
+        modelId: "gpt-4-turbo",
+      });
+
+      (ProviderStore as unknown as { instance?: ProviderStore }).instance = undefined;
+      const restoredStore = ProviderStore.getInstance({ apiClient: mockApiClient });
+
+      restoredStore.setActiveRunId("run-1");
+      await restoredStore.bootstrap();
+
+      const state = restoredStore.getState();
+      expect(state.selectedProviderId).toBe("openai");
+      expect(state.selectedCredentialId).toBe(credential1Id);
+      expect(state.selectedModelId).toBe("gpt-4-turbo");
+    });
+
+    it("falls back to workspace defaults for a different run", async () => {
+      store.setActiveRunId("run-1");
+      await store.bootstrap();
+
+      await store.applySessionSelection({
+        providerId: "openai",
+        credentialId: credential1Id,
+        modelId: "gpt-4-turbo",
+      });
+
+      (ProviderStore as unknown as { instance?: ProviderStore }).instance = undefined;
+      const nextRunStore = ProviderStore.getInstance({ apiClient: mockApiClient });
+
+      nextRunStore.setActiveRunId("run-2");
+      await nextRunStore.bootstrap();
+
+      const state = nextRunStore.getState();
+      expect(state.selectedProviderId).toBe("openai");
+      expect(state.selectedCredentialId).toBe(credential1Id);
+      expect(state.selectedModelId).toBe("gpt-4");
     });
   });
 

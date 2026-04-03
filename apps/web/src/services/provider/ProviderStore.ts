@@ -80,11 +80,44 @@ export interface ProviderStoreState {
   refreshingModelsForProviderId: string | null;
 }
 
+type ProviderWorkspaceGlobalState = Pick<
+  ProviderStoreState,
+  | "catalog"
+  | "credentials"
+  | "preferences"
+  | "providerModels"
+  | "providerModelsMetadata"
+  | "providerModelsPage"
+  | "visibleModelIds"
+>;
+
+type ProviderRunScopedState = Pick<
+  ProviderStoreState,
+  | "selectedProviderId"
+  | "selectedCredentialId"
+  | "selectedModelId"
+  | "lastResolvedConfig"
+  | "axisQuota"
+>;
+
+type ProviderOperationalState = Pick<
+  ProviderStoreState,
+  | "status"
+  | "error"
+  | "isValidating"
+  | "loadingModelsForProviderId"
+  | "selectedModelView"
+  | "refreshingModelsForProviderId"
+>;
+
 interface ProviderSelectionSnapshot {
   selectedProviderId: string | null;
   selectedCredentialId: string | null;
   selectedModelId: string | null;
 }
+
+const RUN_SCOPED_SELECTION_STORAGE_KEY_PREFIX =
+  "provider:run-scoped-selection:";
 
 export type ConnectCredentialRequest = BYOKCredentialConnectRequest;
 export type ValidateCredentialRequest = BYOKCredentialValidateRequest;
@@ -166,26 +199,7 @@ export class ProviderStore {
   ) {
     this.apiClient = apiClient;
     this.enableLogging = enableLogging;
-    this.state = {
-      catalog: [],
-      credentials: [],
-      preferences: null,
-      providerModels: {},
-      providerModelsMetadata: {},
-      providerModelsPage: {},
-      visibleModelIds: {},
-      selectedProviderId: null,
-      selectedCredentialId: null,
-      selectedModelId: null,
-      lastResolvedConfig: null,
-      axisQuota: null,
-      status: "idle",
-      error: null,
-      isValidating: false,
-      loadingModelsForProviderId: null,
-      selectedModelView: "popular",
-      refreshingModelsForProviderId: null,
-    };
+    this.state = createInitialStoreState();
   }
 
   /**
@@ -204,7 +218,7 @@ export class ProviderStore {
 
   /**
    * Bind store state to active run scope.
-   * Resets store when run changes to prevent cross-run leakage.
+   * Resets run-scoped state when run changes to prevent cross-run leakage.
    * Returns true if bootstrap should be called.
    */
   setActiveRunId(runId: string): boolean {
@@ -213,6 +227,9 @@ export class ProviderStore {
     }
 
     if (this.activeRunId === runId) {
+      if (this.state.status === "idle") {
+        this.restoreRunScopedSelection(runId);
+      }
       return this.state.status === "idle";
     }
 
@@ -221,13 +238,14 @@ export class ProviderStore {
     this.activeRunId = runId;
 
     if (didSwitchRun) {
-      this.log("[run] switched active run, resetting store", {
+      this.log("[run] switched active run, resetting run-scoped state", {
         previousRunId,
         nextRunId: runId,
       });
-      this.reset();
-      return true;
+      this.resetRunScope();
     }
+
+    this.restoreRunScopedSelection(runId);
     return true;
   }
 
@@ -322,7 +340,7 @@ export class ProviderStore {
 
       const preloadProviderIds = this.collectBootstrapModelPreloadProviderIds(
         catalog,
-        selection.selectedProviderId,
+        credentials,
       );
       for (const providerId of preloadProviderIds) {
         if (this.state.providerModels[providerId]) {
@@ -917,15 +935,17 @@ export class ProviderStore {
   async applySessionSelection(
     request: SessionSelectionRequest,
   ): Promise<ProviderResolution> {
+    const selection = {
+      selectedProviderId: request.providerId,
+      selectedCredentialId: request.credentialId,
+      selectedModelId: request.modelId ?? null,
+    } satisfies ProviderSelectionSnapshot;
     this.setSelection(
-      request.providerId,
-      request.credentialId,
-      request.modelId,
+      selection.selectedProviderId,
+      selection.selectedCredentialId,
+      selection.selectedModelId ?? undefined,
     );
-    await this.updatePreferences({
-      defaultProviderId: request.providerId,
-      ...(request.modelId ? { defaultModelId: request.modelId } : {}),
-    });
+    this.persistRunScopedSelection(selection);
     return this.resolveForChat();
   }
 
@@ -1131,31 +1151,34 @@ export class ProviderStore {
    * Reset store to initial state
    */
   reset(): void {
+    this.resetAll();
+  }
+
+  resetRunScope(): void {
     this.epoch += 1;
     this.inflight.clear();
     this.bootstrapPromise = null;
     this.lastResolveSelectionKey = null;
     this.lastResolveError = null;
     this.state = {
-      catalog: [],
-      credentials: [],
-      preferences: null,
-      providerModels: {},
-      providerModelsMetadata: {},
-      providerModelsPage: {},
-      visibleModelIds: {},
-      selectedProviderId: null,
-      selectedCredentialId: null,
-      selectedModelId: null,
-      lastResolvedConfig: null,
-      axisQuota: null,
-      status: "idle",
+      ...this.state,
+      ...createInitialRunScopedState(),
+      status: hasWorkspaceGlobalState(this.state) ? "ready" : "idle",
       error: null,
       isValidating: false,
       loadingModelsForProviderId: null,
-      selectedModelView: "popular",
       refreshingModelsForProviderId: null,
     };
+    this.emit();
+  }
+
+  resetAll(): void {
+    this.epoch += 1;
+    this.inflight.clear();
+    this.bootstrapPromise = null;
+    this.lastResolveSelectionKey = null;
+    this.lastResolveError = null;
+    this.state = createInitialStoreState();
     this.emit();
   }
 
@@ -1216,6 +1239,31 @@ export class ProviderStore {
       selection.selectedCredentialId ?? "none",
       selection.selectedModelId ?? "none",
     ].join("|");
+  }
+
+  private restoreRunScopedSelection(runId: string): void {
+    const persistedSelection = readRunScopedSelection(runId);
+    if (!persistedSelection) {
+      return;
+    }
+
+    this.log("[run] restoring persisted run-scoped selection", {
+      runId,
+      providerId: persistedSelection.selectedProviderId,
+      credentialId: persistedSelection.selectedCredentialId,
+      modelId: persistedSelection.selectedModelId,
+    });
+    this.setState(persistedSelection);
+  }
+
+  private persistRunScopedSelection(
+    selection: ProviderSelectionSnapshot,
+  ): void {
+    if (!this.activeRunId) {
+      return;
+    }
+
+    writeRunScopedSelection(this.activeRunId, selection);
   }
 
   private resolveLoadOptions(
@@ -1324,15 +1372,23 @@ export class ProviderStore {
 
   private collectBootstrapModelPreloadProviderIds(
     catalog: ProviderRegistryEntry[],
-    selectedProviderId: string | null,
+    credentials: ProviderCredential[],
   ): string[] {
     const providerIds = new Set<string>();
-    if (catalog.some((entry) => entry.providerId === "axis")) {
+    const catalogProviderIds = new Set(
+      catalog.map((entry) => entry.providerId),
+    );
+
+    if (catalogProviderIds.has("axis")) {
       providerIds.add("axis");
     }
-    if (selectedProviderId) {
-      providerIds.add(selectedProviderId);
+
+    for (const credential of credentials) {
+      if (catalogProviderIds.has(credential.providerId)) {
+        providerIds.add(credential.providerId);
+      }
     }
+
     return Array.from(providerIds);
   }
 
@@ -1356,6 +1412,123 @@ function serializeVisibleModelIds(
     visibleModelIdsRecord[providerId] = Array.from(modelSet);
   }
   return visibleModelIdsRecord;
+}
+
+function createInitialStoreState(): ProviderStoreState {
+  return {
+    ...createInitialWorkspaceGlobalState(),
+    ...createInitialRunScopedState(),
+    ...createInitialOperationalState(),
+  };
+}
+
+function createInitialWorkspaceGlobalState(): ProviderWorkspaceGlobalState {
+  return {
+    catalog: [],
+    credentials: [],
+    preferences: null,
+    providerModels: {},
+    providerModelsMetadata: {},
+    providerModelsPage: {},
+    visibleModelIds: {},
+  };
+}
+
+function createInitialRunScopedState(): ProviderRunScopedState {
+  return {
+    selectedProviderId: null,
+    selectedCredentialId: null,
+    selectedModelId: null,
+    lastResolvedConfig: null,
+    axisQuota: null,
+  };
+}
+
+function createInitialOperationalState(): ProviderOperationalState {
+  return {
+    status: "idle",
+    error: null,
+    isValidating: false,
+    loadingModelsForProviderId: null,
+    selectedModelView: "popular",
+    refreshingModelsForProviderId: null,
+  };
+}
+
+function hasWorkspaceGlobalState(state: ProviderStoreState): boolean {
+  return (
+    state.catalog.length > 0 ||
+    state.credentials.length > 0 ||
+    state.preferences !== null ||
+    Object.keys(state.providerModels).length > 0 ||
+    Object.keys(state.visibleModelIds).length > 0
+  );
+}
+
+function writeRunScopedSelection(
+  runId: string,
+  selection: ProviderSelectionSnapshot,
+): void {
+  try {
+    sessionStorage.setItem(
+      buildRunScopedSelectionStorageKey(runId),
+      JSON.stringify(selection),
+    );
+  } catch (error) {
+    console.warn(
+      "[provider/store] failed to persist run-scoped selection",
+      error,
+    );
+  }
+}
+
+function readRunScopedSelection(
+  runId: string,
+): ProviderSelectionSnapshot | null {
+  try {
+    const serialized = sessionStorage.getItem(
+      buildRunScopedSelectionStorageKey(runId),
+    );
+    if (!serialized) {
+      return null;
+    }
+
+    const parsed: unknown = JSON.parse(serialized);
+    if (!isProviderSelectionSnapshot(parsed)) {
+      return null;
+    }
+
+    return parsed;
+  } catch (error) {
+    console.warn(
+      "[provider/store] failed to restore run-scoped selection",
+      error,
+    );
+    return null;
+  }
+}
+
+function buildRunScopedSelectionStorageKey(runId: string): string {
+  return `${RUN_SCOPED_SELECTION_STORAGE_KEY_PREFIX}${runId}`;
+}
+
+function isProviderSelectionSnapshot(
+  value: unknown,
+): value is ProviderSelectionSnapshot {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const record = value as Record<string, unknown>;
+  return (
+    isNullableString(record.selectedProviderId) &&
+    isNullableString(record.selectedCredentialId) &&
+    isNullableString(record.selectedModelId)
+  );
+}
+
+function isNullableString(value: unknown): value is string | null {
+  return value === null || typeof value === "string";
 }
 
 function mergeModelsById(
