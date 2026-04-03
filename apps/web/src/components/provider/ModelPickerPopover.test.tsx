@@ -69,8 +69,8 @@ describe("ModelPickerPopover", () => {
         name: "nvidia/nemotron-3-super-120b-a12b:free",
       },
       {
-        id: "qwen/qwen3.6-plus-preview:free",
-        name: "qwen/qwen3.6-plus-preview:free",
+        id: "qwen/qwen3.6-plus:free",
+        name: "qwen/qwen3.6-plus:free",
       },
     ],
     openai: [
