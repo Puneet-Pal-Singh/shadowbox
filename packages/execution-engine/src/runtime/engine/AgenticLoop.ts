@@ -34,6 +34,7 @@ export interface AgenticLoopConfig {
   runId: string;
   sessionId: string;
   budget?: IBudgetManager;
+  executionNonce?: string;
 }
 
 interface AgenticLoopToolCall {
@@ -76,6 +77,7 @@ interface AgenticLoopHooks {
   workspaceContext?: string;
   executeTool?: (toolCall: AgenticLoopToolCall) => Promise<TaskResult>;
   onAssistantMessage?: (content: string) => Promise<void>;
+  isRunCancelled?: () => Promise<boolean>;
   onProgress?: (
     progress:
       | {
@@ -116,6 +118,7 @@ export class AgenticLoop {
   private llmRetryCount: number = 0;
   private terminalLlmIssue?: AgenticLoopTerminalLlmIssue;
   private toolLifecycle: AgenticLoopToolLifecycleEvent[] = [];
+  private completedReadOnlyToolFingerprints = new Set<string>();
 
   constructor(
     config: AgenticLoopConfig,
@@ -154,6 +157,11 @@ export class AgenticLoop {
       this.stepsExecuted = step + 1;
       const isFinalSynthesisStep =
         step === this.config.maxSteps - 1 && this.toolExecutionCount > 0;
+
+      if (await isCancellationRequested(context)) {
+        stopReason = "cancelled";
+        break;
+      }
 
       // Check budget before LLM call
       try {
@@ -275,6 +283,27 @@ export class AgenticLoop {
         this.recordToolLifecycle(toolCall, "requested");
         await context.onToolRequested?.(toolCall);
 
+        if (await isCancellationRequested(context)) {
+          stopReason = "cancelled";
+          break;
+        }
+
+        const duplicateToolCallMessage =
+          this.getDuplicateReadOnlyToolCallMessage(toolCall);
+        if (duplicateToolCallMessage) {
+          this.failedToolCount++;
+          this.recordToolLifecycle(toolCall, "failed", duplicateToolCallMessage);
+          await context.onToolFailed?.(toolCall, duplicateToolCallMessage, 0);
+          toolResults.push({
+            toolId: toolCall.id,
+            toolName: toolCall.toolName,
+            result: null,
+            error: duplicateToolCallMessage,
+            terminalError: false,
+          });
+          continue;
+        }
+
         // Check budget before tool execution
         try {
           if (await this.isRunOverBudget()) {
@@ -331,6 +360,9 @@ export class AgenticLoop {
               this.completedMutatingToolCount++;
             } else {
               this.completedReadOnlyToolCount++;
+              this.completedReadOnlyToolFingerprints.add(
+                buildReadOnlyToolFingerprint(toolCall),
+              );
             }
             this.recordToolLifecycle(
               toolCall,
@@ -384,6 +416,10 @@ export class AgenticLoop {
 
       // If budget exceeded during tool execution, stop loop
       if (stopReason === "budget_exceeded") {
+        break;
+      }
+
+      if (stopReason === "cancelled") {
         break;
       }
 
@@ -454,6 +490,7 @@ export class AgenticLoop {
     this.llmRetryCount = 0;
     this.terminalLlmIssue = undefined;
     this.toolLifecycle = [];
+    this.completedReadOnlyToolFingerprints.clear();
   }
 
   private async generateLoopText(
@@ -472,6 +509,7 @@ export class AgenticLoop {
               this.config.runId,
               step,
               attempt,
+              this.config.executionNonce,
             ),
           },
         });
@@ -557,6 +595,21 @@ export class AgenticLoop {
       }
       throw error;
     }
+  }
+
+  private getDuplicateReadOnlyToolCallMessage(
+    toolCall: Pick<AgenticLoopToolCall, "toolName" | "args">,
+  ): string | null {
+    if (isMutatingGoldenFlowToolName(toolCall.toolName)) {
+      return null;
+    }
+
+    const fingerprint = buildReadOnlyToolFingerprint(toolCall);
+    if (!this.completedReadOnlyToolFingerprints.has(fingerprint)) {
+      return null;
+    }
+
+    return `Skipped duplicate ${toolCall.toolName} call because the same request already completed in this run. Choose a different tool or proceed with the edit.`;
   }
 }
 
@@ -653,8 +706,38 @@ function buildAgenticLoopTextAttemptIdempotencyKey(
   runId: string,
   step: number,
   attempt: number,
+  executionNonce?: string,
 ): string {
-  return `agentic-loop:${runId}:step:${step + 1}:attempt:${attempt}`;
+  return `agentic-loop:${runId}:${executionNonce ?? "default"}:step:${step + 1}:attempt:${attempt}`;
+}
+
+async function isCancellationRequested(
+  context: Pick<AgenticLoopHooks, "isRunCancelled">,
+): Promise<boolean> {
+  return (await context.isRunCancelled?.()) ?? false;
+}
+
+function buildReadOnlyToolFingerprint(
+  toolCall: Pick<AgenticLoopToolCall, "toolName" | "args">,
+): string {
+  return `${toolCall.toolName}:${stableSerialize(toolCall.args)}`;
+}
+
+function stableSerialize(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map((entry) => stableSerialize(entry)).join(",")}]`;
+  }
+
+  if (value && typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>).sort(
+      ([left], [right]) => left.localeCompare(right),
+    );
+    return `{${entries
+      .map(([key, entryValue]) => `${JSON.stringify(key)}:${stableSerialize(entryValue)}`)
+      .join(",")}}`;
+  }
+
+  return JSON.stringify(value);
 }
 
 function isTerminalToolFailure(toolName: string): boolean {

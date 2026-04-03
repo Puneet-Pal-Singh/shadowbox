@@ -53,6 +53,7 @@ import {
   processPermissionDirectives as processPermissionDirectivesPolicy,
 } from "./RunPermissionWorkspacePolicy.js";
 import {
+  createStreamResponse,
   completeRunWithAssistantMessage as completeRunWithAssistantMessagePolicy,
   completeRunWithRecoveredAssistantMessage as completeRunWithRecoveredAssistantMessagePolicy,
   getRunDurationMs as getRunDurationMsPolicy,
@@ -464,6 +465,7 @@ export class RunEngine implements IRunEngine {
         runId: run.id,
         sessionId: run.sessionId,
         budget: this.budgetManager,
+        executionNonce: run.createdAt.toISOString(),
       },
       this.llmGateway,
       this.taskExecutor,
@@ -476,6 +478,10 @@ export class RunEngine implements IRunEngine {
       const loopResult = await loop.execute(messages, tools, {
         agentType: run.agentType,
         workspaceContext: buildAgenticLoopWorkspaceContext(input),
+        isRunCancelled: async () => {
+          const currentRun = await this.runRepo.getById(run.id);
+          return currentRun?.status === "CANCELLED";
+        },
         executeTool: directExecutionService
           ? async (toolCall) => {
               const toolPresentation = getToolPresentation(
@@ -576,6 +582,10 @@ export class RunEngine implements IRunEngine {
       });
 
       recordAgenticLoopMetadata(run, loopResult);
+      if (loopResult.stopReason === "cancelled") {
+        console.log(`[run/engine] Agentic loop observed cancellation for run ${run.id}`);
+        return createStreamResponse("");
+      }
       const finalMessage = buildAgenticLoopFinalMessage(loopResult);
       const finalOutput = finalMessage.metadata
         ? finalMessage.text
@@ -652,10 +662,17 @@ export class RunEngine implements IRunEngine {
     ) {
       return false;
     }
+    const previousStatus = run.status;
     run.transition("CANCELLED");
     recordLifecycleStep(run, "TERMINAL", "status=CANCELLED");
     recordOrchestrationTerminal(run);
     await this.runRepo.update(run);
+    await this.runEventRecorder.recordRunStatusChanged(
+      previousStatus,
+      run.status,
+      RUN_WORKFLOW_STEPS.EXECUTION,
+      "user_cancelled",
+    );
     const tasks = await this.taskRepo.getByRun(runId);
     for (const task of tasks) {
       if (["PENDING", "READY", "RUNNING"].includes(task.status)) {
@@ -687,7 +704,7 @@ export class RunEngine implements IRunEngine {
         (await this.taskRepo.getByRun(runId)).length === 0;
 
       if (isTerminal || isIdleCreated) {
-        return resetRecyclableRun({
+        const resetRun = await resetRecyclableRun({
           runId,
           sessionId,
           input,
@@ -696,6 +713,8 @@ export class RunEngine implements IRunEngine {
           runRepo: this.runRepo,
           createFreshRun: this.createFreshRun.bind(this),
         });
+        await this.runEventRecorder.clear();
+        return resetRun;
       }
 
       const requestedManifest = createRunManifest(input);
