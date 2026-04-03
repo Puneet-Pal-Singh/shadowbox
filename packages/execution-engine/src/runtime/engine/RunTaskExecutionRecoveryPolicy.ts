@@ -23,67 +23,90 @@ interface TaskExecutionRecoveryDependencies {
   runEventRecorder: Pick<RunEventRecorder, "recordRunProgress">;
 }
 
-export async function tryHandleTaskExecutionErrorPolicy(input: {
+interface TaskExecutionRecoveryInput {
   run: Run;
   prompt: string;
   loop: AgenticLoop;
   error: unknown;
   deps: TaskExecutionRecoveryDependencies;
-}): Promise<Response | null> {
-  const { run, prompt, loop, error, deps } = input;
+}
+
+interface TaskExecutionRecoveryContext {
+  stats: ReturnType<AgenticLoop["getStats"]>;
+  requiresMutation: boolean;
+}
+
+export async function tryHandleTaskExecutionErrorPolicy(
+  input: TaskExecutionRecoveryInput,
+): Promise<Response | null> {
+  const { error } = input;
 
   if (isTaskExecutionTimeout(error)) {
-    const stats = loop.getStats();
-    const requiresMutation = detectsMutation(prompt);
-    const noFileChanged =
-      !requiresMutation || stats.completedMutatingToolCount === 0;
-    const text = buildTaskExecutionTimeoutMessage({
-      requiresMutation,
-      noFileChanged,
-      toolExecutionCount: stats.toolExecutionCount,
-      stepsExecuted: stats.stepsExecuted,
-    });
-    await deps.runEventRecorder.recordRunProgress(
-      RUN_WORKFLOW_STEPS.EXECUTION,
-      "Recoverable timeout",
-      "The model timed out before choosing the next action.",
-      "completed",
-    );
-
-    return deps.completeRunWithRecoveredAssistantMessage(
-      run,
-      text,
-      buildTaskExecutionTimeoutMetadata(),
-      "TASK_EXECUTION_TIMEOUT: Model timed out before choosing the next action.",
-    );
+    return handleTaskTimeoutRecovery(input);
   }
 
-  if (!isTaskExecutionUnusableResponse(error)) {
-    return null;
+  if (isTaskExecutionUnusableResponse(error)) {
+    return handleUnusableResponseRecovery(input, error);
   }
 
-  const stats = loop.getStats();
-  const requiresMutation = detectsMutation(prompt);
+  return null;
+}
+
+async function handleTaskTimeoutRecovery(
+  input: Pick<TaskExecutionRecoveryInput, "run" | "prompt" | "loop" | "deps">,
+): Promise<Response> {
+  const { run, deps } = input;
+  const context = buildTaskExecutionRecoveryContext(input);
+  const text = buildTaskExecutionTimeoutMessage({
+    requiresMutation: context.requiresMutation,
+    noFileChanged:
+      !context.requiresMutation ||
+      context.stats.completedMutatingToolCount === 0,
+    toolExecutionCount: context.stats.toolExecutionCount,
+    stepsExecuted: context.stats.stepsExecuted,
+  });
+
+  await deps.runEventRecorder.recordRunProgress(
+    RUN_WORKFLOW_STEPS.EXECUTION,
+    "Recoverable timeout",
+    "The model timed out before choosing the next action.",
+    "completed",
+  );
+
+  return deps.completeRunWithRecoveredAssistantMessage(
+    run,
+    text,
+    buildTaskExecutionTimeoutMetadata(),
+    "TASK_EXECUTION_TIMEOUT: Model timed out before choosing the next action.",
+  );
+}
+
+async function handleUnusableResponseRecovery(
+  input: Pick<TaskExecutionRecoveryInput, "run" | "prompt" | "loop" | "deps">,
+  error: LLMUnusableResponseError,
+): Promise<Response> {
+  const { run, deps } = input;
+  const context = buildTaskExecutionRecoveryContext(input);
   const terminalLlmIssue =
-    stats.terminalLlmIssue ??
-    buildTerminalLlmIssueFromError(error, stats.llmRetryCount);
+    context.stats.terminalLlmIssue ??
+    buildTerminalLlmIssueFromError(error, context.stats.llmRetryCount);
   const recoveryStopReason =
-    requiresMutation && stats.completedMutatingToolCount === 0
+    context.requiresMutation && context.stats.completedMutatingToolCount === 0
       ? "incomplete_mutation"
       : "llm_stop";
 
   recordRecoveredAgenticLoopMetadata(run, {
     stopReason: recoveryStopReason,
-    stepsExecuted: stats.stepsExecuted,
-    toolExecutionCount: stats.toolExecutionCount,
-    failedToolCount: stats.failedToolCount,
-    requiresMutation,
-    completedMutatingToolCount: stats.completedMutatingToolCount,
-    completedReadOnlyToolCount: stats.completedReadOnlyToolCount,
-    llmRetryCount: stats.llmRetryCount,
+    stepsExecuted: context.stats.stepsExecuted,
+    toolExecutionCount: context.stats.toolExecutionCount,
+    failedToolCount: context.stats.failedToolCount,
+    requiresMutation: context.requiresMutation,
+    completedMutatingToolCount: context.stats.completedMutatingToolCount,
+    completedReadOnlyToolCount: context.stats.completedReadOnlyToolCount,
+    llmRetryCount: context.stats.llmRetryCount,
     terminalLlmIssue,
     recoveryCode: "TASK_MODEL_NO_ACTION",
-    toolLifecycle: stats.toolLifecycle,
+    toolLifecycle: context.stats.toolLifecycle,
   });
 
   await deps.runEventRecorder.recordRunProgress(
@@ -96,15 +119,24 @@ export async function tryHandleTaskExecutionErrorPolicy(input: {
   return deps.completeRunWithRecoveredAssistantMessage(
     run,
     buildTaskModelNoActionSummary({
-      requiresMutation,
-      stepsExecuted: stats.stepsExecuted,
-      toolExecutionCount: stats.toolExecutionCount,
-      failedToolCount: stats.failedToolCount,
-      toolLifecycle: stats.toolLifecycle,
+      requiresMutation: context.requiresMutation,
+      stepsExecuted: context.stats.stepsExecuted,
+      toolExecutionCount: context.stats.toolExecutionCount,
+      failedToolCount: context.stats.failedToolCount,
+      toolLifecycle: context.stats.toolLifecycle,
     }),
     buildTaskModelNoActionMetadata(),
     buildUnusableResponseErrorMetadata(error, terminalLlmIssue),
   );
+}
+
+function buildTaskExecutionRecoveryContext(
+  input: Pick<TaskExecutionRecoveryInput, "prompt" | "loop">,
+): TaskExecutionRecoveryContext {
+  return {
+    stats: input.loop.getStats(),
+    requiresMutation: detectsMutation(input.prompt),
+  };
 }
 
 function isTaskExecutionTimeout(error: unknown): boolean {
