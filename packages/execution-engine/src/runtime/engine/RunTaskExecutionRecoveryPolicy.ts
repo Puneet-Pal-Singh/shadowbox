@@ -65,7 +65,8 @@ export async function tryHandleTaskExecutionErrorPolicy(input: {
   const stats = loop.getStats();
   const requiresMutation = detectsMutation(prompt);
   const terminalLlmIssue =
-    stats.terminalLlmIssue ?? buildTerminalLlmIssueFromError(error);
+    stats.terminalLlmIssue ??
+    buildTerminalLlmIssueFromError(error, stats.llmRetryCount);
   const recoveryStopReason =
     requiresMutation && stats.completedMutatingToolCount === 0
       ? "incomplete_mutation"
@@ -161,6 +162,7 @@ function buildTaskExecutionTimeoutMetadata(): Record<string, unknown> {
 
 function buildTerminalLlmIssueFromError(
   error: LLMUnusableResponseError,
+  llmRetryCount: number,
 ): NonNullable<Run["metadata"]["agenticLoop"]>["terminalLlmIssue"] {
   return {
     type: "unusable_response",
@@ -169,7 +171,7 @@ function buildTerminalLlmIssueFromError(
     anomalyCode: error.anomalyCode,
     finishReason: error.finishReason,
     statusCode: error.statusCode,
-    attempts: 2,
+    attempts: llmRetryCount + 1,
   };
 }
 
