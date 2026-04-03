@@ -91,8 +91,6 @@ export function ChatInterface({
     debugEvents = [],
   } = chatProps;
   const scrollRef = useRef<HTMLDivElement>(null);
-  const thinkingStartAtRef = useRef<number | null>(null);
-  const [thinkingElapsedMs, setThinkingElapsedMs] = useState(0);
   const [pendingPlanPrompt, setPendingPlanPrompt] = useState<string | null>(
     null,
   );
@@ -102,29 +100,6 @@ export function ChatInterface({
   const [expandedActivityRows, setExpandedActivityRows] = useState<
     Record<string, boolean>
   >({});
-
-  useEffect(() => {
-    if (!isLoading) {
-      thinkingStartAtRef.current = null;
-      return;
-    }
-
-    if (thinkingStartAtRef.current === null) {
-      thinkingStartAtRef.current = Date.now();
-    }
-
-    const intervalId = window.setInterval(() => {
-      const startedAt = thinkingStartAtRef.current;
-      if (startedAt === null) {
-        return;
-      }
-      setThinkingElapsedMs(Date.now() - startedAt);
-    }, 100);
-
-    return () => {
-      window.clearInterval(intervalId);
-    };
-  }, [isLoading]);
 
   const { summary } = useRunSummary(runId, isLoading);
   const { events } = useRunEvents(runId, isLoading);
@@ -312,7 +287,7 @@ export function ChatInterface({
           {isLoading && !activeInlineTurn && (
             <div className="px-4 py-2 text-sm font-medium text-zinc-500">
               <span className="bg-[linear-gradient(90deg,rgba(113,113,122,0.9)_0%,rgba(228,228,231,0.95)_45%,rgba(113,113,122,0.9)_100%)] bg-[length:220%_100%] bg-clip-text text-transparent animate-shimmer">
-                {`Thinking ${formatThinkingDuration(thinkingElapsedMs)}`}
+                Thinking
               </span>
             </div>
           )}
@@ -379,13 +354,6 @@ export function ChatInterface({
   );
 }
 
-function formatThinkingDuration(elapsedMs: number): string {
-  const totalSeconds = Math.floor(elapsedMs / 1000);
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
-}
-
 function formatDebugPayload(payload: unknown): string {
   try {
     const serialized = JSON.stringify(payload, null, 2);
@@ -410,7 +378,10 @@ function buildChatEntries(
   turns: ActivityTurnViewModel[],
 ): ChatInterfaceEntry[] {
   const entries: ChatInterfaceEntry[] = [];
-  const pendingActivityTurnsByKey = buildPendingActivityIndex(turns);
+  const activityTurnsByMessageId = correlateActivityTurnsToMessages(
+    conversationTurns,
+    turns,
+  );
 
   for (const conversationTurn of conversationTurns) {
     if (conversationTurn.userMessage) {
@@ -419,11 +390,13 @@ function buildChatEntries(
         message: conversationTurn.userMessage,
       });
 
-      appendMatchedActivityEntries(
-        entries,
-        conversationTurn,
-        pendingActivityTurnsByKey,
-      );
+      const matchedActivityTurns =
+        activityTurnsByMessageId.get(conversationTurn.userMessage.id) ?? [];
+      for (const activityTurn of matchedActivityTurns) {
+        if (activityTurn.hasVisibleRows) {
+          entries.push({ kind: "turn", turn: activityTurn });
+        }
+      }
     }
 
     if (conversationTurn.assistantMessage) {
@@ -434,69 +407,101 @@ function buildChatEntries(
     }
   }
 
-  logUnmatchedActivityTurns(pendingActivityTurnsByKey);
-
   return entries;
 }
 
-function buildPendingActivityIndex(
+function correlateActivityTurnsToMessages(
+  conversationTurns: ReturnType<typeof buildConversationTurns>,
   turns: ActivityTurnViewModel[],
 ): Map<string, ActivityTurnViewModel[]> {
-  const pendingActivityTurnsByKey = new Map<string, ActivityTurnViewModel[]>();
+  const assignments = new Map<string, ActivityTurnViewModel[]>();
+  const conversationUserTurns = conversationTurns.filter(
+    (
+      turn,
+    ): turn is ReturnType<typeof buildConversationTurns>[number] & {
+      userMessage: Message;
+    } => Boolean(turn.userMessage),
+  );
+  const availableConversationTurnIndexes = new Set(
+    conversationUserTurns.map((_, index) => index),
+  );
 
-  for (const turn of turns) {
-    const matchedTurns = pendingActivityTurnsByKey.get(turn.key) ?? [];
-    matchedTurns.push(turn);
-    pendingActivityTurnsByKey.set(turn.key, matchedTurns);
+  for (let activityIndex = turns.length - 1; activityIndex >= 0; activityIndex -= 1) {
+    const activityTurn = turns[activityIndex];
+    if (!activityTurn?.hasVisibleRows) {
+      continue;
+    }
+
+    const matchedIndex =
+      findMatchingConversationTurnIndex(
+        conversationUserTurns,
+        availableConversationTurnIndexes,
+        activityTurn.userPrompt,
+      ) ??
+      findLatestAvailableConversationTurnIndex(availableConversationTurnIndexes);
+    if (matchedIndex === null) {
+      console.warn(
+        "[chat/transcript] Activity turn could not be correlated to a user message.",
+        { activityTurnKey: activityTurn.key },
+      );
+      continue;
+    }
+
+    availableConversationTurnIndexes.delete(matchedIndex);
+    const matchedConversationTurn = conversationUserTurns[matchedIndex];
+    const existingAssignments =
+      assignments.get(matchedConversationTurn.userMessage.id) ?? [];
+    existingAssignments.unshift(activityTurn);
+    assignments.set(matchedConversationTurn.userMessage.id, existingAssignments);
   }
 
-  return pendingActivityTurnsByKey;
+  return assignments;
 }
 
-function appendMatchedActivityEntries(
-  entries: ChatInterfaceEntry[],
-  conversationTurn: ReturnType<typeof buildConversationTurns>[number],
-  pendingActivityTurnsByKey: Map<string, ActivityTurnViewModel[]>,
-): void {
-  if (!conversationTurn.turnId) {
-    console.warn(
-      "[chat/transcript] Conversation turn is missing canonical turnId; skipping activity correlation for now.",
-      { messageId: conversationTurn.userMessage?.id },
+function findMatchingConversationTurnIndex(
+  conversationTurns: Array<
+    ReturnType<typeof buildConversationTurns>[number] & { userMessage: Message }
+  >,
+  availableConversationTurnIndexes: Set<number>,
+  userPrompt: string | null,
+): number | null {
+  const normalizedUserPrompt = normalizePromptForMatching(userPrompt);
+  if (!normalizedUserPrompt) {
+    return null;
+  }
+
+  for (let index = conversationTurns.length - 1; index >= 0; index -= 1) {
+    if (!availableConversationTurnIndexes.has(index)) {
+      continue;
+    }
+    const conversationPrompt = normalizePromptForMatching(
+      conversationTurns[index]?.userMessage.content,
     );
-    return;
-  }
-
-  const matchedActivityTurns = pendingActivityTurnsByKey.get(
-    conversationTurn.turnId,
-  );
-  if (!matchedActivityTurns) {
-    return;
-  }
-
-  pendingActivityTurnsByKey.delete(conversationTurn.turnId);
-  for (const activityTurn of matchedActivityTurns) {
-    if (activityTurn.hasVisibleRows) {
-      entries.push({ kind: "turn", turn: activityTurn });
+    if (conversationPrompt === normalizedUserPrompt) {
+      return index;
     }
   }
+
+  return null;
 }
 
-function logUnmatchedActivityTurns(
-  pendingActivityTurnsByKey: Map<string, ActivityTurnViewModel[]>,
-): void {
-  const unmatchedActivityTurnKeys = Array.from(
-    pendingActivityTurnsByKey.values(),
-  )
-    .flat()
-    .filter((turn) => turn.hasVisibleRows)
-    .map((turn) => turn.key);
-
-  if (unmatchedActivityTurnKeys.length > 0) {
-    console.warn(
-      "[chat/transcript] Activity turns could not be correlated yet; skipping unmatched transcript rows for this render.",
-      { activityTurnKeys: unmatchedActivityTurnKeys },
-    );
+function findLatestAvailableConversationTurnIndex(
+  availableConversationTurnIndexes: Set<number>,
+): number | null {
+  const indexes = Array.from(availableConversationTurnIndexes);
+  if (indexes.length === 0) {
+    return null;
   }
+
+  return Math.max(...indexes);
+}
+
+function normalizePromptForMatching(content: string | null | undefined): string {
+  if (typeof content !== "string") {
+    return "";
+  }
+
+  return content.trim();
 }
 
 function resolveModelLabel(
