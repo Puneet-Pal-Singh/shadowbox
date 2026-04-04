@@ -10,6 +10,10 @@ import {
   formatExecutionResult,
 } from "../agents/ResultFormatter.js";
 import { validateSafePath } from "../agents/validation.js";
+import {
+  normalizeWorkspaceShellCommand,
+  resolveWorkspaceRelativeShellPath,
+} from "../lib/WorkspaceShellCommand.js";
 import type {
   ExecutionOutputChunk,
   RuntimeExecutionService,
@@ -61,6 +65,48 @@ export async function executeAgenticLoopTool(
         input.taskId,
         input.toolInput,
         input.onOutputAppended,
+      );
+    case "git_stage":
+      return executeGitStageTool(
+        executionService,
+        input.taskId,
+        input.toolInput,
+      );
+    case "git_commit":
+      return executeGitCommitTool(
+        executionService,
+        input.taskId,
+        input.toolInput,
+      );
+    case "git_push":
+      return executeGitPushTool(
+        executionService,
+        input.taskId,
+        input.toolInput,
+      );
+    case "git_pull":
+      return executeGitPullTool(
+        executionService,
+        input.taskId,
+        input.toolInput,
+      );
+    case "git_create_pull_request":
+      return executeGitCreatePullRequestTool(
+        executionService,
+        input.taskId,
+        input.toolInput,
+      );
+    case "git_branch_create":
+      return executeGitBranchCreateTool(
+        executionService,
+        input.taskId,
+        input.toolInput,
+      );
+    case "git_branch_switch":
+      return executeGitBranchSwitchTool(
+        executionService,
+        input.taskId,
+        input.toolInput,
       );
     case "git_status":
       return executeGitStatusTool(
@@ -170,7 +216,13 @@ async function executeBashTool(
     | undefined,
 ): Promise<TaskResult> {
   const validatedInput = validateGoldenFlowToolInput("bash", taskInput);
-  const command = validatedInput.command.trim();
+  const normalizedInput = normalizeWorkspaceShellCommand({
+    command: validatedInput.command,
+    cwd: validatedInput.cwd
+      ? normalizeToolPath(validatedInput.cwd)
+      : undefined,
+  });
+  const command = normalizedInput.command.trim();
 
   if (!isConcreteCommandInput(command)) {
     return buildFailureResult(
@@ -180,15 +232,18 @@ async function executeBashTool(
   }
 
   if (/^ls(\s|$)/i.test(command)) {
-    const path = extractDirectoryFromLsCommand(command);
+    const path = resolveWorkspaceRelativeShellPath(
+      normalizedInput.cwd,
+      extractDirectoryFromLsCommand(command),
+    );
     return executeListFilesTool(executionService, taskId, {
       description: "List files from shell shortcut",
       path,
     });
   }
 
-  const cwd = validatedInput.cwd
-    ? normalizeToolPath(validatedInput.cwd)
+  const cwd = normalizedInput.cwd
+    ? normalizeToolPath(normalizedInput.cwd)
     : ".";
   if (cwd !== ".") {
     validateSafePath(cwd);
@@ -243,6 +298,241 @@ async function executeGitStatusTool(
     return buildFailureResult(taskId, failure);
   }
   return buildSuccessResult(taskId, formatExecutionResult(result));
+}
+
+async function executeGitStageTool(
+  executionService: RuntimeExecutionService,
+  taskId: string,
+  taskInput: TaskInput,
+): Promise<TaskResult> {
+  const validatedInput = validateGoldenFlowToolInput("git_stage", taskInput);
+  const payload: Record<string, unknown> = {};
+  if (validatedInput.files && validatedInput.files.length > 0) {
+    payload.files = validatedInput.files.map((file) => {
+      const path = normalizeToolPath(file);
+      validateSafePath(path);
+      return path;
+    });
+  }
+
+  const result = await executeGatewayPlugin(executionService, "git_stage", payload);
+  const failure = extractExecutionFailure(result);
+  if (failure) {
+    return buildFailureResult(taskId, failure);
+  }
+  return buildSuccessResult(taskId, formatExecutionResult(result), {
+    activity: buildGitActivityMetadata("Staging files", {
+      preview:
+        validatedInput.files?.map((file) => normalizeToolPath(file)).join(", ") ??
+        "workspace changes",
+    }),
+  });
+}
+
+async function executeGitCommitTool(
+  executionService: RuntimeExecutionService,
+  taskId: string,
+  taskInput: TaskInput,
+): Promise<TaskResult> {
+  const validatedInput = validateGoldenFlowToolInput("git_commit", taskInput);
+  const payload: Record<string, unknown> = {
+    message: validatedInput.message.trim(),
+  };
+
+  if (validatedInput.files && validatedInput.files.length > 0) {
+    payload.files = validatedInput.files.map((file) => {
+      const path = normalizeToolPath(file);
+      validateSafePath(path);
+      return path;
+    });
+  }
+  if (validatedInput.authorName) {
+    payload.authorName = validatedInput.authorName.trim();
+  }
+  if (validatedInput.authorEmail) {
+    payload.authorEmail = validatedInput.authorEmail.trim();
+  }
+
+  const result = await executeGatewayPlugin(
+    executionService,
+    "git_commit",
+    payload,
+  );
+  const failure = extractExecutionFailure(result);
+  if (failure) {
+    return buildFailureResult(taskId, failure);
+  }
+  return buildSuccessResult(taskId, formatExecutionResult(result), {
+    activity: buildGitActivityMetadata("Creating git commit", {
+      preview: validatedInput.message.trim(),
+    }),
+  });
+}
+
+async function executeGitPushTool(
+  executionService: RuntimeExecutionService,
+  taskId: string,
+  taskInput: TaskInput,
+): Promise<TaskResult> {
+  const validatedInput = validateGoldenFlowToolInput("git_push", taskInput);
+  const payload: Record<string, unknown> = {};
+  if (validatedInput.remote) {
+    payload.remote = validatedInput.remote.trim();
+  }
+  if (validatedInput.branch) {
+    payload.branch = validatedInput.branch.trim();
+  }
+
+  const result = await executeGatewayPlugin(executionService, "git_push", payload);
+  const failure = extractExecutionFailure(result);
+  if (failure) {
+    return buildFailureResult(
+      taskId,
+      failure,
+      {
+        activity: buildGitActivityMetadata("Pushing branch", {
+          branch: validatedInput.branch?.trim(),
+          preview: validatedInput.branch?.trim() || validatedInput.remote?.trim(),
+        }),
+      },
+    );
+  }
+  return buildSuccessResult(taskId, formatExecutionResult(result), {
+    activity: buildGitActivityMetadata("Pushing branch", {
+      branch: validatedInput.branch?.trim(),
+      preview: validatedInput.branch?.trim() || validatedInput.remote?.trim(),
+    }),
+  });
+}
+
+async function executeGitPullTool(
+  executionService: RuntimeExecutionService,
+  taskId: string,
+  taskInput: TaskInput,
+): Promise<TaskResult> {
+  const validatedInput = validateGoldenFlowToolInput("git_pull", taskInput);
+  const payload: Record<string, unknown> = {};
+  if (validatedInput.remote) {
+    payload.remote = validatedInput.remote.trim();
+  }
+  if (validatedInput.branch) {
+    payload.branch = validatedInput.branch.trim();
+  }
+
+  const result = await executeGatewayPlugin(executionService, "git_pull", payload);
+  const failure = extractExecutionFailure(result);
+  if (failure) {
+    return buildFailureResult(
+      taskId,
+      failure,
+      {
+        activity: buildGitActivityMetadata("Syncing branch", {
+          branch: validatedInput.branch?.trim(),
+          preview: validatedInput.branch?.trim() || validatedInput.remote?.trim(),
+        }),
+      },
+    );
+  }
+  return buildSuccessResult(taskId, formatExecutionResult(result), {
+    activity: buildGitActivityMetadata("Syncing branch", {
+      branch: validatedInput.branch?.trim(),
+      preview: validatedInput.branch?.trim() || validatedInput.remote?.trim(),
+    }),
+  });
+}
+
+async function executeGitCreatePullRequestTool(
+  executionService: RuntimeExecutionService,
+  taskId: string,
+  taskInput: TaskInput,
+): Promise<TaskResult> {
+  const validatedInput = validateGoldenFlowToolInput(
+    "git_create_pull_request",
+    taskInput,
+  );
+  const payload: Record<string, unknown> = {
+    owner: validatedInput.owner.trim(),
+    repo: validatedInput.repo.trim(),
+    title: validatedInput.title.trim(),
+  };
+  if (validatedInput.body) {
+    payload.body = validatedInput.body.trim();
+  }
+  if (validatedInput.base) {
+    payload.base = validatedInput.base.trim();
+  }
+
+  const result = await executeGatewayPlugin(
+    executionService,
+    "git_create_pull_request",
+    payload,
+  );
+  const failure = extractExecutionFailure(result);
+  if (failure) {
+    return buildFailureResult(taskId, failure);
+  }
+  return buildSuccessResult(taskId, formatExecutionResult(result), {
+    activity: buildGitActivityMetadata("Creating pull request", {
+      preview: `${validatedInput.owner.trim()}/${validatedInput.repo.trim()} - ${validatedInput.title.trim()}`,
+      pluginLabel: "GitHub",
+    }),
+  });
+}
+
+async function executeGitBranchCreateTool(
+  executionService: RuntimeExecutionService,
+  taskId: string,
+  taskInput: TaskInput,
+): Promise<TaskResult> {
+  const validatedInput = validateGoldenFlowToolInput(
+    "git_branch_create",
+    taskInput,
+  );
+  const result = await executeGatewayPlugin(
+    executionService,
+    "git_branch_create",
+    {
+      branch: validatedInput.branch.trim(),
+    },
+  );
+  const failure = extractExecutionFailure(result);
+  if (failure) {
+    return buildFailureResult(taskId, failure);
+  }
+  return buildSuccessResult(taskId, formatExecutionResult(result), {
+    activity: buildGitActivityMetadata("Creating branch", {
+      branch: validatedInput.branch.trim(),
+      preview: validatedInput.branch.trim(),
+    }),
+  });
+}
+
+async function executeGitBranchSwitchTool(
+  executionService: RuntimeExecutionService,
+  taskId: string,
+  taskInput: TaskInput,
+): Promise<TaskResult> {
+  const validatedInput = validateGoldenFlowToolInput(
+    "git_branch_switch",
+    taskInput,
+  );
+  const result = await executeGatewayPlugin(
+    executionService,
+    "git_branch_switch",
+    {
+      branch: validatedInput.branch.trim(),
+    },
+  );
+  const failure = extractExecutionFailure(result);
+  if (failure) {
+    return buildFailureResult(taskId, failure);
+  }
+  return buildSuccessResult(taskId, formatExecutionResult(result), {
+    activity: buildGitActivityMetadata("Switching branch", {
+      branch: validatedInput.branch.trim(),
+      preview: validatedInput.branch.trim(),
+    }),
+  });
 }
 
 async function executeGitDiffTool(
@@ -540,6 +830,23 @@ function buildWriteActivityMetadata(
     additions,
     deletions,
     diffPreview: buildDiffPreview(previousContent, nextContent),
+  };
+}
+
+function buildGitActivityMetadata(
+  displayText: string,
+  input: {
+    branch?: string;
+    preview?: string;
+    pluginLabel?: string;
+  } = {},
+): Record<string, unknown> {
+  return {
+    family: "git",
+    displayText,
+    pluginLabel: input.pluginLabel ?? "GitHub",
+    branch: input.branch,
+    preview: input.preview,
   };
 }
 
