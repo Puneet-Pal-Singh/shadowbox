@@ -383,7 +383,12 @@ export class AgenticLoop {
           } else {
             this.failedToolCount++;
             const toolError = result.error?.message || "Tool execution failed";
-            this.recordToolLifecycle(toolCall, "failed", toolError);
+            this.recordToolLifecycle(
+              toolCall,
+              "failed",
+              toolError,
+              extractToolActivityMetadata(result.output?.metadata),
+            );
             await context.onToolFailed?.(toolCall, toolError, executionTimeMs);
             toolResults.push({
               toolId: toolCall.id,
@@ -626,12 +631,16 @@ function buildAgenticLoopSystemPrompt(input: {
     "Your job is to inspect the real workspace, decide which tools to use, and answer the user's request in clear natural language.",
     "Start with the real workspace before concluding anything. Never invent file contents, project structure, git state, or completed work.",
     "Tool strategy:",
-    "- For concrete git commands such as git status, git switch, or git branch, you may use bash so the terminal transcript stays intact.",
+    "- Use the dedicated git tools for git status, diff, branch create/switch, staging, commit, push, and pull request creation. Do not compose git or GitHub workflows with bash unless the request truly requires a non-git shell command.",
+    "- Never use gh pr create through bash when git_create_pull_request can satisfy the request.",
+    "- A clean git status after a failed push or PR step often means the changes were already committed locally. Do not recreate files just because the working tree is clean.",
+    "- If git_push fails because the remote branch is ahead or non-fast-forward, do not rewrite files. Use git_pull to sync with a fast-forward-only pull, then retry git_push. If git_pull cannot fast-forward, stop and explain that manual branch resolution is required.",
     "- For repository or git status questions without a specific command, use git_status before answering.",
     "- For vague component, page, route, or file questions, discover with list_files, glob, or grep before read_file.",
     "- Prefer narrowing search after one broad listing. Do not repeat the same missing path after a file-not-found error.",
     "- If a non-mutating tool returns no match or not found, keep exploring with different tools or paths instead of stopping.",
     "- If a mutating tool fails, stop and explain what failed.",
+    "- git_commit messages must be a single-line conventional commit subject (for example: feat: add hero carousel).",
     "Answer quality:",
     "- After gathering enough evidence, answer the user directly in plain English.",
     "- Summarize tool results instead of echoing raw JSON or raw telemetry.",
