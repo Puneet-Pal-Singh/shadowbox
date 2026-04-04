@@ -802,13 +802,17 @@ export class GitPlugin implements IPlugin {
     runId: string,
   ): Promise<PluginResult> {
     const safeRemote = sanitizeRef(remote || "origin", "remote");
+    const safeBranch =
+      branch && branch.trim().length > 0
+        ? sanitizeRef(branch, "branch")
+        : undefined;
     const authArgs = this.buildGitAuthArgs(token);
     const args = [...authArgs, "-C", worktree, "push"];
 
-    if (branch && branch.trim().length > 0) {
+    if (safeBranch) {
       args.push("-u");
       args.push(safeRemote);
-      args.push(sanitizeRef(branch, "branch"));
+      args.push(safeBranch);
     } else {
       args.push(safeRemote);
     }
@@ -820,6 +824,18 @@ export class GitPlugin implements IPlugin {
       toolboxContext,
       "git.push",
     );
+
+    if (result.exitCode === 0) {
+      return buildGitResult(result, "Changes pushed");
+    }
+
+    if (isNonFastForwardGitPushError(result.stderr)) {
+      return {
+        success: false,
+        error: buildNonFastForwardPushError(safeRemote, safeBranch),
+      };
+    }
+
     return buildGitResult(result, "Changes pushed");
   }
 
@@ -834,7 +850,7 @@ export class GitPlugin implements IPlugin {
   ): Promise<PluginResult> {
     const safeRemote = sanitizeRef(remote || "origin", "remote");
     const authArgs = this.buildGitAuthArgs(token);
-    const args = [...authArgs, "-C", worktree, "pull", safeRemote];
+    const args = [...authArgs, "-C", worktree, "pull", "--ff-only", safeRemote];
 
     if (branch && branch.trim().length > 0) {
       args.push(sanitizeRef(branch, "branch"));
@@ -1130,6 +1146,18 @@ function normalizeRepoIdentityPath(pathname: string): string | null {
 
 function containsIllegalTokenChars(token: string): boolean {
   return /[\0\r\n]/.test(token);
+}
+
+function isNonFastForwardGitPushError(stderr: string): boolean {
+  return /non-fast-forward|tip of your current branch is behind/i.test(stderr);
+}
+
+function buildNonFastForwardPushError(
+  remote: string,
+  branch: string | undefined,
+): string {
+  const branchLabel = branch ?? "current branch";
+  return `Push failed because ${remote}/${branchLabel} already has newer commits. Your file changes are already committed locally. Sync the branch with git pull --ff-only and retry the push. If the branch cannot be fast-forwarded, resolve the branch conflict manually before retrying.`;
 }
 
 function buildGitResult(
