@@ -1,11 +1,18 @@
 import { useState } from "react";
 import type { CommitPayload } from "@repo/shared-types";
 import { useRunContext } from "./useRunContext";
-import { commitGitChanges } from "../lib/git-client.js";
+import { GitMutationError, commitGitChanges } from "../lib/git-client.js";
+import type { GitMutationErrorCode, GitMutationErrorMetadata } from "@repo/shared-types";
+
+interface GitCommitErrorState {
+  code?: GitMutationErrorCode;
+  metadata?: GitMutationErrorMetadata;
+}
 
 interface UseGitCommitResult {
   committing: boolean;
   error: string | null;
+  errorState: GitCommitErrorState | null;
   commit: (payload: CommitPayload) => Promise<boolean>;
 }
 
@@ -18,6 +25,7 @@ export function useGitCommit(
   const sessionId = explicitSessionId ?? contextSessionId;
   const [committing, setCommitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [errorState, setErrorState] = useState<GitCommitErrorState | null>(null);
 
   const performCommit = async (payload: CommitPayload) => {
     if (!runId) {
@@ -31,6 +39,7 @@ export function useGitCommit(
 
     setCommitting(true);
     setError(null);
+    setErrorState(null);
 
     try {
       await commitGitChanges({
@@ -42,6 +51,9 @@ export function useGitCommit(
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error";
       setError(message);
+      if (err instanceof GitMutationError) {
+        setErrorState({ code: err.code, metadata: err.metadata });
+      }
       console.error("[useGitCommit] Error:", err);
       return false;
     } finally {
@@ -49,5 +61,5 @@ export function useGitCommit(
     }
   };
 
-  return { committing, error, commit: performCommit };
+  return { committing, error, errorState, commit: performCommit };
 }
