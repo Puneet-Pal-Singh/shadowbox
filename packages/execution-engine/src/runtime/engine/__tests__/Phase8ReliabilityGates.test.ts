@@ -401,6 +401,11 @@ describe("Phase 8: Golden Scenario Reliability Tests", () => {
           sessionId: "recycle-session",
         },
         previousStatus: "COMPLETED",
+        existingRun: new Run(runId, "recycle-session", "COMPLETED", "coding", {
+          agentType: "coding",
+          prompt: "completed prompt",
+          sessionId: "recycle-session",
+        }),
         taskRepo: taskRepo as TaskRepository,
         runRepo: runRepo as RunRepository,
         createFreshRun: (id, sid, input) =>
@@ -445,6 +450,11 @@ describe("Phase 8: Golden Scenario Reliability Tests", () => {
           sessionId: "recycle-session",
         },
         previousStatus: "COMPLETED",
+        existingRun: new Run(runId, "recycle-session", "COMPLETED", "coding", {
+          agentType: "coding",
+          prompt: "completed prompt",
+          sessionId: "recycle-session",
+        }),
         taskRepo: taskRepo as TaskRepository,
         runRepo: runRepo as RunRepository,
         createFreshRun: (id, sid, input) =>
@@ -454,6 +464,73 @@ describe("Phase 8: Golden Scenario Reliability Tests", () => {
       const events = await eventRepo.getByRun(runId);
       expect(events).toHaveLength(1);
       expect(events[0]?.type).toBe("run.started");
+    });
+
+    it("preserves the active workspace branch when a recyclable run resets", async () => {
+      const { resetRecyclableRun } =
+        await import("../RunRecyclableResetPolicy.js");
+
+      const runRepo = new RunRepository(runtimeState);
+      const taskRepo = new TaskRepository(runtimeState);
+
+      const runId = "recyclable-run-active-branch";
+      const existingRun = new Run(runId, "recycle-session", "COMPLETED", "coding", {
+        agentType: "coding",
+        prompt: "commit and push the branch",
+        sessionId: "recycle-session",
+        repositoryContext: {
+          owner: "sourcegraph",
+          repo: "shadowbox",
+          branch: "main",
+        },
+      });
+      existingRun.metadata.agenticLoop = {
+        enabled: true,
+        stopReason: "tool_error",
+        toolLifecycle: [
+          {
+            toolCallId: "branch-1",
+            toolName: "git_branch_create",
+            status: "completed",
+            mutating: true,
+            recordedAt: new Date().toISOString(),
+            metadata: {
+              family: "git",
+              branch: "feat/floating-hero-carousels",
+              preview: "feat/floating-hero-carousels",
+            },
+          },
+        ],
+      };
+      await runRepo.create(existingRun);
+
+      const recycled = await resetRecyclableRun({
+        runId,
+        sessionId: "recycle-session",
+        input: {
+          agentType: "coding",
+          prompt: "continue?",
+          sessionId: "recycle-session",
+          repositoryContext: {
+            owner: "sourcegraph",
+            repo: "shadowbox",
+            branch: "main",
+          },
+        },
+        previousStatus: "COMPLETED",
+        existingRun,
+        taskRepo: taskRepo as TaskRepository,
+        runRepo: runRepo as RunRepository,
+        createFreshRun: (id, sid, input) =>
+          new Run(id, sid, "RUNNING", "coding", input),
+      });
+
+      expect(recycled.input.repositoryContext?.branch).toBe(
+        "feat/floating-hero-carousels",
+      );
+      expect(recycled.metadata.continuation?.activeBranch).toBe(
+        "feat/floating-hero-carousels",
+      );
     });
   });
 
