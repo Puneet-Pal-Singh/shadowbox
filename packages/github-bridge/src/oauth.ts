@@ -24,11 +24,11 @@ export interface GitHubUser {
   id: number;
   login: string;
   avatar_url: string;
-  email: string;
-  name: string;
+  email: string | null;
+  name: string | null;
 }
 
-export const DEFAULT_SCOPES = ["repo", "read:user"];
+export const DEFAULT_SCOPES = ["repo", "read:user", "user:email"];
 
 /**
  * Generate the GitHub OAuth authorization URL
