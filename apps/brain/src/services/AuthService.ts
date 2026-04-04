@@ -12,10 +12,23 @@ import {
   decryptToken,
   type EncryptedToken,
 } from "@shadowbox/github-bridge";
+import type { GitCommitIdentityState } from "@repo/shared-types";
+
+export interface UserSessionRecord {
+  userId: string;
+  login: string;
+  avatar: string;
+  email: string | null;
+  name?: string | null;
+  encryptedToken: EncryptedToken;
+  createdAt: number;
+  commitIdentity?: GitCommitIdentityState;
+}
 
 export interface AuthResult {
   client: GitHubAPIClient;
   userId: string;
+  session: UserSessionRecord;
 }
 
 /**
@@ -91,6 +104,30 @@ export async function getGitHubClient(
   request: Request,
   env: Env,
 ): Promise<AuthResult | null> {
+  const authenticatedSession = await getAuthenticatedUserSession(request, env);
+  if (!authenticatedSession) {
+    return null;
+  }
+
+  const { userId, session } = authenticatedSession;
+
+  // Decrypt token
+  const accessToken = await decryptToken(
+    session.encryptedToken,
+    env.GITHUB_TOKEN_ENCRYPTION_KEY,
+  );
+
+  return {
+    client: new GitHubAPIClient(accessToken),
+    userId,
+    session,
+  };
+}
+
+export async function getAuthenticatedUserSession(
+  request: Request,
+  env: Env,
+): Promise<{ userId: string; session: UserSessionRecord } | null> {
   const sessionToken = extractSessionToken(request);
   if (!sessionToken) return null;
 
@@ -101,17 +138,8 @@ export async function getGitHubClient(
   const sessionData = await env.SESSIONS.get(`user_session:${userId}`);
   if (!sessionData) return null;
 
-  const session = JSON.parse(sessionData);
-  const encryptedToken: EncryptedToken = session.encryptedToken;
-
-  // Decrypt token
-  const accessToken = await decryptToken(
-    encryptedToken,
-    env.GITHUB_TOKEN_ENCRYPTION_KEY,
-  );
-
   return {
-    client: new GitHubAPIClient(accessToken),
     userId,
+    session: JSON.parse(sessionData) as UserSessionRecord,
   };
 }
