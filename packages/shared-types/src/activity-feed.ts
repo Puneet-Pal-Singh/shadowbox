@@ -165,6 +165,8 @@ export interface EditToolActivityMetadata {
 export interface GitToolActivityMetadata {
   family: typeof TOOL_ACTIVITY_FAMILIES.GIT;
   displayText?: string;
+  pluginLabel?: string;
+  branch?: string;
   path?: string;
   count?: number;
   preview?: string;
