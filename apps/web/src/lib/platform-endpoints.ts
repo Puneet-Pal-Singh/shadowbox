@@ -221,6 +221,33 @@ export function gitCommitPath(): string {
 }
 
 /**
+ * Build the canonical git branch endpoint URL through Brain.
+ * Used for creating or switching to a branch for a run-scoped workspace.
+ * Path: /api/git/branch
+ */
+export function gitBranchPath(): string {
+  return `${getBrainHttpBase()}/api/git/branch`;
+}
+
+/**
+ * Build the canonical git push endpoint URL through Brain.
+ * Used for pushing a branch from a run-scoped workspace to its remote.
+ * Path: /api/git/push
+ */
+export function gitPushPath(): string {
+  return `${getBrainHttpBase()}/api/git/push`;
+}
+
+/**
+ * Build the canonical git pull-request endpoint URL through Brain.
+ * Used for creating a pull request from authoritative run/worktree state.
+ * Path: /api/git/pull-request
+ */
+export function gitPullRequestPath(): string {
+  return `${getBrainHttpBase()}/api/git/pull-request`;
+}
+
+/**
  * Build the git workspace bootstrap endpoint URL
  * Used to initialize run-scoped repository before first chat turn.
  *
@@ -228,6 +255,15 @@ export function gitCommitPath(): string {
  */
 export function gitBootstrapPath(): string {
   return `${getBrainHttpBase()}/api/git/bootstrap`;
+}
+
+/**
+ * Build the GitHub pull request endpoint URL through Brain.
+ * Used for creating and listing pull requests via the authenticated GitHub session.
+ * Path: /api/github/pulls
+ */
+export function githubPullsPath(): string {
+  return `${getBrainHttpBase()}/api/github/pulls`;
 }
 
 /**
