@@ -74,6 +74,26 @@ const TOOL_PRESENTERS: Record<
   write_file: (input) =>
     presentWriteFile(validateToolPresentationInput("write_file", input)),
   bash: (input) => presentBash(validateToolPresentationInput("bash", input)),
+  git_stage: (input) =>
+    presentGitStage(validateToolPresentationInput("git_stage", input)),
+  git_commit: (input) =>
+    presentGitCommit(validateToolPresentationInput("git_commit", input)),
+  git_push: (input) =>
+    presentGitPush(validateToolPresentationInput("git_push", input)),
+  git_pull: (input) =>
+    presentGitPull(validateToolPresentationInput("git_pull", input)),
+  git_create_pull_request: (input) =>
+    presentGitCreatePullRequest(
+      validateToolPresentationInput("git_create_pull_request", input),
+    ),
+  git_branch_create: (input) =>
+    presentGitBranchCreate(
+      validateToolPresentationInput("git_branch_create", input),
+    ),
+  git_branch_switch: (input) =>
+    presentGitBranchSwitch(
+      validateToolPresentationInput("git_branch_switch", input),
+    ),
   git_status: (input) =>
     presentGitStatus(validateToolPresentationInput("git_status", input)),
   git_diff: (input) =>
@@ -161,6 +181,85 @@ function presentBash(input: ToolPresentationInputByName["bash"]): ToolPresentati
     summary: command
       ? `Running ${command} in the workspace.`
       : "Running a shell command in the workspace.",
+  };
+}
+
+function presentGitStage(
+  input: ToolPresentationInputByName["git_stage"],
+): ToolPresentation {
+  const files = input.files?.join(", ");
+  return {
+    description: files ? `Stage ${files}` : "Stage workspace changes",
+    displayText: files ? `Staging ${files}` : "Staging workspace changes",
+    summary: files
+      ? `Staging ${files} for commit.`
+      : "Staging workspace changes for commit.",
+  };
+}
+
+function presentGitCommit(
+  input: ToolPresentationInputByName["git_commit"],
+): ToolPresentation {
+  return {
+    description: `Commit changes as ${input.message}`,
+    displayText: "Creating git commit",
+    summary: `Creating a git commit with subject "${input.message}".`,
+  };
+}
+
+function presentGitPush(
+  input: ToolPresentationInputByName["git_push"],
+): ToolPresentation {
+  const branch = input.branch;
+  return {
+    description: branch ? `Push ${branch}` : "Push current branch",
+    displayText: branch ? `Pushing ${branch}` : "Pushing current branch",
+    summary: branch
+      ? `Pushing branch ${branch} to the remote.`
+      : "Pushing the current branch to the remote.",
+  };
+}
+
+function presentGitPull(
+  input: ToolPresentationInputByName["git_pull"],
+): ToolPresentation {
+  const branch = input.branch;
+  return {
+    description: branch ? `Pull ${branch}` : "Pull current branch",
+    displayText: branch ? `Pulling ${branch}` : "Pulling current branch",
+    summary: branch
+      ? `Syncing branch ${branch} from the remote with a fast-forward-only pull.`
+      : "Syncing the current branch from the remote with a fast-forward-only pull.",
+  };
+}
+
+function presentGitCreatePullRequest(
+  input: ToolPresentationInputByName["git_create_pull_request"],
+): ToolPresentation {
+  return {
+    description: `Create pull request ${input.title}`,
+    displayText: "Creating pull request",
+    summary: `Creating a pull request for ${input.owner}/${input.repo} with title "${input.title}".`,
+  };
+}
+
+function presentGitBranchCreate(
+  input: ToolPresentationInputByName["git_branch_create"],
+): ToolPresentation {
+  return {
+    description: `Create branch ${input.branch}`,
+    displayText: `Creating branch ${input.branch}`,
+    summary: `Creating and switching to branch ${input.branch}.`,
+  };
+}
+
+function presentGitBranchSwitch(
+  input: ToolPresentationInputByName["git_branch_switch"],
+): ToolPresentation {
+  return {
+    description: `Switch to ${input.branch}`,
+    displayText: `Switching to ${input.branch}`,
+    summary: `Switching to branch ${input.branch}.`,
   };
 }
 

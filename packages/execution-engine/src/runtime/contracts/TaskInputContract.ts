@@ -11,6 +11,7 @@ export const VALID_GIT_ACTIONS = [
   "git_diff",
   "git_commit",
   "git_push",
+  "git_create_pull_request",
   "git_pull",
   "git_fetch",
   "git_branch_create",

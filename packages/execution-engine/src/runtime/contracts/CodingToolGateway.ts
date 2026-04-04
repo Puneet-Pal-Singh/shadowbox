@@ -12,6 +12,13 @@ export type GoldenFlowToolName =
   | "list_files"
   | "write_file"
   | "bash"
+  | "git_stage"
+  | "git_commit"
+  | "git_push"
+  | "git_pull"
+  | "git_create_pull_request"
+  | "git_branch_create"
+  | "git_branch_switch"
   | "git_status"
   | "git_diff"
   | "glob"
@@ -66,6 +73,58 @@ const BASH_TOOL_INPUT_SCHEMA = createToolInputSchema({
   description: z.string().min(1).max(MAX_COMMAND_LENGTH).optional(),
 });
 
+const GIT_STAGE_TOOL_INPUT_SCHEMA = createToolInputSchema(
+  {
+    files: z.array(z.string().min(1).max(MAX_PATH_LENGTH)).optional(),
+  },
+  { allowNullishEmptyObject: true },
+);
+
+const GIT_COMMIT_TOOL_INPUT_SCHEMA = createToolInputSchema({
+  message: z
+    .string()
+    .min(1)
+    .max(MAX_COMMAND_LENGTH)
+    .refine((value) => !/[\r\n\0]/.test(value), {
+      message: "Commit message must be a single-line subject",
+    }),
+  files: z.array(z.string().min(1).max(MAX_PATH_LENGTH)).optional(),
+  authorName: z.string().min(1).max(MAX_COMMAND_LENGTH).optional(),
+  authorEmail: z.string().min(1).max(MAX_COMMAND_LENGTH).optional(),
+});
+
+const GIT_PUSH_TOOL_INPUT_SCHEMA = createToolInputSchema(
+  {
+    remote: z.string().min(1).max(MAX_PATH_LENGTH).optional(),
+    branch: z.string().min(1).max(MAX_PATH_LENGTH).optional(),
+  },
+  { allowNullishEmptyObject: true },
+);
+
+const GIT_PULL_TOOL_INPUT_SCHEMA = createToolInputSchema(
+  {
+    remote: z.string().min(1).max(MAX_PATH_LENGTH).optional(),
+    branch: z.string().min(1).max(MAX_PATH_LENGTH).optional(),
+  },
+  { allowNullishEmptyObject: true },
+);
+
+const GIT_CREATE_PULL_REQUEST_TOOL_INPUT_SCHEMA = createToolInputSchema({
+  owner: z.string().min(1).max(MAX_PATH_LENGTH),
+  repo: z.string().min(1).max(MAX_PATH_LENGTH),
+  title: z.string().min(1).max(MAX_COMMAND_LENGTH),
+  body: z.string().max(MAX_WRITE_CONTENT_LENGTH).optional(),
+  base: z.string().min(1).max(MAX_PATH_LENGTH).optional(),
+});
+
+const GIT_BRANCH_CREATE_TOOL_INPUT_SCHEMA = createToolInputSchema({
+  branch: z.string().min(1).max(MAX_PATH_LENGTH),
+});
+
+const GIT_BRANCH_SWITCH_TOOL_INPUT_SCHEMA = createToolInputSchema({
+  branch: z.string().min(1).max(MAX_PATH_LENGTH),
+});
+
 const GIT_STATUS_TOOL_INPUT_SCHEMA = createToolInputSchema(
   {},
   { allowNullishEmptyObject: true },
@@ -98,6 +157,15 @@ export type GoldenFlowToolInputByName = {
   list_files: z.infer<typeof LIST_FILES_TOOL_INPUT_SCHEMA>;
   write_file: z.infer<typeof WRITE_FILE_TOOL_INPUT_SCHEMA>;
   bash: z.infer<typeof BASH_TOOL_INPUT_SCHEMA>;
+  git_stage: z.infer<typeof GIT_STAGE_TOOL_INPUT_SCHEMA>;
+  git_commit: z.infer<typeof GIT_COMMIT_TOOL_INPUT_SCHEMA>;
+  git_push: z.infer<typeof GIT_PUSH_TOOL_INPUT_SCHEMA>;
+  git_pull: z.infer<typeof GIT_PULL_TOOL_INPUT_SCHEMA>;
+  git_create_pull_request: z.infer<
+    typeof GIT_CREATE_PULL_REQUEST_TOOL_INPUT_SCHEMA
+  >;
+  git_branch_create: z.infer<typeof GIT_BRANCH_CREATE_TOOL_INPUT_SCHEMA>;
+  git_branch_switch: z.infer<typeof GIT_BRANCH_SWITCH_TOOL_INPUT_SCHEMA>;
   git_status: z.infer<typeof GIT_STATUS_TOOL_INPUT_SCHEMA>;
   git_diff: z.infer<typeof GIT_DIFF_TOOL_INPUT_SCHEMA>;
   glob: z.infer<typeof GLOB_TOOL_INPUT_SCHEMA>;
@@ -132,6 +200,56 @@ const GOLDEN_FLOW_TOOL_SPECS: Record<GoldenFlowToolName, GoldenFlowToolSpec> = {
     description: "Run a bounded bash command in the current workspace.",
     parameters: BASH_TOOL_INPUT_SCHEMA,
     route: { toolName: "bash", plugin: "bash", action: "run" },
+  },
+  git_stage: {
+    description: "Stage workspace files with the dedicated git tool.",
+    parameters: GIT_STAGE_TOOL_INPUT_SCHEMA,
+    route: { toolName: "git_stage", plugin: "git", action: "git_stage" },
+  },
+  git_commit: {
+    description:
+      "Create a git commit with a single-line conventional commit subject.",
+    parameters: GIT_COMMIT_TOOL_INPUT_SCHEMA,
+    route: { toolName: "git_commit", plugin: "git", action: "git_commit" },
+  },
+  git_push: {
+    description: "Push workspace commits with the dedicated git tool.",
+    parameters: GIT_PUSH_TOOL_INPUT_SCHEMA,
+    route: { toolName: "git_push", plugin: "git", action: "git_push" },
+  },
+  git_pull: {
+    description:
+      "Sync the current branch from the remote with a fast-forward-only pull.",
+    parameters: GIT_PULL_TOOL_INPUT_SCHEMA,
+    route: { toolName: "git_pull", plugin: "git", action: "git_pull" },
+  },
+  git_create_pull_request: {
+    description:
+      "Create a pull request from the current run workspace using the dedicated GitHub-backed tool.",
+    parameters: GIT_CREATE_PULL_REQUEST_TOOL_INPUT_SCHEMA,
+    route: {
+      toolName: "git_create_pull_request",
+      plugin: "git",
+      action: "git_create_pull_request",
+    },
+  },
+  git_branch_create: {
+    description: "Create and switch to a new git branch.",
+    parameters: GIT_BRANCH_CREATE_TOOL_INPUT_SCHEMA,
+    route: {
+      toolName: "git_branch_create",
+      plugin: "git",
+      action: "git_branch_create",
+    },
+  },
+  git_branch_switch: {
+    description: "Switch to an existing git branch.",
+    parameters: GIT_BRANCH_SWITCH_TOOL_INPUT_SCHEMA,
+    route: {
+      toolName: "git_branch_switch",
+      plugin: "git",
+      action: "git_branch_switch",
+    },
   },
   git_status: {
     description: "Get git status for the workspace repository.",
@@ -174,7 +292,17 @@ export function isGoldenFlowToolName(
 }
 
 export function isMutatingGoldenFlowToolName(toolName: string): boolean {
-  return toolName === "write_file" || toolName === "bash";
+  return [
+    "write_file",
+    "bash",
+    "git_stage",
+    "git_commit",
+    "git_push",
+    "git_pull",
+    "git_create_pull_request",
+    "git_branch_create",
+    "git_branch_switch",
+  ].includes(toolName);
 }
 
 export function getGoldenFlowToolRoute(
