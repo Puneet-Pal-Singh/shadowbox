@@ -3,9 +3,15 @@ import { getCorsHeaders } from "../lib/cors";
 import type {
   GitStatusResponse,
   DiffContent,
-  CommitPayload,
   StageFilesRequest,
+  CreateBranchPayload,
+  CreatePullRequestFromRunPayload,
+  GitBranchMutationResult,
+  GitMutationErrorMetadata,
+  GitPullRequestMutationResult,
+  GitPushMutationResult,
 } from "@repo/shared-types";
+import { decryptToken } from "@shadowbox/github-bridge";
 import { z } from "zod";
 import { WorkspaceBootstrapService } from "../runtime/services/WorkspaceBootstrapService";
 import { sanitizeUnknownError } from "../core/security/LogSanitizer";
@@ -18,6 +24,14 @@ import {
   GIT_MUTATION_TIMEOUT_MS as MUSCLE_GIT_TIMEOUT_MS,
   GIT_STATUS_TIMEOUT_MS as MUSCLE_STATUS_TIMEOUT_MS,
 } from "../services/gitExecutionTimeouts";
+import {
+  CommitIdentityError,
+  resolveCommitIdentityForCommit,
+} from "../services/git/GitCommitIdentityService";
+import {
+  getAuthenticatedUserSession,
+  getGitHubClient,
+} from "../services/AuthService";
 
 const GitBootstrapRequestBodySchema = z.object({
   runId: z.string(),
@@ -28,11 +42,58 @@ const GitBootstrapRequestBodySchema = z.object({
   repositoryBaseUrl: z.string().optional(),
 });
 
+const GitCommitRequestBodySchema = z
+  .object({
+    runId: z.string().min(1),
+    sessionId: z.string().min(1).optional(),
+    message: z.string().min(1),
+    files: z.array(z.string().min(1)).optional(),
+    authorName: z.string().optional(),
+    authorEmail: z.string().optional(),
+  })
+  .superRefine((value, ctx) => {
+    const hasAuthorName = typeof value.authorName === "string";
+    const hasAuthorEmail = typeof value.authorEmail === "string";
+    if (hasAuthorName !== hasAuthorEmail) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "authorName and authorEmail must be provided together",
+        path: hasAuthorName ? ["authorEmail"] : ["authorName"],
+      });
+    }
+  });
+
+const GitCreateBranchRequestBodySchema = z.object({
+  runId: z.string().min(1),
+  sessionId: z.string().min(1).optional(),
+  branch: z.string().min(1),
+});
+
+const GitPushRequestBodySchema = z.object({
+  runId: z.string().min(1),
+  sessionId: z.string().min(1).optional(),
+  branch: z.string().min(1).optional(),
+  remote: z.string().min(1).optional(),
+});
+
+const GitCreatePullRequestRequestBodySchema = z.object({
+  runId: z.string().min(1),
+  sessionId: z.string().min(1).optional(),
+  owner: z.string().min(1),
+  repo: z.string().min(1),
+  title: z.string().min(1),
+  body: z.string().optional(),
+  base: z.string().min(1).optional(),
+});
+
 type GitBootstrapRequestBody = z.infer<typeof GitBootstrapRequestBodySchema>;
 type GitBootstrapResult = Awaited<
   ReturnType<WorkspaceBootstrapService["bootstrap"]>
 >;
-const bootstrapRequestsByWorkspace = new Map<string, Promise<GitBootstrapResult>>();
+const bootstrapRequestsByWorkspace = new Map<
+  string,
+  Promise<GitBootstrapResult>
+>();
 const ERROR_LOG_WINDOW_MS = 30_000;
 const GIT_SESSION_TIMEOUT_MS = 10_000;
 type SecureApiFetch = Env["SECURE_API"]["fetch"];
@@ -54,6 +115,16 @@ interface CanonicalExecutionResponse {
     details?: unknown;
   };
 }
+
+type GitControllerAction =
+  | "status"
+  | "diff"
+  | "stage"
+  | "unstage"
+  | "commit"
+  | "push"
+  | "git_branch_create"
+  | "git_branch_switch";
 
 /**
  * GitController
@@ -87,10 +158,7 @@ export class GitController {
 
       return corsJsonResponse(req, env, data);
     } catch (error) {
-      if (
-        error instanceof Error &&
-        isNotGitRepositoryMessage(error.message)
-      ) {
+      if (error instanceof Error && isNotGitRepositoryMessage(error.message)) {
         return corsJsonResponse(req, env, getRecoverableNotGitStatus());
       }
       return handleGitControllerError(req, env, error, "getStatus");
@@ -144,7 +212,12 @@ export class GitController {
       const { runId, sessionId, files, unstage = false } = body;
 
       if (!runId || !files || !Array.isArray(files)) {
-        return errorResponse(req, env, "runId and files array are required", 400);
+        return errorResponse(
+          req,
+          env,
+          "runId and files array are required",
+          400,
+        );
       }
 
       const muscleSession = resolveMuscleSessionId(runId, sessionId);
@@ -169,15 +242,15 @@ export class GitController {
    */
   static async commit(req: Request, env: Env): Promise<Response> {
     try {
-      const body = (await req.json()) as CommitPayload & {
-        runId: string;
-        sessionId?: string;
-      };
-      const { runId, sessionId, message, files } = body;
-
-      if (!runId || !message) {
-        return errorResponse(req, env, "runId and message are required", 400);
-      }
+      const body = GitCommitRequestBodySchema.parse(await req.json());
+      const { runId, sessionId, message, files, authorName, authorEmail } =
+        body;
+      const authenticatedSession = await getAuthenticatedUserSession(req, env);
+      const commitIdentity = await resolveCommitIdentityForCommit(
+        env,
+        authenticatedSession,
+        { authorName, authorEmail },
+      );
 
       const muscleSession = resolveMuscleSessionId(runId, sessionId);
       const rawPayload = await executeGitViaCanonicalApi(
@@ -188,6 +261,8 @@ export class GitController {
         {
           message,
           files,
+          authorName: commitIdentity?.authorName,
+          authorEmail: commitIdentity?.authorEmail,
         },
         MUSCLE_GIT_TIMEOUT_MS,
       );
@@ -200,6 +275,165 @@ export class GitController {
   }
 
   /**
+   * Create or switch to a branch for a run's worktree.
+   */
+  static async createBranch(req: Request, env: Env): Promise<Response> {
+    try {
+      const body = GitCreateBranchRequestBodySchema.parse(await req.json());
+      const { runId, sessionId, branch } = body;
+      const muscleSession = resolveMuscleSessionId(runId, sessionId);
+      const normalizedBranch = branch.trim();
+      const currentBranch = await getCurrentGitBranch(
+        env,
+        muscleSession,
+        runId,
+      );
+
+      if (currentBranch === normalizedBranch) {
+        return corsJsonResponse(req, env, {
+          success: true,
+          branch: currentBranch,
+        } satisfies GitBranchMutationResult);
+      }
+
+      await ensureLocalBranch(env, muscleSession, runId, normalizedBranch);
+      const resolvedBranch = await getCurrentGitBranch(
+        env,
+        muscleSession,
+        runId,
+      );
+
+      return corsJsonResponse(req, env, {
+        success: true,
+        branch: resolvedBranch,
+      } satisfies GitBranchMutationResult);
+    } catch (error) {
+      return handleGitControllerError(req, env, error, "createBranch");
+    }
+  }
+
+  /**
+   * Push the active branch for a run's worktree using the authenticated GitHub token.
+   */
+  static async push(req: Request, env: Env): Promise<Response> {
+    try {
+      const body = GitPushRequestBodySchema.parse(await req.json());
+      const { runId, sessionId } = body;
+      const remote = body.remote?.trim() || "origin";
+      const authenticatedSession = await getAuthenticatedUserSession(req, env);
+
+      if (!authenticatedSession) {
+        return errorResponse(
+          req,
+          env,
+          "Authenticate with GitHub before pushing this branch.",
+          401,
+          "PUSH_FAILED",
+          false,
+        );
+      }
+
+      const accessToken = await decryptToken(
+        authenticatedSession.session.encryptedToken,
+        env.GITHUB_TOKEN_ENCRYPTION_KEY,
+      );
+      const muscleSession = resolveMuscleSessionId(runId, sessionId);
+      const branch =
+        body.branch?.trim() ||
+        (await getCurrentGitBranch(env, muscleSession, runId));
+      const rawPayload = await executeGitViaCanonicalApi(
+        env,
+        muscleSession,
+        runId,
+        "push",
+        {
+          remote,
+          branch,
+          token: accessToken,
+        },
+        MUSCLE_GIT_TIMEOUT_MS,
+      );
+      assertPluginResultSuccess(rawPayload, "push");
+      const resolvedBranch = await getCurrentGitBranch(
+        env,
+        muscleSession,
+        runId,
+      );
+
+      return corsJsonResponse(req, env, {
+        success: true,
+        branch: resolvedBranch,
+        remote,
+      } satisfies GitPushMutationResult);
+    } catch (error) {
+      return handleGitControllerError(req, env, error, "push");
+    }
+  }
+
+  /**
+   * Create a pull request from authoritative run/worktree git state.
+   */
+  static async createPullRequest(req: Request, env: Env): Promise<Response> {
+    try {
+      const body = GitCreatePullRequestRequestBodySchema.parse(
+        await req.json(),
+      );
+      const githubAuth = await getGitHubClient(req, env);
+
+      if (!githubAuth) {
+        return errorResponse(
+          req,
+          env,
+          "Authenticate with GitHub before creating a pull request.",
+          401,
+          "PR_CREATION_FAILED",
+          false,
+        );
+      }
+
+      const muscleSession = resolveMuscleSessionId(body.runId, body.sessionId);
+      const status = await getCurrentGitStatus(env, muscleSession, body.runId);
+      assertPullRequestWorkspaceBinding(status, body.owner, body.repo);
+      const head = status.branch.trim();
+      if (head.length === 0) {
+        throw new Error(
+          "Git status did not return an active branch for pull request creation",
+        );
+      }
+
+      const base =
+        body.base?.trim() ||
+        (await githubAuth.client.getRepository(body.owner, body.repo))
+          .default_branch;
+
+      const pullRequest = await githubAuth.client.createPullRequest(
+        body.owner,
+        body.repo,
+        {
+          title: body.title.trim(),
+          body: body.body?.trim() || undefined,
+          head,
+          base,
+        },
+      );
+
+      return corsJsonResponse(req, env, {
+        success: true,
+        pullRequest: {
+          number: pullRequest.number,
+          title: pullRequest.title,
+          url: pullRequest.html_url,
+          state: pullRequest.state,
+          head: pullRequest.head.ref,
+          base: pullRequest.base.ref,
+        },
+      } satisfies GitPullRequestMutationResult);
+    } catch (error) {
+      return handleGitControllerError(req, env, error, "createPullRequest");
+    }
+  }
+
+  /**
    * Bootstrap git workspace for a run before first chat turn.
    * Enables git status/diff/changes tab in newly-created tasks.
    */
@@ -207,7 +441,12 @@ export class GitController {
     try {
       const body = await parseGitBootstrapRequestBody(req, env);
       if (!body) {
-        return errorResponse(req, env, "Invalid git bootstrap request body", 400);
+        return errorResponse(
+          req,
+          env,
+          "Invalid git bootstrap request body",
+          400,
+        );
       }
       const {
         runId,
@@ -261,7 +500,9 @@ export class GitController {
       try {
         result = await bootstrapRequest;
       } finally {
-        if (bootstrapRequestsByWorkspace.get(workspaceKey) === bootstrapRequest) {
+        if (
+          bootstrapRequestsByWorkspace.get(workspaceKey) === bootstrapRequest
+        ) {
           bootstrapRequestsByWorkspace.delete(workspaceKey);
         }
       }
@@ -312,7 +553,10 @@ interface PluginSuccessPayload {
   output?: unknown;
 }
 
-function resolveMuscleSessionId(runId: string, sessionId?: string | null): string {
+function resolveMuscleSessionId(
+  runId: string,
+  sessionId?: string | null,
+): string {
   const normalizedSessionId = sessionId?.trim();
   if (normalizedSessionId && normalizedSessionId.length > 0) {
     return normalizedSessionId;
@@ -329,7 +573,7 @@ async function executeGitViaCanonicalApi(
   env: Env,
   muscleSession: string,
   runId: string,
-  action: "status" | "diff" | "stage" | "unstage" | "commit",
+  action: GitControllerAction,
   payload: Record<string, unknown>,
   timeoutMs: number,
 ): Promise<PluginSuccessPayload | PluginErrorPayload> {
@@ -369,6 +613,69 @@ async function executeGitViaCanonicalApi(
     (await response.json()) as unknown,
   );
   return normalizeCanonicalGitResponse(canonicalResponse);
+}
+
+async function getCurrentGitStatus(
+  env: Env,
+  muscleSession: string,
+  runId: string,
+): Promise<GitStatusResponse> {
+  const rawPayload = await executeGitViaCanonicalApi(
+    env,
+    muscleSession,
+    runId,
+    "status",
+    {},
+    MUSCLE_STATUS_TIMEOUT_MS,
+  );
+  return parseGitPayload<GitStatusResponse>(rawPayload, "status");
+}
+
+async function getCurrentGitBranch(
+  env: Env,
+  muscleSession: string,
+  runId: string,
+): Promise<string> {
+  const status = await getCurrentGitStatus(env, muscleSession, runId);
+  const branch = status.branch.trim();
+  if (branch.length === 0) {
+    throw new Error("Git status did not return an active branch");
+  }
+  return branch;
+}
+
+async function ensureLocalBranch(
+  env: Env,
+  muscleSession: string,
+  runId: string,
+  branch: CreateBranchPayload["branch"],
+): Promise<void> {
+  const switchPayload = await executeGitViaCanonicalApi(
+    env,
+    muscleSession,
+    runId,
+    "git_branch_switch",
+    { branch },
+    MUSCLE_GIT_TIMEOUT_MS,
+  );
+  if (!isPluginErrorPayload(switchPayload)) {
+    return;
+  }
+
+  const switchError = readPluginErrorMessage(switchPayload);
+  if (!isMissingBranchMessage(switchError)) {
+    throw new Error(`Git createBranch failed: ${switchError}`);
+  }
+
+  const createPayload = await executeGitViaCanonicalApi(
+    env,
+    muscleSession,
+    runId,
+    "git_branch_create",
+    { branch },
+    MUSCLE_GIT_TIMEOUT_MS,
+  );
+  assertPluginResultSuccess(createPayload, "createBranch");
 }
 
 async function createSecureMuscleSession(
@@ -424,10 +731,7 @@ async function createSecureMuscleSession(
   };
 }
 
-function buildSecureApiUrl(
-  muscleSession: string,
-  pathname: string,
-): string {
+function buildSecureApiUrl(muscleSession: string, pathname: string): string {
   const url = new URL(pathname, "http://internal/");
   url.searchParams.set("session", muscleSession);
   return url.toString();
@@ -509,10 +813,8 @@ function normalizeCanonicalGitResponse(
   };
 }
 
-function createGitTaskId(
-  action: "status" | "diff" | "stage" | "unstage" | "commit",
-): string {
-  return `git-${action}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+function createGitTaskId(action: GitControllerAction): string {
+  return `git-${action.replace(/_/g, "-")}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
 function isPluginPayload(
@@ -524,10 +826,17 @@ function isPluginPayload(
   return "success" in payload;
 }
 
-function parseGitPayload<T>(
-  payload: unknown,
-  operation: "status" | "diff",
-): T {
+function isPluginErrorPayload(payload: unknown): payload is PluginErrorPayload {
+  return isPluginPayload(payload) && payload.success === false;
+}
+
+function readPluginErrorMessage(payload: PluginErrorPayload): string {
+  return typeof payload.error === "string" && payload.error.trim().length > 0
+    ? payload.error.trim()
+    : "unknown plugin error";
+}
+
+function parseGitPayload<T>(payload: unknown, operation: "status" | "diff"): T {
   if (isPluginPayload(payload)) {
     if (payload.success === false) {
       const details =
@@ -554,6 +863,36 @@ function isNotGitRepositoryMessage(message: string): boolean {
   return /not a git repository/i.test(message);
 }
 
+function isMissingBranchMessage(message: string): boolean {
+  return (
+    /pathspec .* did not match any file/i.test(message) ||
+    /invalid reference/i.test(message) ||
+    /not a valid object name/i.test(message) ||
+    /unknown revision or path/i.test(message)
+  );
+}
+
+function assertPullRequestWorkspaceBinding(
+  status: GitStatusResponse,
+  owner: CreatePullRequestFromRunPayload["owner"],
+  repo: CreatePullRequestFromRunPayload["repo"],
+): void {
+  if (!status.gitAvailable) {
+    throw new Error("Git workspace is not ready for pull request creation");
+  }
+
+  const expectedRepoIdentity = buildExpectedRepoIdentity(owner, repo);
+  if (!status.repoIdentity || status.repoIdentity !== expectedRepoIdentity) {
+    throw new Error(
+      "Workspace repository binding does not match the selected GitHub repository for this pull request",
+    );
+  }
+}
+
+function buildExpectedRepoIdentity(owner: string, repo: string): string {
+  return `github.com/${owner}/${repo}`.toLowerCase();
+}
+
 function getRecoverableNotGitStatus(): GitStatusResponse {
   return {
     files: [],
@@ -561,6 +900,7 @@ function getRecoverableNotGitStatus(): GitStatusResponse {
     behind: 0,
     branch: "",
     repoIdentity: null,
+    commitIdentity: null,
     hasStaged: false,
     hasUnstaged: false,
     gitAvailable: false,
@@ -568,10 +908,7 @@ function getRecoverableNotGitStatus(): GitStatusResponse {
   };
 }
 
-function parseGitOutput<T>(
-  output: unknown,
-  operation: "status" | "diff",
-): T {
+function parseGitOutput<T>(output: unknown, operation: "status" | "diff"): T {
   if (typeof output === "string") {
     try {
       return JSON.parse(output) as T;
@@ -606,7 +943,15 @@ function handleGitControllerError(
   req: Request,
   env: Env,
   error: unknown,
-  operation: "getStatus" | "getDiff" | "stageFiles" | "commit" | "bootstrap",
+  operation:
+    | "getStatus"
+    | "getDiff"
+    | "stageFiles"
+    | "commit"
+    | "createBranch"
+    | "createPullRequest"
+    | "push"
+    | "bootstrap",
 ): Response {
   const mapped = mapGitControllerError(error, operation);
   const logMessage = `[GitController:${operation}] ${mapped.code}: ${mapped.message}`;
@@ -635,20 +980,95 @@ function handleGitControllerError(
     mapped.status,
     mapped.code,
     mapped.retryable,
+    mapped.metadata,
   );
 }
 
 function mapGitControllerError(
   error: unknown,
-  operation: "getStatus" | "getDiff" | "stageFiles" | "commit" | "bootstrap",
+  operation:
+    | "getStatus"
+    | "getDiff"
+    | "stageFiles"
+    | "commit"
+    | "createBranch"
+    | "createPullRequest"
+    | "push"
+    | "bootstrap",
 ): {
   status: number;
   code: string;
   message: string;
   retryable: boolean;
+  metadata?: GitMutationErrorMetadata;
 } {
+  if (error instanceof CommitIdentityError) {
+    return {
+      status: error.status,
+      code: error.code,
+      message: error.message,
+      retryable: false,
+      metadata: error.metadata,
+    };
+  }
+
   const fallbackMessage = getDefaultOperationError(operation);
   const message = error instanceof Error ? error.message : fallbackMessage;
+  if (operation === "commit") {
+    if (isMissingCommitIdentityMessage(message)) {
+      return {
+        status: 400,
+        code: "COMMIT_IDENTITY_REQUIRED",
+        message:
+          "Commit author identity is required before Shadowbox can commit. Confirm your name and email, then retry.",
+        retryable: false,
+      };
+    }
+
+    if (isCommitIdentityWriteFailedMessage(message)) {
+      return {
+        status: 500,
+        code: "COMMIT_IDENTITY_WRITE_FAILED",
+        message:
+          "Shadowbox could not write commit author identity into this workspace. Retry the commit or reconnect the workspace.",
+        retryable: false,
+      };
+    }
+  }
+
+  if (operation === "createBranch") {
+    return {
+      status: 400,
+      code: "BRANCH_CREATION_FAILED",
+      message:
+        "Shadowbox could not create or switch to that branch. Try a different branch name or refresh the workspace.",
+      retryable: false,
+      metadata: undefined,
+    };
+  }
+
+  if (operation === "push") {
+    return {
+      status: 500,
+      code: "PUSH_FAILED",
+      message:
+        "Shadowbox could not push this branch to GitHub. Reconnect GitHub or retry the push.",
+      retryable: false,
+      metadata: undefined,
+    };
+  }
+
+  if (operation === "createPullRequest") {
+    return {
+      status: 500,
+      code: "PR_CREATION_FAILED",
+      message:
+        "Shadowbox could not create a pull request from this workspace state. Refresh the repo binding or retry after a successful push.",
+      retryable: false,
+      metadata: undefined,
+    };
+  }
+
   if (isGitExecutionContractError(message)) {
     return {
       status: 502,
@@ -656,6 +1076,7 @@ function mapGitControllerError(
       message:
         "Git workspace bootstrap failed because Brain and the secure runtime disagreed on the git execution contract. Refresh and retry.",
       retryable: true,
+      metadata: undefined,
     };
   }
 
@@ -666,6 +1087,7 @@ function mapGitControllerError(
       message:
         "Git service is temporarily unavailable. Please retry in a few seconds.",
       retryable: true,
+      metadata: undefined,
     };
   }
 
@@ -674,7 +1096,16 @@ function mapGitControllerError(
     code: "GIT_OPERATION_FAILED",
     message,
     retryable: false,
+    metadata: undefined,
   };
+}
+
+function isMissingCommitIdentityMessage(message: string): boolean {
+  return /git commit author is not configured/i.test(message);
+}
+
+function isCommitIdentityWriteFailedMessage(message: string): boolean {
+  return /git commit author could not be written/i.test(message);
 }
 
 function isGitExecutionContractError(message: string): boolean {
@@ -700,7 +1131,15 @@ function isTransientGitServiceError(message: string): boolean {
 }
 
 function getDefaultOperationError(
-  operation: "getStatus" | "getDiff" | "stageFiles" | "commit" | "bootstrap",
+  operation:
+    | "getStatus"
+    | "getDiff"
+    | "stageFiles"
+    | "commit"
+    | "createBranch"
+    | "createPullRequest"
+    | "push"
+    | "bootstrap",
 ): string {
   switch (operation) {
     case "getStatus":
@@ -711,6 +1150,12 @@ function getDefaultOperationError(
       return "Failed to stage files";
     case "commit":
       return "Failed to commit";
+    case "createBranch":
+      return "Failed to create branch";
+    case "push":
+      return "Failed to push branch";
+    case "createPullRequest":
+      return "Failed to create pull request";
     case "bootstrap":
       return "Failed to bootstrap git workspace";
   }
@@ -723,11 +1168,13 @@ function errorResponse(
   status: number,
   code?: string,
   retryable?: boolean,
+  metadata?: GitMutationErrorMetadata,
 ): Response {
   const payload = {
     error: message,
     ...(code ? { code } : {}),
     ...(typeof retryable === "boolean" ? { retryable } : {}),
+    ...(metadata ? { metadata } : {}),
   };
 
   return new Response(JSON.stringify(payload), {
@@ -766,7 +1213,7 @@ async function fetchSecureApiWithTimeout(
 
 async function assertMuscleResponseOk(
   response: SecureApiResponse,
-  operation: "status" | "diff" | "stage" | "unstage" | "commit",
+  operation: GitControllerAction,
 ): Promise<void> {
   if (response.ok) {
     return;
@@ -780,7 +1227,7 @@ async function assertMuscleResponseOk(
 
 function assertPluginResultSuccess(
   payload: unknown,
-  operation: "stage" | "unstage" | "commit",
+  operation: "stage" | "unstage" | "commit" | "push" | "createBranch",
 ): void {
   if (!isPluginPayload(payload)) {
     return;
