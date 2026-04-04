@@ -18,8 +18,13 @@ import {
 } from "@shadowbox/github-bridge";
 import {
   extractSessionToken,
+  getAuthenticatedUserSession,
   verifySessionToken,
 } from "../services/AuthService";
+import {
+  readCommitIdentityStateForUser,
+  resolveGitHubProfileIdentityFromOAuth,
+} from "../services/git/GitCommitIdentityService";
 import {
   errorResponse,
   jsonResponse,
@@ -85,7 +90,7 @@ export class AuthController {
         clientId: env.GITHUB_CLIENT_ID,
         clientSecret: env.GITHUB_CLIENT_SECRET,
         redirectUri: env.GITHUB_REDIRECT_URI,
-        scopes: ["repo", "read:user"],
+        scopes: ["repo", "read:user", "user:email"],
       };
 
       const authUrl = generateAuthUrl(config, state);
@@ -176,6 +181,11 @@ export class AuthController {
       console.log("[auth/callback] fetching user details");
       const user = await fetchGitHubUser(tokenResponse.access_token);
       console.log("[auth/callback] user fetched:", user.login);
+      const commitIdentityDefaults =
+        await resolveGitHubProfileIdentityFromOAuth(
+          tokenResponse.access_token,
+          user,
+        );
 
       // Encrypt token before storing
       const encryptedToken = await encryptToken(
@@ -188,7 +198,8 @@ export class AuthController {
         userId: user.id.toString(),
         login: user.login,
         avatar: user.avatar_url,
-        email: user.email,
+        email: commitIdentityDefaults.authorEmail,
+        name: commitIdentityDefaults.authorName,
         encryptedToken,
         createdAt: Date.now(),
       };
@@ -233,22 +244,16 @@ export class AuthController {
    */
   static async handleGetSession(request: Request, env: Env): Promise<Response> {
     try {
-      const sessionToken = extractSessionToken(request);
-      if (!sessionToken) {
+      const authenticatedSession = await getAuthenticatedUserSession(request, env);
+      if (!authenticatedSession) {
         return jsonResponse(request, env, { authenticated: false });
       }
 
-      const userId = await verifySessionToken(sessionToken, env);
-      if (!userId) {
-        return jsonResponse(request, env, { authenticated: false });
-      }
-
-      const sessionData = await env.SESSIONS.get(`user_session:${userId}`);
-      if (!sessionData) {
-        return jsonResponse(request, env, { authenticated: false });
-      }
-
-      const session = JSON.parse(sessionData);
+      const commitIdentity = await readCommitIdentityStateForUser(
+        env,
+        authenticatedSession,
+      );
+      const { session } = authenticatedSession;
 
       return jsonResponse(request, env, {
         authenticated: true,
@@ -257,6 +262,8 @@ export class AuthController {
           login: session.login,
           avatar: session.avatar,
           email: session.email,
+          name: session.name ?? null,
+          commitIdentity,
         },
       });
     } catch (error) {
@@ -326,5 +333,4 @@ function createSessionCookie(token: string): string {
   // Secure is usually required for HttpOnly in modern browsers even on localhost
   return `shadowbox_session=${token}; Path=/; Max-Age=604800; HttpOnly; Secure; SameSite=Lax`;
 }
-
 
