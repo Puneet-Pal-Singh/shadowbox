@@ -13,12 +13,15 @@ import React, {
   useCallback,
 } from "react";
 import * as GitHubService from "../services/GitHubService";
+import type { GitCommitIdentityState } from "@repo/shared-types";
 
 interface GitHubUser {
   id: string;
   login: string;
   avatar: string;
-  email: string;
+  email: string | null;
+  name: string | null;
+  commitIdentity?: GitCommitIdentityState;
 }
 
 interface AuthContextType {
