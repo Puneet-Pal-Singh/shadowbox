@@ -10,6 +10,10 @@ import { getCorsHeaders } from "../lib/cors";
 import { Env } from "../types/ai";
 import { getGitHubClient } from "../services/AuthService";
 import type { CreatePullRequestParams } from "@shadowbox/github-bridge";
+import type {
+  CreatePullRequestPayload,
+  GitPullRequestMutationResult,
+} from "@repo/shared-types";
 import { getBrainRuntimeHeaders } from "../core/observability/runtime";
 
 /**
@@ -288,14 +292,7 @@ export class GitHubController {
 
       const { client } = auth;
 
-      const body = (await request.json()) as {
-        owner?: string;
-        repo?: string;
-        title?: string;
-        head?: string;
-        base?: string;
-        body?: string;
-      };
+      const body = (await request.json()) as Partial<CreatePullRequestPayload>;
 
       const owner = body.owner;
       const repo = body.repo;
@@ -316,14 +313,37 @@ export class GitHubController {
 
       const pullRequest = await client.createPullRequest(owner, repo, params);
 
-      return envJsonResponse(request, env, { pullRequest }, 201);
+      return envJsonResponse(
+        request,
+        env,
+        {
+          success: true,
+          pullRequest: {
+            number: pullRequest.number,
+            title: pullRequest.title,
+            url: pullRequest.html_url,
+            state: pullRequest.state,
+            head: pullRequest.head.ref,
+            base: pullRequest.base.ref,
+          },
+        } satisfies GitPullRequestMutationResult,
+        201,
+      );
     } catch (error) {
       console.error("[GitHub] Create PR error:", error);
       const message =
         error instanceof Error
           ? error.message
           : "Failed to create pull request";
-      return errorResponse(request, env, message, 500);
+      return envJsonResponse(
+        request,
+        env,
+        {
+          error: message,
+          code: "PR_CREATION_FAILED",
+        },
+        500,
+      );
     }
   }
 }
