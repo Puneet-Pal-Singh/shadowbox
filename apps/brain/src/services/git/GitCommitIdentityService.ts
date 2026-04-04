@@ -1,0 +1,330 @@
+import {
+  GitHubAPIClient,
+  decryptToken,
+  type GitHubUser,
+} from "@shadowbox/github-bridge";
+import type {
+  GitCommitIdentity,
+  GitCommitIdentityState,
+  GitMutationErrorCode,
+  GitMutationErrorMetadata,
+} from "@repo/shared-types";
+import type { Env } from "../../types/ai";
+import type { UserSessionRecord } from "../AuthService";
+
+const USER_SESSION_TTL_SECONDS = 7 * 24 * 60 * 60;
+const COMMIT_IDENTITY_PREFERENCE_KEY_PREFIX = "git_commit_identity_preference:";
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+interface CommitIdentityPreferenceRecord {
+  authorName: string;
+  authorEmail: string;
+  verified: boolean;
+  updatedAt: number;
+}
+
+interface CommitIdentityContext {
+  userId: string;
+  session: UserSessionRecord;
+}
+
+interface ExplicitCommitIdentityInput {
+  authorName?: string;
+  authorEmail?: string;
+}
+
+interface GitHubProfileDefaults {
+  authorName: string;
+  authorEmail: string;
+  verified: boolean;
+}
+
+export class CommitIdentityError extends Error {
+  constructor(
+    public readonly code: GitMutationErrorCode,
+    message: string,
+    public readonly metadata?: GitMutationErrorMetadata,
+    public readonly status: number = 400,
+  ) {
+    super(message);
+    this.name = "CommitIdentityError";
+  }
+}
+
+export async function readCommitIdentityStateForUser(
+  env: Env,
+  context: CommitIdentityContext,
+): Promise<GitCommitIdentityState> {
+  const persistedPreference = await readPersistedCommitIdentityPreference(
+    env,
+    context.userId,
+  );
+  if (persistedPreference) {
+    return {
+      state: "ready",
+      identity: {
+        authorName: persistedPreference.authorName,
+        authorEmail: persistedPreference.authorEmail,
+        source: "persisted_preference",
+        verified: persistedPreference.verified,
+      },
+    };
+  }
+
+  const session = await hydrateGitHubProfileDefaults(env, context);
+  return buildGitHubCommitIdentityState(session);
+}
+
+export async function resolveCommitIdentityForCommit(
+  env: Env,
+  context: CommitIdentityContext | null,
+  explicitInput?: ExplicitCommitIdentityInput,
+): Promise<GitCommitIdentity | null> {
+  const trimmedInput = trimExplicitInput(explicitInput);
+  if (trimmedInput.authorName || trimmedInput.authorEmail) {
+    return await resolveExplicitCommitIdentity(env, context, trimmedInput);
+  }
+
+  if (!context) {
+    return null;
+  }
+
+  const state = await readCommitIdentityStateForUser(env, context);
+  if (state.state === "ready") {
+    return state.identity;
+  }
+
+  throw new CommitIdentityError(
+    "COMMIT_IDENTITY_REQUIRED",
+    "Commit author identity is required before Shadowbox can commit. Confirm your name and email, then retry.",
+    { commitIdentity: state },
+  );
+}
+
+export async function resolveGitHubProfileIdentityFromOAuth(
+  accessToken: string,
+  user: GitHubUser,
+): Promise<GitHubProfileDefaults> {
+  return await resolveGitHubProfileDefaults(
+    new GitHubAPIClient(accessToken),
+    user.id.toString(),
+    user.login,
+    user.name,
+    user.email,
+  );
+}
+
+async function resolveExplicitCommitIdentity(
+  env: Env,
+  context: CommitIdentityContext | null,
+  input: Required<ExplicitCommitIdentityInput>,
+): Promise<GitCommitIdentity> {
+  if (!EMAIL_PATTERN.test(input.authorEmail)) {
+    throw new CommitIdentityError(
+      "COMMIT_IDENTITY_INCOMPLETE",
+      "Enter a valid commit author email before retrying the commit.",
+      {
+        commitIdentity: {
+          state: "requires_input",
+          reason: "missing_email",
+          suggestedAuthorName: input.authorName,
+          suggestedAuthorEmail: input.authorEmail,
+        },
+      },
+    );
+  }
+
+  if (context) {
+    await persistCommitIdentityPreference(env, context.userId, {
+      authorName: input.authorName,
+      authorEmail: input.authorEmail,
+      verified: false,
+      updatedAt: Date.now(),
+    });
+  }
+
+  return {
+    authorName: input.authorName,
+    authorEmail: input.authorEmail,
+    source: "user_input",
+    verified: false,
+  };
+}
+
+function trimExplicitInput(
+  input?: ExplicitCommitIdentityInput,
+): Required<ExplicitCommitIdentityInput> {
+  return {
+    authorName: input?.authorName?.trim() ?? "",
+    authorEmail: input?.authorEmail?.trim() ?? "",
+  };
+}
+
+function buildGitHubCommitIdentityState(
+  session: UserSessionRecord,
+): GitCommitIdentityState {
+  const authorName = resolveAuthorName(session.name, session.login);
+  const authorEmail = session.email?.trim() ?? "";
+  if (authorName.length > 0 && authorEmail.length > 0) {
+    return {
+      state: "ready",
+      identity: {
+        authorName,
+        authorEmail,
+        source: "github_profile",
+        verified: !isGitHubNoreplyEmail(authorEmail),
+      },
+    };
+  }
+
+  return {
+    state: "requires_input",
+    reason: resolveMissingIdentityReason(authorName, authorEmail),
+    suggestedAuthorName: authorName,
+    suggestedAuthorEmail: authorEmail,
+  };
+}
+
+async function hydrateGitHubProfileDefaults(
+  env: Env,
+  context: CommitIdentityContext,
+): Promise<UserSessionRecord> {
+  if (hasHydratedGitHubProfile(context.session)) {
+    return context.session;
+  }
+
+  const accessToken = await decryptToken(
+    context.session.encryptedToken,
+    env.GITHUB_TOKEN_ENCRYPTION_KEY,
+  );
+  const defaults = await resolveGitHubProfileDefaults(
+    new GitHubAPIClient(accessToken),
+    context.userId,
+    context.session.login,
+    context.session.name ?? null,
+    context.session.email,
+  );
+
+  const nextSession: UserSessionRecord = {
+    ...context.session,
+    name: defaults.authorName,
+    email: defaults.authorEmail,
+  };
+
+  await persistUserSession(env, nextSession);
+  return nextSession;
+}
+
+function hasHydratedGitHubProfile(session: UserSessionRecord): boolean {
+  return (
+    resolveAuthorName(session.name, session.login).length > 0 &&
+    typeof session.email === "string" &&
+    session.email.trim().length > 0
+  );
+}
+
+async function resolveGitHubProfileDefaults(
+  client: GitHubAPIClient,
+  userId: string,
+  login: string,
+  name: string | null | undefined,
+  email: string | null,
+): Promise<GitHubProfileDefaults> {
+  const authorName = resolveAuthorName(name, login);
+  try {
+    const emails = await client.listEmails();
+    const primaryVerifiedEmail = emails.find(
+      (candidate) => candidate.primary && candidate.verified,
+    );
+    if (primaryVerifiedEmail?.email) {
+      return {
+        authorName,
+        authorEmail: primaryVerifiedEmail.email,
+        verified: true,
+      };
+    }
+  } catch (error) {
+    console.warn("[git/commit-identity] Failed to fetch GitHub emails", error);
+  }
+
+  if (email && email.trim().length > 0) {
+    return {
+      authorName,
+      authorEmail: email.trim(),
+      verified: !isGitHubNoreplyEmail(email),
+    };
+  }
+
+  return {
+    authorName,
+    authorEmail: buildGitHubNoreplyEmail(userId, login),
+    verified: false,
+  };
+}
+
+function resolveAuthorName(
+  name: string | null | undefined,
+  login: string,
+): string {
+  const preferredName = name?.trim();
+  if (preferredName && preferredName.length > 0) {
+    return preferredName;
+  }
+  return login.trim();
+}
+
+function resolveMissingIdentityReason(
+  authorName: string,
+  authorEmail: string,
+): "missing_identity" | "missing_name" | "missing_email" {
+  if (!authorName && !authorEmail) {
+    return "missing_identity";
+  }
+  if (!authorName) {
+    return "missing_name";
+  }
+  return "missing_email";
+}
+
+function buildGitHubNoreplyEmail(userId: string, login: string): string {
+  return `${userId}+${login}@users.noreply.github.com`;
+}
+
+function isGitHubNoreplyEmail(email: string): boolean {
+  return email.endsWith("@users.noreply.github.com");
+}
+
+async function persistUserSession(
+  env: Env,
+  session: UserSessionRecord,
+): Promise<void> {
+  await env.SESSIONS.put(
+    `user_session:${session.userId}`,
+    JSON.stringify(session),
+    { expirationTtl: USER_SESSION_TTL_SECONDS },
+  );
+}
+
+async function readPersistedCommitIdentityPreference(
+  env: Env,
+  userId: string,
+): Promise<CommitIdentityPreferenceRecord | null> {
+  const payload = await env.SESSIONS.get(buildPreferenceKey(userId));
+  if (!payload) {
+    return null;
+  }
+
+  return JSON.parse(payload) as CommitIdentityPreferenceRecord;
+}
+
+async function persistCommitIdentityPreference(
+  env: Env,
+  userId: string,
+  preference: CommitIdentityPreferenceRecord,
+): Promise<void> {
+  await env.SESSIONS.put(buildPreferenceKey(userId), JSON.stringify(preference));
+}
+
+function buildPreferenceKey(userId: string): string {
+  return `${COMMIT_IDENTITY_PREFERENCE_KEY_PREFIX}${userId}`;
+}
