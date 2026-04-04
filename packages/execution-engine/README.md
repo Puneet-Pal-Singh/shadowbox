@@ -87,6 +87,42 @@ The dedicated git path gives us:
 Shell is still useful, but it is the fallback for generic workspace commands,
 not the canonical path for git workflows.
 
+## Why Hybrid Wins
+
+The best long-term product shape is not "plugin only" or "shell only". It is a
+hybrid model:
+
+- use dedicated plugins for high-value, repeatable workflows where the product
+  should understand the action,
+- use shell for open-ended commands where flexibility matters more than
+  structured recovery.
+
+This matters even more as Shadowbox expands to desktop use.
+
+Why plugins scale well:
+
+- security is easier to enforce with typed inputs and narrower permissions,
+- telemetry is cleaner because the runtime understands the exact action,
+- recovery is better because continuation state is structured,
+- support and debugging are easier because failures map to known steps.
+
+Why shell still matters:
+
+- users need freedom for arbitrary local development commands,
+- not every workflow deserves a first-class product abstraction,
+- power users expect terminal-like behavior for exploration and one-off tasks.
+
+The risk is not that the git plugin exists. The real risk would be forcing all
+workflows through plugins and removing shell flexibility. The current design
+tries to avoid that mistake:
+
+- plugin-first for canonical git and GitHub workflows,
+- shell available as the escape hatch for general development work.
+
+For Shadowbox, that means git durability and predictable recovery are product
+advantages, not scaling drawbacks, as long as shell remains available for the
+long tail of flexible tasks.
+
 ## What Shell Contains
 
 The shell path is best for commands such as:
