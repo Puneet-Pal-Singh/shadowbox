@@ -2,6 +2,20 @@
 
 Execution runtime package for Shadowbox.
 
+## What It Is
+
+`@shadowbox/execution-engine` is the runtime orchestration layer that turns a
+chat request into a bounded execution loop. It is the package that:
+
+- tracks `runId`-scoped execution state,
+- decides when to continue or stop a run,
+- records tool lifecycle and recovery metadata,
+- builds the runtime context passed to the coding agent,
+- coordinates the canonical tool surface used by Brain and the web app.
+
+It is not the sandbox itself and it is not the GitHub API client. It is the
+runtime coordinator that sits between planning, tool selection, and execution.
+
 ## What It Contains
 
 Two layers are exported:
@@ -17,6 +31,99 @@ Two layers are exported:
   - `agents`
   - `llm`
   - `cost`
+
+The runtime folder contains the pieces that matter most for day-to-day agent
+execution:
+
+- `engine/`: run lifecycle, continuation, recovery, and bounded tool loop
+- `agents/`: runtime-facing agent wrappers and task routing
+- `contracts/`: canonical tool definitions and validation
+- `events/`: activity projection and tool lifecycle event shaping
+- `lib/`: execution helpers such as tool presentation and shell normalization
+- `run/` and `task/`: persistence entities and repositories
+
+## How It Differs From Shell
+
+There are two different layers in the overall system:
+
+1. `execution-engine`
+   This package decides what action should run and records what happened.
+
+2. shell execution
+   Shell is only one possible tool path used to run a generic command inside the
+   workspace.
+
+That means shell is a tool, but `execution-engine` is the orchestration system
+around the tools.
+
+In practice:
+
+- `execution-engine` owns continuation, recovery, activity metadata, and tool
+  contracts.
+- shell owns raw command execution like `npm test`, `ls`, or one-off commands
+  that do not have a safer dedicated tool.
+
+## Why Git Uses The Internal Git Plugin Instead Of Shell
+
+We intentionally prefer the dedicated git path for branch, stage, commit, push,
+pull, and PR flows.
+
+The canonical path is:
+
+`execution-engine` -> Brain `ExecutionService` -> secure-agent-api git plugin -> sandbox git CLI
+
+We do not default to raw shell for git because the git path needs stronger
+guarantees than a generic `bash -lc "..."` string can provide.
+
+The dedicated git path gives us:
+
+- typed arguments instead of fragile shell strings
+- safer validation for paths, refs, and payload size
+- cleaner token injection for authenticated GitHub operations
+- better activity metadata for the UI
+- better continuation recovery because branch/commit/push state is structured
+- clearer user-facing errors when a git step fails
+
+Shell is still useful, but it is the fallback for generic workspace commands,
+not the canonical path for git workflows.
+
+## What Shell Contains
+
+The shell path is best for commands such as:
+
+- package manager and test commands
+- build or lint commands
+- repo inspection that truly needs a command-line tool
+- machine-like workflows that do not yet have a dedicated structured tool
+
+Examples:
+
+- `pnpm test`
+- `npm run lint`
+- `rg "pattern" src`
+
+Examples that should prefer dedicated tools instead of shell:
+
+- creating a branch
+- staging files
+- creating a commit
+- pushing a branch
+- opening a pull request through the run-aware GitHub flow
+
+## Why This Matters For Continuation
+
+Recent runtime fixes depend on this distinction.
+
+When git runs through the dedicated path, the runtime can persist structured
+state such as:
+
+- which files were already changed,
+- which git steps already succeeded,
+- which branch is the active branch for the resumed workspace,
+- what the last failed git step actually was.
+
+That is what allows a short follow-up like `continue?` to resume correctly
+without rewriting files or guessing at shell commands.
 
 ## Import Surface
 
