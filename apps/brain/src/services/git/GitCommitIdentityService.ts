@@ -101,6 +101,26 @@ export async function resolveCommitIdentityForCommit(
   );
 }
 
+export async function resolveCommitIdentityForStoredUserSession(
+  env: Env,
+  userId: string,
+  explicitInput?: ExplicitCommitIdentityInput,
+): Promise<GitCommitIdentity | null> {
+  const sessionData = await env.SESSIONS.get(`user_session:${userId}`);
+  if (!sessionData) {
+    return null;
+  }
+
+  return await resolveCommitIdentityForCommit(
+    env,
+    {
+      userId,
+      session: JSON.parse(sessionData) as UserSessionRecord,
+    },
+    explicitInput,
+  );
+}
+
 export async function resolveGitHubProfileIdentityFromOAuth(
   accessToken: string,
   user: GitHubUser,
