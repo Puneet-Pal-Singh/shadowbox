@@ -128,6 +128,7 @@ function hasRecoveryMetadata(metadata: Record<string, unknown> | undefined): boo
   const code = typeof metadata?.code === "string" ? metadata.code : undefined;
   return (
     code === "INCOMPLETE_MUTATION" ||
+    code === "TOOL_EXECUTION_FAILED" ||
     code === "TASK_EXECUTION_TIMEOUT" ||
     code === "TASK_MODEL_NO_ACTION"
   );
@@ -348,6 +349,10 @@ function deriveRecoveryLabel(code: string | undefined): string {
 
   if (code === "INCOMPLETE_MUTATION") {
     return "Edit incomplete";
+  }
+
+  if (code === "TOOL_EXECUTION_FAILED") {
+    return "Step failed";
   }
 
   return "Run update";
@@ -589,6 +594,7 @@ function ToolRow({
     return (
       <CompactTranscriptRow
         label={row.title}
+        badge={row.pluginLabel}
         detail={getCompactToolDetail(row)}
         subtle
       />
@@ -612,6 +618,7 @@ function ToolRow({
   return (
     <ExpandableRow
       label={row.title}
+      badge={row.pluginLabel}
       summary={row.summary}
       expanded={expanded}
       onToggle={onToggle}
@@ -642,6 +649,7 @@ function ShellTranscriptRow({
     return (
       <CompactTranscriptRow
         label={getShellTranscriptLabel(row)}
+        badge={row.pluginLabel}
         detail={row.status === "failed" ? row.summary : undefined}
         subtle
       />
@@ -660,7 +668,10 @@ function ShellTranscriptRow({
         </span>
         <div className="min-w-0">
           <div className="text-sm font-medium text-zinc-400">
-            {getShellTranscriptLabel(row)}
+            <LabelWithBadge
+              label={getShellTranscriptLabel(row)}
+              badge={row.pluginLabel}
+            />
           </div>
         </div>
       </button>
@@ -690,6 +701,7 @@ function ShellTranscriptRow({
 
 function ExpandableRow({
   label,
+  badge,
   summary,
   expanded,
   onToggle,
@@ -699,7 +711,8 @@ function ExpandableRow({
   collapsible = true,
   emphasizeThinking = false,
 }: {
-  label: string;
+  label: React.ReactNode;
+  badge?: string;
   summary: string;
   expanded: boolean;
   onToggle: (expanded: boolean) => void;
@@ -719,7 +732,7 @@ function ExpandableRow({
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <span className="truncate font-medium text-zinc-200">
-                {label}
+                <LabelWithBadge label={label} badge={badge} />
               </span>
               {summary ? (
                 <span className={`text-xs ${toneClassName(tone)}`}>
@@ -760,7 +773,7 @@ function ExpandableRow({
                   emphasizeThinking,
                 )}`}
               >
-                {label}
+                <LabelWithBadge label={label} badge={badge} />
               </span>
               {summary ? (
                 <span className={`text-xs ${toneClassName(tone)}`}>
@@ -785,7 +798,9 @@ function ExpandableRow({
         className="flex w-full items-start justify-between gap-4 text-left"
       >
         <div>
-          <div className="text-sm font-medium text-zinc-100">{label}</div>
+          <div className="text-sm font-medium text-zinc-100">
+            <LabelWithBadge label={label} badge={badge} />
+          </div>
           <div className={`mt-1 text-xs ${toneClassName(tone)}`}>{summary}</div>
         </div>
         <div className="text-xs text-zinc-500">
@@ -799,11 +814,13 @@ function ExpandableRow({
 
 function CompactTranscriptRow({
   label,
+  badge,
   detail,
   subtle = false,
   emphasizeThinking = false,
 }: {
-  label: string;
+  label: React.ReactNode;
+  badge?: string;
   detail?: string;
   subtle?: boolean;
   emphasizeThinking?: boolean;
@@ -816,11 +833,34 @@ function CompactTranscriptRow({
         }`}
       >
         <span className={getTranscriptLabelClass(emphasizeThinking)}>
-          {label}
+          <LabelWithBadge label={label} badge={badge} />
         </span>
       </div>
       {detail ? <div className="pl-4 text-sm text-zinc-500">{detail}</div> : null}
     </div>
+  );
+}
+
+function LabelWithBadge({
+  label,
+  badge,
+}: {
+  label: React.ReactNode;
+  badge?: string;
+}) {
+  return (
+    <span className="inline-flex flex-wrap items-center gap-2">
+      <span>{label}</span>
+      {badge ? <PluginBadge label={badge} /> : null}
+    </span>
+  );
+}
+
+function PluginBadge({ label }: { label: string }) {
+  return (
+    <span className="inline-flex items-center rounded-full border border-emerald-700/60 bg-emerald-950/50 px-2 py-0.5 text-[11px] font-medium tracking-wide text-emerald-200">
+      {label}
+    </span>
   );
 }
 

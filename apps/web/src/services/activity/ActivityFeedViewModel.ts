@@ -65,6 +65,7 @@ export interface ActivityToolRowViewModel {
   key: string;
   toolName: string;
   family: ToolActivityPart["metadata"]["family"];
+  pluginLabel?: string;
   title: string;
   summary: string;
   status: "requested" | "running" | "completed" | "failed";
@@ -521,6 +522,7 @@ function createToolRow(item: ToolActivityPart): ActivityToolRowViewModel {
     key: item.id,
     toolName: item.toolName,
     family: item.metadata.family,
+    pluginLabel: readToolPluginLabel(item),
     title: getToolTitle(item),
     summary: getToolSummary(item),
     status: item.status,
@@ -660,6 +662,14 @@ function getToolTitle(item: ToolActivityPart): string {
     default:
       return humanizeToolName(item.toolName);
   }
+}
+
+function readToolPluginLabel(item: ToolActivityPart): string | undefined {
+  if (item.metadata.family !== TOOL_ACTIVITY_FAMILIES.GIT) {
+    return undefined;
+  }
+
+  return item.metadata.pluginLabel;
 }
 
 function getReadToolTitle(item: ToolActivityPart): string {
