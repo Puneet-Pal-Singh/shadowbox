@@ -1,9 +1,25 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { GitHubAPIClient, decryptToken } from "@shadowbox/github-bridge";
 import { ExecutionService } from "./ExecutionService";
 import type { Env } from "../types/ai";
 import { GIT_STATUS_TIMEOUT_MS } from "./gitExecutionTimeouts";
 
+vi.mock("@shadowbox/github-bridge", () => ({
+  decryptToken: vi.fn(async (value: string) => `token:${value}`),
+  GitHubAPIClient: vi.fn().mockImplementation(() => ({
+    getRepository: vi.fn(async () => ({ default_branch: "main" })),
+    createPullRequest: vi.fn(async () => ({
+      number: 42,
+      html_url: "https://github.com/acme/career-crew/pull/42",
+    })),
+  })),
+}));
+
 describe("ExecutionService", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   it("creates a secure session once and executes canonical task requests", async () => {
     const fetchMock = vi.fn<
       Parameters<Env["SECURE_API"]["fetch"]>,
@@ -187,6 +203,75 @@ describe("ExecutionService", () => {
     });
   });
 
+  it("hydrates runtime git commit payloads with stored commit identity", async () => {
+    const fetchMock = vi.fn<
+      Parameters<Env["SECURE_API"]["fetch"]>,
+      ReturnType<Env["SECURE_API"]["fetch"]>
+    >();
+
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            sessionId: "sess-commit",
+            token: "tok-commit",
+            expiresAt: Date.now() + 60_000,
+          }),
+          { status: 201, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            taskId: "task-commit",
+            status: "success",
+            output: "ok",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+
+    const service = new ExecutionService(
+      {
+        SECURE_API: { fetch: fetchMock },
+        SESSIONS: {
+          get: vi.fn(async (key: string) =>
+            key === "user_session:user-123"
+              ? JSON.stringify({
+                  userId: "user-123",
+                  login: "puneet",
+                  avatar: "",
+                  email: "puneet@example.com",
+                  name: "Puneet Pal Singh",
+                  encryptedToken: "encrypted-token",
+                  createdAt: Date.now(),
+                })
+              : null,
+          ),
+        },
+      } as unknown as Env,
+      "session-commit",
+      "run-commit",
+      "user-123",
+    );
+
+    await service.execute("git", "git_commit", {
+      message: "feat: add floating carousels to hero section",
+    });
+
+    const [, executeInit] = fetchMock.mock.calls[1]!;
+    expect(JSON.parse(String(executeInit?.body))).toMatchObject({
+      action: "git.execute",
+      params: {
+        action: "git_commit",
+        runId: "run-commit",
+        message: "feat: add floating carousels to hero section",
+        authorName: "Puneet Pal Singh",
+        authorEmail: "puneet@example.com",
+      },
+    });
+  });
+
   it("does not allow payload to override canonical action or runId", async () => {
     const fetchMock = vi.fn<
       Parameters<Env["SECURE_API"]["fetch"]>,
@@ -309,5 +394,172 @@ describe("ExecutionService", () => {
     expect(chunks).toEqual([{ message: "chunk", source: "stdout", timestamp: 2 }]);
     nowSpy.mockRestore();
     randomSpy.mockRestore();
+  });
+
+  it("logs structured execution failures with plugin and action context", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const fetchMock = vi.fn<
+      Parameters<Env["SECURE_API"]["fetch"]>,
+      ReturnType<Env["SECURE_API"]["fetch"]>
+    >();
+
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            sessionId: "sess-failure",
+            token: "tok-failure",
+            expiresAt: Date.now() + 60_000,
+          }),
+          { status: 201, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            taskId: "task-failure",
+            status: "failure",
+            error: {
+              code: "PLUGIN_EXECUTION_FAILED",
+              message: "Git commit author is not configured.",
+              details: { stderr: "fatal: empty ident name" },
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+
+    const service = new ExecutionService(
+      {
+        SECURE_API: { fetch: fetchMock },
+      } as unknown as Env,
+      "session-failure",
+      "run-failure",
+    );
+
+    await expect(
+      service.execute("git", "git_commit", { message: "feat: add hero" }),
+    ).resolves.toEqual({
+      success: false,
+      error: "Git commit author is not configured.",
+    });
+
+    expect(errorSpy).toHaveBeenCalledWith(
+      "[ExecutionService] git:git_commit failed",
+      expect.objectContaining({
+        status: "failure",
+        errorCode: "PLUGIN_EXECUTION_FAILED",
+        errorMessage: "Git commit author is not configured.",
+      }),
+    );
+
+    errorSpy.mockRestore();
+  });
+
+  it("creates pull requests through the dedicated GitHub-backed execution path", async () => {
+    vi.mocked(decryptToken).mockResolvedValue("github-token");
+    const fetchMock = vi.fn<
+      Parameters<Env["SECURE_API"]["fetch"]>,
+      ReturnType<Env["SECURE_API"]["fetch"]>
+    >();
+
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            sessionId: "sess-pr",
+            token: "tok-pr",
+            expiresAt: Date.now() + 60_000,
+          }),
+          { status: 201, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            taskId: "task-status",
+            status: "success",
+            output: JSON.stringify({
+              gitAvailable: true,
+              branch: "feat/floating-hero-carousels",
+              ahead: 1,
+              behind: 0,
+              files: [],
+              hasStaged: false,
+              hasUnstaged: false,
+              repoIdentity: "github.com/acme/career-crew",
+            }),
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+
+    const service = new ExecutionService(
+      {
+        SECURE_API: { fetch: fetchMock },
+        SESSIONS: {
+          get: vi.fn(async (key: string) =>
+            key === "user_session:user-pr"
+              ? JSON.stringify({
+                  userId: "user-pr",
+                  login: "puneet",
+                  avatar: "",
+                  email: "puneet@example.com",
+                  name: "Puneet Pal Singh",
+                  encryptedToken: "encrypted-token",
+                  createdAt: Date.now(),
+                })
+              : null,
+          ),
+        },
+        GITHUB_TOKEN_ENCRYPTION_KEY: "test-key",
+      } as unknown as Env,
+      "session-pr",
+      "run-pr",
+      "user-pr",
+    );
+
+    const result = await service.execute("git", "git_create_pull_request", {
+      owner: "acme",
+      repo: "career-crew",
+      title: "feat: add floating carousels to hero section",
+      body: "Adds the floating carousel hero treatment.",
+    });
+
+    expect(result).toEqual({
+      success: true,
+      output: "Created pull request #42: https://github.com/acme/career-crew/pull/42",
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const [, executeInit] = fetchMock.mock.calls[1]!;
+    expect(JSON.parse(String(executeInit?.body))).toMatchObject({
+      action: "git.execute",
+      params: {
+        action: "git_status",
+        runId: "run-pr",
+        token: "github-token",
+      },
+    });
+
+    expect(GitHubAPIClient).toHaveBeenCalledWith("github-token");
+    const clientInstance = vi.mocked(GitHubAPIClient).mock.results[0]?.value as {
+      getRepository: ReturnType<typeof vi.fn>;
+      createPullRequest: ReturnType<typeof vi.fn>;
+    };
+    expect(clientInstance.getRepository).toHaveBeenCalledWith(
+      "acme",
+      "career-crew",
+    );
+    expect(clientInstance.createPullRequest).toHaveBeenCalledWith(
+      "acme",
+      "career-crew",
+      {
+        title: "feat: add floating carousels to hero section",
+        body: "Adds the floating carousel hero treatment.",
+        head: "feat/floating-hero-carousels",
+        base: "main",
+      },
+    );
   });
 });
