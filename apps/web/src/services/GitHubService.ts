@@ -4,13 +4,24 @@
  * Handles authentication state, repository listing, and GitHub API calls
  */
 
-import { getBrainHttpBase } from "../lib/platform-endpoints.js";
+import {
+  getBrainHttpBase,
+  githubPullsPath,
+} from "../lib/platform-endpoints.js";
+import type {
+  CreatePullRequestPayload,
+  GitCommitIdentityState,
+  GitPullRequestMutationResult,
+} from "@repo/shared-types";
+import { GitMutationError } from "../lib/git-client.js";
 
 export interface GitHubUser {
   id: string;
   login: string;
   avatar: string;
-  email: string;
+  email: string | null;
+  name: string | null;
+  commitIdentity?: GitCommitIdentityState;
 }
 
 export interface Repository {
@@ -38,6 +49,15 @@ export interface Branch {
     url: string;
   };
   protected: boolean;
+}
+
+export interface PullRequestSummary {
+  number: number;
+  title: string;
+  url: string;
+  state: "open" | "closed";
+  head: string;
+  base: string;
 }
 
 const BRAIN_API_URL = getBrainHttpBase();
@@ -99,6 +119,30 @@ export async function getSession(): Promise<{
   // we might want to keep it that way (let cookie handle it).
   // But if we're authenticated, we're good.
   return data;
+}
+
+export async function createPullRequest(
+  payload: CreatePullRequestPayload,
+): Promise<PullRequestSummary> {
+  const response = await fetch(
+    githubPullsPath(),
+    getFetchOptions({
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }),
+  );
+
+  if (!response.ok) {
+    throw await readGitHubMutationError(
+      response,
+      `Failed to create pull request: HTTP ${response.status}`,
+      "PR_CREATION_FAILED",
+    );
+  }
+
+  const data = (await response.json()) as GitPullRequestMutationResult;
+  return data.pullRequest;
 }
 
 /**
@@ -226,7 +270,11 @@ export async function getRepositoryTree(
     }
 
     const data = await response.json();
-    const tree = data.tree as Array<{ path: string; type: string; sha: string }>;
+    const tree = data.tree as Array<{
+      path: string;
+      type: string;
+      sha: string;
+    }>;
     writeCache(treeCache, cacheKey, tree);
     return tree;
   })();
@@ -248,6 +296,29 @@ async function readGitHubErrorMessage(response: Response): Promise<string> {
   } catch {
     return `Failed to fetch tree: HTTP ${response.status}`;
   }
+}
+
+async function readGitHubMutationError(
+  response: Response,
+  fallbackMessage: string,
+  fallbackCode: "PR_CREATION_FAILED",
+): Promise<Error> {
+  try {
+    const payload = (await response.json()) as {
+      error?: string;
+      code?: string;
+    };
+    if (typeof payload.error === "string" && payload.error.trim().length > 0) {
+      return new GitMutationError(
+        payload.error,
+        (payload.code as "PR_CREATION_FAILED" | undefined) ?? fallbackCode,
+      );
+    }
+  } catch {
+    // Fall through to the generic error below.
+  }
+
+  return new GitMutationError(fallbackMessage, fallbackCode);
 }
 
 function readFreshCache<T>(
