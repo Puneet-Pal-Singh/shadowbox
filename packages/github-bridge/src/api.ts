@@ -66,6 +66,13 @@ export interface PullRequest {
   updated_at: string;
 }
 
+export interface GitHubEmail {
+  email: string;
+  primary: boolean;
+  verified: boolean;
+  visibility: "public" | "private" | null;
+}
+
 export interface CreatePullRequestParams {
   title: string;
   body?: string;
@@ -123,6 +130,13 @@ export class GitHubAPIClient {
    */
   async listBranches(owner: string, repo: string): Promise<Branch[]> {
     return this.request(`/repos/${owner}/${repo}/branches`);
+  }
+
+  /**
+   * Get repository metadata.
+   */
+  async getRepository(owner: string, repo: string): Promise<Repository> {
+    return this.request(`/repos/${owner}/${repo}`);
   }
 
   /**
@@ -248,5 +262,12 @@ export class GitHubAPIClient {
     number: number,
   ): Promise<PullRequest> {
     return this.request(`/repos/${owner}/${repo}/pulls/${number}`);
+  }
+
+  /**
+   * List email addresses for the authenticated user.
+   */
+  async listEmails(): Promise<GitHubEmail[]> {
+    return this.request("/user/emails");
   }
 }
