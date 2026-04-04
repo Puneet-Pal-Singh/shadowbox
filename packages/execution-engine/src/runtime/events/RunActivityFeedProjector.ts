@@ -499,16 +499,20 @@ function buildToolMetadata(
         deletions: 0,
         diffPreview: outputText || undefined,
       };
+    case "git_stage":
+    case "git_commit":
+    case "git_push":
+    case "git_pull":
+    case "git_create_pull_request":
+    case "git_branch_create":
+    case "git_branch_switch":
     case "git_status":
     case "git_diff":
-      return {
-        family: TOOL_ACTIVITY_FAMILIES.GIT,
-        displayText:
-          displayText ?? toolPresentation.displayText ?? undefined,
-        path: readString(input?.path),
-        preview: outputText || undefined,
-        count: countNonEmptyLines(outputText),
-      };
+      return buildGitMetadata(
+        input,
+        outputText,
+        displayText ?? toolPresentation.displayText,
+      );
     default:
       return {
         family: TOOL_ACTIVITY_FAMILIES.GENERIC,
@@ -637,6 +641,21 @@ function buildSearchMetadata(
     truncated: false,
     preview: truncateText(lines.slice(0, 6).join("\n"), 240) || undefined,
     loadedPaths,
+  };
+}
+
+function buildGitMetadata(
+  input: Record<string, unknown> | undefined,
+  outputText: string,
+  displayText: string | undefined,
+): ToolActivityMetadata {
+  return {
+    family: TOOL_ACTIVITY_FAMILIES.GIT,
+    displayText,
+    pluginLabel: "GitHub",
+    path: readString(input?.path),
+    preview: outputText || undefined,
+    count: countNonEmptyLines(outputText),
   };
 }
 
