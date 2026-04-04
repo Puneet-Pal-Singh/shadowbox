@@ -170,6 +170,7 @@ export interface RunManifest {
 
 export interface RunMetadata {
   prompt: string;
+  continuation?: RunContinuationState;
   manifest?: RunManifest;
   turnMode?: {
     mode: "chat" | "action";
@@ -229,6 +230,25 @@ export interface RunOrchestrationTelemetry {
   lastWakeupAt?: string;
   lastResumedAt?: string;
   lastTerminalAt?: string;
+}
+
+export interface RunContinuationState {
+  previousPrompt: string;
+  previousOutput?: string;
+  previousStopReason?:
+    | "max_steps_reached"
+    | "budget_exceeded"
+    | "llm_stop"
+    | "incomplete_mutation"
+    | "tool_error"
+    | "cancelled";
+  completedFiles: string[];
+  completedGitSteps: string[];
+  activeBranch?: string;
+  failedToolName?: string;
+  failedToolDetail?: string;
+  failedCommand?: string;
+  recordedAt: string;
 }
 
 export interface SerializedRun {
