@@ -1,13 +1,25 @@
 import type {
   CommitPayload,
+  CreateBranchPayload,
+  CreatePullRequestFromRunPayload,
   DiffContent,
+  GitCommitIdentityState,
+  GitBranchMutationResult,
+  GitMutationErrorCode,
+  GitMutationErrorMetadata,
+  GitPullRequestMutationResult,
+  GitPushMutationResult,
   GitStatusResponse,
+  PushPayload,
   StageFilesRequest,
 } from "@repo/shared-types";
 import { z } from "zod";
 import {
+  gitBranchPath,
   gitCommitPath,
   gitDiffPath,
+  gitPullRequestPath,
+  gitPushPath,
   gitStagePath,
   gitStatusPath,
 } from "./platform-endpoints.js";
@@ -26,7 +38,30 @@ interface GitCommitRequestContext extends GitRequestContext {
   payload: CommitPayload;
 }
 
+interface GitBranchRequestContext extends GitRequestContext {
+  payload: CreateBranchPayload;
+}
+
+interface GitPushRequestContext extends GitRequestContext {
+  payload: PushPayload;
+}
+
+interface GitPullRequestRequestContext extends GitRequestContext {
+  payload: CreatePullRequestFromRunPayload;
+}
+
 interface GitStageRequestContext extends GitRequestContext, StageFilesRequest {}
+
+export class GitMutationError extends Error {
+  constructor(
+    message: string,
+    public readonly code?: GitMutationErrorCode,
+    public readonly metadata?: GitMutationErrorMetadata,
+  ) {
+    super(message);
+    this.name = "GitMutationError";
+  }
+}
 
 const gitRequestContextSchema = z.object({
   runId: z.string().min(1),
@@ -38,13 +73,56 @@ const gitDiffRequestContextSchema = gitRequestContextSchema.extend({
   staged: z.boolean().optional(),
 });
 
-const commitPayloadSchema = z.object({
-  message: z.string().min(1),
-  files: z.array(z.string().min(1)).optional(),
-});
+const commitPayloadSchema = z
+  .object({
+    message: z.string().min(1),
+    files: z.array(z.string().min(1)).optional(),
+    authorName: z.string().min(1).optional(),
+    authorEmail: z.string().email().optional(),
+  })
+  .superRefine((value, ctx) => {
+    const hasAuthorName = typeof value.authorName === "string";
+    const hasAuthorEmail = typeof value.authorEmail === "string";
+    if (hasAuthorName !== hasAuthorEmail) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "authorName and authorEmail must be provided together",
+        path: hasAuthorName ? ["authorEmail"] : ["authorName"],
+      });
+    }
+  });
 
 const gitCommitRequestContextSchema = gitRequestContextSchema.extend({
   payload: commitPayloadSchema,
+});
+
+const createBranchPayloadSchema = z.object({
+  branch: z.string().min(1),
+});
+
+const gitBranchRequestContextSchema = gitRequestContextSchema.extend({
+  payload: createBranchPayloadSchema,
+});
+
+const pushPayloadSchema = z.object({
+  branch: z.string().min(1).optional(),
+  remote: z.string().min(1).optional(),
+});
+
+const gitPushRequestContextSchema = gitRequestContextSchema.extend({
+  payload: pushPayloadSchema,
+});
+
+const createPullRequestFromRunPayloadSchema = z.object({
+  owner: z.string().min(1),
+  repo: z.string().min(1),
+  title: z.string().min(1),
+  body: z.string().optional(),
+  base: z.string().min(1).optional(),
+});
+
+const gitPullRequestRequestContextSchema = gitRequestContextSchema.extend({
+  payload: createPullRequestFromRunPayloadSchema,
 });
 
 const gitStageRequestContextSchema = gitRequestContextSchema.extend({
@@ -60,15 +138,83 @@ const fileStatusSchema = z.object({
   isStaged: z.boolean(),
 });
 
+const gitCommitIdentitySchema = z.object({
+  authorName: z.string(),
+  authorEmail: z.string(),
+  source: z.enum([
+    "workspace_git_config",
+    "persisted_preference",
+    "github_profile",
+    "user_input",
+  ]),
+  verified: z.boolean(),
+});
+
+const gitCommitIdentityStateSchema: z.ZodType<GitCommitIdentityState> = z.union(
+  [
+    z.object({
+      state: z.literal("ready"),
+      identity: gitCommitIdentitySchema,
+    }),
+    z.object({
+      state: z.literal("requires_input"),
+      reason: z.enum(["missing_identity", "missing_name", "missing_email"]),
+      suggestedAuthorName: z.string(),
+      suggestedAuthorEmail: z.string(),
+    }),
+  ],
+);
+
+const gitMutationErrorResponseSchema = z.object({
+  error: z.string(),
+  code: z.enum([
+    "COMMIT_IDENTITY_REQUIRED",
+    "COMMIT_IDENTITY_INCOMPLETE",
+    "COMMIT_IDENTITY_WRITE_FAILED",
+    "BRANCH_CREATION_FAILED",
+    "PUSH_FAILED",
+    "PR_CREATION_FAILED",
+  ]),
+  metadata: z
+    .object({
+      commitIdentity: gitCommitIdentityStateSchema.optional(),
+    })
+    .optional(),
+});
+
 const gitStatusReadySchema = z.object({
   files: z.array(fileStatusSchema),
   ahead: z.number(),
   behind: z.number(),
   branch: z.string(),
   repoIdentity: z.string().min(1).nullable().optional(),
+  commitIdentity: gitCommitIdentitySchema.nullable().optional(),
   hasStaged: z.boolean(),
   hasUnstaged: z.boolean(),
   gitAvailable: z.literal(true),
+});
+
+const gitBranchMutationResultSchema = z.object({
+  success: z.literal(true),
+  branch: z.string().min(1),
+});
+
+const gitPushMutationResultSchema = z.object({
+  success: z.literal(true),
+  branch: z.string().min(1),
+  remote: z.string().min(1),
+});
+
+const gitPullRequestMutationResultSchema = z.object({
+  success: z.literal(true),
+  pullRequest: z.object({
+    number: z.number(),
+    title: z.string(),
+    url: z.string().url(),
+    state: z.enum(["open", "closed"]),
+    head: z.string(),
+    base: z.string(),
+  }),
 });
 
 const gitSoftErrorSchema = z.object({
@@ -169,13 +315,92 @@ export async function commitGitChanges(
   });
 
   if (!response.ok) {
-    throw new Error(
-      await readGitErrorMessage(
-        response,
-        `Failed to commit changes: HTTP ${response.status}`,
-      ),
+    throw await readGitError(
+      response,
+      `Failed to commit changes: HTTP ${response.status}`,
     );
   }
+}
+
+export async function createGitBranch(
+  context: GitBranchRequestContext,
+): Promise<GitBranchMutationResult> {
+  const parsedContext = gitBranchRequestContextSchema.parse(context);
+  const response = await fetch(gitBranchPath(), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      runId: parsedContext.runId,
+      sessionId: parsedContext.sessionId,
+      branch: parsedContext.payload.branch,
+    }),
+  });
+
+  if (!response.ok) {
+    throw await readGitError(
+      response,
+      `Failed to create branch: HTTP ${response.status}`,
+    );
+  }
+
+  return gitBranchMutationResultSchema.parse(
+    (await response.json()) as unknown,
+  );
+}
+
+export async function pushGitBranch(
+  context: GitPushRequestContext,
+): Promise<GitPushMutationResult> {
+  const parsedContext = gitPushRequestContextSchema.parse(context);
+  const response = await fetch(gitPushPath(), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      runId: parsedContext.runId,
+      sessionId: parsedContext.sessionId,
+      branch: parsedContext.payload.branch,
+      remote: parsedContext.payload.remote,
+    }),
+  });
+
+  if (!response.ok) {
+    throw await readGitError(
+      response,
+      `Failed to push branch: HTTP ${response.status}`,
+    );
+  }
+
+  return gitPushMutationResultSchema.parse((await response.json()) as unknown);
+}
+
+export async function createGitPullRequest(
+  context: GitPullRequestRequestContext,
+): Promise<GitPullRequestMutationResult> {
+  const parsedContext = gitPullRequestRequestContextSchema.parse(context);
+  const response = await fetch(gitPullRequestPath(), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      runId: parsedContext.runId,
+      sessionId: parsedContext.sessionId,
+      owner: parsedContext.payload.owner,
+      repo: parsedContext.payload.repo,
+      title: parsedContext.payload.title,
+      body: parsedContext.payload.body,
+      base: parsedContext.payload.base,
+    }),
+  });
+
+  if (!response.ok) {
+    throw await readGitError(
+      response,
+      `Failed to create pull request: HTTP ${response.status}`,
+    );
+  }
+
+  return gitPullRequestMutationResultSchema.parse(
+    (await response.json()) as unknown,
+  );
 }
 
 async function readGitErrorMessage(
@@ -205,6 +430,20 @@ async function readGitErrorMessage(
   }
 
   return fallbackMessage;
+}
+
+async function readGitError(
+  response: Response,
+  fallbackMessage: string,
+): Promise<Error> {
+  try {
+    const payload = gitMutationErrorResponseSchema.parse(
+      (await response.json()) as unknown,
+    );
+    return new GitMutationError(payload.error, payload.code, payload.metadata);
+  } catch {
+    return new Error(await readGitErrorMessage(response, fallbackMessage));
+  }
 }
 
 function normalizeGitStatusResponse(payload: unknown): GitStatusResponse {
