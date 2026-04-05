@@ -294,6 +294,38 @@ describe("CodingAgent task-phase model selection", () => {
     expect(execute).toHaveBeenCalledWith("git", "git_diff", {});
   });
 
+  it("normalizes embedded local-machine cd prefixes before running bash tools", async () => {
+    const llmGateway = createLLMGatewayMock();
+    const execute = vi.fn(async () => ({ success: true, output: "ok" }));
+    const executionService = { execute } as unknown as RuntimeExecutionService;
+    const agent = new CodingAgent(llmGateway, executionService);
+
+    const context: ExecutionContext = {
+      runId: "run-1",
+      sessionId: "session-1",
+      dependencies: [],
+    };
+
+    const task = {
+      id: "task-tool-bash-cd",
+      runId: "run-1",
+      type: "bash",
+      input: {
+        description: "lint files",
+        command:
+          "cd /home/user/repos/career-crew && npx next lint --file src/app/page.tsx",
+      },
+    } as unknown as Task;
+
+    const result = await agent.executeTask(task, context);
+
+    expect(result.status).toBe("DONE");
+    expect(execute).toHaveBeenCalledWith("bash", "run", {
+      command: "npx next lint --file src/app/page.tsx",
+      cwd: undefined,
+    });
+  });
+
   it("preserves edit activity metadata for write_file results", async () => {
     const llmGateway = createLLMGatewayMock();
     const execute = vi

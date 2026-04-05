@@ -11,6 +11,7 @@ import { enforceGoldenFlowToolFloor } from "../contracts/CodingToolGateway.js";
 const AGENTIC_LOOP_DEFAULT_MAX_STEPS = 25;
 const INCOMPLETE_MUTATION_CODE = "INCOMPLETE_MUTATION";
 export const TASK_MODEL_NO_ACTION_CODE = "TASK_MODEL_NO_ACTION";
+const TOOL_EXECUTION_FAILED_CODE = "TOOL_EXECUTION_FAILED";
 
 export interface AssistantTurnOutput {
   text: string;
@@ -143,8 +144,21 @@ export function buildAgenticLoopFinalMessage(
   if (result.requiresMutation && result.completedMutatingToolCount > 0) {
     const groundedMutationSummary = buildCompletedMutationSummary(result);
     if (groundedMutationSummary) {
+      if (result.stopReason === "tool_error") {
+        return {
+          text: groundedMutationSummary,
+          metadata: buildToolExecutionFailedMetadata(result.toolLifecycle),
+        };
+      }
       return { text: groundedMutationSummary };
     }
+  }
+
+  if (result.stopReason === "tool_error") {
+    return {
+      text: buildFallbackLoopSummary(result),
+      metadata: buildToolExecutionFailedMetadata(result.toolLifecycle),
+    };
   }
 
   if (result.stopReason !== "llm_stop") {
@@ -190,19 +204,11 @@ export function buildTaskModelNoActionSummary(input: {
   const failedTools = getLatestToolLifecycle(input.toolLifecycle, "failed");
 
   if (completedTools.length > 0) {
-    lines.push(
-      `I completed ${completedTools.length} tool action(s): ${completedTools
-        .map(formatLifecycleSummary)
-        .join("; ")}`,
-    );
+    lines.push(describeCompletedToolWork(completedTools));
   }
 
   if (failedTools.length > 0) {
-    lines.push(
-      `The run hit ${failedTools.length} failure(s): ${failedTools
-        .map(formatLifecycleSummary)
-        .join("; ")}`,
-    );
+    lines.push(describeFailedToolWork(failedTools));
   }
 
   lines.push(
@@ -227,19 +233,11 @@ function buildIncompleteMutationSummary(result: AgenticLoopResult): string {
   ];
 
   if (completedTools.length > 0) {
-    lines.push(
-      `I checked ${completedTools.length} read-only tool action(s): ${completedTools
-        .map(formatLifecycleSummary)
-        .join("; ")}`,
-    );
+    lines.push(describeCompletedToolWork(completedTools));
   }
 
   if (failedTools.length > 0) {
-    lines.push(
-      `The run hit ${failedTools.length} failure(s): ${failedTools
-        .map(formatLifecycleSummary)
-        .join("; ")}`,
-    );
+    lines.push(describeFailedToolWork(failedTools));
   }
 
   lines.push(
@@ -262,19 +260,11 @@ function buildFallbackLoopSummary(result: AgenticLoopResult): string {
   const lines = [describeLoopStopReason(result.stopReason)];
 
   if (completedTools.length > 0) {
-    lines.push(
-      `I completed ${completedTools.length} tool action(s): ${completedTools
-        .map(formatLifecycleSummary)
-        .join("; ")}`,
-    );
+    lines.push(describeCompletedToolWork(completedTools));
   }
 
   if (failedTools.length > 0) {
-    lines.push(
-      `The run hit ${failedTools.length} failure(s): ${failedTools
-        .map(formatLifecycleSummary)
-        .join("; ")}`,
-    );
+    lines.push(describeFailedToolWork(failedTools));
   }
 
   lines.push(
@@ -315,11 +305,7 @@ function buildCompletedMutationSummary(
 
   const failedTools = getLatestToolLifecycle(result.toolLifecycle, "failed");
   if (failedTools.length > 0) {
-    lines.push(
-      `There were also ${failedTools.length} failed tool action(s): ${failedTools
-        .map(formatLifecycleSummary)
-        .join("; ")}`,
-    );
+    lines.push(describeFailedToolWork(failedTools));
   }
 
   return lines.join("\n");
@@ -432,6 +418,20 @@ export function buildTaskModelNoActionMetadata(): Record<string, unknown> {
   };
 }
 
+function buildToolExecutionFailedMetadata(
+  toolLifecycle: AgenticLoopToolLifecycleEvent[],
+): Record<string, unknown> {
+  const failedTools = getLatestToolLifecycle(toolLifecycle, "failed");
+  const primaryFailure = getTerminalToolLifecycleEvent(failedTools);
+
+  return {
+    code: TOOL_EXECUTION_FAILED_CODE,
+    retryable: true,
+    resumeHint: deriveToolFailureResumeHint(primaryFailure),
+    resumeActions: ["retry", "open_terminal"],
+  };
+}
+
 function deriveAgenticLoopRecoveryCode(
   result: AgenticLoopResult,
 ): "INCOMPLETE_MUTATION" | typeof TASK_MODEL_NO_ACTION_CODE | undefined {
@@ -530,9 +530,234 @@ function getLatestToolLifecycle(
   );
 }
 
-function formatLifecycleSummary(event: AgenticLoopToolLifecycleEvent): string {
-  const detailSuffix = event.detail ? `: ${event.detail}` : "";
-  return `${event.toolName} (${event.toolCallId})${detailSuffix}`;
+function describeCompletedToolWork(
+  completedTools: AgenticLoopToolLifecycleEvent[],
+): string {
+  const editEvents = collectCompletedEditEvents(completedTools);
+  if (editEvents.length > 0) {
+    const changes = mergeEditEvents(editEvents);
+    const files = changes.map((change) => change.filePath).join(", ");
+    return `Before the run stopped, I successfully updated ${changes.length} file(s): ${files}.`;
+  }
+
+  const completedGitMutations = completedTools.filter((event) =>
+    isMutationFocusedGitTool(event.toolName),
+  );
+  if (completedGitMutations.length > 0) {
+    const sampledTools = completedGitMutations
+      .slice(0, 3)
+      .map((event) => event.toolName)
+      .join(", ");
+    const suffix =
+      completedGitMutations.length > 3
+        ? `, and ${completedGitMutations.length - 3} more`
+        : "";
+    return `Before the run stopped, I completed ${completedGitMutations.length} git action(s) that changed repository state${sampledTools ? ` (${sampledTools}${suffix})` : ""}.`;
+  }
+
+  const sampledTools = completedTools
+    .slice(0, 3)
+    .map((event) => event.toolName)
+    .join(", ");
+  const suffix =
+    completedTools.length > 3 ? `, and ${completedTools.length - 3} more` : "";
+  return `Before the run stopped, I completed ${completedTools.length} tool action(s) to inspect or verify the workspace${sampledTools ? ` (${sampledTools}${suffix})` : ""}.`;
+}
+
+function describeFailedToolWork(
+  failedTools: AgenticLoopToolLifecycleEvent[],
+): string {
+  const primaryFailure = getTerminalToolLifecycleEvent(failedTools);
+  if (!primaryFailure) {
+    return "The run recorded a tool failure.";
+  }
+
+  const primarySummary = describeSingleFailedTool(primaryFailure);
+  if (failedTools.length === 1) {
+    return primarySummary;
+  }
+
+  return `${primarySummary} There were ${failedTools.length - 1} additional failed tool action(s) in the same run.`;
+}
+
+function describeSingleFailedTool(
+  event: AgenticLoopToolLifecycleEvent,
+): string {
+  const missingShellPath = extractMissingShellPath(event);
+  if (missingShellPath) {
+    return `A shell step failed because it tried to change into ${missingShellPath}, which does not exist in this sandbox. I should have rerun that command from the run workspace instead; if you need that exact machine-specific path, run it in your local terminal.`;
+  }
+
+  if (isGitShellFailure(event)) {
+    return "I couldn't finish the git step in the sandbox because the shell command was malformed for the bounded executor. Retry the step so it uses the dedicated git action, or complete the git command in your local terminal.";
+  }
+
+  if (isNonFastForwardPushFailure(event)) {
+    return "I couldn't finish the push because the remote branch already had newer commits. Your file changes were already committed locally, so they were not lost. Sync the branch with a fast-forward-only pull and retry the push, or resolve the branch conflict in your local terminal.";
+  }
+
+  if (isMissingLocalPushRefFailure(event)) {
+    return "I couldn't finish the push because the local branch ref was missing in the resumed workspace. The recovery step should have re-opened the branch before pushing. Retry the step so Shadowbox re-syncs the workspace branch first, or finish the branch repair in your local terminal.";
+  }
+
+  if (isPullRequestShellFailure(event)) {
+    return "I couldn't finish the pull request step because it was attempted through bash instead of the dedicated GitHub-backed PR action. Retry the step so it creates the PR with the dedicated tool, or open the PR manually in your local terminal.";
+  }
+
+  if (event.toolName === "bash") {
+    return `A shell step failed: ${summarizeLifecycleDetail(event.detail)}`;
+  }
+
+  return `A required ${event.toolName} action failed: ${summarizeLifecycleDetail(
+    event.detail,
+  )}`;
+}
+
+function extractMissingShellPath(
+  event: AgenticLoopToolLifecycleEvent,
+): string | null {
+  if (event.toolName !== "bash") {
+    return null;
+  }
+
+  const missingPathPattern = /\bcd:\s+(.+?): No such file or directory/i;
+  const detailMatch = event.detail?.match(missingPathPattern)?.[1];
+  if (detailMatch) {
+    return detailMatch;
+  }
+
+  if (event.metadata?.family !== "shell") {
+    return null;
+  }
+
+  return event.metadata.stderr?.match(missingPathPattern)?.[1] ?? null;
+}
+
+function summarizeLifecycleDetail(detail: string | undefined): string {
+  const normalized = detail?.replace(/\s+/g, " ").trim();
+  if (!normalized) {
+    return "The tool failed without a recorded error message.";
+  }
+
+  return normalized.length > 220 ? `${normalized.slice(0, 217)}...` : normalized;
+}
+
+function deriveToolFailureResumeHint(
+  event: AgenticLoopToolLifecycleEvent | undefined,
+): string {
+  if (!event) {
+    return "Retry the failed step. If it still fails, complete the remaining command in your local terminal.";
+  }
+
+  if (extractMissingShellPath(event)) {
+    return "Retry the step from the workspace root. If the command truly depends on a local-machine path, run it in your local terminal instead.";
+  }
+
+  if (isGitShellFailure(event)) {
+    return "Retry the git step so it uses the dedicated git action. If needed, finish the remaining git command in your local terminal.";
+  }
+
+  if (isNonFastForwardPushFailure(event)) {
+    return "The changes are already committed locally. Retry by syncing the branch with git_pull, then run git_push again. If the pull cannot fast-forward, resolve the branch conflict in your local terminal.";
+  }
+
+  if (isMissingLocalPushRefFailure(event)) {
+    return "Retry the push after re-opening the correct workspace branch. If the branch ref is still missing, repair or recreate the branch in your local terminal.";
+  }
+
+  if (isPullRequestShellFailure(event)) {
+    return "Retry the pull request step so it uses the dedicated PR action. If needed, open the pull request from your local terminal.";
+  }
+
+  if (event.toolName === "bash") {
+    return "Retry the shell step. If it keeps failing, run the equivalent command in your local terminal.";
+  }
+
+  return `Retry the failed ${event.toolName} step, or finish it manually in your local terminal if the sandbox cannot complete it.`;
+}
+
+function getTerminalToolLifecycleEvent(
+  events: AgenticLoopToolLifecycleEvent[],
+): AgenticLoopToolLifecycleEvent | undefined {
+  return [...events].sort(compareLifecycleRecordedAt).at(-1);
+}
+
+function compareLifecycleRecordedAt(
+  left: AgenticLoopToolLifecycleEvent,
+  right: AgenticLoopToolLifecycleEvent,
+): number {
+  return (
+    Date.parse(left.recordedAt || "1970-01-01T00:00:00.000Z") -
+    Date.parse(right.recordedAt || "1970-01-01T00:00:00.000Z")
+  );
+}
+
+function isMutationFocusedGitTool(toolName: string): boolean {
+  return (
+    toolName === "git_stage" ||
+    toolName === "git_commit" ||
+    toolName === "git_push" ||
+    toolName === "git_pull" ||
+    toolName === "git_branch_create" ||
+    toolName === "git_branch_switch" ||
+    toolName === "git_create_pull_request"
+  );
+}
+
+function isGitShellFailure(event: AgenticLoopToolLifecycleEvent): boolean {
+  if (event.toolName !== "bash" || event.metadata?.family !== "shell") {
+    return false;
+  }
+
+  const command = event.metadata.command;
+  if (!/\bgit\b/.test(command)) {
+    return false;
+  }
+
+  const detail = `${event.detail ?? ""} ${event.metadata.stderr ?? ""}`;
+  return /invalid command argument/i.test(detail);
+}
+
+function isNonFastForwardPushFailure(
+  event: AgenticLoopToolLifecycleEvent,
+): boolean {
+  if (event.toolName !== "git_push") {
+    return false;
+  }
+
+  const detail = `${event.detail ?? ""}`;
+  return /non-fast-forward|tip of your current branch is behind|newer commits|already committed locally/i.test(
+    detail,
+  );
+}
+
+function isMissingLocalPushRefFailure(
+  event: AgenticLoopToolLifecycleEvent,
+): boolean {
+  if (event.toolName !== "git_push") {
+    return false;
+  }
+
+  const detail = `${event.detail ?? ""}`;
+  return /src refspec .* does not match any/i.test(detail);
+}
+
+function isPullRequestShellFailure(
+  event: AgenticLoopToolLifecycleEvent,
+): boolean {
+  if (event.toolName !== "bash" || event.metadata?.family !== "shell") {
+    return false;
+  }
+
+  const command = event.metadata.command;
+  if (!/\bgh\s+pr\s+create\b/.test(command)) {
+    return false;
+  }
+
+  const detail = `${event.detail ?? ""} ${event.metadata.stderr ?? ""}`;
+  return /invalid (arguments|command argument)|maximum length|too big/i.test(
+    detail,
+  );
 }
 
 function collectCompletedEditEvents(

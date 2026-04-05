@@ -6,12 +6,22 @@ import {
   useMemo,
   useState,
 } from "react";
-import type { DiffContent, FileStatus, GitStatusResponse } from "@repo/shared-types";
+import type {
+  DiffContent,
+  FileStatus,
+  GitMutationErrorMetadata,
+  GitMutationErrorCode,
+  GitStatusResponse,
+} from "@repo/shared-types";
 import { useRunContext } from "../../hooks/useRunContext";
 import { useGitStatus } from "../../hooks/useGitStatus";
 import { useGitDiff } from "../../hooks/useGitDiff";
 import { useGitCommit } from "../../hooks/useGitCommit";
-import { stageGitFiles } from "../../lib/git-client.js";
+import {
+  createGitBranch,
+  pushGitBranch,
+  stageGitFiles,
+} from "../../lib/git-client.js";
 
 interface GitReviewProviderProps {
   children: React.ReactNode;
@@ -28,6 +38,8 @@ interface GitReviewContextValue {
   diffError: string | null;
   stageError: string | null;
   commitError: string | null;
+  commitErrorCode: GitMutationErrorCode | null;
+  commitErrorMetadata: GitMutationErrorMetadata | null;
   diffLoading: boolean;
   committing: boolean;
   isReviewOpen: boolean;
@@ -40,7 +52,12 @@ interface GitReviewContextValue {
   toggleFileStaged: (path: string, nextStaged: boolean) => Promise<void>;
   stageAll: () => Promise<boolean>;
   unstageAll: () => Promise<boolean>;
-  submitCommit: () => Promise<boolean>;
+  createBranch: (branch: string) => Promise<string>;
+  pushBranch: (branch?: string) => Promise<string>;
+  submitCommit: (identityOverride?: {
+    authorName?: string;
+    authorEmail?: string;
+  }) => Promise<boolean>;
   setCommitMessage: (message: string) => void;
   refetch: () => Promise<void>;
 }
@@ -71,6 +88,7 @@ export function GitReviewProvider({
   const {
     committing,
     error: commitError,
+    errorState: commitErrorState,
     commit,
   } = useGitCommit(runId ?? undefined, sessionId ?? undefined);
 
@@ -83,9 +101,7 @@ export function GitReviewProvider({
       return null;
     }
 
-    return (
-      status?.files.find((file) => file.path === selectedFilePath) ?? null
-    );
+    return status?.files.find((file) => file.path === selectedFilePath) ?? null;
   }, [selectedFilePath, status]);
 
   const stagedFiles = useMemo(
@@ -117,11 +133,20 @@ export function GitReviewProvider({
       if (!selectedFilePath) {
         const [firstFile] = status?.files ?? [];
         if (firstFile) {
-          void selectFileForReview(firstFile.path, stagedFiles.has(firstFile.path));
+          void selectFileForReview(
+            firstFile.path,
+            stagedFiles.has(firstFile.path),
+          );
         }
       }
     },
-    [onReviewOpenChange, selectFileForReview, selectedFilePath, stagedFiles, status],
+    [
+      onReviewOpenChange,
+      selectFileForReview,
+      selectedFilePath,
+      stagedFiles,
+      status,
+    ],
   );
 
   const closeReview = useCallback(() => {
@@ -135,103 +160,158 @@ export function GitReviewProvider({
     [selectFileForReview, stagedFiles],
   );
 
-  const toggleFileStaged = useCallback(async (
-    path: string,
-    nextStaged: boolean,
-  ): Promise<void> => {
-    if (!runId || !sessionId) {
-      setStageError(!runId ? "No run context available" : "No session context available");
-      return;
-    }
-
-    setStageError(null);
-
-    try {
-      await stageGitFiles({
-        runId,
-        sessionId,
-        files: [path],
-        unstage: !nextStaged,
-      });
-
-      if (selectedFilePath === path) {
-        await fetchDiff(path, nextStaged);
+  const toggleFileStaged = useCallback(
+    async (path: string, nextStaged: boolean): Promise<void> => {
+      if (!runId || !sessionId) {
+        setStageError(
+          !runId ? "No run context available" : "No session context available",
+        );
+        return;
       }
 
-      await refetch(true);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Unknown error";
-      setStageError(message);
-      console.error("[git-review] Failed to update staged file", error);
-    }
-  }, [fetchDiff, refetch, runId, selectedFilePath, sessionId]);
+      setStageError(null);
 
-  const updateManyFilesStage = useCallback(async (
-    files: string[],
-    nextStaged: boolean,
-  ): Promise<boolean> => {
-    if (!files.length) {
-      return true;
-    }
+      try {
+        await stageGitFiles({
+          runId,
+          sessionId,
+          files: [path],
+          unstage: !nextStaged,
+        });
 
-    if (!runId || !sessionId) {
-      setStageError(!runId ? "No run context available" : "No session context available");
-      return false;
-    }
+        if (selectedFilePath === path) {
+          await fetchDiff(path, nextStaged);
+        }
 
-    setStageError(null);
+        await refetch(true);
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Unknown error";
+        setStageError(message);
+        console.error("[git-review] Failed to update staged file", error);
+      }
+    },
+    [fetchDiff, refetch, runId, selectedFilePath, sessionId],
+  );
 
-    try {
-      await stageGitFiles({
-        runId,
-        sessionId,
-        files,
-        unstage: !nextStaged,
-      });
-
-      if (selectedFilePath && files.includes(selectedFilePath)) {
-        await fetchDiff(selectedFilePath, nextStaged);
+  const updateManyFilesStage = useCallback(
+    async (files: string[], nextStaged: boolean): Promise<boolean> => {
+      if (!files.length) {
+        return true;
       }
 
-      await refetch(true);
-      return true;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Unknown error";
-      setStageError(message);
-      console.error("[git-review] Failed to update staged files", error);
-      return false;
-    }
-  }, [fetchDiff, refetch, runId, selectedFilePath, sessionId]);
+      if (!runId || !sessionId) {
+        setStageError(
+          !runId ? "No run context available" : "No session context available",
+        );
+        return false;
+      }
+
+      setStageError(null);
+
+      try {
+        await stageGitFiles({
+          runId,
+          sessionId,
+          files,
+          unstage: !nextStaged,
+        });
+
+        if (selectedFilePath && files.includes(selectedFilePath)) {
+          await fetchDiff(selectedFilePath, nextStaged);
+        }
+
+        await refetch(true);
+        return true;
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Unknown error";
+        setStageError(message);
+        console.error("[git-review] Failed to update staged files", error);
+        return false;
+      }
+    },
+    [fetchDiff, refetch, runId, selectedFilePath, sessionId],
+  );
 
   const stageAll = useCallback(async (): Promise<boolean> => {
-    const files = status?.files
-      .filter((file) => !stagedFiles.has(file.path))
-      .map((file) => file.path) ?? [];
+    const files =
+      status?.files
+        .filter((file) => !stagedFiles.has(file.path))
+        .map((file) => file.path) ?? [];
 
     return await updateManyFilesStage(files, true);
   }, [stagedFiles, status, updateManyFilesStage]);
 
   const unstageAll = useCallback(async (): Promise<boolean> => {
-    const files = status?.files
-      .filter((file) => stagedFiles.has(file.path))
-      .map((file) => file.path) ?? [];
+    const files =
+      status?.files
+        .filter((file) => stagedFiles.has(file.path))
+        .map((file) => file.path) ?? [];
 
     return await updateManyFilesStage(files, false);
   }, [stagedFiles, status, updateManyFilesStage]);
 
-  const submitCommit = useCallback(async (): Promise<boolean> => {
-    setStageError(null);
-    const message = commitMessage.trim() || generateCommitMessage(status?.files ?? []);
-    const committed = await commit({ message });
-    if (!committed) {
-      return false;
-    }
+  const submitCommit = useCallback(
+    async (identityOverride?: {
+      authorName?: string;
+      authorEmail?: string;
+    }): Promise<boolean> => {
+      setStageError(null);
+      const message =
+        commitMessage.trim() || generateCommitMessage(status?.files ?? []);
+      const committed = await commit({ message, ...identityOverride });
+      if (!committed) {
+        return false;
+      }
 
-    setCommitMessage("");
-    setSelectedFilePath(null);
-    await refetch(true);
-    return true;
-  }, [commit, commitMessage, refetch, status?.files]);
+      setCommitMessage("");
+      setSelectedFilePath(null);
+      await refetch(true);
+      return true;
+    },
+    [commit, commitMessage, refetch, status?.files],
+  );
+
+  const createBranchForRun = useCallback(
+    async (branch: string): Promise<string> => {
+      if (!runId || !sessionId) {
+        throw new Error(
+          !runId ? "No run context available" : "No session context available",
+        );
+      }
+
+      const result = await createGitBranch({
+        runId,
+        sessionId,
+        payload: { branch },
+      });
+      await refetch(true);
+      return result.branch;
+    },
+    [refetch, runId, sessionId],
+  );
+
+  const pushBranchForRun = useCallback(
+    async (branch?: string): Promise<string> => {
+      if (!runId || !sessionId) {
+        throw new Error(
+          !runId ? "No run context available" : "No session context available",
+        );
+      }
+
+      const result = await pushGitBranch({
+        runId,
+        sessionId,
+        payload: {
+          branch,
+        },
+      });
+      await refetch(true);
+      return result.branch;
+    },
+    [refetch, runId, sessionId],
+  );
 
   const forceRefetch = useCallback(async (): Promise<void> => {
     await refetch(true);
@@ -246,6 +326,8 @@ export function GitReviewProvider({
     diffError,
     stageError,
     commitError,
+    commitErrorCode: commitErrorState?.code ?? null,
+    commitErrorMetadata: commitErrorState?.metadata ?? null,
     diffLoading,
     committing,
     isReviewOpen,
@@ -258,6 +340,8 @@ export function GitReviewProvider({
     toggleFileStaged,
     stageAll,
     unstageAll,
+    createBranch: createBranchForRun,
+    pushBranch: pushBranchForRun,
     submitCommit,
     setCommitMessage,
     refetch: forceRefetch,

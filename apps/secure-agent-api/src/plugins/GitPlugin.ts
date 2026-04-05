@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { IPlugin, PluginResult, LogCallback } from "../interfaces/types";
 import { GitTools } from "../schemas/git";
 import type {
+  GitCommitIdentity,
   DiffContent,
   DiffHunk,
   FileStatus,
@@ -49,6 +50,8 @@ const GitPayloadSchema = z.object({
   token: z.string().optional(),
   replaceExisting: z.boolean().optional(),
   message: z.string().optional(),
+  authorName: z.string().optional(),
+  authorEmail: z.string().optional(),
   branch: z.string().optional(),
   path: z.string().optional(),
   files: z.array(z.string()).optional(),
@@ -63,6 +66,8 @@ const CLONE_DESTINATION_NOT_EMPTY_PATTERN =
   /destination path .* already exists and is not an empty directory/i;
 const MISSING_GIT_AUTHOR_ERROR =
   "Git commit author is not configured. Set git user.name and user.email for this workspace before committing.";
+const WRITE_GIT_AUTHOR_ERROR =
+  "Git commit author could not be written to this workspace before committing.";
 
 export class GitPlugin implements IPlugin {
   name = "git";
@@ -119,6 +124,8 @@ export class GitPlugin implements IPlugin {
             worktree,
             parsed.message,
             parsed.files,
+            parsed.authorName,
+            parsed.authorEmail,
             toolboxContext,
             runId,
           );
@@ -339,13 +346,24 @@ export class GitPlugin implements IPlugin {
       toolboxContext,
       runId,
     );
-    const parsed = this.parseStatus(statusResult.stdout, repoIdentity);
+    const commitIdentity = await this.readWorkspaceCommitIdentity(
+      sandbox,
+      worktree,
+      toolboxContext,
+      runId,
+    );
+    const parsed = this.parseStatus(
+      statusResult.stdout,
+      repoIdentity,
+      commitIdentity,
+    );
     return { success: true, output: JSON.stringify(parsed) };
   }
 
   private parseStatus(
     stdout: string,
     repoIdentity: string | null,
+    commitIdentity: GitCommitIdentity | null,
   ): GitStatusResponse {
     const lines = stdout.split("\n").filter((line) => line.trim().length > 0);
     const branchLine = lines[0];
@@ -379,9 +397,44 @@ export class GitPlugin implements IPlugin {
       behind,
       branch,
       repoIdentity,
+      commitIdentity,
       hasStaged: files.some((file) => file.isStaged),
       hasUnstaged: files.some((file) => !file.isStaged),
       gitAvailable: true,
+    };
+  }
+
+  private async readWorkspaceCommitIdentity(
+    sandbox: Sandbox,
+    worktree: string,
+    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
+    runId: string,
+  ): Promise<GitCommitIdentity | null> {
+    const authorName = await this.readGitConfigValue(
+      sandbox,
+      worktree,
+      "user.name",
+      toolboxContext,
+      runId,
+      "git.status_author_name.read",
+    );
+    const authorEmail = await this.readGitConfigValue(
+      sandbox,
+      worktree,
+      "user.email",
+      toolboxContext,
+      runId,
+      "git.status_author_email.read",
+    );
+    if (authorName.length === 0 || authorEmail.length === 0) {
+      return null;
+    }
+
+    return {
+      authorName,
+      authorEmail,
+      source: "workspace_git_config",
+      verified: false,
     };
   }
 
@@ -493,11 +546,7 @@ export class GitPlugin implements IPlugin {
         currentHunk &&
         (line.startsWith(" ") || line.startsWith("+") || line.startsWith("-"))
       ) {
-        const nextLine = createDiffLine(
-          line,
-          oldLineCursor,
-          newLineCursor,
-        );
+        const nextLine = createDiffLine(line, oldLineCursor, newLineCursor);
         oldLineCursor = nextLine.nextOldLineNumber;
         newLineCursor = nextLine.nextNewLineNumber;
         currentHunk.lines.push(nextLine.line);
@@ -569,6 +618,8 @@ export class GitPlugin implements IPlugin {
     worktree: string,
     message: string | undefined,
     files: string[] | undefined,
+    authorName: string | undefined,
+    authorEmail: string | undefined,
     toolboxContext: ReturnType<typeof readToolboxCommandContext>,
     runId: string,
   ): Promise<PluginResult> {
@@ -598,6 +649,8 @@ export class GitPlugin implements IPlugin {
     const commitIdentityResult = await this.ensureCommitIdentity(
       sandbox,
       worktree,
+      authorName,
+      authorEmail,
       toolboxContext,
       runId,
     );
@@ -623,10 +676,12 @@ export class GitPlugin implements IPlugin {
   private async ensureCommitIdentity(
     sandbox: Sandbox,
     worktree: string,
+    authorName: string | undefined,
+    authorEmail: string | undefined,
     toolboxContext: ReturnType<typeof readToolboxCommandContext>,
     runId: string,
   ): Promise<PluginResult> {
-    const authorName = await this.readGitConfigValue(
+    const existingAuthorName = await this.readGitConfigValue(
       sandbox,
       worktree,
       "user.name",
@@ -634,14 +689,7 @@ export class GitPlugin implements IPlugin {
       runId,
       "git.commit_author_name.read",
     );
-    if (authorName.length === 0) {
-      return {
-        success: false,
-        error: MISSING_GIT_AUTHOR_ERROR,
-      };
-    }
-
-    const authorEmail = await this.readGitConfigValue(
+    const existingAuthorEmail = await this.readGitConfigValue(
       sandbox,
       worktree,
       "user.email",
@@ -649,11 +697,41 @@ export class GitPlugin implements IPlugin {
       runId,
       "git.commit_author_email.read",
     );
-    if (authorEmail.length === 0) {
+    if (existingAuthorName.length > 0 && existingAuthorEmail.length > 0) {
+      return { success: true };
+    }
+
+    if (!authorName || !authorEmail) {
       return {
         success: false,
         error: MISSING_GIT_AUTHOR_ERROR,
       };
+    }
+
+    const writeNameResult = await this.writeGitConfigValue(
+      sandbox,
+      worktree,
+      "user.name",
+      authorName,
+      toolboxContext,
+      runId,
+      "git.commit_author_name.write",
+    );
+    if (!writeNameResult.success) {
+      return writeNameResult;
+    }
+
+    const writeEmailResult = await this.writeGitConfigValue(
+      sandbox,
+      worktree,
+      "user.email",
+      authorEmail,
+      toolboxContext,
+      runId,
+      "git.commit_author_email.write",
+    );
+    if (!writeEmailResult.success) {
+      return writeEmailResult;
     }
 
     return { success: true };
@@ -684,6 +762,36 @@ export class GitPlugin implements IPlugin {
     return result.stdout.trim();
   }
 
+  private async writeGitConfigValue(
+    sandbox: Sandbox,
+    worktree: string,
+    key: "user.name" | "user.email",
+    value: string,
+    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
+    runId: string,
+    toolName: string,
+  ): Promise<PluginResult> {
+    const result = await this.runToolboxCommand(
+      sandbox,
+      {
+        command: "git",
+        args: ["-C", worktree, "config", key, value],
+        runId,
+      },
+      ["git"],
+      toolboxContext,
+      toolName,
+    );
+    if (result.exitCode === 0) {
+      return { success: true };
+    }
+
+    return {
+      success: false,
+      error: WRITE_GIT_AUTHOR_ERROR,
+    };
+  }
+
   private async push(
     sandbox: Sandbox,
     worktree: string,
@@ -694,11 +802,19 @@ export class GitPlugin implements IPlugin {
     runId: string,
   ): Promise<PluginResult> {
     const safeRemote = sanitizeRef(remote || "origin", "remote");
+    const safeBranch =
+      branch && branch.trim().length > 0
+        ? sanitizeRef(branch, "branch")
+        : undefined;
     const authArgs = this.buildGitAuthArgs(token);
-    const args = [...authArgs, "-C", worktree, "push", safeRemote];
+    const args = [...authArgs, "-C", worktree, "push"];
 
-    if (branch && branch.trim().length > 0) {
-      args.push(sanitizeRef(branch, "branch"));
+    if (safeBranch) {
+      args.push("-u");
+      args.push(safeRemote);
+      args.push(safeBranch);
+    } else {
+      args.push(safeRemote);
     }
 
     const result = await this.runToolboxCommand(
@@ -708,6 +824,18 @@ export class GitPlugin implements IPlugin {
       toolboxContext,
       "git.push",
     );
+
+    if (result.exitCode === 0) {
+      return buildGitResult(result, "Changes pushed");
+    }
+
+    if (isNonFastForwardGitPushError(result.stderr)) {
+      return {
+        success: false,
+        error: buildNonFastForwardPushError(safeRemote, safeBranch),
+      };
+    }
+
     return buildGitResult(result, "Changes pushed");
   }
 
@@ -722,7 +850,7 @@ export class GitPlugin implements IPlugin {
   ): Promise<PluginResult> {
     const safeRemote = sanitizeRef(remote || "origin", "remote");
     const authArgs = this.buildGitAuthArgs(token);
-    const args = [...authArgs, "-C", worktree, "pull", safeRemote];
+    const args = [...authArgs, "-C", worktree, "pull", "--ff-only", safeRemote];
 
     if (branch && branch.trim().length > 0) {
       args.push(sanitizeRef(branch, "branch"));
@@ -989,7 +1117,9 @@ function normalizeRepoIdentity(remoteUrl: string): string | null {
   const sshMatch = trimmed.match(/^git@([^:]+):(.+)$/);
   if (sshMatch?.[1] && sshMatch[2]) {
     const normalizedPath = normalizeRepoIdentityPath(sshMatch[2]);
-    return normalizedPath ? `${sshMatch[1].toLowerCase()}/${normalizedPath}` : null;
+    return normalizedPath
+      ? `${sshMatch[1].toLowerCase()}/${normalizedPath}`
+      : null;
   }
 
   try {
@@ -1016,6 +1146,18 @@ function normalizeRepoIdentityPath(pathname: string): string | null {
 
 function containsIllegalTokenChars(token: string): boolean {
   return /[\0\r\n]/.test(token);
+}
+
+function isNonFastForwardGitPushError(stderr: string): boolean {
+  return /non-fast-forward|tip of your current branch is behind/i.test(stderr);
+}
+
+function buildNonFastForwardPushError(
+  remote: string,
+  branch: string | undefined,
+): string {
+  const branchLabel = branch ?? "current branch";
+  return `Push failed because ${remote}/${branchLabel} already has newer commits. Your file changes are already committed locally. Sync the branch with git pull --ff-only and retry the push. If the branch cannot be fast-forwarded, resolve the branch conflict manually before retrying.`;
 }
 
 function buildGitResult(

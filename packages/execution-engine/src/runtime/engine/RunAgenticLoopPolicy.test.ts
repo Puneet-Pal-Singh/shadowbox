@@ -199,12 +199,378 @@ describe("RunAgenticLoopPolicy", () => {
       "I inspected the workspace, but I did not complete the requested change because no mutating tool succeeded.",
     );
     expect(output).toContain(
-      "I checked 1 read-only tool action(s): read_file (tool-1): README contents",
+      "Before the run stopped, I completed 1 tool action(s) to inspect or verify the workspace (read_file).",
     );
     expect(output).toContain(
-      "The run hit 1 failure(s): write_file (tool-2): Permission denied",
+      "A required write_file action failed: Permission denied",
     );
     expect(output).not.toContain("I'll update the file now.");
+  });
+
+  it("explains missing sandbox cwd failures without dumping raw tool telemetry", () => {
+    const result: AgenticLoopResult = {
+      stopReason: "tool_error",
+      messages: [
+        { role: "user", content: "make the hero prettier with floating carousels" },
+      ],
+      toolExecutionCount: 3,
+      failedToolCount: 1,
+      stepsExecuted: 3,
+      requiresMutation: true,
+      completedMutatingToolCount: 1,
+      completedReadOnlyToolCount: 1,
+      toolLifecycle: [
+        {
+          toolCallId: "tool-1",
+          toolName: "write_file",
+          status: "completed",
+          mutating: true,
+          recordedAt: new Date().toISOString(),
+          detail: "updated src/components/landing/hero/FloatingCarousels.tsx",
+          metadata: {
+            family: "edit",
+            filePath: "src/components/landing/hero/FloatingCarousels.tsx",
+            additions: 42,
+            deletions: 0,
+          },
+        },
+        {
+          toolCallId: "tool-2",
+          toolName: "bash",
+          status: "failed",
+          mutating: true,
+          recordedAt: new Date().toISOString(),
+          detail:
+            "bash: line 1: cd: /home/user/repos/career-crew: No such file or directory",
+          metadata: {
+            family: "shell",
+            command:
+              "cd /home/user/repos/career-crew && npx next lint --file src/components/landing/hero/FloatingCarousels.tsx",
+            cwd: ".",
+            origin: "agent_tool",
+            stderr:
+              "bash: line 1: cd: /home/user/repos/career-crew: No such file or directory",
+            truncated: false,
+          },
+        },
+      ],
+    };
+
+    const output = buildAgenticLoopFinalOutput(result);
+
+    expect(output).toContain(
+      "I completed the requested update and changed this file:",
+    );
+    expect(output).toContain(
+      "A shell step failed because it tried to change into /home/user/repos/career-crew, which does not exist in this sandbox.",
+    );
+    expect(output).toContain("run it in your local terminal");
+    expect(output).not.toContain("tool-2");
+  });
+
+  it("marks tool failures as recoverable with a user-facing retry hint", () => {
+    const result: AgenticLoopResult = {
+      stopReason: "tool_error",
+      messages: [{ role: "user", content: "commit the updated files" }],
+      toolExecutionCount: 2,
+      failedToolCount: 1,
+      stepsExecuted: 2,
+      requiresMutation: false,
+      completedMutatingToolCount: 0,
+      completedReadOnlyToolCount: 1,
+      toolLifecycle: [
+        {
+          toolCallId: "tool-1",
+          toolName: "git_status",
+          status: "completed",
+          mutating: false,
+          recordedAt: new Date().toISOString(),
+        },
+        {
+          toolCallId: "tool-2",
+          toolName: "bash",
+          status: "failed",
+          mutating: true,
+          recordedAt: new Date().toISOString(),
+          detail: "Invalid command argument: multiline values are not allowed",
+          metadata: {
+            family: "shell",
+            command:
+              'git add src/components/Hero.tsx && git commit -m "feat: add hero\n\nbody"',
+            origin: "agent_tool",
+            truncated: false,
+          },
+        },
+      ],
+    };
+
+    const finalMessage = buildAgenticLoopFinalMessage(result);
+
+    expect(finalMessage.text).toContain(
+      "I couldn't finish the git step in the sandbox because the shell command was malformed for the bounded executor.",
+    );
+    expect(finalMessage.metadata).toMatchObject({
+      code: "TOOL_EXECUTION_FAILED",
+      retryable: true,
+      resumeActions: ["retry", "open_terminal"],
+    });
+    expect(finalMessage.metadata?.resumeHint).toContain(
+      "finish the remaining git command in your local terminal",
+    );
+  });
+
+  it("describes completed git mutations as repository-changing work", () => {
+    const result: AgenticLoopResult = {
+      stopReason: "tool_error",
+      messages: [{ role: "user", content: "push the branch" }],
+      toolExecutionCount: 2,
+      failedToolCount: 1,
+      stepsExecuted: 2,
+      requiresMutation: true,
+      completedMutatingToolCount: 1,
+      completedReadOnlyToolCount: 0,
+      toolLifecycle: [
+        {
+          toolCallId: "tool-1",
+          toolName: "git_commit",
+          status: "completed",
+          mutating: true,
+          recordedAt: "2026-04-05T00:00:00.000Z",
+        },
+        {
+          toolCallId: "tool-2",
+          toolName: "git_push",
+          status: "failed",
+          mutating: true,
+          recordedAt: "2026-04-05T00:00:01.000Z",
+          detail: "non-fast-forward",
+        },
+      ],
+    };
+
+    const output = buildAgenticLoopFinalOutput(result);
+
+    expect(output).toContain(
+      "Before the run stopped, I completed 1 git action(s) that changed repository state (git_commit).",
+    );
+  });
+
+  it("uses the terminal failed tool when building retry metadata", () => {
+    const finalMessage = buildAgenticLoopFinalMessage({
+      stopReason: "tool_error",
+      messages: [{ role: "user", content: "continue?" }],
+      toolExecutionCount: 3,
+      failedToolCount: 2,
+      stepsExecuted: 3,
+      requiresMutation: true,
+      completedMutatingToolCount: 1,
+      completedReadOnlyToolCount: 0,
+      toolLifecycle: [
+        {
+          toolCallId: "tool-1",
+          toolName: "git_push",
+          status: "failed",
+          mutating: true,
+          recordedAt: "2026-04-05T00:00:01.000Z",
+          detail: "non-fast-forward",
+        },
+        {
+          toolCallId: "tool-2",
+          toolName: "bash",
+          status: "failed",
+          mutating: true,
+          recordedAt: "2026-04-05T00:00:02.000Z",
+          detail:
+            "bash: line 1: cd: /home/user/repos/career-crew: No such file or directory",
+          metadata: {
+            family: "shell",
+            command: "cd /home/user/repos/career-crew && npm test",
+            cwd: ".",
+            origin: "agent_tool",
+            stderr:
+              "bash: line 1: cd: /home/user/repos/career-crew: No such file or directory",
+            truncated: false,
+          },
+        },
+      ],
+    });
+
+    expect(finalMessage.metadata?.resumeHint).toContain(
+      "Retry the step from the workspace root.",
+    );
+    expect(finalMessage.text).toContain(
+      "tried to change into /home/user/repos/career-crew",
+    );
+  });
+
+  it("explains gh pr create bash failures as dedicated PR-tool recovery", () => {
+    const result: AgenticLoopResult = {
+      stopReason: "tool_error",
+      messages: [{ role: "user", content: "create a PR" }],
+      toolExecutionCount: 5,
+      failedToolCount: 1,
+      stepsExecuted: 5,
+      requiresMutation: false,
+      completedMutatingToolCount: 0,
+      completedReadOnlyToolCount: 4,
+      toolLifecycle: [
+        {
+          toolCallId: "tool-1",
+          toolName: "git_push",
+          status: "completed",
+          mutating: true,
+          recordedAt: new Date().toISOString(),
+        },
+        {
+          toolCallId: "tool-2",
+          toolName: "bash",
+          status: "failed",
+          mutating: true,
+          recordedAt: new Date().toISOString(),
+          detail:
+            "Invalid arguments for tool bash: command exceeded the maximum length",
+          metadata: {
+            family: "shell",
+            command:
+              'gh pr create --base main --head feat/floating-hero-carousels --title "feat: add floating carousels to hero section" --body "too much text"',
+            origin: "agent_tool",
+            truncated: false,
+          },
+        },
+      ],
+    };
+
+    const finalMessage = buildAgenticLoopFinalMessage(result);
+
+    expect(finalMessage.text).toContain(
+      "I couldn't finish the pull request step because it was attempted through bash instead of the dedicated GitHub-backed PR action.",
+    );
+    expect(finalMessage.metadata?.resumeHint).toContain(
+      "Retry the pull request step so it uses the dedicated PR action.",
+    );
+  });
+
+  it("explains non-fast-forward push failures without implying file loss", () => {
+    const result: AgenticLoopResult = {
+      stopReason: "tool_error",
+      messages: [{ role: "user", content: "push the branch" }],
+      toolExecutionCount: 4,
+      failedToolCount: 1,
+      stepsExecuted: 4,
+      requiresMutation: true,
+      completedMutatingToolCount: 2,
+      completedReadOnlyToolCount: 1,
+      toolLifecycle: [
+        {
+          toolCallId: "tool-1",
+          toolName: "write_file",
+          status: "completed",
+          mutating: true,
+          recordedAt: new Date().toISOString(),
+          metadata: {
+            family: "edit",
+            filePath: "src/components/landing/hero/FloatingCarousels.tsx",
+            additions: 62,
+            deletions: 0,
+          },
+        },
+        {
+          toolCallId: "tool-2",
+          toolName: "git_commit",
+          status: "completed",
+          mutating: true,
+          recordedAt: new Date().toISOString(),
+          detail: "feat: add floating carousels to hero section",
+          metadata: {
+            family: "git",
+            displayText: "Creating git commit",
+            preview: "feat: add floating carousels to hero section",
+          },
+        },
+        {
+          toolCallId: "tool-3",
+          toolName: "git_push",
+          status: "failed",
+          mutating: true,
+          recordedAt: new Date().toISOString(),
+          detail:
+            "Push failed because origin/feat/floating-hero-carousels already has newer commits. Your file changes are already committed locally.",
+        },
+      ],
+    };
+
+    const finalMessage = buildAgenticLoopFinalMessage(result);
+
+    expect(finalMessage.text).toContain(
+      "Your file changes were already committed locally, so they were not lost.",
+    );
+    expect(finalMessage.metadata?.resumeHint).toContain(
+      "The changes are already committed locally. Retry by syncing the branch with git_pull, then run git_push again.",
+    );
+  });
+
+  it("explains missing local git refs during push recovery in plain language", () => {
+    const result: AgenticLoopResult = {
+      stopReason: "tool_error",
+      messages: [{ role: "user", content: "continue?" }],
+      toolExecutionCount: 2,
+      failedToolCount: 1,
+      stepsExecuted: 2,
+      requiresMutation: true,
+      completedMutatingToolCount: 1,
+      completedReadOnlyToolCount: 1,
+      toolLifecycle: [
+        {
+          toolCallId: "tool-0",
+          toolName: "write_file",
+          status: "completed",
+          mutating: true,
+          recordedAt: new Date().toISOString(),
+          metadata: {
+            family: "edit",
+            filePath: "src/components/landing/hero/FloatingCarousels.tsx",
+            additions: 62,
+            deletions: 0,
+          },
+        },
+        {
+          toolCallId: "tool-1",
+          toolName: "git_pull",
+          status: "completed",
+          mutating: true,
+          recordedAt: new Date().toISOString(),
+          detail: "Already up to date",
+          metadata: {
+            family: "git",
+            branch: "feat/floating-hero-carousels",
+            preview: "feat/floating-hero-carousels",
+          },
+        },
+        {
+          toolCallId: "tool-2",
+          toolName: "git_push",
+          status: "failed",
+          mutating: true,
+          recordedAt: new Date().toISOString(),
+          detail:
+            "error: src refspec feat/floating-hero-carousels does not match any",
+          metadata: {
+            family: "git",
+            branch: "feat/floating-hero-carousels",
+            preview: "feat/floating-hero-carousels",
+          },
+        },
+      ],
+    };
+
+    const finalMessage = buildAgenticLoopFinalMessage(result);
+
+    expect(finalMessage.text).toContain(
+      "the local branch ref was missing in the resumed workspace",
+    );
+    expect(finalMessage.metadata?.resumeHint).toContain(
+      "re-opening the correct workspace branch",
+    );
   });
 
   it("records tool lifecycle snapshots in run metadata", () => {

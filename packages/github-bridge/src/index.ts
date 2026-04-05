@@ -21,6 +21,7 @@ export {
 // API Client
 export {
   GitHubAPIClient,
+  type GitHubEmail,
   type Repository,
   type Branch,
   type FileContent,

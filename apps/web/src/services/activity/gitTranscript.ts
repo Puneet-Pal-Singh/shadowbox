@@ -13,6 +13,10 @@ export function getGitCommandLabel(item: ToolActivityPart): string {
       const path = typeof metadata.path === "string" ? metadata.path : "";
       return path ? `git diff -- ${path}` : "git diff";
     }
+    case "git_create_pull_request":
+      return "create pull request";
+    case "git_pull":
+      return "git pull --ff-only";
     default:
       return item.toolName
         .split(/[_-]/g)
@@ -62,6 +66,14 @@ export function getGitSummary(item: ToolActivityPart): string {
     }
 
     return summaryParts.join(" · ");
+  }
+
+  if (item.toolName === "git_create_pull_request") {
+    return "Pull request created";
+  }
+
+  if (item.toolName === "git_pull") {
+    return "Branch synced";
   }
 
   return metadata.count ? `${metadata.count} changed lines` : "";

@@ -1483,7 +1483,7 @@ describe("RunEngine", () => {
       "I inspected the workspace, but I did not complete the requested change because no mutating tool succeeded.",
     );
     expect(output).toContain(
-      "The run hit 1 failure(s): write_file (write-1): Permission denied",
+      "A required write_file action failed: Permission denied",
     );
     expect(output).toContain(
       "No file changed in this run. Retry with a more specific target file, component, or edit instruction so I can attempt the mutation again.",
@@ -1501,6 +1501,1007 @@ describe("RunEngine", () => {
         (event) => event.status,
       ),
     ).toEqual(["requested", "started", "failed"]);
+  });
+
+  it("preserves continuation context across recycled runs and recovers git work with dedicated tools", async () => {
+    const state = new MockRuntimeState();
+    const generateText = vi
+      .fn()
+      .mockResolvedValueOnce({
+        text: "I'll update the hero and try to commit it.",
+        toolCalls: [
+          {
+            id: "write-hero-1",
+            toolName: "write_file",
+            args: {
+              path: "src/components/landing/hero/FloatingCarousels.tsx",
+              content:
+                "export function FloatingCarousels() {\n  return null;\n}\n",
+            },
+          },
+          {
+            id: "git-shell-1",
+            toolName: "bash",
+            args: {
+              command:
+                'git add src/components/landing/hero/FloatingCarousels.tsx && git commit -m "feat: add floating carousels\n\nbody"',
+            },
+          },
+        ],
+        usage: {
+          provider: "mock",
+          model: "mock-model",
+          promptTokens: 8,
+          completionTokens: 10,
+          totalTokens: 18,
+        },
+      })
+      .mockImplementationOnce(async (request) => {
+        const system = String(
+          (request as {
+            system?: string;
+          }).system ?? "",
+        );
+
+        expect(system).toContain("Continuation context:");
+        expect(system).toContain(
+          "Previous request: make the hero prettier and commit the change",
+        );
+        expect(system).toContain(
+          "Files already changed in the workspace: src/components/landing/hero/FloatingCarousels.tsx",
+        );
+        expect(system).toContain(
+          "Last failed step: bash - Invalid command argument: multiline values are not allowed",
+        );
+        expect(system).toContain(
+          "Use the dedicated git tools for branch creation, staging, committing, and pushing instead of composing git shell commands.",
+        );
+
+        return {
+          text: "I'll finish the git work with dedicated actions.",
+          toolCalls: [
+            {
+              id: "git-stage-1",
+              toolName: "git_stage",
+              args: {
+                files: ["src/components/landing/hero/FloatingCarousels.tsx"],
+              },
+            },
+            {
+              id: "git-commit-1",
+              toolName: "git_commit",
+              args: {
+                message: "feat: add floating carousels to hero section",
+              },
+            },
+          ],
+          usage: {
+            provider: "mock",
+            model: "mock-model",
+            promptTokens: 7,
+            completionTokens: 9,
+            totalTokens: 16,
+          },
+        };
+      })
+      .mockResolvedValueOnce({
+        text: "Committed the carousel changes successfully.",
+        toolCalls: [],
+        usage: {
+          provider: "mock",
+          model: "mock-model",
+          promptTokens: 5,
+          completionTokens: 4,
+          totalTokens: 9,
+        },
+      });
+
+    const llmGateway: ILLMGateway = {
+      generateText,
+      generateStructured: async () => ({
+        object: { tasks: [], metadata: { estimatedSteps: 1 } },
+        usage: {
+          provider: "mock",
+          model: "mock-model",
+          promptTokens: 1,
+          completionTokens: 1,
+          totalTokens: 2,
+        },
+      }),
+      generateStream: async () =>
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.close();
+          },
+        }),
+    };
+
+    const executionService: RuntimeExecutionService = {
+      execute: vi.fn(
+        async (
+          plugin: string,
+          action: string,
+          payload: Record<string, unknown>,
+        ) => {
+          if (plugin === "filesystem" && action === "read_file") {
+            return {
+              success: false,
+              error: "ENOENT: no such file or directory",
+            };
+          }
+          if (plugin === "filesystem" && action === "write_file") {
+            return {
+              success: true,
+              output:
+                "Wrote 56 bytes to src/components/landing/hero/FloatingCarousels.tsx",
+            };
+          }
+          if (plugin === "bash" && action === "run") {
+            return {
+              success: false,
+              error: "Invalid command argument: multiline values are not allowed",
+            };
+          }
+          if (plugin === "git" && action === "git_stage") {
+            return {
+              success: true,
+              output:
+                "Staged src/components/landing/hero/FloatingCarousels.tsx",
+            };
+          }
+          if (plugin === "git" && action === "git_commit") {
+            return {
+              success: true,
+              output:
+                "[feature/floating-hero-carousels abc1234] feat: add floating carousels to hero section",
+            };
+          }
+          return {
+            success: false,
+            error: `Unexpected route ${plugin}:${action} ${JSON.stringify(payload)}`,
+          };
+        },
+      ),
+    };
+
+    const runEngine = new RunEngine(
+      state,
+      {
+        env: { NODE_ENV: "test" } as unknown,
+        sessionId: "session-1",
+        runId: TEST_RUN_ID,
+        correlationId: "corr-continue-git-recovery",
+      },
+      new CodingAgent(llmGateway, executionService),
+      undefined,
+      { llmGateway },
+    );
+
+    const firstResponse = await runEngine.execute(
+      {
+        agentType: "coding",
+        prompt: "make the hero prettier and commit the change",
+        sessionId: "session-1",
+        repositoryContext: { owner: "sourcegraph", repo: "shadowbox" },
+        metadata: { featureFlags: { agenticLoopV1: true } },
+      },
+      [
+        {
+          role: "user",
+          content: "make the hero prettier and commit the change",
+        },
+      ],
+      {},
+    );
+
+    expect(firstResponse.status).toBe(200);
+    const firstOutput = await firstResponse.text();
+    expect(firstOutput).toContain(
+      "I couldn't finish the git step in the sandbox because the shell command was malformed for the bounded executor.",
+    );
+
+    const firstPersistedRun = await (
+      runEngine as unknown as {
+        getRun(runId: string): Promise<Run | null>;
+      }
+    ).getRun(TEST_RUN_ID);
+    const failedShellEvent = firstPersistedRun?.metadata.agenticLoop?.toolLifecycle
+      ?.slice()
+      .reverse()
+      .find((event) => event.status === "failed");
+    expect(failedShellEvent).toMatchObject({
+      toolName: "bash",
+      metadata: {
+        family: "shell",
+        command:
+          'git add src/components/landing/hero/FloatingCarousels.tsx && git commit -m "feat: add floating carousels\n\nbody"',
+      },
+    });
+
+    const firstRunEvents = await new RunEventRepository(state).getByRun(
+      TEST_RUN_ID,
+    );
+    const firstAssistantEvent = [...firstRunEvents]
+      .reverse()
+      .find(
+        (event) =>
+          event.type === RUN_EVENT_TYPES.MESSAGE_EMITTED &&
+          event.payload.role === "assistant",
+      );
+    expect(firstAssistantEvent?.payload.metadata).toMatchObject({
+      code: "TOOL_EXECUTION_FAILED",
+      retryable: true,
+      resumeActions: ["retry", "open_terminal"],
+    });
+    expect(
+      String(firstAssistantEvent?.payload.metadata?.resumeHint ?? ""),
+    ).toContain("Retry the git step so it uses the dedicated git action.");
+
+    const secondResponse = await runEngine.execute(
+      {
+        agentType: "coding",
+        prompt: "continue?",
+        sessionId: "session-1",
+        repositoryContext: { owner: "sourcegraph", repo: "shadowbox" },
+        metadata: { featureFlags: { agenticLoopV1: true } },
+      },
+      [
+        {
+          role: "user",
+          content: "make the hero prettier and commit the change",
+        },
+        {
+          role: "assistant",
+          content: firstOutput,
+        },
+        {
+          role: "user",
+          content: "continue?",
+        },
+      ],
+      {},
+    );
+
+    expect(secondResponse.status).toBe(200);
+    expect(await secondResponse.text()).toContain(
+      "Committed the carousel changes successfully.",
+    );
+
+    const executeSpy = executionService.execute as ReturnType<typeof vi.fn>;
+    expect(executeSpy).toHaveBeenCalledWith(
+      "git",
+      "git_stage",
+      {
+        files: ["src/components/landing/hero/FloatingCarousels.tsx"],
+      },
+      undefined,
+    );
+    expect(executeSpy).toHaveBeenCalledWith(
+      "git",
+      "git_commit",
+      {
+        message: "feat: add floating carousels to hero section",
+      },
+      undefined,
+    );
+
+    const persisted = await (
+      runEngine as unknown as {
+        getRun(runId: string): Promise<Run | null>;
+      }
+    ).getRun(TEST_RUN_ID);
+    expect(persisted?.metadata.continuation).toMatchObject({
+      previousPrompt: "make the hero prettier and commit the change",
+      failedToolName: "bash",
+      completedFiles: ["src/components/landing/hero/FloatingCarousels.tsx"],
+    });
+    expect(persisted?.metadata.agenticLoop?.stopReason).toBe("llm_stop");
+  });
+
+  it("resumes from completed git progress and recovers PR creation with the dedicated tool", async () => {
+    const state = new MockRuntimeState();
+    const generateText = vi
+      .fn()
+      .mockResolvedValueOnce({
+        text: "I'll branch, commit, push, and open the PR.",
+        toolCalls: [
+          {
+            id: "git-branch-1",
+            toolName: "git_branch_create",
+            args: {
+              branch: "feat/floating-hero-carousels",
+            },
+          },
+          {
+            id: "git-stage-1",
+            toolName: "git_stage",
+            args: {
+              files: [
+                "src/components/landing/hero/FloatingCarousels.tsx",
+                "src/components/landing/hero/index.tsx",
+              ],
+            },
+          },
+          {
+            id: "git-commit-1",
+            toolName: "git_commit",
+            args: {
+              message: "feat: add floating carousels to hero section",
+            },
+          },
+          {
+            id: "git-push-1",
+            toolName: "git_push",
+            args: {
+              branch: "feat/floating-hero-carousels",
+              remote: "origin",
+            },
+          },
+          {
+            id: "bash-pr-1",
+            toolName: "bash",
+            args: {
+              command:
+                'gh pr create --base main --head feat/floating-hero-carousels --title "feat: add floating carousels to hero section"',
+            },
+          },
+        ],
+        usage: {
+          provider: "mock",
+          model: "mock-model",
+          promptTokens: 9,
+          completionTokens: 10,
+          totalTokens: 19,
+        },
+      })
+      .mockImplementationOnce(async (request) => {
+        const system = String(
+          (request as {
+            system?: string;
+          }).system ?? "",
+        );
+
+        expect(system).toContain("Continuation context:");
+        expect(system).toContain(
+          "Git progress already completed in this workspace:",
+        );
+        expect(system).toContain(
+          "Branch created: feat/floating-hero-carousels",
+        );
+        expect(system).toContain(
+          "Commit created: feat: add floating carousels to hero section",
+        );
+        expect(system).toContain(
+          "Branch pushed: feat/floating-hero-carousels",
+        );
+        expect(system).toContain(
+          "Create the pull request with the dedicated git_create_pull_request tool instead of bash or gh.",
+        );
+        expect(system).toContain(
+          "Do not repeat successful inspection or rewrite already-updated files unless the current workspace proves the change is missing.",
+        );
+
+        return {
+          text: "I'll finish the PR step with the dedicated tool.",
+          toolCalls: [
+            {
+              id: "git-pr-1",
+              toolName: "git_create_pull_request",
+              args: {
+                owner: "sourcegraph",
+                repo: "shadowbox",
+                title: "feat: add floating carousels to hero section",
+                body: "Adds floating carousels to the hero section.",
+              },
+            },
+          ],
+          usage: {
+            provider: "mock",
+            model: "mock-model",
+            promptTokens: 7,
+            completionTokens: 8,
+            totalTokens: 15,
+          },
+        };
+      })
+      .mockResolvedValueOnce({
+        text: "The pull request is now created.",
+        toolCalls: [],
+        usage: {
+          provider: "mock",
+          model: "mock-model",
+          promptTokens: 5,
+          completionTokens: 4,
+          totalTokens: 9,
+        },
+      });
+
+    const llmGateway: ILLMGateway = {
+      generateText,
+      generateStructured: async () => ({
+        object: { tasks: [], metadata: { estimatedSteps: 1 } },
+        usage: {
+          provider: "mock",
+          model: "mock-model",
+          promptTokens: 1,
+          completionTokens: 1,
+          totalTokens: 2,
+        },
+      }),
+      generateStream: async () =>
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.close();
+          },
+        }),
+    };
+
+    const executionService: RuntimeExecutionService = {
+      execute: vi.fn(
+        async (
+          plugin: string,
+          action: string,
+          payload: Record<string, unknown>,
+        ) => {
+          if (plugin === "git" && action === "git_branch_create") {
+            return {
+              success: true,
+              output: "Switched to a new branch 'feat/floating-hero-carousels'",
+            };
+          }
+          if (plugin === "git" && action === "git_stage") {
+            return {
+              success: true,
+              output:
+                "Staged src/components/landing/hero/FloatingCarousels.tsx, src/components/landing/hero/index.tsx",
+            };
+          }
+          if (plugin === "git" && action === "git_commit") {
+            return {
+              success: true,
+              output:
+                "[feat/floating-hero-carousels abc1234] feat: add floating carousels to hero section",
+            };
+          }
+          if (plugin === "git" && action === "git_push") {
+            return {
+              success: true,
+              output:
+                "branch 'feat/floating-hero-carousels' set up to track 'origin/feat/floating-hero-carousels'",
+            };
+          }
+          if (plugin === "git" && action === "git_create_pull_request") {
+            return {
+              success: true,
+              output:
+                "Created pull request #221: https://github.com/sourcegraph/shadowbox/pull/221",
+            };
+          }
+          if (plugin === "bash" && action === "run") {
+            return {
+              success: false,
+              error:
+                "Invalid arguments for tool bash: command exceeded the maximum length",
+            };
+          }
+          return {
+            success: false,
+            error: `Unexpected route ${plugin}:${action} ${JSON.stringify(payload)}`,
+          };
+        },
+      ),
+    };
+
+    const runEngine = new RunEngine(
+      state,
+      {
+        env: { NODE_ENV: "test" } as unknown,
+        sessionId: "session-1",
+        runId: TEST_RUN_ID,
+        correlationId: "corr-pr-recovery",
+      },
+      new CodingAgent(llmGateway, executionService),
+      undefined,
+      { llmGateway },
+    );
+
+    const firstResponse = await runEngine.execute(
+      {
+        agentType: "coding",
+        prompt: "commit it, create a new branch and create a pr on github",
+        sessionId: "session-1",
+        repositoryContext: { owner: "sourcegraph", repo: "shadowbox" },
+        metadata: { featureFlags: { agenticLoopV1: true } },
+      },
+      [
+        {
+          role: "user",
+          content: "commit it, create a new branch and create a pr on github",
+        },
+      ],
+      {},
+    );
+
+    expect(firstResponse.status).toBe(200);
+    const firstOutput = await firstResponse.text();
+    expect(firstOutput).toContain(
+      "I couldn't finish the pull request step because it was attempted through bash instead of the dedicated GitHub-backed PR action.",
+    );
+
+    const secondResponse = await runEngine.execute(
+      {
+        agentType: "coding",
+        prompt: "continue?",
+        sessionId: "session-1",
+        repositoryContext: { owner: "sourcegraph", repo: "shadowbox" },
+        metadata: { featureFlags: { agenticLoopV1: true } },
+      },
+      [
+        {
+          role: "user",
+          content: "commit it, create a new branch and create a pr on github",
+        },
+        {
+          role: "assistant",
+          content: firstOutput,
+        },
+        {
+          role: "user",
+          content: "continue?",
+        },
+      ],
+      {},
+    );
+
+    expect(secondResponse.status).toBe(200);
+    expect(await secondResponse.text()).toContain("The pull request is now created.");
+
+    const executeSpy = executionService.execute as ReturnType<typeof vi.fn>;
+    expect(executeSpy).toHaveBeenCalledWith(
+      "git",
+      "git_create_pull_request",
+      {
+        owner: "sourcegraph",
+        repo: "shadowbox",
+        title: "feat: add floating carousels to hero section",
+        body: "Adds floating carousels to the hero section.",
+      },
+      undefined,
+    );
+
+    const persisted = await (
+      runEngine as unknown as {
+        getRun(runId: string): Promise<Run | null>;
+      }
+    ).getRun(TEST_RUN_ID);
+    expect(persisted?.metadata.continuation).toMatchObject({
+      previousPrompt: "commit it, create a new branch and create a pr on github",
+      completedGitSteps: [
+        "Branch created: feat/floating-hero-carousels",
+        "Commit created: feat: add floating carousels to hero section",
+        "Branch pushed: feat/floating-hero-carousels",
+      ],
+    });
+  });
+
+  it("resumes failed non-fast-forward pushes by syncing the branch instead of rewriting files", async () => {
+    const state = new MockRuntimeState();
+    const generateText = vi
+      .fn()
+      .mockResolvedValueOnce({
+        text: "I'll commit and push the branch.",
+        toolCalls: [
+          {
+            id: "git-stage-1",
+            toolName: "git_stage",
+            args: {
+              files: [
+                "src/components/landing/hero/FloatingCarousels.tsx",
+                "src/components/landing/hero/index.tsx",
+              ],
+            },
+          },
+          {
+            id: "git-commit-1",
+            toolName: "git_commit",
+            args: {
+              message: "feat: add floating carousels to hero section",
+            },
+          },
+          {
+            id: "git-push-1",
+            toolName: "git_push",
+            args: {
+              branch: "feat/floating-hero-carousels",
+              remote: "origin",
+            },
+          },
+        ],
+        usage: {
+          provider: "mock",
+          model: "mock-model",
+          promptTokens: 7,
+          completionTokens: 8,
+          totalTokens: 15,
+        },
+      })
+      .mockImplementationOnce(async (request) => {
+        const system = String(
+          (request as {
+            system?: string;
+          }).system ?? "",
+        );
+
+        expect(system).toContain(
+          "The previous push failed after the changes were already committed locally. A clean working tree does not mean the edits were lost.",
+        );
+        expect(system).toContain(
+          "Do not recreate or recommit files. Sync the branch with git_pull and retry git_push.",
+        );
+        expect(system).toContain(
+          "Commit created: feat: add floating carousels to hero section",
+        );
+
+        return {
+          text: "I'll sync the branch and retry the push.",
+          toolCalls: [
+            {
+              id: "git-pull-1",
+              toolName: "git_pull",
+              args: {
+                branch: "feat/floating-hero-carousels",
+                remote: "origin",
+              },
+            },
+            {
+              id: "git-push-2",
+              toolName: "git_push",
+              args: {
+                branch: "feat/floating-hero-carousels",
+                remote: "origin",
+              },
+            },
+          ],
+          usage: {
+            provider: "mock",
+            model: "mock-model",
+            promptTokens: 6,
+            completionTokens: 7,
+            totalTokens: 13,
+          },
+        };
+      })
+      .mockResolvedValueOnce({
+        text: "The branch is now synced and pushed.",
+        toolCalls: [],
+        usage: {
+          provider: "mock",
+          model: "mock-model",
+          promptTokens: 4,
+          completionTokens: 4,
+          totalTokens: 8,
+        },
+      });
+
+    const llmGateway: ILLMGateway = {
+      generateText,
+      generateStructured: async () => ({
+        object: { tasks: [], metadata: { estimatedSteps: 1 } },
+        usage: {
+          provider: "mock",
+          model: "mock-model",
+          promptTokens: 1,
+          completionTokens: 1,
+          totalTokens: 2,
+        },
+      }),
+      generateStream: async () =>
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.close();
+          },
+        }),
+    };
+
+    let pushAttempt = 0;
+    const executionService: RuntimeExecutionService = {
+      execute: vi.fn(
+        async (
+          plugin: string,
+          action: string,
+          payload: Record<string, unknown>,
+        ) => {
+          if (plugin === "git" && action === "git_stage") {
+            return {
+              success: true,
+              output:
+                "Staged src/components/landing/hero/FloatingCarousels.tsx, src/components/landing/hero/index.tsx",
+            };
+          }
+          if (plugin === "git" && action === "git_commit") {
+            return {
+              success: true,
+              output:
+                "[feat/floating-hero-carousels abc1234] feat: add floating carousels to hero section",
+            };
+          }
+          if (plugin === "git" && action === "git_push") {
+            pushAttempt += 1;
+            if (pushAttempt === 1) {
+              return {
+                success: false,
+                error:
+                  "Push failed because origin/feat/floating-hero-carousels already has newer commits. Your file changes are already committed locally.",
+              };
+            }
+            return {
+              success: true,
+              output:
+                "branch 'feat/floating-hero-carousels' set up to track 'origin/feat/floating-hero-carousels'",
+            };
+          }
+          if (plugin === "git" && action === "git_pull") {
+            return {
+              success: true,
+              output:
+                "Already up to date after fast-forward sync for feat/floating-hero-carousels",
+            };
+          }
+          return {
+            success: false,
+            error: `Unexpected route ${plugin}:${action} ${JSON.stringify(payload)}`,
+          };
+        },
+      ),
+    };
+
+    const runEngine = new RunEngine(
+      state,
+      {
+        env: { NODE_ENV: "test" } as unknown,
+        sessionId: "session-1",
+        runId: TEST_RUN_ID,
+        correlationId: "corr-push-recovery",
+      },
+      new CodingAgent(llmGateway, executionService),
+      undefined,
+      { llmGateway },
+    );
+
+    const firstResponse = await runEngine.execute(
+      {
+        agentType: "coding",
+        prompt: "commit and push the branch",
+        sessionId: "session-1",
+        repositoryContext: { owner: "sourcegraph", repo: "shadowbox" },
+        metadata: { featureFlags: { agenticLoopV1: true } },
+      },
+      [{ role: "user", content: "commit and push the branch" }],
+      {},
+    );
+
+    expect(firstResponse.status).toBe(200);
+    const firstOutput = await firstResponse.text();
+    expect(firstOutput).toContain(
+      "Your file changes were already committed locally, so they were not lost.",
+    );
+
+    const secondResponse = await runEngine.execute(
+      {
+        agentType: "coding",
+        prompt: "continue?",
+        sessionId: "session-1",
+        repositoryContext: { owner: "sourcegraph", repo: "shadowbox" },
+        metadata: { featureFlags: { agenticLoopV1: true } },
+      },
+      [
+        { role: "user", content: "commit and push the branch" },
+        { role: "assistant", content: firstOutput },
+        { role: "user", content: "continue?" },
+      ],
+      {},
+    );
+
+    expect(secondResponse.status).toBe(200);
+    expect(await secondResponse.text()).toContain(
+      "The branch is now synced and pushed.",
+    );
+
+    const executeSpy = executionService.execute as ReturnType<typeof vi.fn>;
+    expect(executeSpy).toHaveBeenCalledWith(
+      "git",
+      "git_pull",
+      {
+        branch: "feat/floating-hero-carousels",
+        remote: "origin",
+      },
+      undefined,
+    );
+    expect(executeSpy).toHaveBeenCalledWith(
+      "git",
+      "git_push",
+      {
+        branch: "feat/floating-hero-carousels",
+        remote: "origin",
+      },
+      undefined,
+    );
+  });
+
+  it("bootstraps recycled continuation turns onto the preserved active branch", async () => {
+    const state = new MockRuntimeState();
+    const workspaceBootstrapper = {
+      bootstrap: vi.fn(async () => ({ status: "ready" as const })),
+    };
+    const generateText = vi
+      .fn()
+      .mockResolvedValueOnce({
+        text: "I'll create the branch and push it.",
+        toolCalls: [
+          {
+            id: "git-branch-1",
+            toolName: "git_branch_create",
+            args: {
+              branch: "feat/floating-hero-carousels",
+            },
+          },
+          {
+            id: "git-push-1",
+            toolName: "git_push",
+            args: {
+              branch: "feat/floating-hero-carousels",
+              remote: "origin",
+            },
+          },
+        ],
+        usage: {
+          provider: "mock",
+          model: "mock-model",
+          promptTokens: 6,
+          completionTokens: 8,
+          totalTokens: 14,
+        },
+      })
+      .mockResolvedValueOnce({
+        text: "The branch step failed and needs another try.",
+        toolCalls: [],
+        usage: {
+          provider: "mock",
+          model: "mock-model",
+          promptTokens: 4,
+          completionTokens: 4,
+          totalTokens: 8,
+        },
+      })
+      .mockImplementationOnce(async (request) => {
+        const system = String(
+          (request as {
+            system?: string;
+          }).system ?? "",
+        );
+        expect(system).toContain(
+          "Resume on branch: feat/floating-hero-carousels",
+        );
+        return {
+          text: "Continuing on the preserved branch.",
+          toolCalls: [],
+          usage: {
+            provider: "mock",
+            model: "mock-model",
+            promptTokens: 4,
+            completionTokens: 4,
+            totalTokens: 8,
+          },
+        };
+      });
+
+    const llmGateway: ILLMGateway = {
+      generateText,
+      generateStructured: async () => ({
+        object: { tasks: [], metadata: { estimatedSteps: 1 } },
+        usage: {
+          provider: "mock",
+          model: "mock-model",
+          promptTokens: 1,
+          completionTokens: 1,
+          totalTokens: 2,
+        },
+      }),
+      generateStream: async () =>
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.close();
+          },
+        }),
+    };
+
+    const executionService: RuntimeExecutionService = {
+      execute: vi.fn(async (plugin: string, action: string) => {
+        if (plugin === "git" && action === "git_branch_create") {
+          return {
+            success: true,
+            output: "Created and switched to branch: feat/floating-hero-carousels",
+          };
+        }
+        if (plugin === "git" && action === "git_push") {
+          return {
+            success: false,
+            error:
+              "error: src refspec feat/floating-hero-carousels does not match any",
+          };
+        }
+        return {
+          success: false,
+          error: `Unexpected route ${plugin}:${action}`,
+        };
+      }),
+    };
+
+    const runEngine = new RunEngine(
+      state,
+      {
+        env: { NODE_ENV: "test" } as unknown,
+        sessionId: "session-1",
+        runId: TEST_RUN_ID,
+        correlationId: "corr-branch-bootstrap",
+      },
+      new CodingAgent(llmGateway, executionService),
+      undefined,
+      { llmGateway, workspaceBootstrapper },
+    );
+
+    await runEngine.execute(
+      {
+        agentType: "coding",
+        prompt: "create a branch and push it",
+        sessionId: "session-1",
+        repositoryContext: {
+          owner: "sourcegraph",
+          repo: "shadowbox",
+          branch: "main",
+        },
+        metadata: { featureFlags: { agenticLoopV1: true } },
+      },
+      [{ role: "user", content: "create a branch and push it" }],
+      {},
+    );
+
+    await runEngine.execute(
+      {
+        agentType: "coding",
+        prompt: "continue?",
+        sessionId: "session-1",
+        repositoryContext: {
+          owner: "sourcegraph",
+          repo: "shadowbox",
+          branch: "main",
+        },
+        metadata: { featureFlags: { agenticLoopV1: true } },
+      },
+      [
+        { role: "user", content: "create a branch and push it" },
+        { role: "assistant", content: "The branch step failed and needs another try." },
+        { role: "user", content: "continue?" },
+      ],
+      {},
+    );
+
+    expect(workspaceBootstrapper.bootstrap).toHaveBeenNthCalledWith(1, {
+      runId: TEST_RUN_ID,
+      repositoryContext: {
+        owner: "sourcegraph",
+        repo: "shadowbox",
+        branch: "main",
+      },
+    });
+    expect(workspaceBootstrapper.bootstrap).toHaveBeenNthCalledWith(2, {
+      runId: TEST_RUN_ID,
+      repositoryContext: {
+        owner: "sourcegraph",
+        repo: "shadowbox",
+        branch: "feat/floating-hero-carousels",
+      },
+    });
   });
 
   it("enforces the bounded golden-flow tool floor for agentic-loop tool maps", async () => {

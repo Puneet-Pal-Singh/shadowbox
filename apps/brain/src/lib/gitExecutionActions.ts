@@ -9,6 +9,7 @@ const CANONICAL_GIT_ACTIONS = {
   git_diff: "git_diff",
   git_commit: "git_commit",
   git_push: "git_push",
+  git_create_pull_request: "git_create_pull_request",
   git_pull: "git_pull",
   git_fetch: "git_fetch",
   git_branch_create: "git_branch_create",
@@ -22,4 +23,3 @@ const CANONICAL_GIT_ACTIONS = {
 export function toCanonicalGitExecutionAction(action: string): string {
   return CANONICAL_GIT_ACTIONS[action as keyof typeof CANONICAL_GIT_ACTIONS] ?? action;
 }
-

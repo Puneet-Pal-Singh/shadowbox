@@ -309,6 +309,38 @@ describe("RunActivityFeedProjector", () => {
 
     expect(tool.metadata.displayText).toBe("Reading README.md");
   });
+
+  it("projects dedicated git actions as git-family rows with a GitHub plugin label", () => {
+    const snapshot = projectRunActivityFeed({
+      runId: "run-git",
+      run: null,
+      events: [
+        createEvent(RUN_EVENT_TYPES.MESSAGE_EMITTED, {
+          content: "commit the hero changes",
+          role: "user",
+        }),
+        createEvent(RUN_EVENT_TYPES.TOOL_REQUESTED, {
+          toolId: "tool-git-commit",
+          toolName: "git_commit",
+          arguments: {
+            message: "feat: add floating carousels to hero section",
+          },
+        }),
+      ],
+    });
+
+    const tool = snapshot.items.find(
+      (item) =>
+        item.kind === ACTIVITY_PART_KINDS.TOOL &&
+        item.toolName === "git_commit",
+    );
+    expect(tool?.kind).toBe("tool");
+    if (tool?.kind !== "tool" || tool.metadata.family !== TOOL_ACTIVITY_FAMILIES.GIT) {
+      throw new Error("Expected git tool activity part");
+    }
+
+    expect(tool.metadata.pluginLabel).toBe("GitHub");
+  });
 });
 
 function createEvent<T extends RunEvent["type"]>(

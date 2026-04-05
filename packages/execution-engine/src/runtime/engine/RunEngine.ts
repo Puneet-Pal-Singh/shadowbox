@@ -21,6 +21,7 @@ import { TaskScheduler, type TaskExecutor } from "../orchestration/index.js";
 import { DefaultTaskExecutor, AgentTaskExecutor } from "./TaskExecutor.js";
 import { AgenticLoop } from "./AgenticLoop.js";
 import { executeAgenticLoopTool } from "./AgenticLoopToolExecutor.js";
+import { buildAgenticLoopWorkspaceContext } from "./RunContinuationContext.js";
 import {
   enforceGoldenFlowToolFloor,
   isGoldenFlowToolName,
@@ -290,6 +291,7 @@ export class RunEngine implements IRunEngine {
         this.persistConversationMessages(runId, sessionId, messages, "user"),
       );
       recordLifecycleStep(run, "CONTEXT_PREPARED");
+      const effectiveInput = run.input;
       const runMode = run.metadata.manifest?.mode ?? "build";
 
       if (
@@ -324,8 +326,8 @@ export class RunEngine implements IRunEngine {
         isPlatformApprovalOwner(run.metadata.manifest)
       ) {
         const permissionMessage = await getPermissionPolicyMessage(
-          input.prompt,
-          input.repositoryContext,
+          effectiveInput.prompt,
+          effectiveInput.repositoryContext,
           this.permissionApprovalStore,
         );
         if (permissionMessage) {
@@ -351,7 +353,7 @@ export class RunEngine implements IRunEngine {
       if (runMode === "build") {
         const bootstrapMessage = await getWorkspaceBootstrapMessage(
           run.id,
-          input.repositoryContext,
+          effectiveInput.repositoryContext,
           this.workspaceBootstrapper,
         );
         if (bootstrapMessage) {
@@ -368,7 +370,7 @@ export class RunEngine implements IRunEngine {
       if (runMode === "build") {
         return await this.executeAgenticLoopPath(
           run,
-          input,
+          effectiveInput,
           messages,
           enforceGoldenFlowToolFloor(tools),
         );
@@ -397,7 +399,7 @@ export class RunEngine implements IRunEngine {
 
         const plan = await this.generatePlan(
           run,
-          input.prompt,
+          effectiveInput.prompt,
           this.currentMemoryContext,
         );
         const planArtifact = persistPlanArtifact(run, plan);
@@ -477,7 +479,11 @@ export class RunEngine implements IRunEngine {
     try {
       const loopResult = await loop.execute(messages, tools, {
         agentType: run.agentType,
-        workspaceContext: buildAgenticLoopWorkspaceContext(input),
+        workspaceContext: buildAgenticLoopWorkspaceContext({
+          repositoryContext: input.repositoryContext,
+          prompt: input.prompt,
+          continuation: run.metadata.continuation,
+        }),
         isRunCancelled: async () => {
           const currentRun = await this.runRepo.getById(run.id);
           return currentRun?.status === "CANCELLED";
@@ -603,7 +609,7 @@ export class RunEngine implements IRunEngine {
     } catch (error) {
       const recoveryResponse = await this.tryHandleTaskExecutionError(
         run,
-        input.prompt,
+        run.input.prompt,
         loop,
         error,
       );
@@ -709,6 +715,7 @@ export class RunEngine implements IRunEngine {
           sessionId,
           input,
           previousStatus: existing.status,
+          existingRun: existing,
           taskRepo: this.taskRepo,
           runRepo: this.runRepo,
           createFreshRun: this.createFreshRun.bind(this),
@@ -942,35 +949,6 @@ export class RunEngine implements IRunEngine {
       maxCostPerSession: parseOptionalNumber(env.MAX_SESSION_BUDGET),
     };
   }
-}
-
-function buildAgenticLoopWorkspaceContext(
-  input: Pick<RunInput, "repositoryContext">,
-): string | undefined {
-  const repositoryContext = input.repositoryContext;
-  if (!repositoryContext) {
-    return undefined;
-  }
-
-  const repoName =
-    repositoryContext.owner && repositoryContext.repo
-      ? `${repositoryContext.owner}/${repositoryContext.repo}`
-      : (repositoryContext.repo ?? repositoryContext.owner);
-  const lines: string[] = [];
-
-  if (repoName) {
-    lines.push(`Repository: ${repoName}`);
-  }
-
-  if (repositoryContext.branch) {
-    lines.push(`Branch: ${repositoryContext.branch}`);
-  }
-
-  lines.push(
-    "The checked-out workspace is the source of truth. Inspect the real tree and answer from observed files or git state.",
-  );
-
-  return lines.join("\n");
 }
 
 function parseOptionalNumber(value?: string): number | undefined {

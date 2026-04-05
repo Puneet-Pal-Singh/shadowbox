@@ -105,6 +105,8 @@ const EditToolMetadataSchema = z.object({
 const GitToolMetadataSchema = z.object({
   family: z.literal(TOOL_ACTIVITY_FAMILIES.GIT),
   displayText: z.string().optional(),
+  pluginLabel: z.string().min(1).optional(),
+  branch: z.string().min(1).optional(),
   path: z.string().optional(),
   count: z.number().int().min(0).optional(),
   preview: z.string().optional(),

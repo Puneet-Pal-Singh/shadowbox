@@ -99,6 +99,9 @@ function createRouter(): Router {
   router.add(/\/api\/git\/bootstrap/, GitController.bootstrap, "POST");
   router.add(/\/api\/git\/stage/, GitController.stageFiles, "POST");
   router.add(/\/api\/git\/commit/, GitController.commit, "POST");
+  router.add(/\/api\/git\/branch/, GitController.createBranch, "POST");
+  router.add(/\/api\/git\/push/, GitController.push, "POST");
+  router.add(/\/api\/git\/pull-request/, GitController.createPullRequest, "POST");
   router.add(/^\/api\/run\/summary$/, RunController.getSummary, "GET");
   router.add(
     /^\/api\/run\/events\/stream$/,

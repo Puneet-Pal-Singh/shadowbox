@@ -308,6 +308,55 @@ describe("ActivityFeedViewModel", () => {
     ).toHaveLength(1);
   });
 
+  it("surfaces the plugin badge label for dedicated git tool rows", () => {
+    const viewModel = buildActivityFeedViewModel({
+      runId: "run-git-plugin",
+      sessionId: "session-git-plugin",
+      status: "COMPLETED",
+      items: [
+        {
+          id: "text-user",
+          runId: "run-git-plugin",
+          sessionId: "session-git-plugin",
+          turnId: "turn-1",
+          kind: ACTIVITY_PART_KINDS.TEXT,
+          createdAt: "2026-03-24T10:00:00.000Z",
+          updatedAt: "2026-03-24T10:00:00.000Z",
+          source: "brain",
+          role: "user",
+          content: "commit the changes",
+        },
+        {
+          id: "tool-git-commit",
+          runId: "run-git-plugin",
+          sessionId: "session-git-plugin",
+          turnId: "turn-1",
+          kind: ACTIVITY_PART_KINDS.TOOL,
+          createdAt: "2026-03-24T10:00:01.000Z",
+          updatedAt: "2026-03-24T10:00:01.000Z",
+          source: "brain",
+          toolId: "tool-git-commit",
+          toolName: "git_commit",
+          status: "completed",
+          metadata: {
+            family: TOOL_ACTIVITY_FAMILIES.GIT,
+            displayText: "Creating git commit",
+            pluginLabel: "GitHub",
+            preview:
+              "[feat/floating-hero-carousels abc1234] feat: add floating carousels to hero section",
+            count: 1,
+          },
+        },
+      ],
+    });
+
+    expect(viewModel.turns[0]?.rows[0]).toMatchObject({
+      kind: "tool",
+      pluginLabel: "GitHub",
+      title: "Creating git commit",
+    });
+  });
+
   it("drops thinking as soon as commentary or tool work supersedes it", () => {
     const viewModel = buildActivityFeedViewModel({
       runId: "run-thinking-superseded",

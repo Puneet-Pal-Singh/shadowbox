@@ -22,7 +22,10 @@ export class ToolboxPolicyService {
     const args = request.args ?? [];
     for (const arg of args) {
       if (/[\0\r\n]/.test(arg)) {
-        return { decision: "deny", reason: "Invalid command argument" };
+        return {
+          decision: "deny",
+          reason: "Invalid command argument: multiline values are not allowed",
+        };
       }
     }
 

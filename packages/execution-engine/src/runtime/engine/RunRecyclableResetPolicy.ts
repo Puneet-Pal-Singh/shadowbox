@@ -1,12 +1,14 @@
 import type { Run, RunRepository } from "../run/index.js";
 import type { Task, TaskRepository } from "../task/index.js";
 import type { RunInput, RunStatus } from "../types.js";
+import { createRunContinuationState } from "./RunContinuationContext.js";
 
 interface ResetRecyclableRunInput {
   runId: string;
   sessionId: string;
   input: RunInput;
   previousStatus: RunStatus;
+  existingRun: Run;
   taskRepo: Pick<TaskRepository, "getByRun" | "deleteByRun" | "create">;
   runRepo: Pick<RunRepository, "update">;
   createFreshRun: (runId: string, sessionId: string, input: RunInput) => Run;
@@ -15,9 +17,25 @@ interface ResetRecyclableRunInput {
 export async function resetRecyclableRun(
   params: ResetRecyclableRunInput,
 ): Promise<Run> {
-  const { runId, sessionId, input, previousStatus, taskRepo, runRepo } = params;
+  const {
+    runId,
+    sessionId,
+    input,
+    previousStatus,
+    existingRun,
+    taskRepo,
+    runRepo,
+  } = params;
   const taskSnapshot = await taskRepo.getByRun(runId);
-  const resetRun = params.createFreshRun(runId, sessionId, input);
+  const continuation = createRunContinuationState(existingRun);
+  const resetRun = params.createFreshRun(
+    runId,
+    sessionId,
+    applyContinuationRepositoryContext(input, continuation),
+  );
+  if (continuation) {
+    resetRun.metadata.continuation = continuation;
+  }
 
   try {
     await taskRepo.deleteByRun(runId);
@@ -31,6 +49,25 @@ export async function resetRecyclableRun(
     `[run/engine] Reset recyclable run ${runId} (${previousStatus}) for next turn with refreshed selection`,
   );
   return resetRun;
+}
+
+function applyContinuationRepositoryContext(
+  input: RunInput,
+  continuation: ReturnType<typeof createRunContinuationState>,
+): RunInput {
+  const repositoryContext = input.repositoryContext;
+  const branch = continuation?.activeBranch?.trim();
+  if (!repositoryContext || !branch) {
+    return input;
+  }
+
+  return {
+    ...input,
+    repositoryContext: {
+      ...repositoryContext,
+      branch,
+    },
+  };
 }
 
 async function restoreTaskSnapshot(

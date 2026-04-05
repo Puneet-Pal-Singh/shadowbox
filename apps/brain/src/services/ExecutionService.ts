@@ -1,10 +1,15 @@
 import { Env } from "../types/ai";
-import { decryptToken } from "@shadowbox/github-bridge";
+import { decryptToken, GitHubAPIClient } from "@shadowbox/github-bridge";
 import {
   sanitizeLogPayload,
   sanitizeUnknownError,
 } from "../core/security/LogSanitizer";
 import { toCanonicalGitExecutionAction } from "../lib/gitExecutionActions";
+import type {
+  CreatePullRequestFromRunPayload,
+  GitStatusResponse,
+} from "@repo/shared-types";
+import { resolveCommitIdentityForStoredUserSession } from "./git/GitCommitIdentityService";
 import {
   GIT_MUTATION_TIMEOUT_MS,
   GIT_STATUS_TIMEOUT_MS,
@@ -91,67 +96,27 @@ export class ExecutionService {
     );
 
     try {
-      // Check if this is a git operation and we have a userId
-      // If so, fetch and inject the GitHub token
-      if (plugin === "git" && this.userId) {
-        const token = await this.getGitHubToken(this.userId);
-        if (token) {
-          payload.token = token;
-          console.log(
-            `[ExecutionService] Injected GitHub token for ${executionAction}`,
-          );
-        }
-      }
-
-      const timeoutMs = resolveExecutionTimeoutMs(plugin, executionAction);
-      const executionSession = await this.getExecutionSession();
-      const taskId = createExecutionTaskId(plugin, executionAction);
-      logForwardingPromise = options?.onOutput
-        ? this.forwardExecutionLogs({
-            sessionId: executionSession.sessionId,
-            taskId,
-            token: executionSession.token,
-            timeoutMs,
-            onOutput: options.onOutput,
-            isFinished: () => executionFinished,
-          })
-        : null;
-      let res: Awaited<ReturnType<Env["SECURE_API"]["fetch"]>>;
-      try {
-        res = await fetchWithTimeout(
-          this.env.SECURE_API,
-          `http://internal/api/v1/execute?session=${encodeURIComponent(this.sessionId)}`,
-          {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${executionSession.token}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              sessionId: executionSession.sessionId,
-              taskId,
-              action: `${plugin}.execute`,
-              params: { ...payload, runId: this.runId, action: executionAction },
-              timeout: timeoutMs,
-            }),
-          },
-          timeoutMs,
-        );
-      } finally {
-        executionFinished = true;
-      }
-
-      if (!res.ok) {
-        await logForwardingPromise;
-        throw new Error(
-          (await res.text()) || `Failed to execute ${plugin}:${action}`,
-        );
-      }
-
-      const executionResult = await parseJsonResponse<SecureExecutionTaskResponse>(
-        res,
+      payload = await this.prepareExecutionPayload(
+        plugin,
+        executionAction,
+        payload,
       );
-      await logForwardingPromise;
+
+      if (plugin === "git" && executionAction === "git_create_pull_request") {
+        return await this.executeGitCreatePullRequest(payload);
+      }
+
+      const executionResult = await this.executeSecureTask(
+        plugin,
+        executionAction,
+        payload,
+        options,
+        () => executionFinished,
+        (nextValue) => {
+          executionFinished = nextValue;
+        },
+      );
+      logExecutionFailure(plugin, executionAction, executionResult);
       return toLegacyExecutionResult(executionResult);
     } catch (error) {
       executionFinished = true;
@@ -222,6 +187,185 @@ export class ExecutionService {
         sanitizeUnknownError(error),
       );
       return null;
+    }
+  }
+
+  private async prepareExecutionPayload(
+    plugin: string,
+    action: string,
+    payload: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    if (plugin !== "git" || !this.userId) {
+      return payload;
+    }
+
+    const nextPayload = { ...payload };
+    const token = await this.getGitHubToken(this.userId);
+    if (token) {
+      nextPayload.token = token;
+      console.log(`[ExecutionService] Injected GitHub token for ${action}`);
+    }
+
+    if (action !== "git_commit") {
+      return nextPayload;
+    }
+
+    const authorName = readString(nextPayload.authorName);
+    const authorEmail = readString(nextPayload.authorEmail);
+    if (authorName && authorEmail) {
+      return nextPayload;
+    }
+
+    const commitIdentity = await resolveCommitIdentityForStoredUserSession(
+      this.env,
+      this.userId,
+      {
+        authorName,
+        authorEmail,
+      },
+    );
+    if (!commitIdentity) {
+      return nextPayload;
+    }
+
+    nextPayload.authorName = commitIdentity.authorName;
+    nextPayload.authorEmail = commitIdentity.authorEmail;
+    console.log("[ExecutionService] Resolved git commit identity for runtime");
+    return nextPayload;
+  }
+
+  private async executeSecureTask(
+    plugin: string,
+    action: string,
+    payload: Record<string, unknown>,
+    options:
+      | {
+          onOutput?: (chunk: {
+            message: string;
+            source?: "stdout" | "stderr";
+            timestamp?: number;
+          }) => Promise<void> | void;
+        }
+      | undefined,
+    isFinished: () => boolean,
+    setFinished: (value: boolean) => void,
+  ): Promise<SecureExecutionTaskResponse> {
+    const timeoutMs = resolveExecutionTimeoutMs(plugin, action);
+    const executionSession = await this.getExecutionSession();
+    const taskId = createExecutionTaskId(plugin, action);
+    const logForwardingPromise = options?.onOutput
+      ? this.forwardExecutionLogs({
+          sessionId: executionSession.sessionId,
+          taskId,
+          token: executionSession.token,
+          timeoutMs,
+          onOutput: options.onOutput,
+          isFinished,
+        })
+      : null;
+
+    try {
+      const res = await fetchWithTimeout(
+        this.env.SECURE_API,
+        `http://internal/api/v1/execute?session=${encodeURIComponent(this.sessionId)}`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${executionSession.token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            sessionId: executionSession.sessionId,
+            taskId,
+            action: `${plugin}.execute`,
+            params: { ...payload, runId: this.runId, action },
+            timeout: timeoutMs,
+          }),
+        },
+        timeoutMs,
+      );
+      setFinished(true);
+
+      if (!res.ok) {
+        await logForwardingPromise;
+        throw new Error((await res.text()) || `Failed to execute ${plugin}:${action}`);
+      }
+
+      const executionResult = await parseJsonResponse<SecureExecutionTaskResponse>(
+        res,
+      );
+      await logForwardingPromise;
+      return executionResult;
+    } catch (error) {
+      setFinished(true);
+      await logForwardingPromise;
+      throw error;
+    }
+  }
+
+  private async executeGitCreatePullRequest(
+    payload: Record<string, unknown>,
+  ): Promise<LegacyExecutionResult> {
+    try {
+      const request = parseGitPullRequestPayload(payload);
+      const token =
+        readString(payload.token) ??
+        (this.userId ? await this.getGitHubToken(this.userId) : null);
+      if (!token) {
+        return {
+          success: false,
+          error: "Authenticate with GitHub before creating a pull request.",
+        };
+      }
+
+      const gitStatusResult = await this.execute("git", "git_status", {});
+      if (!gitStatusResult.success || !gitStatusResult.output) {
+        return {
+          success: false,
+          error:
+            gitStatusResult.error ??
+            "Unable to verify git branch state before creating a pull request.",
+        };
+      }
+
+      const status = parseGitStatusOutput(gitStatusResult.output);
+      assertPullRequestWorkspaceBinding(status, request.owner, request.repo);
+      const head = status.branch.trim();
+      if (head.length === 0) {
+        return {
+          success: false,
+          error:
+            "Git status did not return an active branch for pull request creation.",
+        };
+      }
+
+      const client = new GitHubAPIClient(token);
+      const base =
+        request.base ??
+        (await client.getRepository(request.owner, request.repo)).default_branch;
+      const pullRequest = await client.createPullRequest(
+        request.owner,
+        request.repo,
+        {
+          title: request.title,
+          body: request.body,
+          head,
+          base,
+        },
+      );
+
+      return {
+        success: true,
+        output: `Created pull request #${pullRequest.number}: ${pullRequest.html_url}`,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : "Failed to create pull request.",
+      };
     }
   }
 
@@ -454,6 +598,99 @@ function toLegacyExecutionResult(
       result.error?.message ??
       `Task execution ended with status '${result.status}'`,
   };
+}
+
+function logExecutionFailure(
+  plugin: string,
+  action: string,
+  result: Pick<SecureExecutionTaskResponse, "status" | "error">,
+): void {
+  if (result.status === "success") {
+    return;
+  }
+
+  console.error(
+    `[ExecutionService] ${plugin}:${action} failed`,
+    sanitizeLogPayload({
+      status: result.status,
+      errorCode: result.error?.code,
+      errorMessage: result.error?.message,
+      errorDetails: result.error?.details,
+    }),
+  );
+}
+
+function readString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0
+    ? value.trim()
+    : undefined;
+}
+
+function parseGitPullRequestPayload(
+  payload: Record<string, unknown>,
+): {
+  owner: CreatePullRequestFromRunPayload["owner"];
+  repo: CreatePullRequestFromRunPayload["repo"];
+  title: CreatePullRequestFromRunPayload["title"];
+  body?: CreatePullRequestFromRunPayload["body"];
+  base?: CreatePullRequestFromRunPayload["base"];
+} {
+  const owner = readString(payload.owner);
+  const repo = readString(payload.repo);
+  const title = readString(payload.title);
+  const body = readString(payload.body);
+  const base = readString(payload.base);
+
+  if (!owner || !repo || !title) {
+    throw new Error(
+      "Pull request creation requires owner, repo, and title.",
+    );
+  }
+
+  return { owner, repo, title, body, base };
+}
+
+function parseGitStatusOutput(output: string): GitStatusResponse {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(output);
+  } catch {
+    throw new Error(
+      "Git status did not return a valid workspace state for pull request creation.",
+    );
+  }
+
+  const parsedRecord = parsed as Record<string, unknown>;
+  if (
+    !parsed ||
+    typeof parsed !== "object" ||
+    typeof parsedRecord.branch !== "string" ||
+    typeof parsedRecord.gitAvailable !== "boolean"
+  ) {
+    throw new Error(
+      "Git status did not return a valid workspace state for pull request creation.",
+    );
+  }
+
+  const status = parsed as GitStatusResponse;
+  return status;
+}
+
+function assertPullRequestWorkspaceBinding(
+  status: GitStatusResponse,
+  owner: CreatePullRequestFromRunPayload["owner"],
+  repo: CreatePullRequestFromRunPayload["repo"],
+): void {
+  if (!status.gitAvailable) {
+    throw new Error("Git workspace is not ready for pull request creation.");
+  }
+
+  const expectedRepoIdentity = `github.com/${owner}/${repo}`.toLowerCase();
+  if (!status.repoIdentity || status.repoIdentity !== expectedRepoIdentity) {
+    throw new Error(
+      "Workspace repository binding does not match the selected GitHub repository for this pull request.",
+    );
+  }
 }
 
 async function fetchWithTimeout(

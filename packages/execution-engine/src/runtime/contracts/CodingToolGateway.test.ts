@@ -16,6 +16,13 @@ describe("CodingToolGateway", () => {
       "list_files",
       "write_file",
       "bash",
+      "git_stage",
+      "git_commit",
+      "git_push",
+      "git_pull",
+      "git_create_pull_request",
+      "git_branch_create",
+      "git_branch_switch",
       "git_status",
       "git_diff",
       "glob",
@@ -42,12 +49,30 @@ describe("CodingToolGateway", () => {
       plugin: "git",
       action: "git_diff",
     });
+    expect(getGoldenFlowToolRoute("git_commit")).toEqual({
+      toolName: "git_commit",
+      plugin: "git",
+      action: "git_commit",
+    });
+    expect(getGoldenFlowToolRoute("git_pull")).toEqual({
+      toolName: "git_pull",
+      plugin: "git",
+      action: "git_pull",
+    });
+    expect(getGoldenFlowToolRoute("git_create_pull_request")).toEqual({
+      toolName: "git_create_pull_request",
+      plugin: "git",
+      action: "git_create_pull_request",
+    });
     expect(getGoldenFlowToolRoute("unknown_tool")).toBeNull();
   });
 
   it("classifies mutating golden-flow tools conservatively", () => {
     expect(isMutatingGoldenFlowToolName("write_file")).toBe(true);
     expect(isMutatingGoldenFlowToolName("bash")).toBe(true);
+    expect(isMutatingGoldenFlowToolName("git_commit")).toBe(true);
+    expect(isMutatingGoldenFlowToolName("git_pull")).toBe(true);
+    expect(isMutatingGoldenFlowToolName("git_create_pull_request")).toBe(true);
     expect(isMutatingGoldenFlowToolName("read_file")).toBe(false);
     expect(isMutatingGoldenFlowToolName("git_diff")).toBe(false);
   });
@@ -94,12 +119,22 @@ describe("CodingToolGateway", () => {
 
   it("normalizes nullish input for tools that allow empty argument objects", () => {
     expect(validateGoldenFlowToolInput("git_status", null)).toEqual({});
+    expect(validateGoldenFlowToolInput("git_stage", undefined)).toEqual({});
     expect(validateGoldenFlowToolInput("list_files", null)).toEqual({});
     expect(validateGoldenFlowToolInput("git_diff", undefined)).toEqual({});
 
     const registry = getGoldenFlowToolRegistry();
     expect(registry.git_status?.parameters.safeParse(null).success).toBe(true);
+    expect(registry.git_stage?.parameters.safeParse(undefined).success).toBe(true);
     expect(registry.list_files?.parameters.safeParse(null).success).toBe(true);
     expect(registry.git_diff?.parameters.safeParse(null).success).toBe(true);
+  });
+
+  it("requires single-line git commit messages", () => {
+    expect(() =>
+      validateGoldenFlowToolInput("git_commit", {
+        message: "feat: subject\n\nbody line",
+      }),
+    ).toThrow("Commit message must be a single-line subject");
   });
 });

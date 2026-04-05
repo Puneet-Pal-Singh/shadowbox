@@ -32,6 +32,10 @@ import {
   formatTaskOutput,
 } from "./ResultFormatter.js";
 import { buildGroundedTaskSummary } from "../engine/RunGroundedSummary.js";
+import {
+  normalizeWorkspaceShellCommand,
+  resolveWorkspaceRelativeShellPath,
+} from "../lib/WorkspaceShellCommand.js";
 
 type LineMatcherPatternSource =
   | "external_user_input"
@@ -324,6 +328,20 @@ VALIDATION RULES:
         return this.executeWriteFileTool(task);
       case "bash":
         return this.executeBashTool(task);
+      case "git_stage":
+        return this.executeGitStageTool(task);
+      case "git_commit":
+        return this.executeGitCommitTool(task);
+      case "git_push":
+        return this.executeGitPushTool(task);
+      case "git_pull":
+        return this.executeGitPullTool(task);
+      case "git_create_pull_request":
+        return this.executeGitCreatePullRequestTool(task);
+      case "git_branch_create":
+        return this.executeGitBranchCreateTool(task);
+      case "git_branch_switch":
+        return this.executeGitBranchSwitchTool(task);
       case "git_status":
         return this.executeGitStatusTool(task);
       case "git_diff":
@@ -401,6 +419,151 @@ VALIDATION RULES:
   private async executeGitStatusTool(task: Task): Promise<TaskResult> {
     this.validateGoldenFlowInput("git_status", task.input);
     const result = await this.executeGatewayPlugin("git_status", {});
+    const failure = extractExecutionFailure(result);
+    if (failure) {
+      return this.buildFailureResult(task.id, failure);
+    }
+    return this.buildSuccessResult(task.id, formatExecutionResult(result));
+  }
+
+  private async executeGitStageTool(task: Task): Promise<TaskResult> {
+    const validatedInput = this.validateGoldenFlowInput("git_stage", task.input);
+    const payload: Record<string, unknown> = {};
+    if (validatedInput.files && validatedInput.files.length > 0) {
+      payload.files = validatedInput.files.map((file) => {
+        const normalizedPath = normalizeTaskPath(file);
+        validateSafePath(normalizedPath);
+        return normalizedPath;
+      });
+    }
+
+    const result = await this.executeGatewayPlugin("git_stage", payload);
+    const failure = extractExecutionFailure(result);
+    if (failure) {
+      return this.buildFailureResult(task.id, failure);
+    }
+    return this.buildSuccessResult(task.id, formatExecutionResult(result));
+  }
+
+  private async executeGitCommitTool(task: Task): Promise<TaskResult> {
+    const validatedInput = this.validateGoldenFlowInput(
+      "git_commit",
+      task.input,
+    );
+    const payload: Record<string, unknown> = {
+      message: validatedInput.message.trim(),
+    };
+    if (validatedInput.files && validatedInput.files.length > 0) {
+      payload.files = validatedInput.files.map((file) => {
+        const normalizedPath = normalizeTaskPath(file);
+        validateSafePath(normalizedPath);
+        return normalizedPath;
+      });
+    }
+    if (validatedInput.authorName) {
+      payload.authorName = validatedInput.authorName.trim();
+    }
+    if (validatedInput.authorEmail) {
+      payload.authorEmail = validatedInput.authorEmail.trim();
+    }
+
+    const result = await this.executeGatewayPlugin("git_commit", payload);
+    const failure = extractExecutionFailure(result);
+    if (failure) {
+      return this.buildFailureResult(task.id, failure);
+    }
+    return this.buildSuccessResult(task.id, formatExecutionResult(result));
+  }
+
+  private async executeGitPushTool(task: Task): Promise<TaskResult> {
+    const validatedInput = this.validateGoldenFlowInput("git_push", task.input);
+    const payload: Record<string, unknown> = {};
+    if (validatedInput.remote) {
+      payload.remote = validatedInput.remote.trim();
+    }
+    if (validatedInput.branch) {
+      payload.branch = validatedInput.branch.trim();
+    }
+
+    const result = await this.executeGatewayPlugin("git_push", payload);
+    const failure = extractExecutionFailure(result);
+    if (failure) {
+      return this.buildFailureResult(task.id, failure);
+    }
+    return this.buildSuccessResult(task.id, formatExecutionResult(result));
+  }
+
+  private async executeGitPullTool(task: Task): Promise<TaskResult> {
+    const validatedInput = this.validateGoldenFlowInput("git_pull", task.input);
+    const payload: Record<string, unknown> = {};
+    if (validatedInput.remote) {
+      payload.remote = validatedInput.remote.trim();
+    }
+    if (validatedInput.branch) {
+      payload.branch = validatedInput.branch.trim();
+    }
+
+    const result = await this.executeGatewayPlugin("git_pull", payload);
+    const failure = extractExecutionFailure(result);
+    if (failure) {
+      return this.buildFailureResult(task.id, failure);
+    }
+    return this.buildSuccessResult(task.id, formatExecutionResult(result));
+  }
+
+  private async executeGitCreatePullRequestTool(
+    task: Task,
+  ): Promise<TaskResult> {
+    const validatedInput = this.validateGoldenFlowInput(
+      "git_create_pull_request",
+      task.input,
+    );
+    const payload: Record<string, unknown> = {
+      owner: validatedInput.owner.trim(),
+      repo: validatedInput.repo.trim(),
+      title: validatedInput.title.trim(),
+    };
+    if (validatedInput.body) {
+      payload.body = validatedInput.body.trim();
+    }
+    if (validatedInput.base) {
+      payload.base = validatedInput.base.trim();
+    }
+
+    const result = await this.executeGatewayPlugin(
+      "git_create_pull_request",
+      payload,
+    );
+    const failure = extractExecutionFailure(result);
+    if (failure) {
+      return this.buildFailureResult(task.id, failure);
+    }
+    return this.buildSuccessResult(task.id, formatExecutionResult(result));
+  }
+
+  private async executeGitBranchCreateTool(task: Task): Promise<TaskResult> {
+    const validatedInput = this.validateGoldenFlowInput(
+      "git_branch_create",
+      task.input,
+    );
+    const result = await this.executeGatewayPlugin("git_branch_create", {
+      branch: validatedInput.branch.trim(),
+    });
+    const failure = extractExecutionFailure(result);
+    if (failure) {
+      return this.buildFailureResult(task.id, failure);
+    }
+    return this.buildSuccessResult(task.id, formatExecutionResult(result));
+  }
+
+  private async executeGitBranchSwitchTool(task: Task): Promise<TaskResult> {
+    const validatedInput = this.validateGoldenFlowInput(
+      "git_branch_switch",
+      task.input,
+    );
+    const result = await this.executeGatewayPlugin("git_branch_switch", {
+      branch: validatedInput.branch.trim(),
+    });
     const failure = extractExecutionFailure(result);
     if (failure) {
       return this.buildFailureResult(task.id, failure);
@@ -571,10 +734,19 @@ VALIDATION RULES:
     cwd?: string,
   ): Promise<TaskResult> {
     validateShellCommand(command);
-    const normalizedCommand = command.trim();
-    const normalizedCwd = cwd ? normalizeTaskPath(cwd) : undefined;
+    const normalizedInput = normalizeWorkspaceShellCommand({
+      command,
+      cwd: cwd ? normalizeTaskPath(cwd) : undefined,
+    });
+    const normalizedCommand = normalizedInput.command.trim();
+    const normalizedCwd = normalizedInput.cwd
+      ? normalizeTaskPath(normalizedInput.cwd)
+      : undefined;
     if (/^ls(\s|$)/i.test(normalizedCommand)) {
-      const path = extractDirectoryFromLsCommand(normalizedCommand);
+      const path = resolveWorkspaceRelativeShellPath(
+        normalizedCwd,
+        extractDirectoryFromLsCommand(normalizedCommand),
+      );
       if (path !== ".") {
         validateSafePath(path);
       }

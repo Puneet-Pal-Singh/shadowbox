@@ -43,9 +43,114 @@ export interface DiffContent {
   isDeleted: boolean;
 }
 
+export type GitCommitIdentitySource =
+  | "workspace_git_config"
+  | "persisted_preference"
+  | "github_profile"
+  | "user_input";
+
+export interface GitCommitIdentity {
+  authorName: string;
+  authorEmail: string;
+  source: GitCommitIdentitySource;
+  verified: boolean;
+}
+
+export type GitCommitIdentityInputReason =
+  | "missing_identity"
+  | "missing_name"
+  | "missing_email";
+
+export interface GitCommitIdentityReadyState {
+  state: "ready";
+  identity: GitCommitIdentity;
+}
+
+export interface GitCommitIdentityRequiresInputState {
+  state: "requires_input";
+  reason: GitCommitIdentityInputReason;
+  suggestedAuthorName: string;
+  suggestedAuthorEmail: string;
+}
+
+export type GitCommitIdentityState =
+  | GitCommitIdentityReadyState
+  | GitCommitIdentityRequiresInputState;
+
+export type GitMutationErrorCode =
+  | "COMMIT_IDENTITY_REQUIRED"
+  | "COMMIT_IDENTITY_INCOMPLETE"
+  | "COMMIT_IDENTITY_WRITE_FAILED"
+  | "BRANCH_CREATION_FAILED"
+  | "PUSH_FAILED"
+  | "PR_CREATION_FAILED";
+
+export interface GitMutationErrorMetadata {
+  commitIdentity?: GitCommitIdentityState;
+}
+
+export interface GitMutationErrorResponse {
+  error: string;
+  code: GitMutationErrorCode;
+  metadata?: GitMutationErrorMetadata;
+}
+
 export interface CommitPayload {
   message: string;
   files?: string[];
+  authorName?: string;
+  authorEmail?: string;
+}
+
+export interface CreateBranchPayload {
+  branch: string;
+}
+
+export interface GitBranchMutationResult {
+  success: true;
+  branch: string;
+}
+
+export interface PushPayload {
+  branch?: string;
+  remote?: string;
+}
+
+export interface GitPushMutationResult {
+  success: true;
+  branch: string;
+  remote: string;
+}
+
+export interface CreatePullRequestPayload {
+  owner: string;
+  repo: string;
+  title: string;
+  head: string;
+  base: string;
+  body?: string;
+}
+
+export interface CreatePullRequestFromRunPayload {
+  owner: string;
+  repo: string;
+  title: string;
+  body?: string;
+  base?: string;
+}
+
+export interface GitPullRequestSummary {
+  number: number;
+  title: string;
+  url: string;
+  state: "open" | "closed";
+  head: string;
+  base: string;
+}
+
+export interface GitPullRequestMutationResult {
+  success: true;
+  pullRequest: GitPullRequestSummary;
 }
 
 export interface GitStatusReady {
@@ -54,6 +159,7 @@ export interface GitStatusReady {
   behind: number;
   branch: string;
   repoIdentity?: string | null;
+  commitIdentity?: GitCommitIdentity | null;
   hasStaged: boolean;
   hasUnstaged: boolean;
   gitAvailable: true;
@@ -66,6 +172,7 @@ export interface GitStatusNotRepository {
   behind: 0;
   branch: "";
   repoIdentity?: string | null;
+  commitIdentity?: null;
   hasStaged: false;
   hasUnstaged: false;
   gitAvailable: false;

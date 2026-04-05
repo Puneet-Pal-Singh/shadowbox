@@ -63,6 +63,50 @@ describe("ActivityRow", () => {
       screen.getByText(/Retry the task or switch to a faster or more reliable model\./i),
     ).toBeInTheDocument();
   });
+
+  it("renders TOOL_EXECUTION_FAILED rows with a user-facing recovery label", () => {
+    render(
+      <ActivityRow
+        row={createCommentaryRow({
+          text: "A shell step failed.",
+          metadata: {
+            code: "TOOL_EXECUTION_FAILED",
+            resumeHint:
+              "Retry the git step so it uses the dedicated git action. If needed, finish the remaining git command in your local terminal.",
+            resumeActions: ["retry", "open_terminal"],
+          },
+        })}
+        expanded={true}
+        onToggle={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Step failed")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        /Retry the git step so it uses the dedicated git action\./i,
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("renders a plugin badge for dedicated git tool rows", () => {
+    render(
+      <ActivityRow
+        row={createToolRow({
+          toolName: "git_commit",
+          family: "git",
+          title: "Creating git commit",
+          pluginLabel: "GitHub",
+        })}
+        expanded={true}
+        onToggle={vi.fn()}
+        displayMode="transcript"
+      />,
+    );
+
+    expect(screen.getByText("Creating git commit")).toBeInTheDocument();
+    expect(screen.getByText("GitHub")).toBeInTheDocument();
+  });
 });
 
 function createCommentaryRow(
@@ -76,6 +120,23 @@ function createCommentaryRow(
     phase: "commentary",
     status: "completed",
     text: "Default content",
+    ...overrides,
+  };
+}
+
+function createToolRow(
+  overrides: Partial<Extract<ActivityFeedRowViewModel, { kind: "tool" }>> = {},
+): Extract<ActivityFeedRowViewModel, { kind: "tool" }> {
+  return {
+    kind: "tool",
+    key: "tool-row-1",
+    toolName: "git_commit",
+    family: "git",
+    title: "Creating git commit",
+    summary: "",
+    status: "completed",
+    defaultCollapsed: false,
+    details: [],
     ...overrides,
   };
 }
