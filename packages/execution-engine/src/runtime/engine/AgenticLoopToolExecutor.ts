@@ -219,7 +219,7 @@ async function executeBashTool(
   const normalizedInput = normalizeWorkspaceShellCommand({
     command: validatedInput.command,
     cwd: validatedInput.cwd
-      ? normalizeToolPath(validatedInput.cwd)
+      ? normalizeWorkspacePath(validatedInput.cwd)
       : undefined,
   });
   const command = normalizedInput.command.trim();
@@ -244,7 +244,7 @@ async function executeBashTool(
   }
 
   const cwd = normalizedInput.cwd
-    ? normalizeToolPath(normalizedInput.cwd)
+    ? normalizeWorkspacePath(normalizedInput.cwd)
     : ".";
   if (cwd !== ".") {
     validateSafePath(cwd);
@@ -310,7 +310,7 @@ async function executeGitStageTool(
   const payload: Record<string, unknown> = {};
   if (validatedInput.files && validatedInput.files.length > 0) {
     payload.files = validatedInput.files.map((file) => {
-      const path = normalizeToolPath(file);
+      const path = normalizeWorkspacePath(file);
       validateSafePath(path);
       return path;
     });
@@ -324,7 +324,9 @@ async function executeGitStageTool(
   return buildSuccessResult(taskId, formatExecutionResult(result), {
     activity: buildGitActivityMetadata("Staging files", {
       preview:
-        validatedInput.files?.map((file) => normalizeToolPath(file)).join(", ") ??
+        validatedInput.files
+          ?.map((file) => normalizeWorkspacePath(file))
+          .join(", ") ??
         "workspace changes",
     }),
   });
@@ -342,7 +344,7 @@ async function executeGitCommitTool(
 
   if (validatedInput.files && validatedInput.files.length > 0) {
     payload.files = validatedInput.files.map((file) => {
-      const path = normalizeToolPath(file);
+      const path = normalizeWorkspacePath(file);
       validateSafePath(path);
       return path;
     });
@@ -973,6 +975,16 @@ function normalizeToolPath(input: string): string {
   const trimmed = input.trim().replace(/^['"`]+|['"`]+$/g, "");
   const withoutMention = trimmed.startsWith("@") ? trimmed.slice(1) : trimmed;
   const cleaned = withoutMention.replace(/[?!,;:]+$/g, "");
+  const aliases: Record<string, string> = {
+    readme: "README.md",
+    "readme.md": "README.md",
+  };
+  return aliases[cleaned.toLowerCase()] ?? cleaned;
+}
+
+export function normalizeWorkspacePath(input: string): string {
+  const trimmed = input.trim().replace(/^['"`]+/, "");
+  const cleaned = trimmed.replace(/['"`?!,;:]+$/g, "");
   const aliases: Record<string, string> = {
     readme: "README.md",
     "readme.md": "README.md",
