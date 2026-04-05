@@ -146,7 +146,7 @@ Examples that should prefer dedicated tools instead of shell:
 - pushing a branch
 - opening a pull request through the run-aware GitHub flow
 
-## Why This Matters For Continuation
+## Why Continuation Reliability Depends on This
 
 Recent runtime fixes depend on this distinction.
 

@@ -422,7 +422,7 @@ function buildToolExecutionFailedMetadata(
   toolLifecycle: AgenticLoopToolLifecycleEvent[],
 ): Record<string, unknown> {
   const failedTools = getLatestToolLifecycle(toolLifecycle, "failed");
-  const primaryFailure = failedTools[0];
+  const primaryFailure = getTerminalToolLifecycleEvent(failedTools);
 
   return {
     code: TOOL_EXECUTION_FAILED_CODE,
@@ -540,6 +540,21 @@ function describeCompletedToolWork(
     return `Before the run stopped, I successfully updated ${changes.length} file(s): ${files}.`;
   }
 
+  const completedGitMutations = completedTools.filter((event) =>
+    isMutationFocusedGitTool(event.toolName),
+  );
+  if (completedGitMutations.length > 0) {
+    const sampledTools = completedGitMutations
+      .slice(0, 3)
+      .map((event) => event.toolName)
+      .join(", ");
+    const suffix =
+      completedGitMutations.length > 3
+        ? `, and ${completedGitMutations.length - 3} more`
+        : "";
+    return `Before the run stopped, I completed ${completedGitMutations.length} git action(s) that changed repository state${sampledTools ? ` (${sampledTools}${suffix})` : ""}.`;
+  }
+
   const sampledTools = completedTools
     .slice(0, 3)
     .map((event) => event.toolName)
@@ -552,7 +567,7 @@ function describeCompletedToolWork(
 function describeFailedToolWork(
   failedTools: AgenticLoopToolLifecycleEvent[],
 ): string {
-  const primaryFailure = failedTools[0];
+  const primaryFailure = getTerminalToolLifecycleEvent(failedTools);
   if (!primaryFailure) {
     return "The run recorded a tool failure.";
   }
@@ -659,6 +674,34 @@ function deriveToolFailureResumeHint(
   }
 
   return `Retry the failed ${event.toolName} step, or finish it manually in your local terminal if the sandbox cannot complete it.`;
+}
+
+function getTerminalToolLifecycleEvent(
+  events: AgenticLoopToolLifecycleEvent[],
+): AgenticLoopToolLifecycleEvent | undefined {
+  return [...events].sort(compareLifecycleRecordedAt).at(-1);
+}
+
+function compareLifecycleRecordedAt(
+  left: AgenticLoopToolLifecycleEvent,
+  right: AgenticLoopToolLifecycleEvent,
+): number {
+  return (
+    Date.parse(left.recordedAt || "1970-01-01T00:00:00.000Z") -
+    Date.parse(right.recordedAt || "1970-01-01T00:00:00.000Z")
+  );
+}
+
+function isMutationFocusedGitTool(toolName: string): boolean {
+  return (
+    toolName === "git_stage" ||
+    toolName === "git_commit" ||
+    toolName === "git_push" ||
+    toolName === "git_pull" ||
+    toolName === "git_branch_create" ||
+    toolName === "git_branch_switch" ||
+    toolName === "git_create_pull_request"
+  );
 }
 
 function isGitShellFailure(event: AgenticLoopToolLifecycleEvent): boolean {

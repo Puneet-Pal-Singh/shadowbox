@@ -562,4 +562,69 @@ describe("ExecutionService", () => {
       },
     );
   });
+
+  it("normalizes malformed git status output during pull request creation", async () => {
+    vi.mocked(decryptToken).mockResolvedValue("github-token");
+    const fetchMock = vi.fn<
+      Parameters<Env["SECURE_API"]["fetch"]>,
+      ReturnType<Env["SECURE_API"]["fetch"]>
+    >();
+
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            sessionId: "sess-pr",
+            token: "tok-pr",
+            expiresAt: Date.now() + 60_000,
+          }),
+          { status: 201, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            taskId: "task-status",
+            status: "success",
+            output: "not-json",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+
+    const service = new ExecutionService(
+      {
+        SECURE_API: { fetch: fetchMock },
+        SESSIONS: {
+          get: vi.fn(async () =>
+            JSON.stringify({
+              userId: "user-pr",
+              login: "puneet",
+              avatar: "",
+              email: "puneet@example.com",
+              name: "Puneet Pal Singh",
+              encryptedToken: "encrypted-token",
+              createdAt: Date.now(),
+            }),
+          ),
+        },
+        GITHUB_TOKEN_ENCRYPTION_KEY: "test-key",
+      } as unknown as Env,
+      "session-pr",
+      "run-pr",
+      "user-pr",
+    );
+
+    await expect(
+      service.execute("git", "git_create_pull_request", {
+        owner: "acme",
+        repo: "career-crew",
+        title: "feat: add floating carousels to hero section",
+      }),
+    ).resolves.toEqual({
+      success: false,
+      error:
+        "Git status did not return a valid workspace state for pull request creation.",
+    });
+  });
 });

@@ -403,30 +403,30 @@ export async function createGitPullRequest(
   );
 }
 
-async function readGitErrorMessage(
-  response: Response,
+function readGitErrorMessage(
+  payload: unknown,
   fallbackMessage: string,
-): Promise<string> {
-  try {
-    const payload = (await response.json()) as {
-      error?: string;
-      message?: string;
-      code?: string;
-    };
+): string {
+  if (!payload || typeof payload !== "object") {
+    return fallbackMessage;
+  }
 
-    if (typeof payload.error === "string" && payload.error.trim()) {
-      return payload.error;
-    }
+  const candidate = payload as {
+    error?: unknown;
+    message?: unknown;
+    code?: unknown;
+  };
 
-    if (typeof payload.message === "string" && payload.message.trim()) {
-      return payload.message;
-    }
+  if (typeof candidate.error === "string" && candidate.error.trim()) {
+    return candidate.error;
+  }
 
-    if (typeof payload.code === "string" && payload.code.trim()) {
-      return payload.code;
-    }
-  } catch (error) {
-    console.warn("[git-client] Failed to parse git error payload", error);
+  if (typeof candidate.message === "string" && candidate.message.trim()) {
+    return candidate.message;
+  }
+
+  if (typeof candidate.code === "string" && candidate.code.trim()) {
+    return candidate.code;
   }
 
   return fallbackMessage;
@@ -437,12 +437,19 @@ async function readGitError(
   fallbackMessage: string,
 ): Promise<Error> {
   try {
-    const payload = gitMutationErrorResponseSchema.parse(
-      (await response.json()) as unknown,
-    );
-    return new GitMutationError(payload.error, payload.code, payload.metadata);
-  } catch {
-    return new Error(await readGitErrorMessage(response, fallbackMessage));
+    const payload = (await response.json()) as unknown;
+    const parsedPayload = gitMutationErrorResponseSchema.safeParse(payload);
+    if (parsedPayload.success) {
+      return new GitMutationError(
+        parsedPayload.data.error,
+        parsedPayload.data.code,
+        parsedPayload.data.metadata,
+      );
+    }
+    return new Error(readGitErrorMessage(payload, fallbackMessage));
+  } catch (error) {
+    console.warn("[git-client] Failed to parse git error payload", error);
+    return new Error(fallbackMessage);
   }
 }
 

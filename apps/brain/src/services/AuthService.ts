@@ -138,8 +138,42 @@ export async function getAuthenticatedUserSession(
   const sessionData = await env.SESSIONS.get(`user_session:${userId}`);
   if (!sessionData) return null;
 
+  const session = parseUserSessionRecord(sessionData);
+  if (!session) return null;
+
   return {
     userId,
-    session: JSON.parse(sessionData) as UserSessionRecord,
+    session,
   };
+}
+
+function parseUserSessionRecord(payload: string): UserSessionRecord | null {
+  try {
+    const parsed = JSON.parse(payload) as unknown;
+    if (!isUserSessionRecord(parsed)) {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function isUserSessionRecord(value: unknown): value is UserSessionRecord {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record.userId === "string" &&
+    typeof record.login === "string" &&
+    typeof record.avatar === "string" &&
+    typeof record.encryptedToken === "string" &&
+    typeof record.createdAt === "number" &&
+    (record.email === null || typeof record.email === "string") &&
+    (record.name === undefined ||
+      record.name === null ||
+      typeof record.name === "string")
+  );
 }

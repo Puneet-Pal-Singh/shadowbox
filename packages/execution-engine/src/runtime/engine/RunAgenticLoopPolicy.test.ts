@@ -319,6 +319,90 @@ describe("RunAgenticLoopPolicy", () => {
     );
   });
 
+  it("describes completed git mutations as repository-changing work", () => {
+    const result: AgenticLoopResult = {
+      stopReason: "tool_error",
+      messages: [{ role: "user", content: "push the branch" }],
+      toolExecutionCount: 2,
+      failedToolCount: 1,
+      stepsExecuted: 2,
+      requiresMutation: true,
+      completedMutatingToolCount: 1,
+      completedReadOnlyToolCount: 0,
+      toolLifecycle: [
+        {
+          toolCallId: "tool-1",
+          toolName: "git_commit",
+          status: "completed",
+          mutating: true,
+          recordedAt: "2026-04-05T00:00:00.000Z",
+        },
+        {
+          toolCallId: "tool-2",
+          toolName: "git_push",
+          status: "failed",
+          mutating: true,
+          recordedAt: "2026-04-05T00:00:01.000Z",
+          detail: "non-fast-forward",
+        },
+      ],
+    };
+
+    const output = buildAgenticLoopFinalOutput(result);
+
+    expect(output).toContain(
+      "Before the run stopped, I completed 1 git action(s) that changed repository state (git_commit).",
+    );
+  });
+
+  it("uses the terminal failed tool when building retry metadata", () => {
+    const finalMessage = buildAgenticLoopFinalMessage({
+      stopReason: "tool_error",
+      messages: [{ role: "user", content: "continue?" }],
+      toolExecutionCount: 3,
+      failedToolCount: 2,
+      stepsExecuted: 3,
+      requiresMutation: true,
+      completedMutatingToolCount: 1,
+      completedReadOnlyToolCount: 0,
+      toolLifecycle: [
+        {
+          toolCallId: "tool-1",
+          toolName: "git_push",
+          status: "failed",
+          mutating: true,
+          recordedAt: "2026-04-05T00:00:01.000Z",
+          detail: "non-fast-forward",
+        },
+        {
+          toolCallId: "tool-2",
+          toolName: "bash",
+          status: "failed",
+          mutating: true,
+          recordedAt: "2026-04-05T00:00:02.000Z",
+          detail:
+            "bash: line 1: cd: /home/user/repos/career-crew: No such file or directory",
+          metadata: {
+            family: "shell",
+            command: "cd /home/user/repos/career-crew && npm test",
+            cwd: ".",
+            origin: "agent_tool",
+            stderr:
+              "bash: line 1: cd: /home/user/repos/career-crew: No such file or directory",
+            truncated: false,
+          },
+        },
+      ],
+    });
+
+    expect(finalMessage.metadata?.resumeHint).toContain(
+      "Retry the step from the workspace root.",
+    );
+    expect(finalMessage.text).toContain(
+      "tried to change into /home/user/repos/career-crew",
+    );
+  });
+
   it("explains gh pr create bash failures as dedicated PR-tool recovery", () => {
     const result: AgenticLoopResult = {
       stopReason: "tool_error",

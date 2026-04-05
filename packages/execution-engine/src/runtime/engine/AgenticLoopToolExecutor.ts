@@ -236,6 +236,7 @@ async function executeBashTool(
       normalizedInput.cwd,
       extractDirectoryFromLsCommand(command),
     );
+    validateSafePath(path);
     return executeListFilesTool(executionService, taskId, {
       description: "List files from shell shortcut",
       path,
@@ -392,7 +393,7 @@ async function executeGitPushTool(
       {
         activity: buildGitActivityMetadata("Pushing branch", {
           branch: validatedInput.branch?.trim(),
-          preview: validatedInput.branch?.trim() || validatedInput.remote?.trim(),
+          preview: validatedInput.branch?.trim(),
         }),
       },
     );
@@ -400,7 +401,7 @@ async function executeGitPushTool(
   return buildSuccessResult(taskId, formatExecutionResult(result), {
     activity: buildGitActivityMetadata("Pushing branch", {
       branch: validatedInput.branch?.trim(),
-      preview: validatedInput.branch?.trim() || validatedInput.remote?.trim(),
+      preview: validatedInput.branch?.trim(),
     }),
   });
 }
@@ -428,7 +429,7 @@ async function executeGitPullTool(
       {
         activity: buildGitActivityMetadata("Syncing branch", {
           branch: validatedInput.branch?.trim(),
-          preview: validatedInput.branch?.trim() || validatedInput.remote?.trim(),
+          preview: validatedInput.branch?.trim(),
         }),
       },
     );
@@ -436,7 +437,7 @@ async function executeGitPullTool(
   return buildSuccessResult(taskId, formatExecutionResult(result), {
     activity: buildGitActivityMetadata("Syncing branch", {
       branch: validatedInput.branch?.trim(),
-      preview: validatedInput.branch?.trim() || validatedInput.remote?.trim(),
+      preview: validatedInput.branch?.trim(),
     }),
   });
 }

@@ -634,6 +634,7 @@ function buildAgenticLoopSystemPrompt(input: {
     "- Use the dedicated git tools for git status, diff, branch create/switch, staging, commit, push, and pull request creation. Do not compose git or GitHub workflows with bash unless the request truly requires a non-git shell command.",
     "- Never use gh pr create through bash when git_create_pull_request can satisfy the request.",
     "- A clean git status after a failed push or PR step often means the changes were already committed locally. Do not recreate files just because the working tree is clean.",
+    "- When staging for a request, detect the changed paths and stage only those specific files. Never stage the whole workspace just to make commit or push succeed.",
     "- If git_push fails because the remote branch is ahead or non-fast-forward, do not rewrite files. Use git_pull to sync with a fast-forward-only pull, then retry git_push. If git_pull cannot fast-forward, stop and explain that manual branch resolution is required.",
     "- For repository or git status questions without a specific command, use git_status before answering.",
     "- For vague component, page, route, or file questions, discover with list_files, glob, or grep before read_file.",

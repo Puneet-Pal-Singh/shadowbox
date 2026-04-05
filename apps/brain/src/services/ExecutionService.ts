@@ -651,18 +651,29 @@ function parseGitPullRequestPayload(
 }
 
 function parseGitStatusOutput(output: string): GitStatusResponse {
-  const parsed = JSON.parse(output) as GitStatusResponse;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(output);
+  } catch {
+    throw new Error(
+      "Git status did not return a valid workspace state for pull request creation.",
+    );
+  }
+
+  const parsedRecord = parsed as Record<string, unknown>;
   if (
     !parsed ||
     typeof parsed !== "object" ||
-    typeof parsed.branch !== "string" ||
-    typeof parsed.gitAvailable !== "boolean"
+    typeof parsedRecord.branch !== "string" ||
+    typeof parsedRecord.gitAvailable !== "boolean"
   ) {
     throw new Error(
       "Git status did not return a valid workspace state for pull request creation.",
     );
   }
-  return parsed;
+
+  const status = parsed as GitStatusResponse;
+  return status;
 }
 
 function assertPullRequestWorkspaceBinding(

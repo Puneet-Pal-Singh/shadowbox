@@ -609,7 +609,7 @@ export class RunEngine implements IRunEngine {
     } catch (error) {
       const recoveryResponse = await this.tryHandleTaskExecutionError(
         run,
-        input.prompt,
+        run.input.prompt,
         loop,
         error,
       );

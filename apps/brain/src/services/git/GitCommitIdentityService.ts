@@ -13,6 +13,7 @@ import type { Env } from "../../types/ai";
 import type { UserSessionRecord } from "../AuthService";
 
 const USER_SESSION_TTL_SECONDS = 7 * 24 * 60 * 60;
+const COMMIT_IDENTITY_PREFERENCE_TTL_SECONDS = USER_SESSION_TTL_SECONDS;
 const COMMIT_IDENTITY_PREFERENCE_KEY_PREFIX = "git_commit_identity_preference:";
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -111,11 +112,16 @@ export async function resolveCommitIdentityForStoredUserSession(
     return null;
   }
 
+  const session = parseUserSessionRecord(sessionData);
+  if (!session) {
+    return null;
+  }
+
   return await resolveCommitIdentityForCommit(
     env,
     {
       userId,
-      session: JSON.parse(sessionData) as UserSessionRecord,
+      session,
     },
     explicitInput,
   );
@@ -139,6 +145,21 @@ async function resolveExplicitCommitIdentity(
   context: CommitIdentityContext | null,
   input: Required<ExplicitCommitIdentityInput>,
 ): Promise<GitCommitIdentity> {
+  if (input.authorName.length === 0) {
+    throw new CommitIdentityError(
+      "COMMIT_IDENTITY_INCOMPLETE",
+      "Enter a commit author name before retrying the commit.",
+      {
+        commitIdentity: {
+          state: "requires_input",
+          reason: "missing_name",
+          suggestedAuthorName: input.authorName,
+          suggestedAuthorEmail: input.authorEmail,
+        },
+      },
+    );
+  }
+
   if (!EMAIL_PATTERN.test(input.authorEmail)) {
     throw new CommitIdentityError(
       "COMMIT_IDENTITY_INCOMPLETE",
@@ -334,7 +355,18 @@ async function readPersistedCommitIdentityPreference(
     return null;
   }
 
-  return JSON.parse(payload) as CommitIdentityPreferenceRecord;
+  try {
+    const parsed = JSON.parse(payload) as unknown;
+    if (!isCommitIdentityPreferenceRecord(parsed)) {
+      return null;
+    }
+    return parsed;
+  } catch {
+    console.warn(
+      `[git/commit-identity] Corrupted preference for user ${userId}, ignoring`,
+    );
+    return null;
+  }
 }
 
 async function persistCommitIdentityPreference(
@@ -342,9 +374,58 @@ async function persistCommitIdentityPreference(
   userId: string,
   preference: CommitIdentityPreferenceRecord,
 ): Promise<void> {
-  await env.SESSIONS.put(buildPreferenceKey(userId), JSON.stringify(preference));
+  await env.SESSIONS.put(buildPreferenceKey(userId), JSON.stringify(preference), {
+    expirationTtl: COMMIT_IDENTITY_PREFERENCE_TTL_SECONDS,
+  });
 }
 
 function buildPreferenceKey(userId: string): string {
   return `${COMMIT_IDENTITY_PREFERENCE_KEY_PREFIX}${userId}`;
+}
+
+function parseUserSessionRecord(payload: string): UserSessionRecord | null {
+  try {
+    const parsed = JSON.parse(payload) as unknown;
+    if (!isUserSessionRecord(parsed)) {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function isUserSessionRecord(value: unknown): value is UserSessionRecord {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record.userId === "string" &&
+    typeof record.login === "string" &&
+    typeof record.avatar === "string" &&
+    typeof record.encryptedToken === "string" &&
+    typeof record.createdAt === "number" &&
+    (record.email === null || typeof record.email === "string") &&
+    (record.name === undefined ||
+      record.name === null ||
+      typeof record.name === "string")
+  );
+}
+
+function isCommitIdentityPreferenceRecord(
+  value: unknown,
+): value is CommitIdentityPreferenceRecord {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record.authorName === "string" &&
+    typeof record.authorEmail === "string" &&
+    typeof record.verified === "boolean" &&
+    typeof record.updatedAt === "number"
+  );
 }
