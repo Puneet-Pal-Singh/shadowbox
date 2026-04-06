@@ -69,7 +69,8 @@
   "kv_namespaces": [
     {
       "binding": "SESSIONS",
-      "id": "your_sessions_kv_namespace_id_here",
+      "id": "ca477f3e873a47a7bbfd58734cc460c2",
+      "remote": true,
     },
   ],
 
@@ -78,7 +79,8 @@
     {
       "binding": "BYOK_DB",
       "database_name": "shadowbox-byok",
-      "database_id": "your_byok_d1_database_id_here",
+      "database_id": "73d62c9e-12ad-48a4-a9c5-1ac976d1bd2b",
+      "remote": true,
     },
   ],
 }
