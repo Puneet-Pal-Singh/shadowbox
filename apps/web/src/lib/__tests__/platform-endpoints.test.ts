@@ -223,9 +223,8 @@ describe("Platform Endpoints", () => {
       expect(errorSpy).toHaveBeenCalled();
       expect(errorSpy).toHaveBeenCalledWith(
         expect.stringContaining(
-          "Missing required environment variables in production",
+          "Missing required endpoint environment variables",
         ),
-        expect.any(Array),
       );
     });
 
