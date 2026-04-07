@@ -40,21 +40,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<GitHubUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Check session on mount
-  useEffect(() => {
-    checkSession();
-  }, []);
-
-  // Handle OAuth callback
-  useEffect(() => {
-    const result = GitHubService.handleOAuthCallback();
-    if (result.success && result.user) {
-      // Refresh session after OAuth callback
-      checkSession();
-    }
-  }, []);
-
-  const checkSession = async () => {
+  const checkSession = useCallback(async () => {
     try {
       setIsLoading(true);
       const session = await GitHubService.getSession();
@@ -68,7 +54,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    const result = GitHubService.handleOAuthCallback();
+    if (result.success) {
+      console.log("[auth] OAuth callback token captured", {
+        user: result.user,
+      });
+    }
+
+    void checkSession();
+  }, [checkSession]);
 
   const login = useCallback(() => {
     GitHubService.initiateGitHubLogin();
@@ -86,7 +83,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const refreshSession = useCallback(async () => {
     await checkSession();
-  }, []);
+  }, [checkSession]);
 
   return (
     <AuthContext.Provider
