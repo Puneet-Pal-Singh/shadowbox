@@ -1,0 +1,6 @@
+.DS_Store
+.dev.vars
+.turbo
+.wrangler
+node_modules
+npm-debug.log*
