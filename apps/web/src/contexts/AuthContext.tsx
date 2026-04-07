@@ -58,10 +58,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const result = GitHubService.handleOAuthCallback();
-    if (result.success) {
-      console.log("[auth] OAuth callback token captured", {
-        user: result.user,
-      });
+    if (result.success && import.meta.env.MODE === "development") {
+      console.log("[auth] OAuth callback handled successfully");
     }
 
     void checkSession();
