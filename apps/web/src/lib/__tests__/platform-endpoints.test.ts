@@ -209,38 +209,30 @@ describe("Platform Endpoints", () => {
       );
     });
 
-    it("should error about missing vars in production", () => {
+    it("should fail fast about missing vars in production", () => {
       (import.meta.env as unknown as Record<string, string>).MODE =
         "production";
       deleteEnv("VITE_BRAIN_BASE_URL");
       deleteEnv("VITE_MUSCLE_BASE_URL");
       deleteEnv("VITE_MUSCLE_WS_URL");
 
-      const errorSpy = vi.spyOn(console, "error");
-
-      validateEndpointConfig();
-
-      expect(errorSpy).toHaveBeenCalled();
-      expect(errorSpy).toHaveBeenCalledWith(
-        expect.stringContaining(
-          "Missing required environment variables in production",
-        ),
-        expect.any(Array),
+      expect(() => validateEndpointConfig()).toThrowError(
+        expect.objectContaining({
+          message: expect.stringContaining(
+            "Missing required endpoint environment variables",
+          ),
+        }),
       );
     });
 
-    it("should not error when all vars present in production", () => {
+    it("should not throw when all vars present in production", () => {
       (import.meta.env as unknown as Record<string, string>).MODE =
         "production";
       setEnv("VITE_BRAIN_BASE_URL", "https://brain.prod");
       setEnv("VITE_MUSCLE_BASE_URL", "https://muscle.prod");
       setEnv("VITE_MUSCLE_WS_URL", "wss://ws.prod");
 
-      const errorSpy = vi.spyOn(console, "error");
-
-      validateEndpointConfig();
-
-      expect(errorSpy).not.toHaveBeenCalled();
+      expect(() => validateEndpointConfig()).not.toThrow();
     });
   });
 });

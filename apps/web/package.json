@@ -6,6 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "build:deploy": "tsc -b && SHADOWBOX_REQUIRE_DEPLOY_ENDPOINTS=true vite build",
+    "deploy:pages": "pnpm run build:deploy && wrangler pages deploy",
+    "deploy:staging": "pnpm run build:deploy && wrangler pages deploy --branch staging",
     "lint": "eslint .",
     "check-types": "tsc --noEmit",
     "test": "vitest run",
@@ -52,6 +55,7 @@
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.46.4",
     "vite": "^7.2.4",
-    "vitest": "^1.6.0"
+    "vitest": "^1.6.0",
+    "wrangler": "^4.61.0"
   }
 }

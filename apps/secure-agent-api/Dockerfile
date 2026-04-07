@@ -122,26 +122,30 @@ FROM ${BASE_IMAGE}
 USER root
 
 ENV DEBIAN_FRONTEND=noninteractive
+ENV RUSTUP_HOME=/usr/local/rustup
+ENV CARGO_HOME=/usr/local/cargo
+ENV PATH=/usr/local/cargo/bin:$PATH
 
-# 1. Install Base Tools & Python
+# 1. Install only the runtime packages we actually need.
+# cloudflare/sandbox already includes node, npm, npx, git, and curl, so we do not reinstall them here.
+# We intentionally avoid shipping a full C toolchain in the base image for launch; Python packages that
+# require native compilation can still be handled as a future optimization path if they become essential.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 python3-pip python3-venv \
-    netcat-openbsd curl git build-essential ca-certificates \
+    python3 python3-pip \
+    netcat-openbsd \
     && rm -rf /var/lib/apt/lists/*
 
-# 2. Install Node.js (Minimal)
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
-    && apt-get install -y nodejs \
-    && npm install -g typescript tsx \
-    && rm -rf /var/lib/apt/lists/*
+# 2. Add only the TypeScript runner required by the Node plugin.
+RUN npm install -g --no-audit --no-fund tsx@4.20.6 \
+    && npm cache clean --force
 
-# 3. Install Rust (Minimal)
-ENV RUSTUP_HOME=/usr/local/rustup CARGO_HOME=/usr/local/cargo PATH=/usr/local/cargo/bin:$PATH
+# 3. Install the minimal Rust toolchain used by the Rust plugin.
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --no-modify-path
+RUN rm -rf /usr/local/cargo/registry /usr/local/cargo/git
 
-# 4. Install Python Dependencies
-# FIX: Removed --break-system-packages as it is not recognized by this pip version
-RUN python3 -m pip install redis requests numpy pandas
+# 4. Preinstall only the lightweight Python packages we actually want available by default.
+# Heavy libraries like numpy/pandas can still be installed on demand by the Python plugin.
+RUN python3 -m pip install --no-cache-dir redis requests
 
 # 5. Copy Pre-compiled Go Binary from Stage 1
 COPY --from=go-builder /app/redis-binary /usr/local/bin/my-redis-server

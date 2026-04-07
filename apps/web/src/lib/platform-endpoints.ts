@@ -4,6 +4,11 @@
  * Provides type-safe path builders for all API routes
  */
 
+import {
+  findMissingEndpointEnvVars,
+  formatMissingEndpointEnvMessage,
+} from "./endpoint-config.js";
+
 // Module-level cache for base URLs to avoid repeated warnings
 let brainHttpBaseCache: string | undefined;
 let muscleHttpBaseCache: string | undefined;
@@ -299,22 +304,12 @@ export function terminalCommandPath(sessionId: string): string {
  * Logs warnings for missing env vars (safe to run with defaults in dev)
  */
 export function validateEndpointConfig(): void {
-  const requiredEnvVars: Array<keyof ImportMetaEnv> = [
-    "VITE_BRAIN_BASE_URL",
-    "VITE_MUSCLE_BASE_URL",
-    "VITE_MUSCLE_WS_URL",
-  ];
-
-  const missingVars = requiredEnvVars.filter(
-    (varName) =>
-      !(import.meta.env as unknown as Record<string, unknown>)[varName],
+  const missingVars = findMissingEndpointEnvVars(
+    import.meta.env as unknown as Record<string, string | undefined>,
   );
 
   if (missingVars.length > 0 && import.meta.env.MODE === "production") {
-    console.error(
-      "[platform-endpoints] Missing required environment variables in production:",
-      missingVars,
-    );
+    throw new Error(formatMissingEndpointEnvMessage(missingVars));
   }
 
   if (missingVars.length > 0 && import.meta.env.MODE !== "production") {

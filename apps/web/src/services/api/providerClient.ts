@@ -110,6 +110,7 @@ export class ProviderApiClient {
       createByokHttpTransport({
         baseUrl: `${getBrainHttpBase()}/api/byok`,
         getRunId: () => this.resolveRunId(),
+        getHeaders: () => this.resolveAuthHeaders(),
       }),
     );
   }
@@ -222,6 +223,22 @@ export class ProviderApiClient {
 
   private resolveRunId(): string | null {
     return this.runIdResolver.getRunId();
+  }
+
+  private resolveAuthHeaders(): Record<string, string> {
+    try {
+      const token = localStorage.getItem("shadowbox_session");
+      if (!token) {
+        return {};
+      }
+
+      return {
+        Authorization: `Bearer ${token}`,
+      };
+    } catch (error) {
+      console.warn("[provider/authHeaders] Failed to read localStorage", error);
+      return {};
+    }
   }
 
   private async call<T>(operation: () => Promise<T>): Promise<T> {

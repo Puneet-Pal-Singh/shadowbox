@@ -129,17 +129,33 @@ export async function getAuthenticatedUserSession(
   env: Env,
 ): Promise<{ userId: string; session: UserSessionRecord } | null> {
   const sessionToken = extractSessionToken(request);
-  if (!sessionToken) return null;
+  if (!sessionToken) {
+    console.warn("[auth/session] missing session token on request");
+    return null;
+  }
 
   const userId = await verifySessionToken(sessionToken, env);
-  if (!userId) return null;
+  if (!userId) {
+    console.warn("[auth/session] session token failed verification");
+    return null;
+  }
 
   // Get user session from KV storage
   const sessionData = await env.SESSIONS.get(`user_session:${userId}`);
-  if (!sessionData) return null;
+  if (!sessionData) {
+    console.warn("[auth/session] verified token but no session record found", {
+      userId,
+    });
+    return null;
+  }
 
   const session = parseUserSessionRecord(sessionData);
-  if (!session) return null;
+  if (!session) {
+    console.warn("[auth/session] session record payload is invalid", {
+      userId,
+    });
+    return null;
+  }
 
   return {
     userId,
@@ -169,11 +185,24 @@ function isUserSessionRecord(value: unknown): value is UserSessionRecord {
     typeof record.userId === "string" &&
     typeof record.login === "string" &&
     typeof record.avatar === "string" &&
-    typeof record.encryptedToken === "string" &&
+    isEncryptedTokenRecord(record.encryptedToken) &&
     typeof record.createdAt === "number" &&
     (record.email === null || typeof record.email === "string") &&
     (record.name === undefined ||
       record.name === null ||
       typeof record.name === "string")
+  );
+}
+
+function isEncryptedTokenRecord(value: unknown): value is EncryptedToken {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const token = value as Record<string, unknown>;
+  return (
+    typeof token.ciphertext === "string" &&
+    typeof token.iv === "string" &&
+    typeof token.tag === "string"
   );
 }

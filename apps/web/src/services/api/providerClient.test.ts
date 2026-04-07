@@ -39,11 +39,13 @@ describe("ProviderApiClient", () => {
     fetchSpy = vi.spyOn(globalThis, "fetch") as unknown as ReturnType<
       typeof vi.spyOn
     >;
+    localStorage.setItem("shadowbox_session", "session-token-123");
     sessionStorage.clear();
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
+    localStorage.clear();
   });
 
   describe("getCatalog", () => {
@@ -76,6 +78,7 @@ describe("ProviderApiClient", () => {
         method: "GET",
         credentials: "include",
         headers: {
+          Authorization: "Bearer session-token-123",
           "Content-Type": "application/json",
           "X-Run-Id": testRunId,
         },
@@ -120,6 +123,7 @@ describe("ProviderApiClient", () => {
           method: "GET",
           credentials: "include",
           headers: {
+            Authorization: "Bearer session-token-123",
             "Content-Type": "application/json",
             "X-Run-Id": testRunId,
           },
@@ -182,6 +186,7 @@ describe("ProviderApiClient", () => {
         method: "GET",
         credentials: "include",
         headers: {
+          Authorization: "Bearer session-token-123",
           "Content-Type": "application/json",
           "X-Run-Id": testRunId,
         },
@@ -210,6 +215,7 @@ describe("ProviderApiClient", () => {
         method: "POST",
         credentials: "include",
         headers: {
+          Authorization: "Bearer session-token-123",
           "Content-Type": "application/json",
           "X-Run-Id": testRunId,
         },
@@ -236,6 +242,7 @@ describe("ProviderApiClient", () => {
         method: "DELETE",
         credentials: "include",
         headers: {
+          Authorization: "Bearer session-token-123",
           "Content-Type": "application/json",
           "X-Run-Id": testRunId,
         },
