@@ -185,11 +185,24 @@ function isUserSessionRecord(value: unknown): value is UserSessionRecord {
     typeof record.userId === "string" &&
     typeof record.login === "string" &&
     typeof record.avatar === "string" &&
-    typeof record.encryptedToken === "string" &&
+    isEncryptedTokenRecord(record.encryptedToken) &&
     typeof record.createdAt === "number" &&
     (record.email === null || typeof record.email === "string") &&
     (record.name === undefined ||
       record.name === null ||
       typeof record.name === "string")
+  );
+}
+
+function isEncryptedTokenRecord(value: unknown): value is EncryptedToken {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const token = value as Record<string, unknown>;
+  return (
+    typeof token.ciphertext === "string" &&
+    typeof token.iv === "string" &&
+    typeof token.tag === "string"
   );
 }
