@@ -136,7 +136,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # 2. Add only the TypeScript runner required by the Node plugin.
-RUN npm install -g --no-audit --no-fund tsx \
+RUN npm install -g --no-audit --no-fund tsx@4.20.6 \
     && npm cache clean --force
 
 # 3. Install the minimal Rust toolchain used by the Rust plugin.
