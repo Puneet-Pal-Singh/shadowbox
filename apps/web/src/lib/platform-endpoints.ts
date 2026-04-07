@@ -309,9 +309,7 @@ export function validateEndpointConfig(): void {
   );
 
   if (missingVars.length > 0 && import.meta.env.MODE === "production") {
-    console.error(
-      formatMissingEndpointEnvMessage(missingVars),
-    );
+    throw new Error(formatMissingEndpointEnvMessage(missingVars));
   }
 
   if (missingVars.length > 0 && import.meta.env.MODE !== "production") {

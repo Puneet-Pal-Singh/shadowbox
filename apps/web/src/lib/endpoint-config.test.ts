@@ -25,6 +25,16 @@ describe("endpoint-config", () => {
     ).toEqual([]);
   });
 
+  it("treats whitespace-only endpoint values as missing", () => {
+    expect(
+      findMissingEndpointEnvVars({
+        VITE_BRAIN_BASE_URL: "   ",
+        VITE_MUSCLE_BASE_URL: "https://muscle.example.com",
+        VITE_MUSCLE_WS_URL: "\n",
+      }),
+    ).toEqual(["VITE_BRAIN_BASE_URL", "VITE_MUSCLE_WS_URL"]);
+  });
+
   it("formats a stable deploy validation message", () => {
     expect(
       formatMissingEndpointEnvMessage([

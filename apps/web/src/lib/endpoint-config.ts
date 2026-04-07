@@ -9,10 +9,16 @@ export type RequiredEndpointEnvVar =
 
 type EndpointEnvRecord = Partial<Record<string, string | undefined>>;
 
+function hasNonEmptyEnvValue(value: string | undefined): boolean {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
 export function findMissingEndpointEnvVars(
   env: EndpointEnvRecord,
 ): RequiredEndpointEnvVar[] {
-  return REQUIRED_ENDPOINT_ENV_VARS.filter((key) => !env[key]);
+  return REQUIRED_ENDPOINT_ENV_VARS.filter(
+    (key) => !hasNonEmptyEnvValue(env[key]),
+  );
 }
 
 export function formatMissingEndpointEnvMessage(

@@ -50,7 +50,7 @@ Deploy builds fail fast when any of the required `VITE_*` endpoint variables are
 
 ## Cloudflare Pages Deploy
 
-The web app is configured for Cloudflare Pages in [wrangler.jsonc](/Users/puneetpalsingh/Documents/Code/dev/Shadowbox/shadowbox/apps/web/wrangler.jsonc). SPA deep-link fallback is handled by [public/_redirects](/Users/puneetpalsingh/Documents/Code/dev/Shadowbox/shadowbox/apps/web/public/_redirects).
+The web app is configured for Cloudflare Pages in [wrangler.jsonc](./wrangler.jsonc). SPA deep-link fallback is handled by [public/_redirects](./public/_redirects).
 
 One-time project setup:
 
