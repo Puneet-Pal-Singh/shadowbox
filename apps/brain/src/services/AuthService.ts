@@ -129,17 +129,33 @@ export async function getAuthenticatedUserSession(
   env: Env,
 ): Promise<{ userId: string; session: UserSessionRecord } | null> {
   const sessionToken = extractSessionToken(request);
-  if (!sessionToken) return null;
+  if (!sessionToken) {
+    console.warn("[auth/session] missing session token on request");
+    return null;
+  }
 
   const userId = await verifySessionToken(sessionToken, env);
-  if (!userId) return null;
+  if (!userId) {
+    console.warn("[auth/session] session token failed verification");
+    return null;
+  }
 
   // Get user session from KV storage
   const sessionData = await env.SESSIONS.get(`user_session:${userId}`);
-  if (!sessionData) return null;
+  if (!sessionData) {
+    console.warn("[auth/session] verified token but no session record found", {
+      userId,
+    });
+    return null;
+  }
 
   const session = parseUserSessionRecord(sessionData);
-  if (!session) return null;
+  if (!session) {
+    console.warn("[auth/session] session record payload is invalid", {
+      userId,
+    });
+    return null;
+  }
 
   return {
     userId,
