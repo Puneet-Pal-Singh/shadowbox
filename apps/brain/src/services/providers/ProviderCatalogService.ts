@@ -11,6 +11,7 @@ import type {
   ModelDescriptor,
   ProviderCatalogEntry,
   ProviderCatalogResponse,
+  ProviderRegistryEntry,
 } from "@repo/shared-types";
 import type { ModelsListResponse } from "../../schemas/provider";
 import { ProviderRegistryService } from "./ProviderRegistryService";
@@ -22,8 +23,8 @@ import {
 } from "./axis";
 
 const CATALOG_DISCOVERY_QUERY: BYOKDiscoveredProviderModelsQuery = {
-  view: "all",
-  limit: 200,
+  view: "popular",
+  limit: 50,
 };
 
 const MODELS_DISCOVERY_QUERY: BYOKDiscoveredProviderModelsQuery = {
@@ -31,10 +32,16 @@ const MODELS_DISCOVERY_QUERY: BYOKDiscoveredProviderModelsQuery = {
   limit: 1000,
 };
 
+type ProviderCatalogVisibilityResolver = (
+  provider: ProviderRegistryEntry,
+) => Promise<boolean>;
+
 export class ProviderCatalogService {
   constructor(
     private readonly registryService: ProviderRegistryService,
     private readonly modelDiscoveryService: ProviderModelDiscoveryService,
+    private readonly canExposeProvider: ProviderCatalogVisibilityResolver = async () =>
+      true,
   ) {}
 
   async getCatalog(): Promise<ProviderCatalogResponse> {
@@ -42,6 +49,9 @@ export class ProviderCatalogService {
     const providers: ProviderCatalogEntry[] = [];
 
     for (const provider of registryProviders) {
+      if (!(await this.canExposeProvider(provider))) {
+        continue;
+      }
       const discoveredModels = await this.loadProviderModels(provider.providerId);
       providers.push({
         providerId: provider.providerId,
@@ -58,6 +68,14 @@ export class ProviderCatalogService {
   }
 
   async getModels(providerId: string): Promise<ModelsListResponse> {
+    if (!(await this.isProviderVisible(providerId))) {
+      return {
+        providerId,
+        models: [],
+        lastFetchedAt: new Date().toISOString(),
+      };
+    }
+
     const models = await this.loadProviderModels(providerId);
     return {
       providerId,
@@ -99,6 +117,14 @@ export class ProviderCatalogService {
   }
 
   async getDiscoveredModels(providerId: string): Promise<ModelsListResponse> {
+    if (!(await this.isProviderVisible(providerId))) {
+      return {
+        providerId,
+        models: [],
+        lastFetchedAt: new Date().toISOString(),
+      };
+    }
+
     if (providerId === AXIS_PROVIDER_ID) {
       return {
         providerId,
@@ -127,6 +153,25 @@ export class ProviderCatalogService {
     limit: number;
     cursor?: string;
   }): Promise<BYOKDiscoveredProviderModelsResponse> {
+    const axisProvider = this.registryService.getProvider(AXIS_PROVIDER_ID);
+    if (!axisProvider || !(await this.canExposeProvider(axisProvider))) {
+      return {
+        providerId: AXIS_PROVIDER_ID,
+        view: query.view,
+        models: [],
+        page: {
+          limit: query.limit,
+          cursor: query.cursor,
+          hasMore: false,
+        },
+        metadata: {
+          fetchedAt: new Date().toISOString(),
+          stale: false,
+          source: "provider_api",
+        },
+      };
+    }
+
     const models = getAxisDiscoveredModels();
     const limited = models.slice(0, query.limit);
     return {
@@ -144,5 +189,13 @@ export class ProviderCatalogService {
         source: "provider_api",
       },
     };
+  }
+
+  private async isProviderVisible(providerId: string): Promise<boolean> {
+    const provider = this.registryService.getProvider(providerId);
+    if (!provider) {
+      return false;
+    }
+    return this.canExposeProvider(provider);
   }
 }
