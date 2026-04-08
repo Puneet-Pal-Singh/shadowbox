@@ -47,4 +47,40 @@ describe("ProviderCatalogService", () => {
       expect.anything(),
     );
   });
+
+  it("hides platform-managed providers when availability resolver rejects them", async () => {
+    const modelDiscoveryService = {
+      getDiscoveredModels: vi.fn(async (providerId: string) => ({
+        providerId,
+        view: "popular" as const,
+        models: [
+          {
+            id: `${providerId}-model`,
+            name: `${providerId} model`,
+            providerId,
+          },
+        ],
+        page: {
+          limit: 50,
+          hasMore: false,
+        },
+        metadata: {
+          fetchedAt: new Date().toISOString(),
+          stale: false,
+          source: "provider_api" as const,
+        },
+      })),
+    };
+
+    const service = new ProviderCatalogService(
+      new ProviderRegistryService(),
+      modelDiscoveryService as never,
+      async (provider) => provider.providerId !== "axis",
+    );
+
+    const catalog = await service.getCatalog();
+    expect(catalog.providers.map((provider) => provider.providerId)).not.toContain(
+      "axis",
+    );
+  });
 });
