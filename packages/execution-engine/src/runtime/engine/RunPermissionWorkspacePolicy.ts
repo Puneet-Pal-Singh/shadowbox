@@ -1,9 +1,11 @@
 import type {
   RepositoryContext,
+  WorkspaceBootstrapMode,
   WorkspaceBootstrapResult,
   WorkspaceBootstrapper,
 } from "../types.js";
 import type { PermissionApprovalStore } from "./PermissionApprovalStore.js";
+import { detectsMutation } from "./detectsMutation.js";
 import {
   detectCrossRepoTarget,
   formatCrossRepoApprovalGrantedMessage,
@@ -81,6 +83,7 @@ export async function getPermissionPolicyMessage(
 
 export async function getWorkspaceBootstrapMessage(
   runId: string,
+  prompt: string,
   repositoryContext: RepositoryContext | undefined,
   workspaceBootstrapper: WorkspaceBootstrapper | undefined,
 ): Promise<string | null> {
@@ -93,9 +96,11 @@ export async function getWorkspaceBootstrapMessage(
   }
 
   try {
+    const bootstrapMode = resolveWorkspaceBootstrapMode(prompt);
     const bootstrapResult = await workspaceBootstrapper.bootstrap({
       runId,
       repositoryContext,
+      mode: bootstrapMode,
     });
     return mapBootstrapResultToMessage(bootstrapResult, repositoryContext);
   } catch (error) {
@@ -104,6 +109,34 @@ export async function getWorkspaceBootstrapMessage(
     const repoRef = describeRepositoryRef(repositoryContext);
     return `I couldn't prepare the workspace for ${repoRef}. ${errorMessage}`;
   }
+}
+
+function resolveWorkspaceBootstrapMode(prompt: string): WorkspaceBootstrapMode {
+  if (isGitWritePrompt(prompt)) {
+    return "git_write";
+  }
+
+  if (detectsMutation(prompt)) {
+    return "mutation";
+  }
+
+  if (isExplicitReadOnlyPrompt(prompt)) {
+    return "read_only";
+  }
+
+  return "mutation";
+}
+
+function isGitWritePrompt(prompt: string): boolean {
+  return /\b(commit|stage|push|pull request|create pr|open pr|branch|checkout|merge|rebase|cherry-pick)\b/i.test(
+    prompt,
+  );
+}
+
+function isExplicitReadOnlyPrompt(prompt: string): boolean {
+  return /\b(read|inspect|review|list|show|find|search|where|what|which|status|explain|analyze|audit|check)\b/i.test(
+    prompt,
+  );
 }
 
 function mapBootstrapResultToMessage(
