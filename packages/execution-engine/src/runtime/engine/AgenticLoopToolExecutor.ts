@@ -306,6 +306,14 @@ async function executeGitStageTool(
   taskId: string,
   taskInput: TaskInput,
 ): Promise<TaskResult> {
+  const changeEvidence = await readGitChangeEvidence(executionService);
+  if (changeEvidence === "no_changes") {
+    return buildFailureResult(
+      taskId,
+      "I couldn't stage changes because there are no modified files in this workspace yet.",
+    );
+  }
+
   const validatedInput = validateGoldenFlowToolInput("git_stage", taskInput);
   const payload: Record<string, unknown> = {};
   if (validatedInput.files && validatedInput.files.length > 0) {
@@ -337,6 +345,21 @@ async function executeGitCommitTool(
   taskId: string,
   taskInput: TaskInput,
 ): Promise<TaskResult> {
+  const changeEvidence = await readGitChangeEvidence(executionService);
+  if (changeEvidence === "no_changes") {
+    return buildFailureResult(
+      taskId,
+      "I couldn't create a commit because there are no staged or modified files yet.",
+    );
+  }
+
+  const commitIdentityMessage = await buildMissingCommitIdentityMessage(
+    executionService,
+  );
+  if (commitIdentityMessage) {
+    return buildFailureResult(taskId, commitIdentityMessage);
+  }
+
   const validatedInput = validateGoldenFlowToolInput("git_commit", taskInput);
   const payload: Record<string, unknown> = {
     message: validatedInput.message.trim(),
@@ -370,6 +393,115 @@ async function executeGitCommitTool(
       preview: validatedInput.message.trim(),
     }),
   });
+}
+
+async function readGitChangeEvidence(
+  executionService: RuntimeExecutionService,
+): Promise<"changes_present" | "no_changes" | "unknown"> {
+  const gitStatusResult = await executeGatewayPlugin(
+    executionService,
+    "git_status",
+    {},
+  );
+  const failure = extractExecutionFailure(gitStatusResult);
+  if (failure) {
+    return "unknown";
+  }
+
+  const parsed = parseGitStatusPayload(formatExecutionResult(gitStatusResult));
+  if (!parsed) {
+    return "unknown";
+  }
+
+  const hasChanges =
+    parsed.hasStaged || parsed.hasUnstaged || parsed.files.length > 0;
+  return hasChanges ? "changes_present" : "no_changes";
+}
+
+async function buildMissingCommitIdentityMessage(
+  executionService: RuntimeExecutionService,
+): Promise<string | null> {
+  const authorName = await readGitConfigValue(executionService, "user.name");
+  const authorEmail = await readGitConfigValue(executionService, "user.email");
+  if (authorName.status === "unknown" || authorEmail.status === "unknown") {
+    return null;
+  }
+
+  if (authorName.status === "present" && authorEmail.status === "present") {
+    return null;
+  }
+
+  return "Git commit identity is not configured in this workspace. Set git user.name and user.email, then retry the commit.";
+}
+
+async function readGitConfigValue(
+  executionService: RuntimeExecutionService,
+  key: "user.name" | "user.email",
+): Promise<
+  | { status: "present"; value: string }
+  | { status: "missing" }
+  | { status: "unknown" }
+> {
+  const result = await executeGatewayPlugin(executionService, "bash", {
+    command: `git config --get ${key}`,
+    description: `Read ${key} for commit preflight`,
+  });
+  const failure = extractExecutionFailure(result);
+  if (failure) {
+    if (isUnknownGitConfigFailure(failure)) {
+      return { status: "unknown" };
+    }
+    return { status: "missing" };
+  }
+
+  const value = formatExecutionResult(result).trim();
+  if (!value) {
+    return { status: "missing" };
+  }
+
+  const normalized = value.split("\n")[0]?.trim();
+  if (!normalized) {
+    return { status: "missing" };
+  }
+
+  return { status: "present", value: normalized };
+}
+
+function parseGitStatusPayload(
+  formattedResult: string,
+): { files: unknown[]; hasStaged: boolean; hasUnstaged: boolean } | null {
+  try {
+    const parsed = JSON.parse(formattedResult) as unknown;
+    if (!parsed || typeof parsed !== "object") {
+      return null;
+    }
+
+    const files = Array.isArray((parsed as { files?: unknown }).files)
+      ? ((parsed as { files: unknown[] }).files ?? [])
+      : [];
+    const hasStaged =
+      typeof (parsed as { hasStaged?: unknown }).hasStaged === "boolean"
+        ? ((parsed as { hasStaged: boolean }).hasStaged ?? false)
+        : false;
+    const hasUnstaged =
+      typeof (parsed as { hasUnstaged?: unknown }).hasUnstaged === "boolean"
+        ? ((parsed as { hasUnstaged: boolean }).hasUnstaged ?? false)
+        : false;
+
+    return {
+      files,
+      hasStaged,
+      hasUnstaged,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function isUnknownGitConfigFailure(failure: string): boolean {
+  return /unexpected route|unsupported|not registered|invalid arguments?|invalid command argument/i.test(
+    failure,
+  );
 }
 
 async function executeGitPushTool(
