@@ -199,10 +199,10 @@ describe("RunAgenticLoopPolicy", () => {
       "I inspected the workspace, but I did not complete the requested change because no mutating tool succeeded.",
     );
     expect(output).toContain(
-      "Before the run stopped, I completed 1 tool action(s) to inspect or verify the workspace (read_file).",
+      "Before the run stopped, I completed 1 inspection step(s) to gather workspace evidence.",
     );
     expect(output).toContain(
-      "A required write_file action failed: Permission denied",
+      "A required file edit step failed: Permission denied",
     );
     expect(output).not.toContain("I'll update the file now.");
   });
@@ -351,7 +351,7 @@ describe("RunAgenticLoopPolicy", () => {
     const output = buildAgenticLoopFinalOutput(result);
 
     expect(output).toContain(
-      "Before the run stopped, I completed 1 git action(s) that changed repository state (git_commit).",
+      "Before the run stopped, I completed 1 repository step(s) that changed branch or commit state.",
     );
   });
 
