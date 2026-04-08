@@ -124,4 +124,58 @@ describe("ProviderModelDiscoveryService", () => {
       metrics.model_discovery_requests_total.openrouter_provider_api_success,
     ).toBe(1);
   });
+
+  it("applies launch-safe OpenRouter curation for popular model discovery", async () => {
+    const store = createStoreStub();
+    const credentialService = {
+      getApiKey: vi.fn(async () => "sk-or-test"),
+    } as unknown as ProviderCredentialService;
+    const adapter: ProviderModelCatalogPort = {
+      fetchAll: vi.fn(async () => [
+        {
+          id: "openai/gpt-4.1",
+          name: "GPT-4.1",
+          providerId: "openrouter",
+          supportsTools: true,
+          contextWindow: 200_000,
+        },
+        {
+          id: "google/gemini-2.5-pro",
+          name: "Gemini 2.5 Pro",
+          providerId: "openrouter",
+          supportsTools: true,
+          contextWindow: 1_000_000,
+        },
+        {
+          id: "random/free-model:free",
+          name: "Free Random",
+          providerId: "openrouter",
+          supportsTools: false,
+        },
+        ...Array.from({ length: 32 }, (_, index) => ({
+          id: `vendor/model-${index}`,
+          name: `Model ${index}`,
+          providerId: "openrouter",
+          supportsTools: index % 2 === 0,
+          contextWindow: 8_192 + index * 1_000,
+        })),
+      ]),
+      fetchPage: vi.fn(),
+    };
+
+    const service = new ProviderModelDiscoveryService(
+      store as unknown as ProviderModelCacheStore,
+      credentialService,
+      { openrouter: adapter },
+    );
+
+    const result = await service.getDiscoveredModels("openrouter", {
+      view: "popular",
+      limit: 50,
+    });
+
+    expect(result.models).toHaveLength(24);
+    expect(result.models[0]?.id).toBe("openai/gpt-4.1");
+    expect(result.models[1]?.id).toBe("google/gemini-2.5-pro");
+  });
 });
