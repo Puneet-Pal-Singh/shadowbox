@@ -117,9 +117,6 @@ export function buildAgenticLoopFinalMessage(
     return {
       text: buildTaskModelNoActionSummary({
         requiresMutation: result.requiresMutation,
-        stepsExecuted: result.stepsExecuted,
-        toolExecutionCount: result.toolExecutionCount,
-        failedToolCount: result.failedToolCount,
         toolLifecycle: result.toolLifecycle,
       }),
       metadata: buildTaskModelNoActionMetadata(),
@@ -182,9 +179,6 @@ export function buildAgenticLoopFinalMessage(
 
 export function buildTaskModelNoActionSummary(input: {
   requiresMutation: boolean;
-  stepsExecuted: number;
-  toolExecutionCount: number;
-  failedToolCount: number;
   toolLifecycle: AgenticLoopToolLifecycleEvent[];
 }): string {
   const lines = [
@@ -212,10 +206,7 @@ export function buildTaskModelNoActionSummary(input: {
   }
 
   lines.push(
-    `Execution stats: ${input.stepsExecuted} step(s), ${input.toolExecutionCount} tool call(s), ${input.failedToolCount} failure(s).`,
-  );
-  lines.push(
-    "Retry the task or switch to a faster or more reliable model.",
+    "Retry the task. If this keeps happening, switch to a faster or more reliable model.",
   );
 
   return lines.join("\n");
@@ -241,10 +232,6 @@ function buildIncompleteMutationSummary(result: AgenticLoopResult): string {
   }
 
   lines.push(
-    `Execution stats: ${result.stepsExecuted} step(s), ${result.toolExecutionCount} tool call(s), ${result.failedToolCount} failure(s).`,
-  );
-
-  lines.push(
     "No file changed in this run. Retry with a more specific target file, component, or edit instruction so I can attempt the mutation again.",
   );
 
@@ -267,9 +254,7 @@ function buildFallbackLoopSummary(result: AgenticLoopResult): string {
     lines.push(describeFailedToolWork(failedTools));
   }
 
-  lines.push(
-    `Execution stats: ${result.stepsExecuted} step(s), ${result.toolExecutionCount} tool call(s), ${result.failedToolCount} failure(s).`,
-  );
+  lines.push("Retry the request after fixing the failed step.");
 
   return lines.join("\n");
 }
@@ -544,24 +529,10 @@ function describeCompletedToolWork(
     isMutationFocusedGitTool(event.toolName),
   );
   if (completedGitMutations.length > 0) {
-    const sampledTools = completedGitMutations
-      .slice(0, 3)
-      .map((event) => event.toolName)
-      .join(", ");
-    const suffix =
-      completedGitMutations.length > 3
-        ? `, and ${completedGitMutations.length - 3} more`
-        : "";
-    return `Before the run stopped, I completed ${completedGitMutations.length} git action(s) that changed repository state${sampledTools ? ` (${sampledTools}${suffix})` : ""}.`;
+    return `Before the run stopped, I completed ${completedGitMutations.length} repository step(s) that changed branch or commit state.`;
   }
 
-  const sampledTools = completedTools
-    .slice(0, 3)
-    .map((event) => event.toolName)
-    .join(", ");
-  const suffix =
-    completedTools.length > 3 ? `, and ${completedTools.length - 3} more` : "";
-  return `Before the run stopped, I completed ${completedTools.length} tool action(s) to inspect or verify the workspace${sampledTools ? ` (${sampledTools}${suffix})` : ""}.`;
+  return `Before the run stopped, I completed ${completedTools.length} inspection step(s) to gather workspace evidence.`;
 }
 
 function describeFailedToolWork(
@@ -608,7 +579,7 @@ function describeSingleFailedTool(
     return `A shell step failed: ${summarizeLifecycleDetail(event.detail)}`;
   }
 
-  return `A required ${event.toolName} action failed: ${summarizeLifecycleDetail(
+  return `A required ${describeToolAction(event.toolName)} step failed: ${summarizeLifecycleDetail(
     event.detail,
   )}`;
 }
@@ -673,7 +644,7 @@ function deriveToolFailureResumeHint(
     return "Retry the shell step. If it keeps failing, run the equivalent command in your local terminal.";
   }
 
-  return `Retry the failed ${event.toolName} step, or finish it manually in your local terminal if the sandbox cannot complete it.`;
+  return "Retry the failed step, or finish it manually in your local terminal if the sandbox cannot complete it.";
 }
 
 function getTerminalToolLifecycleEvent(
@@ -702,6 +673,33 @@ function isMutationFocusedGitTool(toolName: string): boolean {
     toolName === "git_branch_switch" ||
     toolName === "git_create_pull_request"
   );
+}
+
+function describeToolAction(toolName: string): string {
+  switch (toolName) {
+    case "read_file":
+      return "file read";
+    case "list_files":
+      return "file listing";
+    case "write_file":
+      return "file edit";
+    case "git_stage":
+      return "git staging";
+    case "git_commit":
+      return "git commit";
+    case "git_push":
+      return "git push";
+    case "git_pull":
+      return "git sync";
+    case "git_branch_create":
+      return "branch create";
+    case "git_branch_switch":
+      return "branch switch";
+    case "git_create_pull_request":
+      return "pull request";
+    default:
+      return "tool";
+  }
 }
 
 function isGitShellFailure(event: AgenticLoopToolLifecycleEvent): boolean {
