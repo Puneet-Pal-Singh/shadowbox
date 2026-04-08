@@ -52,9 +52,12 @@ export type WorkspaceBootstrapStatus =
   | "invalid-context"
   | "sync-failed";
 
+export type WorkspaceBootstrapMode = "read_only" | "mutation" | "git_write";
+
 export interface WorkspaceBootstrapRequest {
   runId: string;
   repositoryContext: RepositoryContext;
+  mode?: WorkspaceBootstrapMode;
 }
 
 export interface WorkspaceBootstrapResult {
