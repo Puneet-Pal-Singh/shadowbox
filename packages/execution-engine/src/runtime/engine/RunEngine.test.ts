@@ -1483,7 +1483,7 @@ describe("RunEngine", () => {
       "I inspected the workspace, but I did not complete the requested change because no mutating tool succeeded.",
     );
     expect(output).toContain(
-      "A required write_file action failed: Permission denied",
+      "A required file edit step failed: Permission denied",
     );
     expect(output).toContain(
       "No file changed in this run. Retry with a more specific target file, component, or edit instruction so I can attempt the mutation again.",
@@ -1869,9 +1869,6 @@ describe("RunEngine", () => {
           "Branch created: feat/floating-hero-carousels",
         );
         expect(system).toContain(
-          "Commit created: feat: add floating carousels to hero section",
-        );
-        expect(system).toContain(
           "Branch pushed: feat/floating-hero-carousels",
         );
         expect(system).toContain(
@@ -2078,7 +2075,6 @@ describe("RunEngine", () => {
       previousPrompt: "commit it, create a new branch and create a pr on github",
       completedGitSteps: [
         "Branch created: feat/floating-hero-carousels",
-        "Commit created: feat: add floating carousels to hero section",
         "Branch pushed: feat/floating-hero-carousels",
       ],
     });
@@ -2488,6 +2484,7 @@ describe("RunEngine", () => {
 
     expect(workspaceBootstrapper.bootstrap).toHaveBeenNthCalledWith(1, {
       runId: TEST_RUN_ID,
+      mode: "git_write",
       repositoryContext: {
         owner: "sourcegraph",
         repo: "shadowbox",
@@ -2496,6 +2493,7 @@ describe("RunEngine", () => {
     });
     expect(workspaceBootstrapper.bootstrap).toHaveBeenNthCalledWith(2, {
       runId: TEST_RUN_ID,
+      mode: "mutation",
       repositoryContext: {
         owner: "sourcegraph",
         repo: "shadowbox",
@@ -3220,15 +3218,20 @@ describe("RunEngine", () => {
     const privateApi = runEngine as unknown as {
       getWorkspaceBootstrapMessage(
         runId: string,
+        prompt: string,
         repositoryContext?: { owner?: string; repo?: string; branch?: string },
       ): Promise<string | null>;
     };
 
-    const message = await privateApi.getWorkspaceBootstrapMessage("run-1", {
-      owner: "sourcegraph",
-      repo: "shadowbox",
-      branch: "main",
-    });
+    const message = await privateApi.getWorkspaceBootstrapMessage(
+      "run-1",
+      "check the repository status",
+      {
+        owner: "sourcegraph",
+        repo: "shadowbox",
+        branch: "main",
+      },
+    );
 
     expect(message).toContain("GitHub authorization");
   });
