@@ -8,10 +8,6 @@
 import type { D1Database } from "@cloudflare/workers-types";
 import type { BYOKPreferences, BYOKPreferencesPatch } from "@repo/shared-types";
 import type { PreferenceStore } from "./PreferenceStore";
-import { AXIS_PROVIDER_ID } from "../axis";
-import { AXIS_CURATED_MODEL_IDS } from "../axis";
-
-const AXIS_DEFAULT_MODEL_ID = AXIS_CURATED_MODEL_IDS[0];
 
 interface PreferenceRow {
   user_id: string;
@@ -87,8 +83,8 @@ export class D1PreferenceStore implements PreferenceStore {
       .bind(
         this.userId,
         this.workspaceId,
-        merged.defaultProviderId ?? AXIS_PROVIDER_ID,
-        merged.defaultModelId ?? AXIS_DEFAULT_MODEL_ID,
+        merged.defaultProviderId ?? null,
+        merged.defaultModelId ?? null,
         "strict",
         null,
         merged.visibleModelIds ? JSON.stringify(merged.visibleModelIds) : "{}",
@@ -140,8 +136,8 @@ export class D1PreferenceStore implements PreferenceStore {
       .bind(
         this.userId,
         this.workspaceId,
-        AXIS_PROVIDER_ID,
-        AXIS_DEFAULT_MODEL_ID,
+        null,
+        null,
         "strict",
         null,
         "{}",
@@ -157,8 +153,8 @@ export class D1PreferenceStore implements PreferenceStore {
 
   private createDefaultPreferences(): BYOKPreferences {
     return {
-      defaultProviderId: AXIS_PROVIDER_ID,
-      defaultModelId: AXIS_DEFAULT_MODEL_ID,
+      defaultProviderId: undefined,
+      defaultModelId: undefined,
       visibleModelIds: {},
       credentialLabels: {},
       updatedAt: new Date().toISOString(),
@@ -193,9 +189,8 @@ export class D1PreferenceStore implements PreferenceStore {
     }
 
     return {
-      defaultProviderId:
-        (row.default_provider_id as string | undefined) ?? AXIS_PROVIDER_ID,
-      defaultModelId: row.default_model_id ?? AXIS_DEFAULT_MODEL_ID,
+      defaultProviderId: (row.default_provider_id as string | undefined) ?? undefined,
+      defaultModelId: row.default_model_id ?? undefined,
       visibleModelIds,
       credentialLabels,
       updatedAt: row.updated_at,
