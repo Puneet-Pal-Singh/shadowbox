@@ -725,6 +725,67 @@ describe("ProviderStore", () => {
       expect(state.selectedCredentialId).toBe(credential1Id);
       expect(state.selectedModelId).toBe("gpt-4");
     });
+
+    it("clamps selected model to provider visible models on bootstrap and resolve", async () => {
+      vi.mocked(mockApiClient.getPreferences).mockResolvedValueOnce({
+        userId: "user-1",
+        workspaceId: "ws-1",
+        defaultProviderId: "openai",
+        defaultCredentialId: credential1Id,
+        defaultModelId: "gpt-4-turbo",
+        visibleModelIds: {
+          openai: ["gpt-4"],
+        },
+        updatedAt: new Date().toISOString(),
+      });
+
+      await store.bootstrap();
+
+      expect(store.getState().selectedModelId).toBe("gpt-4");
+      await store.resolveForChat();
+      expect(mockApiClient.resolveForChat).toHaveBeenCalledWith({
+        providerId: "openai",
+        credentialId: credential1Id,
+        modelId: "gpt-4",
+      });
+    });
+
+    it("reselects to a visible model when toggling visibility hides the selected model", async () => {
+      vi.mocked(mockApiClient.getProviderModels).mockImplementation(
+        async (providerId: string) => ({
+          providerId,
+          view: "popular",
+          models:
+            providerId === "openai"
+              ? [
+                  { id: "gpt-4", name: "GPT-4", provider: "openai" },
+                  {
+                    id: "gpt-4-turbo",
+                    name: "GPT-4 Turbo",
+                    provider: "openai",
+                  },
+                ]
+              : [{ id: "openrouter/auto", name: "Auto", provider: "openrouter" }],
+          page: {
+            limit: 50,
+            hasMore: false,
+          },
+          metadata: {
+            fetchedAt: new Date().toISOString(),
+            stale: false,
+            source: "provider_api",
+          },
+        }),
+      );
+
+      await store.bootstrap();
+      await store.loadProviderModels("openai");
+      store.setSelection("openai", credential1Id, "gpt-4-turbo");
+
+      store.toggleModelVisibility("openai", "gpt-4-turbo");
+
+      expect(store.getState().selectedModelId).toBe("gpt-4");
+    });
   });
 
   describe("resolveForChat", () => {
