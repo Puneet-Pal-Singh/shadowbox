@@ -6,6 +6,7 @@ import type {
 } from "../../../services/workflow/WorkflowTimelineViewModel.js";
 import { cn } from "../../../lib/utils.js";
 import { ToolCallRow } from "./ToolCallRow.js";
+import { toCompactExplorationTitle } from "./explorationCopy.js";
 
 interface WorkflowBlockProps {
   block: WorkflowBlockViewModel;
@@ -193,19 +194,5 @@ function thinkingWaveClassName(): string {
 }
 
 function getCompactToolTitle(row: WorkflowToolRowViewModel): string {
-  switch (row.toolName) {
-    case "read_file":
-      return row.title.replace(/^Reading /, "Read ");
-    case "list_files":
-      return row.title.replace(/^Listing /, "List ");
-    case "grep":
-    case "search_code":
-      return row.title
-        .replace(/^Searching for /, "Search ")
-        .replace(/^Searched for /, "Search ");
-    case "glob":
-      return row.title.replace(/^Finding /, "Find ");
-    default:
-      return row.title;
-  }
+  return toCompactExplorationTitle(row.toolName, row.title);
 }
