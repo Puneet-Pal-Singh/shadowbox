@@ -1,4 +1,5 @@
 import type {
+  WorkspaceBootstrapMode,
   WorkspaceBootstrapRequest,
   WorkspaceBootstrapResult,
   WorkspaceBootstrapper,
@@ -97,6 +98,7 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
   ): Promise<WorkspaceBootstrapResult> {
     const bootstrapStartedAt = Date.now();
     let bootstrapResult: WorkspaceBootstrapResult | null = null;
+    const bootstrapMode = request.mode ?? "git_write";
     pruneWorkspaceSyncCache(this.syncTtlMs);
     const normalized = normalizeRepositoryContext(request.repositoryContext);
     if (!normalized) {
@@ -120,7 +122,11 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
       return bootstrapResult;
     }
 
-    const cacheKey = buildWorkspaceSyncCacheKey(request.runId, normalized);
+    const cacheKey = buildWorkspaceSyncCacheKey(
+      request.runId,
+      normalized,
+      bootstrapMode,
+    );
     if (isWorkspaceSyncCacheFresh(cacheKey, this.syncTtlMs)) {
       bootstrapResult = { status: "ready" };
       this.logBootstrapTiming(request.runId, bootstrapResult, bootstrapStartedAt);
@@ -153,6 +159,7 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
               cacheKey,
               normalized.branch,
               request.runId,
+              bootstrapMode,
             );
             this.logBootstrapTiming(
               request.runId,
@@ -179,6 +186,7 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
         cacheKey,
         normalized.branch,
         request.runId,
+        bootstrapMode,
       );
       this.logBootstrapTiming(request.runId, bootstrapResult, bootstrapStartedAt);
       return bootstrapResult;
@@ -214,6 +222,7 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
       cacheKey,
       normalized.branch,
       request.runId,
+      bootstrapMode,
     );
     this.logBootstrapTiming(request.runId, bootstrapResult, bootstrapStartedAt);
     return bootstrapResult;
@@ -223,24 +232,61 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
     cacheKey: string,
     branch: string,
     runId: string,
+    mode: WorkspaceBootstrapMode,
   ): Promise<WorkspaceBootstrapResult> {
-    const fetchResult = await this.executeGit(
-      "git_fetch",
-      { remote: "origin" },
-      runId,
-    );
-    if (!fetchResult.success) {
-      const fetchError = fetchResult.error ?? "Failed to fetch from origin.";
-      if (!matchesAny(fetchError, REMOTE_MISSING_PATTERNS)) {
-        return mapGitFailure(fetchError);
+    const shouldFetch = mode !== "read_only";
+    const shouldPull = mode === "git_write";
+
+    if (shouldFetch) {
+      const fetchResult = await this.executeGit(
+        "git_fetch",
+        { remote: "origin" },
+        runId,
+      );
+      if (!fetchResult.success) {
+        const fetchError = fetchResult.error ?? "Failed to fetch from origin.";
+        if (!matchesAny(fetchError, REMOTE_MISSING_PATTERNS)) {
+          return mapGitFailure(fetchError);
+        }
       }
     }
 
-    const switchResult = await this.executeGit(
+    let switchResult = await this.executeGit(
       "git_branch_switch",
       { branch },
       runId,
     );
+    if (
+      !switchResult.success &&
+      !shouldFetch &&
+      matchesAny(
+        switchResult.error ?? "Failed to switch branch.",
+        BRANCH_MISSING_PATTERNS,
+      )
+    ) {
+      const fetchForMissingBranch = await this.executeGit(
+        "git_fetch",
+        { remote: "origin" },
+        runId,
+      );
+      if (
+        !fetchForMissingBranch.success &&
+        !matchesAny(
+          fetchForMissingBranch.error ?? "Failed to fetch from origin.",
+          REMOTE_MISSING_PATTERNS,
+        )
+      ) {
+        return mapGitFailure(
+          fetchForMissingBranch.error ?? "Failed to fetch from origin.",
+        );
+      }
+      switchResult = await this.executeGit(
+        "git_branch_switch",
+        { branch },
+        runId,
+      );
+    }
+
     if (!switchResult.success) {
       const switchError = switchResult.error ?? "Failed to switch branch.";
       if (!matchesAny(switchError, BRANCH_MISSING_PATTERNS)) {
@@ -259,21 +305,23 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
       }
     }
 
-    const pullResult = await this.executeGit("git_pull", {
-      remote: "origin",
-      branch,
-    }, runId);
-    if (!pullResult.success) {
-      const pullError = pullResult.error ?? "Failed to pull latest branch changes.";
-      if (
-        matchesAny(pullError, REMOTE_REF_MISSING_PATTERNS) ||
-        matchesAny(pullError, REMOTE_MISSING_PATTERNS) ||
-        matchesAny(pullError, NO_TRACKING_PATTERNS)
-      ) {
-        setWorkspaceSyncCache(cacheKey);
-        return { status: "ready" };
+    if (shouldPull) {
+      const pullResult = await this.executeGit("git_pull", {
+        remote: "origin",
+        branch,
+      }, runId);
+      if (!pullResult.success) {
+        const pullError = pullResult.error ?? "Failed to pull latest branch changes.";
+        if (
+          matchesAny(pullError, REMOTE_REF_MISSING_PATTERNS) ||
+          matchesAny(pullError, REMOTE_MISSING_PATTERNS) ||
+          matchesAny(pullError, NO_TRACKING_PATTERNS)
+        ) {
+          setWorkspaceSyncCache(cacheKey);
+          return { status: "ready" };
+        }
+        return mapGitFailure(pullError);
       }
-      return mapGitFailure(pullError);
     }
 
     setWorkspaceSyncCache(cacheKey);
@@ -322,11 +370,13 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
 function buildWorkspaceSyncCacheKey(
   runId: string,
   context: NormalizedRepositoryContext,
+  mode: WorkspaceBootstrapMode,
 ): string {
     return [
       runId,
     context.repoIdentity,
     context.branch,
+    mode,
     context.baseUrl ?? "",
   ].join(":");
 }
