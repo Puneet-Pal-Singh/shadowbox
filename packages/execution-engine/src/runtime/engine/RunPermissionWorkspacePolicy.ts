@@ -1,11 +1,9 @@
 import type {
   RepositoryContext,
-  WorkspaceBootstrapMode,
   WorkspaceBootstrapResult,
   WorkspaceBootstrapper,
 } from "../types.js";
 import type { PermissionApprovalStore } from "./PermissionApprovalStore.js";
-import { detectsMutation } from "./detectsMutation.js";
 import {
   detectCrossRepoTarget,
   formatCrossRepoApprovalGrantedMessage,
@@ -17,6 +15,7 @@ import {
   parsePermissionApprovalDirective,
 } from "./RepositoryPermissionPolicy.js";
 import { hasRepositorySelection } from "./ConversationPolicy.js";
+import { resolveWorkspaceBootstrapMode } from "./WorkspaceBootstrapModePolicy.js";
 
 export async function processPermissionDirectives(
   prompt: string,
@@ -109,34 +108,6 @@ export async function getWorkspaceBootstrapMessage(
     const repoRef = describeRepositoryRef(repositoryContext);
     return `I couldn't prepare the workspace for ${repoRef}. ${errorMessage}`;
   }
-}
-
-function resolveWorkspaceBootstrapMode(prompt: string): WorkspaceBootstrapMode {
-  if (isGitWritePrompt(prompt)) {
-    return "git_write";
-  }
-
-  if (detectsMutation(prompt)) {
-    return "mutation";
-  }
-
-  if (isExplicitReadOnlyPrompt(prompt)) {
-    return "read_only";
-  }
-
-  return "mutation";
-}
-
-function isGitWritePrompt(prompt: string): boolean {
-  return /\b(commit|stage|push|pull request|create pr|open pr|branch|checkout|merge|rebase|cherry-pick)\b/i.test(
-    prompt,
-  );
-}
-
-function isExplicitReadOnlyPrompt(prompt: string): boolean {
-  return /\b(read|inspect|review|list|show|find|search|where|what|which|status|explain|analyze|audit|check)\b/i.test(
-    prompt,
-  );
 }
 
 function mapBootstrapResultToMessage(
