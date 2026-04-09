@@ -374,6 +374,33 @@ describe("ProviderStore", () => {
       );
     });
 
+    it("marks provider model list as loaded when discovery request fails", async () => {
+      vi.mocked(mockApiClient.getProviderModels).mockRejectedValueOnce(
+        new Error("Internal server error"),
+      );
+
+      await expect(store.loadProviderModels("openrouter")).rejects.toThrow(
+        "Internal server error",
+      );
+
+      const state = store.getState();
+      expect(state.loadingModelsForProviderId).toBeNull();
+      expect(
+        Object.prototype.hasOwnProperty.call(state.providerModels, "openrouter"),
+      ).toBe(true);
+      expect(state.providerModels.openrouter).toEqual([]);
+      expect(state.providerModelsPage.openrouter).toEqual({
+        view: "popular",
+        hasMore: false,
+        nextCursor: null,
+      });
+      expect(state.providerModelsMetadata.openrouter?.stale).toBe(true);
+      expect(state.providerModelsMetadata.openrouter?.source).toBe("cache");
+      expect(state.providerModelsMetadata.openrouter?.staleReason).toBe(
+        "provider_api_unavailable",
+      );
+    });
+
     it("switches model view and reloads selected provider models", async () => {
       await store.bootstrap();
       await store.loadProviderModels("openai");

@@ -212,7 +212,14 @@ export class ProviderModelDiscoveryService {
       );
     }
 
-    const apiKey = await this.credentialService.getApiKey(providerId);
+    let apiKey: string | null = null;
+    try {
+      apiKey = await this.credentialService.getApiKey(providerId);
+    } catch (_error) {
+      throw new ProviderModelDiscoveryAuthError(
+        `Failed to read ${providerId} credentials for model discovery. Reconnect this provider and retry.`,
+      );
+    }
     if (!apiKey) {
       throw new ProviderModelDiscoveryAuthError(
         `${providerId} credentials are not connected for model discovery.`,

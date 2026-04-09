@@ -3,6 +3,7 @@ import type { ProviderModelCacheStore } from "../stores/ProviderModelCacheStore"
 import type { ProviderCredentialService } from "../ProviderCredentialService";
 import type { ProviderModelCatalogPort } from "./ProviderModelCatalogPort";
 import { ProviderModelDiscoveryService } from "./ProviderModelDiscoveryService";
+import { ProviderModelDiscoveryAuthError } from "./errors";
 
 function createStoreStub() {
   let cache: {
@@ -177,5 +178,31 @@ describe("ProviderModelDiscoveryService", () => {
     expect(result.models).toHaveLength(24);
     expect(result.models[0]?.id).toBe("openai/gpt-4.1");
     expect(result.models[1]?.id).toBe("google/gemini-2.5-pro");
+  });
+
+  it("maps credential decryption failures to discovery auth errors", async () => {
+    const store = createStoreStub();
+    const credentialService = {
+      getApiKey: vi.fn(async () => {
+        throw new Error("Decryption failed");
+      }),
+    } as unknown as ProviderCredentialService;
+    const adapter: ProviderModelCatalogPort = {
+      fetchAll: vi.fn(async () => [
+        { id: "openrouter/auto", name: "Auto", providerId: "openrouter" },
+      ]),
+      fetchPage: vi.fn(),
+    };
+
+    const service = new ProviderModelDiscoveryService(
+      store as unknown as ProviderModelCacheStore,
+      credentialService,
+      { openrouter: adapter },
+    );
+
+    await expect(
+      service.getOpenRouterModels({ view: "all", limit: 50 }),
+    ).rejects.toBeInstanceOf(ProviderModelDiscoveryAuthError);
+    expect(adapter.fetchAll).not.toHaveBeenCalled();
   });
 });

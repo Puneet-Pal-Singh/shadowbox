@@ -828,55 +828,98 @@ export class ProviderStore {
     epoch: number,
   ): Promise<ProviderModelOption[]> {
     this.log("[loadProviderModels] Starting", { providerId, ...options });
-    const result = await this.apiClient.getProviderModels(providerId, {
-      view: options.view,
-      limit: options.limit,
-      cursor: options.cursor,
-    });
-    if (this.isWorkspaceEpochStale("loadProviderModels", epoch)) {
-      return result.models;
-    }
+    try {
+      const result = await this.apiClient.getProviderModels(providerId, {
+        view: options.view,
+        limit: options.limit,
+        cursor: options.cursor,
+      });
+      if (this.isWorkspaceEpochStale("loadProviderModels", epoch)) {
+        return result.models;
+      }
 
-    const currentModels = this.state.providerModels[providerId] ?? [];
-    const mergedModels = options.append
-      ? mergeModelsById(currentModels, result.models)
-      : result.models;
+      const currentModels = this.state.providerModels[providerId] ?? [];
+      const mergedModels = options.append
+        ? mergeModelsById(currentModels, result.models)
+        : result.models;
 
-    this.setState({
-      providerModels: {
-        ...this.state.providerModels,
-        [providerId]: mergedModels,
-      },
-      providerModelsPage: {
-        ...this.state.providerModelsPage,
-        [providerId]: {
-          view: result.view,
-          hasMore: result.page.hasMore,
-          nextCursor: result.page.nextCursor ?? null,
+      this.setState({
+        providerModels: {
+          ...this.state.providerModels,
+          [providerId]: mergedModels,
         },
-      },
-      providerModelsMetadata: {
-        ...this.state.providerModelsMetadata,
-        [providerId]: result.metadata,
-      },
-      selectedModelView: result.view,
-      selectedModelId:
-        this.state.selectedProviderId === providerId
-          ? this.resolveSelectedModelIdForProvider(
-              providerId,
-              this.state.selectedModelId,
-              mergedModels,
-            )
-          : this.state.selectedModelId,
-    });
-    this.log("[loadProviderModels] Success", {
-      providerId,
-      modelCount: mergedModels.length,
-      view: result.view,
-      hasMore: result.page.hasMore,
-      stale: result.metadata.stale,
-    });
-    return mergedModels;
+        providerModelsPage: {
+          ...this.state.providerModelsPage,
+          [providerId]: {
+            view: result.view,
+            hasMore: result.page.hasMore,
+            nextCursor: result.page.nextCursor ?? null,
+          },
+        },
+        providerModelsMetadata: {
+          ...this.state.providerModelsMetadata,
+          [providerId]: result.metadata,
+        },
+        selectedModelView: result.view,
+        selectedModelId:
+          this.state.selectedProviderId === providerId
+            ? this.resolveSelectedModelIdForProvider(
+                providerId,
+                this.state.selectedModelId,
+                mergedModels,
+              )
+            : this.state.selectedModelId,
+      });
+      this.log("[loadProviderModels] Success", {
+        providerId,
+        modelCount: mergedModels.length,
+        view: result.view,
+        hasMore: result.page.hasMore,
+        stale: result.metadata.stale,
+      });
+      return mergedModels;
+    } catch (error) {
+      if (this.isWorkspaceEpochStale("loadProviderModels", epoch)) {
+        return this.state.providerModels[providerId] ?? [];
+      }
+
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Failed to load provider models";
+      const fallbackModels = this.state.providerModels[providerId] ?? [];
+
+      this.setState({
+        providerModels: {
+          ...this.state.providerModels,
+          [providerId]: fallbackModels,
+        },
+        providerModelsPage: {
+          ...this.state.providerModelsPage,
+          [providerId]: {
+            view: options.view,
+            hasMore: false,
+            nextCursor: null,
+          },
+        },
+        providerModelsMetadata: {
+          ...this.state.providerModelsMetadata,
+          [providerId]: {
+            fetchedAt: new Date().toISOString(),
+            stale: true,
+            source: "cache",
+            staleReason: "provider_api_unavailable",
+          },
+        },
+        error: message,
+      });
+
+      this.log("[loadProviderModels] Error", {
+        providerId,
+        error: message,
+      });
+      throw error;
+    }
   }
 
   private async executeRefreshProviderModels(
