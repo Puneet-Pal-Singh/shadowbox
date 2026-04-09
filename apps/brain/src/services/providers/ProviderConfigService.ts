@@ -26,6 +26,7 @@ import type {
   ProviderConnection,
   ProviderConnectionsResponse,
   ProviderId,
+  ProviderRegistryEntry,
 } from "@repo/shared-types";
 import type { ModelsListResponse } from "../../schemas/provider";
 import type { CredentialStore } from "./stores/CredentialStore";
@@ -299,6 +300,8 @@ export class ProviderConfigService {
       this.catalogService = new ProviderCatalogService(
         this.registryService,
         this.getModelDiscoveryService(),
+        async (provider: ProviderRegistryEntry) =>
+          this.canExposeCatalogProvider(provider),
       );
     }
     return this.catalogService;
@@ -317,6 +320,15 @@ export class ProviderConfigService {
 
   static resetForTests(): void {
     ProviderCredentialService.resetForTests();
+  }
+
+  private async canExposeCatalogProvider(
+    provider: ProviderRegistryEntry,
+  ): Promise<boolean> {
+    if (!provider.authModes.includes("platform_managed")) {
+      return true;
+    }
+    return this.credentialService.isConnected(provider.providerId as ProviderId);
   }
 
   private async ensureStorageReady(): Promise<void> {

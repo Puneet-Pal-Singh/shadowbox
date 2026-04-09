@@ -15,6 +15,7 @@ import {
   parsePermissionApprovalDirective,
 } from "./RepositoryPermissionPolicy.js";
 import { hasRepositorySelection } from "./ConversationPolicy.js";
+import { resolveWorkspaceBootstrapMode } from "./WorkspaceBootstrapModePolicy.js";
 
 export async function processPermissionDirectives(
   prompt: string,
@@ -81,6 +82,7 @@ export async function getPermissionPolicyMessage(
 
 export async function getWorkspaceBootstrapMessage(
   runId: string,
+  prompt: string,
   repositoryContext: RepositoryContext | undefined,
   workspaceBootstrapper: WorkspaceBootstrapper | undefined,
 ): Promise<string | null> {
@@ -93,9 +95,11 @@ export async function getWorkspaceBootstrapMessage(
   }
 
   try {
+    const bootstrapMode = resolveWorkspaceBootstrapMode(prompt);
     const bootstrapResult = await workspaceBootstrapper.bootstrap({
       runId,
       repositoryContext,
+      mode: bootstrapMode,
     });
     return mapBootstrapResultToMessage(bootstrapResult, repositoryContext);
   } catch (error) {

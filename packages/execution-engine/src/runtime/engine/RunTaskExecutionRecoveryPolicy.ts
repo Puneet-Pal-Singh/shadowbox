@@ -120,9 +120,6 @@ async function handleUnusableResponseRecovery(
     run,
     buildTaskModelNoActionSummary({
       requiresMutation: context.requiresMutation,
-      stepsExecuted: context.stats.stepsExecuted,
-      toolExecutionCount: context.stats.toolExecutionCount,
-      failedToolCount: context.stats.failedToolCount,
       toolLifecycle: context.stats.toolLifecycle,
     }),
     buildTaskModelNoActionMetadata(),
@@ -186,8 +183,7 @@ function buildTaskExecutionTimeoutMetadata(): Record<string, unknown> {
   return {
     code: "TASK_EXECUTION_TIMEOUT",
     retryable: true,
-    resumeHint:
-      "Retry the task or switch to a faster or more reliable model.",
+    resumeHint: "Retry the task or switch to a faster or more reliable model.",
     resumeActions: ["retry", "switch_model"],
   };
 }

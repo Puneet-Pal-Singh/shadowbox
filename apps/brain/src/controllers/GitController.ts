@@ -487,6 +487,7 @@ export class GitController {
       );
       const bootstrapRequest = bootstrapper.bootstrap({
         runId: normalizedRunId,
+        mode: "git_write",
         repositoryContext: {
           owner,
           repo,

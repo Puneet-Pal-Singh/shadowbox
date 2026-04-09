@@ -14,10 +14,7 @@ import {
   BudgetExceededError,
   SessionBudgetExceededError,
 } from "../cost/index.js";
-import {
-  LLMUnusableResponseError,
-  type ILLMGateway,
-} from "../llm/index.js";
+import { LLMUnusableResponseError, type ILLMGateway } from "../llm/index.js";
 import type { IBudgetManager } from "../cost/index.js";
 import type { TaskExecutor } from "../orchestration/index.js";
 import { isMutatingGoldenFlowToolName } from "../contracts/CodingToolGateway.js";
@@ -28,6 +25,7 @@ import type {
   TaskResult,
 } from "../types.js";
 import { detectsMutation } from "./detectsMutation.js";
+import { isGitWritePrompt } from "./WorkspaceBootstrapModePolicy.js";
 
 export interface AgenticLoopConfig {
   maxSteps: number;
@@ -79,14 +77,12 @@ interface AgenticLoopHooks {
   onAssistantMessage?: (content: string) => Promise<void>;
   isRunCancelled?: () => Promise<boolean>;
   onProgress?: (
-    progress:
-      | {
-          phase: "planning" | "execution" | "synthesis";
-          label: string;
-          summary: string;
-          status: "active" | "completed";
-        }
-      | null,
+    progress: {
+      phase: "planning" | "execution" | "synthesis";
+      label: string;
+      summary: string;
+      status: "active" | "completed";
+    } | null,
   ) => Promise<void>;
   onToolRequested?: (toolCall: AgenticLoopToolCall) => Promise<void>;
   onToolStarted?: (toolCall: AgenticLoopToolCall) => Promise<void>;
@@ -115,6 +111,7 @@ export class AgenticLoop {
   private failedToolCount: number = 0;
   private completedMutatingToolCount: number = 0;
   private completedReadOnlyToolCount: number = 0;
+  private completedEditMutationCount: number = 0;
   private llmRetryCount: number = 0;
   private terminalLlmIssue?: AgenticLoopTerminalLlmIssue;
   private toolLifecycle: AgenticLoopToolLifecycleEvent[] = [];
@@ -150,6 +147,8 @@ export class AgenticLoop {
     this.reset();
     const messages: CoreMessage[] = [...initialMessages];
     const requiresMutation = requestRequiresMutation(initialMessages);
+    const latestTurnRequiresMutation =
+      latestTurnRequestsMutation(initialMessages);
     let stopReason: StopReason | null = null;
     let correctiveMutationRetryIssued = false;
 
@@ -292,7 +291,11 @@ export class AgenticLoop {
           this.getDuplicateReadOnlyToolCallMessage(toolCall);
         if (duplicateToolCallMessage) {
           this.failedToolCount++;
-          this.recordToolLifecycle(toolCall, "failed", duplicateToolCallMessage);
+          this.recordToolLifecycle(
+            toolCall,
+            "failed",
+            duplicateToolCallMessage,
+          );
           await context.onToolFailed?.(toolCall, duplicateToolCallMessage, 0);
           toolResults.push({
             toolId: toolCall.id,
@@ -300,6 +303,25 @@ export class AgenticLoop {
             result: null,
             error: duplicateToolCallMessage,
             terminalError: false,
+          });
+          continue;
+        }
+
+        const gitWriteGuardMessage = this.getGitWriteGuardMessage(
+          toolCall.toolName,
+          requiresMutation,
+          latestTurnRequiresMutation,
+        );
+        if (gitWriteGuardMessage) {
+          this.failedToolCount++;
+          this.recordToolLifecycle(toolCall, "failed", gitWriteGuardMessage);
+          await context.onToolFailed?.(toolCall, gitWriteGuardMessage, 0);
+          toolResults.push({
+            toolId: toolCall.id,
+            toolName: toolCall.toolName,
+            result: null,
+            error: gitWriteGuardMessage,
+            terminalError: true,
           });
           continue;
         }
@@ -363,6 +385,14 @@ export class AgenticLoop {
               this.completedReadOnlyToolFingerprints.add(
                 buildReadOnlyToolFingerprint(toolCall),
               );
+            }
+            if (
+              hasEditMutationEvidence(
+                toolCall.toolName,
+                result.output?.metadata,
+              )
+            ) {
+              this.completedEditMutationCount++;
             }
             this.recordToolLifecycle(
               toolCall,
@@ -492,6 +522,7 @@ export class AgenticLoop {
     this.failedToolCount = 0;
     this.completedMutatingToolCount = 0;
     this.completedReadOnlyToolCount = 0;
+    this.completedEditMutationCount = 0;
     this.llmRetryCount = 0;
     this.terminalLlmIssue = undefined;
     this.toolLifecycle = [];
@@ -615,6 +646,25 @@ export class AgenticLoop {
     }
 
     return `Skipped duplicate ${toolCall.toolName} call because the same request already completed in this run. Choose a different tool or proceed with the edit.`;
+  }
+
+  private getGitWriteGuardMessage(
+    toolName: string,
+    requiresMutation: boolean,
+    latestTurnRequiresMutation: boolean,
+  ): string | null {
+    if (!requiresMutation || !latestTurnRequiresMutation) {
+      return null;
+    }
+
+    if (
+      (toolName === "git_stage" || toolName === "git_commit") &&
+      this.completedEditMutationCount === 0
+    ) {
+      return "I can't continue to staging or commit yet because no file edit succeeded in this run. I should complete a concrete file update first.";
+    }
+
+    return null;
   }
 }
 
@@ -743,7 +793,10 @@ function stableSerialize(value: unknown): string {
       ([left], [right]) => left.localeCompare(right),
     );
     return `{${entries
-      .map(([key, entryValue]) => `${JSON.stringify(key)}:${stableSerialize(entryValue)}`)
+      .map(
+        ([key, entryValue]) =>
+          `${JSON.stringify(key)}:${stableSerialize(entryValue)}`,
+      )
       .join(",")}}`;
   }
 
@@ -752,6 +805,23 @@ function stableSerialize(value: unknown): string {
 
 function isTerminalToolFailure(toolName: string): boolean {
   return isMutatingGoldenFlowToolName(toolName);
+}
+
+function hasEditMutationEvidence(toolName: string, metadata: unknown): boolean {
+  if (toolName === "write_file") {
+    return true;
+  }
+
+  if (!metadata || typeof metadata !== "object") {
+    return false;
+  }
+
+  const activity = (metadata as Record<string, unknown>).activity;
+  if (!activity || typeof activity !== "object") {
+    return false;
+  }
+
+  return (activity as Record<string, unknown>).family === "edit";
 }
 
 function buildAssistantMessage(
@@ -846,27 +916,50 @@ function extractToolActivityMetadata(
 function requestRequiresMutation(initialMessages: CoreMessage[]): boolean {
   const userText = initialMessages
     .filter((message) => message.role === "user")
-    .map((message) =>
-      typeof message.content === "string"
-        ? message.content
-        : Array.isArray(message.content)
-          ? message.content
-              .filter(
-                (
-                  part,
-                ): part is {
-                  type: "text";
-                  text: string;
-                } => part.type === "text" && typeof part.text === "string",
-              )
-              .map((part) => part.text)
-              .join("\n")
-          : "",
-    )
+    .map((message) => extractTextParts(message.content))
     .join("\n")
     .toLowerCase();
 
   return detectsMutation(userText);
+}
+
+function latestTurnRequestsMutation(initialMessages: CoreMessage[]): boolean {
+  const latestUserMessage = [...initialMessages]
+    .reverse()
+    .find((message) => message.role === "user");
+  if (!latestUserMessage) {
+    return false;
+  }
+
+  const latestTurnText = extractTextParts(
+    latestUserMessage.content,
+  ).toLowerCase();
+  if (isGitWritePrompt(latestTurnText)) {
+    return false;
+  }
+  return detectsMutation(latestTurnText);
+}
+
+function extractTextParts(content: CoreMessage["content"]): string {
+  if (typeof content === "string") {
+    return content;
+  }
+
+  if (!Array.isArray(content)) {
+    return "";
+  }
+
+  return content
+    .filter(
+      (
+        part,
+      ): part is {
+        type: "text";
+        text: string;
+      } => part.type === "text" && typeof part.text === "string",
+    )
+    .map((part) => part.text)
+    .join("\n");
 }
 
 function normalizeAssistantText(
@@ -895,14 +988,12 @@ function buildLoopProgressUpdate(input: {
   requiresMutation: boolean;
   completedMutatingToolCount: number;
   completedReadOnlyToolCount: number;
-}):
-  | {
-      phase: "planning" | "execution" | "synthesis";
-      label: string;
-      summary: string;
-      status: "active" | "completed";
-    }
-  | null {
+}): {
+  phase: "planning" | "execution" | "synthesis";
+  label: string;
+  summary: string;
+  status: "active" | "completed";
+} | null {
   if (input.isFinalSynthesisStep) {
     return null;
   }

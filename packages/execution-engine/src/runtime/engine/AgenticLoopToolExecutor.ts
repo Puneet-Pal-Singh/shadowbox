@@ -31,13 +31,11 @@ export async function executeAgenticLoopTool(
     taskId: string;
     toolName: GoldenFlowToolName;
     toolInput: TaskInput;
-    onOutputAppended?: (
-      chunk: {
-        stdoutDelta?: string;
-        stderrDelta?: string;
-        truncated?: boolean;
-      },
-    ) => Promise<void> | void;
+    onOutputAppended?: (chunk: {
+      stdoutDelta?: string;
+      stderrDelta?: string;
+      truncated?: boolean;
+    }) => Promise<void> | void;
   },
 ): Promise<TaskResult> {
   switch (input.toolName) {
@@ -206,13 +204,11 @@ async function executeBashTool(
   taskId: string,
   taskInput: TaskInput,
   onOutputAppended?:
-    | ((
-        chunk: {
-          stdoutDelta?: string;
-          stderrDelta?: string;
-          truncated?: boolean;
-        },
-      ) => Promise<void> | void)
+    | ((chunk: {
+        stdoutDelta?: string;
+        stderrDelta?: string;
+        truncated?: boolean;
+      }) => Promise<void> | void)
     | undefined,
 ): Promise<TaskResult> {
   const validatedInput = validateGoldenFlowToolInput("bash", taskInput);
@@ -267,10 +263,8 @@ async function executeBashTool(
       onOutput: async (chunk) => {
         appendShellState(shellState, chunk);
         await onOutputAppended?.({
-          stdoutDelta:
-            chunk.source !== "stderr" ? chunk.message : undefined,
-          stderrDelta:
-            chunk.source === "stderr" ? chunk.message : undefined,
+          stdoutDelta: chunk.source !== "stderr" ? chunk.message : undefined,
+          stderrDelta: chunk.source === "stderr" ? chunk.message : undefined,
           truncated: shellState.truncated,
         });
       },
@@ -306,6 +300,14 @@ async function executeGitStageTool(
   taskId: string,
   taskInput: TaskInput,
 ): Promise<TaskResult> {
+  const changeEvidence = await readGitChangeEvidence(executionService);
+  if (changeEvidence === "no_changes") {
+    return buildFailureResult(
+      taskId,
+      "I couldn't stage changes because there are no modified files in this workspace yet.",
+    );
+  }
+
   const validatedInput = validateGoldenFlowToolInput("git_stage", taskInput);
   const payload: Record<string, unknown> = {};
   if (validatedInput.files && validatedInput.files.length > 0) {
@@ -316,7 +318,11 @@ async function executeGitStageTool(
     });
   }
 
-  const result = await executeGatewayPlugin(executionService, "git_stage", payload);
+  const result = await executeGatewayPlugin(
+    executionService,
+    "git_stage",
+    payload,
+  );
   const failure = extractExecutionFailure(result);
   if (failure) {
     return buildFailureResult(taskId, failure);
@@ -326,8 +332,7 @@ async function executeGitStageTool(
       preview:
         validatedInput.files
           ?.map((file) => normalizeWorkspacePath(file))
-          .join(", ") ??
-        "workspace changes",
+          .join(", ") ?? "workspace changes",
     }),
   });
 }
@@ -338,6 +343,25 @@ async function executeGitCommitTool(
   taskInput: TaskInput,
 ): Promise<TaskResult> {
   const validatedInput = validateGoldenFlowToolInput("git_commit", taskInput);
+  const changeEvidence = await readGitChangeEvidence(executionService);
+  if (changeEvidence === "no_changes") {
+    return buildFailureResult(
+      taskId,
+      "I couldn't create a commit because there are no staged or modified files yet.",
+    );
+  }
+
+  const commitIdentityMessage = await buildMissingCommitIdentityMessage(
+    executionService,
+    {
+      authorName: validatedInput.authorName?.trim(),
+      authorEmail: validatedInput.authorEmail?.trim(),
+    },
+  );
+  if (commitIdentityMessage) {
+    return buildFailureResult(taskId, commitIdentityMessage);
+  }
+
   const payload: Record<string, unknown> = {
     message: validatedInput.message.trim(),
   };
@@ -372,6 +396,143 @@ async function executeGitCommitTool(
   });
 }
 
+async function readGitChangeEvidence(
+  executionService: RuntimeExecutionService,
+): Promise<"changes_present" | "no_changes" | "unknown"> {
+  const gitStatusResult = await executeGatewayPlugin(
+    executionService,
+    "git_status",
+    {},
+  );
+  const failure = extractExecutionFailure(gitStatusResult);
+  if (failure) {
+    return "unknown";
+  }
+
+  const parsed = parseGitStatusPayload(formatExecutionResult(gitStatusResult));
+  if (!parsed) {
+    return "unknown";
+  }
+
+  const hasChanges =
+    parsed.hasStaged || parsed.hasUnstaged || parsed.files.length > 0;
+  return hasChanges ? "changes_present" : "no_changes";
+}
+
+async function buildMissingCommitIdentityMessage(
+  executionService: RuntimeExecutionService,
+  providedIdentity?: {
+    authorName?: string;
+    authorEmail?: string;
+  },
+): Promise<string | null> {
+  const providedAuthorName = normalizeOptionalIdentityField(
+    providedIdentity?.authorName,
+  );
+  const providedAuthorEmail = normalizeOptionalIdentityField(
+    providedIdentity?.authorEmail,
+  );
+  if (providedAuthorName && providedAuthorEmail) {
+    return null;
+  }
+
+  const authorName = providedAuthorName
+    ? { status: "present", value: providedAuthorName }
+    : await readGitConfigValue(executionService, "user.name");
+  const authorEmail = providedAuthorEmail
+    ? { status: "present", value: providedAuthorEmail }
+    : await readGitConfigValue(executionService, "user.email");
+  if (authorName.status === "unknown" || authorEmail.status === "unknown") {
+    return null;
+  }
+
+  if (authorName.status === "present" && authorEmail.status === "present") {
+    return null;
+  }
+
+  return "Git commit identity is not configured in this workspace. Set git user.name and user.email, then retry the commit.";
+}
+
+function normalizeOptionalIdentityField(
+  value: string | undefined,
+): string | null {
+  if (!value) {
+    return null;
+  }
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : null;
+}
+
+async function readGitConfigValue(
+  executionService: RuntimeExecutionService,
+  key: "user.name" | "user.email",
+): Promise<
+  | { status: "present"; value: string }
+  | { status: "missing" }
+  | { status: "unknown" }
+> {
+  const result = await executeGatewayPlugin(executionService, "bash", {
+    command: `git config --get ${key}`,
+    description: `Read ${key} for commit preflight`,
+  });
+  const failure = extractExecutionFailure(result);
+  if (failure) {
+    if (isUnknownGitConfigFailure(failure)) {
+      return { status: "unknown" };
+    }
+    return { status: "missing" };
+  }
+
+  const value = formatExecutionResult(result).trim();
+  if (!value) {
+    return { status: "missing" };
+  }
+
+  const normalized = value.split("\n")[0]?.trim();
+  if (!normalized) {
+    return { status: "missing" };
+  }
+
+  return { status: "present", value: normalized };
+}
+
+function parseGitStatusPayload(
+  formattedResult: string,
+): { files: unknown[]; hasStaged: boolean; hasUnstaged: boolean } | null {
+  try {
+    const parsed = JSON.parse(formattedResult) as unknown;
+    if (!parsed || typeof parsed !== "object") {
+      return null;
+    }
+
+    const files = Array.isArray((parsed as { files?: unknown }).files)
+      ? ((parsed as { files: unknown[] }).files ?? [])
+      : [];
+    const hasStaged =
+      typeof (parsed as { hasStaged?: unknown }).hasStaged === "boolean"
+        ? ((parsed as { hasStaged: boolean }).hasStaged ?? false)
+        : false;
+    const hasUnstaged =
+      typeof (parsed as { hasUnstaged?: unknown }).hasUnstaged === "boolean"
+        ? ((parsed as { hasUnstaged: boolean }).hasUnstaged ?? false)
+        : false;
+
+    return {
+      files,
+      hasStaged,
+      hasUnstaged,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function isUnknownGitConfigFailure(failure: string): boolean {
+  return /unexpected route|unsupported|not registered|invalid arguments?|invalid command argument/i.test(
+    failure,
+  );
+}
+
 async function executeGitPushTool(
   executionService: RuntimeExecutionService,
   taskId: string,
@@ -386,19 +547,19 @@ async function executeGitPushTool(
     payload.branch = validatedInput.branch.trim();
   }
 
-  const result = await executeGatewayPlugin(executionService, "git_push", payload);
+  const result = await executeGatewayPlugin(
+    executionService,
+    "git_push",
+    payload,
+  );
   const failure = extractExecutionFailure(result);
   if (failure) {
-    return buildFailureResult(
-      taskId,
-      failure,
-      {
-        activity: buildGitActivityMetadata("Pushing branch", {
-          branch: validatedInput.branch?.trim(),
-          preview: validatedInput.branch?.trim(),
-        }),
-      },
-    );
+    return buildFailureResult(taskId, failure, {
+      activity: buildGitActivityMetadata("Pushing branch", {
+        branch: validatedInput.branch?.trim(),
+        preview: validatedInput.branch?.trim(),
+      }),
+    });
   }
   return buildSuccessResult(taskId, formatExecutionResult(result), {
     activity: buildGitActivityMetadata("Pushing branch", {
@@ -422,19 +583,19 @@ async function executeGitPullTool(
     payload.branch = validatedInput.branch.trim();
   }
 
-  const result = await executeGatewayPlugin(executionService, "git_pull", payload);
+  const result = await executeGatewayPlugin(
+    executionService,
+    "git_pull",
+    payload,
+  );
   const failure = extractExecutionFailure(result);
   if (failure) {
-    return buildFailureResult(
-      taskId,
-      failure,
-      {
-        activity: buildGitActivityMetadata("Syncing branch", {
-          branch: validatedInput.branch?.trim(),
-          preview: validatedInput.branch?.trim(),
-        }),
-      },
-    );
+    return buildFailureResult(taskId, failure, {
+      activity: buildGitActivityMetadata("Syncing branch", {
+        branch: validatedInput.branch?.trim(),
+        preview: validatedInput.branch?.trim(),
+      }),
+    });
   }
   return buildSuccessResult(taskId, formatExecutionResult(result), {
     activity: buildGitActivityMetadata("Syncing branch", {

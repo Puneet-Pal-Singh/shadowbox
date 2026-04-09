@@ -19,6 +19,7 @@ describe("WorkspaceBootstrapService", () => {
 
     const result = await service.bootstrap({
       runId: "run-1",
+      mode: "git_write",
       repositoryContext: { owner: "", repo: "" },
     });
 
@@ -41,6 +42,7 @@ describe("WorkspaceBootstrapService", () => {
 
     const result = await service.bootstrap({
       runId: "run-1",
+      mode: "git_write",
       repositoryContext: {
         owner: "sourcegraph",
         repo: "shadowbox",
@@ -49,18 +51,10 @@ describe("WorkspaceBootstrapService", () => {
     });
 
     expect(result.status).toBe("ready");
-    expect(execute).toHaveBeenNthCalledWith(
-      1,
-      "git",
-      "git_status",
-      {},
-    );
-    expect(execute).toHaveBeenNthCalledWith(
-      2,
-      "git",
-      "git_clone",
-      { url: "https://github.com/sourcegraph/shadowbox.git" },
-    );
+    expect(execute).toHaveBeenNthCalledWith(1, "git", "git_status", {});
+    expect(execute).toHaveBeenNthCalledWith(2, "git", "git_clone", {
+      url: "https://github.com/sourcegraph/shadowbox.git",
+    });
   });
 
   it("returns needs-auth on git authentication failures", async () => {
@@ -72,6 +66,7 @@ describe("WorkspaceBootstrapService", () => {
 
     const result = await service.bootstrap({
       runId: "run-1",
+      mode: "git_write",
       repositoryContext: {
         owner: "private",
         repo: "repo",
@@ -101,6 +96,7 @@ describe("WorkspaceBootstrapService", () => {
 
     const result = await service.bootstrap({
       runId: "run-1",
+      mode: "git_write",
       repositoryContext: {
         owner: "sourcegraph",
         repo: "shadowbox",
@@ -139,6 +135,7 @@ describe("WorkspaceBootstrapService", () => {
 
     const result = await service.bootstrap({
       runId: "run-1",
+      mode: "git_write",
       repositoryContext: {
         owner: "sourcegraph",
         repo: "shadowbox",
@@ -172,6 +169,7 @@ describe("WorkspaceBootstrapService", () => {
 
     const result = await service.bootstrap({
       runId: "run-1",
+      mode: "git_write",
       repositoryContext: {
         owner: "sourcegraph",
         repo: "shadowbox",
@@ -180,11 +178,9 @@ describe("WorkspaceBootstrapService", () => {
     });
 
     expect(result.status).toBe("ready");
-    expect(execute).toHaveBeenCalledWith(
-      "git",
-      "git_branch_create",
-      { branch: "feature/bootstrap" },
-    );
+    expect(execute).toHaveBeenCalledWith("git", "git_branch_create", {
+      branch: "feature/bootstrap",
+    });
   });
 
   it("skips git sync when the same run/repo/branch was recently bootstrapped", async () => {
@@ -200,6 +196,7 @@ describe("WorkspaceBootstrapService", () => {
     const service = new WorkspaceBootstrapService({ execute }, 60_000);
     const request = {
       runId: "run-cache-test",
+      mode: "git_write",
       repositoryContext: {
         owner: "sourcegraph",
         repo: "shadowbox",
@@ -252,6 +249,7 @@ describe("WorkspaceBootstrapService", () => {
 
     const result = await service.bootstrap({
       runId: "run-dirty",
+      mode: "git_write",
       repositoryContext: {
         owner: "sourcegraph",
         repo: "shadowbox",
@@ -280,12 +278,12 @@ describe("WorkspaceBootstrapService", () => {
               isStaged: false,
             },
           ],
-        ahead: 0,
-        behind: 0,
-        repoIdentity: "github.com/sourcegraph/shadowbox",
-        hasStaged: false,
-        hasUnstaged: true,
-        gitAvailable: true,
+          ahead: 0,
+          behind: 0,
+          repoIdentity: "github.com/sourcegraph/shadowbox",
+          hasStaged: false,
+          hasUnstaged: true,
+          gitAvailable: true,
         }),
       })
       .mockResolvedValueOnce({ success: true })
@@ -295,6 +293,7 @@ describe("WorkspaceBootstrapService", () => {
 
     const result = await service.bootstrap({
       runId: "run-branch-mismatch",
+      mode: "git_write",
       repositoryContext: {
         owner: "sourcegraph",
         repo: "shadowbox",
@@ -318,6 +317,7 @@ describe("WorkspaceBootstrapService", () => {
 
     const result = await service.bootstrap({
       runId: "run-invalid-status",
+      mode: "git_write",
       repositoryContext: {
         owner: "sourcegraph",
         repo: "shadowbox",
@@ -338,6 +338,7 @@ describe("WorkspaceBootstrapService", () => {
 
     const result = await service.bootstrap({
       runId: "run-invalid-object-status",
+      mode: "git_write",
       repositoryContext: {
         owner: "sourcegraph",
         repo: "shadowbox",
@@ -381,6 +382,7 @@ describe("WorkspaceBootstrapService", () => {
 
     const result = await service.bootstrap({
       runId: "run-repo-mismatch",
+      mode: "git_write",
       repositoryContext: {
         owner: "sourcegraph",
         repo: "shadowbox",

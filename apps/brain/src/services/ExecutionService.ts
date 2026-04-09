@@ -609,6 +609,21 @@ function logExecutionFailure(
     return;
   }
 
+  if (isGitStatusFailure(plugin, action)) {
+    const message = isExpectedGitStatusBootstrapFailure(plugin, action, result)
+      ? "expected bootstrap miss"
+      : "status check failed";
+    console.log(
+      `[ExecutionService] ${plugin}:${action} ${message}`,
+      sanitizeLogPayload({
+        status: result.status,
+        errorCode: result.error?.code,
+        errorMessage: result.error?.message,
+      }),
+    );
+    return;
+  }
+
   console.error(
     `[ExecutionService] ${plugin}:${action} failed`,
     sanitizeLogPayload({
@@ -618,6 +633,23 @@ function logExecutionFailure(
       errorDetails: result.error?.details,
     }),
   );
+}
+
+function isGitStatusFailure(plugin: string, action: string): boolean {
+  return plugin === "git" && action === "git_status";
+}
+
+function isExpectedGitStatusBootstrapFailure(
+  plugin: string,
+  action: string,
+  result: Pick<SecureExecutionTaskResponse, "status" | "error">,
+): boolean {
+  if (plugin !== "git" || action !== "git_status") {
+    return false;
+  }
+
+  const message = result.error?.message ?? "";
+  return /not a git repository/i.test(message);
 }
 
 function readString(value: unknown): string | undefined {

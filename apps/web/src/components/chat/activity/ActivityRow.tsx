@@ -4,6 +4,7 @@ import remarkGfm from "remark-gfm";
 import { TOOL_ACTIVITY_FAMILIES } from "@repo/shared-types";
 import { cn } from "../../../lib/utils.js";
 import type { ActivityFeedRowViewModel } from "../../../services/activity/ActivityFeedViewModel.js";
+import { toCompactExplorationTitle } from "../workflow/explorationCopy.js";
 
 interface ActivityRowProps {
   row: ActivityFeedRowViewModel;
@@ -980,21 +981,7 @@ function getCompactToolDetail(
 function getCompactExplorationTitle(
   row: Extract<ActivityFeedRowViewModel, { kind: "tool" }>,
 ): string {
-  switch (row.toolName) {
-    case "read_file":
-      return row.title.replace(/^Reading /, "Read ");
-    case "list_files":
-      return row.title.replace(/^Listing /, "List ");
-    case "grep":
-    case "search_code":
-      return row.title
-        .replace(/^Searching for /, "Search ")
-        .replace(/^Searched for /, "Search ");
-    case "glob":
-      return row.title.replace(/^Finding /, "Find ");
-    default:
-      return row.title;
-  }
+  return toCompactExplorationTitle(row.toolName, row.title);
 }
 
 function getShellTranscriptLabel(

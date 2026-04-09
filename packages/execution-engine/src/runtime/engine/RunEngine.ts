@@ -353,6 +353,7 @@ export class RunEngine implements IRunEngine {
       if (runMode === "build") {
         const bootstrapMessage = await getWorkspaceBootstrapMessage(
           run.id,
+          effectiveInput.prompt,
           effectiveInput.repositoryContext,
           this.workspaceBootstrapper,
         );
@@ -842,10 +843,12 @@ export class RunEngine implements IRunEngine {
   }
   private async getWorkspaceBootstrapMessage(
     runId: string,
+    prompt: string,
     repositoryContext?: RepositoryContext,
   ): Promise<string | null> {
     return getWorkspaceBootstrapMessage(
       runId,
+      prompt,
       repositoryContext,
       this.workspaceBootstrapper,
     );

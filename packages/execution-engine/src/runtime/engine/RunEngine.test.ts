@@ -1483,7 +1483,7 @@ describe("RunEngine", () => {
       "I inspected the workspace, but I did not complete the requested change because no mutating tool succeeded.",
     );
     expect(output).toContain(
-      "A required write_file action failed: Permission denied",
+      "A required file edit step failed: Permission denied",
     );
     expect(output).toContain(
       "No file changed in this run. Retry with a more specific target file, component, or edit instruction so I can attempt the mutation again.",
@@ -1538,9 +1538,11 @@ describe("RunEngine", () => {
       })
       .mockImplementationOnce(async (request) => {
         const system = String(
-          (request as {
-            system?: string;
-          }).system ?? "",
+          (
+            request as {
+              system?: string;
+            }
+          ).system ?? "",
         );
 
         expect(system).toContain("Continuation context:");
@@ -1639,7 +1641,8 @@ describe("RunEngine", () => {
           if (plugin === "bash" && action === "run") {
             return {
               success: false,
-              error: "Invalid command argument: multiline values are not allowed",
+              error:
+                "Invalid command argument: multiline values are not allowed",
             };
           }
           if (plugin === "git" && action === "git_stage") {
@@ -1705,10 +1708,11 @@ describe("RunEngine", () => {
         getRun(runId: string): Promise<Run | null>;
       }
     ).getRun(TEST_RUN_ID);
-    const failedShellEvent = firstPersistedRun?.metadata.agenticLoop?.toolLifecycle
-      ?.slice()
-      .reverse()
-      .find((event) => event.status === "failed");
+    const failedShellEvent =
+      firstPersistedRun?.metadata.agenticLoop?.toolLifecycle
+        ?.slice()
+        .reverse()
+        .find((event) => event.status === "failed");
     expect(failedShellEvent).toMatchObject({
       toolName: "bash",
       metadata: {
@@ -1856,9 +1860,11 @@ describe("RunEngine", () => {
       })
       .mockImplementationOnce(async (request) => {
         const system = String(
-          (request as {
-            system?: string;
-          }).system ?? "",
+          (
+            request as {
+              system?: string;
+            }
+          ).system ?? "",
         );
 
         expect(system).toContain("Continuation context:");
@@ -1868,12 +1874,7 @@ describe("RunEngine", () => {
         expect(system).toContain(
           "Branch created: feat/floating-hero-carousels",
         );
-        expect(system).toContain(
-          "Commit created: feat: add floating carousels to hero section",
-        );
-        expect(system).toContain(
-          "Branch pushed: feat/floating-hero-carousels",
-        );
+        expect(system).toContain("Branch pushed: feat/floating-hero-carousels");
         expect(system).toContain(
           "Create the pull request with the dedicated git_create_pull_request tool instead of bash or gh.",
         );
@@ -2054,7 +2055,9 @@ describe("RunEngine", () => {
     );
 
     expect(secondResponse.status).toBe(200);
-    expect(await secondResponse.text()).toContain("The pull request is now created.");
+    expect(await secondResponse.text()).toContain(
+      "The pull request is now created.",
+    );
 
     const executeSpy = executionService.execute as ReturnType<typeof vi.fn>;
     expect(executeSpy).toHaveBeenCalledWith(
@@ -2075,7 +2078,8 @@ describe("RunEngine", () => {
       }
     ).getRun(TEST_RUN_ID);
     expect(persisted?.metadata.continuation).toMatchObject({
-      previousPrompt: "commit it, create a new branch and create a pr on github",
+      previousPrompt:
+        "commit it, create a new branch and create a pr on github",
       completedGitSteps: [
         "Branch created: feat/floating-hero-carousels",
         "Commit created: feat: add floating carousels to hero section",
@@ -2127,9 +2131,11 @@ describe("RunEngine", () => {
       })
       .mockImplementationOnce(async (request) => {
         const system = String(
-          (request as {
-            system?: string;
-          }).system ?? "",
+          (
+            request as {
+              system?: string;
+            }
+          ).system ?? "",
         );
 
         expect(system).toContain(
@@ -2375,9 +2381,11 @@ describe("RunEngine", () => {
       })
       .mockImplementationOnce(async (request) => {
         const system = String(
-          (request as {
-            system?: string;
-          }).system ?? "",
+          (
+            request as {
+              system?: string;
+            }
+          ).system ?? "",
         );
         expect(system).toContain(
           "Resume on branch: feat/floating-hero-carousels",
@@ -2420,7 +2428,8 @@ describe("RunEngine", () => {
         if (plugin === "git" && action === "git_branch_create") {
           return {
             success: true,
-            output: "Created and switched to branch: feat/floating-hero-carousels",
+            output:
+              "Created and switched to branch: feat/floating-hero-carousels",
           };
         }
         if (plugin === "git" && action === "git_push") {
@@ -2480,7 +2489,10 @@ describe("RunEngine", () => {
       },
       [
         { role: "user", content: "create a branch and push it" },
-        { role: "assistant", content: "The branch step failed and needs another try." },
+        {
+          role: "assistant",
+          content: "The branch step failed and needs another try.",
+        },
         { role: "user", content: "continue?" },
       ],
       {},
@@ -2488,6 +2500,7 @@ describe("RunEngine", () => {
 
     expect(workspaceBootstrapper.bootstrap).toHaveBeenNthCalledWith(1, {
       runId: TEST_RUN_ID,
+      mode: "git_write",
       repositoryContext: {
         owner: "sourcegraph",
         repo: "shadowbox",
@@ -2496,6 +2509,7 @@ describe("RunEngine", () => {
     });
     expect(workspaceBootstrapper.bootstrap).toHaveBeenNthCalledWith(2, {
       runId: TEST_RUN_ID,
+      mode: "mutation",
       repositoryContext: {
         owner: "sourcegraph",
         repo: "shadowbox",
@@ -3220,15 +3234,20 @@ describe("RunEngine", () => {
     const privateApi = runEngine as unknown as {
       getWorkspaceBootstrapMessage(
         runId: string,
+        prompt: string,
         repositoryContext?: { owner?: string; repo?: string; branch?: string },
       ): Promise<string | null>;
     };
 
-    const message = await privateApi.getWorkspaceBootstrapMessage("run-1", {
-      owner: "sourcegraph",
-      repo: "shadowbox",
-      branch: "main",
-    });
+    const message = await privateApi.getWorkspaceBootstrapMessage(
+      "run-1",
+      "check the repository status",
+      {
+        owner: "sourcegraph",
+        repo: "shadowbox",
+        branch: "main",
+      },
+    );
 
     expect(message).toContain("GitHub authorization");
   });

@@ -23,6 +23,19 @@ import { ProviderModelRankingService } from "./ProviderModelRankingService";
 import { ProviderModelDiscoveryObservability } from "./ProviderModelDiscoveryObservability";
 
 const MODEL_CACHE_TTL_MS = 5 * 60 * 1000;
+const OPENROUTER_MAX_POPULAR_MODELS = 24;
+const OPENROUTER_LAUNCH_PRIORITY_MODEL_IDS = [
+  "openai/gpt-4.1",
+  "openai/gpt-4.1-mini",
+  "anthropic/claude-3.7-sonnet",
+  "anthropic/claude-3.5-sonnet",
+  "google/gemini-2.5-pro",
+  "google/gemini-2.5-flash",
+  "meta-llama/llama-3.3-70b-instruct",
+  "deepseek/deepseek-chat-v3-0324",
+  "qwen/qwen-2.5-72b-instruct",
+  "mistralai/mistral-large",
+] as const;
 
 export class ProviderModelDiscoveryService {
   private readonly adapters: Map<string, ProviderModelCatalogPort>;
@@ -79,6 +92,7 @@ export class ProviderModelDiscoveryService {
         providerId,
         query.view,
         fullList.models,
+        query.limit,
       );
       const page = toPage(ranked, query.cursor, query.limit);
       const stale =
@@ -146,6 +160,7 @@ export class ProviderModelDiscoveryService {
     providerId: string,
     view: BYOKDiscoveredProviderModelsQuery["view"],
     models: ProviderModelCacheRecord["models"],
+    limit: number,
   ) {
     if (view !== "popular") {
       return models;
@@ -157,7 +172,7 @@ export class ProviderModelDiscoveryService {
       signals,
       limit: 50,
     });
-    return ranked.models;
+    return applyPopularLaunchGuardrails(providerId, ranked.models);
   }
 
   private async getCatalogWithCache(
@@ -197,7 +212,14 @@ export class ProviderModelDiscoveryService {
       );
     }
 
-    const apiKey = await this.credentialService.getApiKey(providerId);
+    let apiKey: string | null = null;
+    try {
+      apiKey = await this.credentialService.getApiKey(providerId);
+    } catch (_error) {
+      throw new ProviderModelDiscoveryAuthError(
+        `Failed to read ${providerId} credentials for model discovery. Reconnect this provider and retry.`,
+      );
+    }
     if (!apiKey) {
       throw new ProviderModelDiscoveryAuthError(
         `${providerId} credentials are not connected for model discovery.`,
@@ -400,4 +422,88 @@ function toDiscoveryErrorCode(error: unknown): string {
     return (error as { code: string }).code;
   }
   return "UNKNOWN";
+}
+
+function applyPopularLaunchGuardrails(
+  providerId: string,
+  rankedModels: ProviderModelCacheRecord["models"],
+): ProviderModelCacheRecord["models"] {
+  if (providerId !== "openrouter") {
+    return rankedModels;
+  }
+
+  return prioritizeOpenRouterLaunchModels(rankedModels).slice(
+    0,
+    OPENROUTER_MAX_POPULAR_MODELS,
+  );
+}
+
+function prioritizeOpenRouterLaunchModels(
+  models: ProviderModelCacheRecord["models"],
+): ProviderModelCacheRecord["models"] {
+  const modelById = new Map(models.map((model) => [model.id, model]));
+  const curated: ProviderModelCacheRecord["models"] = [];
+  for (const modelId of OPENROUTER_LAUNCH_PRIORITY_MODEL_IDS) {
+    const model = modelById.get(modelId);
+    if (model && !model.deprecated) {
+      curated.push(model);
+    }
+  }
+
+  const curatedIds = new Set(curated.map((model) => model.id));
+  const fallback = models
+    .filter((model) => !model.deprecated && !curatedIds.has(model.id))
+    .sort(compareOpenRouterLaunchCandidates);
+
+  return [...curated, ...fallback];
+}
+
+function compareOpenRouterLaunchCandidates(
+  left: ProviderModelCacheRecord["models"][number],
+  right: ProviderModelCacheRecord["models"][number],
+): number {
+  const scoreDelta =
+    scoreOpenRouterLaunchCandidate(right) -
+    scoreOpenRouterLaunchCandidate(left);
+  if (scoreDelta !== 0) {
+    return scoreDelta;
+  }
+  return left.id.localeCompare(right.id);
+}
+
+function scoreOpenRouterLaunchCandidate(
+  model: ProviderModelCacheRecord["models"][number],
+): number {
+  let score = 0;
+
+  if (model.supportsTools) {
+    score += 3;
+  }
+  if (model.supportsVision) {
+    score += 1;
+  }
+  if ((model.contextWindow ?? 0) >= 128_000) {
+    score += 2;
+  }
+
+  const inputCost = model.pricing?.inputPer1M ?? Number.POSITIVE_INFINITY;
+  if (Number.isFinite(inputCost)) {
+    if (inputCost <= 1) {
+      score += 2;
+    } else if (inputCost <= 3) {
+      score += 1;
+    } else if (inputCost >= 15) {
+      score -= 2;
+    }
+  }
+
+  if (isOpenRouterFreeModel(model.id)) {
+    score -= 3;
+  }
+
+  return score;
+}
+
+function isOpenRouterFreeModel(modelId: string): boolean {
+  return modelId.includes(":free");
 }

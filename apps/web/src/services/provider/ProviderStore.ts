@@ -328,17 +328,17 @@ export class ProviderStore {
       if (this.isWorkspaceEpochStale("bootstrap", epoch)) {
         return;
       }
+      const visibleModelIds = this.hydrateVisibleModelIds(preferences);
       const selection = this.deriveSelectionSnapshot({
         catalog,
         credentials,
         preferences,
         providerModels: this.state.providerModels,
+        visibleModelIds,
         selectedProviderId: this.state.selectedProviderId,
         selectedCredentialId: this.state.selectedCredentialId,
         selectedModelId: this.state.selectedModelId,
       });
-
-      const visibleModelIds = this.hydrateVisibleModelIds(preferences);
 
       this.setState({
         catalog,
@@ -424,7 +424,10 @@ export class ProviderStore {
     }
 
     if (
-      Object.prototype.hasOwnProperty.call(preferences.visibleModelIds, providerId)
+      Object.prototype.hasOwnProperty.call(
+        preferences.visibleModelIds,
+        providerId,
+      )
     ) {
       return null;
     }
@@ -524,6 +527,7 @@ export class ProviderStore {
         credentials: nextCredentials,
         preferences,
         providerModels,
+        visibleModelIds: nextVisibleModelIds ?? this.state.visibleModelIds,
         selectedProviderId: this.state.selectedProviderId ?? req.providerId,
         selectedCredentialId:
           this.state.selectedCredentialId ?? credential.credentialId,
@@ -543,12 +547,17 @@ export class ProviderStore {
       });
 
       if (nextVisibleModelIds) {
-        void this.persistVisibilityChanges(nextVisibleModelIds).catch((error) => {
-          this.log("[connectCredential] failed to persist hidden model defaults", {
-            providerId: req.providerId,
-            error: error instanceof Error ? error.message : String(error),
-          });
-        });
+        void this.persistVisibilityChanges(nextVisibleModelIds).catch(
+          (error) => {
+            this.log(
+              "[connectCredential] failed to persist hidden model defaults",
+              {
+                providerId: req.providerId,
+                error: error instanceof Error ? error.message : String(error),
+              },
+            );
+          },
+        );
       }
 
       this.log("[connectCredential] Success", {
@@ -606,6 +615,7 @@ export class ProviderStore {
         credentials: nextCredentials,
         preferences: this.state.preferences,
         providerModels: this.state.providerModels,
+        visibleModelIds: this.state.visibleModelIds,
         selectedProviderId: this.state.selectedProviderId,
         selectedCredentialId:
           this.state.selectedCredentialId === credentialId
@@ -818,54 +828,98 @@ export class ProviderStore {
     epoch: number,
   ): Promise<ProviderModelOption[]> {
     this.log("[loadProviderModels] Starting", { providerId, ...options });
-    const result = await this.apiClient.getProviderModels(providerId, {
-      view: options.view,
-      limit: options.limit,
-      cursor: options.cursor,
-    });
-    if (this.isWorkspaceEpochStale("loadProviderModels", epoch)) {
-      return result.models;
-    }
+    try {
+      const result = await this.apiClient.getProviderModels(providerId, {
+        view: options.view,
+        limit: options.limit,
+        cursor: options.cursor,
+      });
+      if (this.isWorkspaceEpochStale("loadProviderModels", epoch)) {
+        return result.models;
+      }
 
-    const currentModels = this.state.providerModels[providerId] ?? [];
-    const mergedModels = options.append
-      ? mergeModelsById(currentModels, result.models)
-      : result.models;
+      const currentModels = this.state.providerModels[providerId] ?? [];
+      const mergedModels = options.append
+        ? mergeModelsById(currentModels, result.models)
+        : result.models;
 
-    this.setState({
-      providerModels: {
-        ...this.state.providerModels,
-        [providerId]: mergedModels,
-      },
-      providerModelsPage: {
-        ...this.state.providerModelsPage,
-        [providerId]: {
-          view: result.view,
-          hasMore: result.page.hasMore,
-          nextCursor: result.page.nextCursor ?? null,
+      this.setState({
+        providerModels: {
+          ...this.state.providerModels,
+          [providerId]: mergedModels,
         },
-      },
-      providerModelsMetadata: {
-        ...this.state.providerModelsMetadata,
-        [providerId]: result.metadata,
-      },
-      selectedModelView: result.view,
-      selectedModelId:
-        this.state.selectedProviderId === providerId
-          ? this.resolveSelectedModelId(
-              this.state.selectedModelId,
-              mergedModels,
-            )
-          : this.state.selectedModelId,
-    });
-    this.log("[loadProviderModels] Success", {
-      providerId,
-      modelCount: mergedModels.length,
-      view: result.view,
-      hasMore: result.page.hasMore,
-      stale: result.metadata.stale,
-    });
-    return mergedModels;
+        providerModelsPage: {
+          ...this.state.providerModelsPage,
+          [providerId]: {
+            view: result.view,
+            hasMore: result.page.hasMore,
+            nextCursor: result.page.nextCursor ?? null,
+          },
+        },
+        providerModelsMetadata: {
+          ...this.state.providerModelsMetadata,
+          [providerId]: result.metadata,
+        },
+        selectedModelView: result.view,
+        selectedModelId:
+          this.state.selectedProviderId === providerId
+            ? this.resolveSelectedModelIdForProvider(
+                providerId,
+                this.state.selectedModelId,
+                mergedModels,
+              )
+            : this.state.selectedModelId,
+      });
+      this.log("[loadProviderModels] Success", {
+        providerId,
+        modelCount: mergedModels.length,
+        view: result.view,
+        hasMore: result.page.hasMore,
+        stale: result.metadata.stale,
+      });
+      return mergedModels;
+    } catch (error) {
+      if (this.isWorkspaceEpochStale("loadProviderModels", epoch)) {
+        return this.state.providerModels[providerId] ?? [];
+      }
+
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Failed to load provider models";
+      const fallbackModels = this.state.providerModels[providerId] ?? [];
+
+      this.setState({
+        providerModels: {
+          ...this.state.providerModels,
+          [providerId]: fallbackModels,
+        },
+        providerModelsPage: {
+          ...this.state.providerModelsPage,
+          [providerId]: {
+            view: options.view,
+            hasMore: false,
+            nextCursor: null,
+          },
+        },
+        providerModelsMetadata: {
+          ...this.state.providerModelsMetadata,
+          [providerId]: {
+            fetchedAt: new Date().toISOString(),
+            stale: true,
+            source: "cache",
+            staleReason: "provider_api_unavailable",
+          },
+        },
+        error: message,
+      });
+
+      this.log("[loadProviderModels] Error", {
+        providerId,
+        error: message,
+      });
+      throw error;
+    }
   }
 
   private async executeRefreshProviderModels(
@@ -902,6 +956,7 @@ export class ProviderStore {
         credentials: this.state.credentials,
         preferences: updated,
         providerModels: this.state.providerModels,
+        visibleModelIds: this.state.visibleModelIds,
         selectedProviderId: this.state.selectedProviderId,
         selectedCredentialId: this.state.selectedCredentialId,
         selectedModelId: this.state.selectedModelId,
@@ -976,6 +1031,7 @@ export class ProviderStore {
       credentials: this.state.credentials,
       preferences: this.state.preferences,
       providerModels: this.state.providerModels,
+      visibleModelIds: this.state.visibleModelIds,
       selectedProviderId: this.state.selectedProviderId,
       selectedCredentialId: this.state.selectedCredentialId,
       selectedModelId: this.state.selectedModelId,
@@ -1054,12 +1110,24 @@ export class ProviderStore {
 
       const normalizedCredentialId =
         config.credentialId.trim().length > 0 ? config.credentialId : null;
+      const effectiveModelId = this.resolveModelForResolvedProvider(
+        config.providerId,
+        config.modelId,
+      );
+      if (!effectiveModelId) {
+        throw new Error(
+          `No visible model is selected for provider "${config.providerId}". Select at least one visible model and retry.`,
+        );
+      }
 
       this.setState({
-        lastResolvedConfig: config,
+        lastResolvedConfig: {
+          ...config,
+          modelId: effectiveModelId,
+        },
         selectedProviderId: config.providerId,
         selectedCredentialId: normalizedCredentialId,
-        selectedModelId: config.modelId,
+        selectedModelId: effectiveModelId,
         axisQuota:
           config.providerId === "axis" && config.quota
             ? {
@@ -1074,7 +1142,7 @@ export class ProviderStore {
 
       this.log("[resolveForChat] Success", {
         providerId: config.providerId,
-        modelId: config.modelId,
+        modelId: effectiveModelId,
       });
     } catch (error) {
       const message =
@@ -1115,8 +1183,26 @@ export class ProviderStore {
       ...this.state.visibleModelIds,
       [providerId]: next,
     };
+    const selection =
+      this.state.selectedProviderId === providerId
+        ? this.deriveSelectionSnapshot({
+            catalog: this.state.catalog,
+            credentials: this.state.credentials,
+            preferences: this.state.preferences,
+            providerModels: this.state.providerModels,
+            visibleModelIds: newVisibleModelIds,
+            selectedProviderId: this.state.selectedProviderId,
+            selectedCredentialId: this.state.selectedCredentialId,
+            selectedModelId: this.state.selectedModelId,
+          })
+        : null;
     this.setState({
       visibleModelIds: newVisibleModelIds,
+      selectedProviderId:
+        selection?.selectedProviderId ?? this.state.selectedProviderId,
+      selectedCredentialId:
+        selection?.selectedCredentialId ?? this.state.selectedCredentialId,
+      selectedModelId: selection?.selectedModelId ?? this.state.selectedModelId,
     });
     // Persist changes to backend (fire and forget with error logging)
     this.persistVisibilityChanges(newVisibleModelIds).catch((error) => {
@@ -1136,8 +1222,26 @@ export class ProviderStore {
       ...this.state.visibleModelIds,
       [providerId]: new Set(modelIds),
     };
+    const selection =
+      this.state.selectedProviderId === providerId
+        ? this.deriveSelectionSnapshot({
+            catalog: this.state.catalog,
+            credentials: this.state.credentials,
+            preferences: this.state.preferences,
+            providerModels: this.state.providerModels,
+            visibleModelIds: newVisibleModelIds,
+            selectedProviderId: this.state.selectedProviderId,
+            selectedCredentialId: this.state.selectedCredentialId,
+            selectedModelId: this.state.selectedModelId,
+          })
+        : null;
     this.setState({
       visibleModelIds: newVisibleModelIds,
+      selectedProviderId:
+        selection?.selectedProviderId ?? this.state.selectedProviderId,
+      selectedCredentialId:
+        selection?.selectedCredentialId ?? this.state.selectedCredentialId,
+      selectedModelId: selection?.selectedModelId ?? this.state.selectedModelId,
     });
     // Persist changes to backend (fire and forget with error logging)
     this.persistVisibilityChanges(newVisibleModelIds).catch((error) => {
@@ -1280,6 +1384,7 @@ export class ProviderStore {
       credentials: this.state.credentials,
       preferences: this.state.preferences,
       providerModels: this.state.providerModels,
+      visibleModelIds: this.state.visibleModelIds,
       selectedProviderId: this.state.selectedProviderId,
       selectedCredentialId: this.state.selectedCredentialId,
       selectedModelId: this.state.selectedModelId,
@@ -1334,16 +1439,33 @@ export class ProviderStore {
     };
   }
 
-  private resolveSelectedModelId(
+  private resolveSelectedModelIdForProvider(
+    providerId: string,
     currentModelId: string | null,
     models: ProviderModelOption[],
   ): string | null {
-    if (!currentModelId) {
-      return models[0]?.id ?? null;
+    const visibleSet = this.state.visibleModelIds[providerId];
+    if (!visibleSet) {
+      return currentModelId ?? models[0]?.id ?? null;
     }
-    return models.some((model) => model.id === currentModelId)
+
+    const selectableModels = this.getSelectableModelsForProvider(
+      providerId,
+      models,
+      this.state.visibleModelIds,
+    );
+    if (selectableModels.length === 0) {
+      return this.resolvePendingVisibleModelId(
+        currentModelId,
+        this.state.visibleModelIds[providerId],
+      );
+    }
+    if (!currentModelId) {
+      return selectableModels[0]?.id ?? null;
+    }
+    return selectableModels.some((model) => model.id === currentModelId)
       ? currentModelId
-      : (models[0]?.id ?? null);
+      : (selectableModels[0]?.id ?? null);
   }
 
   private deriveSelectionSnapshot(input: {
@@ -1351,6 +1473,7 @@ export class ProviderStore {
     credentials: ProviderCredential[];
     preferences: ProviderPreference | null;
     providerModels: Record<string, ProviderModelOption[]>;
+    visibleModelIds: Record<string, Set<string>>;
     selectedProviderId: string | null;
     selectedCredentialId: string | null;
     selectedModelId: string | null;
@@ -1360,6 +1483,7 @@ export class ProviderStore {
       credentials,
       preferences,
       providerModels,
+      visibleModelIds,
       selectedProviderId,
       selectedCredentialId,
       selectedModelId,
@@ -1404,25 +1528,124 @@ export class ProviderStore {
       providerCredentials[0]?.credentialId ??
       null;
 
-    const selectedModelForProvider =
+    const preferredModelForProvider =
       providerId && selectedProviderId === providerId ? selectedModelId : null;
-    const modelId =
-      selectedModelForProvider ??
+    const preferredModelId =
+      preferredModelForProvider ??
       (preferences?.defaultProviderId === providerId
         ? preferences.defaultModelId
         : undefined) ??
-      (providerId ? providerModels[providerId]?.[0]?.id : undefined) ??
       (providerId
         ? catalog.find((entry) => entry.providerId === providerId)
             ?.defaultModelId
         : undefined) ??
       null;
+    const modelId =
+      providerId === null
+        ? null
+        : this.resolveConstrainedModelId({
+            providerId,
+            preferredModelId,
+            providerModels,
+            visibleModelIds,
+          });
 
     return {
       selectedProviderId: providerId,
       selectedCredentialId: credentialId,
       selectedModelId: modelId,
     };
+  }
+
+  private resolveConstrainedModelId(input: {
+    providerId: string;
+    preferredModelId: string | null;
+    providerModels: Record<string, ProviderModelOption[]>;
+    visibleModelIds: Record<string, Set<string>>;
+  }): string | null {
+    const { providerId, preferredModelId, providerModels, visibleModelIds } =
+      input;
+    const selectableModels = this.getSelectableModelsForProvider(
+      providerId,
+      providerModels[providerId] ?? [],
+      visibleModelIds,
+    );
+    const visibleSet = visibleModelIds[providerId];
+
+    if (!visibleSet) {
+      return preferredModelId ?? selectableModels[0]?.id ?? null;
+    }
+
+    if (preferredModelId) {
+      if (visibleSet.has(preferredModelId)) {
+        return preferredModelId;
+      }
+      if (selectableModels.length > 0) {
+        return selectableModels[0]?.id ?? null;
+      }
+      return this.resolvePendingVisibleModelId(null, visibleSet);
+    }
+
+    if (selectableModels.length > 0) {
+      return selectableModels[0]?.id ?? null;
+    }
+
+    return this.resolvePendingVisibleModelId(null, visibleSet);
+  }
+
+  private resolveModelForResolvedProvider(
+    providerId: string,
+    resolvedModelId: string,
+  ): string | null {
+    const visibleSet = this.state.visibleModelIds[providerId];
+    if (!visibleSet) {
+      return (
+        resolvedModelId || this.state.providerModels[providerId]?.[0]?.id || null
+      );
+    }
+
+    if (visibleSet.has(resolvedModelId)) {
+      return resolvedModelId;
+    }
+
+    const selectableModels = this.getSelectableModelsForProvider(
+      providerId,
+      this.state.providerModels[providerId] ?? [],
+      this.state.visibleModelIds,
+    );
+    if (selectableModels.length > 0) {
+      return selectableModels[0]?.id ?? null;
+    }
+
+    return this.resolvePendingVisibleModelId(resolvedModelId, visibleSet);
+  }
+
+  private resolvePendingVisibleModelId(
+    preferredModelId: string | null,
+    visibleSet: Set<string> | undefined,
+  ): string | null {
+    if (!visibleSet) {
+      return preferredModelId;
+    }
+    if (visibleSet.size === 0) {
+      return null;
+    }
+    if (preferredModelId && visibleSet.has(preferredModelId)) {
+      return preferredModelId;
+    }
+    return visibleSet.values().next().value ?? null;
+  }
+
+  private getSelectableModelsForProvider(
+    providerId: string,
+    models: ProviderModelOption[],
+    visibleModelIds: Record<string, Set<string>>,
+  ): ProviderModelOption[] {
+    const visibleSet = visibleModelIds[providerId];
+    if (!visibleSet) {
+      return models;
+    }
+    return models.filter((model) => visibleSet.has(model.id));
   }
 
   private collectBootstrapModelPreloadProviderIds(
@@ -1583,10 +1806,7 @@ function clearPersistedRunScopedSelections(): void {
     const keysToRemove: string[] = [];
     for (let index = 0; index < sessionStorage.length; index += 1) {
       const key = sessionStorage.key(index);
-      if (
-        key &&
-        key.startsWith(RUN_SCOPED_SELECTION_STORAGE_KEY_PREFIX)
-      ) {
+      if (key && key.startsWith(RUN_SCOPED_SELECTION_STORAGE_KEY_PREFIX)) {
         keysToRemove.push(key);
       }
     }

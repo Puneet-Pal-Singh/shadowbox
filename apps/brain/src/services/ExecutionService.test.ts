@@ -456,6 +456,70 @@ describe("ExecutionService", () => {
     errorSpy.mockRestore();
   });
 
+  it("does not emit error logs for expected git status bootstrap misses", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const fetchMock = vi.fn<
+      Parameters<Env["SECURE_API"]["fetch"]>,
+      ReturnType<Env["SECURE_API"]["fetch"]>
+    >();
+
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            sessionId: "sess-status",
+            token: "tok-status",
+            expiresAt: Date.now() + 60_000,
+          }),
+          { status: 201, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            taskId: "task-status",
+            status: "failure",
+            error: {
+              code: "PLUGIN_EXECUTION_FAILED",
+              message:
+                "fatal: not a git repository (or any of the parent directories): .git",
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+
+    const service = new ExecutionService(
+      {
+        SECURE_API: { fetch: fetchMock },
+      } as unknown as Env,
+      "session-status",
+      "run-status",
+    );
+
+    await expect(service.execute("git", "git_status", {})).resolves.toEqual({
+      success: false,
+      error:
+        "fatal: not a git repository (or any of the parent directories): .git",
+    });
+
+    expect(errorSpy).not.toHaveBeenCalledWith(
+      "[ExecutionService] git:git_status failed",
+      expect.anything(),
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      "[ExecutionService] git:git_status expected bootstrap miss",
+      expect.objectContaining({
+        status: "failure",
+        errorCode: "PLUGIN_EXECUTION_FAILED",
+      }),
+    );
+
+    logSpy.mockRestore();
+    errorSpy.mockRestore();
+  });
+
   it("creates pull requests through the dedicated GitHub-backed execution path", async () => {
     vi.mocked(decryptToken).mockResolvedValue("github-token");
     const fetchMock = vi.fn<
