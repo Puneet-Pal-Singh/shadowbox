@@ -49,10 +49,12 @@ export class ProviderCatalogService {
     const providers: ProviderCatalogEntry[] = [];
 
     for (const provider of registryProviders) {
-      if (!(await this.canExposeProvider(provider))) {
+      if (!(await this.canExposeProviderSafely(provider))) {
         continue;
       }
-      const discoveredModels = await this.loadProviderModels(provider.providerId);
+      const discoveredModels = await this.loadProviderModels(
+        provider.providerId,
+      );
       providers.push({
         providerId: provider.providerId,
         displayName: provider.displayName,
@@ -84,7 +86,9 @@ export class ProviderCatalogService {
     };
   }
 
-  private async loadProviderModels(providerId: string): Promise<ModelDescriptor[]> {
+  private async loadProviderModels(
+    providerId: string,
+  ): Promise<ModelDescriptor[]> {
     if (providerId === AXIS_PROVIDER_ID) {
       return getAxisCatalogModels();
     }
@@ -154,7 +158,7 @@ export class ProviderCatalogService {
     cursor?: string;
   }): Promise<BYOKDiscoveredProviderModelsResponse> {
     const axisProvider = this.registryService.getProvider(AXIS_PROVIDER_ID);
-    if (!axisProvider || !(await this.canExposeProvider(axisProvider))) {
+    if (!axisProvider || !(await this.canExposeProviderSafely(axisProvider))) {
       return {
         providerId: AXIS_PROVIDER_ID,
         view: query.view,
@@ -196,6 +200,23 @@ export class ProviderCatalogService {
     if (!provider) {
       return false;
     }
-    return this.canExposeProvider(provider);
+    return this.canExposeProviderSafely(provider);
+  }
+
+  private async canExposeProviderSafely(
+    provider: ProviderRegistryEntry,
+  ): Promise<boolean> {
+    try {
+      return await this.canExposeProvider(provider);
+    } catch (error) {
+      console.warn(
+        "[providers/catalog-visibility] Failed to resolve provider visibility",
+        {
+          providerId: provider.providerId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+      return false;
+    }
   }
 }
