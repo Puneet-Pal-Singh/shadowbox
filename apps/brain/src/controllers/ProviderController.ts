@@ -1076,9 +1076,7 @@ async function normalizeByokRuntimeError(
   const message = parsed.message || "Provider request failed";
   const retryable =
     parsed.retryable ?? (response.status >= 500 || code === "RATE_LIMITED");
-  console.warn(
-    `[provider/byok] ${correlationId}: runtime error ${code} (${response.status}) - ${message}`,
-  );
+  logByokRuntimeError(correlationId, code, response.status, message);
 
   const normalized = new Response(
     JSON.stringify(
@@ -1162,9 +1160,7 @@ function handleByokError(
   correlationId: string,
 ): Response {
   if (isDomainError(error)) {
-    console.warn(
-      `[provider/byok] ${correlationId}: ${error.code} - ${error.message}`,
-    );
+    logByokDomainError(correlationId, error.code, error.message);
     return buildByokErrorResponse(req, env, {
       status: error.status,
       ...toNormalizedProviderError(error, correlationId),
@@ -1175,6 +1171,33 @@ function handleByokError(
     status: 500,
     ...toNormalizedProviderError(error, correlationId),
   });
+}
+
+function logByokRuntimeError(
+  correlationId: string,
+  code: string,
+  status: number,
+  message: string,
+): void {
+  const formatted = `[provider/byok] ${correlationId}: runtime error ${code} (${status}) - ${message}`;
+  if (code === "AUTH_FAILED") {
+    console.log(formatted);
+    return;
+  }
+  console.warn(formatted);
+}
+
+function logByokDomainError(
+  correlationId: string,
+  code: string,
+  message: string,
+): void {
+  const formatted = `[provider/byok] ${correlationId}: ${code} - ${message}`;
+  if (code === "AUTH_FAILED") {
+    console.log(formatted);
+    return;
+  }
+  console.warn(formatted);
 }
 
 function buildByokErrorResponse(

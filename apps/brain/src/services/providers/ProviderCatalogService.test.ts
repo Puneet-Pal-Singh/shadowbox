@@ -4,10 +4,14 @@ import { ProviderRegistryService } from "./ProviderRegistryService";
 
 describe("ProviderCatalogService", () => {
   it("returns only launch-visible providers in the public catalog", async () => {
+    const expectedCatalogDiscoveryQuery = {
+      view: "popular" as const,
+      limit: 50,
+    };
     const modelDiscoveryService = {
       getDiscoveredModels: vi.fn(async (providerId: string) => ({
         providerId,
-        view: "all" as const,
+        view: "popular" as const,
         models: [
           {
             id: `${providerId}-model`,
@@ -16,7 +20,7 @@ describe("ProviderCatalogService", () => {
           },
         ],
         page: {
-          limit: 200,
+          limit: 50,
           hasMore: false,
         },
         metadata: {
@@ -42,6 +46,13 @@ describe("ProviderCatalogService", () => {
     expect(providerIds).toContain("cerebras");
     expect(providerIds).not.toContain("mistral");
     expect(providerIds).not.toContain("cohere");
+    const discoveryCalls = modelDiscoveryService.getDiscoveredModels.mock.calls as Array<
+      [string, { view: string; limit: number }]
+    >;
+    expect(discoveryCalls.length).toBeGreaterThan(0);
+    for (const [, query] of discoveryCalls) {
+      expect(query).toEqual(expectedCatalogDiscoveryQuery);
+    }
     expect(modelDiscoveryService.getDiscoveredModels).not.toHaveBeenCalledWith(
       "cohere",
       expect.anything(),
