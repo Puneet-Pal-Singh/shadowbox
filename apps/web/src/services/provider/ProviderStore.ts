@@ -424,7 +424,10 @@ export class ProviderStore {
     }
 
     if (
-      Object.prototype.hasOwnProperty.call(preferences.visibleModelIds, providerId)
+      Object.prototype.hasOwnProperty.call(
+        preferences.visibleModelIds,
+        providerId,
+      )
     ) {
       return null;
     }
@@ -524,8 +527,7 @@ export class ProviderStore {
         credentials: nextCredentials,
         preferences,
         providerModels,
-        visibleModelIds:
-          nextVisibleModelIds ?? this.state.visibleModelIds,
+        visibleModelIds: nextVisibleModelIds ?? this.state.visibleModelIds,
         selectedProviderId: this.state.selectedProviderId ?? req.providerId,
         selectedCredentialId:
           this.state.selectedCredentialId ?? credential.credentialId,
@@ -545,12 +547,17 @@ export class ProviderStore {
       });
 
       if (nextVisibleModelIds) {
-        void this.persistVisibilityChanges(nextVisibleModelIds).catch((error) => {
-          this.log("[connectCredential] failed to persist hidden model defaults", {
-            providerId: req.providerId,
-            error: error instanceof Error ? error.message : String(error),
-          });
-        });
+        void this.persistVisibilityChanges(nextVisibleModelIds).catch(
+          (error) => {
+            this.log(
+              "[connectCredential] failed to persist hidden model defaults",
+              {
+                providerId: req.providerId,
+                error: error instanceof Error ? error.message : String(error),
+              },
+            );
+          },
+        );
       }
 
       this.log("[connectCredential] Success", {
@@ -1060,18 +1067,15 @@ export class ProviderStore {
 
       const normalizedCredentialId =
         config.credentialId.trim().length > 0 ? config.credentialId : null;
-      const sanitizedSelection = this.deriveSelectionSnapshot({
-        catalog: this.state.catalog,
-        credentials: this.state.credentials,
-        preferences: this.state.preferences,
-        providerModels: this.state.providerModels,
-        visibleModelIds: this.state.visibleModelIds,
-        selectedProviderId: config.providerId,
-        selectedCredentialId: normalizedCredentialId,
-        selectedModelId: config.modelId,
-      });
-      const effectiveModelId =
-        sanitizedSelection.selectedModelId ?? config.modelId;
+      const effectiveModelId = this.resolveModelForResolvedProvider(
+        config.providerId,
+        config.modelId,
+      );
+      if (!effectiveModelId) {
+        throw new Error(
+          `No visible model is selected for provider "${config.providerId}". Select at least one visible model and retry.`,
+        );
+      }
 
       this.setState({
         lastResolvedConfig: {
@@ -1516,7 +1520,8 @@ export class ProviderStore {
     providerModels: Record<string, ProviderModelOption[]>;
     visibleModelIds: Record<string, Set<string>>;
   }): string | null {
-    const { providerId, preferredModelId, providerModels, visibleModelIds } = input;
+    const { providerId, preferredModelId, providerModels, visibleModelIds } =
+      input;
     const selectableModels = this.getSelectableModelsForProvider(
       providerId,
       providerModels[providerId] ?? [],
@@ -1543,6 +1548,33 @@ export class ProviderStore {
     }
 
     return this.resolvePendingVisibleModelId(null, visibleSet);
+  }
+
+  private resolveModelForResolvedProvider(
+    providerId: string,
+    resolvedModelId: string,
+  ): string | null {
+    const visibleSet = this.state.visibleModelIds[providerId];
+    if (!visibleSet) {
+      return (
+        resolvedModelId || this.state.providerModels[providerId]?.[0]?.id || null
+      );
+    }
+
+    if (visibleSet.has(resolvedModelId)) {
+      return resolvedModelId;
+    }
+
+    const selectableModels = this.getSelectableModelsForProvider(
+      providerId,
+      this.state.providerModels[providerId] ?? [],
+      this.state.visibleModelIds,
+    );
+    if (selectableModels.length > 0) {
+      return selectableModels[0]?.id ?? null;
+    }
+
+    return this.resolvePendingVisibleModelId(resolvedModelId, visibleSet);
   }
 
   private resolvePendingVisibleModelId(
@@ -1731,10 +1763,7 @@ function clearPersistedRunScopedSelections(): void {
     const keysToRemove: string[] = [];
     for (let index = 0; index < sessionStorage.length; index += 1) {
       const key = sessionStorage.key(index);
-      if (
-        key &&
-        key.startsWith(RUN_SCOPED_SELECTION_STORAGE_KEY_PREFIX)
-      ) {
+      if (key && key.startsWith(RUN_SCOPED_SELECTION_STORAGE_KEY_PREFIX)) {
         keysToRemove.push(key);
       }
     }
