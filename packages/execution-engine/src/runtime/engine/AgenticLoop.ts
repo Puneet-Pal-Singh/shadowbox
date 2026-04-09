@@ -14,10 +14,7 @@ import {
   BudgetExceededError,
   SessionBudgetExceededError,
 } from "../cost/index.js";
-import {
-  LLMUnusableResponseError,
-  type ILLMGateway,
-} from "../llm/index.js";
+import { LLMUnusableResponseError, type ILLMGateway } from "../llm/index.js";
 import type { IBudgetManager } from "../cost/index.js";
 import type { TaskExecutor } from "../orchestration/index.js";
 import { isMutatingGoldenFlowToolName } from "../contracts/CodingToolGateway.js";
@@ -28,6 +25,7 @@ import type {
   TaskResult,
 } from "../types.js";
 import { detectsMutation } from "./detectsMutation.js";
+import { isGitWritePrompt } from "./WorkspaceBootstrapModePolicy.js";
 
 export interface AgenticLoopConfig {
   maxSteps: number;
@@ -79,14 +77,12 @@ interface AgenticLoopHooks {
   onAssistantMessage?: (content: string) => Promise<void>;
   isRunCancelled?: () => Promise<boolean>;
   onProgress?: (
-    progress:
-      | {
-          phase: "planning" | "execution" | "synthesis";
-          label: string;
-          summary: string;
-          status: "active" | "completed";
-        }
-      | null,
+    progress: {
+      phase: "planning" | "execution" | "synthesis";
+      label: string;
+      summary: string;
+      status: "active" | "completed";
+    } | null,
   ) => Promise<void>;
   onToolRequested?: (toolCall: AgenticLoopToolCall) => Promise<void>;
   onToolStarted?: (toolCall: AgenticLoopToolCall) => Promise<void>;
@@ -151,7 +147,8 @@ export class AgenticLoop {
     this.reset();
     const messages: CoreMessage[] = [...initialMessages];
     const requiresMutation = requestRequiresMutation(initialMessages);
-    const latestTurnRequiresMutation = latestTurnRequestsMutation(initialMessages);
+    const latestTurnRequiresMutation =
+      latestTurnRequestsMutation(initialMessages);
     let stopReason: StopReason | null = null;
     let correctiveMutationRetryIssued = false;
 
@@ -294,7 +291,11 @@ export class AgenticLoop {
           this.getDuplicateReadOnlyToolCallMessage(toolCall);
         if (duplicateToolCallMessage) {
           this.failedToolCount++;
-          this.recordToolLifecycle(toolCall, "failed", duplicateToolCallMessage);
+          this.recordToolLifecycle(
+            toolCall,
+            "failed",
+            duplicateToolCallMessage,
+          );
           await context.onToolFailed?.(toolCall, duplicateToolCallMessage, 0);
           toolResults.push({
             toolId: toolCall.id,
@@ -385,7 +386,12 @@ export class AgenticLoop {
                 buildReadOnlyToolFingerprint(toolCall),
               );
             }
-            if (hasEditMutationEvidence(toolCall.toolName, result.output?.metadata)) {
+            if (
+              hasEditMutationEvidence(
+                toolCall.toolName,
+                result.output?.metadata,
+              )
+            ) {
               this.completedEditMutationCount++;
             }
             this.recordToolLifecycle(
@@ -787,7 +793,10 @@ function stableSerialize(value: unknown): string {
       ([left], [right]) => left.localeCompare(right),
     );
     return `{${entries
-      .map(([key, entryValue]) => `${JSON.stringify(key)}:${stableSerialize(entryValue)}`)
+      .map(
+        ([key, entryValue]) =>
+          `${JSON.stringify(key)}:${stableSerialize(entryValue)}`,
+      )
       .join(",")}}`;
   }
 
@@ -798,10 +807,7 @@ function isTerminalToolFailure(toolName: string): boolean {
   return isMutatingGoldenFlowToolName(toolName);
 }
 
-function hasEditMutationEvidence(
-  toolName: string,
-  metadata: unknown,
-): boolean {
+function hasEditMutationEvidence(toolName: string, metadata: unknown): boolean {
   if (toolName === "write_file") {
     return true;
   }
@@ -925,7 +931,13 @@ function latestTurnRequestsMutation(initialMessages: CoreMessage[]): boolean {
     return false;
   }
 
-  return detectsMutation(extractTextParts(latestUserMessage.content).toLowerCase());
+  const latestTurnText = extractTextParts(
+    latestUserMessage.content,
+  ).toLowerCase();
+  if (isGitWritePrompt(latestTurnText)) {
+    return false;
+  }
+  return detectsMutation(latestTurnText);
 }
 
 function extractTextParts(content: CoreMessage["content"]): string {
@@ -976,14 +988,12 @@ function buildLoopProgressUpdate(input: {
   requiresMutation: boolean;
   completedMutatingToolCount: number;
   completedReadOnlyToolCount: number;
-}):
-  | {
-      phase: "planning" | "execution" | "synthesis";
-      label: string;
-      summary: string;
-      status: "active" | "completed";
-    }
-  | null {
+}): {
+  phase: "planning" | "execution" | "synthesis";
+  label: string;
+  summary: string;
+  status: "active" | "completed";
+} | null {
   if (input.isFinalSynthesisStep) {
     return null;
   }
