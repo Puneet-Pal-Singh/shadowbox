@@ -57,7 +57,7 @@ export type WorkspaceBootstrapMode = "read_only" | "mutation" | "git_write";
 export interface WorkspaceBootstrapRequest {
   runId: string;
   repositoryContext: RepositoryContext;
-  mode?: WorkspaceBootstrapMode;
+  mode: WorkspaceBootstrapMode;
 }
 
 export interface WorkspaceBootstrapResult {
