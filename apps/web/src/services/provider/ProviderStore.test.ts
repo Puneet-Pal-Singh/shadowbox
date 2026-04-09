@@ -41,7 +41,8 @@ describe("ProviderStore", () => {
     sessionStorage.clear();
 
     // Reset singleton between tests
-    (ProviderStore as unknown as { instance?: ProviderStore }).instance = undefined;
+    (ProviderStore as unknown as { instance?: ProviderStore }).instance =
+      undefined;
 
     const catalog: ProviderRegistryEntry[] = [
       {
@@ -169,7 +170,7 @@ describe("ProviderStore", () => {
       validateCredential: vi.fn(
         async (
           credentialId: string,
-          req: { mode: "format" | "live" }
+          req: { mode: "format" | "live" },
         ): Promise<BYOKCredentialValidateResponse> => {
           void credentialId;
           void req;
@@ -178,15 +179,17 @@ describe("ProviderStore", () => {
             valid: true,
             validatedAt: new Date().toISOString(),
           };
-        }
+        },
       ),
-      updatePreferences: vi.fn(async (partial: BYOKPreferencesUpdateRequest) => {
-        void partial;
-        return {
-          ...preferences,
-          defaultModelId: "gpt-4-turbo",
-        };
-      }),
+      updatePreferences: vi.fn(
+        async (partial: BYOKPreferencesUpdateRequest) => {
+          void partial;
+          return {
+            ...preferences,
+            defaultModelId: "gpt-4-turbo",
+          };
+        },
+      ),
       resolveForChat: vi.fn(
         async (req: {
           providerId?: string;
@@ -200,7 +203,7 @@ describe("ProviderStore", () => {
             resolvedAt: resolvedConfig.resolvedAt,
             resolvedAtTime: resolvedConfig.resolvedAtTime,
           };
-        }
+        },
       ),
     } satisfies ProviderApiClientContract;
 
@@ -334,8 +337,11 @@ describe("ProviderStore", () => {
       expect(state.selectedProviderId).toBeNull();
       expect(state.status).toBe("idle");
 
-      (ProviderStore as unknown as { instance?: ProviderStore }).instance = undefined;
-      const restoredStore = ProviderStore.getInstance({ apiClient: mockApiClient });
+      (ProviderStore as unknown as { instance?: ProviderStore }).instance =
+        undefined;
+      const restoredStore = ProviderStore.getInstance({
+        apiClient: mockApiClient,
+      });
       expect(restoredStore.setActiveRunId("run-1")).toBe(true);
       expect(restoredStore.getState().selectedProviderId).toBeNull();
       expect(restoredStore.getState().selectedCredentialId).toBeNull();
@@ -360,10 +366,12 @@ describe("ProviderStore", () => {
         expect.objectContaining({
           view: "popular",
           limit: 50,
-        })
+        }),
       );
       expect(store.getState().providerModels.openrouter).toHaveLength(1);
-      expect(store.getState().providerModelsPage.openrouter?.view).toBe("popular");
+      expect(store.getState().providerModelsPage.openrouter?.view).toBe(
+        "popular",
+      );
     });
 
     it("switches model view and reloads selected provider models", async () => {
@@ -375,7 +383,11 @@ describe("ProviderStore", () => {
         view: "all" as const,
         models: [
           { id: "openai/gpt-4.1", name: "GPT-4.1", provider: "openai" },
-          { id: "openai/gpt-4.1-mini", name: "GPT-4.1 Mini", provider: "openai" },
+          {
+            id: "openai/gpt-4.1-mini",
+            name: "GPT-4.1 Mini",
+            provider: "openai",
+          },
         ],
         page: {
           limit: 50,
@@ -392,7 +404,7 @@ describe("ProviderStore", () => {
 
       expect(mockApiClient.getProviderModels).toHaveBeenLastCalledWith(
         "openai",
-        expect.objectContaining({ view: "all" })
+        expect.objectContaining({ view: "all" }),
       );
       expect(store.getState().selectedModelView).toBe("all");
     });
@@ -439,7 +451,9 @@ describe("ProviderStore", () => {
       await store.loadProviderModels("openai", { view: "popular" });
       await store.refreshProviderModels("openai");
 
-      expect(mockApiClient.refreshProviderModels).toHaveBeenCalledWith("openai");
+      expect(mockApiClient.refreshProviderModels).toHaveBeenCalledWith(
+        "openai",
+      );
       expect(mockApiClient.getProviderModels).toHaveBeenLastCalledWith(
         "openai",
         expect.objectContaining({
@@ -541,7 +555,7 @@ describe("ProviderStore", () => {
 
     it("sets status to error on failure", async () => {
       vi.mocked(mockApiClient.getCatalog).mockRejectedValueOnce(
-        new Error("Network error")
+        new Error("Network error"),
       );
 
       await expect(store.bootstrap()).rejects.toThrow("Network error");
@@ -575,7 +589,7 @@ describe("ProviderStore", () => {
       const state = store.getState();
       expect(state.credentials).toHaveLength(2);
       expect(
-        state.credentials.some((c) => c.credentialId === credential2Id)
+        state.credentials.some((c) => c.credentialId === credential2Id),
       ).toBe(true);
     });
 
@@ -619,7 +633,10 @@ describe("ProviderStore", () => {
         secret: "sk-test",
       };
 
-      await Promise.all([store.connectCredential(req), store.connectCredential(req)]);
+      await Promise.all([
+        store.connectCredential(req),
+        store.connectCredential(req),
+      ]);
 
       expect(mockApiClient.connectCredential).toHaveBeenCalledTimes(1);
     });
@@ -692,8 +709,11 @@ describe("ProviderStore", () => {
         modelId: "gpt-4-turbo",
       });
 
-      (ProviderStore as unknown as { instance?: ProviderStore }).instance = undefined;
-      const restoredStore = ProviderStore.getInstance({ apiClient: mockApiClient });
+      (ProviderStore as unknown as { instance?: ProviderStore }).instance =
+        undefined;
+      const restoredStore = ProviderStore.getInstance({
+        apiClient: mockApiClient,
+      });
 
       restoredStore.setActiveRunId("run-1");
       await restoredStore.bootstrap();
@@ -714,8 +734,11 @@ describe("ProviderStore", () => {
         modelId: "gpt-4-turbo",
       });
 
-      (ProviderStore as unknown as { instance?: ProviderStore }).instance = undefined;
-      const nextRunStore = ProviderStore.getInstance({ apiClient: mockApiClient });
+      (ProviderStore as unknown as { instance?: ProviderStore }).instance =
+        undefined;
+      const nextRunStore = ProviderStore.getInstance({
+        apiClient: mockApiClient,
+      });
 
       nextRunStore.setActiveRunId("run-2");
       await nextRunStore.bootstrap();
@@ -750,6 +773,32 @@ describe("ProviderStore", () => {
       });
     });
 
+    it("fails resolve when provider has no visible models instead of reactivating hidden defaults", async () => {
+      vi.mocked(mockApiClient.getPreferences).mockResolvedValueOnce({
+        userId: "user-1",
+        workspaceId: "ws-1",
+        defaultProviderId: "openai",
+        defaultCredentialId: credential1Id,
+        defaultModelId: "gpt-4-turbo",
+        visibleModelIds: {
+          openai: [],
+        },
+        updatedAt: new Date().toISOString(),
+      });
+
+      await store.bootstrap();
+      expect(store.getState().selectedModelId).toBeNull();
+
+      await expect(store.resolveForChat()).rejects.toThrow(
+        /No visible model is selected for provider "openai"/,
+      );
+      expect(mockApiClient.resolveForChat).toHaveBeenCalledWith({
+        providerId: "openai",
+        credentialId: credential1Id,
+      });
+      expect(store.getState().selectedModelId).toBeNull();
+    });
+
     it("reselects to a visible model when toggling visibility hides the selected model", async () => {
       vi.mocked(mockApiClient.getProviderModels).mockImplementation(
         async (providerId: string) => ({
@@ -765,7 +814,13 @@ describe("ProviderStore", () => {
                     provider: "openai",
                   },
                 ]
-              : [{ id: "openrouter/auto", name: "Auto", provider: "openrouter" }],
+              : [
+                  {
+                    id: "openrouter/auto",
+                    name: "Auto",
+                    provider: "openrouter",
+                  },
+                ],
           page: {
             limit: 50,
             hasMore: false,
