@@ -11,7 +11,9 @@ export function toCompactExplorationTitle(
     case "search_code":
       return title
         .replace(/^Searching for /, "Search ")
-        .replace(/^Searched for /, "Search ");
+        .replace(/^Searched for /, "Search ")
+        .replace(/^Searching /, "Search ")
+        .replace(/^Searched /, "Search ");
     case "glob":
       return title.replace(/^Finding /, "Find ");
     default:
