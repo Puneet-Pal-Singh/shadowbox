@@ -89,7 +89,12 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
     runId: string,
     userId?: string,
   ): WorkspaceBootstrapService {
-    const executionService = new ExecutionService(env, sessionId, runId, userId);
+    const executionService = new ExecutionService(
+      env,
+      sessionId,
+      runId,
+      userId,
+    );
     return new WorkspaceBootstrapService(executionService);
   }
 
@@ -98,7 +103,7 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
   ): Promise<WorkspaceBootstrapResult> {
     const bootstrapStartedAt = Date.now();
     let bootstrapResult: WorkspaceBootstrapResult | null = null;
-    const bootstrapMode = request.mode ?? "git_write";
+    const bootstrapMode = request.mode;
     pruneWorkspaceSyncCache(this.syncTtlMs);
     const normalized = normalizeRepositoryContext(request.repositoryContext);
     if (!normalized) {
@@ -107,7 +112,11 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
         message:
           "Repository context is missing or invalid. Select a repository and branch, then retry.",
       };
-      this.logBootstrapTiming(request.runId, bootstrapResult, bootstrapStartedAt);
+      this.logBootstrapTiming(
+        request.runId,
+        bootstrapResult,
+        bootstrapStartedAt,
+      );
       return bootstrapResult;
     }
 
@@ -118,7 +127,11 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
         message:
           "Repository URL is invalid. Re-select the repository and branch, then retry.",
       };
-      this.logBootstrapTiming(request.runId, bootstrapResult, bootstrapStartedAt);
+      this.logBootstrapTiming(
+        request.runId,
+        bootstrapResult,
+        bootstrapStartedAt,
+      );
       return bootstrapResult;
     }
 
@@ -129,7 +142,11 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
     );
     if (isWorkspaceSyncCacheFresh(cacheKey, this.syncTtlMs)) {
       bootstrapResult = { status: "ready" };
-      this.logBootstrapTiming(request.runId, bootstrapResult, bootstrapStartedAt);
+      this.logBootstrapTiming(
+        request.runId,
+        bootstrapResult,
+        bootstrapStartedAt,
+      );
       return bootstrapResult;
     }
 
@@ -138,7 +155,11 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
       const statusError = statusResult.error ?? "Unable to check git status.";
       if (!matchesAny(statusError, NOT_GIT_REPOSITORY_PATTERNS)) {
         bootstrapResult = mapGitFailure(statusError);
-        this.logBootstrapTiming(request.runId, bootstrapResult, bootstrapStartedAt);
+        this.logBootstrapTiming(
+          request.runId,
+          bootstrapResult,
+          bootstrapStartedAt,
+        );
         return bootstrapResult;
       }
 
@@ -148,12 +169,17 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
         request.runId,
       );
       if (!cloneResult.success) {
-        const cloneError = cloneResult.error ?? "Failed to clone repository into workspace.";
+        const cloneError =
+          cloneResult.error ?? "Failed to clone repository into workspace.";
         if (matchesAny(cloneError, CLONE_DESTINATION_NOT_EMPTY_PATTERNS)) {
-          const forcedCloneResult = await this.executeGit("git_clone", {
-            url: cloneUrl,
-            replaceExisting: true,
-          }, request.runId);
+          const forcedCloneResult = await this.executeGit(
+            "git_clone",
+            {
+              url: cloneUrl,
+              replaceExisting: true,
+            },
+            request.runId,
+          );
           if (forcedCloneResult.success) {
             bootstrapResult = await this.syncBranch(
               cacheKey,
@@ -172,13 +198,19 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
             forcedCloneResult.error ??
               "Failed to replace existing workspace contents for repository clone.",
           );
-          this.logBootstrapTiming(request.runId, bootstrapResult, bootstrapStartedAt);
+          this.logBootstrapTiming(
+            request.runId,
+            bootstrapResult,
+            bootstrapStartedAt,
+          );
           return bootstrapResult;
         }
-        bootstrapResult = mapGitFailure(
-          cloneError,
+        bootstrapResult = mapGitFailure(cloneError);
+        this.logBootstrapTiming(
+          request.runId,
+          bootstrapResult,
+          bootstrapStartedAt,
         );
-        this.logBootstrapTiming(request.runId, bootstrapResult, bootstrapStartedAt);
         return bootstrapResult;
       }
 
@@ -188,7 +220,11 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
         request.runId,
         bootstrapMode,
       );
-      this.logBootstrapTiming(request.runId, bootstrapResult, bootstrapStartedAt);
+      this.logBootstrapTiming(
+        request.runId,
+        bootstrapResult,
+        bootstrapStartedAt,
+      );
       return bootstrapResult;
     }
 
@@ -201,14 +237,24 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
       if (hasLocalChanges) {
         setWorkspaceSyncCache(cacheKey);
         bootstrapResult = { status: "ready" };
-        this.logBootstrapTiming(request.runId, bootstrapResult, bootstrapStartedAt);
+        this.logBootstrapTiming(
+          request.runId,
+          bootstrapResult,
+          bootstrapStartedAt,
+        );
         return bootstrapResult;
       }
     }
 
     if (!workspaceStatus) {
-      bootstrapResult = mapGitFailure("Invalid git status response from workspace.");
-      this.logBootstrapTiming(request.runId, bootstrapResult, bootstrapStartedAt);
+      bootstrapResult = mapGitFailure(
+        "Invalid git status response from workspace.",
+      );
+      this.logBootstrapTiming(
+        request.runId,
+        bootstrapResult,
+        bootstrapStartedAt,
+      );
       return bootstrapResult;
     }
 
@@ -306,12 +352,17 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
     }
 
     if (shouldPull) {
-      const pullResult = await this.executeGit("git_pull", {
-        remote: "origin",
-        branch,
-      }, runId);
+      const pullResult = await this.executeGit(
+        "git_pull",
+        {
+          remote: "origin",
+          branch,
+        },
+        runId,
+      );
       if (!pullResult.success) {
-        const pullError = pullResult.error ?? "Failed to pull latest branch changes.";
+        const pullError =
+          pullResult.error ?? "Failed to pull latest branch changes.";
         if (
           matchesAny(pullError, REMOTE_REF_MISSING_PATTERNS) ||
           matchesAny(pullError, REMOTE_MISSING_PATTERNS) ||
@@ -372,8 +423,8 @@ function buildWorkspaceSyncCacheKey(
   context: NormalizedRepositoryContext,
   mode: WorkspaceBootstrapMode,
 ): string {
-    return [
-      runId,
+  return [
+    runId,
     context.repoIdentity,
     context.branch,
     mode,
@@ -449,7 +500,10 @@ function parseWorkspaceGitStatus(
     }
     return result.data;
   } catch (error) {
-    console.warn("[workspace/bootstrap] Failed to parse git status payload", error);
+    console.warn(
+      "[workspace/bootstrap] Failed to parse git status payload",
+      error,
+    );
     return null;
   }
 }
