@@ -254,9 +254,26 @@ function buildFallbackLoopSummary(result: AgenticLoopResult): string {
     lines.push(describeFailedToolWork(failedTools));
   }
 
-  lines.push("Retry the request after fixing the failed step.");
+  lines.push(getFallbackRetryHint(result.stopReason));
 
   return lines.join("\n");
+}
+
+function getFallbackRetryHint(
+  stopReason: AgenticLoopResult["stopReason"],
+): string {
+  switch (stopReason) {
+    case "tool_error":
+      return "Retry the request after fixing the failed step.";
+    case "budget_exceeded":
+      return "Retry with a higher budget or simplify the request so fewer costly steps are needed.";
+    case "max_steps_reached":
+      return "Retry with a narrower prompt or increase max steps so the run can finish.";
+    case "cancelled":
+      return "Retry by resubmitting the request and keeping the run active until it completes.";
+    default:
+      return "Retry the request.";
+  }
 }
 
 function buildCompletedMutationSummary(
@@ -610,7 +627,9 @@ function summarizeLifecycleDetail(detail: string | undefined): string {
     return "The tool failed without a recorded error message.";
   }
 
-  return normalized.length > 220 ? `${normalized.slice(0, 217)}...` : normalized;
+  return normalized.length > 220
+    ? `${normalized.slice(0, 217)}...`
+    : normalized;
 }
 
 function deriveToolFailureResumeHint(
