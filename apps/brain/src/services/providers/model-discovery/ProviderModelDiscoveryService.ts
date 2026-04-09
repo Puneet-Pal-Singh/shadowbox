@@ -172,7 +172,7 @@ export class ProviderModelDiscoveryService {
       signals,
       limit: 50,
     });
-    return applyPopularLaunchGuardrails(providerId, ranked.models, limit);
+    return applyPopularLaunchGuardrails(providerId, ranked.models);
   }
 
   private async getCatalogWithCache(
@@ -420,28 +420,28 @@ function toDiscoveryErrorCode(error: unknown): string {
 function applyPopularLaunchGuardrails(
   providerId: string,
   rankedModels: ProviderModelCacheRecord["models"],
-  limit: number,
 ): ProviderModelCacheRecord["models"] {
   if (providerId !== "openrouter") {
     return rankedModels;
   }
 
-  const guardedLimit = Math.min(limit, OPENROUTER_MAX_POPULAR_MODELS);
-  return prioritizeOpenRouterLaunchModels(rankedModels).slice(0, guardedLimit);
+  return prioritizeOpenRouterLaunchModels(rankedModels).slice(
+    0,
+    OPENROUTER_MAX_POPULAR_MODELS,
+  );
 }
 
 function prioritizeOpenRouterLaunchModels(
   models: ProviderModelCacheRecord["models"],
 ): ProviderModelCacheRecord["models"] {
   const modelById = new Map(models.map((model) => [model.id, model]));
-  const curated = OPENROUTER_LAUNCH_PRIORITY_MODEL_IDS
-    .map((modelId) => modelById.get(modelId))
-    .filter(
-      (
-        model,
-      ): model is ProviderModelCacheRecord["models"][number] =>
-        Boolean(model) && !model.deprecated,
-    );
+  const curated: ProviderModelCacheRecord["models"] = [];
+  for (const modelId of OPENROUTER_LAUNCH_PRIORITY_MODEL_IDS) {
+    const model = modelById.get(modelId);
+    if (model && !model.deprecated) {
+      curated.push(model);
+    }
+  }
 
   const curatedIds = new Set(curated.map((model) => model.id));
   const fallback = models
@@ -456,7 +456,8 @@ function compareOpenRouterLaunchCandidates(
   right: ProviderModelCacheRecord["models"][number],
 ): number {
   const scoreDelta =
-    scoreOpenRouterLaunchCandidate(right) - scoreOpenRouterLaunchCandidate(left);
+    scoreOpenRouterLaunchCandidate(right) -
+    scoreOpenRouterLaunchCandidate(left);
   if (scoreDelta !== 0) {
     return scoreDelta;
   }
