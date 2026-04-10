@@ -68,6 +68,23 @@ describe("ByokSchemaService", () => {
     expect(db.inspect.getAppliedMigrationIds().length).toBeGreaterThan(0);
   });
 
+  it("appends new migrations without renumbering previously applied ids", async () => {
+    const db = createTestByokD1Database();
+    for (let index = 0; index <= 9; index += 1) {
+      db.inspect.seedAppliedMigration(
+        `byok_migration_${index.toString().padStart(3, "0")}`,
+      );
+    }
+
+    const service = createByokSchemaService(db.database);
+
+    await service.ensureReady();
+
+    const appliedMigrations = db.inspect.getAppliedMigrationIds();
+    expect(appliedMigrations).toContain("byok_migration_010");
+    expect(appliedMigrations).toHaveLength(11);
+  });
+
   it("preserves quoted string literals while splitting migration statements", () => {
     const statements = splitSqlStatements(`
       CREATE TABLE example (
