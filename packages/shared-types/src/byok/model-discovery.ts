@@ -12,6 +12,11 @@ export type BYOKModelDiscoveryView = z.infer<
   typeof BYOKModelDiscoveryViewSchema
 >;
 
+export const BYOKModelDiscoverySurfaceSchema = z.enum(["picker", "manage"]);
+export type BYOKModelDiscoverySurface = z.infer<
+  typeof BYOKModelDiscoverySurfaceSchema
+>;
+
 export const BYOKModelDiscoverySourceSchema = z.enum(["provider_api", "cache"]);
 export type BYOKModelDiscoverySource = z.infer<
   typeof BYOKModelDiscoverySourceSchema
@@ -101,6 +106,7 @@ export type BYOKDiscoveredProviderModelsMetadata = z.infer<
 
 export const BYOKDiscoveredProviderModelsQuerySchema = z.object({
   view: BYOKModelDiscoveryViewSchema.default("popular"),
+  surface: BYOKModelDiscoverySurfaceSchema.default("picker"),
   limit: z.coerce.number().int().positive().max(200).default(50),
   cursor: z.string().min(1).optional(),
 });
