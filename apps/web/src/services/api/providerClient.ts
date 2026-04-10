@@ -23,7 +23,10 @@ import {
   type BYOKResolveRequest,
   type ProviderRegistryEntry,
 } from "@repo/platform-client-sdk";
-import type { BYOKModelDiscoverySource } from "@repo/shared-types";
+import type {
+  BYOKModelDiscoverySource,
+  BYOKModelDiscoverySurface,
+} from "@repo/shared-types";
 import { getBrainHttpBase } from "../../lib/platform-endpoints.js";
 import { SessionStateService } from "../SessionStateService";
 
@@ -42,6 +45,7 @@ export type ProviderModelDiscoveryView = BYOKDiscoveredProviderModelsQuery["view
 
 export interface ProviderModelsQuery {
   view?: ProviderModelDiscoveryView;
+  surface?: BYOKModelDiscoverySurface;
   limit?: number;
   cursor?: string;
 }
