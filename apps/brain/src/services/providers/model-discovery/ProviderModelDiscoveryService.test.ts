@@ -13,15 +13,28 @@ function createStoreStub() {
     expiresAt: string;
     source: "provider_api" | "cache";
   } | null = null;
+  let userCache: {
+    providerId: string;
+    models: Array<{ id: string; name: string; providerId: string }>;
+    fetchedAt: string;
+    expiresAt: string;
+    source: "provider_api" | "cache";
+  } | null = null;
 
   return {
-    getScopeSnapshot: () => ({ userId: "user-1", workspaceId: "ws-1" }),
     getModelCache: vi.fn(async () => cache),
     setModelCache: vi.fn(async (record: typeof cache) => {
       cache = record;
     }),
     invalidateModelCache: vi.fn(async () => {
       cache = null;
+    }),
+    getUserModelCache: vi.fn(async () => userCache),
+    setUserModelCache: vi.fn(async (_key, record: typeof userCache) => {
+      userCache = record;
+    }),
+    invalidateUserModelCache: vi.fn(async () => {
+      userCache = null;
     }),
   };
 }
@@ -131,38 +144,77 @@ describe("ProviderModelDiscoveryService", () => {
     const credentialService = {
       getApiKey: vi.fn(async () => "sk-or-test"),
     } as unknown as ProviderCredentialService;
-    const adapter: ProviderModelCatalogPort = {
+    const adapter = {
       fetchAll: vi.fn(async () => [
         {
           id: "openai/gpt-4.1",
           name: "GPT-4.1",
           providerId: "openrouter",
-          supportsTools: true,
+          capabilities: { supportsTools: true, supportsStructuredOutputs: true },
           contextWindow: 200_000,
         },
         {
           id: "google/gemini-2.5-pro",
           name: "Gemini 2.5 Pro",
           providerId: "openrouter",
-          supportsTools: true,
+          capabilities: { supportsTools: true, supportsReasoning: true },
           contextWindow: 1_000_000,
         },
         {
           id: "random/free-model:free",
           name: "Free Random",
           providerId: "openrouter",
-          supportsTools: false,
+          capabilities: { supportsTools: false },
         },
         ...Array.from({ length: 32 }, (_, index) => ({
           id: `vendor/model-${index}`,
           name: `Model ${index}`,
           providerId: "openrouter",
-          supportsTools: index % 2 === 0,
+          capabilities: { supportsTools: index % 2 === 0 },
           contextWindow: 8_192 + index * 1_000,
         })),
       ]),
+      fetchUserModels: vi.fn(async () => [
+        {
+          id: "openai/gpt-4.1",
+          name: "GPT-4.1",
+          providerId: "openrouter",
+          canonicalSlug: "gpt-4.1",
+          capabilities: { supportsTools: true, supportsStructuredOutputs: true },
+          contextWindow: 200_000,
+        },
+        {
+          id: "google/gemini-2.5-pro",
+          name: "Gemini 2.5 Pro",
+          providerId: "openrouter",
+          canonicalSlug: "gemini-2.5-pro",
+          capabilities: { supportsTools: true, supportsReasoning: true },
+          contextWindow: 1_000_000,
+        },
+        {
+          id: "random/free-model:free",
+          name: "Free Random",
+          providerId: "openrouter",
+          canonicalSlug: "free-model",
+          capabilities: { supportsTools: false },
+        },
+      ]),
+      fetchProgrammingModels: vi.fn(async () => [
+        {
+          id: "openai/gpt-4.1",
+          name: "GPT-4.1",
+          providerId: "openrouter",
+          canonicalSlug: "gpt-4.1",
+        },
+        {
+          id: "google/gemini-2.5-pro",
+          name: "Gemini 2.5 Pro",
+          providerId: "openrouter",
+          canonicalSlug: "gemini-2.5-pro",
+        },
+      ]),
       fetchPage: vi.fn(),
-    };
+    } satisfies ProviderModelCatalogPort;
 
     const service = new ProviderModelDiscoveryService(
       store as unknown as ProviderModelCacheStore,
@@ -175,9 +227,13 @@ describe("ProviderModelDiscoveryService", () => {
       limit: 50,
     });
 
-    expect(result.models).toHaveLength(24);
-    expect(result.models[0]?.id).toBe("openai/gpt-4.1");
-    expect(result.models[1]?.id).toBe("google/gemini-2.5-pro");
+    expect(result.models).toHaveLength(3);
+    expect(result.models[0]?.id).toBe("openrouter/auto");
+    expect(result.models[1]?.id).toBe("openai/gpt-4.1");
+    expect(result.models[2]?.id).toBe("google/gemini-2.5-pro");
+    expect(adapter.fetchUserModels).toHaveBeenCalledTimes(1);
+    expect(adapter.fetchProgrammingModels).toHaveBeenCalledTimes(1);
+    expect(store.setUserModelCache).toHaveBeenCalledTimes(1);
   });
 
   it("maps credential decryption failures to discovery auth errors", async () => {
