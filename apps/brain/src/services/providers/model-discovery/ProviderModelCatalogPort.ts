@@ -11,5 +11,18 @@ export interface ProviderModelCatalogPort {
     credentialContext: ProviderModelCredentialContext,
   ): Promise<BYOKDiscoveredProviderModel[]>;
 
-  fetchPage(input: ProviderModelFetchPageInput): Promise<ProviderModelPageFetchResult>;
+  fetchPage(
+    input: ProviderModelFetchPageInput,
+  ): Promise<ProviderModelPageFetchResult>;
+}
+
+export interface OpenRouterModelCatalogPort extends ProviderModelCatalogPort {
+  fetchUserModels(
+    providerId: string,
+    credentialContext: ProviderModelCredentialContext,
+  ): Promise<BYOKDiscoveredProviderModel[]>;
+
+  fetchProgrammingModels(
+    providerId: string,
+  ): Promise<BYOKDiscoveredProviderModel[]>;
 }
