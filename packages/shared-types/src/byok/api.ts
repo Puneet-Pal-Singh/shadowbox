@@ -14,11 +14,14 @@ import {
   BYOKDiscoveredProviderModelsRefreshResponseSchema,
   BYOKDiscoveredProviderModelsResponseSchema,
   BYOKModelDiscoverySourceSchema,
+  BYOKModelDiscoverySurfaceSchema,
   BYOKModelDiscoveryViewSchema,
   BYOKModelPopularityScoreSchema,
   BYOKModelPopularitySignalsSchema,
   BYOKModelPricingSchema,
   BYOKProviderSlugSchema,
+  BYOKModelCapabilitySchema,
+  BYOKModelOutputModalitySchema,
 } from "./model-discovery.js";
 
 /**
@@ -101,10 +104,13 @@ export type BYOKProviderModelsResponse = z.infer<
 export {
   BYOKProviderSlugSchema,
   BYOKModelDiscoveryViewSchema,
+  BYOKModelDiscoverySurfaceSchema,
   BYOKModelDiscoverySourceSchema,
   BYOKModelPricingSchema,
   BYOKModelPopularitySignalsSchema,
   BYOKModelPopularityScoreSchema,
+  BYOKModelCapabilitySchema,
+  BYOKModelOutputModalitySchema,
   BYOKDiscoveredProviderModelSchema,
   BYOKDiscoveredProviderModelsPageSchema,
   BYOKDiscoveredProviderModelsMetadataSchema,
@@ -115,10 +121,13 @@ export {
 export type {
   BYOKProviderSlug,
   BYOKModelDiscoveryView,
+  BYOKModelDiscoverySurface,
   BYOKModelDiscoverySource,
   BYOKModelPricing,
   BYOKModelPopularitySignals,
   BYOKModelPopularityScore,
+  BYOKModelCapability,
+  BYOKModelOutputModality,
   BYOKDiscoveredProviderModel,
   BYOKDiscoveredProviderModelsPage,
   BYOKDiscoveredProviderModelsMetadata,

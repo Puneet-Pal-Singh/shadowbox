@@ -1,10 +1,13 @@
 import { z } from "zod";
-import type { BYOKDiscoveredProviderModel } from "@repo/shared-types";
 import type {
-  ProviderModelCatalogPort,
-} from "../ProviderModelCatalogPort";
+  BYOKDiscoveredProviderModel,
+  BYOKModelCapability,
+  BYOKModelOutputModality,
+} from "@repo/shared-types";
+import type { ProviderModelCatalogPort } from "../ProviderModelCatalogPort";
 import type {
   ProviderModelCredentialContext,
+  OpenRouterDiscoveryCategory,
   ProviderModelFetchPageInput,
   ProviderModelPageFetchResult,
 } from "../types";
@@ -14,13 +17,30 @@ import {
 } from "../errors";
 
 const OPENROUTER_MODELS_ENDPOINT = "https://openrouter.ai/api/v1/models";
+const OPENROUTER_USER_MODELS_ENDPOINT =
+  "https://openrouter.ai/api/v1/models/user";
+const OPENROUTER_RANKINGS_PAGE_ENDPOINT = "https://openrouter.ai/rankings";
+const OPENROUTER_FREE_ROUTER_PAGE_ENDPOINT =
+  "https://openrouter.ai/openrouter/free";
 const OPENROUTER_FETCH_TIMEOUT_MS = 30_000;
+const OPENROUTER_MODEL_LINK_PATTERN = /href="\/([^"/?#]+\/[^"/?#]+)"/g;
+const OPENROUTER_NON_MODEL_LINK_PREFIXES = new Set([
+  "_next",
+  "apps",
+  "docs",
+  "labs",
+  "compare",
+  "images",
+  "settings",
+]);
 
 const OpenRouterModelsEnvelopeSchema = z.object({
   data: z.array(
     z.object({
       id: z.string().min(1),
       name: z.string().optional(),
+      slug: z.string().optional(),
+      description: z.string().optional(),
       context_length: z.number().int().positive().optional(),
       pricing: z
         .object({
@@ -32,10 +52,18 @@ const OpenRouterModelsEnvelopeSchema = z.object({
       supported_parameters: z.array(z.string()).optional(),
       architecture: z
         .object({
-          modality: z.string().optional(),
+          modality: z.union([z.string(), z.array(z.string())]).optional(),
         })
         .partial()
         .optional(),
+      settings: z
+        .object({
+          structured_outputs: z.boolean().optional(),
+          reasoning: z.boolean().optional(),
+        })
+        .partial()
+        .optional(),
+      expires_at: z.string().datetime().optional(),
     }),
   ),
 });
@@ -57,9 +85,90 @@ export class OpenRouterModelCatalogAdapter implements ProviderModelCatalogPort {
     return payload.data.map((entry) => toDiscoveredModel(entry));
   }
 
-  async fetchPage(input: ProviderModelFetchPageInput): Promise<ProviderModelPageFetchResult> {
+  async fetchUserModels(
+    providerId: string,
+    credentialContext: ProviderModelCredentialContext,
+  ): Promise<BYOKDiscoveredProviderModel[]> {
+    if (providerId !== "openrouter") {
+      throw new ProviderModelDiscoveryApiError(
+        `OpenRouter adapter does not support provider "${providerId}".`,
+        { status: 400, retryable: false },
+      );
+    }
+
+    const response = await requestOpenRouterUserModels(
+      credentialContext.apiKey,
+    );
+    const payload = await parseOpenRouterModels(response);
+    return payload.data.map((entry) => toDiscoveredModel(entry));
+  }
+
+  async fetchProgrammingModels(
+    providerId: string,
+  ): Promise<BYOKDiscoveredProviderModel[]> {
+    return this.fetchCategoryModels(providerId, "programming");
+  }
+
+  async fetchCategoryModels(
+    providerId: string,
+    category: OpenRouterDiscoveryCategory,
+  ): Promise<BYOKDiscoveredProviderModel[]> {
+    if (providerId !== "openrouter") {
+      throw new ProviderModelDiscoveryApiError(
+        `OpenRouter adapter does not support provider "${providerId}".`,
+        { status: 400, retryable: false },
+      );
+    }
+
+    const response = await requestOpenRouterCategoryModels(category);
+    const payload = await parseOpenRouterModels(response);
+    return payload.data.map((entry) => toDiscoveredModel(entry));
+  }
+
+  async fetchLeaderboardModels(
+    providerId: string,
+  ): Promise<BYOKDiscoveredProviderModel[]> {
+    if (providerId !== "openrouter") {
+      throw new ProviderModelDiscoveryApiError(
+        `OpenRouter adapter does not support provider "${providerId}".`,
+        { status: 400, retryable: false },
+      );
+    }
+
+    const response = await makeOpenRouterRequest(
+      OPENROUTER_RANKINGS_PAGE_ENDPOINT,
+      null,
+    );
+    const html = await parseTextResponse(response);
+    return extractModelsFromOpenRouterHtml(html);
+  }
+
+  async fetchFreeModels(
+    providerId: string,
+  ): Promise<BYOKDiscoveredProviderModel[]> {
+    if (providerId !== "openrouter") {
+      throw new ProviderModelDiscoveryApiError(
+        `OpenRouter adapter does not support provider "${providerId}".`,
+        { status: 400, retryable: false },
+      );
+    }
+
+    const response = await makeOpenRouterRequest(
+      OPENROUTER_FREE_ROUTER_PAGE_ENDPOINT,
+      null,
+    );
+    const html = await parseTextResponse(response);
+    return extractModelsFromOpenRouterHtml(html);
+  }
+
+  async fetchPage(
+    input: ProviderModelFetchPageInput,
+  ): Promise<ProviderModelPageFetchResult> {
     const offset = parseCursor(input.cursor);
-    const models = await this.fetchAll(input.providerId, input.credentialContext);
+    const models = await this.fetchAll(
+      input.providerId,
+      input.credentialContext,
+    );
     const nextOffset = offset + input.limit;
     const page = models.slice(offset, nextOffset);
     return {
@@ -81,8 +190,46 @@ function toDiscoveredModel(
     providerId: "openrouter",
     contextWindow: entry.context_length,
     pricing: toPricing(entry.pricing),
-    supportsTools: supportsTools(entry.supported_parameters),
-    supportsVision: supportsVision(entry.architecture?.modality),
+    canonicalSlug: entry.slug,
+    description: entry.description,
+    supportedParameters: entry.supported_parameters,
+    outputModalities: toOutputModalities(entry.architecture?.modality),
+    capabilities: toCapabilities(entry.supported_parameters, entry.settings),
+    expirationDate: entry.expires_at,
+  };
+}
+
+function toCapabilities(
+  parameters: string[] | undefined,
+  settings:
+    | {
+        structured_outputs?: boolean | undefined;
+        reasoning?: boolean | undefined;
+      }
+    | undefined,
+): BYOKModelCapability | undefined {
+  if (!parameters?.length && !settings) {
+    return undefined;
+  }
+  return {
+    supportsTools: supportsTools(parameters),
+    supportsVision: undefined,
+    supportsStructuredOutputs: settings?.structured_outputs,
+    supportsReasoning: settings?.reasoning,
+  };
+}
+
+function toOutputModalities(
+  modalities: string | string[] | undefined,
+): BYOKModelOutputModality | undefined {
+  const normalized = normalizeModalities(modalities);
+  if (normalized.length === 0) {
+    return undefined;
+  }
+  return {
+    text: normalized.includes("text"),
+    image: normalized.includes("image"),
+    audio: normalized.includes("audio"),
   };
 }
 
@@ -127,11 +274,21 @@ function supportsTools(parameters: string[] | undefined): boolean | undefined {
   return parameters.includes("tools");
 }
 
-function supportsVision(modality: string | undefined): boolean | undefined {
-  if (!modality) {
-    return undefined;
+function normalizeModalities(
+  modalities: string | string[] | undefined,
+): string[] {
+  if (!modalities) {
+    return [];
   }
-  return modality.includes("image");
+  if (Array.isArray(modalities)) {
+    return modalities.map((value) => value.toLowerCase());
+  }
+  return modalities
+    .toLowerCase()
+    .replace(/->/g, "+")
+    .split("+")
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0);
 }
 
 function parseCursor(cursor: string | undefined): number {
@@ -149,15 +306,42 @@ function parseCursor(cursor: string | undefined): number {
 }
 
 async function requestOpenRouterModels(apiKey: string): Promise<Response> {
+  return makeOpenRouterRequest(OPENROUTER_MODELS_ENDPOINT, apiKey);
+}
+
+async function requestOpenRouterUserModels(apiKey: string): Promise<Response> {
+  return makeOpenRouterRequest(OPENROUTER_USER_MODELS_ENDPOINT, apiKey);
+}
+
+async function requestOpenRouterCategoryModels(
+  category: OpenRouterDiscoveryCategory,
+): Promise<Response> {
+  const endpoint = new URL(OPENROUTER_MODELS_ENDPOINT);
+  endpoint.searchParams.set("category", category);
+  return makeOpenRouterRequest(endpoint.toString(), null);
+}
+
+async function makeOpenRouterRequest(
+  url: string,
+  apiKey: string | null,
+): Promise<Response> {
   const abortController = new AbortController();
-  const timeoutId = setTimeout(() => abortController.abort(), OPENROUTER_FETCH_TIMEOUT_MS);
+  const timeoutId = setTimeout(
+    () => abortController.abort(),
+    OPENROUTER_FETCH_TIMEOUT_MS,
+  );
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (apiKey) {
+    headers["Authorization"] = `Bearer ${apiKey}`;
+  }
 
   try {
-    const response = await fetch(OPENROUTER_MODELS_ENDPOINT, {
+    const response = await fetch(url, {
       method: "GET",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-      },
+      headers,
       signal: abortController.signal,
     });
     if (!response.ok) {
@@ -205,6 +389,40 @@ async function parseOpenRouterModels(
     );
   }
   return parsed.data;
+}
+
+async function parseTextResponse(response: Response): Promise<string> {
+  try {
+    return await response.text();
+  } catch (error) {
+    throw new ProviderModelDiscoveryApiError(
+      `OpenRouter page response could not be read as text: ${toErrorMessage(error)}`,
+      { retryable: false },
+    );
+  }
+}
+
+function extractModelsFromOpenRouterHtml(
+  html: string,
+): BYOKDiscoveredProviderModel[] {
+  const ids = new Set<string>();
+  for (const match of html.matchAll(OPENROUTER_MODEL_LINK_PATTERN)) {
+    const candidate = match[1]?.trim();
+    if (!candidate) {
+      continue;
+    }
+    const [prefix] = candidate.split("/");
+    if (!prefix || OPENROUTER_NON_MODEL_LINK_PREFIXES.has(prefix)) {
+      continue;
+    }
+    ids.add(candidate);
+  }
+
+  return Array.from(ids).map((id) => ({
+    id,
+    name: id,
+    providerId: "openrouter",
+  }));
 }
 
 function toErrorMessage(error: unknown): string {

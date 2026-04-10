@@ -68,6 +68,56 @@ describe("ByokSchemaService", () => {
     expect(db.inspect.getAppliedMigrationIds().length).toBeGreaterThan(0);
   });
 
+  it("appends new migrations without renumbering previously applied ids", async () => {
+    const db = createTestByokD1Database();
+    for (let index = 0; index <= 9; index += 1) {
+      db.inspect.seedAppliedMigration(
+        `byok_migration_${index.toString().padStart(3, "0")}`,
+      );
+    }
+
+    const service = createByokSchemaService(db.database);
+
+    await service.ensureReady();
+
+    const appliedMigrations = db.inspect.getAppliedMigrationIds();
+    expect(appliedMigrations).toContain("byok_migration_010");
+    expect(appliedMigrations).toHaveLength(12);
+  });
+
+  it("recovers local ledgers that recorded the old migration id without creating the user cache table", async () => {
+    const db = createTestByokD1Database();
+    for (let index = 0; index <= 10; index += 1) {
+      db.inspect.seedAppliedMigration(
+        `byok_migration_${index.toString().padStart(3, "0")}`,
+      );
+    }
+
+    const service = createByokSchemaService(db.database);
+
+    await service.ensureReady();
+
+    const appliedMigrations = db.inspect.getAppliedMigrationIds();
+    expect(appliedMigrations).toContain("byok_migration_011");
+    expect(appliedMigrations).toHaveLength(12);
+    expect(db.inspect.hasTable("provider_user_model_cache")).toBe(true);
+  });
+
+  it("repairs missing required tables even when the migration ledger is already complete", async () => {
+    const db = createTestByokD1Database();
+    for (let index = 0; index <= 11; index += 1) {
+      db.inspect.seedAppliedMigration(
+        `byok_migration_${index.toString().padStart(3, "0")}`,
+      );
+    }
+
+    const service = createByokSchemaService(db.database);
+
+    await service.ensureReady();
+
+    expect(db.inspect.hasTable("provider_user_model_cache")).toBe(true);
+  });
+
   it("preserves quoted string literals while splitting migration statements", () => {
     const statements = splitSqlStatements(`
       CREATE TABLE example (

@@ -65,3 +65,19 @@ export interface ProviderModelRankingResult {
   view: BYOKModelDiscoveryView;
   models: BYOKDiscoveredProviderModel[];
 }
+
+export interface OpenRouterRecommendationInput {
+  userModels: BYOKDiscoveredProviderModel[];
+  programmingModels: BYOKDiscoveredProviderModel[];
+  limit: number;
+}
+
+export const OPENROUTER_DISCOVERY_CATEGORIES = [
+  "programming",
+  "technology",
+  "science",
+  "academia",
+] as const;
+
+export type OpenRouterDiscoveryCategory =
+  typeof OPENROUTER_DISCOVERY_CATEGORIES[number];

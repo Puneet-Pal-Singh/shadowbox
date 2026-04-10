@@ -32,7 +32,18 @@ describe("BYOK model discovery contracts", () => {
           name: "GPT-4o",
           providerId: "openrouter",
           contextWindow: 128000,
-          supportsTools: true,
+          canonicalSlug: "gpt-4o",
+          description: "General-purpose multimodal model",
+          supportedParameters: ["tools", "reasoning"],
+          outputModalities: {
+            text: true,
+            image: true,
+          },
+          capabilities: {
+            supportsTools: true,
+            supportsStructuredOutputs: true,
+            supportsReasoning: true,
+          },
           pricing: {
             inputPer1M: 5,
             outputPer1M: 15,

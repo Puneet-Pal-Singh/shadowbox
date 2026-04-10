@@ -62,6 +62,15 @@ interface CacheRow {
   refreshed_at: string;
 }
 
+interface UserCacheRow {
+  provider_id: string;
+  credential_id: string;
+  models_json: string;
+  source_version: string;
+  fetched_at: string;
+  expires_at: string;
+}
+
 interface QuotaRow {
   quota_key: string;
   value: number;
@@ -83,6 +92,7 @@ interface TestByokD1State {
   preferences: Map<string, PreferenceRow>;
   auditEvents: AuditRow[];
   cache: Map<string, CacheRow>;
+  userCache: Map<string, UserCacheRow>;
   quotas: Map<string, QuotaRow>;
   schema: Map<string, Set<string>>;
 }
@@ -93,7 +103,9 @@ export interface TestByokD1Handle {
     getAppliedMigrationIds(): string[];
     getCredential(userId: string, providerId: string, label?: string): CredentialRow | undefined;
     getPreference(userId: string, workspaceId: string): PreferenceRow | undefined;
+    hasTable(tableName: string): boolean;
     seedTable(tableName: string, columns: string[]): void;
+    seedAppliedMigration(id: string, appliedAt?: string): void;
   };
 }
 
@@ -104,6 +116,7 @@ export function createTestByokD1Database(): TestByokD1Handle {
     preferences: new Map(),
     auditEvents: [],
     cache: new Map(),
+    userCache: new Map(),
     quotas: new Map(),
     schema: new Map(),
   };
@@ -139,8 +152,17 @@ export function createTestByokD1Database(): TestByokD1Handle {
       getPreference(userId: string, workspaceId: string) {
         return state.preferences.get(buildPreferenceKey(userId, workspaceId));
       },
+      hasTable(tableName: string) {
+        return state.schema.has(tableName);
+      },
       seedTable(tableName: string, columns: string[]) {
         state.schema.set(tableName, new Set(columns));
+      },
+      seedAppliedMigration(id: string, appliedAt: string = new Date().toISOString()) {
+        state.migrations.set(id, {
+          migration_id: id,
+          applied_at: appliedAt,
+        });
       },
     },
   };
@@ -317,6 +339,13 @@ function performQuery(
     const providerId = String(params[0]);
     const row = state.cache.get(providerId);
     return row ? [row] : [];
+  }
+
+  if (
+    normalized ===
+    "SELECT provider_id, credential_id, models_json, fetched_at, expires_at, source_version FROM provider_user_model_cache WHERE provider_id = ? AND credential_id = ?"
+  ) {
+    return handleProviderUserModelCacheSelect(state, params);
   }
 
   if (
@@ -574,12 +603,25 @@ function performMutation(
     return;
   }
 
+  if (normalized.startsWith("INSERT INTO provider_user_model_cache (")) {
+    handleProviderUserModelCacheInsert(state, params);
+    return;
+  }
+
   if (
     normalized ===
     "DELETE FROM provider_registry_cache WHERE provider_id = ?"
   ) {
     assertTableExists(state, "provider_registry_cache");
     state.cache.delete(String(params[0]));
+    return;
+  }
+
+  if (
+    normalized ===
+    "DELETE FROM provider_user_model_cache WHERE provider_id = ? AND credential_id = ?"
+  ) {
+    handleProviderUserModelCacheDelete(state, params);
     return;
   }
 
@@ -671,6 +713,14 @@ function createTable(state: TestByokD1State, normalized: string): void {
       "expires_at",
       "refreshed_at",
     ],
+    provider_user_model_cache: [
+      "provider_id",
+      "credential_id",
+      "models_json",
+      "source_version",
+      "fetched_at",
+      "expires_at",
+    ],
   };
 
   const tableName = normalized
@@ -685,6 +735,49 @@ function createTable(state: TestByokD1State, normalized: string): void {
     existingColumns.add(column);
   }
   state.schema.set(tableName, existingColumns);
+}
+
+function handleProviderUserModelCacheSelect(
+  state: TestByokD1State,
+  params: unknown[],
+): unknown[] {
+  assertTableExists(state, "provider_user_model_cache");
+  const providerId = String(params[0]);
+  const credentialId = String(params[1]);
+  const row = state.userCache.get(buildUserCacheKey(providerId, credentialId));
+  return row ? [row] : [];
+}
+
+function handleProviderUserModelCacheInsert(
+  state: TestByokD1State,
+  params: unknown[],
+): void {
+  assertTableExists(state, "provider_user_model_cache");
+  const mappedParams = params.map(String);
+  const [
+    providerId = "",
+    credentialId = "",
+    modelsJson = "",
+    sourceVersion = "",
+    fetchedAt = "",
+    expiresAt = "",
+  ] = mappedParams;
+  state.userCache.set(buildUserCacheKey(providerId, credentialId), {
+    provider_id: providerId,
+    credential_id: credentialId,
+    models_json: modelsJson,
+    source_version: sourceVersion,
+    fetched_at: fetchedAt,
+    expires_at: expiresAt,
+  });
+}
+
+function handleProviderUserModelCacheDelete(
+  state: TestByokD1State,
+  params: unknown[],
+): void {
+  assertTableExists(state, "provider_user_model_cache");
+  state.userCache.delete(buildUserCacheKey(String(params[0]), String(params[1])));
 }
 
 function applyAlterTable(state: TestByokD1State, normalized: string): void {
@@ -772,6 +865,10 @@ function updateCredentialMetadataByProvider(
       applyCredentialSetClauses(credential, clauses, values);
     }
   }
+}
+
+function buildUserCacheKey(providerId: string, credentialId: string): string {
+  return `${providerId}:${credentialId}`;
 }
 
 function updateCredentialMetadataById(

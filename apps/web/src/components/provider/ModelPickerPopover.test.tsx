@@ -725,6 +725,49 @@ describe("ModelPickerPopover", () => {
       });
     });
 
+    it("labels the popular tab as recommended for openrouter", async () => {
+      render(
+        <ModelPickerPopover
+          {...defaultProps}
+          catalog={[
+            ...mockCatalog,
+            {
+              providerId: "openrouter",
+              displayName: "OpenRouter",
+              authModes: ["api_key"],
+              adapterFamily: "openai-compatible",
+              capabilities: {
+                streaming: true,
+                tools: true,
+                jsonMode: true,
+                structuredOutputs: true,
+              },
+              modelSource: "remote",
+              defaultModelId: "openrouter/auto",
+            },
+          ]}
+          providerModels={{
+            ...mockModels,
+            openrouter: [{ id: "openrouter/auto", name: "Auto (Best Model)" }],
+          }}
+          visibleModelIds={{
+            ...mockVisibleModelIds,
+            openrouter: new Set(["openrouter/auto"]),
+          }}
+          selectedProviderId="openrouter"
+          selectedModelId="openrouter/auto"
+        />,
+      );
+
+      fireEvent.click(
+        screen.getByRole("button", { name: /open model picker/i }),
+      );
+
+      expect(
+        await screen.findByRole("button", { name: "Recommended" }),
+      ).toBeInTheDocument();
+    });
+
     it("shows stale badge and refreshes selected provider models", async () => {
       render(
         <ModelPickerPopover

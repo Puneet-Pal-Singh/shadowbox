@@ -58,6 +58,7 @@ export interface ProviderStoreState {
   credentials: ProviderCredential[];
   preferences: ProviderPreference | null;
   providerModels: Record<string, ProviderModelOption[]>;
+  manageProviderModels: Record<string, ProviderModelOption[]>;
   providerModelsMetadata: Record<string, ProviderModelsMetadataState>;
   providerModelsPage: Record<string, ProviderModelsPageState>;
   visibleModelIds: Record<string, Set<string>>;
@@ -76,6 +77,7 @@ export interface ProviderStoreState {
   error: string | null;
   isValidating: boolean;
   loadingModelsForProviderId: string | null;
+  loadingManageModelsForProviderIds: Record<string, boolean>;
   selectedModelView: ProviderModelDiscoveryView;
   refreshingModelsForProviderId: string | null;
 }
@@ -86,6 +88,7 @@ type ProviderWorkspaceGlobalState = Pick<
   | "credentials"
   | "preferences"
   | "providerModels"
+  | "manageProviderModels"
   | "providerModelsMetadata"
   | "providerModelsPage"
   | "visibleModelIds"
@@ -106,6 +109,7 @@ type ProviderOperationalState = Pick<
   | "error"
   | "isValidating"
   | "loadingModelsForProviderId"
+  | "loadingManageModelsForProviderIds"
   | "selectedModelView"
   | "refreshingModelsForProviderId"
 >;
@@ -165,6 +169,7 @@ export interface SessionSelectionRequest {
 export interface LoadProviderModelsOptions {
   view?: ProviderModelDiscoveryView;
   cursor?: string;
+  surface?: "picker" | "manage";
   limit?: number;
   append?: boolean;
 }
@@ -172,6 +177,7 @@ export interface LoadProviderModelsOptions {
 interface ResolvedLoadProviderModelsOptions {
   view: ProviderModelDiscoveryView;
   cursor?: string;
+  surface: "picker" | "manage";
   limit: number;
   append: boolean;
 }
@@ -771,6 +777,42 @@ export class ProviderStore {
     }
   }
 
+  async loadManageProviderModels(
+    providerId: string,
+    limit = 150,
+  ): Promise<ProviderModelOption[]> {
+    const key = ["manage-models", providerId, limit].join(":");
+    if (this.inflight.has(key)) {
+      return (await this.inflight.get(key)?.promise) as ProviderModelOption[];
+    }
+
+    this.setState({
+      loadingManageModelsForProviderIds: {
+        ...this.state.loadingManageModelsForProviderIds,
+        [providerId]: true,
+      },
+    });
+
+    const promise = this.executeLoadManageProviderModels(
+      providerId,
+      limit,
+      this.workspaceEpoch,
+    );
+    this.trackInflight(key, promise, "workspace");
+
+    try {
+      return (await promise) as ProviderModelOption[];
+    } finally {
+      this.inflight.delete(key);
+      this.setState({
+        loadingManageModelsForProviderIds: {
+          ...this.state.loadingManageModelsForProviderIds,
+          [providerId]: false,
+        },
+      });
+    }
+  }
+
   async loadMoreProviderModels(
     providerId: string,
   ): Promise<ProviderModelOption[]> {
@@ -829,11 +871,12 @@ export class ProviderStore {
   ): Promise<ProviderModelOption[]> {
     this.log("[loadProviderModels] Starting", { providerId, ...options });
     try {
-      const result = await this.apiClient.getProviderModels(providerId, {
-        view: options.view,
-        limit: options.limit,
-        cursor: options.cursor,
-      });
+    const result = await this.apiClient.getProviderModels(providerId, {
+      view: options.view,
+      surface: options.surface,
+      limit: options.limit,
+      cursor: options.cursor,
+    });
       if (this.isWorkspaceEpochStale("loadProviderModels", epoch)) {
         return result.models;
       }
@@ -915,6 +958,51 @@ export class ProviderStore {
       });
 
       this.log("[loadProviderModels] Error", {
+        providerId,
+        error: message,
+      });
+      throw error;
+    }
+  }
+
+  private async executeLoadManageProviderModels(
+    providerId: string,
+    limit: number,
+    epoch: number,
+  ): Promise<ProviderModelOption[]> {
+    this.log("[loadManageProviderModels] Starting", { providerId, limit });
+    try {
+      const result = await this.apiClient.getProviderModels(providerId, {
+        view: "all",
+        surface: "manage",
+        limit,
+      });
+      if (this.isWorkspaceEpochStale("loadManageProviderModels", epoch)) {
+        return result.models;
+      }
+
+      this.setState({
+        manageProviderModels: {
+          ...this.state.manageProviderModels,
+          [providerId]: result.models,
+        },
+      });
+
+      this.log("[loadManageProviderModels] Success", {
+        providerId,
+        modelCount: result.models.length,
+      });
+      return result.models;
+    } catch (error) {
+      if (this.isWorkspaceEpochStale("loadManageProviderModels", epoch)) {
+        return this.state.manageProviderModels[providerId] ?? [];
+      }
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Failed to load management models";
+      this.setState({ error: message });
+      this.log("[loadManageProviderModels] Error", {
         providerId,
         error: message,
       });
@@ -1434,6 +1522,7 @@ export class ProviderStore {
     return {
       view: options.view ?? pageState?.view ?? this.state.selectedModelView,
       cursor: options.cursor ?? undefined,
+      surface: options.surface ?? "picker",
       limit: options.limit ?? 50,
       append: options.append ?? false,
     };
@@ -1717,6 +1806,7 @@ function createInitialWorkspaceGlobalState(): ProviderWorkspaceGlobalState {
     credentials: [],
     preferences: null,
     providerModels: {},
+    manageProviderModels: {},
     providerModelsMetadata: {},
     providerModelsPage: {},
     visibleModelIds: {},
@@ -1739,6 +1829,7 @@ function createInitialOperationalState(): ProviderOperationalState {
     error: null,
     isValidating: false,
     loadingModelsForProviderId: null,
+    loadingManageModelsForProviderIds: {},
     selectedModelView: "popular",
     refreshingModelsForProviderId: null,
   };

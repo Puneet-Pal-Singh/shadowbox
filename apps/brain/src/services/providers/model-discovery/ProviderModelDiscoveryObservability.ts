@@ -6,6 +6,10 @@ export interface ProviderModelDiscoveryMetrics {
   model_discovery_cache_hits_total: Record<string, number>;
   model_discovery_stale_total: Record<string, number>;
   model_discovery_adapter_failures_total: Record<string, number>;
+  openrouter_recommendation_metrics: Record<
+    string,
+    OpenRouterRecommendationMetric
+  >;
 }
 
 export interface ProviderModelDiscoveryRequestMetric {
@@ -14,6 +18,14 @@ export interface ProviderModelDiscoveryRequestMetric {
   stale: boolean;
   success: boolean;
   latencyMs: number;
+}
+
+export interface OpenRouterRecommendationMetric {
+  userInventoryCount: number;
+  programmingInventoryCount: number;
+  intersectionCount: number;
+  recommendationCount: number;
+  autoInjected: boolean;
 }
 
 export class ProviderModelDiscoveryObservability {
@@ -53,6 +65,27 @@ export class ProviderModelDiscoveryObservability {
     const key = `${providerId}_${code}`;
     this.metrics.model_discovery_adapter_failures_total[key] =
       (this.metrics.model_discovery_adapter_failures_total[key] ?? 0) + 1;
+  }
+
+  recordOpenRouterRecommendation(
+    userInventoryCount: number,
+    programmingInventoryCount: number,
+    intersectionCount: number,
+    finalRecommendationCount: number,
+    autoInjected: boolean,
+  ): void {
+    this.metrics.openrouter_recommendation_metrics["latest"] = {
+      userInventoryCount,
+      programmingInventoryCount,
+      intersectionCount,
+      recommendationCount: finalRecommendationCount,
+      autoInjected,
+    };
+    if (this.enableLogging) {
+      console.log(
+        `[provider-discovery/openrouter-recommendation] userInventory=${userInventoryCount} programming=${programmingInventoryCount} intersection=${intersectionCount} final=${finalRecommendationCount} auto=${autoInjected}`,
+      );
+    }
   }
 
   getMetrics(): ProviderModelDiscoveryMetrics {
@@ -113,15 +146,19 @@ export class ProviderModelDiscoveryObservability {
     const totalRequests = Object.values(
       this.metrics.model_discovery_requests_total,
     ).reduce((sum, value) => sum + value, 0);
-    const staleRequests = Object.values(this.metrics.model_discovery_stale_total)
-      .reduce((sum, value) => sum + value, 0);
+    const staleRequests = Object.values(
+      this.metrics.model_discovery_stale_total,
+    ).reduce((sum, value) => sum + value, 0);
     const staleRatio = totalRequests > 0 ? staleRequests / totalRequests : 0;
-    const sortedLatency = [...this.metrics.model_discovery_fetch_latency_ms].sort(
-      (first, second) => first - second,
-    );
+    const sortedLatency = [
+      ...this.metrics.model_discovery_fetch_latency_ms,
+    ].sort((first, second) => first - second);
     const p95Index = Math.max(
       0,
-      Math.min(sortedLatency.length - 1, Math.ceil(sortedLatency.length * 0.95) - 1),
+      Math.min(
+        sortedLatency.length - 1,
+        Math.ceil(sortedLatency.length * 0.95) - 1,
+      ),
     );
     const p95LatencyMs = sortedLatency[p95Index] ?? 0;
     const adapterFailureTotal = Object.values(
@@ -153,6 +190,7 @@ export class ProviderModelDiscoveryObservability {
       model_discovery_cache_hits_total: {},
       model_discovery_stale_total: {},
       model_discovery_adapter_failures_total: {},
+      openrouter_recommendation_metrics: {},
     };
   }
 }

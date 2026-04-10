@@ -870,12 +870,14 @@ function extractProviderIdFromModelsPath(
 
 function buildDiscoveryQueryParams(urlValue: string): {
   view?: string;
+  surface?: string;
   limit?: string;
   cursor?: string;
 } {
   const url = new URL(urlValue);
   return {
     view: url.searchParams.get("view") ?? undefined,
+    surface: url.searchParams.get("surface") ?? undefined,
     limit: url.searchParams.get("limit") ?? undefined,
     cursor: url.searchParams.get("cursor") ?? undefined,
   };
@@ -883,11 +885,13 @@ function buildDiscoveryQueryParams(urlValue: string): {
 
 function hasDiscoveryQuery(query: {
   view?: string;
+  surface?: string;
   limit?: string;
   cursor?: string;
 }): boolean {
   return (
     query.view !== undefined ||
+    query.surface !== undefined ||
     query.limit !== undefined ||
     query.cursor !== undefined
   );
@@ -896,6 +900,7 @@ function hasDiscoveryQuery(query: {
 function validateDiscoveryQuery(
   query: {
     view?: string;
+    surface?: string;
     limit?: string;
     cursor?: string;
   },
@@ -916,6 +921,7 @@ function buildRuntimeModelsPath(
   providerId: string,
   query: {
     view?: string;
+    surface?: string;
     limit?: string | number;
     cursor?: string;
   },
@@ -925,6 +931,9 @@ function buildRuntimeModelsPath(
   });
   if (query.view) {
     params.set("view", query.view);
+  }
+  if (query.surface) {
+    params.set("surface", query.surface);
   }
   if (query.limit) {
     params.set("limit", String(query.limit));
