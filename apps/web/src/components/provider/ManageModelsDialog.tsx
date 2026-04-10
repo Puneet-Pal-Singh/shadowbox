@@ -11,7 +11,7 @@
  * - Preserve current selection validity
  */
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Search, Plus } from "lucide-react";
 import {
   BYOKCredential as ProviderCredential,
@@ -48,6 +48,7 @@ function buildProviderGroups(
   catalog: ProviderRegistryEntry[],
   credentials: ProviderCredential[],
   providerModels: Record<string, ProviderModelOption[]>,
+  loadingProviderModelIds: Record<string, boolean>,
 ): ProviderGroup[] {
   const connectedProviderIds = new Set(
     credentials.map((credential) => credential.providerId),
@@ -56,7 +57,8 @@ function buildProviderGroups(
   return catalog
     .filter(
       (entry) =>
-        entry.providerId === "axis" || connectedProviderIds.has(entry.providerId),
+        connectedProviderIds.has(entry.providerId) ||
+        Object.prototype.hasOwnProperty.call(providerModels, entry.providerId),
     )
     .map((entry) => {
       const models = providerModels[entry.providerId] || [];
@@ -64,10 +66,9 @@ function buildProviderGroups(
         providerId: entry.providerId,
         displayName: entry.displayName,
         models,
-        isModelListLoaded: Object.prototype.hasOwnProperty.call(
-          providerModels,
-          entry.providerId,
-        ),
+        isModelListLoaded:
+          Object.prototype.hasOwnProperty.call(providerModels, entry.providerId) &&
+          !loadingProviderModelIds[entry.providerId],
       };
     });
 }
@@ -132,6 +133,8 @@ export interface ManageModelsDialogProps {
   credentials: ProviderCredential[];
   providerModels: Record<string, ProviderModelOption[]>;
   visibleModelIds: Record<string, Set<string>>;
+  loadingProviderModelIds: Record<string, boolean>;
+  onLoadProviderModels?: (providerId: string, limit?: number) => Promise<unknown>;
   onToggleModelVisibility: (providerId: string, modelId: string) => void;
   onSetProviderVisibleModels: (providerId: string, modelIds: string[]) => void;
   onConnectProvider?: () => void;
@@ -147,16 +150,40 @@ export function ManageModelsDialog({
   credentials,
   providerModels,
   visibleModelIds,
+  loadingProviderModelIds,
+  onLoadProviderModels,
   onToggleModelVisibility,
   onSetProviderVisibleModels,
   onConnectProvider,
 }: ManageModelsDialogProps): React.ReactElement | null {
   const [searchQuery, setSearchQuery] = useState("");
 
+  useEffect(() => {
+    if (!isOpen || !onLoadProviderModels) {
+      return;
+    }
+
+    const connectedProviderIds = new Set(
+      credentials.map((credential) => credential.providerId),
+    );
+    void Promise.allSettled(
+      catalog
+        .filter(
+          (entry) => connectedProviderIds.has(entry.providerId),
+        )
+        .map((entry) => onLoadProviderModels(entry.providerId, 150)),
+    );
+  }, [catalog, credentials, isOpen, onLoadProviderModels]);
+
   // Build provider groups with visibility state
   const providerGroups = useMemo(() => {
-    return buildProviderGroups(catalog, credentials, providerModels);
-  }, [catalog, credentials, providerModels]);
+    return buildProviderGroups(
+      catalog,
+      credentials,
+      providerModels,
+      loadingProviderModelIds,
+    );
+  }, [catalog, credentials, loadingProviderModelIds, providerModels]);
 
   // Filter groups and models based on search
   const filteredGroups = useMemo(() => {
