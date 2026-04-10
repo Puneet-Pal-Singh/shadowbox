@@ -24,11 +24,13 @@ import {
 
 const CATALOG_DISCOVERY_QUERY: BYOKDiscoveredProviderModelsQuery = {
   view: "popular",
+  surface: "picker",
   limit: 50,
 };
 
 const MODELS_DISCOVERY_QUERY: BYOKDiscoveredProviderModelsQuery = {
   view: "all",
+  surface: "picker",
   limit: 1000,
 };
 
