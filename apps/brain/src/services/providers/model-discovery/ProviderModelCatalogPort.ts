@@ -1,5 +1,6 @@
 import type { BYOKDiscoveredProviderModel } from "@repo/shared-types";
 import type {
+  OpenRouterDiscoveryCategory,
   ProviderModelCredentialContext,
   ProviderModelFetchPageInput,
   ProviderModelPageFetchResult,
@@ -23,6 +24,19 @@ export interface OpenRouterModelCatalogPort extends ProviderModelCatalogPort {
   ): Promise<BYOKDiscoveredProviderModel[]>;
 
   fetchProgrammingModels(
+    providerId: string,
+  ): Promise<BYOKDiscoveredProviderModel[]>;
+
+  fetchCategoryModels(
+    providerId: string,
+    category: OpenRouterDiscoveryCategory,
+  ): Promise<BYOKDiscoveredProviderModel[]>;
+
+  fetchLeaderboardModels(
+    providerId: string,
+  ): Promise<BYOKDiscoveredProviderModel[]>;
+
+  fetchFreeModels(
     providerId: string,
   ): Promise<BYOKDiscoveredProviderModel[]>;
 }
