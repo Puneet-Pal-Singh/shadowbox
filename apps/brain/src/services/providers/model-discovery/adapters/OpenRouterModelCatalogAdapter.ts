@@ -7,6 +7,7 @@ import type {
 import type { ProviderModelCatalogPort } from "../ProviderModelCatalogPort";
 import type {
   ProviderModelCredentialContext,
+  OpenRouterDiscoveryCategory,
   ProviderModelFetchPageInput,
   ProviderModelPageFetchResult,
 } from "../types";
@@ -18,9 +19,20 @@ import {
 const OPENROUTER_MODELS_ENDPOINT = "https://openrouter.ai/api/v1/models";
 const OPENROUTER_USER_MODELS_ENDPOINT =
   "https://openrouter.ai/api/v1/models/user";
-const OPENROUTER_PROGRAMMING_CATEGORY_ENDPOINT =
-  "https://openrouter.ai/api/v1/models?category=programming";
+const OPENROUTER_RANKINGS_PAGE_ENDPOINT = "https://openrouter.ai/rankings";
+const OPENROUTER_FREE_ROUTER_PAGE_ENDPOINT =
+  "https://openrouter.ai/openrouter/free";
 const OPENROUTER_FETCH_TIMEOUT_MS = 30_000;
+const OPENROUTER_MODEL_LINK_PATTERN = /href="\/([^"/?#]+\/[^"/?#]+)"/g;
+const OPENROUTER_NON_MODEL_LINK_PREFIXES = new Set([
+  "_next",
+  "apps",
+  "docs",
+  "labs",
+  "compare",
+  "images",
+  "settings",
+]);
 
 const OpenRouterModelsEnvelopeSchema = z.object({
   data: z.array(
@@ -94,6 +106,13 @@ export class OpenRouterModelCatalogAdapter implements ProviderModelCatalogPort {
   async fetchProgrammingModels(
     providerId: string,
   ): Promise<BYOKDiscoveredProviderModel[]> {
+    return this.fetchCategoryModels(providerId, "programming");
+  }
+
+  async fetchCategoryModels(
+    providerId: string,
+    category: OpenRouterDiscoveryCategory,
+  ): Promise<BYOKDiscoveredProviderModel[]> {
     if (providerId !== "openrouter") {
       throw new ProviderModelDiscoveryApiError(
         `OpenRouter adapter does not support provider "${providerId}".`,
@@ -101,9 +120,45 @@ export class OpenRouterModelCatalogAdapter implements ProviderModelCatalogPort {
       );
     }
 
-    const response = await requestOpenRouterProgrammingModels();
+    const response = await requestOpenRouterCategoryModels(category);
     const payload = await parseOpenRouterModels(response);
     return payload.data.map((entry) => toDiscoveredModel(entry));
+  }
+
+  async fetchLeaderboardModels(
+    providerId: string,
+  ): Promise<BYOKDiscoveredProviderModel[]> {
+    if (providerId !== "openrouter") {
+      throw new ProviderModelDiscoveryApiError(
+        `OpenRouter adapter does not support provider "${providerId}".`,
+        { status: 400, retryable: false },
+      );
+    }
+
+    const response = await makeOpenRouterRequest(
+      OPENROUTER_RANKINGS_PAGE_ENDPOINT,
+      null,
+    );
+    const html = await parseTextResponse(response);
+    return extractModelsFromOpenRouterHtml(html);
+  }
+
+  async fetchFreeModels(
+    providerId: string,
+  ): Promise<BYOKDiscoveredProviderModel[]> {
+    if (providerId !== "openrouter") {
+      throw new ProviderModelDiscoveryApiError(
+        `OpenRouter adapter does not support provider "${providerId}".`,
+        { status: 400, retryable: false },
+      );
+    }
+
+    const response = await makeOpenRouterRequest(
+      OPENROUTER_FREE_ROUTER_PAGE_ENDPOINT,
+      null,
+    );
+    const html = await parseTextResponse(response);
+    return extractModelsFromOpenRouterHtml(html);
   }
 
   async fetchPage(
@@ -258,8 +313,12 @@ async function requestOpenRouterUserModels(apiKey: string): Promise<Response> {
   return makeOpenRouterRequest(OPENROUTER_USER_MODELS_ENDPOINT, apiKey);
 }
 
-async function requestOpenRouterProgrammingModels(): Promise<Response> {
-  return makeOpenRouterRequest(OPENROUTER_PROGRAMMING_CATEGORY_ENDPOINT, null);
+async function requestOpenRouterCategoryModels(
+  category: OpenRouterDiscoveryCategory,
+): Promise<Response> {
+  const endpoint = new URL(OPENROUTER_MODELS_ENDPOINT);
+  endpoint.searchParams.set("category", category);
+  return makeOpenRouterRequest(endpoint.toString(), null);
 }
 
 async function makeOpenRouterRequest(
@@ -330,6 +389,40 @@ async function parseOpenRouterModels(
     );
   }
   return parsed.data;
+}
+
+async function parseTextResponse(response: Response): Promise<string> {
+  try {
+    return await response.text();
+  } catch (error) {
+    throw new ProviderModelDiscoveryApiError(
+      `OpenRouter page response could not be read as text: ${toErrorMessage(error)}`,
+      { retryable: false },
+    );
+  }
+}
+
+function extractModelsFromOpenRouterHtml(
+  html: string,
+): BYOKDiscoveredProviderModel[] {
+  const ids = new Set<string>();
+  for (const match of html.matchAll(OPENROUTER_MODEL_LINK_PATTERN)) {
+    const candidate = match[1]?.trim();
+    if (!candidate) {
+      continue;
+    }
+    const [prefix] = candidate.split("/");
+    if (!prefix || OPENROUTER_NON_MODEL_LINK_PREFIXES.has(prefix)) {
+      continue;
+    }
+    ids.add(candidate);
+  }
+
+  return Array.from(ids).map((id) => ({
+    id,
+    name: id,
+    providerId: "openrouter",
+  }));
 }
 
 function toErrorMessage(error: unknown): string {
