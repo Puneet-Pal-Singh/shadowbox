@@ -50,8 +50,10 @@ export function ProviderDialog({
     catalog,
     credentials,
     providerModels,
+    manageProviderModels,
     visibleModelIds,
     loadingModelsForProviderId,
+    loadingManageModelsForProviderIds,
     preferences,
     selectedProviderId,
     selectedCredentialId,
@@ -62,6 +64,7 @@ export function ProviderDialog({
     disconnectCredential,
     validateCredential,
     loadProviderModels,
+    loadManageProviderModels,
     applySessionSelection,
     toggleModelVisibility,
     setProviderVisibleModels,
@@ -290,8 +293,10 @@ export function ProviderDialog({
         onClose={onClose}
         catalog={catalog}
         credentials={credentials}
-        providerModels={providerModels}
+        providerModels={manageProviderModels}
         visibleModelIds={visibleModelIds}
+        loadingProviderModelIds={loadingManageModelsForProviderIds}
+        onLoadProviderModels={loadManageProviderModels}
         onToggleModelVisibility={toggleModelVisibility}
         onSetProviderVisibleModels={setProviderVisibleModels}
         onConnectProvider={() => setManageOnlyView("connect")}
@@ -452,8 +457,10 @@ export function ProviderDialog({
         onClose={() => setShowManageModels(false)}
         catalog={catalog}
         credentials={credentials}
-        providerModels={providerModels}
+        providerModels={manageProviderModels}
         visibleModelIds={visibleModelIds}
+        loadingProviderModelIds={loadingManageModelsForProviderIds}
+        onLoadProviderModels={loadManageProviderModels}
         onToggleModelVisibility={toggleModelVisibility}
         onSetProviderVisibleModels={setProviderVisibleModels}
         onConnectProvider={() => {
