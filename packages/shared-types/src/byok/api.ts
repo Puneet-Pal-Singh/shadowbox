@@ -14,6 +14,7 @@ import {
   BYOKDiscoveredProviderModelsRefreshResponseSchema,
   BYOKDiscoveredProviderModelsResponseSchema,
   BYOKModelDiscoverySourceSchema,
+  BYOKModelDiscoverySurfaceSchema,
   BYOKModelDiscoveryViewSchema,
   BYOKModelPopularityScoreSchema,
   BYOKModelPopularitySignalsSchema,
@@ -103,6 +104,7 @@ export type BYOKProviderModelsResponse = z.infer<
 export {
   BYOKProviderSlugSchema,
   BYOKModelDiscoveryViewSchema,
+  BYOKModelDiscoverySurfaceSchema,
   BYOKModelDiscoverySourceSchema,
   BYOKModelPricingSchema,
   BYOKModelPopularitySignalsSchema,
@@ -119,6 +121,7 @@ export {
 export type {
   BYOKProviderSlug,
   BYOKModelDiscoveryView,
+  BYOKModelDiscoverySurface,
   BYOKModelDiscoverySource,
   BYOKModelPricing,
   BYOKModelPopularitySignals,
