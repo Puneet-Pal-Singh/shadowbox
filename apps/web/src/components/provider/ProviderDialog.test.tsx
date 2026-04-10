@@ -64,6 +64,7 @@ describe("ProviderDialog", () => {
           },
         ],
       },
+      manageProviderModels: {},
       providerModelsMetadata: {
         openai: {
           fetchedAt: new Date().toISOString(),
@@ -95,6 +96,7 @@ describe("ProviderDialog", () => {
       error: null,
       isValidating: false,
       loadingModelsForProviderId: null,
+      loadingManageModelsForProviderIds: {},
       refreshingModelsForProviderId: null,
       lastResolvedConfig: {
         providerId: "openai",
@@ -114,6 +116,7 @@ describe("ProviderDialog", () => {
           provider: "openai",
         },
       ]),
+      loadManageProviderModels: vi.fn(async () => []),
       loadMoreProviderModels: vi.fn(async () => []),
       refreshProviderModels: vi.fn(async () => undefined),
       setModelView: vi.fn(async () => undefined),
