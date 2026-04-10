@@ -103,6 +103,7 @@ export interface TestByokD1Handle {
     getAppliedMigrationIds(): string[];
     getCredential(userId: string, providerId: string, label?: string): CredentialRow | undefined;
     getPreference(userId: string, workspaceId: string): PreferenceRow | undefined;
+    hasTable(tableName: string): boolean;
     seedTable(tableName: string, columns: string[]): void;
     seedAppliedMigration(id: string, appliedAt?: string): void;
   };
@@ -150,6 +151,9 @@ export function createTestByokD1Database(): TestByokD1Handle {
       },
       getPreference(userId: string, workspaceId: string) {
         return state.preferences.get(buildPreferenceKey(userId, workspaceId));
+      },
+      hasTable(tableName: string) {
+        return state.schema.has(tableName);
       },
       seedTable(tableName: string, columns: string[]) {
         state.schema.set(tableName, new Set(columns));
