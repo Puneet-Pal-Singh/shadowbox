@@ -60,6 +60,7 @@ describe("ManageModelsDialog", () => {
         credentials={credentials}
         providerModels={providerModels}
         visibleModelIds={{ google: new Set(["gemini-2.5-pro"]) }}
+        loadingProviderModelIds={{}}
         onToggleModelVisibility={onToggleModelVisibility}
         onSetProviderVisibleModels={onSetProviderVisibleModels}
       />,
@@ -84,6 +85,7 @@ describe("ManageModelsDialog", () => {
         credentials={credentials}
         providerModels={providerModels}
         visibleModelIds={{ google: new Set() }}
+        loadingProviderModelIds={{}}
         onToggleModelVisibility={vi.fn()}
         onSetProviderVisibleModels={onSetProviderVisibleModels}
       />,
@@ -110,6 +112,7 @@ describe("ManageModelsDialog", () => {
         credentials={credentials}
         providerModels={{}}
         visibleModelIds={{}}
+        loadingProviderModelIds={{ google: true }}
         onToggleModelVisibility={vi.fn()}
         onSetProviderVisibleModels={vi.fn()}
       />,
