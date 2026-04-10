@@ -165,6 +165,26 @@ CREATE TABLE IF NOT EXISTS provider_user_model_cache (
 `;
 
 /**
+ * D1 Migration: Backfill user-scoped provider model cache table
+ *
+ * This is intentionally duplicated as a tail migration because an earlier
+ * local-only migration ordering bug could record the migration id without ever
+ * creating the table. Keeping this as a new append-only migration lets older
+ * local databases self-heal safely.
+ */
+export const PROVIDER_USER_MODEL_CACHE_BACKFILL_SCHEMA = `
+CREATE TABLE IF NOT EXISTS provider_user_model_cache (
+  provider_id TEXT NOT NULL,
+  credential_id TEXT NOT NULL,
+  models_json TEXT NOT NULL,
+  source_version TEXT NOT NULL,
+  fetched_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  PRIMARY KEY (provider_id, credential_id)
+);
+`;
+
+/**
  * D1 Migration: Add fetched_at and expires_at to provider registry cache
  *
  * Adds columns for tracking cache freshness and TTL.
@@ -230,4 +250,5 @@ export const ALL_BYOK_MIGRATIONS = [
   // Append-only: new migrations must be added at the tail so existing
   // byok_migration_<index> ledger entries stay stable across deploys.
   PROVIDER_USER_MODEL_CACHE_SCHEMA,
+  PROVIDER_USER_MODEL_CACHE_BACKFILL_SCHEMA,
 ];
