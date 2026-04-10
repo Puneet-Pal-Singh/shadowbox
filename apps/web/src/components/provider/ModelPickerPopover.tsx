@@ -99,6 +99,16 @@ function formatProviderDisplayName(
   return providerId === "axis" ? "Axis (Free)" : displayName;
 }
 
+function getViewLabel(
+  view: ProviderModelDiscoveryView,
+  providerId: string | null,
+): string {
+  if (view === "popular") {
+    return providerId === "openrouter" ? "Recommended" : "Popular";
+  }
+  return "All";
+}
+
 function resolveEffectiveSelection(
   catalog: ProviderRegistryEntry[],
   providerModels: Record<string, ProviderModelOption[]>,
@@ -169,7 +179,9 @@ function shouldPreservePendingSelection(
     return false;
   }
 
-  if (!Object.prototype.hasOwnProperty.call(providerModels, selectedProviderId)) {
+  if (
+    !Object.prototype.hasOwnProperty.call(providerModels, selectedProviderId)
+  ) {
     return true;
   }
 
@@ -287,13 +299,19 @@ export function ModelPickerPopover({
         ),
         models: providerModels[entry.providerId] || [],
         isConnected:
-          entry.providerId === "axis" || connectedProviderIds.has(entry.providerId),
+          entry.providerId === "axis" ||
+          connectedProviderIds.has(entry.providerId),
         isModelListLoaded: Object.prototype.hasOwnProperty.call(
           providerModels,
           entry.providerId,
         ),
       }))
-      .filter((group) => group.providerId === "axis" || group.isConnected || group.models.length > 0);
+      .filter(
+        (group) =>
+          group.providerId === "axis" ||
+          group.isConnected ||
+          group.models.length > 0,
+      );
   }, [catalog, connectedProviderIds, providerModels]);
 
   // Filter groups and models based on search and visibility
@@ -646,7 +664,7 @@ export function ModelPickerPopover({
                       : "text-neutral-300 hover:bg-neutral-800"
                   }`}
                 >
-                  {view === "popular" ? "Popular" : "All"}
+                  {getViewLabel(view, selectedProviderId)}
                 </button>
               ))}
             </div>
@@ -766,7 +784,8 @@ export function ModelPickerPopover({
                           {effectiveSelection.providerId === group.providerId &&
                             effectiveSelection.modelId !== null &&
                             !providerModels[group.providerId]?.some(
-                              (model) => model.id === effectiveSelection.modelId,
+                              (model) =>
+                                model.id === effectiveSelection.modelId,
                             ) && (
                               <div
                                 className="px-3 py-2 text-left text-xs bg-neutral-800 text-neutral-100"
@@ -777,7 +796,9 @@ export function ModelPickerPopover({
                                     {effectiveSelection.modelId}
                                   </p>
                                   <span className="ml-auto rounded border border-amber-700/60 bg-amber-900/30 px-1.5 py-0.5 text-[10px] text-amber-200">
-                                    {group.isModelListLoaded ? "Pending" : "Loading..."}
+                                    {group.isModelListLoaded
+                                      ? "Pending"
+                                      : "Loading..."}
                                   </span>
                                 </div>
                               </div>
@@ -819,7 +840,8 @@ export function ModelPickerPopover({
                           ))}
                           {group.models.length === 0 &&
                             !(
-                              effectiveSelection.providerId === group.providerId &&
+                              effectiveSelection.providerId ===
+                                group.providerId &&
                               effectiveSelection.modelId !== null
                             ) && (
                               <div className="px-3 py-2 text-xs text-neutral-500">
