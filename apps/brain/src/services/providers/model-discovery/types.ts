@@ -65,3 +65,9 @@ export interface ProviderModelRankingResult {
   view: BYOKModelDiscoveryView;
   models: BYOKDiscoveredProviderModel[];
 }
+
+export interface OpenRouterRecommendationInput {
+  userModels: BYOKDiscoveredProviderModel[];
+  programmingModels: BYOKDiscoveredProviderModel[];
+  limit: number;
+}
