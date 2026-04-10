@@ -71,3 +71,13 @@ export interface OpenRouterRecommendationInput {
   programmingModels: BYOKDiscoveredProviderModel[];
   limit: number;
 }
+
+export const OPENROUTER_DISCOVERY_CATEGORIES = [
+  "programming",
+  "technology",
+  "science",
+  "academia",
+] as const;
+
+export type OpenRouterDiscoveryCategory =
+  typeof OPENROUTER_DISCOVERY_CATEGORIES[number];
