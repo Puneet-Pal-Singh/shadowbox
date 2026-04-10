@@ -63,7 +63,7 @@ const OpenRouterModelsEnvelopeSchema = z.object({
         })
         .partial()
         .optional(),
-      expires_at: z.string().optional(),
+      expires_at: z.string().datetime().optional(),
     }),
   ),
 });

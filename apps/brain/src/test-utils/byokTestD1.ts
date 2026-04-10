@@ -345,13 +345,7 @@ function performQuery(
     normalized ===
     "SELECT provider_id, credential_id, models_json, fetched_at, expires_at, source_version FROM provider_user_model_cache WHERE provider_id = ? AND credential_id = ?"
   ) {
-    assertTableExists(state, "provider_user_model_cache");
-    const providerId = String(params[0]);
-    const credentialId = String(params[1]);
-    const row = state.userCache.get(
-      buildUserCacheKey(providerId, credentialId),
-    );
-    return row ? [row] : [];
+    return handleProviderUserModelCacheSelect(state, params);
   }
 
   if (
@@ -610,24 +604,7 @@ function performMutation(
   }
 
   if (normalized.startsWith("INSERT INTO provider_user_model_cache (")) {
-    assertTableExists(state, "provider_user_model_cache");
-    const mappedParams = params.map(String);
-    const [
-      providerId = "",
-      credentialId = "",
-      modelsJson = "",
-      sourceVersion = "",
-      fetchedAt = "",
-      expiresAt = "",
-    ] = mappedParams;
-    state.userCache.set(buildUserCacheKey(providerId, credentialId), {
-      provider_id: providerId,
-      credential_id: credentialId,
-      models_json: modelsJson,
-      source_version: sourceVersion,
-      fetched_at: fetchedAt,
-      expires_at: expiresAt,
-    });
+    handleProviderUserModelCacheInsert(state, params);
     return;
   }
 
@@ -644,8 +621,7 @@ function performMutation(
     normalized ===
     "DELETE FROM provider_user_model_cache WHERE provider_id = ? AND credential_id = ?"
   ) {
-    assertTableExists(state, "provider_user_model_cache");
-    state.userCache.delete(buildUserCacheKey(String(params[0]), String(params[1])));
+    handleProviderUserModelCacheDelete(state, params);
     return;
   }
 
@@ -759,6 +735,49 @@ function createTable(state: TestByokD1State, normalized: string): void {
     existingColumns.add(column);
   }
   state.schema.set(tableName, existingColumns);
+}
+
+function handleProviderUserModelCacheSelect(
+  state: TestByokD1State,
+  params: unknown[],
+): unknown[] {
+  assertTableExists(state, "provider_user_model_cache");
+  const providerId = String(params[0]);
+  const credentialId = String(params[1]);
+  const row = state.userCache.get(buildUserCacheKey(providerId, credentialId));
+  return row ? [row] : [];
+}
+
+function handleProviderUserModelCacheInsert(
+  state: TestByokD1State,
+  params: unknown[],
+): void {
+  assertTableExists(state, "provider_user_model_cache");
+  const mappedParams = params.map(String);
+  const [
+    providerId = "",
+    credentialId = "",
+    modelsJson = "",
+    sourceVersion = "",
+    fetchedAt = "",
+    expiresAt = "",
+  ] = mappedParams;
+  state.userCache.set(buildUserCacheKey(providerId, credentialId), {
+    provider_id: providerId,
+    credential_id: credentialId,
+    models_json: modelsJson,
+    source_version: sourceVersion,
+    fetched_at: fetchedAt,
+    expires_at: expiresAt,
+  });
+}
+
+function handleProviderUserModelCacheDelete(
+  state: TestByokD1State,
+  params: unknown[],
+): void {
+  assertTableExists(state, "provider_user_model_cache");
+  state.userCache.delete(buildUserCacheKey(String(params[0]), String(params[1])));
 }
 
 function applyAlterTable(state: TestByokD1State, normalized: string): void {

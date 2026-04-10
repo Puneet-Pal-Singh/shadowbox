@@ -37,6 +37,9 @@ const OPENROUTER_MANAGE_MODELS_MAX = 150;
 const OPENROUTER_TOP_FREE_MAX = 10;
 const OPENROUTER_AUTO_MODEL_ID = "openrouter/auto";
 const OPENROUTER_AUTO_MODEL_NAME = "Auto (Best Model)";
+const OPENROUTER_PROGRAMMING_CACHE_KEY = "openrouter:programming";
+const OPENROUTER_LEADERBOARD_CACHE_KEY = "openrouter:leaderboard";
+const OPENROUTER_FREE_CACHE_KEY = "openrouter:free";
 
 export class ProviderModelDiscoveryService {
   private readonly adapters: Map<string, ProviderModelCatalogPort>;
@@ -82,9 +85,7 @@ export class ProviderModelDiscoveryService {
     return this.refreshDiscoveredModels("openrouter");
   }
 
-  async getOpenRouterUserModels(
-    credentialId: string,
-  ): Promise<BYOKDiscoveredProviderModel[]> {
+  async getOpenRouterUserModels(): Promise<BYOKDiscoveredProviderModel[]> {
     const credential = await this.getProviderCredential("openrouter");
     const userInventory = await this.getOpenRouterUserInventory(
       credential.cacheKey,
@@ -180,6 +181,7 @@ export class ProviderModelDiscoveryService {
     await this.cacheStore.invalidateModelCache(providerId);
     if (providerId === "openrouter") {
       await this.invalidateCurrentOpenRouterUserInventoryCache();
+      await this.invalidateOpenRouterSharedCaches();
     }
     const fresh = await this.fetchAndCacheModels(providerId);
     return {
@@ -324,41 +326,32 @@ export class ProviderModelDiscoveryService {
     query: BYOKDiscoveredProviderModelsQuery,
   ): Promise<BYOKDiscoveredProviderModelsResponse> {
     const credential = await this.getProviderCredential("openrouter");
-    const adapter = this.getOpenRouterAdapter();
     const userInventory = await this.getOpenRouterUserInventory(
       credential.cacheKey,
       credential.apiKey,
     );
-
-    const categoryFetches = OPENROUTER_DISCOVERY_CATEGORIES.map((category) =>
-      this.fetchOpenRouterCategoryModels(adapter, category),
+    const categoryFetches = OPENROUTER_DISCOVERY_CATEGORIES.map(
+      async (category) =>
+        [
+          category,
+          await this.getOpenRouterCategoryModels(category),
+        ] as const,
     );
-    const [leaderboardResult, freeResult, ...categoryResults] =
-      await Promise.allSettled([
-        adapter.fetchLeaderboardModels("openrouter"),
-        adapter.fetchFreeModels("openrouter"),
-        ...categoryFetches,
-      ]);
-
-    const categoryMap = new Map<
-      OpenRouterDiscoveryCategory,
-      BYOKDiscoveredProviderModel[]
-    >();
-    OPENROUTER_DISCOVERY_CATEGORIES.forEach((category, index) => {
-      categoryMap.set(
-        category,
-        settledModelsOrEmpty(categoryResults[index]),
-      );
-    });
+    const [leaderboardModels, freeModels, categoryEntries] = await Promise.all([
+      this.getOpenRouterLeaderboardModels(),
+      this.getOpenRouterFreeModels(),
+      Promise.all(categoryFetches),
+    ]);
+    const categoryMap = new Map(categoryEntries);
 
     const ordered = buildOpenRouterManageModels({
       userModels: userInventory.models,
-      leaderboardModels: settledModelsOrEmpty(leaderboardResult),
+      leaderboardModels,
       programmingModels: categoryMap.get("programming") ?? [],
       technologyModels: categoryMap.get("technology") ?? [],
       scienceModels: categoryMap.get("science") ?? [],
       academiaModels: categoryMap.get("academia") ?? [],
-      freeModels: settledModelsOrEmpty(freeResult),
+      freeModels,
       limit: Math.max(query.limit, OPENROUTER_MANAGE_MODELS_MAX),
     });
 
@@ -423,15 +416,64 @@ export class ProviderModelDiscoveryService {
   private async getOpenRouterProgrammingModels(): Promise<
     BYOKDiscoveredProviderModel[]
   > {
-    const adapter = this.getOpenRouterAdapter();
-    return adapter.fetchProgrammingModels("openrouter");
+    return this.getOpenRouterSharedModels(
+      OPENROUTER_PROGRAMMING_CACHE_KEY,
+      async (adapter) => adapter.fetchProgrammingModels("openrouter"),
+    );
   }
 
-  private async fetchOpenRouterCategoryModels(
-    adapter: OpenRouterModelCatalogPort,
+  private async getOpenRouterCategoryModels(
     category: OpenRouterDiscoveryCategory,
   ): Promise<BYOKDiscoveredProviderModel[]> {
-    return adapter.fetchCategoryModels("openrouter", category);
+    return this.getOpenRouterSharedModels(
+      buildOpenRouterCategoryCacheKey(category),
+      async (adapter) => adapter.fetchCategoryModels("openrouter", category),
+    );
+  }
+
+  private async getOpenRouterLeaderboardModels(): Promise<
+    BYOKDiscoveredProviderModel[]
+  > {
+    return this.getOpenRouterSharedModels(
+      OPENROUTER_LEADERBOARD_CACHE_KEY,
+      async (adapter) => adapter.fetchLeaderboardModels("openrouter"),
+    );
+  }
+
+  private async getOpenRouterFreeModels(): Promise<
+    BYOKDiscoveredProviderModel[]
+  > {
+    return this.getOpenRouterSharedModels(
+      OPENROUTER_FREE_CACHE_KEY,
+      async (adapter) => adapter.fetchFreeModels("openrouter"),
+    );
+  }
+
+  private async getOpenRouterSharedModels(
+    cacheKey: string,
+    loader: (
+      adapter: OpenRouterModelCatalogPort,
+    ) => Promise<BYOKDiscoveredProviderModel[]>,
+  ): Promise<BYOKDiscoveredProviderModel[]> {
+    const cached = await this.readCache(cacheKey);
+    if (cached && !isExpired(cached.expiresAt)) {
+      this.observability.recordCacheHit(cacheKey);
+      return cached.models;
+    }
+
+    const adapter = this.getOpenRouterAdapter();
+    const models = await loader(adapter);
+    const fetchedAt = new Date().toISOString();
+    const expiresAt = new Date(Date.now() + MODEL_CACHE_TTL_MS).toISOString();
+    const record: ProviderModelCacheRecord = {
+      providerId: cacheKey,
+      models,
+      fetchedAt,
+      expiresAt,
+      source: "provider_api",
+    };
+    await this.cacheStore.setModelCache(record);
+    return record.models;
   }
 
   private async getOpenRouterUserInventory(
@@ -480,6 +522,19 @@ export class ProviderModelDiscoveryService {
     }
   }
 
+  private async invalidateOpenRouterSharedCaches(): Promise<void> {
+    const cacheKeys = [
+      OPENROUTER_PROGRAMMING_CACHE_KEY,
+      OPENROUTER_LEADERBOARD_CACHE_KEY,
+      OPENROUTER_FREE_CACHE_KEY,
+      ...OPENROUTER_DISCOVERY_CATEGORIES.map(buildOpenRouterCategoryCacheKey),
+    ];
+
+    await Promise.all(
+      cacheKeys.map((cacheKey) => this.cacheStore.invalidateModelCache(cacheKey)),
+    );
+  }
+
   private async getProviderCredential(providerId: string): Promise<{
     apiKey: string;
     cacheKey: string;
@@ -499,7 +554,7 @@ export class ProviderModelDiscoveryService {
     }
     return {
       apiKey,
-      cacheKey: buildCredentialCacheKey(providerId, apiKey),
+      cacheKey: await buildCredentialCacheKey(providerId, apiKey),
     };
   }
 
@@ -781,21 +836,22 @@ function getOpenRouterMatchKeys(
   return Array.from(new Set(keys));
 }
 
-function buildCredentialCacheKey(providerId: string, apiKey: string): string {
-  const raw = `${providerId}:${apiKey}`;
-  let hash = 0;
-  for (let index = 0; index < raw.length; index += 1) {
-    hash = (hash * 31 + raw.charCodeAt(index)) >>> 0;
-  }
-  return `${providerId}:${hash.toString(16).padStart(8, "0")}`;
+function buildOpenRouterCategoryCacheKey(
+  category: OpenRouterDiscoveryCategory,
+): string {
+  return `openrouter:${category}`;
 }
 
-function settledModelsOrEmpty(
-  result:
-    | PromiseSettledResult<BYOKDiscoveredProviderModel[]>
-    | undefined,
-): BYOKDiscoveredProviderModel[] {
-  return result?.status === "fulfilled" ? result.value : [];
+async function buildCredentialCacheKey(
+  providerId: string,
+  apiKey: string,
+): Promise<string> {
+  const raw = new TextEncoder().encode(`${providerId}:${apiKey}`);
+  const digest = await crypto.subtle.digest("SHA-256", raw);
+  const hash = Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+  return `${providerId}:${hash}`;
 }
 
 function buildOpenRouterManageModels(input: {
