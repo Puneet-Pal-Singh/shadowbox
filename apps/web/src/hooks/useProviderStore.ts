@@ -52,6 +52,10 @@ type UseProviderStoreResult = ProviderStoreState & {
     providerId: string,
     options?: LoadProviderModelsOptions,
   ) => Promise<ProviderModelOption[]>;
+  loadManageProviderModels: (
+    providerId: string,
+    limit?: number,
+  ) => Promise<ProviderModelOption[]>;
   loadMoreProviderModels: (
     providerId: string,
   ) => Promise<ProviderModelOption[]>;
@@ -124,6 +128,11 @@ export function useProviderStore(
       store.loadProviderModels(providerId, options),
     [store],
   );
+  const loadManageProviderModels = useCallback(
+    (providerId: string, limit?: number) =>
+      store.loadManageProviderModels(providerId, limit),
+    [store],
+  );
   const loadMoreProviderModels = useCallback(
     (providerId: string) => store.loadMoreProviderModels(providerId),
     [store],
@@ -170,6 +179,7 @@ export function useProviderStore(
     disconnectCredential,
     validateCredential,
     loadProviderModels,
+    loadManageProviderModels,
     loadMoreProviderModels,
     refreshProviderModels,
     setModelView,
