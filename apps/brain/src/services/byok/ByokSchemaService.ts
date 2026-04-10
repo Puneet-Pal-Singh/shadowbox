@@ -5,7 +5,10 @@
  * Ensures schema is ready before provider operations.
  */
 
-import { ALL_BYOK_MIGRATIONS } from "./schema.js";
+import {
+  ALL_BYOK_MIGRATIONS,
+  PROVIDER_USER_MODEL_CACHE_BACKFILL_SCHEMA,
+} from "./schema.js";
 
 export interface IDatabase {
   prepare(sql: string): {
@@ -112,6 +115,8 @@ export class ByokSchemaService {
         await this.applyMigration(migration);
       }
     }
+
+    await this.ensureRequiredTablesExist();
   }
 
   /**
@@ -211,6 +216,64 @@ export class ByokSchemaService {
       return result.results.some((column) => column.name === columnName);
     } catch {
       return false;
+    }
+  }
+
+  private async ensureRequiredTablesExist(): Promise<void> {
+    const requiredTables: Array<{ name: string; recoverySql: string }> = [
+      {
+        name: "provider_user_model_cache",
+        recoverySql: PROVIDER_USER_MODEL_CACHE_BACKFILL_SCHEMA,
+      },
+    ];
+
+    for (const table of requiredTables) {
+      if (await this.tableExists(table.name)) {
+        continue;
+      }
+
+      console.warn(
+        `[byok/schema] Missing required table "${table.name}" after migration replay; applying recovery SQL.`,
+      );
+      await this.runStatements(table.recoverySql, `recovery:${table.name}`);
+    }
+  }
+
+  private async tableExists(tableName: string): Promise<boolean> {
+    try {
+      const stmt = this.db.prepare(`PRAGMA table_info(${tableName})`);
+      const result = await stmt.all<{ name: string }>();
+      return result.results.length > 0;
+    } catch {
+      return false;
+    }
+  }
+
+  private async runStatements(sql: string, label: string): Promise<void> {
+    const statements = splitSqlStatements(sql);
+
+    for (const [index, statement] of statements.entries()) {
+      const executableSql = statement.trim();
+      if (!executableSql) {
+        continue;
+      }
+
+      const statementLabel = `${index + 1}/${statements.length}`;
+      console.log(
+        `[byok/schema] Applying statement ${statementLabel} for ${label}`,
+      );
+      const stmt = this.db.prepare(executableSql);
+      try {
+        const result = await stmt.run();
+        if (!result.success) {
+          throw new Error("Statement execution returned failure");
+        }
+      } catch (error) {
+        throw new Error(
+          `Recovery ${label} statement ${statementLabel} failed: ${executableSql}`,
+          { cause: error },
+        );
+      }
     }
   }
 
