@@ -54,6 +54,7 @@ describe("ChatInputBar", () => {
       providerModels: {
         openai: [{ id: "gpt-4o", name: "GPT-4o", provider: "openai" }],
       },
+      manageProviderModels: {},
       providerModelsMetadata: {},
       providerModelsPage: {},
       visibleModelIds: { openai: new Set(["gpt-4o"]) },
@@ -72,6 +73,7 @@ describe("ChatInputBar", () => {
       error: null,
       isValidating: false,
       loadingModelsForProviderId: null,
+      loadingManageModelsForProviderIds: {},
       refreshingModelsForProviderId: null,
       bootstrap: vi.fn(async () => undefined),
       connectCredential: vi.fn(async () => undefined),
@@ -79,6 +81,7 @@ describe("ChatInputBar", () => {
       validateCredential: vi.fn(async () => undefined),
       updatePreferences: vi.fn(async () => undefined),
       loadProviderModels: vi.fn(async () => []),
+      loadManageProviderModels: vi.fn(async () => []),
       loadMoreProviderModels: vi.fn(async () => []),
       refreshProviderModels: vi.fn(async () => undefined),
       setModelView: vi.fn(async () => undefined),
