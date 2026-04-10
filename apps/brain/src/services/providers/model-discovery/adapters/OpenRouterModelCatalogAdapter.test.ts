@@ -20,7 +20,13 @@ describe("OpenRouterModelCatalogAdapter", () => {
                 completion: "0.000015",
               },
               supported_parameters: ["tools"],
-              architecture: { modality: "text+image->text" },
+              slug: "gpt-4o",
+              description: "General-purpose multimodal model",
+              architecture: { modality: ["text", "image"] },
+              settings: {
+                structured_outputs: true,
+                reasoning: true,
+              },
             },
           ],
         }),
@@ -38,8 +44,12 @@ describe("OpenRouterModelCatalogAdapter", () => {
     expect(models).toHaveLength(1);
     expect(models[0].id).toBe("openai/gpt-4o");
     expect(models[0].providerId).toBe("openrouter");
-    expect(models[0].supportsTools).toBe(true);
-    expect(models[0].supportsVision).toBe(true);
+    expect(models[0].canonicalSlug).toBe("gpt-4o");
+    expect(models[0].capabilities?.supportsTools).toBe(true);
+    expect(models[0].capabilities?.supportsStructuredOutputs).toBe(true);
+    expect(models[0].capabilities?.supportsReasoning).toBe(true);
+    expect(models[0].outputModalities?.text).toBe(true);
+    expect(models[0].outputModalities?.image).toBe(true);
   });
 
   it("fails fast on provider API failure", async () => {
