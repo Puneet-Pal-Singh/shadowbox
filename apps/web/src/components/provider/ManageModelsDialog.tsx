@@ -41,6 +41,40 @@ const CONNECT_PROVIDER_BUTTON_CLASS =
 const VISIBILITY_ROW_CLASS =
   "grid grid-cols-[minmax(0,1fr)_2rem] items-center gap-3 px-2";
 
+function getProviderCompanySortKey(
+  providerId: string,
+  model: ProviderModelOption,
+): string {
+  if (providerId !== "openrouter") {
+    return providerId;
+  }
+
+  const [author] = model.id.split("/");
+  return (author ?? "zzzz").trim().toLowerCase();
+}
+
+function sortProviderModels(
+  providerId: string,
+  models: ProviderModelOption[],
+): ProviderModelOption[] {
+  return [...models].sort((left, right) => {
+    const companyCompare = getProviderCompanySortKey(
+      providerId,
+      left,
+    ).localeCompare(getProviderCompanySortKey(providerId, right));
+    if (companyCompare !== 0) {
+      return companyCompare;
+    }
+
+    const nameCompare = left.name.localeCompare(right.name);
+    if (nameCompare !== 0) {
+      return nameCompare;
+    }
+
+    return left.id.localeCompare(right.id);
+  });
+}
+
 /**
  * Build provider groups from catalog, models, and visibility state
  */
@@ -61,7 +95,10 @@ function buildProviderGroups(
         Object.prototype.hasOwnProperty.call(providerModels, entry.providerId),
     )
     .map((entry) => {
-      const models = providerModels[entry.providerId] || [];
+      const models = sortProviderModels(
+        entry.providerId,
+        providerModels[entry.providerId] || [],
+      );
       return {
         providerId: entry.providerId,
         displayName: entry.displayName,
