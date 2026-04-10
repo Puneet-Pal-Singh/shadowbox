@@ -19,6 +19,8 @@ import {
   BYOKModelPopularitySignalsSchema,
   BYOKModelPricingSchema,
   BYOKProviderSlugSchema,
+  BYOKModelCapabilitySchema,
+  BYOKModelOutputModalitySchema,
 } from "./model-discovery.js";
 
 /**
@@ -105,6 +107,8 @@ export {
   BYOKModelPricingSchema,
   BYOKModelPopularitySignalsSchema,
   BYOKModelPopularityScoreSchema,
+  BYOKModelCapabilitySchema,
+  BYOKModelOutputModalitySchema,
   BYOKDiscoveredProviderModelSchema,
   BYOKDiscoveredProviderModelsPageSchema,
   BYOKDiscoveredProviderModelsMetadataSchema,
@@ -119,6 +123,8 @@ export type {
   BYOKModelPricing,
   BYOKModelPopularitySignals,
   BYOKModelPopularityScore,
+  BYOKModelCapability,
+  BYOKModelOutputModality,
   BYOKDiscoveredProviderModel,
   BYOKDiscoveredProviderModelsPage,
   BYOKDiscoveredProviderModelsMetadata,
