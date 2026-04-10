@@ -26,6 +26,7 @@ describe("ChatInput", () => {
       credentials: [],
       preferences: null,
       providerModels: {},
+      manageProviderModels: {},
       providerModelsMetadata: {},
       providerModelsPage: {},
       visibleModelIds: {},
@@ -44,6 +45,7 @@ describe("ChatInput", () => {
       error: null,
       isValidating: false,
       loadingModelsForProviderId: null,
+      loadingManageModelsForProviderIds: {},
       refreshingModelsForProviderId: null,
       bootstrap: vi.fn(async () => undefined),
       connectCredential: vi.fn(async () => undefined),
@@ -63,6 +65,10 @@ describe("ChatInput", () => {
         return undefined;
       }),
       loadProviderModels: vi.fn(async (providerId: string) => {
+        void providerId;
+        return [];
+      }),
+      loadManageProviderModels: vi.fn(async (providerId: string) => {
         void providerId;
         return [];
       }),
