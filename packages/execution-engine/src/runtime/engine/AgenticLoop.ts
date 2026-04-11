@@ -808,10 +808,6 @@ function isTerminalToolFailure(toolName: string): boolean {
 }
 
 function hasEditMutationEvidence(toolName: string, metadata: unknown): boolean {
-  if (toolName === "write_file") {
-    return true;
-  }
-
   if (!metadata || typeof metadata !== "object") {
     return false;
   }
@@ -821,7 +817,17 @@ function hasEditMutationEvidence(toolName: string, metadata: unknown): boolean {
     return false;
   }
 
-  return (activity as Record<string, unknown>).family === "edit";
+  if ((activity as Record<string, unknown>).family !== "edit") {
+    return false;
+  }
+
+  return hasPositiveEditDelta(activity as Record<string, unknown>);
+}
+
+function hasPositiveEditDelta(activity: Record<string, unknown>): boolean {
+  const additions = Number(activity.additions ?? 0);
+  const deletions = Number(activity.deletions ?? 0);
+  return additions > 0 || deletions > 0;
 }
 
 function buildAssistantMessage(
