@@ -3,8 +3,15 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { Message } from "@ai-sdk/react";
 import { ChatInterface } from "./ChatInterface.js";
 
+const mockChatInputBar = vi.hoisted(() =>
+  vi.fn((props: unknown) => {
+    void props;
+    return <div data-testid="chat-input-bar" />;
+  }),
+);
+
 vi.mock("./ChatInputBar.js", () => ({
-  ChatInputBar: () => <div data-testid="chat-input-bar" />,
+  ChatInputBar: (props: unknown) => mockChatInputBar(props),
 }));
 
 vi.mock("./ChatBranchSelector.js", () => ({
@@ -36,6 +43,7 @@ import { useRunActivityFeed } from "../../hooks/useRunActivityFeed.js";
 
 describe("ChatInterface", () => {
   beforeEach(() => {
+    mockChatInputBar.mockClear();
     Object.defineProperty(HTMLElement.prototype, "scrollTo", {
       configurable: true,
       value: vi.fn(),
@@ -236,6 +244,36 @@ describe("ChatInterface", () => {
     expect(
       screen.queryByRole("button", { name: "Execute Plan in Build" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("passes the active repository through to the chat input bar", () => {
+    render(
+      <ChatInterface
+        chatProps={{
+          messages: [],
+          runId: "run-1",
+          input: "",
+          handleInputChange: vi.fn(),
+          handleSubmit: vi.fn(),
+          append: vi.fn(),
+          stop: vi.fn(),
+          isLoading: false,
+          error: null,
+          debugEvents: [],
+        }}
+        sessionId="session-1"
+        mode="build"
+        repoTree={[{ path: "README.md", type: "blob", sha: "1" }]}
+        isLoadingRepoTree
+      />,
+    );
+
+    expect(mockChatInputBar).toHaveBeenCalledWith(
+      expect.objectContaining({
+        repoTree: [{ path: "README.md", type: "blob", sha: "1" }],
+        isLoadingRepoTree: true,
+      }),
+    );
   });
 
   it("shows rate-limit errors next to the composer so they remain visible after auto-scroll", () => {
