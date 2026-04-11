@@ -2,6 +2,42 @@ import { useState, useEffect } from "react";
 import { getRepositoryTree } from "../../../services/GitHubService";
 import { useGitHub } from "../../github/GitHubContextProvider";
 
+function normalizeRepoIdentifier(value: string | undefined): string {
+  return value?.trim().toLowerCase() ?? "";
+}
+
+function getRepoName(value: string | undefined): string {
+  const normalizedValue = normalizeRepoIdentifier(value);
+  if (!normalizedValue) {
+    return "";
+  }
+
+  const segments = normalizedValue.split("/").filter(Boolean);
+  return segments[segments.length - 1] ?? "";
+}
+
+function doesRepoContextMatch(
+  expectedRepo: string | undefined,
+  actualFullName: string | undefined,
+): boolean {
+  const normalizedExpectedRepo = normalizeRepoIdentifier(expectedRepo);
+  const normalizedActualFullName = normalizeRepoIdentifier(actualFullName);
+
+  if (!normalizedExpectedRepo) {
+    return true;
+  }
+
+  if (!normalizedActualFullName) {
+    return false;
+  }
+
+  if (normalizedExpectedRepo.includes("/")) {
+    return normalizedExpectedRepo === normalizedActualFullName;
+  }
+
+  return getRepoName(normalizedExpectedRepo) === getRepoName(normalizedActualFullName);
+}
+
 export function useGitHubTree(expectedRepo?: string) {
   const { repo, branch, isLoaded: isGitHubLoaded } = useGitHub();
   const [repoTree, setRepoTree] = useState<
@@ -10,11 +46,12 @@ export function useGitHubTree(expectedRepo?: string) {
   const [isLoadingTree, setIsLoadingTree] = useState(false);
 
   // If the current context doesn't match the expected repo, we are in a loading/switching state
-  const isContextMismatch = expectedRepo && repo?.full_name !== expectedRepo;
+  const isContextMismatch = !doesRepoContextMatch(expectedRepo, repo?.full_name);
 
   useEffect(() => {
     if (isContextMismatch) {
       console.log(`[useGitHubTree] Context mismatch: expected ${expectedRepo}, got ${repo?.full_name}`);
+      setRepoTree([]);
       return;
     }
 
