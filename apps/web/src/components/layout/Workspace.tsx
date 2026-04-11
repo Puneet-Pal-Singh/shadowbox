@@ -257,6 +257,8 @@ export function Workspace({
               sessionId={sessionId}
               mode={mode}
               onModeChange={onModeChange}
+              repoTree={repoTree}
+              isLoadingRepoTree={isLoadingTree}
               onArtifactOpen={(path, content) => {
                 setSelectedFile({ path, content });
                 setIsViewingContent(true);
