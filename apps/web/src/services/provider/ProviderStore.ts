@@ -885,11 +885,16 @@ export class ProviderStore {
       const mergedModels = options.append
         ? mergeModelsById(currentModels, result.models)
         : result.models;
+      const pickerModels = this.syncPickerModelsWithVisibleManagedModels(
+        providerId,
+        mergedModels,
+        this.state.visibleModelIds,
+      );
 
       this.setState({
         providerModels: {
           ...this.state.providerModels,
-          [providerId]: mergedModels,
+          [providerId]: pickerModels,
         },
         providerModelsPage: {
           ...this.state.providerModelsPage,
@@ -909,18 +914,18 @@ export class ProviderStore {
             ? this.resolveSelectedModelIdForProvider(
                 providerId,
                 this.state.selectedModelId,
-                mergedModels,
+                pickerModels,
               )
             : this.state.selectedModelId,
       });
       this.log("[loadProviderModels] Success", {
         providerId,
-        modelCount: mergedModels.length,
+        modelCount: pickerModels.length,
         view: result.view,
         hasMore: result.page.hasMore,
         stale: result.metadata.stale,
       });
-      return mergedModels;
+      return pickerModels;
     } catch (error) {
       if (this.isWorkspaceEpochStale("loadProviderModels", epoch)) {
         return this.state.providerModels[providerId] ?? [];
@@ -986,6 +991,15 @@ export class ProviderStore {
           ...this.state.manageProviderModels,
           [providerId]: result.models,
         },
+        providerModels: {
+          ...this.state.providerModels,
+          [providerId]: this.syncPickerModelsWithVisibleManagedModels(
+            providerId,
+            this.state.providerModels[providerId] ?? [],
+            this.state.visibleModelIds,
+            result.models,
+          ),
+        },
       });
 
       this.log("[loadManageProviderModels] Success", {
@@ -1023,6 +1037,12 @@ export class ProviderStore {
       view: this.state.selectedModelView,
       append: false,
     });
+    if (Object.prototype.hasOwnProperty.call(this.state.manageProviderModels, providerId)) {
+      await this.loadManageProviderModels(
+        providerId,
+        this.state.manageProviderModels[providerId]?.length || 150,
+      );
+    }
   }
 
   /**
@@ -1271,13 +1291,21 @@ export class ProviderStore {
       ...this.state.visibleModelIds,
       [providerId]: next,
     };
+    const nextProviderModels = {
+      ...this.state.providerModels,
+      [providerId]: this.syncPickerModelsWithVisibleManagedModels(
+        providerId,
+        this.state.providerModels[providerId] ?? [],
+        newVisibleModelIds,
+      ),
+    };
     const selection =
       this.state.selectedProviderId === providerId
         ? this.deriveSelectionSnapshot({
             catalog: this.state.catalog,
             credentials: this.state.credentials,
             preferences: this.state.preferences,
-            providerModels: this.state.providerModels,
+            providerModels: nextProviderModels,
             visibleModelIds: newVisibleModelIds,
             selectedProviderId: this.state.selectedProviderId,
             selectedCredentialId: this.state.selectedCredentialId,
@@ -1285,6 +1313,7 @@ export class ProviderStore {
           })
         : null;
     this.setState({
+      providerModels: nextProviderModels,
       visibleModelIds: newVisibleModelIds,
       selectedProviderId:
         selection?.selectedProviderId ?? this.state.selectedProviderId,
@@ -1310,13 +1339,21 @@ export class ProviderStore {
       ...this.state.visibleModelIds,
       [providerId]: new Set(modelIds),
     };
+    const nextProviderModels = {
+      ...this.state.providerModels,
+      [providerId]: this.syncPickerModelsWithVisibleManagedModels(
+        providerId,
+        this.state.providerModels[providerId] ?? [],
+        newVisibleModelIds,
+      ),
+    };
     const selection =
       this.state.selectedProviderId === providerId
         ? this.deriveSelectionSnapshot({
             catalog: this.state.catalog,
             credentials: this.state.credentials,
             preferences: this.state.preferences,
-            providerModels: this.state.providerModels,
+            providerModels: nextProviderModels,
             visibleModelIds: newVisibleModelIds,
             selectedProviderId: this.state.selectedProviderId,
             selectedCredentialId: this.state.selectedCredentialId,
@@ -1324,6 +1361,7 @@ export class ProviderStore {
           })
         : null;
     this.setState({
+      providerModels: nextProviderModels,
       visibleModelIds: newVisibleModelIds,
       selectedProviderId:
         selection?.selectedProviderId ?? this.state.selectedProviderId,
@@ -1735,6 +1773,33 @@ export class ProviderStore {
       return models;
     }
     return models.filter((model) => visibleSet.has(model.id));
+  }
+
+  private syncPickerModelsWithVisibleManagedModels(
+    providerId: string,
+    pickerModels: ProviderModelOption[],
+    visibleModelIds: Record<string, Set<string>>,
+    manageModelsOverride?: ProviderModelOption[],
+  ): ProviderModelOption[] {
+    const visibleSet = visibleModelIds[providerId];
+    if (!visibleSet || visibleSet.size === 0) {
+      return pickerModels;
+    }
+
+    const manageModels =
+      manageModelsOverride ?? this.state.manageProviderModels[providerId] ?? [];
+    if (manageModels.length === 0) {
+      return pickerModels;
+    }
+
+    const curatedVisibleModels = manageModels.filter((model) =>
+      visibleSet.has(model.id),
+    );
+    if (curatedVisibleModels.length === 0) {
+      return pickerModels;
+    }
+
+    return mergeModelsById(pickerModels, curatedVisibleModels);
   }
 
   private collectBootstrapModelPreloadProviderIds(
