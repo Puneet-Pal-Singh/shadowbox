@@ -432,11 +432,12 @@ export function ModelPickerPopover({
   };
 
   const handleLoadMore = async (): Promise<void> => {
-    if (!selectedProviderId || !onLoadMoreSelectedProviderModels) {
+    const providerId = effectiveSelection.providerId ?? selectedProviderId;
+    if (!providerId || !onLoadMoreSelectedProviderModels) {
       return;
     }
     try {
-      await onLoadMoreSelectedProviderModels(selectedProviderId);
+      await onLoadMoreSelectedProviderModels(providerId);
     } catch (error) {
       console.error(
         "[model-picker/load-more] Failed to load more models:",
@@ -446,11 +447,12 @@ export function ModelPickerPopover({
   };
 
   const handleRefresh = async (): Promise<void> => {
-    if (!selectedProviderId || !onRefreshSelectedProviderModels) {
+    const providerId = effectiveSelection.providerId ?? selectedProviderId;
+    if (!providerId || !onRefreshSelectedProviderModels) {
       return;
     }
     try {
-      await onRefreshSelectedProviderModels(selectedProviderId);
+      await onRefreshSelectedProviderModels(providerId);
     } catch (error) {
       console.error("[model-picker/refresh] Failed to refresh models:", error);
     }
