@@ -3,6 +3,8 @@ import {
   applyFileMention,
   filterFileMentionCandidates,
   findActiveFileMention,
+  getPreferredMentionPath,
+  listFileMentions,
 } from "./fileMentions";
 
 describe("fileMentions", () => {
@@ -78,5 +80,46 @@ describe("fileMentions", () => {
         "chati",
       ),
     ).toEqual(["apps/web/src/components/chat/ChatInputBar.tsx"]);
+  });
+
+  it("prefers the basename when it is unique in the repo tree", () => {
+    expect(
+      getPreferredMentionPath("src/components/chat/ChatInputBar.tsx", [
+        "README.md",
+        "src/components/chat/ChatInputBar.tsx",
+      ]),
+    ).toBe("ChatInputBar.tsx");
+  });
+
+  it("keeps the full path when the basename is duplicated", () => {
+    expect(
+      getPreferredMentionPath("src/components/chat/index.ts", [
+        "src/components/chat/index.ts",
+        "src/lib/index.ts",
+      ]),
+    ).toBe("src/components/chat/index.ts");
+  });
+
+  it("lists file mention tokens with basename metadata", () => {
+    expect(
+      listFileMentions(
+        'check @src/components/chat/ChatInputBar.tsx and @"docs/API Guide.md"',
+      ),
+    ).toEqual([
+      {
+        start: 6,
+        end: 43,
+        path: "src/components/chat/ChatInputBar.tsx",
+        displayName: "ChatInputBar.tsx",
+        directory: "src/components/chat",
+      },
+      {
+        start: 48,
+        end: 68,
+        path: "docs/API Guide.md",
+        displayName: "API Guide.md",
+        directory: "docs",
+      },
+    ]);
   });
 });
