@@ -19,12 +19,12 @@ import {
 import { useProviderStore } from "../../hooks/useProviderStore.js";
 import { findCredentialByProviderId } from "../../lib/provider-helpers.js";
 import { ProviderDialog, ModelPickerPopover } from "../provider/index.js";
-import { useGitHubTree } from "../layout/workspace/useGitHubTree.js";
 import { ChatModeToggle } from "./ChatModeToggle.js";
 import {
   applyFileMention,
   filterFileMentionCandidates,
   findActiveFileMention,
+  getPreferredMentionPath,
 } from "./fileMentions";
 
 const IDLE_SWITCH_WARNING =
@@ -47,6 +47,8 @@ interface ChatInputBarProps {
   onModeChange?: (mode: RunMode) => void;
   hasMessages?: boolean;
   onModelSelect?: (providerId: ProviderId, modelId: string) => void;
+  repoTree?: Array<{ path: string; type: string; sha: string }>;
+  isLoadingRepoTree?: boolean;
 }
 
 export function ChatInputBar({
@@ -61,6 +63,8 @@ export function ChatInputBar({
   onModeChange,
   hasMessages = false,
   onModelSelect,
+  repoTree = [],
+  isLoadingRepoTree = false,
 }: ChatInputBarProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [isFocused, setIsFocused] = useState(false);
@@ -105,8 +109,6 @@ export function ChatInputBar({
     setModelView,
     applySessionSelection,
   } = useProviderStore();
-  const { repoTree, isLoadingTree } = useGitHubTree();
-
   const hasInput = input.trim().length > 0;
   const effectivePlaceholder =
     placeholder ?? (mode === "plan" ? PLAN_PLACEHOLDER : BUILD_PLACEHOLDER);
@@ -118,9 +120,11 @@ export function ChatInputBar({
       })),
     [repoTree],
   );
+  const resolvedCursorPosition =
+    cursorPosition > 0 ? cursorPosition : input.length;
   const activeMention = useMemo(
-    () => findActiveFileMention(input, cursorPosition),
-    [cursorPosition, input],
+    () => findActiveFileMention(input, resolvedCursorPosition),
+    [input, resolvedCursorPosition],
   );
   const activeMentionKey = activeMention
     ? `${activeMention.start}:${activeMention.end}:${activeMention.query}`
@@ -167,6 +171,21 @@ export function ChatInputBar({
     }
   }, [input, hasInput]);
 
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea || document.activeElement !== textarea) {
+      return;
+    }
+
+    const liveSelectionStart = textarea.selectionStart;
+    if (
+      typeof liveSelectionStart === "number" &&
+      liveSelectionStart !== cursorPosition
+    ) {
+      setCursorPosition(liveSelectionStart);
+    }
+  }, [input, cursorPosition]);
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (shouldShowFilePicker) {
       if (e.key === "ArrowDown" && suggestedFiles.length > 0) {
@@ -193,7 +212,7 @@ export function ChatInputBar({
         !e.shiftKey
       ) {
         e.preventDefault();
-        const selectedPath =
+    const selectedPath =
           suggestedFiles[highlightedSuggestionIndex] ?? suggestedFiles[0];
         if (selectedPath) {
           selectSuggestedFile(selectedPath);
@@ -258,7 +277,16 @@ export function ChatInputBar({
       return;
     }
 
-    const { nextValue, nextCaret } = applyFileMention(input, activeMention, filePath);
+    const insertedPath = getPreferredMentionPath(
+      filePath,
+      suggestionEntries.map((entry) => entry.path),
+    );
+    const { nextValue, nextCaret } = applyFileMention(
+      input,
+      activeMention,
+      filePath,
+      insertedPath,
+    );
     onChange(nextValue);
     setDismissedMentionKey(null);
     setMentionNavigationKey(null);
@@ -281,7 +309,9 @@ export function ChatInputBar({
     const mentionTrigger =
       previousCharacter && !/\s/.test(previousCharacter) ? " @" : "@";
     const nextValue =
-      input.slice(0, selectionStart) + mentionTrigger + input.slice(selectionEnd);
+      input.slice(0, selectionStart) +
+      mentionTrigger +
+      input.slice(selectionEnd);
 
     onChange(nextValue);
     setDismissedMentionKey(null);
@@ -345,7 +375,7 @@ export function ChatInputBar({
               aria-label="Repository files"
               className="max-h-[19rem] overflow-y-auto p-2"
             >
-              {isLoadingTree ? (
+              {isLoadingRepoTree ? (
                 <div className="px-3 py-4 text-[11px] text-zinc-500">
                   Loading repository files...
                 </div>
