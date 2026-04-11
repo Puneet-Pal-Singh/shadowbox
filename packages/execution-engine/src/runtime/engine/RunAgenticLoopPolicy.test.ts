@@ -207,62 +207,6 @@ describe("RunAgenticLoopPolicy", () => {
     expect(output).not.toContain("I'll update the file now.");
   });
 
-  it("does not claim success when a write completes with zero diff", () => {
-    const result: AgenticLoopResult = {
-      stopReason: "llm_stop",
-      messages: [
-        { role: "user", content: "update the job detail page" },
-        { role: "assistant", content: "Done. I updated the file." },
-      ],
-      toolExecutionCount: 2,
-      failedToolCount: 0,
-      stepsExecuted: 2,
-      requiresMutation: true,
-      completedMutatingToolCount: 1,
-      completedReadOnlyToolCount: 1,
-      toolLifecycle: [
-        {
-          toolCallId: "tool-1",
-          toolName: "read_file",
-          status: "completed",
-          mutating: false,
-          recordedAt: new Date().toISOString(),
-          detail: "read src/components/jobs/JobDetailView.tsx",
-        },
-        {
-          toolCallId: "tool-2",
-          toolName: "write_file",
-          status: "completed",
-          mutating: true,
-          recordedAt: new Date().toISOString(),
-          detail: "updated src/components/jobs/JobDetailView.tsx",
-          metadata: {
-            family: "edit",
-            filePath: "src/components/jobs/JobDetailView.tsx",
-            additions: 0,
-            deletions: 0,
-          },
-        },
-      ],
-    };
-
-    const output = buildAgenticLoopFinalMessage(result);
-
-    expect(output.text).toContain(
-      "I attempted the requested file update, but no concrete file change landed in the workspace.",
-    );
-    expect(output.text).toContain("No file changed in this run.");
-    expect(output.text).not.toContain(
-      "I completed the requested update and changed this file:",
-    );
-    expect(output.text).not.toContain("Done. I updated the file.");
-    expect(output.metadata).toMatchObject({
-      code: "INCOMPLETE_MUTATION",
-      retryable: true,
-      resumeActions: ["retry", "refine_edit_target"],
-    });
-  });
-
   it("explains missing sandbox cwd failures without dumping raw tool telemetry", () => {
     const result: AgenticLoopResult = {
       stopReason: "tool_error",

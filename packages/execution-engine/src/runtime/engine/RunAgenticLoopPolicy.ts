@@ -149,13 +149,6 @@ export function buildAgenticLoopFinalMessage(
       }
       return { text: groundedMutationSummary };
     }
-
-    if (result.stopReason !== "tool_error") {
-      return {
-        text: buildNoConcreteMutationSummary(result),
-        metadata: buildIncompleteMutationMetadata(),
-      };
-    }
   }
 
   if (result.stopReason === "tool_error") {
@@ -796,10 +789,6 @@ function collectCompletedEditEvents(
       return [];
     }
 
-    if (!hasConcreteEditDelta(event.metadata)) {
-      return [];
-    }
-
     return [
       {
         ...event,
@@ -837,35 +826,6 @@ function mergeEditEvents(
   }
 
   return [...byFile.values()];
-}
-
-function hasConcreteEditDelta(metadata: EditToolActivityMetadata): boolean {
-  return metadata.additions > 0 || metadata.deletions > 0;
-}
-
-function buildNoConcreteMutationSummary(result: AgenticLoopResult): string {
-  const completedTools = getLatestToolLifecycle(
-    result.toolLifecycle,
-    "completed",
-  );
-  const failedTools = getLatestToolLifecycle(result.toolLifecycle, "failed");
-  const lines = [
-    "I attempted the requested file update, but no concrete file change landed in the workspace.",
-  ];
-
-  if (completedTools.length > 0) {
-    lines.push(describeCompletedToolWork(completedTools));
-  }
-
-  if (failedTools.length > 0) {
-    lines.push(describeFailedToolWork(failedTools));
-  }
-
-  lines.push(
-    "No file changed in this run. Retry with a more specific edit instruction or switch models if this keeps repeating.",
-  );
-
-  return lines.join("\n");
 }
 
 function deriveUpdatedTargets(filePaths: string[]): string[] {
