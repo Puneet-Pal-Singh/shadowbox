@@ -68,6 +68,8 @@ interface ChatInterfaceProps {
   onModeChange?: (mode: RunMode) => void;
   onArtifactOpen?: (path: string, content: string) => void;
   onModelSelect?: (providerId: ProviderId, modelId: string) => void;
+  repoTree?: Array<{ path: string; type: string; sha: string }>;
+  isLoadingRepoTree?: boolean;
 }
 
 export function ChatInterface({
@@ -77,6 +79,8 @@ export function ChatInterface({
   onModeChange,
   onArtifactOpen,
   onModelSelect,
+  repoTree = [],
+  isLoadingRepoTree = false,
 }: ChatInterfaceProps) {
   const {
     messages,
@@ -339,6 +343,8 @@ export function ChatInterface({
             onModeChange={onModeChange}
             hasMessages={messages.length > 0}
             onModelSelect={onModelSelect}
+            repoTree={repoTree}
+            isLoadingRepoTree={isLoadingRepoTree}
           />
           <div className="pl-6 mt-1">
             <ChatBranchSelector />
