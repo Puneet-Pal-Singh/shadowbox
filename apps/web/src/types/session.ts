@@ -54,6 +54,30 @@ export interface AgentSession {
 }
 
 /**
+ * SetupSessionState
+ *
+ * Lightweight shell-scoped setup context used before the first repo-backed
+ * session exists. This provides a valid run scope for provider APIs without
+ * pretending the user already has a working repository session.
+ */
+export interface SetupSessionState {
+  /** Unique setup session identifier for client-side shell state */
+  id: string;
+
+  /** Marker for setup-only state */
+  kind: "setup";
+
+  /** Active run ID used only for provider-scoped setup flows */
+  activeRunId: string;
+
+  /** ISO timestamp when setup scope was created */
+  createdAt: string;
+
+  /** ISO timestamp of last update */
+  updatedAt: string;
+}
+
+/**
  * Storage schema for persisting sessions
  * Used internally by SessionStateService
  */
