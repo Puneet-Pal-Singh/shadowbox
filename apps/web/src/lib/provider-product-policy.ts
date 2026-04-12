@@ -4,6 +4,30 @@ import {
   type ProviderProductPolicy,
 } from "@repo/shared-types";
 
+const ALLOWED_ENVIRONMENTS: readonly string[] = [
+  "staging",
+  "production",
+  "prod",
+  "development",
+  "dev",
+  "test",
+  "local",
+];
+
+export class EnvironmentResolutionError extends Error {
+  readonly name = "EnvironmentResolutionError";
+
+  constructor(
+    readonly mode: string,
+    readonly productEnv: string,
+  ) {
+    const allowed = ALLOWED_ENVIRONMENTS.join(", ");
+    super(
+      `Unrecognized environment: mode="${mode}", productEnv="${productEnv}". Expected one of: ${allowed}`,
+    );
+  }
+}
+
 function normalizeEnvironmentToken(value: string | undefined): string {
   return value?.trim().toLowerCase() ?? "";
 }
@@ -15,7 +39,7 @@ function parseProductEnvironment(
     return null;
   }
 
-  if (token === "staging" || token.includes("staging")) {
+  if (token === "staging") {
     return "staging";
   }
 
@@ -27,7 +51,7 @@ function parseProductEnvironment(
     token === "development" ||
     token === "dev" ||
     token === "test" ||
-    token.includes("local")
+    token === "local"
   ) {
     return "development";
   }
@@ -52,9 +76,7 @@ export function resolveWebProviderProductEnvironment(input?: {
     return parsedMode;
   }
 
-  throw new Error(
-    `Unrecognized environment: mode="${normalizedMode}", productEnv="${normalizedProductEnv}". Expected one of: development, dev, test, local, staging, production, prod`,
-  );
+  throw new EnvironmentResolutionError(normalizedMode, normalizedProductEnv);
 }
 
 export function resolveWebProviderProductPolicy(): ProviderProductPolicy {

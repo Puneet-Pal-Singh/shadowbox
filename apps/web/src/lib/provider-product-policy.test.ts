@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  EnvironmentResolutionError,
   resolveWebProviderProductEnvironment,
   resolveWebProviderProductPolicy,
 } from "./provider-product-policy";
@@ -28,7 +29,7 @@ describe("resolveWebProviderProductEnvironment", () => {
         mode: "preview",
         productEnv: "qa",
       }),
-    ).toThrow();
+    ).toThrow(EnvironmentResolutionError);
   });
 });
 
