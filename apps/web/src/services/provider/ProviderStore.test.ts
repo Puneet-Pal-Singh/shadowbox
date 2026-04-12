@@ -868,6 +868,145 @@ describe("ProviderStore", () => {
 
       expect(store.getState().selectedModelId).toBe("gpt-4");
     });
+
+    it("hydrates picker models from manage catalog when curated visible models are outside the picker page", async () => {
+      vi.mocked(mockApiClient.getProviderModels).mockImplementation(
+        async (providerId: string, query?: unknown) => {
+          const surface =
+            query && typeof query === "object" && "surface" in query
+              ? (query as { surface?: string }).surface
+              : undefined;
+          const view =
+            query && typeof query === "object" && "view" in query
+              ? ((query as { view?: "popular" | "all" }).view ?? "popular")
+              : "popular";
+
+          if (providerId !== "openai") {
+            return {
+              providerId,
+              view,
+              models: [],
+              page: {
+                limit: 50,
+                hasMore: false,
+              },
+              metadata: {
+                fetchedAt: new Date().toISOString(),
+                stale: false,
+                source: "provider_api" as const,
+              },
+            };
+          }
+
+          return {
+            providerId,
+            view: surface === "manage" ? "all" as const : view,
+            models:
+              surface === "manage"
+                ? [
+                    { id: "gpt-4", name: "GPT-4", provider: "openai" },
+                    {
+                      id: "gpt-4-turbo",
+                      name: "GPT-4 Turbo",
+                      provider: "openai",
+                    },
+                  ]
+                : [{ id: "gpt-4", name: "GPT-4", provider: "openai" }],
+            page: {
+              limit: 150,
+              hasMore: false,
+            },
+            metadata: {
+              fetchedAt: new Date().toISOString(),
+              stale: false,
+              source: "provider_api" as const,
+            },
+          };
+        },
+      );
+
+      await store.bootstrap();
+      await store.loadProviderModels("openai", { view: "popular" });
+      await store.loadManageProviderModels("openai", 150);
+
+      store.setProviderVisibleModels("openai", ["gpt-4-turbo"]);
+
+      const state = store.getState();
+      expect(state.providerModels.openai?.map((model) => model.id)).toEqual([
+        "gpt-4",
+        "gpt-4-turbo",
+      ]);
+      expect(state.selectedModelId).toBe("gpt-4-turbo");
+    });
+
+    it("preserves curated visible picker models after refresh", async () => {
+      vi.mocked(mockApiClient.getProviderModels).mockImplementation(
+        async (providerId: string, query?: unknown) => {
+          const surface =
+            query && typeof query === "object" && "surface" in query
+              ? (query as { surface?: string }).surface
+              : undefined;
+          const view =
+            query && typeof query === "object" && "view" in query
+              ? ((query as { view?: "popular" | "all" }).view ?? "popular")
+              : "popular";
+
+          if (providerId !== "openai") {
+            return {
+              providerId,
+              view,
+              models: [],
+              page: {
+                limit: 50,
+                hasMore: false,
+              },
+              metadata: {
+                fetchedAt: new Date().toISOString(),
+                stale: false,
+                source: "provider_api" as const,
+              },
+            };
+          }
+
+          return {
+            providerId,
+            view: surface === "manage" ? "all" as const : view,
+            models:
+              surface === "manage"
+                ? [
+                    { id: "gpt-4", name: "GPT-4", provider: "openai" },
+                    {
+                      id: "gpt-4-turbo",
+                      name: "GPT-4 Turbo",
+                      provider: "openai",
+                    },
+                  ]
+                : [{ id: "gpt-4", name: "GPT-4", provider: "openai" }],
+            page: {
+              limit: 150,
+              hasMore: false,
+            },
+            metadata: {
+              fetchedAt: new Date().toISOString(),
+              stale: false,
+              source: "provider_api" as const,
+            },
+          };
+        },
+      );
+
+      await store.bootstrap();
+      await store.loadProviderModels("openai", { view: "popular" });
+      await store.loadManageProviderModels("openai", 150);
+      store.setProviderVisibleModels("openai", ["gpt-4-turbo"]);
+
+      await store.refreshProviderModels("openai");
+
+      expect(store.getState().providerModels.openai?.map((model) => model.id)).toEqual([
+        "gpt-4",
+        "gpt-4-turbo",
+      ]);
+    });
   });
 
   describe("resolveForChat", () => {

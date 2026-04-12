@@ -4,7 +4,6 @@ import { useState } from "react";
 import { ChatInputBar } from "./ChatInputBar.js";
 import * as useProviderStoreModule from "../../hooks/useProviderStore.js";
 import * as providerHelpersModule from "../../lib/provider-helpers.js";
-import * as useGitHubTreeModule from "../layout/workspace/useGitHubTree.js";
 
 const IDLE_SWITCH_WARNING =
   "Changing models mid-conversation will degrade performance.";
@@ -129,13 +128,6 @@ describe("ChatInputBar", () => {
       deletedAt: null,
     });
 
-    vi.spyOn(useGitHubTreeModule, "useGitHubTree").mockReturnValue({
-      repoTree: [],
-      isLoadingTree: false,
-      repo: null,
-      branch: "main",
-      isGitHubLoaded: true,
-    });
   });
 
   afterEach(() => {
@@ -298,21 +290,6 @@ describe("ChatInputBar", () => {
   });
 
   it("shows repo file suggestions for @ mentions and inserts the selected file", async () => {
-    vi.spyOn(useGitHubTreeModule, "useGitHubTree").mockReturnValue({
-      repoTree: [
-        { path: "README.md", type: "blob", sha: "1" },
-        {
-          path: "apps/web/src/components/chat/ChatInputBar.tsx",
-          type: "blob",
-          sha: "2",
-        },
-      ],
-      isLoadingTree: false,
-      repo: null,
-      branch: "main",
-      isGitHubLoaded: true,
-    });
-
     function Wrapper() {
       const [value, setValue] = useState("");
 
@@ -322,6 +299,14 @@ describe("ChatInputBar", () => {
           onChange={setValue}
           onSubmit={vi.fn()}
           sessionId="session-1"
+          repoTree={[
+            { path: "README.md", type: "blob", sha: "1" },
+            {
+              path: "apps/web/src/components/chat/ChatInputBar.tsx",
+              type: "blob",
+              sha: "2",
+            },
+          ]}
         />
       );
     }
@@ -345,18 +330,7 @@ describe("ChatInputBar", () => {
     });
   });
 
-  it("keeps the highlighted option in sync with arrow-key navigation", async () => {
-    vi.spyOn(useGitHubTreeModule, "useGitHubTree").mockReturnValue({
-      repoTree: [
-        { path: "README.md", type: "blob", sha: "1" },
-        { path: "docs/guide.md", type: "blob", sha: "2" },
-      ],
-      isLoadingTree: false,
-      repo: null,
-      branch: "main",
-      isGitHubLoaded: true,
-    });
-
+  it("inserts the basename for a unique nested file inline in the composer", async () => {
     function Wrapper() {
       const [value, setValue] = useState("");
 
@@ -366,6 +340,70 @@ describe("ChatInputBar", () => {
           onChange={setValue}
           onSubmit={vi.fn()}
           sessionId="session-1"
+          repoTree={[
+            {
+              path: "src/components/dashboard/employer/form-fields/JobDescriptionFields.tsx",
+              type: "blob",
+              sha: "1",
+            },
+            { path: "README.md", type: "blob", sha: "2" },
+          ]}
+        />
+      );
+    }
+
+    render(<Wrapper />);
+
+    const textarea = screen.getByPlaceholderText(
+      "Ask Shadowbox anything, @ to add files, / for commands",
+    ) as HTMLTextAreaElement;
+
+    fireEvent.change(textarea, { target: { value: "@jobd", selectionStart: 5 } });
+    expect(await screen.findByText("src/components/dashboard/employer/form-fields/JobDescriptionFields.tsx")).toBeTruthy();
+    fireEvent.mouseDown(
+      screen.getByText(
+        "src/components/dashboard/employer/form-fields/JobDescriptionFields.tsx",
+      ),
+    );
+
+    await waitFor(() => {
+      expect(textarea.value).toBe("@JobDescriptionFields.tsx ");
+    });
+  });
+
+  it("keeps an existing inline file mention visible without rendering a duplicate chip row", () => {
+    render(
+      <ChatInputBar
+        input="and review @README.md"
+        onChange={vi.fn()}
+        onSubmit={vi.fn()}
+        sessionId="session-1"
+        repoTree={[{ path: "README.md", type: "blob", sha: "1" }]}
+      />,
+    );
+
+    const textarea = screen.getByPlaceholderText(
+      "Ask Shadowbox anything, @ to add files, / for commands",
+    ) as HTMLTextAreaElement;
+
+    expect(textarea.value).toBe("and review @README.md");
+    expect(screen.queryByLabelText("Remove README.md")).toBeNull();
+  });
+
+  it("keeps the highlighted option in sync with arrow-key navigation", async () => {
+    function Wrapper() {
+      const [value, setValue] = useState("");
+
+      return (
+        <ChatInputBar
+          input={value}
+          onChange={setValue}
+          onSubmit={vi.fn()}
+          sessionId="session-1"
+          repoTree={[
+            { path: "README.md", type: "blob", sha: "1" },
+            { path: "docs/guide.md", type: "blob", sha: "2" },
+          ]}
         />
       );
     }

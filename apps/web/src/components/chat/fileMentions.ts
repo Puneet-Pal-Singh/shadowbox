@@ -4,6 +4,14 @@ export interface FileMentionMatch {
   query: string;
 }
 
+export interface FileMentionToken {
+  start: number;
+  end: number;
+  path: string;
+  displayName: string;
+  directory: string;
+}
+
 interface RankedCandidate {
   path: string;
   score: number;
@@ -53,8 +61,9 @@ export function applyFileMention(
   input: string,
   mention: FileMentionMatch,
   filePath: string,
+  insertedPath = filePath,
 ): { nextValue: string; nextCaret: number } {
-  const insertedMention = `@${formatMentionPath(filePath)} `;
+  const insertedMention = `@${formatMentionPath(insertedPath)} `;
   const nextValue =
     input.slice(0, mention.start) + insertedMention + input.slice(mention.end);
 
@@ -81,6 +90,105 @@ export function filterFileMentionCandidates(
     });
 
   return ranked.slice(0, limit).map((candidate) => candidate.path);
+}
+
+export function listFileMentions(input: string): FileMentionToken[] {
+  const mentions: FileMentionToken[] = [];
+  let index = 0;
+
+  while (index < input.length) {
+    if (!isMentionTrigger(input, index)) {
+      index += 1;
+      continue;
+    }
+
+    const token = parseMentionToken(input, index);
+    if (!token) {
+      index += 1;
+      continue;
+    }
+
+    const rawPath = token.quoted
+      ? unescapeQuotedMention(input.slice(token.queryStart, token.end - 1))
+      : input.slice(token.queryStart, token.end);
+      const normalizedPath = rawPath.trim();
+
+    if (normalizedPath) {
+      const segments = normalizedPath.split("/").filter(Boolean);
+      const displayName = segments[segments.length - 1] ?? normalizedPath;
+      const directory =
+        segments.length > 1 ? segments.slice(0, -1).join("/") : "";
+
+      mentions.push({
+        start: token.start,
+        end: token.end,
+        path: normalizedPath,
+        displayName,
+        directory,
+      });
+    }
+
+    index = Math.max(token.end, index + 1);
+  }
+
+  return mentions;
+}
+
+export function composeInputWithFileMentions(
+  text: string,
+  mentionPaths: string[],
+): string {
+  const normalizedText = text.trim();
+  const mentionText = mentionPaths
+    .map((path) => `@${formatMentionPath(path)}`)
+    .join(" ");
+
+  if (normalizedText && mentionText) {
+    return `${normalizedText} ${mentionText}`;
+  }
+
+  return normalizedText || mentionText;
+}
+
+export function removeFileMentionsFromInput(input: string): string {
+  const mentions = listFileMentions(input);
+  if (mentions.length === 0) {
+    return input;
+  }
+
+  let nextValue = input;
+  for (let index = mentions.length - 1; index >= 0; index -= 1) {
+    const mention = mentions[index];
+    if (!mention) {
+      continue;
+    }
+
+    nextValue = nextValue.slice(0, mention.start) + nextValue.slice(mention.end);
+  }
+
+  return nextValue.replace(/\s{2,}/g, " ").trim();
+}
+
+export function getPreferredMentionPath(
+  filePath: string,
+  allFilePaths: string[],
+): string {
+  if (requiresQuotedMention(filePath)) {
+    return filePath;
+  }
+
+  const targetDisplayName = filePath.split("/").pop()?.toLowerCase() ?? filePath.toLowerCase();
+  const matchingCount = allFilePaths.reduce((count, candidatePath) => {
+    const candidateDisplayName =
+      candidatePath.split("/").pop()?.toLowerCase() ?? candidatePath.toLowerCase();
+    return candidateDisplayName === targetDisplayName ? count + 1 : count;
+  }, 0);
+
+  if (matchingCount === 1) {
+    return filePath.split("/").pop() ?? filePath;
+  }
+
+  return filePath;
 }
 
 function formatMentionPath(filePath: string): string {

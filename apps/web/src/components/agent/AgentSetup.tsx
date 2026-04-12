@@ -1,16 +1,20 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { DEFAULT_RUN_MODE, type RunMode } from "@repo/shared-types";
 import { motion } from "framer-motion";
 import {
   ChevronDown,
   Cloud,
   Gamepad2,
+  Folder,
+  FileCode2,
   FileText,
+  Info,
   GitPullRequest,
   Plus,
   Mic,
   ArrowUp,
   Paperclip,
+  TerminalSquare,
 } from "lucide-react";
 import {
   staggerContainer,
@@ -35,6 +39,11 @@ import { useGitStatus } from "../../hooks/useGitStatus";
 import { useGitDiff } from "../../hooks/useGitDiff";
 import type { FileExplorerHandle } from "../FileExplorer";
 import { ChatModeToggle } from "../chat/ChatModeToggle.js";
+import {
+  applyFileMention,
+  filterFileMentionCandidates,
+  findActiveFileMention,
+} from "../chat/fileMentions";
 import { GitReviewDialog } from "../git/GitReviewDialog";
 import { GitReviewProvider, useGitReview } from "../git/GitReviewContext";
 
@@ -117,6 +126,14 @@ export function AgentSetup({
   const { runId } = useRunContext();
   const [task, setTask] = useState("");
   const [isInputFocused, setIsInputFocused] = useState(false);
+  const [cursorPosition, setCursorPosition] = useState(0);
+  const [highlightedFileIndex, setHighlightedFileIndex] = useState(0);
+  const [dismissedMentionKey, setDismissedMentionKey] = useState<string | null>(
+    null,
+  );
+  const [mentionNavigationKey, setMentionNavigationKey] = useState<
+    string | null
+  >(null);
   const [hoveredCard, setHoveredCard] = useState<number | null>(null);
   const [showProviderDialog, setShowProviderDialog] = useState(false);
   const [providerDialogInitialTab, setProviderDialogInitialTab] = useState<
@@ -180,7 +197,10 @@ export function AgentSetup({
     activeRunId || undefined,
     sessionId,
   );
-  const { fetch: fetchDiff, diff } = useGitDiff(activeRunId || undefined, sessionId);
+  const { fetch: fetchDiff, diff } = useGitDiff(
+    activeRunId || undefined,
+    sessionId,
+  );
   const changesCount = gitStatus?.files?.length ?? 0;
   const { handleFileClick, handleGitHubFileSelect } = useFileLoader({
     sandboxId: sessionId,
@@ -191,6 +211,55 @@ export function AgentSetup({
   });
 
   const hasTask = task.trim().length > 0;
+  const suggestionEntries = useMemo(
+    () =>
+      repoTree.map((entry) => ({
+        path: entry.path,
+        type: entry.type,
+      })),
+    [repoTree],
+  );
+  const activeMention = useMemo(
+    () => findActiveFileMention(task, cursorPosition),
+    [cursorPosition, task],
+  );
+  const activeMentionKey = activeMention
+    ? `${activeMention.start}:${activeMention.end}:${activeMention.query}`
+    : null;
+  const filePickerListId = `agent-setup-file-picker-${sessionId}`;
+  const suggestedFiles = useMemo(
+    () =>
+      activeMention
+        ? filterFileMentionCandidates(
+            suggestionEntries.map((entry) => entry.path),
+            activeMention.query,
+          )
+        : [],
+    [activeMention, suggestionEntries],
+  );
+  const suggestedEntries = useMemo(
+    () =>
+      suggestedFiles
+        .map((path) => suggestionEntries.find((entry) => entry.path === path))
+        .filter(
+          (entry): entry is { path: string; type: string } =>
+            entry !== undefined,
+        ),
+    [suggestedFiles, suggestionEntries],
+  );
+  const shouldShowFilePicker =
+    activeMention !== null && dismissedMentionKey !== activeMentionKey;
+  const highlightedSuggestionIndex =
+    suggestedEntries.length === 0
+      ? 0
+      : Math.min(
+          mentionNavigationKey === activeMentionKey ? highlightedFileIndex : 0,
+          suggestedEntries.length - 1,
+        );
+  const activeSuggestionId =
+    shouldShowFilePicker && suggestedEntries[highlightedSuggestionIndex]
+      ? `${filePickerListId}-option-${highlightedSuggestionIndex}`
+      : undefined;
 
   // Auto-resize textarea
   useEffect(() => {
@@ -316,6 +385,109 @@ export function AgentSetup({
     setTask(title);
   };
 
+  const handleTaskChange = (value: string, nextCursorPosition?: number) => {
+    setTask(value);
+    setCursorPosition(nextCursorPosition ?? value.length);
+  };
+
+  const selectSuggestedFile = (filePath: string) => {
+    if (!activeMention) {
+      return;
+    }
+
+    const { nextValue, nextCaret } = applyFileMention(
+      task,
+      activeMention,
+      filePath,
+    );
+    handleTaskChange(nextValue, nextCaret);
+    setDismissedMentionKey(null);
+    setMentionNavigationKey(null);
+    requestAnimationFrame(() => {
+      const textarea = textareaRef.current;
+      if (!textarea) {
+        return;
+      }
+      textarea.focus();
+      textarea.setSelectionRange(nextCaret, nextCaret);
+    });
+  };
+
+  const insertMentionTrigger = () => {
+    const textarea = textareaRef.current;
+    const selectionStart = textarea?.selectionStart ?? task.length;
+    const selectionEnd = textarea?.selectionEnd ?? selectionStart;
+    const previousCharacter = task[selectionStart - 1];
+    const mentionTrigger =
+      previousCharacter && !/\s/.test(previousCharacter) ? " @" : "@";
+    const nextValue =
+      task.slice(0, selectionStart) + mentionTrigger + task.slice(selectionEnd);
+    const nextCaret = selectionStart + mentionTrigger.length;
+
+    handleTaskChange(nextValue, nextCaret);
+    setDismissedMentionKey(null);
+    setMentionNavigationKey(null);
+    requestAnimationFrame(() => {
+      const textarea = textareaRef.current;
+      if (!textarea) {
+        return;
+      }
+      textarea.focus();
+      textarea.setSelectionRange(nextCaret, nextCaret);
+    });
+  };
+
+  const syncCursorPosition = () => {
+    setCursorPosition(textareaRef.current?.selectionStart ?? task.length);
+  };
+
+  const handleTaskKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (shouldShowFilePicker) {
+      if (e.key === "ArrowDown" && suggestedFiles.length > 0) {
+        e.preventDefault();
+        setMentionNavigationKey(activeMentionKey);
+        setHighlightedFileIndex((current) =>
+          current >= suggestedFiles.length - 1 ? 0 : current + 1,
+        );
+        return;
+      }
+
+      if (e.key === "ArrowUp" && suggestedFiles.length > 0) {
+        e.preventDefault();
+        setMentionNavigationKey(activeMentionKey);
+        setHighlightedFileIndex((current) =>
+          current <= 0 ? suggestedFiles.length - 1 : current - 1,
+        );
+        return;
+      }
+
+      if (
+        (e.key === "Enter" || e.key === "Tab") &&
+        suggestedFiles.length > 0 &&
+        !e.shiftKey
+      ) {
+        e.preventDefault();
+        const selectedPath =
+          suggestedFiles[highlightedSuggestionIndex] ?? suggestedFiles[0];
+        if (selectedPath) {
+          selectSuggestedFile(selectedPath);
+        }
+        return;
+      }
+
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setDismissedMentionKey(activeMentionKey);
+        return;
+      }
+    }
+
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSubmit(e as unknown as React.FormEvent);
+    }
+  };
+
   const repoName = repo?.name || "New Project";
 
   return (
@@ -331,272 +503,359 @@ export function AgentSetup({
         transition={{ duration: 0.3 }}
       >
         <main className="flex-1 min-w-0 flex flex-col bg-black relative overflow-hidden">
-      {/* Animated Background Glow */}
-      <div className="absolute inset-0 pointer-events-none overflow-hidden">
-        <motion.div
-          className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[500px] bg-emerald-500/5 blur-[150px] rounded-full"
-          animate={{
-            scale: [1, 1.1, 1],
-            opacity: [0.3, 0.5, 0.3],
-          }}
-          transition={{
-            duration: 8,
-            repeat: Infinity,
-            ease: "easeInOut",
-          }}
-        />
-      </div>
-
-      {/* Main Content - Centered */}
-      <div className="flex-1 flex flex-col items-center justify-center px-6">
-        {/* Logo and Title */}
-        <motion.div
-          className="flex flex-col items-center mb-12"
-          variants={slideUp}
-          initial="initial"
-          animate="animate"
-        >
-          {/* Cloud/Brain Icon */}
-          <motion.div
-            className="w-10 h-10 mb-4 text-zinc-300"
-            animate={{
-              y: [0, -4, 0],
-            }}
-            transition={{
-              duration: 4,
-              repeat: Infinity,
-              ease: "easeInOut",
-            }}
-          >
-            <Cloud size={40} strokeWidth={1.5} />
-          </motion.div>
-
-          {/* Title */}
-          <h1 className="text-2xl font-medium text-white tracking-tight">
-            Let's build
-          </h1>
-
-          {/* Project Name with Dropdown */}
-          <motion.button
-            onClick={onRepoClick}
-            className="flex items-center gap-1.5 mt-0.5 text-2xl font-medium text-zinc-500 hover:text-zinc-400 transition-colors duration-200 group"
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-          >
-            <span>{repoName}</span>
-            <ChevronDown
-              size={18}
-              className="text-zinc-600 group-hover:text-zinc-500 transition-colors duration-200"
+          {/* Animated Background Glow */}
+          <div className="absolute inset-0 pointer-events-none overflow-hidden">
+            <motion.div
+              className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[500px] bg-emerald-500/5 blur-[150px] rounded-full"
+              animate={{
+                scale: [1, 1.1, 1],
+                opacity: [0.3, 0.5, 0.3],
+              }}
+              transition={{
+                duration: 8,
+                repeat: Infinity,
+                ease: "easeInOut",
+              }}
             />
-          </motion.button>
-        </motion.div>
+          </div>
 
-        {/* Suggestion Cards - Hidden when typing */}
-        <motion.div
-          className={`flex gap-2 w-full max-w-3xl mb-6 ${task.trim() ? "hidden" : ""}`}
-          variants={staggerContainer}
-          initial="initial"
-          animate="animate"
-        >
-          {SUGGESTED_ACTIONS.map((action, idx) => {
-            const Icon = action.icon;
-            const isHovered = hoveredCard === idx;
+          {/* Main Content - Centered */}
+          <div className="flex-1 flex flex-col items-center justify-center px-6">
+            {/* Logo and Title */}
+            <motion.div
+              className="flex flex-col items-center mb-12"
+              variants={slideUp}
+              initial="initial"
+              animate="animate"
+            >
+              {/* Cloud/Brain Icon */}
+              <motion.div
+                className="w-10 h-10 mb-4 text-zinc-300"
+                animate={{
+                  y: [0, -4, 0],
+                }}
+                transition={{
+                  duration: 4,
+                  repeat: Infinity,
+                  ease: "easeInOut",
+                }}
+              >
+                <Cloud size={40} strokeWidth={1.5} />
+              </motion.div>
 
-            return (
+              {/* Title */}
+              <h1 className="text-2xl font-medium text-white tracking-tight">
+                Let's build
+              </h1>
+
+              {/* Project Name with Dropdown */}
               <motion.button
-                key={idx}
-                type="button"
-                variants={staggerItem}
-                onClick={() => handleSuggestedAction(action.title)}
-                onMouseEnter={() => setHoveredCard(idx)}
-                onMouseLeave={() => setHoveredCard(null)}
-                whileHover={{ scale: 1.02, y: -2 }}
+                onClick={onRepoClick}
+                className="flex items-center gap-1.5 mt-0.5 text-2xl font-medium text-zinc-500 hover:text-zinc-400 transition-colors duration-200 group"
+                whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
-                className={`
+              >
+                <span>{repoName}</span>
+                <ChevronDown
+                  size={18}
+                  className="text-zinc-600 group-hover:text-zinc-500 transition-colors duration-200"
+                />
+              </motion.button>
+            </motion.div>
+
+            {/* Suggestion Cards - Hidden when typing */}
+            <motion.div
+              className={`flex gap-2 w-full max-w-3xl mb-6 ${task.trim() ? "hidden" : ""}`}
+              variants={staggerContainer}
+              initial="initial"
+              animate="animate"
+            >
+              {SUGGESTED_ACTIONS.map((action, idx) => {
+                const Icon = action.icon;
+                const isHovered = hoveredCard === idx;
+
+                return (
+                  <motion.button
+                    key={idx}
+                    type="button"
+                    variants={staggerItem}
+                    onClick={() => handleSuggestedAction(action.title)}
+                    onMouseEnter={() => setHoveredCard(idx)}
+                    onMouseLeave={() => setHoveredCard(null)}
+                    whileHover={{ scale: 1.02, y: -2 }}
+                    whileTap={{ scale: 0.98 }}
+                    className={`
                   flex-1 flex flex-col gap-2 p-3 
                   bg-[#171717] border rounded-lg text-left 
                   transition-all duration-200 group relative overflow-hidden
                   ${isHovered ? "border-[#404040]" : "border-[#262626]"}
                 `}
-              >
-                {/* Gradient overlay on hover */}
-                <motion.div
-                  className={`absolute inset-0 bg-gradient-to-br ${action.gradient} opacity-0 group-hover:opacity-100 transition-opacity duration-300`}
-                  initial={false}
-                  animate={{ opacity: isHovered ? 0.5 : 0 }}
-                />
+                  >
+                    {/* Gradient overlay on hover */}
+                    <motion.div
+                      className={`absolute inset-0 bg-gradient-to-br ${action.gradient} opacity-0 group-hover:opacity-100 transition-opacity duration-300`}
+                      initial={false}
+                      animate={{ opacity: isHovered ? 0.5 : 0 }}
+                    />
 
-                <div className="relative z-10">
-                  <div
-                    className={`
+                    <div className="relative z-10">
+                      <div
+                        className={`
                     w-6 h-6 flex items-center justify-center rounded-md 
                     bg-zinc-800/50 text-zinc-400 
                     group-hover:text-zinc-300 group-hover:bg-zinc-800 
                     transition-all duration-200
                   `}
-                  >
-                    <Icon size={14} />
-                  </div>
-                  <p className="text-xs text-zinc-200 leading-snug mt-2 group-hover:text-white transition-colors duration-200">
-                    {action.title}
-                  </p>
-                </div>
-              </motion.button>
-            );
-          })}
-        </motion.div>
-      </div>
+                      >
+                        <Icon size={14} />
+                      </div>
+                      <p className="text-xs text-zinc-200 leading-snug mt-2 group-hover:text-white transition-colors duration-200">
+                        {action.title}
+                      </p>
+                    </div>
+                  </motion.button>
+                );
+              })}
+            </motion.div>
+          </div>
 
-      {/* Input Area - Bottom */}
-      <div className="w-full px-6 pb-4">
-        <motion.div
-          className="max-w-4xl mx-auto"
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.4, duration: 0.4 }}
-        >
-          <form onSubmit={handleSubmit} className="px-4 pb-3">
+          {/* Input Area - Bottom */}
+          <div className="w-full px-6 pb-4">
             <motion.div
-              className={`
+              className="max-w-4xl mx-auto"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.4, duration: 0.4 }}
+            >
+              <form onSubmit={handleSubmit} className="relative px-4 pb-3">
+                {shouldShowFilePicker ? (
+                  <div className="absolute inset-x-4 bottom-full z-30 mb-2 overflow-hidden rounded-[1.05rem] border border-zinc-800 bg-[#171717] shadow-[0_8px_24px_rgba(0,0,0,0.22)]">
+                    <div
+                      id={filePickerListId}
+                      role="listbox"
+                      aria-label="Repository files"
+                      className="max-h-[19rem] overflow-y-auto p-2"
+                    >
+                      {isLoadingTree ? (
+                        <div className="px-3 py-4 text-[11px] text-zinc-500">
+                          Loading repository files...
+                        </div>
+                      ) : suggestedEntries.length === 0 ? (
+                        <div className="px-3 py-4 text-[11px] text-zinc-500">
+                          No files match{" "}
+                          <span className="font-medium text-zinc-200">
+                            @{activeMention?.query ?? ""}
+                          </span>
+                        </div>
+                      ) : (
+                        suggestedEntries.map((entry, index) => {
+                          const lastSlashIndex = entry.path.lastIndexOf("/");
+                          const directory =
+                            lastSlashIndex >= 0
+                              ? entry.path.slice(0, lastSlashIndex)
+                              : "";
+                          const Icon = getSuggestionIcon(
+                            entry.path,
+                            entry.type,
+                          );
+
+                          return (
+                            <button
+                              key={entry.path}
+                              id={`${filePickerListId}-option-${index}`}
+                              type="button"
+                              role="option"
+                              aria-selected={
+                                index === highlightedSuggestionIndex
+                              }
+                              onMouseDown={(event) => {
+                                event.preventDefault();
+                                selectSuggestedFile(entry.path);
+                              }}
+                              className={`flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left transition-colors ${
+                                index === highlightedSuggestionIndex
+                                  ? "bg-[#2b2b2d] text-white"
+                                  : "text-zinc-300 hover:bg-white/[0.04]"
+                              }`}
+                            >
+                              <Icon
+                                size={14}
+                                className={getSuggestionIconClass(
+                                  entry.path,
+                                  entry.type,
+                                )}
+                              />
+                              <div className="min-w-0 flex-1">
+                                <div className="truncate text-[13px] font-medium">
+                                  {entry.path}
+                                </div>
+                                {directory ? (
+                                  <div className="truncate text-[11px] text-zinc-500">
+                                    {directory}
+                                  </div>
+                                ) : null}
+                              </div>
+                            </button>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                ) : null}
+                <motion.div
+                  className={`
                 bg-[#171717] rounded-xl p-3
                 transition-all duration-200
                 ${isInputFocused ? "shadow-lg shadow-black/20" : ""}
               `}
-              animate={{
-                boxShadow: isInputFocused
-                  ? "0 4px 20px rgba(0, 0, 0, 0.3)"
-                  : "0 0 0 0px rgba(0, 0, 0, 0)",
-              }}
-            >
-              <textarea
-                ref={textareaRef}
-                value={task}
-                onChange={(e) => setTask(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    handleSubmit(e as unknown as React.FormEvent);
-                  }
-                }}
-                onFocus={() => setIsInputFocused(true)}
-                onBlur={() => setIsInputFocused(false)}
-                placeholder="Ask Shadowbox anything, @ to add files, / for commands"
-                rows={1}
-                className={`w-full bg-transparent text-sm text-white placeholder-zinc-500 focus:outline-none resize-none overflow-hidden min-h-[20px] ${hasTask ? "max-h-[200px]" : "max-h-[400px]"}`}
-                style={{ lineHeight: "1.5" }}
-              />
-
-              {/* Toolbar */}
-              <div className="flex items-center justify-between mt-2 pt-2">
-                {/* Left: Add button + Model picker */}
-                <div className="flex items-center gap-1.5">
-                  <ChatModeToggle
-                    mode={mode}
-                    onModeChange={(nextMode) => onModeChange?.(nextMode)}
+                  animate={{
+                    boxShadow: isInputFocused
+                      ? "0 4px 20px rgba(0, 0, 0, 0.3)"
+                      : "0 0 0 0px rgba(0, 0, 0, 0)",
+                  }}
+                >
+                  <textarea
+                    ref={textareaRef}
+                    value={task}
+                    onChange={(e) =>
+                      handleTaskChange(
+                        e.target.value,
+                        e.currentTarget.selectionStart ?? e.target.value.length,
+                      )
+                    }
+                    onKeyDown={handleTaskKeyDown}
+                    onClick={syncCursorPosition}
+                    onKeyUp={syncCursorPosition}
+                    onSelect={syncCursorPosition}
+                    onFocus={() => setIsInputFocused(true)}
+                    onBlur={() => setIsInputFocused(false)}
+                    placeholder="Ask Shadowbox anything, @ to add files, / for commands"
+                    rows={1}
+                    aria-controls={
+                      shouldShowFilePicker ? filePickerListId : undefined
+                    }
+                    aria-expanded={shouldShowFilePicker}
+                    aria-activedescendant={activeSuggestionId}
+                    className={`w-full bg-transparent text-sm text-white placeholder-zinc-500 focus:outline-none resize-none overflow-hidden min-h-[20px] ${hasTask ? "max-h-[200px]" : "max-h-[400px]"}`}
+                    style={{ lineHeight: "1.5" }}
                   />
 
-                  <div className="h-3.5 w-px bg-zinc-800" />
+                  {/* Toolbar */}
+                  <div className="flex items-center justify-between mt-2 pt-2">
+                    {/* Left: Add button + Model picker */}
+                    <div className="flex items-center gap-1.5">
+                      <ChatModeToggle
+                        mode={mode}
+                        onModeChange={(nextMode) => onModeChange?.(nextMode)}
+                      />
 
-                  <motion.button
-                    type="button"
-                    {...hoverScaleSmall}
-                    className="p-1 text-zinc-500 hover:text-zinc-300 transition-colors duration-150"
-                    title="Add files"
-                  >
-                    <Plus size={16} />
-                  </motion.button>
+                      <div className="h-3.5 w-px bg-zinc-800" />
 
-                  <div className="h-3.5 w-px bg-zinc-800" />
+                      <motion.button
+                        type="button"
+                        {...hoverScaleSmall}
+                        onClick={insertMentionTrigger}
+                        className="p-1 text-zinc-500 hover:text-zinc-300 transition-colors duration-150"
+                        title="Add files"
+                      >
+                        <Plus size={16} />
+                      </motion.button>
 
-                  <ModelPickerPopover
-                    catalog={catalog}
-                    credentials={credentials}
-                    providerModels={providerModels}
-                    visibleModelIds={visibleModelIds}
-                    selectedProviderId={selectedProviderId}
-                    selectedModelId={selectedModelId}
-                    selectedModelView={selectedModelView}
-                    selectedProviderMetadata={
-                      selectedProviderId
-                        ? providerModelsMetadata[selectedProviderId] ?? null
-                        : null
-                    }
-                    hasMoreSelectedProviderModels={
-                      selectedProviderId
-                        ? providerModelsPage[selectedProviderId]?.hasMore ?? false
-                        : false
-                    }
-                    isLoadingMoreSelectedProviderModels={
-                      selectedProviderId !== null &&
-                      loadingModelsForProviderId === selectedProviderId
-                    }
-                    isRefreshingSelectedProviderModels={
-                      selectedProviderId !== null &&
-                      refreshingModelsForProviderId === selectedProviderId
-                    }
-                    onSelectModel={async (providerId, modelId) => {
-                      const credential = findCredentialByProviderId(
-                        credentials,
-                        providerId
-                      );
-                      if (!credential) {
-                        setProviderDialogInitialTab("available");
-                        setProviderDialogInitialView("default");
-                        setProviderDialogVariant("connect-only");
-                        setShowProviderDialog(true);
-                        return;
-                      }
-                      await applySessionSelection({
-                        providerId,
-                        credentialId: credential.credentialId,
-                        modelId,
-                      });
-                    }}
-                    onSelectModelView={setModelView}
-                    onLoadMoreSelectedProviderModels={loadMoreProviderModels}
-                    onRefreshSelectedProviderModels={refreshProviderModels}
-                    onConnectProvider={() => {
-                      setProviderDialogInitialTab("available");
-                      setProviderDialogInitialView("default");
-                      setProviderDialogVariant("connect-only");
-                      setShowProviderDialog(true);
-                    }}
-                    onManageModels={() => {
-                      setProviderDialogInitialTab("connected");
-                      setProviderDialogInitialView("manage-models");
-                      setProviderDialogVariant("manage-models-only");
-                      setShowProviderDialog(true);
-                    }}
-                    isLoading={status === "loading"}
-                  />
-                </div>
+                      <div className="h-3.5 w-px bg-zinc-800" />
 
-                {/* Right: Attachment, Mic, Send */}
-                <div className="flex items-center gap-1.5">
-                  <motion.button
-                    type="button"
-                    {...hoverScaleSmall}
-                    className="p-1 text-zinc-500 hover:text-zinc-300 transition-colors duration-150"
-                    title="Attach file"
-                  >
-                    <Paperclip size={16} />
-                  </motion.button>
+                      <ModelPickerPopover
+                        catalog={catalog}
+                        credentials={credentials}
+                        providerModels={providerModels}
+                        visibleModelIds={visibleModelIds}
+                        selectedProviderId={selectedProviderId}
+                        selectedModelId={selectedModelId}
+                        selectedModelView={selectedModelView}
+                        selectedProviderMetadata={
+                          selectedProviderId
+                            ? (providerModelsMetadata[selectedProviderId] ??
+                              null)
+                            : null
+                        }
+                        hasMoreSelectedProviderModels={
+                          selectedProviderId
+                            ? (providerModelsPage[selectedProviderId]
+                                ?.hasMore ?? false)
+                            : false
+                        }
+                        isLoadingMoreSelectedProviderModels={
+                          selectedProviderId !== null &&
+                          loadingModelsForProviderId === selectedProviderId
+                        }
+                        isRefreshingSelectedProviderModels={
+                          selectedProviderId !== null &&
+                          refreshingModelsForProviderId === selectedProviderId
+                        }
+                        onSelectModel={async (providerId, modelId) => {
+                          const credential = findCredentialByProviderId(
+                            credentials,
+                            providerId,
+                          );
+                          if (!credential) {
+                            setProviderDialogInitialTab("available");
+                            setProviderDialogInitialView("default");
+                            setProviderDialogVariant("connect-only");
+                            setShowProviderDialog(true);
+                            return;
+                          }
+                          await applySessionSelection({
+                            providerId,
+                            credentialId: credential.credentialId,
+                            modelId,
+                          });
+                        }}
+                        onSelectModelView={setModelView}
+                        onLoadMoreSelectedProviderModels={
+                          loadMoreProviderModels
+                        }
+                        onRefreshSelectedProviderModels={refreshProviderModels}
+                        onConnectProvider={() => {
+                          setProviderDialogInitialTab("available");
+                          setProviderDialogInitialView("default");
+                          setProviderDialogVariant("connect-only");
+                          setShowProviderDialog(true);
+                        }}
+                        onManageModels={() => {
+                          setProviderDialogInitialTab("connected");
+                          setProviderDialogInitialView("manage-models");
+                          setProviderDialogVariant("manage-models-only");
+                          setShowProviderDialog(true);
+                        }}
+                        isLoading={status === "loading"}
+                      />
+                    </div>
 
-                  <motion.button
-                    type="button"
-                    {...hoverScaleSmall}
-                    className="p-1 text-zinc-500 hover:text-zinc-300 transition-colors duration-150"
-                    title="Voice input"
-                  >
-                    <Mic size={16} />
-                  </motion.button>
+                    {/* Right: Attachment, Mic, Send */}
+                    <div className="flex items-center gap-1.5">
+                      <motion.button
+                        type="button"
+                        {...hoverScaleSmall}
+                        className="p-1 text-zinc-500 hover:text-zinc-300 transition-colors duration-150"
+                        title="Attach file"
+                      >
+                        <Paperclip size={16} />
+                      </motion.button>
 
-                  <motion.button
-                    type="submit"
-                    disabled={!task.trim()}
-                    whileHover={{ scale: task.trim() ? 1.05 : 1 }}
-                    whileTap={{ scale: task.trim() ? 0.95 : 1 }}
-                    className={`
+                      <motion.button
+                        type="button"
+                        {...hoverScaleSmall}
+                        className="p-1 text-zinc-500 hover:text-zinc-300 transition-colors duration-150"
+                        title="Voice input"
+                      >
+                        <Mic size={16} />
+                      </motion.button>
+
+                      <motion.button
+                        type="submit"
+                        disabled={!task.trim()}
+                        whileHover={{ scale: task.trim() ? 1.05 : 1 }}
+                        whileTap={{ scale: task.trim() ? 0.95 : 1 }}
+                        className={`
                       p-1.5 rounded-full transition-all duration-200
                       ${
                         task.trim()
@@ -604,18 +863,18 @@ export function AgentSetup({
                           : "bg-zinc-800 text-zinc-600 cursor-not-allowed"
                       }
                     `}
-                  >
-                    <ArrowUp size={16} />
-                  </motion.button>
-                </div>
+                      >
+                        <ArrowUp size={16} />
+                      </motion.button>
+                    </div>
+                  </div>
+                </motion.div>
+              </form>
+              <div className="pl-6 mt-1">
+                <ChatBranchSelector />
               </div>
             </motion.div>
-          </form>
-          <div className="pl-6 mt-1">
-            <ChatBranchSelector />
           </div>
-        </motion.div>
-      </div>
         </main>
 
         <motion.aside
@@ -707,4 +966,54 @@ export function AgentSetup({
       </motion.div>
     </GitReviewProvider>
   );
+}
+
+function getSuggestionIcon(path: string, entryType: string) {
+  if (entryType === "tree") {
+    return Folder;
+  }
+
+  if (
+    path.endsWith(".tsx") ||
+    path.endsWith(".ts") ||
+    path.endsWith(".jsx") ||
+    path.endsWith(".js")
+  ) {
+    return FileCode2;
+  }
+
+  if (path.endsWith(".md")) {
+    return Info;
+  }
+
+  if (path.endsWith(".sh")) {
+    return TerminalSquare;
+  }
+
+  return FileText;
+}
+
+function getSuggestionIconClass(path: string, entryType: string): string {
+  if (entryType === "tree") {
+    return "text-blue-400";
+  }
+
+  if (
+    path.endsWith(".tsx") ||
+    path.endsWith(".ts") ||
+    path.endsWith(".jsx") ||
+    path.endsWith(".js")
+  ) {
+    return "text-sky-400";
+  }
+
+  if (path.endsWith(".md")) {
+    return "text-blue-400";
+  }
+
+  if (path.endsWith(".sh")) {
+    return "text-orange-400";
+  }
+
+  return "text-zinc-300";
 }

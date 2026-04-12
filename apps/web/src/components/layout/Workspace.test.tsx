@@ -20,17 +20,22 @@ const mockChatState = vi.hoisted(() => ({
 const mockGitHubTreeState = vi.hoisted(() => ({
   repoTree: [],
   isLoadingTree: false,
-  repo: null as
-    | {
-        owner: { login: string };
-        name: string;
-        html_url: string;
-        default_branch: string;
-      }
-    | null,
+  repo: null as {
+    owner: { login: string };
+    name: string;
+    full_name: string;
+    html_url: string;
+    default_branch: string;
+  } | null,
   branch: "main",
   isGitHubLoaded: false,
 }));
+const mockChatInterface = vi.hoisted(() =>
+  vi.fn((props: unknown) => {
+    void props;
+    return <div>chat</div>;
+  }),
+);
 
 vi.mock("../../hooks/useChat", () => ({
   useChat: () => mockChatState,
@@ -89,7 +94,7 @@ vi.mock("./workspace/useFileLoader", () => ({
 }));
 
 vi.mock("../chat/ChatInterface", () => ({
-  ChatInterface: () => <div>chat</div>,
+  ChatInterface: (props: unknown) => mockChatInterface(props),
 }));
 
 vi.mock("../ui/Resizer", () => ({
@@ -105,7 +110,9 @@ vi.mock("./workspace/SidebarContent", () => ({
 }));
 
 vi.mock("../git/GitReviewContext", () => ({
-  GitReviewProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  GitReviewProvider: ({ children }: { children: React.ReactNode }) => (
+    <>{children}</>
+  ),
 }));
 
 vi.mock("../git/GitReviewDialog", () => ({
@@ -118,6 +125,7 @@ vi.mock("../../lib/git-workspace-bootstrap", () => ({
 
 describe("Workspace", () => {
   beforeEach(() => {
+    mockChatInterface.mockClear();
     mockRefetchGitStatus.mockClear();
     mockBootstrapGitWorkspace.mockReset();
     mockBootstrapGitWorkspace.mockResolvedValue({ status: "ready" });
@@ -167,6 +175,7 @@ describe("Workspace", () => {
     mockGitHubTreeState.repo = {
       owner: { login: "Puneet-Pal-Singh" },
       name: "career-crew",
+      full_name: "Puneet-Pal-Singh/career-crew",
       html_url: "https://github.com/Puneet-Pal-Singh/career-crew",
       default_branch: "main",
     };
@@ -187,5 +196,31 @@ describe("Workspace", () => {
     await waitFor(() => {
       expect(mockRefetchGitStatus).toHaveBeenCalledWith(true);
     });
+  });
+
+  it("passes repo tree state to the chat interface", () => {
+    mockGitHubTreeState.repo = {
+      owner: { login: "Puneet-Pal-Singh" },
+      name: "career-crew",
+      full_name: "Puneet-Pal-Singh/career-crew",
+      html_url: "https://github.com/Puneet-Pal-Singh/career-crew",
+      default_branch: "main",
+    };
+    mockGitHubTreeState.isGitHubLoaded = true;
+
+    render(
+      <Workspace
+        sessionId="session-123"
+        runId="run-123"
+        repository="career crew renamed"
+      />,
+    );
+
+    expect(mockChatInterface).toHaveBeenCalledWith(
+      expect.objectContaining({
+        repoTree: [],
+        isLoadingRepoTree: false,
+      }),
+    );
   });
 });
