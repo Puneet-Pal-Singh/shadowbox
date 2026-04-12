@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useSessionManager } from "./hooks/useSessionManager";
 import { AgentSidebar } from "./components/layout/AgentSidebar";
@@ -11,13 +11,20 @@ import {
   useGitHub,
 } from "./components/github/GitHubContextProvider";
 import { RepoPicker } from "./components/github/RepoPicker";
-import { LoginScreen } from "./components/auth/LoginScreen";
 import type { Repository } from "./services/GitHubService";
 import { Resizer } from "./components/ui/Resizer";
 import { uiShellStore } from "./store/uiShellStore";
 import type { RunInboxItem } from "./components/run/RunInbox";
 import { SessionStateService } from "./services/SessionStateService";
 import { RunContextProvider } from "./hooks/useRunContext";
+import { useProviderStore } from "./hooks/useProviderStore";
+import { resolveShellStartupState } from "./lib/startup-shell-state";
+import { LockedShellCard } from "./components/startup/LockedShellCard";
+import type { SetupSessionState } from "./types/session";
+import { StartupOnboardingOverlay } from "./components/onboarding/StartupOnboardingOverlay";
+
+const DISMISSED_ONBOARDING_STATE_KEY =
+  "shadowbox:startup-onboarding:dismissed-state";
 
 /**
  * Main App Component
@@ -56,7 +63,6 @@ function AppContent() {
     branch,
     setContext,
     clearContext,
-    isLoaded: isGitHubContextLoaded,
     saveSessionContext,
   } = useGitHub();
   const [showRepoPicker, setShowRepoPicker] = useState(false);
@@ -65,10 +71,38 @@ function AppContent() {
   const [gitReviewIntent, setGitReviewIntent] = useState<"review" | "commit">(
     "review",
   );
+  const [openProviderDialogSignal, setOpenProviderDialogSignal] = useState(0);
+  const [isOnboardingOverlayDelayElapsed, setIsOnboardingOverlayDelayElapsed] =
+    useState(false);
+  const [dismissedOnboardingStateKey, setDismissedOnboardingStateKey] =
+    useState<string | null>(() => {
+      try {
+        return localStorage.getItem(DISMISSED_ONBOARDING_STATE_KEY);
+      } catch (error) {
+        console.warn("[App] Failed to read onboarding dismissal state:", error);
+        return null;
+      }
+    });
 
   // Get active session for workspace rendering
   // Use memoized activeSession to avoid unnecessary re-renders
   const activeSession = sessions.find((s) => s.id === activeSessionId) || null;
+  const setupSession = useMemo<SetupSessionState | null>(() => {
+    if (!isAuthenticated || sessions.length > 0) {
+      return null;
+    }
+
+    return (
+      SessionStateService.loadSetupSession() ??
+      SessionStateService.createSetupSession()
+    );
+  }, [isAuthenticated, sessions.length]);
+  const providerScopeSession = activeSession ?? sessions[0] ?? null;
+  const providerScopeRunId =
+    providerScopeSession?.activeRunId ?? setupSession?.activeRunId;
+  const { credentials, reset: resetProviderStore } = useProviderStore(
+    isAuthenticated ? providerScopeRunId : undefined,
+  );
 
   // Convert sessions to run inbox items for shell navigation
   // This supports the run-centric UI model and will be passed to AppShell in future PRs
@@ -178,29 +212,37 @@ function AppContent() {
     clearContext,
   ]);
 
-  // Check if user needs to select a repository on load
-  useEffect(() => {
-    console.log("[App] Checking repo picker:", {
-      isGitHubContextLoaded,
-      hasRepo: !!repo,
-      isAuthenticated,
-      hasSessions: sessions.length > 0,
-    });
-    
-    if (!isGitHubContextLoaded || !isAuthenticated) return;
+  const clearSetupSessionState = useCallback(() => {
+    SessionStateService.clearSetupSession();
+  }, []);
 
-    // Fresh start: no repo, no sessions → show picker
-    if (!repo && sessions.length === 0) {
-      console.log("[App] Showing repo picker - fresh start, no repo or sessions");
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setShowRepoPicker(true);
+  useEffect(() => {
+    if (isLoading) {
       return;
     }
 
-    if (repo) {
-      console.log("[App] Repo already selected:", repo.full_name);
+    if (!isAuthenticated) {
+      clearSetupSessionState();
+      resetProviderStore();
+      return;
     }
-  }, [isGitHubContextLoaded, repo, isAuthenticated, sessions.length]);
+
+    if (sessions.length > 0) {
+      clearSetupSessionState();
+      return;
+    }
+
+    if (setupSession) {
+      SessionStateService.saveSetupSession(setupSession);
+    }
+  }, [
+    clearSetupSessionState,
+    isAuthenticated,
+    isLoading,
+    resetProviderStore,
+    sessions.length,
+    setupSession,
+  ]);
 
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(() => {
@@ -231,23 +273,142 @@ function AppContent() {
       (activeSession.status && activeSession.status !== "idle"));
 
   // Robust visibility flags
-  const showSetup = !!activeSessionId && !!activeSession && !isSessionStarted;
+  const showSetup =
+    isAuthenticated && !!activeSessionId && !!activeSession && !isSessionStarted;
   const showWorkspace =
-    !!activeSessionId && !!activeSession && !!isSessionStarted;
+    isAuthenticated && !!activeSessionId && !!activeSession && !!isSessionStarted;
 
-  // Handle skip login - proceed without GitHub
-  const handleSkipLogin = () => {
-    // For now, we'll set a flag in localStorage to remember the choice
-    localStorage.setItem("skip_github_auth", "true");
-    // Force a reload to re-evaluate auth state
-    window.location.reload();
-  };
+  const hasProviderConnection = isAuthenticated && credentials.length > 0;
+  const hasRealSession = sessions.length > 0;
+  const hasRepoContext = sessions.some(
+    (session) => session.repository.trim().length > 0,
+  );
+  const hasSetupRun = Boolean(setupSession?.activeRunId);
+  const shellStartupState = useMemo(
+    () =>
+      resolveShellStartupState({
+        isAuthenticated,
+        hasSetupRun,
+        hasProviderConnection,
+        hasRepoContext,
+        hasRealSession,
+      }),
+    [
+      hasProviderConnection,
+      hasRealSession,
+      hasRepoContext,
+      hasSetupRun,
+      isAuthenticated,
+    ],
+  );
+  const showShellSetupSurface =
+    isAuthenticated &&
+    !activeSession &&
+    (shellStartupState === "shell_authenticated_setup" ||
+      shellStartupState === "shell_authenticated_repo_missing");
+  const isPreparingSetupShell =
+    showShellSetupSurface && setupSession === null;
+  const isStartupSetupVisible =
+    showSetup || (showShellSetupSurface && setupSession !== null);
+  const isOnboardingComplete = hasProviderConnection && hasRepoContext;
+  const shouldOfferOnboardingOverlay =
+    isAuthenticated && isStartupSetupVisible && !isOnboardingComplete;
+  const onboardingStateKey = `${shellStartupState}:${hasRepoContext ? "repo-yes" : "repo-no"}:${hasProviderConnection ? "provider-yes" : "provider-no"}`;
+  const isOnboardingDismissed =
+    dismissedOnboardingStateKey === onboardingStateKey;
+  const showOnboardingOverlay =
+    shouldOfferOnboardingOverlay &&
+    !isOnboardingDismissed &&
+    isOnboardingOverlayDelayElapsed &&
+    !isPreparingSetupShell;
+  const showOnboardingReopenButton =
+    shouldOfferOnboardingOverlay &&
+    isOnboardingDismissed &&
+    !isPreparingSetupShell;
+
+  useEffect(() => {
+    if (!shouldOfferOnboardingOverlay || isOnboardingDismissed) {
+      return;
+    }
+
+    if (isOnboardingOverlayDelayElapsed) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setIsOnboardingOverlayDelayElapsed(true);
+    }, 250);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [
+    isOnboardingDismissed,
+    isOnboardingOverlayDelayElapsed,
+    shouldOfferOnboardingOverlay,
+  ]);
+
+  useEffect(() => {
+    if (!isOnboardingComplete) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setDismissedOnboardingStateKey(null);
+    }, 0);
+    try {
+      localStorage.removeItem(DISMISSED_ONBOARDING_STATE_KEY);
+    } catch (error) {
+      console.warn("[App] Failed to clear onboarding dismissal state:", error);
+    }
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [isOnboardingComplete]);
 
   // Get active session name for the header
   const taskTitle = activeSession?.name;
   const threadTitle = activeSession?.name;
 
+  const handleOpenRepositoryPicker = () => {
+    if (!isAuthenticated) {
+      login();
+      return;
+    }
+
+    setShowRepoPicker(true);
+  };
+
+  const handleOpenProviderSetup = () => {
+    setOpenProviderDialogSignal((value) => value + 1);
+  };
+
+  const handleDismissOnboardingOverlay = () => {
+    setDismissedOnboardingStateKey(onboardingStateKey);
+    setIsOnboardingOverlayDelayElapsed(false);
+    try {
+      localStorage.setItem(DISMISSED_ONBOARDING_STATE_KEY, onboardingStateKey);
+    } catch (error) {
+      console.warn("[App] Failed to persist onboarding dismissal state:", error);
+    }
+  };
+
+  const handleReopenOnboardingOverlay = () => {
+    setDismissedOnboardingStateKey(null);
+    setIsOnboardingOverlayDelayElapsed(true);
+    try {
+      localStorage.removeItem(DISMISSED_ONBOARDING_STATE_KEY);
+    } catch (error) {
+      console.warn("[App] Failed to reopen onboarding state:", error);
+    }
+  };
+
   const handleNewTask = (repositoryName?: string) => {
+    if (!isAuthenticated) {
+      login();
+      return;
+    }
+
     console.log("[App] handleNewTask called with:", repositoryName);
     setIsGitReviewOpen(false);
     setGitReviewSessionId(null);
@@ -259,6 +420,7 @@ function AppContent() {
     if (targetRepo) {
       console.log("[App] Creating new task for repo:", targetRepo);
       setShowRepoPicker(false);
+      clearSetupSessionState();
       // Create a session for this specific repository
       const sessionName = `New Task`;
       const sessionId = createSession(sessionName, targetRepo);
@@ -287,7 +449,7 @@ function AppContent() {
       // If absolutely no repo is selected, targetRepo is missing,
       // or the user has deleted the repo folder
       console.log("[App] No valid target repo found for new task, showing picker");
-      setShowRepoPicker(true);
+      handleOpenRepositoryPicker();
     }
   };
 
@@ -340,6 +502,7 @@ function AppContent() {
     setGitReviewIntent("review");
     setContext(selectedRepo, selectedBranch);
     setShowRepoPicker(false);
+    clearSetupSessionState();
 
     // Create a session immediately for this repository so it shows in sidebar
     const sessionName = `New Task`;
@@ -375,41 +538,25 @@ function AppContent() {
     );
   }
 
-  // Show LoginScreen if user is not authenticated
-  if (!isAuthenticated) {
-    return <LoginScreen onLogin={login} onSkip={handleSkipLogin} />;
-  }
-
-  // Show RepoPicker if user needs to select a repository
-  if (showRepoPicker) {
-    return (
-      <div className="h-screen w-screen bg-background flex items-center justify-center">
-        <RepoPicker
-          onRepoSelect={handleRepoSelect}
-          onSkip={handleSkipRepoPicker}
-        />
-      </div>
-    );
-  }
-
   return (
     <div className="h-screen w-screen bg-background text-zinc-400 flex overflow-hidden font-sans">
       {/* Sidebar - Independent */}
       {isSidebarOpen && (
         <div className="relative flex shrink-0" style={{ width: sidebarWidth }}>
-                      <AgentSidebar
-                        sessions={sessions}
-                        repositories={repositories}
-                        activeSessionId={activeSessionId}
-                        onSelect={handleSelectSession}
-                        onCreate={handleNewTask}
-                        onRemove={removeSession}
-                        onRemoveRepository={removeRepository}
-                        onRenameRepository={renameRepository}
-                        onClose={handleToggleSidebar}
-                        onAddRepository={() => setShowRepoPicker(true)}
-                        width={sidebarWidth}
-                      />          <Resizer
+          <AgentSidebar
+            sessions={sessions}
+            repositories={repositories}
+            activeSessionId={activeSessionId}
+            onSelect={handleSelectSession}
+            onCreate={handleNewTask}
+            onRemove={removeSession}
+            onRemoveRepository={removeRepository}
+            onRenameRepository={renameRepository}
+            onClose={handleToggleSidebar}
+            onAddRepository={handleOpenRepositoryPicker}
+            width={sidebarWidth}
+          />
+          <Resizer
             side="left"
             onResize={(delta) =>
               setSidebarWidth((prev) =>
@@ -439,7 +586,18 @@ function AppContent() {
         {/* Main Workspace Layer */}
         <div className="flex-1 flex overflow-hidden relative bg-black">
           <AnimatePresence mode="wait">
-            {showSetup ? (
+            {shellStartupState === "shell_locked_unauthenticated" ? (
+              <motion.div
+                key="locked-shell"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                className="absolute inset-0"
+              >
+                <LockedShellCard onLogin={login} />
+              </motion.div>
+            ) : showSetup ? (
               <motion.div
                 key={`setup-${activeSessionId}`}
                 initial={{ opacity: 0 }}
@@ -459,7 +617,9 @@ function AppContent() {
                       updateSession(activeSessionId, { mode })
                     }
                     isRightSidebarOpen={isRightSidebarOpen}
-                    onRepoClick={() => setShowRepoPicker(true)}
+                    showOnboardingHighlights={showOnboardingOverlay}
+                    openProviderDialogSignal={openProviderDialogSignal}
+                    onRepoClick={handleOpenRepositoryPicker}
                     onStart={(config) => {
                       const name =
                         config.task.length > 20
@@ -478,6 +638,32 @@ function AppContent() {
                       );
                       // State updates above (updateSession + saveSessionPendingQuery)
                       // will naturally trigger re-renders; no manual trigger needed
+                    }}
+                  />
+                </RunContextProvider>
+              </motion.div>
+            ) : showShellSetupSurface && setupSession ? (
+              <motion.div
+                key={`setup-shell-${setupSession.id}`}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                className="absolute inset-0 flex"
+              >
+                <RunContextProvider
+                  runId={setupSession.activeRunId}
+                  sessionId={setupSession.id}
+                >
+                  <AgentSetup
+                    sessionId={setupSession.id}
+                    isRightSidebarOpen={isRightSidebarOpen}
+                    requiresRepository
+                    showOnboardingHighlights={showOnboardingOverlay}
+                    openProviderDialogSignal={openProviderDialogSignal}
+                    onRepoClick={handleOpenRepositoryPicker}
+                    onStart={() => {
+                      handleOpenRepositoryPicker();
                     }}
                   />
                 </RunContextProvider>
@@ -514,8 +700,18 @@ function AppContent() {
                   }}
                 />
               </motion.div>
+            ) : isPreparingSetupShell ? (
+              <motion.div
+                key="preparing-setup-shell"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="flex-1 flex flex-col items-center justify-center gap-3 text-zinc-500 text-sm"
+              >
+                <div className="animate-spin h-8 w-8 rounded-full border-2 border-zinc-700 border-t-zinc-100" />
+                Preparing setup workspace...
+              </motion.div>
             ) : (
-              <motion.div 
+              <motion.div
                 key="empty"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
@@ -525,6 +721,35 @@ function AppContent() {
               </motion.div>
             )}
           </AnimatePresence>
+
+          {showOnboardingOverlay ? (
+            <StartupOnboardingOverlay
+              isRepositoryStepComplete={hasRepoContext}
+              isProviderStepComplete={hasProviderConnection}
+              onOpenRepositoryPicker={handleOpenRepositoryPicker}
+              onOpenProviderSetup={handleOpenProviderSetup}
+              onDismiss={handleDismissOnboardingOverlay}
+            />
+          ) : null}
+
+          {showOnboardingReopenButton ? (
+            <button
+              type="button"
+              onClick={handleReopenOnboardingOverlay}
+              className="absolute bottom-5 right-5 z-20 rounded-full border border-zinc-700 bg-zinc-900/90 px-3 py-1.5 text-xs font-medium text-zinc-200 transition-colors hover:border-zinc-500 hover:bg-zinc-800"
+            >
+              Show setup guide
+            </button>
+          ) : null}
+
+          {showRepoPicker && isAuthenticated ? (
+            <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/80 backdrop-blur-sm">
+              <RepoPicker
+                onRepoSelect={handleRepoSelect}
+                onSkip={handleSkipRepoPicker}
+              />
+            </div>
+          ) : null}
         </div>
       </div>
     </div>
