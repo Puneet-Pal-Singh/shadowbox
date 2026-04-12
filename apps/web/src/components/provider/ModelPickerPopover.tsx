@@ -14,7 +14,9 @@
 import React, { useMemo, useState, useRef, useEffect } from "react";
 import { ChevronDown, Search, Plus, Settings, RefreshCw } from "lucide-react";
 import {
+  AXIS_PROVIDER_ID,
   BYOKCredential as ProviderCredential,
+  canShowProviderInPrimaryUi,
   type ProviderRegistryEntry,
 } from "@repo/shared-types";
 import {
@@ -22,12 +24,14 @@ import {
   type ProviderModelOption,
   type ProviderModelsMetadata,
 } from "../../services/api/providerClient.js";
+import { resolveWebProviderProductPolicy } from "../../lib/provider-product-policy";
 
 const VIEWPORT_PADDING_PX = 12;
 const POPOVER_GAP_PX = 8;
 const ESTIMATED_POPOVER_HEIGHT_PX = 360;
 const PREFERRED_POPOVER_WIDTH_PX = 304;
 const MIN_POPOVER_WIDTH_PX = 248;
+const WEB_PROVIDER_POLICY = resolveWebProviderProductPolicy();
 
 interface PopoverPlacement {
   vertical: "up" | "down";
@@ -96,7 +100,7 @@ function formatProviderDisplayName(
   providerId: string,
   displayName: string,
 ): string {
-  return providerId === "axis" ? "Axis (Free)" : displayName;
+  return providerId === AXIS_PROVIDER_ID ? "Axis (Free)" : displayName;
 }
 
 function getViewLabel(
@@ -201,8 +205,14 @@ function resolveAxisDefaultSelection(
   catalog: ProviderRegistryEntry[],
   providerModels: Record<string, ProviderModelOption[]>,
 ): EffectiveSelection {
-  const axisProvider = catalog.find((entry) => entry.providerId === "axis");
-  const axisModels = providerModels.axis ?? [];
+  if (!canShowProviderInPrimaryUi(WEB_PROVIDER_POLICY, AXIS_PROVIDER_ID)) {
+    return { providerId: null, modelId: null };
+  }
+
+  const axisProvider = catalog.find(
+    (entry) => entry.providerId === AXIS_PROVIDER_ID,
+  );
+  const axisModels = providerModels[AXIS_PROVIDER_ID] ?? [];
   if (!axisProvider || axisModels.length === 0) {
     return { providerId: null, modelId: null };
   }
@@ -217,7 +227,7 @@ function resolveAxisDefaultSelection(
     return { providerId: null, modelId: null };
   }
   return {
-    providerId: "axis",
+    providerId: AXIS_PROVIDER_ID,
     modelId: effectiveModelId,
   };
 }
@@ -282,7 +292,11 @@ export function ModelPickerPopover({
   const providerGroups = useMemo((): ProviderGroup[] => {
     return catalog
       .filter((entry) => {
-        if (entry.providerId === "axis") {
+        if (!canShowProviderInPrimaryUi(WEB_PROVIDER_POLICY, entry.providerId)) {
+          return false;
+        }
+
+        if (entry.providerId === AXIS_PROVIDER_ID) {
           return true;
         }
 
@@ -308,7 +322,7 @@ export function ModelPickerPopover({
       }))
       .filter(
         (group) =>
-          group.providerId === "axis" ||
+          group.providerId === AXIS_PROVIDER_ID ||
           group.isConnected ||
           group.models.length > 0,
       );
@@ -359,16 +373,19 @@ export function ModelPickerPopover({
       );
   }, [providerGroups, searchQuery, visibleModelIds]);
   const axisDefaultGroup = filteredGroups.find(
-    (group) => group.providerId === "axis",
+    (group) => group.providerId === AXIS_PROVIDER_ID,
   );
   const connectedProviderGroups = filteredGroups.filter(
-    (group) => group.providerId !== "axis",
+    (group) => group.providerId !== AXIS_PROVIDER_ID,
   );
 
   // Get currently selected model label
   const selectedModelLabel = useMemo((): string => {
     if (!effectiveSelection.providerId || !effectiveSelection.modelId) {
-      return "Select Model";
+      return WEB_PROVIDER_POLICY.isByokFirstProduction &&
+        connectedProviderIds.size === 0
+        ? "Connect Provider"
+        : "Select Model";
     }
 
     const provider = catalog.find(
@@ -391,7 +408,7 @@ export function ModelPickerPopover({
     }
 
     return `${formatProviderDisplayName(provider.providerId, provider.displayName)}: ${model.name}`;
-  }, [effectiveSelection, catalog, providerModels]);
+  }, [connectedProviderIds, effectiveSelection, catalog, providerModels]);
 
   // Handle model selection
   const handleSelectModel = async (
@@ -717,7 +734,10 @@ export function ModelPickerPopover({
                 <div className="p-6 text-center text-neutral-400 text-sm">
                   {searchQuery
                     ? "No models match your search"
-                    : "No models available yet."}
+                    : WEB_PROVIDER_POLICY.isByokFirstProduction &&
+                        connectedProviderIds.size === 0
+                      ? "Connect a BYOK provider to choose models."
+                      : "No models available yet."}
                 </div>
               ) : (
                 <>
