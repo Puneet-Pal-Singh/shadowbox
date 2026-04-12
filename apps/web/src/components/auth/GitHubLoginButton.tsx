@@ -31,14 +31,14 @@ export function GitHubLoginButton({
       whileHover={{ scale: 1.02 }}
       whileTap={{ scale: 0.98 }}
       className={`
-        flex items-center gap-2 rounded-lg font-medium
+        flex shrink-0 items-center gap-2 whitespace-nowrap rounded-lg font-medium
         transition-colors duration-200
         ${sizeClasses[size]}
         ${variantClasses[variant]}
       `}
     >
       <Github size={size === "sm" ? 14 : size === "md" ? 16 : 20} />
-      <span>Connect GitHub</span>
+      <span className="whitespace-nowrap">Connect GitHub</span>
     </motion.button>
   );
 }
