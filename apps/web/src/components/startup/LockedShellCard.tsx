@@ -21,31 +21,31 @@ export function LockedShellCard({ onLogin }: LockedShellCardProps) {
 
         <div className="space-y-3">
           <h1 className="text-2xl font-semibold tracking-tight text-white">
-            Open the app, then connect GitHub
+            You're one step away from your first run
           </h1>
           <p className="text-sm leading-6 text-zinc-400">
-            Shadowbox now keeps the real shell visible first. Sign in to unlock
-            repositories and create a setup-scoped run for provider connection.
+            Connect GitHub to choose your repository and start building inside
+            the app. We'll guide you through provider setup right after sign-in.
           </p>
         </div>
 
         <div className="mt-6 grid gap-3 text-sm text-zinc-300 sm:grid-cols-2">
           <InfoTile
             icon={Github}
-            title="GitHub unlocks repos"
-            description="Repository selection and repo-backed runs stay behind authenticated scope."
+            title="Pick your repository"
+            description="After sign-in, select the repo you want Shadowbox to work on."
           />
           <InfoTile
             icon={KeyRound}
-            title="Provider keys require auth"
-            description="BYOK setup becomes available after login through a valid setup-scoped run."
+            title="Set up your model provider"
+            description="Add your API key provider after sign-in so you can choose models and run prompts."
           />
         </div>
 
         <div className="mt-8 flex items-center justify-between gap-4 border-t border-zinc-800 pt-6">
           <div className="flex items-center gap-2 text-xs text-zinc-500">
             <ShieldCheck size={14} className="text-emerald-400" />
-            Auth is required before any provider or repo persistence happens.
+            We enable repository and provider setup only after secure sign-in.
           </div>
           <GitHubLoginButton onClick={onLogin} size="lg" variant="primary" />
         </div>
