@@ -21,6 +21,8 @@ import {
   type BYOKPreferencesUpdateRequest,
   type BYOKResolveRequest,
   ProviderRegistryEntry,
+  canPreloadProvider,
+  canShowProviderInPrimaryUi,
 } from "@repo/shared-types";
 import {
   ProviderApiClient,
@@ -29,6 +31,9 @@ import {
   type ProviderModelsPageResult,
   type ProviderModelsQuery,
 } from "../api/providerClient.js";
+import { resolveWebProviderProductPolicy } from "../../lib/provider-product-policy";
+
+const WEB_PROVIDER_POLICY = resolveWebProviderProductPolicy();
 
 export interface ProviderModelsMetadataState {
   fetchedAt: string;
@@ -326,11 +331,14 @@ export class ProviderStore {
   private async executeBootstrap(epoch: number): Promise<void> {
     this.setState({ status: "loading", error: null });
     try {
-      const [catalog, credentials, preferences] = await Promise.all([
+      const [rawCatalog, credentials, preferences] = await Promise.all([
         this.apiClient.getCatalog(),
         this.apiClient.getCredentials(),
         this.apiClient.getPreferences(),
       ]);
+      const catalog = rawCatalog.filter((entry) =>
+        canShowProviderInPrimaryUi(WEB_PROVIDER_POLICY, entry.providerId),
+      );
       if (this.isWorkspaceEpochStale("bootstrap", epoch)) {
         return;
       }
@@ -1615,14 +1623,23 @@ export class ProviderStore {
       selectedCredentialId,
       selectedModelId,
     } = input;
+    const catalogProviderIds = new Set(
+      catalog.map((entry) => entry.providerId),
+    );
+    const isSelectableProvider = (providerId: string): boolean =>
+      catalogProviderIds.has(providerId);
     const selectedCredential = selectedCredentialId
       ? credentials.find(
-          (credential) => credential.credentialId === selectedCredentialId,
+          (credential) =>
+            credential.credentialId === selectedCredentialId &&
+            isSelectableProvider(credential.providerId),
         )
       : undefined;
     const hasSelectedProviderCredential = selectedProviderId
       ? credentials.some(
-          (credential) => credential.providerId === selectedProviderId,
+          (credential) =>
+            credential.providerId === selectedProviderId &&
+            isSelectableProvider(credential.providerId),
         )
       : false;
 
@@ -1630,16 +1647,25 @@ export class ProviderStore {
       selectedCredential?.providerId ??
       (hasSelectedProviderCredential ? selectedProviderId : null) ??
       (preferences?.defaultProviderId &&
+      isSelectableProvider(preferences.defaultProviderId) &&
       credentials.some(
-        (credential) => credential.providerId === preferences.defaultProviderId,
+        (credential) =>
+          credential.providerId === preferences.defaultProviderId &&
+          isSelectableProvider(credential.providerId),
       )
         ? preferences.defaultProviderId
         : null) ??
-      credentials[0]?.providerId ??
+      credentials.find((credential) =>
+        isSelectableProvider(credential.providerId),
+      )?.providerId ??
       null;
 
     const providerCredentials = providerId
-      ? credentials.filter((credential) => credential.providerId === providerId)
+      ? credentials.filter(
+          (credential) =>
+            credential.providerId === providerId &&
+            isSelectableProvider(credential.providerId),
+        )
       : [];
     const credentialId =
       providerCredentials.find(
@@ -1811,12 +1837,18 @@ export class ProviderStore {
       catalog.map((entry) => entry.providerId),
     );
 
-    if (catalogProviderIds.has("axis")) {
+    if (
+      catalogProviderIds.has("axis") &&
+      canPreloadProvider(WEB_PROVIDER_POLICY, "axis")
+    ) {
       providerIds.add("axis");
     }
 
     for (const credential of credentials) {
-      if (catalogProviderIds.has(credential.providerId)) {
+      if (
+        catalogProviderIds.has(credential.providerId) &&
+        canPreloadProvider(WEB_PROVIDER_POLICY, credential.providerId)
+      ) {
         providerIds.add(credential.providerId);
       }
     }
