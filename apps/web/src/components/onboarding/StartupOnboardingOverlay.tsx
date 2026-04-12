@@ -1,6 +1,6 @@
 import { CheckCircle2, Circle, KeyRound, FolderGit2, X } from "lucide-react";
 import { motion } from "framer-motion";
-import type { ElementType } from "react";
+import { useEffect, useRef, type ElementType } from "react";
 
 interface StartupOnboardingOverlayProps {
   isRepositoryStepComplete: boolean;
@@ -27,6 +27,39 @@ export function StartupOnboardingOverlay({
   onOpenProviderSetup,
   onDismiss,
 }: StartupOnboardingOverlayProps) {
+  const sectionRef = useRef<HTMLElement>(null);
+  const previousActiveElement = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    previousActiveElement.current = document.activeElement as HTMLElement;
+    sectionRef.current?.focus();
+    return () => {
+      previousActiveElement.current?.focus();
+    };
+  }, []);
+
+  const handleKeyDown = (e: KeyboardEvent) => {
+    if (e.key === "Escape") {
+      onDismiss();
+      return;
+    }
+    if (e.key === "Tab" && sectionRef.current) {
+      const focusableElements =
+        sectionRef.current.querySelectorAll<HTMLElement>(
+          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+        );
+      const firstElement = focusableElements[0];
+      const lastElement = focusableElements[focusableElements.length - 1];
+      if (e.shiftKey && document.activeElement === firstElement) {
+        e.preventDefault();
+        lastElement?.focus();
+      } else if (!e.shiftKey && document.activeElement === lastElement) {
+        e.preventDefault();
+        firstElement?.focus();
+      }
+    }
+  };
+
   const steps: StartupStep[] = [
     {
       id: "repository",
@@ -61,20 +94,33 @@ export function StartupOnboardingOverlay({
     >
       <div className="absolute inset-0 bg-black/35" />
       <motion.section
+        ref={sectionRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="onboarding-title"
+        aria-describedby="onboarding-description"
+        tabIndex={-1}
+        onKeyDown={handleKeyDown as unknown as undefined}
         initial={{ opacity: 0, y: -10, scale: 0.98 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
         transition={{ duration: 0.2 }}
-        className="pointer-events-auto absolute right-5 top-5 w-[22rem] rounded-2xl border border-zinc-700/80 bg-[#121316]/96 p-4 shadow-[0_24px_80px_rgba(0,0,0,0.55)] backdrop-blur"
+        className="pointer-events-auto absolute right-5 top-5 w-[22rem] rounded-2xl border border-zinc-700/80 bg-[#121316]/96 p-4 shadow-[0_24px_80px_rgba(0,0,0,0.55)] backdrop-blur focus:outline-none"
       >
         <div className="flex items-start justify-between gap-3">
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-300">
               First-Run Setup
             </p>
-            <h2 className="mt-1 text-base font-semibold text-white">
+            <h2
+              id="onboarding-title"
+              className="mt-1 text-base font-semibold text-white"
+            >
               Finish two quick steps
             </h2>
-            <p className="mt-1 text-xs text-zinc-400">
+            <p
+              id="onboarding-description"
+              className="mt-1 text-xs text-zinc-400"
+            >
               Complete GitHub repo setup and BYOK provider setup to start your
               first run.
             </p>

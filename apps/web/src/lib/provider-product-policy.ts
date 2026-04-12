@@ -52,7 +52,9 @@ export function resolveWebProviderProductEnvironment(input?: {
     return parsedMode;
   }
 
-  return "development";
+  throw new Error(
+    `Unrecognized environment: mode="${normalizedMode}", productEnv="${normalizedProductEnv}". Expected one of: development, dev, test, local, staging, production, prod`,
+  );
 }
 
 export function resolveWebProviderProductPolicy(): ProviderProductPolicy {

@@ -22,13 +22,13 @@ describe("resolveWebProviderProductEnvironment", () => {
     ).toBe("production");
   });
 
-  it("defaults unknown values to development", () => {
-    expect(
+  it("throws on unrecognized environment values", () => {
+    expect(() =>
       resolveWebProviderProductEnvironment({
         mode: "preview",
         productEnv: "qa",
       }),
-    ).toBe("development");
+    ).toThrow();
   });
 });
 

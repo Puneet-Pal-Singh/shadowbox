@@ -23,8 +23,12 @@ import { LockedShellCard } from "./components/startup/LockedShellCard";
 import type { SetupSessionState } from "./types/session";
 import { StartupOnboardingOverlay } from "./components/onboarding/StartupOnboardingOverlay";
 
-const DISMISSED_ONBOARDING_STATE_KEY =
-  "shadowbox:startup-onboarding:dismissed-state";
+function buildOnboardingDismissedKey(userId: string | null): string {
+  if (!userId) {
+    return "shadowbox:startup-onboarding:dismissed-state:anonymous";
+  }
+  return `shadowbox:startup-onboarding:dismissed-state:${userId}`;
+}
 
 /**
  * Main App Component
@@ -57,17 +61,14 @@ function AppContent() {
     renameRepository,
   } = useSessionManager();
 
-  const { isAuthenticated, isLoading, login } = useAuth();
-  const {
-    repo,
-    branch,
-    setContext,
-    clearContext,
-    saveSessionContext,
-  } = useGitHub();
+  const { isAuthenticated, isLoading, login, user } = useAuth();
+  const { repo, branch, setContext, clearContext, saveSessionContext } =
+    useGitHub();
   const [showRepoPicker, setShowRepoPicker] = useState(false);
   const [isGitReviewOpen, setIsGitReviewOpen] = useState(false);
-  const [gitReviewSessionId, setGitReviewSessionId] = useState<string | null>(null);
+  const [gitReviewSessionId, setGitReviewSessionId] = useState<string | null>(
+    null,
+  );
   const [gitReviewIntent, setGitReviewIntent] = useState<"review" | "commit">(
     "review",
   );
@@ -77,7 +78,8 @@ function AppContent() {
   const [dismissedOnboardingStateKey, setDismissedOnboardingStateKey] =
     useState<string | null>(() => {
       try {
-        return localStorage.getItem(DISMISSED_ONBOARDING_STATE_KEY);
+        const key = buildOnboardingDismissedKey(user?.id ?? null);
+        return localStorage.getItem(key);
       } catch (error) {
         console.warn("[App] Failed to read onboarding dismissal state:", error);
         return null;
@@ -111,7 +113,13 @@ function AppContent() {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const convertSessionsToRuns = (): RunInboxItem[] => {
     return sessions.map((session) => {
-      let status: "idle" | "queued" | "running" | "waiting" | "failed" | "complete" = "idle";
+      let status:
+        | "idle"
+        | "queued"
+        | "running"
+        | "waiting"
+        | "failed"
+        | "complete" = "idle";
       if (session.status === "running") status = "running";
       else if (session.status === "completed") status = "complete";
       else if (session.status === "error") status = "failed";
@@ -158,9 +166,8 @@ function AppContent() {
     if (!activeSessionId) return;
     if (!activeSession) return;
 
-    const sessionContext = SessionStateService.loadSessionGitHubContext(
-      activeSessionId,
-    );
+    const sessionContext =
+      SessionStateService.loadSessionGitHubContext(activeSessionId);
 
     if (sessionContext) {
       // Reconstruct Repository object from stored context
@@ -203,14 +210,7 @@ function AppContent() {
         clearContext();
       }
     }
-  }, [
-    activeSessionId,
-    activeSession,
-    repo,
-    branch,
-    setContext,
-    clearContext,
-  ]);
+  }, [activeSessionId, activeSession, repo, branch, setContext, clearContext]);
 
   const clearSetupSessionState = useCallback(() => {
     SessionStateService.clearSetupSession();
@@ -274,9 +274,15 @@ function AppContent() {
 
   // Robust visibility flags
   const showSetup =
-    isAuthenticated && !!activeSessionId && !!activeSession && !isSessionStarted;
+    isAuthenticated &&
+    !!activeSessionId &&
+    !!activeSession &&
+    !isSessionStarted;
   const showWorkspace =
-    isAuthenticated && !!activeSessionId && !!activeSession && !!isSessionStarted;
+    isAuthenticated &&
+    !!activeSessionId &&
+    !!activeSession &&
+    !!isSessionStarted;
 
   const hasProviderConnection = isAuthenticated && credentials.length > 0;
   const hasRealSession = sessions.length > 0;
@@ -306,8 +312,7 @@ function AppContent() {
     !activeSession &&
     (shellStartupState === "shell_authenticated_setup" ||
       shellStartupState === "shell_authenticated_repo_missing");
-  const isPreparingSetupShell =
-    showShellSetupSurface && setupSession === null;
+  const isPreparingSetupShell = showShellSetupSurface && setupSession === null;
   const isStartupSetupVisible =
     showSetup || (showShellSetupSurface && setupSession !== null);
   const isOnboardingComplete = hasProviderConnection && hasRepoContext;
@@ -353,18 +358,19 @@ function AppContent() {
       return;
     }
 
+    const key = buildOnboardingDismissedKey(user?.id ?? null);
     const timeoutId = window.setTimeout(() => {
       setDismissedOnboardingStateKey(null);
     }, 0);
     try {
-      localStorage.removeItem(DISMISSED_ONBOARDING_STATE_KEY);
+      localStorage.removeItem(key);
     } catch (error) {
       console.warn("[App] Failed to clear onboarding dismissal state:", error);
     }
     return () => {
       window.clearTimeout(timeoutId);
     };
-  }, [isOnboardingComplete]);
+  }, [isOnboardingComplete, user?.id]);
 
   // Get active session name for the header
   const taskTitle = activeSession?.name;
@@ -384,20 +390,25 @@ function AppContent() {
   };
 
   const handleDismissOnboardingOverlay = () => {
+    const key = buildOnboardingDismissedKey(user?.id ?? null);
     setDismissedOnboardingStateKey(onboardingStateKey);
     setIsOnboardingOverlayDelayElapsed(false);
     try {
-      localStorage.setItem(DISMISSED_ONBOARDING_STATE_KEY, onboardingStateKey);
+      localStorage.setItem(key, onboardingStateKey);
     } catch (error) {
-      console.warn("[App] Failed to persist onboarding dismissal state:", error);
+      console.warn(
+        "[App] Failed to persist onboarding dismissal state:",
+        error,
+      );
     }
   };
 
   const handleReopenOnboardingOverlay = () => {
+    const key = buildOnboardingDismissedKey(user?.id ?? null);
     setDismissedOnboardingStateKey(null);
     setIsOnboardingOverlayDelayElapsed(true);
     try {
-      localStorage.removeItem(DISMISSED_ONBOARDING_STATE_KEY);
+      localStorage.removeItem(key);
     } catch (error) {
       console.warn("[App] Failed to reopen onboarding state:", error);
     }
@@ -439,7 +450,10 @@ function AppContent() {
           otherSessionWithRepo.id,
         );
         if (sessionContext) {
-          SessionStateService.saveSessionGitHubContext(sessionId, sessionContext);
+          SessionStateService.saveSessionGitHubContext(
+            sessionId,
+            sessionContext,
+          );
         }
       } else if (repo && repo.full_name === targetRepo) {
         // Copy current GitHub context to new session
@@ -448,7 +462,9 @@ function AppContent() {
     } else {
       // If absolutely no repo is selected, targetRepo is missing,
       // or the user has deleted the repo folder
-      console.log("[App] No valid target repo found for new task, showing picker");
+      console.log(
+        "[App] No valid target repo found for new task, showing picker",
+      );
       handleOpenRepositoryPicker();
     }
   };
