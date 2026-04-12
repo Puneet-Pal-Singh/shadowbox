@@ -689,7 +689,7 @@ export function ModelPickerPopover({
                 }}
                 disabled={
                   !canRefreshSelectedProviderModels ||
-                  !selectedProviderId ||
+                  !(effectiveSelection.providerId ?? selectedProviderId) ||
                   isRefreshingSelectedProviderModels ||
                   isLoading
                 }

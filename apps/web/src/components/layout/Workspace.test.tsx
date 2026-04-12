@@ -20,15 +20,13 @@ const mockChatState = vi.hoisted(() => ({
 const mockGitHubTreeState = vi.hoisted(() => ({
   repoTree: [],
   isLoadingTree: false,
-  repo: null as
-    | {
-        owner: { login: string };
-        name: string;
-        full_name: string;
-        html_url: string;
-        default_branch: string;
-      }
-    | null,
+  repo: null as {
+    owner: { login: string };
+    name: string;
+    full_name: string;
+    html_url: string;
+    default_branch: string;
+  } | null,
   branch: "main",
   isGitHubLoaded: false,
 }));
@@ -112,7 +110,9 @@ vi.mock("./workspace/SidebarContent", () => ({
 }));
 
 vi.mock("../git/GitReviewContext", () => ({
-  GitReviewProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  GitReviewProvider: ({ children }: { children: React.ReactNode }) => (
+    <>{children}</>
+  ),
 }));
 
 vi.mock("../git/GitReviewDialog", () => ({
@@ -198,7 +198,7 @@ describe("Workspace", () => {
     });
   });
 
-  it("passes the canonical github full_name to the chat interface", () => {
+  it("passes repo tree state to the chat interface", () => {
     mockGitHubTreeState.repo = {
       owner: { login: "Puneet-Pal-Singh" },
       name: "career-crew",
