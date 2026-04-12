@@ -52,6 +52,9 @@ interface AgentSetupProps {
   isRightSidebarOpen?: boolean;
   mode?: RunMode;
   onModeChange?: (mode: RunMode) => void;
+  requiresRepository?: boolean;
+  showOnboardingHighlights?: boolean;
+  openProviderDialogSignal?: number;
   onStart: (config: {
     repo: string;
     branch: string;
@@ -119,6 +122,9 @@ export function AgentSetup({
   isRightSidebarOpen = false,
   mode = DEFAULT_RUN_MODE,
   onModeChange,
+  requiresRepository = false,
+  showOnboardingHighlights = false,
+  openProviderDialogSignal = 0,
   onStart,
   onRepoClick,
 }: AgentSetupProps) {
@@ -167,6 +173,7 @@ export function AgentSetup({
   } = useProviderStore();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const explorerRef = useRef<FileExplorerHandle>(null);
+  const previousProviderDialogSignalRef = useRef(openProviderDialogSignal);
   const workspaceBootstrapKeyRef = useRef<string | null>(null);
   const workspaceBootstrapInFlightRef = useRef<string | null>(null);
   const activeRunId = runId ?? "";
@@ -211,6 +218,8 @@ export function AgentSetup({
   });
 
   const hasTask = task.trim().length > 0;
+  const hasRepositoryContext = Boolean(repo?.full_name);
+  const canStart = hasTask && (!requiresRepository || hasRepositoryContext);
   const suggestionEntries = useMemo(
     () =>
       repoTree.map((entry) => ({
@@ -285,6 +294,18 @@ export function AgentSetup({
     selectedModelView,
     selectedProviderId,
   ]);
+
+  useEffect(() => {
+    if (openProviderDialogSignal === previousProviderDialogSignalRef.current) {
+      return;
+    }
+
+    previousProviderDialogSignalRef.current = openProviderDialogSignal;
+    setProviderDialogInitialTab("available");
+    setProviderDialogInitialView("default");
+    setProviderDialogVariant("connect-only");
+    setShowProviderDialog(true);
+  }, [openProviderDialogSignal]);
 
   useEffect(() => {
     const owner = repo?.owner?.login?.trim();
@@ -371,6 +392,10 @@ export function AgentSetup({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canStart) {
+      return;
+    }
+
     if (task.trim()) {
       onStart({
         repo: repo?.full_name || "",
@@ -488,7 +513,8 @@ export function AgentSetup({
     }
   };
 
-  const repoName = repo?.name || "New Project";
+  const repoName =
+    repo?.name || (requiresRepository ? "Connect repository" : "New Project");
 
   return (
     <GitReviewProvider
@@ -551,7 +577,12 @@ export function AgentSetup({
               {/* Project Name with Dropdown */}
               <motion.button
                 onClick={onRepoClick}
-                className="flex items-center gap-1.5 mt-0.5 text-2xl font-medium text-zinc-500 hover:text-zinc-400 transition-colors duration-200 group"
+                data-onboarding-target="setup-repo"
+                className={`flex items-center gap-1.5 mt-0.5 text-2xl font-medium text-zinc-500 hover:text-zinc-400 transition-colors duration-200 group ${
+                  showOnboardingHighlights
+                    ? "rounded-md ring-2 ring-cyan-500/70 ring-offset-2 ring-offset-black px-1.5 py-0.5"
+                    : ""
+                }`}
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
               >
@@ -763,71 +794,82 @@ export function AgentSetup({
 
                       <div className="h-3.5 w-px bg-zinc-800" />
 
-                      <ModelPickerPopover
-                        catalog={catalog}
-                        credentials={credentials}
-                        providerModels={providerModels}
-                        visibleModelIds={visibleModelIds}
-                        selectedProviderId={selectedProviderId}
-                        selectedModelId={selectedModelId}
-                        selectedModelView={selectedModelView}
-                        selectedProviderMetadata={
-                          selectedProviderId
-                            ? (providerModelsMetadata[selectedProviderId] ??
-                              null)
-                            : null
+                      <div
+                        data-onboarding-target="setup-provider"
+                        className={
+                          showOnboardingHighlights
+                            ? "rounded-md ring-2 ring-cyan-500/70 ring-offset-2 ring-offset-black"
+                            : undefined
                         }
-                        hasMoreSelectedProviderModels={
-                          selectedProviderId
-                            ? (providerModelsPage[selectedProviderId]
-                                ?.hasMore ?? false)
-                            : false
-                        }
-                        isLoadingMoreSelectedProviderModels={
-                          selectedProviderId !== null &&
-                          loadingModelsForProviderId === selectedProviderId
-                        }
-                        isRefreshingSelectedProviderModels={
-                          selectedProviderId !== null &&
-                          refreshingModelsForProviderId === selectedProviderId
-                        }
-                        onSelectModel={async (providerId, modelId) => {
-                          const credential = findCredentialByProviderId(
-                            credentials,
-                            providerId,
-                          );
-                          if (!credential) {
+                      >
+                        <ModelPickerPopover
+                          catalog={catalog}
+                          credentials={credentials}
+                          providerModels={providerModels}
+                          visibleModelIds={visibleModelIds}
+                          selectedProviderId={selectedProviderId}
+                          selectedModelId={selectedModelId}
+                          selectedModelView={selectedModelView}
+                          selectedProviderMetadata={
+                            selectedProviderId
+                              ? (providerModelsMetadata[selectedProviderId] ??
+                                null)
+                              : null
+                          }
+                          hasMoreSelectedProviderModels={
+                            selectedProviderId
+                              ? (providerModelsPage[selectedProviderId]
+                                  ?.hasMore ?? false)
+                              : false
+                          }
+                          isLoadingMoreSelectedProviderModels={
+                            selectedProviderId !== null &&
+                            loadingModelsForProviderId === selectedProviderId
+                          }
+                          isRefreshingSelectedProviderModels={
+                            selectedProviderId !== null &&
+                            refreshingModelsForProviderId === selectedProviderId
+                          }
+                          onSelectModel={async (providerId, modelId) => {
+                            const credential = findCredentialByProviderId(
+                              credentials,
+                              providerId,
+                            );
+                            if (!credential) {
+                              setProviderDialogInitialTab("available");
+                              setProviderDialogInitialView("default");
+                              setProviderDialogVariant("connect-only");
+                              setShowProviderDialog(true);
+                              return;
+                            }
+                            await applySessionSelection({
+                              providerId,
+                              credentialId: credential.credentialId,
+                              modelId,
+                            });
+                          }}
+                          onSelectModelView={setModelView}
+                          onLoadMoreSelectedProviderModels={
+                            loadMoreProviderModels
+                          }
+                          onRefreshSelectedProviderModels={
+                            refreshProviderModels
+                          }
+                          onConnectProvider={() => {
                             setProviderDialogInitialTab("available");
                             setProviderDialogInitialView("default");
                             setProviderDialogVariant("connect-only");
                             setShowProviderDialog(true);
-                            return;
-                          }
-                          await applySessionSelection({
-                            providerId,
-                            credentialId: credential.credentialId,
-                            modelId,
-                          });
-                        }}
-                        onSelectModelView={setModelView}
-                        onLoadMoreSelectedProviderModels={
-                          loadMoreProviderModels
-                        }
-                        onRefreshSelectedProviderModels={refreshProviderModels}
-                        onConnectProvider={() => {
-                          setProviderDialogInitialTab("available");
-                          setProviderDialogInitialView("default");
-                          setProviderDialogVariant("connect-only");
-                          setShowProviderDialog(true);
-                        }}
-                        onManageModels={() => {
-                          setProviderDialogInitialTab("connected");
-                          setProviderDialogInitialView("manage-models");
-                          setProviderDialogVariant("manage-models-only");
-                          setShowProviderDialog(true);
-                        }}
-                        isLoading={status === "loading"}
-                      />
+                          }}
+                          onManageModels={() => {
+                            setProviderDialogInitialTab("connected");
+                            setProviderDialogInitialView("manage-models");
+                            setProviderDialogVariant("manage-models-only");
+                            setShowProviderDialog(true);
+                          }}
+                          isLoading={status === "loading"}
+                        />
+                      </div>
                     </div>
 
                     {/* Right: Attachment, Mic, Send */}
@@ -852,17 +894,22 @@ export function AgentSetup({
 
                       <motion.button
                         type="submit"
-                        disabled={!task.trim()}
-                        whileHover={{ scale: task.trim() ? 1.05 : 1 }}
-                        whileTap={{ scale: task.trim() ? 0.95 : 1 }}
+                        disabled={!canStart}
+                        whileHover={{ scale: canStart ? 1.05 : 1 }}
+                        whileTap={{ scale: canStart ? 0.95 : 1 }}
                         className={`
                       p-1.5 rounded-full transition-all duration-200
                       ${
-                        task.trim()
+                        canStart
                           ? "bg-white text-black hover:bg-zinc-100 shadow-lg shadow-white/10"
                           : "bg-zinc-800 text-zinc-600 cursor-not-allowed"
                       }
                     `}
+                        title={
+                          requiresRepository && !hasRepositoryContext
+                            ? "Connect a repository to start"
+                            : undefined
+                        }
                       >
                         <ArrowUp size={16} />
                       </motion.button>
@@ -873,6 +920,30 @@ export function AgentSetup({
               <div className="pl-6 mt-1">
                 <ChatBranchSelector />
               </div>
+              {requiresRepository && !hasRepositoryContext ? (
+                <div className="pl-6 mt-2 text-xs text-zinc-500">
+                  Connect a repository before starting a repo-backed task. You
+                  can still add your provider key now.
+                </div>
+              ) : null}
+              {credentials.length === 0 ? (
+                <div className="pl-6 mt-2 text-xs text-zinc-500">
+                  BYOK provider required before model selection.
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setProviderDialogInitialTab("available");
+                      setProviderDialogInitialView("default");
+                      setProviderDialogVariant("connect-only");
+                      setShowProviderDialog(true);
+                    }}
+                    className="ml-1 text-cyan-300 hover:text-cyan-200 underline-offset-2 hover:underline"
+                  >
+                    Connect provider
+                  </button>
+                  .
+                </div>
+              ) : null}
             </motion.div>
           </div>
         </main>
