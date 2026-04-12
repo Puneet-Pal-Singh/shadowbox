@@ -12,6 +12,7 @@ import { useRunEvents } from "../../hooks/useRunEvents.js";
 import { useRunActivityFeed } from "../../hooks/useRunActivityFeed.js";
 import { getProviderRecoveryAdvice } from "../../lib/provider-recovery";
 import { useProviderStore } from "../../hooks/useProviderStore.js";
+import { resolveWebProviderProductPolicy } from "../../lib/provider-product-policy";
 import {
   buildChatMessageMetadata,
   buildConversationTurns,
@@ -23,6 +24,7 @@ import type { ActivityTurnViewModel } from "../../services/activity/ActivityFeed
 
 // Flip to true when you want to temporarily inspect the legacy workflow debug UI.
 const SHOW_WORKFLOW_DEBUG_PANEL = false;
+const WEB_PROVIDER_POLICY = resolveWebProviderProductPolicy();
 
 function ChatErrorNotice({
   message,
@@ -111,6 +113,15 @@ export function ChatInterface({
   const showDebugPanel =
     import.meta.env.VITE_ENABLE_CHAT_DEBUG_PANEL === "true";
   const [showProviderDialog, setShowProviderDialog] = useState(false);
+  const [providerDialogInitialTab, setProviderDialogInitialTab] = useState<
+    "connected" | "available" | "preferences" | "session" | undefined
+  >(undefined);
+  const [providerDialogInitialView, setProviderDialogInitialView] = useState<
+    "default" | "manage-models"
+  >("default");
+  const [providerDialogVariant, setProviderDialogVariant] = useState<
+    "full" | "connect-only" | "manage-models-only"
+  >("full");
   const { providerModels } = useProviderStore(runId);
 
   const messageMetadataById = useMemo(() => {
@@ -181,6 +192,22 @@ export function ChatInterface({
   };
 
   const recoveryAdvice = getProviderRecoveryAdvice(error);
+  const isProductionProviderSurface =
+    WEB_PROVIDER_POLICY.environment === "production";
+  const openProviderRecoverySurface = useCallback(() => {
+    if (isProductionProviderSurface) {
+      // Production keeps recovery on the newer connect-only setup flow.
+      // The full tabbed settings shell remains debug-oriented for non-prod.
+      setProviderDialogInitialTab("available");
+      setProviderDialogInitialView("default");
+      setProviderDialogVariant("connect-only");
+    } else {
+      setProviderDialogInitialTab("session");
+      setProviderDialogInitialView("default");
+      setProviderDialogVariant("full");
+    }
+    setShowProviderDialog(true);
+  }, [isProductionProviderSurface]);
   const activeInlineTurn = activityViewModel.turns.find(
     (turn) => turn.hasVisibleRows && !turn.defaultCollapsed,
   );
@@ -328,7 +355,7 @@ export function ChatInterface({
                 message={recoveryAdvice.message}
                 remediation={recoveryAdvice.remediation}
                 actionLabel={recoveryAdvice.actionLabel}
-                onOpenProviders={() => setShowProviderDialog(true)}
+                onOpenProviders={openProviderRecoverySurface}
               />
             </div>
           )}
@@ -353,8 +380,16 @@ export function ChatInterface({
       </div>
       <ProviderDialog
         isOpen={showProviderDialog}
-        onClose={() => setShowProviderDialog(false)}
+        onClose={() => {
+          setShowProviderDialog(false);
+          setProviderDialogInitialTab(undefined);
+          setProviderDialogInitialView("default");
+          setProviderDialogVariant("full");
+        }}
         mode="composer"
+        initialTab={providerDialogInitialTab}
+        initialView={providerDialogInitialView}
+        variant={providerDialogVariant}
       />
     </div>
   );
