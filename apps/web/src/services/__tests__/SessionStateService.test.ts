@@ -95,6 +95,48 @@ describe("SessionStateService", () => {
       const runId = SessionStateService.loadActiveSessionRunId();
       expect(runId).toBeNull();
     });
+
+    it("should fall back to setup session run ID when no repo session exists", () => {
+      const setupSession = SessionStateService.createSetupSession();
+      SessionStateService.saveSetupSession(setupSession);
+
+      const runId = SessionStateService.loadActiveSessionRunId();
+
+      expect(runId).toBe(setupSession.activeRunId);
+    });
+
+    it("should fall back to setup session run ID when active session cannot be resolved", () => {
+      const session = SessionStateService.createSession("Test Session", "repo");
+      const setupSession = SessionStateService.createSetupSession();
+
+      SessionStateService.saveSessions({ [session.id]: session }, "missing-session");
+      SessionStateService.saveActiveSessionId(session.id, { [session.id]: session });
+      localStorage.setItem("shadowbox:active-session-id:v2", "missing-session");
+      SessionStateService.saveSetupSession(setupSession);
+
+      const runId = SessionStateService.loadActiveSessionRunId();
+
+      expect(runId).toBe(setupSession.activeRunId);
+    });
+  });
+
+  describe("Setup Session Persistence", () => {
+    it("should save and load setup session state", () => {
+      const setupSession = SessionStateService.createSetupSession();
+
+      SessionStateService.saveSetupSession(setupSession);
+
+      expect(SessionStateService.loadSetupSession()).toEqual(setupSession);
+    });
+
+    it("should clear setup session state", () => {
+      const setupSession = SessionStateService.createSetupSession();
+
+      SessionStateService.saveSetupSession(setupSession);
+      SessionStateService.clearSetupSession();
+
+      expect(SessionStateService.loadSetupSession()).toBeNull();
+    });
   });
 
   describe("Session-Scoped GitHub Context", () => {

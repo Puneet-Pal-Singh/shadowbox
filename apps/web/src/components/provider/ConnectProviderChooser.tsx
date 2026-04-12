@@ -8,10 +8,15 @@
 import React, { useMemo, useState, useRef, useEffect } from "react";
 import { Search, AlertCircle, CheckCircle, ArrowLeft } from "lucide-react";
 import {
+  AXIS_PROVIDER_ID,
+  canShowProviderInPrimaryUi,
   isLaunchSupportedProvider,
   type ProviderRegistryEntry,
 } from "@repo/shared-types";
 import { getProviderRecoveryAdvice } from "../../lib/provider-recovery.js";
+import { resolveWebProviderProductPolicy } from "../../lib/provider-product-policy";
+
+const WEB_PROVIDER_POLICY = resolveWebProviderProductPolicy();
 
 /**
  * Props for ConnectProviderChooser
@@ -58,7 +63,8 @@ export function ConnectProviderChooser({
     return catalog
       .filter(
         (entry) =>
-          entry.providerId !== "axis" &&
+          entry.providerId !== AXIS_PROVIDER_ID &&
+          canShowProviderInPrimaryUi(WEB_PROVIDER_POLICY, entry.providerId) &&
           entry.authModes.includes("api_key") &&
           isLaunchSupportedProvider(entry)
       )

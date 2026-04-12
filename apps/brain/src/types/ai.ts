@@ -72,6 +72,7 @@ export interface Env {
 
   // Environment
   NODE_ENV?: string;
+  ENVIRONMENT?: string;
 }
 
 // export interface Env {

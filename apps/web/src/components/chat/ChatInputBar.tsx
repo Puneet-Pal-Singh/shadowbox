@@ -12,6 +12,8 @@ import {
   TerminalSquare,
 } from "lucide-react";
 import {
+  AXIS_PROVIDER_ID,
+  canShowProviderInPrimaryUi,
   DEFAULT_RUN_MODE,
   type ProviderId,
   type RunMode,
@@ -26,6 +28,7 @@ import {
   findActiveFileMention,
   getPreferredMentionPath,
 } from "./fileMentions";
+import { resolveWebProviderProductPolicy } from "../../lib/provider-product-policy";
 
 const IDLE_SWITCH_WARNING =
   "Changing models mid-conversation will degrade performance.";
@@ -34,6 +37,7 @@ const BUILD_PLACEHOLDER =
   "Ask Shadowbox anything, @ to add files, / for commands";
 const PLAN_PLACEHOLDER =
   "Inspect the codebase and outline a safe plan without executing changes";
+const WEB_PROVIDER_POLICY = resolveWebProviderProductPolicy();
 
 interface ChatInputBarProps {
   input: string;
@@ -486,6 +490,26 @@ export function ChatInputBar({
             </div>
           ) : null}
 
+          {WEB_PROVIDER_POLICY.isByokFirstProduction &&
+          credentials.length === 0 ? (
+            <div className="mt-3 rounded-xl border border-zinc-800 bg-zinc-900/60 px-3 py-2 text-xs text-zinc-300">
+              Connect a BYOK provider to pick a model before sending prompts.
+              <button
+                type="button"
+                onClick={() => {
+                  setProviderDialogInitialTab("available");
+                  setProviderDialogInitialView("default");
+                  setProviderDialogVariant("connect-only");
+                  setShowProviderDialog(true);
+                }}
+                className="ml-1 text-cyan-300 hover:text-cyan-200 underline-offset-2 hover:underline"
+              >
+                Open provider setup
+              </button>
+              .
+            </div>
+          ) : null}
+
           {/* Toolbar */}
           <div className="flex items-center justify-between mt-2 pt-2">
             {/* Left: Add button + Model picker */}
@@ -577,7 +601,9 @@ export function ChatInputBar({
                 isLoading={status === "loading"}
               />
 
-              {selectedProviderId === "axis" && axisQuota ? (
+              {selectedProviderId === AXIS_PROVIDER_ID &&
+              axisQuota &&
+              canShowProviderInPrimaryUi(WEB_PROVIDER_POLICY, AXIS_PROVIDER_ID) ? (
                 <span
                   className="rounded border border-emerald-800/60 bg-emerald-950/40 px-1.5 py-0.5 text-[10px] font-medium text-emerald-300"
                   title={`Axis daily usage resets at ${new Date(axisQuota.resetsAt).toLocaleString()}`}

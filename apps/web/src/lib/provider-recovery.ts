@@ -23,7 +23,7 @@ export function getProviderRecoveryAdvice(
     return {
       message:
         "Provider configuration is missing. Connect a provider key or configure a platform default key.",
-      actionLabel: "Open Provider Settings",
+      actionLabel: "Open Provider Setup",
       remediation:
         "Connect or validate a provider key, then retry your chat request. In private/incognito mode, cookies and storage can reset provider persistence.",
     };
@@ -70,7 +70,7 @@ export function getProviderRecoveryAdvice(
 
   return {
     message: message || "Provider setup is required before chat can continue.",
-    actionLabel: "Open Provider Settings",
+    actionLabel: "Open Provider Setup",
     remediation:
       "Review provider status, reconnect credentials if needed, and retry.",
   };

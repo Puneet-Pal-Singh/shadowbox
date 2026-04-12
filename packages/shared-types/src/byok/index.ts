@@ -129,3 +129,17 @@ export {
   type BYOKDiscoveredProviderModelsRefreshResponse,
   type BYOKPreferencesUpdateRequest,
 } from "./api.js";
+
+// Product policy
+export {
+  AXIS_PROVIDER_ID,
+  ProviderProductEnvironmentSchema,
+  ProviderProductPolicySchema,
+  createProviderProductPolicy,
+  canShowProviderInPrimaryUi,
+  canUseProviderAtRuntime,
+  canUseProviderRuntimeFallback,
+  canPreloadProvider,
+  type ProviderProductEnvironment,
+  type ProviderProductPolicy,
+} from "./product-policy.js";

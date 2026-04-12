@@ -345,6 +345,14 @@ export {
   isLaunchSupportedProvider,
   getLaunchVisibleProviders,
   getLaunchSupportedProviders,
+  AXIS_PROVIDER_ID,
+  ProviderProductEnvironmentSchema,
+  ProviderProductPolicySchema,
+  createProviderProductPolicy,
+  canShowProviderInPrimaryUi,
+  canUseProviderAtRuntime,
+  canUseProviderRuntimeFallback,
+  canPreloadProvider,
   // API contracts (exclude to avoid conflicts with v2)
   type BYOKCredential,
   type BYOKCredentialDTO,
@@ -385,4 +393,6 @@ export {
   type BYOKPreferencesUpdateRequest,
   type ProviderRegistryEntry,
   type ProviderRegistry,
+  type ProviderProductEnvironment,
+  type ProviderProductPolicy,
 } from "./byok/index.js";

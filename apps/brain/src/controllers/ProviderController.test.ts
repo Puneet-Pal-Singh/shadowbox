@@ -14,8 +14,10 @@ function createMockEnv(options?: {
   catalogError?: boolean;
   connectionsError?: boolean;
   preferencesError?: boolean;
+  environment?: "production" | "staging" | "development";
 }): Env {
   const axisConnected = options?.axisConnected ?? true;
+  const environment = options?.environment ?? "development";
   const providerState = new Map<string, Set<ProviderId>>();
   const preferencesState = new Map<
     string,
@@ -376,6 +378,8 @@ function createMockEnv(options?: {
     LLM_PROVIDER: "litellm",
     DEFAULT_MODEL: "llama-3.3-70b-versatile",
     GROQ_API_KEY: "test-key",
+    NODE_ENV: environment === "production" ? "production" : "development",
+    ENVIRONMENT: environment,
   } as unknown as Env;
 }
 
@@ -784,6 +788,25 @@ describe("ProviderController", () => {
       expect(axisEntry.authModes).toContain("platform_managed");
     });
 
+    it("hides axis from provider registry in production", async () => {
+      const env = createMockEnv({ environment: "production" });
+      const response = await ProviderController.byokProviders(
+        new Request("http://localhost/api/byok/providers", {
+          method: "GET",
+          headers: await withByokHeaders(env),
+        }),
+        env,
+      );
+      const data = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(Array.isArray(data)).toBe(true);
+      const axisEntry = data.find(
+        (entry: { providerId: string }) => entry.providerId === "axis",
+      );
+      expect(axisEntry).toBeUndefined();
+    });
+
     it("surfaces catalog runtime errors as typed provider errors", async () => {
       const env = createMockEnv({ catalogError: true });
       const response = await ProviderController.byokProviders(
@@ -814,6 +837,26 @@ describe("ProviderController", () => {
       expect(response.status).toBe(500);
       expect(data.error.code).toBe("PROVIDER_UNAVAILABLE");
       expect(data.error.message).toContain("Provider connections unavailable");
+    });
+
+    it("does not expose axis virtual credentials in production", async () => {
+      const env = createMockEnv({ environment: "production" });
+      const response = await ProviderController.byokCredentials(
+        new Request("http://localhost/api/byok/credentials", {
+          method: "GET",
+          headers: await withByokHeaders(env),
+        }),
+        env,
+      );
+      const data = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(Array.isArray(data)).toBe(true);
+      expect(
+        data.some(
+          (entry: { providerId: string }) => entry.providerId === "axis",
+        ),
+      ).toBe(false);
     });
 
     it("surfaces catalog runtime errors during resolution as typed provider errors", async () => {
@@ -889,8 +932,8 @@ describe("ProviderController", () => {
       expect(resolveData.modelId).toBe("gpt-4o");
     });
 
-    it("resolves axis platform defaults when no BYOK credential is selected", async () => {
-      const env = createMockEnv();
+    it("resolves axis platform defaults when no BYOK credential is selected in staging", async () => {
+      const env = createMockEnv({ environment: "staging" });
 
       const resolveResponse = await ProviderController.byokResolve(
         new Request("http://localhost/api/byok/resolve", {
@@ -912,8 +955,29 @@ describe("ProviderController", () => {
       });
     });
 
-    it("returns recovery guidance when axis platform credential is unavailable", async () => {
-      const env = createMockEnv({ axisConnected: false });
+    it("disables implicit axis fallback in production", async () => {
+      const env = createMockEnv({ environment: "production" });
+
+      const resolveResponse = await ProviderController.byokResolve(
+        new Request("http://localhost/api/byok/resolve", {
+          method: "POST",
+          headers: await withByokHeaders(env),
+          body: JSON.stringify({}),
+        }),
+        env,
+      );
+      const resolveData = await resolveResponse.json();
+
+      expect(resolveResponse.status).toBe(400);
+      expect(resolveData.error.code).toBe("PROVIDER_NOT_CONNECTED");
+      expect(resolveData.error.message).toContain("provider");
+    });
+
+    it("returns recovery guidance when axis platform credential is unavailable in staging", async () => {
+      const env = createMockEnv({
+        axisConnected: false,
+        environment: "staging",
+      });
 
       const resolveResponse = await ProviderController.byokResolve(
         new Request("http://localhost/api/byok/resolve", {

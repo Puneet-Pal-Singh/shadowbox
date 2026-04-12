@@ -4,7 +4,7 @@ import { getProviderRecoveryAdvice } from "./provider-recovery";
 describe("provider recovery advice", () => {
   it("maps missing provider configuration to setup guidance", () => {
     const advice = getProviderRecoveryAdvice("No BYOK provider connected");
-    expect(advice.actionLabel).toBe("Open Provider Settings");
+    expect(advice.actionLabel).toBe("Open Provider Setup");
     expect(advice.message).toContain("missing");
   });
 
@@ -47,7 +47,7 @@ describe("provider recovery advice", () => {
 
   it("returns default advice for unknown errors", () => {
     const advice = getProviderRecoveryAdvice("Unexpected backend error");
-    expect(advice.actionLabel).toBe("Open Provider Settings");
+    expect(advice.actionLabel).toBe("Open Provider Setup");
     expect(advice.message).toContain("Unexpected backend error");
   });
 });
