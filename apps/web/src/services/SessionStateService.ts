@@ -20,10 +20,12 @@ import type {
   SessionStatus,
   SessionStorageSchema,
   SessionGitHubContext,
+  SetupSessionState,
 } from "../types/session";
 
 const SESSIONS_KEY = "shadowbox:sessions:v2";
 const ACTIVE_SESSION_ID_KEY = "shadowbox:active-session-id:v2";
+const SETUP_SESSION_KEY = "shadowbox:setup-session:v1";
 
 type StoredAgentSession = Omit<AgentSession, "mode"> & {
   mode?: RunMode;
@@ -124,11 +126,72 @@ export class SessionStateService {
   static loadActiveSessionRunId(): string | null {
     const activeSessionId = this.loadActiveSessionId();
     if (!activeSessionId) {
-      return null;
+      return this.loadSetupSession()?.activeRunId ?? null;
     }
 
     const sessions = this.loadSessions();
-    return sessions[activeSessionId]?.activeRunId ?? null;
+    return (
+      sessions[activeSessionId]?.activeRunId ??
+      this.loadSetupSession()?.activeRunId ??
+      null
+    );
+  }
+
+  /**
+   * Load the current lightweight setup session used before any repo-backed
+   * session exists.
+   */
+  static loadSetupSession(): SetupSessionState | null {
+    try {
+      const stored = localStorage.getItem(SETUP_SESSION_KEY);
+      if (!stored) {
+        return null;
+      }
+
+      const parsed = JSON.parse(stored) as Partial<SetupSessionState>;
+      if (
+        parsed.kind !== "setup" ||
+        !parsed.id ||
+        !parsed.activeRunId ||
+        !parsed.createdAt ||
+        !parsed.updatedAt
+      ) {
+        return null;
+      }
+
+      return {
+        id: parsed.id,
+        kind: "setup",
+        activeRunId: parsed.activeRunId,
+        createdAt: parsed.createdAt,
+        updatedAt: parsed.updatedAt,
+      };
+    } catch (e) {
+      console.error("[SessionStateService] Failed to load setup session:", e);
+      return null;
+    }
+  }
+
+  /**
+   * Save the current setup session so provider-scoped setup survives refreshes.
+   */
+  static saveSetupSession(session: SetupSessionState): void {
+    try {
+      localStorage.setItem(SETUP_SESSION_KEY, JSON.stringify(session));
+    } catch (e) {
+      console.error("[SessionStateService] Failed to save setup session:", e);
+    }
+  }
+
+  /**
+   * Clear setup session state after auth loss or once a real repo session exists.
+   */
+  static clearSetupSession(): void {
+    try {
+      localStorage.removeItem(SETUP_SESSION_KEY);
+    } catch (e) {
+      console.error("[SessionStateService] Failed to clear setup session:", e);
+    }
   }
 
   /**
@@ -287,6 +350,22 @@ export class SessionStateService {
       status,
       mode,
       updatedAt: new Date().toISOString(),
+    };
+  }
+
+  /**
+   * Create a setup-scoped shell session that can back provider setup before a
+   * repo-backed session exists.
+   */
+  static createSetupSession(): SetupSessionState {
+    const timestamp = new Date().toISOString();
+
+    return {
+      id: crypto.randomUUID(),
+      kind: "setup",
+      activeRunId: crypto.randomUUID(),
+      createdAt: timestamp,
+      updatedAt: timestamp,
     };
   }
 
