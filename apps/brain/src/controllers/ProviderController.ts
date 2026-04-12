@@ -7,10 +7,15 @@
 
 import { z } from "zod";
 import {
+  AXIS_PROVIDER_ID,
+  canShowProviderInPrimaryUi,
+  canUseProviderAtRuntime,
+  canUseProviderRuntimeFallback,
   findBuiltinProvider,
   type ProviderRegistryEntry,
   type BYOKCredential,
   type BYOKPreference,
+  type ProviderProductPolicy,
   BYOKResolveRequestSchema,
   BYOKCredentialConnectRequestSchema,
   BYOKCredentialUpdateRequestSchema,
@@ -64,8 +69,7 @@ import {
   resolveAuthorizedProviderScope,
   type AuthorizedProviderScope,
 } from "./provider/ProviderAuthScopeService";
-
-const AXIS_PROVIDER_ID = "axis" as const;
+import { resolveBrainProviderProductPolicy } from "../lib/provider-product-policy";
 
 const WorkspaceByokMetadataSchema = z.object({
   credentialLabels: z.record(z.string(), z.string()).default({}),
@@ -201,10 +205,13 @@ export class ProviderController {
         env,
         correlationId,
       );
+      const policy = resolveBrainProviderProductPolicy(env);
       const catalog = await fetchRuntimeCatalog(req, env, scope, correlationId);
-      const providers = catalog.providers.map((provider) =>
-        mapCatalogEntryToRegistry(provider),
-      );
+      const providers = catalog.providers
+        .map((provider) => mapCatalogEntryToRegistry(provider))
+        .filter((provider) =>
+          canShowProviderInPrimaryUi(policy, provider.providerId),
+        );
       return withScopeJson(req, env, scope, providers);
     } catch (error) {
       return handleByokError(req, env, error, correlationId);
@@ -219,11 +226,13 @@ export class ProviderController {
         env,
         correlationId,
       );
+      const policy = resolveBrainProviderProductPolicy(env);
       const credentials = await loadConnectedCredentials(
         req,
         env,
         scope,
         correlationId,
+        policy,
       );
       return withScopeJson(req, env, scope, credentials);
     } catch (error) {
@@ -242,12 +251,21 @@ export class ProviderController {
         env,
         correlationId,
       );
+      const policy = resolveBrainProviderProductPolicy(env);
       const body = await parseRequestBody(req, correlationId);
       const request = validateWithSchema<BYOKCredentialConnectRequest>(
         body,
         BYOKCredentialConnectRequestSchema,
         correlationId,
       );
+
+      if (!canUseProviderAtRuntime(policy, request.providerId)) {
+        throw new ValidationError(
+          `Provider "${request.providerId}" is not available in this environment.`,
+          "INVALID_PROVIDER_SELECTION",
+          correlationId,
+        );
+      }
 
       await proxyByokOperation(
         req,
@@ -290,6 +308,7 @@ export class ProviderController {
         env,
         scope,
         correlationId,
+        policy,
       );
       const credential = credentials.find(
         (entry) => entry.providerId === request.providerId,
@@ -315,6 +334,7 @@ export class ProviderController {
         env,
         correlationId,
       );
+      const policy = resolveBrainProviderProductPolicy(env);
       const credentialId = extractCredentialIdFromPath(
         req.url,
         false,
@@ -343,6 +363,7 @@ export class ProviderController {
         env,
         scope,
         correlationId,
+        policy,
       );
       const credential = credentials.find(
         (entry) => entry.credentialId === credentialId,
@@ -371,6 +392,7 @@ export class ProviderController {
         env,
         correlationId,
       );
+      const policy = resolveBrainProviderProductPolicy(env);
       const credentialId = extractCredentialIdFromPath(
         req.url,
         false,
@@ -381,6 +403,7 @@ export class ProviderController {
         env,
         scope,
         correlationId,
+        policy,
       );
       const credential = credentials.find(
         (entry) => entry.credentialId === credentialId,
@@ -429,6 +452,7 @@ export class ProviderController {
         env,
         correlationId,
       );
+      const policy = resolveBrainProviderProductPolicy(env);
       const credentialId = extractCredentialIdFromPath(
         req.url,
         true,
@@ -445,6 +469,7 @@ export class ProviderController {
         env,
         scope,
         correlationId,
+        policy,
       );
       const credential = credentials.find(
         (entry) => entry.credentialId === credentialId,
@@ -493,11 +518,13 @@ export class ProviderController {
         env,
         correlationId,
       );
+      const policy = resolveBrainProviderProductPolicy(env);
       const preference = await loadWorkspacePreference(
         req,
         env,
         scope,
         correlationId,
+        policy,
       );
       return withScopeJson(req, env, scope, preference);
     } catch (error) {
@@ -513,12 +540,24 @@ export class ProviderController {
         env,
         correlationId,
       );
+      const policy = resolveBrainProviderProductPolicy(env);
       const body = await parseRequestBody(req, correlationId);
       const patch = validateWithSchema<BYOKPreferencesUpdateRequest>(
         body,
         BYOKPreferencesUpdateRequestSchema,
         correlationId,
       );
+
+      if (
+        patch.defaultProviderId &&
+        !canUseProviderAtRuntime(policy, patch.defaultProviderId)
+      ) {
+        throw new ValidationError(
+          `Provider "${patch.defaultProviderId}" is not available in this environment.`,
+          "INVALID_PROVIDER_SELECTION",
+          correlationId,
+        );
+      }
 
       const runtimePatch: Record<string, string> = {};
       if (patch.defaultProviderId) {
@@ -594,6 +633,7 @@ export class ProviderController {
         env,
         correlationId,
       );
+      const policy = resolveBrainProviderProductPolicy(env);
       const body = await parseRequestBody(req, correlationId);
       const request = validateWithSchema<BYOKResolveRequest>(
         body,
@@ -606,12 +646,14 @@ export class ProviderController {
         env,
         scope,
         correlationId,
+        policy,
       );
       const preference = await loadWorkspacePreference(
         req,
         env,
         scope,
         correlationId,
+        policy,
       );
       const catalog = await fetchRuntimeCatalog(req, env, scope, correlationId);
 
@@ -621,6 +663,7 @@ export class ProviderController {
         preference,
         catalog,
         correlationId,
+        policy,
       );
 
       const axisQuota =
@@ -1404,6 +1447,7 @@ async function loadConnectedCredentials(
   env: Env,
   scope: AuthorizedProviderScope,
   correlationId: string,
+  policy: ProviderProductPolicy,
 ): Promise<BYOKCredential[]> {
   const runtime = await fetchRuntimeConnections(req, env, scope, correlationId);
   const metadata = await loadWorkspaceByokMetadata(req, env, scope, correlationId);
@@ -1412,6 +1456,9 @@ async function loadConnectedCredentials(
 
   for (const connection of runtime.connections) {
     if (connection.status === "disconnected") {
+      continue;
+    }
+    if (!canUseProviderAtRuntime(policy, connection.providerId)) {
       continue;
     }
 
@@ -1472,16 +1519,24 @@ async function loadWorkspacePreference(
   env: Env,
   scope: AuthorizedProviderScope,
   correlationId: string,
+  policy: ProviderProductPolicy,
 ): Promise<BYOKPreference> {
   const runtime = await fetchRuntimePreferences(req, env, scope, correlationId);
+  const canUseDefaultProvider =
+    runtime.defaultProviderId === undefined ||
+    canUseProviderAtRuntime(policy, runtime.defaultProviderId);
+  const defaultProviderId = canUseDefaultProvider
+    ? runtime.defaultProviderId
+    : undefined;
+
   return {
     userId: scope.userId,
     workspaceId: scope.workspaceId,
-    defaultProviderId: runtime.defaultProviderId,
-    defaultCredentialId: runtime.defaultProviderId
-      ? buildVirtualCredentialId(runtime.defaultProviderId)
+    defaultProviderId,
+    defaultCredentialId: defaultProviderId
+      ? buildVirtualCredentialId(defaultProviderId)
       : undefined,
-    defaultModelId: runtime.defaultModelId,
+    defaultModelId: defaultProviderId ? runtime.defaultModelId : undefined,
     visibleModelIds: runtime.visibleModelIds ?? {},
     updatedAt: runtime.updatedAt,
   };
@@ -1493,7 +1548,7 @@ async function loadWorkspacePreference(
  * Resolution chain:
  * 1. Request override (providerId/credentialId/modelId)
  * 2. Workspace preference (defaultProviderId/defaultModelId)
- * 3. Platform-managed Axis default when available
+ * 3. Platform-managed Axis default when policy allows runtime fallback
  * 4. Strict resolution: throw when no explicit/default provider is resolved
  */
 function resolveSelection(
@@ -1502,12 +1557,14 @@ function resolveSelection(
   preference: BYOKPreference,
   catalog: ProviderCatalogResponse,
   correlationId: string,
+  policy: ProviderProductPolicy,
 ): BYOKResolution {
   const selection = resolveCredentialSelection(
     request,
     credentials,
     preference,
     correlationId,
+    policy,
   );
   const { selectedCredential } = selection;
   const resolvedAt = selection.resolvedAt;
@@ -1517,6 +1574,7 @@ function resolveSelection(
       request,
       preference,
       credentials,
+      policy,
     );
     if (axisCredentialError) {
       throw new ValidationError(
@@ -1563,6 +1621,7 @@ function resolveCredentialSelection(
   credentials: BYOKCredential[],
   preference: BYOKPreference,
   correlationId: string,
+  policy: ProviderProductPolicy,
 ): {
   selectedCredential: BYOKCredential | undefined;
   resolvedAt: BYOKResolution["resolvedAt"];
@@ -1581,6 +1640,13 @@ function resolveCredentialSelection(
   }
 
   if (request.providerId) {
+    if (!canUseProviderAtRuntime(policy, request.providerId)) {
+      throw new ValidationError(
+        `Provider "${request.providerId}" is not available in this environment.`,
+        "INVALID_PROVIDER_SELECTION",
+        correlationId,
+      );
+    }
     const credential = resolveCredentialForProvider(
       credentials,
       request.providerId,
@@ -1595,6 +1661,12 @@ function resolveCredentialSelection(
   }
 
   if (preference.defaultProviderId) {
+    if (!canUseProviderAtRuntime(policy, preference.defaultProviderId)) {
+      return {
+        selectedCredential: undefined,
+        resolvedAt: "workspace_preference",
+      };
+    }
     const credential = resolveCredentialForProvider(
       credentials,
       preference.defaultProviderId,
@@ -1609,10 +1681,9 @@ function resolveCredentialSelection(
     }
   }
 
-  const axisCredential = resolveCredentialForProvider(
-    credentials,
-    AXIS_PROVIDER_ID,
-  );
+  const axisCredential = canUseProviderRuntimeFallback(policy, AXIS_PROVIDER_ID)
+    ? resolveCredentialForProvider(credentials, AXIS_PROVIDER_ID)
+    : undefined;
   if (axisCredential) {
     return {
       selectedCredential: axisCredential,
@@ -1630,7 +1701,12 @@ function resolveAxisPlatformCredentialErrorMessage(
   request: BYOKResolveRequest,
   preference: BYOKPreference,
   credentials: BYOKCredential[],
+  policy: ProviderProductPolicy,
 ): string | null {
+  if (!canUseProviderRuntimeFallback(policy, AXIS_PROVIDER_ID)) {
+    return null;
+  }
+
   const hasAxisCredential = credentials.some(
     (credential) => credential.providerId === AXIS_PROVIDER_ID,
   );
