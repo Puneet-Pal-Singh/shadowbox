@@ -341,6 +341,50 @@ describe("RunActivityFeedProjector", () => {
 
     expect(tool.metadata.pluginLabel).toBe("GitHub");
   });
+
+  it("projects approval requested and resolved events into a single approval row", () => {
+    const snapshot = projectRunActivityFeed({
+      runId: "run-approval",
+      run: null,
+      events: [
+        createEvent(RUN_EVENT_TYPES.MESSAGE_EMITTED, {
+          content: "commit the current changes",
+          role: "user",
+        }),
+        createEvent(RUN_EVENT_TYPES.APPROVAL_REQUESTED, {
+          request: {
+            requestId: "req-1",
+            runId: "run-1",
+            origin: "agent",
+            category: "git_mutation",
+            title: "Shadowbox wants to commit repository changes",
+            reason: "Git mutation actions can change repository history.",
+            actionFingerprint: "git_mutation:git_commit:{}",
+            availableDecisions: ["allow_once", "deny"],
+            createdAt: "2026-03-24T10:00:00.000Z",
+          },
+        }),
+        createEvent(RUN_EVENT_TYPES.APPROVAL_RESOLVED, {
+          requestId: "req-1",
+          decision: "deny",
+          status: "denied",
+          resolvedAt: "2026-03-24T10:00:01.000Z",
+        }),
+      ],
+    });
+
+    const approval = snapshot.items.find(
+      (item) => item.kind === ACTIVITY_PART_KINDS.APPROVAL,
+    );
+    expect(approval?.kind).toBe("approval");
+    if (approval?.kind !== "approval") {
+      throw new Error("Expected approval activity part");
+    }
+
+    expect(approval.status).toBe("denied");
+    expect(approval.summary).toBe("Shadowbox wants to commit repository changes");
+    expect(approval.details).toContain("Decision: deny");
+  });
 });
 
 function createEvent<T extends RunEvent["type"]>(
