@@ -93,6 +93,48 @@ export type { RunStatus } from "./run-status.js";
 
 // Explicit build/plan mode contract
 export { RunModeSchema, DEFAULT_RUN_MODE, type RunMode } from "./run-mode.js";
+export {
+  PRODUCT_MODES,
+  APPROVAL_POLICIES,
+  EXECUTION_SCOPES,
+  WORKFLOW_INTENTS,
+  WORKFLOW_ENTRYPOINTS,
+  ProductModeSchema,
+  ApprovalPolicySchema,
+  ExecutionScopeSchema,
+  WorkflowIntentSchema,
+  WorkflowEntrypointSchema,
+  PERMISSION_RUNTIME_LABELS,
+  DEFAULT_PRODUCT_MODE,
+  resolveWorkflowIntent,
+  mapProductModeToPermissionTuple,
+  createEffectivePermissionState,
+  derivePermissionLabel,
+  type ProductMode,
+  type ApprovalPolicy,
+  type ExecutionScope,
+  type WorkflowIntent,
+  type WorkflowEntrypoint,
+  type WorkflowIntentResolverInput,
+  type EffectivePermissionState,
+  type PermissionTuple,
+  type PermissionRuntimeLabel,
+} from "./permission-policy.js";
+export {
+  RISKY_ACTION_CATEGORIES,
+  APPROVAL_DECISION_KINDS,
+  APPROVAL_RESOLUTION_STATUSES,
+  RiskyActionCategorySchema,
+  ApprovalDecisionKindSchema,
+  ApprovalResolutionStatusSchema,
+  type RiskyActionCategory,
+  type ApprovalDecisionKind,
+  type ApprovalResolutionStatus,
+  type ProposedPersistentRule,
+  type ApprovalRequest,
+  type ApprovalDecision,
+  type PermissionEvaluationResult,
+} from "./approval-policy.js";
 
 // Activity feed contract
 export {
@@ -157,6 +199,8 @@ export {
   type RunStartedEvent,
   type RunStatusChangedEvent,
   type RunProgressEvent,
+  type ApprovalRequestedEvent,
+  type ApprovalResolvedEvent,
   type MessageEmittedEvent,
   type ToolRequestedEvent,
   type ToolStartedEvent,
@@ -170,6 +214,8 @@ export {
   type RunStartedPayload,
   type RunStatusChangedPayload,
   type RunProgressPayload,
+  type ApprovalRequestedPayload,
+  type ApprovalResolvedPayload,
   type MessageEmittedPayload,
   type ToolRequestedPayload,
   type ToolStartedPayload,
