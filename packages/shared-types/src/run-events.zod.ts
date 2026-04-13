@@ -13,6 +13,12 @@ import {
   type RunEventType,
   type ToolOutputAppendedPayload,
 } from "./run-events.js";
+import {
+  ApprovalDecisionKindSchema,
+  ProposedPersistentRuleSchema,
+  ApprovalResolutionStatusSchema,
+  RiskyActionCategorySchema,
+} from "./approval-policy.js";
 import { RUN_STATUSES } from "./run-status.js";
 
 // ============================================================================
@@ -33,6 +39,8 @@ const RunEventTypeSchema = z.enum([
   RUN_EVENT_TYPES.RUN_STARTED,
   RUN_EVENT_TYPES.RUN_STATUS_CHANGED,
   RUN_EVENT_TYPES.RUN_PROGRESS,
+  RUN_EVENT_TYPES.APPROVAL_REQUESTED,
+  RUN_EVENT_TYPES.APPROVAL_RESOLVED,
   RUN_EVENT_TYPES.MESSAGE_EMITTED,
   RUN_EVENT_TYPES.TOOL_REQUESTED,
   RUN_EVENT_TYPES.TOOL_STARTED,
@@ -73,6 +81,37 @@ const RunProgressPayloadSchema = z.object({
   label: z.string().min(1),
   summary: z.string(),
   status: z.enum(["active", "completed"]),
+});
+
+const ApprovalRequestPayloadSchema = z.object({
+  request: z.object({
+    requestId: z.string().min(1),
+    runId: z.string().min(1),
+    threadId: z.string().min(1).optional(),
+    sessionId: z.string().min(1).optional(),
+    turnId: z.string().min(1).optional(),
+    itemId: z.string().min(1).optional(),
+    origin: z.enum(["user", "agent"]),
+    category: RiskyActionCategorySchema,
+    title: z.string().min(1),
+    reason: z.string().min(1),
+    command: z.string().min(1).optional(),
+    cwd: z.string().min(1).optional(),
+    affectedPaths: z.array(z.string().min(1)).optional(),
+    remoteTarget: z.string().min(1).optional(),
+    actionFingerprint: z.string().min(1),
+    availableDecisions: z.array(ApprovalDecisionKindSchema).min(1),
+    proposedPersistentRule: ProposedPersistentRuleSchema.optional(),
+    createdAt: z.string().datetime(),
+    expiresAt: z.string().datetime().optional(),
+  }),
+});
+
+const ApprovalResolvedPayloadSchema = z.object({
+  requestId: z.string().min(1),
+  decision: ApprovalDecisionKindSchema,
+  status: ApprovalResolutionStatusSchema,
+  resolvedAt: z.string().datetime(),
 });
 
 const MessageEmittedPayloadSchema = z.object({
@@ -203,6 +242,30 @@ const RunEventSchema = z.discriminatedUnion("type", [
       source: EventSourceSchema,
       type: z.literal(RUN_EVENT_TYPES.RUN_PROGRESS),
       payload: RunProgressPayloadSchema,
+    })
+    .strict(),
+  z
+    .object({
+      version: z.literal(1),
+      eventId: z.string().min(1),
+      runId: z.string().min(1),
+      sessionId: z.string().min(1).optional(),
+      timestamp: z.string().datetime(),
+      source: EventSourceSchema,
+      type: z.literal(RUN_EVENT_TYPES.APPROVAL_REQUESTED),
+      payload: ApprovalRequestPayloadSchema,
+    })
+    .strict(),
+  z
+    .object({
+      version: z.literal(1),
+      eventId: z.string().min(1),
+      runId: z.string().min(1),
+      sessionId: z.string().min(1).optional(),
+      timestamp: z.string().datetime(),
+      source: EventSourceSchema,
+      type: z.literal(RUN_EVENT_TYPES.APPROVAL_RESOLVED),
+      payload: ApprovalResolvedPayloadSchema,
     })
     .strict(),
   z
@@ -360,6 +423,8 @@ export function getEventPayloadSchema(type: RunEventType): z.ZodSchema | null {
     [RUN_EVENT_TYPES.RUN_STARTED]: RunStartedPayloadSchema,
     [RUN_EVENT_TYPES.RUN_STATUS_CHANGED]: RunStatusChangedPayloadSchema,
     [RUN_EVENT_TYPES.RUN_PROGRESS]: RunProgressPayloadSchema,
+    [RUN_EVENT_TYPES.APPROVAL_REQUESTED]: ApprovalRequestPayloadSchema,
+    [RUN_EVENT_TYPES.APPROVAL_RESOLVED]: ApprovalResolvedPayloadSchema,
     [RUN_EVENT_TYPES.MESSAGE_EMITTED]: MessageEmittedPayloadSchema,
     [RUN_EVENT_TYPES.TOOL_REQUESTED]: ToolRequestedPayloadSchema,
     [RUN_EVENT_TYPES.TOOL_STARTED]: ToolStartedPayloadSchema,
