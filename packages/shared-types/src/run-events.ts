@@ -4,6 +4,11 @@
  */
 
 import { RunStatus } from "./run-status.js";
+import type {
+  ApprovalDecisionKind,
+  ApprovalRequest,
+  ApprovalResolutionStatus,
+} from "./approval-policy.js";
 
 /** Event source identifier */
 export type EventSource = "brain" | "muscle" | "web" | "cli" | "desktop";
@@ -40,6 +45,8 @@ export const RUN_EVENT_TYPES = {
   RUN_STARTED: "run.started",
   RUN_STATUS_CHANGED: "run.status.changed",
   RUN_PROGRESS: "run.progress",
+  APPROVAL_REQUESTED: "approval.requested",
+  APPROVAL_RESOLVED: "approval.resolved",
   MESSAGE_EMITTED: "message.emitted",
   TOOL_REQUESTED: "tool.requested",
   TOOL_STARTED: "tool.started",
@@ -91,6 +98,17 @@ export interface RunProgressPayload {
   label: string;
   summary: string;
   status: "active" | "completed";
+}
+
+export interface ApprovalRequestedPayload {
+  request: ApprovalRequest;
+}
+
+export interface ApprovalResolvedPayload {
+  requestId: string;
+  decision: ApprovalDecisionKind;
+  status: ApprovalResolutionStatus;
+  resolvedAt: string;
 }
 
 export interface MessageEmittedPayload {
@@ -170,6 +188,16 @@ export type RunProgressEvent = RunEventEnvelope<
   RunProgressPayload
 >;
 
+export type ApprovalRequestedEvent = RunEventEnvelope<
+  typeof RUN_EVENT_TYPES.APPROVAL_REQUESTED,
+  ApprovalRequestedPayload
+>;
+
+export type ApprovalResolvedEvent = RunEventEnvelope<
+  typeof RUN_EVENT_TYPES.APPROVAL_RESOLVED,
+  ApprovalResolvedPayload
+>;
+
 export type MessageEmittedEvent = RunEventEnvelope<
   typeof RUN_EVENT_TYPES.MESSAGE_EMITTED,
   MessageEmittedPayload
@@ -218,6 +246,8 @@ export type RunEvent =
   | RunStartedEvent
   | RunStatusChangedEvent
   | RunProgressEvent
+  | ApprovalRequestedEvent
+  | ApprovalResolvedEvent
   | MessageEmittedEvent
   | ToolRequestedEvent
   | ToolStartedEvent
