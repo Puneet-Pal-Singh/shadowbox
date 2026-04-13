@@ -1,5 +1,8 @@
 import type { CoreMessage, CoreTool } from "ai";
-import { RUN_WORKFLOW_STEPS, type RunEvent } from "@repo/shared-types";
+import {
+  RUN_WORKFLOW_STEPS,
+  type RunEvent,
+} from "@repo/shared-types";
 import { Run, RunRepository, RunStateMachine } from "../run/index.js";
 import { Task, TaskRepository } from "../task/index.js";
 import {
@@ -47,7 +50,9 @@ import {
   type MemoryCoordinatorDependencies,
   type MemoryContext,
 } from "../memory/index.js";
-import { PermissionApprovalStore } from "./PermissionApprovalStore.js";
+import {
+  PermissionApprovalStore,
+} from "./PermissionApprovalStore.js";
 import {
   getPermissionPolicyMessage,
   getWorkspaceBootstrapMessage,
@@ -83,6 +88,13 @@ import {
   recordOrchestrationTerminal,
   recordPhaseSelectionSnapshot,
 } from "./RunMetadataPolicy.js";
+import { resolveRunPermissionContext } from "./RunPermissionContextPolicy.js";
+import { PermissionGateError } from "./PermissionGateError.js";
+import { evaluateToolPermission } from "./RunRiskyActionPolicy.js";
+import {
+  buildApprovalDecisionMessage,
+  extractApprovalDecision,
+} from "./RunApprovalDecisionPolicy.js";
 import { resetRecyclableRun } from "./RunRecyclableResetPolicy.js";
 import { applyReviewerPassIfEnabled } from "./RunReviewerPassPolicy.js";
 import { RunEventRecorder, RunEventRepository } from "../events/index.js";
@@ -293,6 +305,36 @@ export class RunEngine implements IRunEngine {
       recordLifecycleStep(run, "CONTEXT_PREPARED");
       const effectiveInput = run.input;
       const runMode = run.metadata.manifest?.mode ?? "build";
+      const approvalDecision = extractApprovalDecision(effectiveInput);
+
+      if (approvalDecision) {
+        const decisionResult = await this.permissionApprovalStore.resolveDecision(
+          approvalDecision,
+          run.sessionId,
+        );
+        await this.runEventRecorder.recordApprovalResolved({
+          requestId: decisionResult.request.requestId,
+          decision: decisionResult.decision,
+          status:
+            decisionResult.status === "approved"
+              ? "approved"
+              : decisionResult.status === "aborted"
+                ? "aborted"
+                : "denied",
+        });
+        recordLifecycleStep(
+          run,
+          "APPROVAL_WAIT",
+          `approval decision resolved (${decisionResult.decision})`,
+        );
+        const decisionMessage = buildApprovalDecisionMessage(decisionResult);
+        return await this.completeRunWithAssistantMessage(run, decisionMessage, {
+          code: "APPROVAL_DECISION_RECORDED",
+          requestId: decisionResult.request.requestId,
+          decision: decisionResult.decision,
+          status: decisionResult.status,
+        });
+      }
 
       if (
         runMode === "build" &&
@@ -477,6 +519,7 @@ export class RunEngine implements IRunEngine {
       this.agent instanceof BaseAgent
         ? this.agent.getRuntimeExecutionService()
         : undefined;
+    let hasMutationEvidence = false;
     try {
       const loopResult = await loop.execute(messages, tools, {
         agentType: run.agentType,
@@ -500,6 +543,35 @@ export class RunEngine implements IRunEngine {
                   `Unsupported direct agentic tool: ${toolCall.toolName}`,
                 );
               }
+              const permissionState =
+                run.metadata.permissionContext?.state ??
+                resolveRunPermissionContext(run.input).state;
+              const permissionResult = await evaluateToolPermission({
+                runId: run.id,
+                sessionId: run.sessionId,
+                origin: "agent",
+                productMode: permissionState.productMode,
+                workflowIntent: permissionState.workflowIntent,
+                toolName: toolCall.toolName,
+                toolArgs: toolCall.args,
+                hasMutationEvidence,
+                approvalStore: this.permissionApprovalStore,
+              });
+              if (permissionResult.kind === "ask") {
+                recordLifecycleStep(
+                  run,
+                  "APPROVAL_WAIT",
+                  "structured approval request emitted",
+                );
+                await this.runEventRecorder.recordApprovalRequested(
+                  permissionResult.request,
+                );
+                throw PermissionGateError.fromAsk(permissionResult.request);
+              }
+              if (permissionResult.kind === "deny") {
+                throw PermissionGateError.fromDeny(permissionResult.reason);
+              }
+
               return executeAgenticLoopTool(directExecutionService, {
                 taskId: toolCall.id,
                 toolName: toolCall.toolName,
@@ -567,6 +639,9 @@ export class RunEngine implements IRunEngine {
           });
         },
         onToolCompleted: async (toolCall, result, executionTimeMs) => {
+          if (toolCall.toolName === "write_file") {
+            hasMutationEvidence = true;
+          }
           await this.runEventRecorder.recordToolCompleted(
             {
               id: toolCall.id,
@@ -608,6 +683,21 @@ export class RunEngine implements IRunEngine {
         finalMessage.metadata,
       );
     } catch (error) {
+      if (error instanceof PermissionGateError) {
+        const gateResult = error.gateResult;
+        if (gateResult.kind === "ask") {
+          return this.completeRunWithAssistantMessage(run, error.message, {
+            code: "APPROVAL_REQUIRED",
+            approvalRequest: gateResult.request,
+          });
+        }
+        const denialReason =
+          gateResult.kind === "deny" ? gateResult.reason : error.message;
+        return this.completeRunWithAssistantMessage(run, error.message, {
+          code: "PERMISSION_DENIED",
+          reason: denialReason,
+        });
+      }
       const recoveryResponse = await this.tryHandleTaskExecutionError(
         run,
         run.input.prompt,
@@ -755,6 +845,7 @@ export class RunEngine implements IRunEngine {
       {
         prompt: input.prompt,
         manifest,
+        permissionContext: resolveRunPermissionContext(input),
         orchestrationTelemetry: {
           activeDurationMs: 0,
           wakeupCount: 0,
@@ -822,36 +913,19 @@ export class RunEngine implements IRunEngine {
     });
   }
 
-  private async processPermissionDirectives(
-    prompt: string,
-  ): Promise<string | null> {
-    return processPermissionDirectivesPolicy(
-      prompt,
-      this.permissionApprovalStore,
-    );
+  private async processPermissionDirectives(prompt: string): Promise<string | null> {
+    return processPermissionDirectivesPolicy(prompt, this.permissionApprovalStore);
   }
 
-  private async getPermissionPolicyMessage(
-    prompt: string,
-    repositoryContext?: RepositoryContext,
-  ): Promise<string | null> {
-    return getPermissionPolicyMessage(
-      prompt,
-      repositoryContext,
-      this.permissionApprovalStore,
-    );
+  private async getPermissionPolicyMessage(prompt: string, repositoryContext?: RepositoryContext): Promise<string | null> {
+    return getPermissionPolicyMessage(prompt, repositoryContext, this.permissionApprovalStore);
   }
   private async getWorkspaceBootstrapMessage(
     runId: string,
     prompt: string,
     repositoryContext?: RepositoryContext,
   ): Promise<string | null> {
-    return getWorkspaceBootstrapMessage(
-      runId,
-      prompt,
-      repositoryContext,
-      this.workspaceBootstrapper,
-    );
+    return getWorkspaceBootstrapMessage(runId, prompt, repositoryContext, this.workspaceBootstrapper);
   }
   private async handleExecutionError(
     runId: string,
