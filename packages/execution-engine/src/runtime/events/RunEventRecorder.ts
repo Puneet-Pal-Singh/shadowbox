@@ -1,8 +1,16 @@
-import type { RunEvent, RunWorkflowStep } from "@repo/shared-types";
+import type {
+  ApprovalDecisionKind,
+  ApprovalRequest,
+  ApprovalResolutionStatus,
+  RunEvent,
+  RunWorkflowStep,
+} from "@repo/shared-types";
 import type { RunStatus, SerializedTask } from "../types.js";
 import {
   DEFAULT_ASSISTANT_FINAL_TRANSCRIPT,
   DEFAULT_USER_PROMPT_TRANSCRIPT,
+  createApprovalRequestedEvent,
+  createApprovalResolvedEvent,
   createMessageEmittedEvent,
   createRunCompletedEvent,
   createRunFailedEvent,
@@ -71,6 +79,19 @@ export class RunEventRecorder {
     await this.append(
       createRunProgressEvent(this.baseInput(), phase, label, summary, status),
     );
+  }
+
+  async recordApprovalRequested(request: ApprovalRequest): Promise<void> {
+    await this.append(createApprovalRequestedEvent(this.baseInput(), request));
+  }
+
+  async recordApprovalResolved(input: {
+    requestId: string;
+    decision: ApprovalDecisionKind;
+    status: ApprovalResolutionStatus;
+    resolvedAt?: string;
+  }): Promise<void> {
+    await this.append(createApprovalResolvedEvent(this.baseInput(), input));
   }
 
   async recordToolRequested(
