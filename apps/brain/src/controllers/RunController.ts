@@ -17,6 +17,8 @@ interface RunSummaryResponse {
   cancelledTasks: number;
   eventCount?: number;
   lastEventType?: string | null;
+  permissionContext?: unknown;
+  pendingApproval?: unknown;
 }
 
 export class RunController {
@@ -98,6 +100,64 @@ export class RunController {
         req,
         env,
         error instanceof Error ? error.message : "Failed to cancel run",
+        500,
+      );
+    }
+  }
+
+  static async approve(req: Request, env: Env): Promise<Response> {
+    try {
+      const body = (await req.json().catch(() => null)) as {
+        runId?: string;
+        requestId?: string;
+        decision?:
+          | "allow_once"
+          | "allow_for_run"
+          | "allow_persistent_rule"
+          | "deny"
+          | "abort";
+        orchestratorBackend?: RuntimeOrchestratorBackend;
+      } | null;
+      const runId = body?.runId?.trim();
+      const requestId = body?.requestId?.trim();
+      const decision = body?.decision;
+      const requestedBackend =
+        body?.orchestratorBackend ?? "execution-engine-v1";
+      if (!runId || !requestId || !decision) {
+        return errorResponse(
+          req,
+          env,
+          "runId, requestId, and decision are required",
+          400,
+        );
+      }
+
+      const response = await fetchRunApprovalFromRuntime(
+        env,
+        runId,
+        requestId,
+        decision,
+        requestedBackend,
+      );
+      if (!response.ok) {
+        const details = await readErrorPreview(response);
+        const suffix = details ? `: ${details}` : "";
+        return errorResponse(
+          req,
+          env,
+          `Failed to resolve approval${suffix}`,
+          response.status,
+        );
+      }
+
+      const payload = (await response.json()) as unknown;
+      return jsonResponse(req, env, payload);
+    } catch (error) {
+      console.error("[RunController:approve] Error:", error);
+      return errorResponse(
+        req,
+        env,
+        error instanceof Error ? error.message : "Failed to resolve approval",
         500,
       );
     }
@@ -245,6 +305,28 @@ async function fetchRunCancelFromRuntime(
     method: "POST",
     path: "/cancel",
     body: JSON.stringify({ runId }),
+    headers: {
+      "Content-Type": "application/json",
+    },
+  });
+}
+
+async function fetchRunApprovalFromRuntime(
+  env: Env,
+  runId: string,
+  requestId: string,
+  decision:
+    | "allow_once"
+    | "allow_for_run"
+    | "allow_persistent_rule"
+    | "deny"
+    | "abort",
+  requestedBackend: RuntimeOrchestratorBackend,
+): Promise<Response> {
+  return fetchRunRuntimeRoute(env, runId, requestedBackend, {
+    method: "POST",
+    path: "/approval",
+    body: JSON.stringify({ runId, requestId, decision }),
     headers: {
       "Content-Type": "application/json",
     },
