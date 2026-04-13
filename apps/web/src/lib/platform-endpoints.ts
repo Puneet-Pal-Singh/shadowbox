@@ -149,6 +149,15 @@ export function runActivityPath(runId: string): string {
 }
 
 /**
+ * Build the run approval decision endpoint URL.
+ * Used for resolving pending approval requests from the composer approval dock.
+ * Path: /api/run/approval
+ */
+export function runApprovalPath(): string {
+  return `${getBrainHttpBase()}/api/run/approval`;
+}
+
+/**
  * Build the full chat history endpoint URL
  * Used for fetching previous chat messages from Muscle
  * Path: /api/chat/history
