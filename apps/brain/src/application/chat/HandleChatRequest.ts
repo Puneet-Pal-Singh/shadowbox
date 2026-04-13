@@ -14,7 +14,13 @@
  */
 
 import type { CoreMessage } from "ai";
-import { DEFAULT_RUN_MODE, type RunMode } from "@repo/shared-types";
+import {
+  DEFAULT_RUN_MODE,
+  type ProductMode,
+  type RunMode,
+  type WorkflowEntrypoint,
+  type WorkflowIntent,
+} from "@repo/shared-types";
 import type { Env } from "../../types/ai";
 import { ValidationError } from "../../domain/errors";
 import { PersistenceService } from "../../services/PersistenceService";
@@ -47,6 +53,9 @@ export interface HandleChatRequestInput {
   executionBackend?: RuntimeExecutionBackend;
   harnessMode?: RuntimeHarnessMode;
   authMode?: RuntimeAuthMode;
+  productMode?: ProductMode;
+  workflowIntent?: WorkflowIntent;
+  workflowEntrypoint?: WorkflowEntrypoint;
   // Phase 4: Repository context for workspace-aware operations
   repositoryOwner?: string;
   repositoryName?: string;
@@ -67,7 +76,7 @@ export interface HandleChatRequestOutput {
     sessionId: string;
     correlationId: string;
     requestOrigin?: string;
-    input: {
+  input: {
       mode: RunMode;
       agentType: AgentType;
       prompt: string;
@@ -186,6 +195,13 @@ export class HandleChatRequest {
             featureFlags: {
               agenticLoopV1: this.isAgenticLoopEnabled(),
               reviewerPassV1: this.isReviewerPassEnabled(),
+            },
+            permissionPolicy: {
+              productMode: input.productMode,
+            },
+            workflow: {
+              entrypoint: input.workflowEntrypoint ?? "composer_submit",
+              intent: input.workflowIntent,
             },
           },
           // Phase 4: Include repository context for workspace-aware operations
