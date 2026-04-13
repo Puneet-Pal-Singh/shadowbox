@@ -2,7 +2,12 @@ import {
   MESSAGE_TRANSCRIPT_PHASES,
   MESSAGE_TRANSCRIPT_STATUSES,
   RUN_EVENT_TYPES,
+  type ApprovalDecisionKind,
+  type ApprovalRequest,
+  type ApprovalResolutionStatus,
   type EventSource,
+  type ApprovalRequestedEvent,
+  type ApprovalResolvedEvent,
   type MessageTranscriptPhase,
   type MessageTranscriptStatus,
   type MessageEmittedEvent,
@@ -79,6 +84,32 @@ export function createRunProgressEvent(
     label,
     summary,
     status,
+  });
+}
+
+export function createApprovalRequestedEvent(
+  input: EventBaseInput,
+  request: ApprovalRequest,
+): ApprovalRequestedEvent {
+  return createEnvelope(input, RUN_EVENT_TYPES.APPROVAL_REQUESTED, {
+    request,
+  });
+}
+
+export function createApprovalResolvedEvent(
+  input: EventBaseInput,
+  payload: {
+    requestId: string;
+    decision: ApprovalDecisionKind;
+    status: ApprovalResolutionStatus;
+    resolvedAt?: string;
+  },
+): ApprovalResolvedEvent {
+  return createEnvelope(input, RUN_EVENT_TYPES.APPROVAL_RESOLVED, {
+    requestId: payload.requestId,
+    decision: payload.decision,
+    status: payload.status,
+    resolvedAt: payload.resolvedAt ?? new Date().toISOString(),
   });
 }
 
