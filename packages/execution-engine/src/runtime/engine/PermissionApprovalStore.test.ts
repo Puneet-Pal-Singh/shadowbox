@@ -36,6 +36,138 @@ describe("PermissionApprovalStore", () => {
     await expect(store.hasDestructive()).resolves.toBe(false);
     await expect(store.hasDestructive()).resolves.toBe(false);
   });
+
+  it("keeps pending approvals serialized to one unresolved request per run", async () => {
+    const state = new MockRuntimeState();
+    const store = new PermissionApprovalStore(state, "run-approval-3");
+
+    const firstRequest = await store.setPendingRequest({
+      requestId: "req-1",
+      runId: "run-approval-3",
+      origin: "agent",
+      category: "git_mutation",
+      title: "Commit changes",
+      reason: "Commit mutates repository history.",
+      actionFingerprint: "git:commit",
+      availableDecisions: ["allow_once", "deny"],
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    const secondRequest = await store.setPendingRequest({
+      requestId: "req-2",
+      runId: "run-approval-3",
+      origin: "agent",
+      category: "shell_command",
+      title: "Run command",
+      reason: "Shell command may mutate state.",
+      actionFingerprint: "bash:pnpm test",
+      availableDecisions: ["allow_once", "deny"],
+      createdAt: "2026-01-01T00:00:01.000Z",
+    });
+
+    expect(firstRequest.requestId).toBe("req-1");
+    expect(secondRequest.requestId).toBe("req-1");
+    await expect(store.getPendingRequest()).resolves.toMatchObject({
+      requestId: "req-1",
+    });
+  });
+
+  it("keeps allow_for_run scoped to a single runId", async () => {
+    const state = new MockRuntimeState();
+    const runA = new PermissionApprovalStore(state, "run-approval-a");
+    const runB = new PermissionApprovalStore(state, "run-approval-b");
+
+    await runA.setPendingRequest({
+      requestId: "req-a",
+      runId: "run-approval-a",
+      origin: "agent",
+      category: "shell_command",
+      title: "Run tests",
+      reason: "Shell command can mutate state.",
+      actionFingerprint: "shell:pnpm test",
+      availableDecisions: ["allow_for_run", "deny"],
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+    await runA.resolveDecision(
+      { kind: "allow_for_run", requestId: "req-a" },
+      "user-1",
+    );
+
+    await expect(runA.isActionAllowed("shell:pnpm test")).resolves.toBe(true);
+    await expect(runB.isActionAllowed("shell:pnpm test")).resolves.toBe(false);
+  });
+
+  it("rejects broad unsafe persistent shell rules", async () => {
+    const state = new MockRuntimeState();
+    const store = new PermissionApprovalStore(state, "run-approval-4");
+
+    await store.setPendingRequest({
+      requestId: "req-unsafe",
+      runId: "run-approval-4",
+      origin: "agent",
+      category: "shell_command",
+      title: "Run shell command",
+      reason: "Needs approval.",
+      actionFingerprint: "shell:bash -lc ls",
+      availableDecisions: ["allow_persistent_rule", "deny"],
+      proposedPersistentRule: {
+        category: "shell_command",
+        prefixTokens: ["bash"],
+        cwdScope: "current_repo",
+        networkAccess: "none",
+      },
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    await expect(
+      store.resolveDecision(
+        { kind: "allow_persistent_rule", requestId: "req-unsafe" },
+        "user-1",
+      ),
+    ).rejects.toThrow("Persistent rule was rejected because it is too broad or unsafe.");
+  });
+
+  it("persists validated narrow rules and matches future actions", async () => {
+    const state = new MockRuntimeState();
+    const store = new PermissionApprovalStore(state, "run-approval-5");
+
+    await store.setPendingRequest({
+      requestId: "req-safe",
+      runId: "run-approval-5",
+      origin: "agent",
+      category: "git_mutation",
+      title: "Stage changes",
+      reason: "Needs approval.",
+      actionFingerprint: "git:stage",
+      availableDecisions: ["allow_persistent_rule", "deny"],
+      proposedPersistentRule: {
+        category: "git_mutation",
+        allowedActions: ["stage"],
+        repoScope: "current_repo",
+      },
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    const result = await store.resolveDecision(
+      { kind: "allow_persistent_rule", requestId: "req-safe" },
+      "user-1",
+    );
+    expect(result.status).toBe("approved");
+    expect(result.persistentRuleId).toBeTruthy();
+
+    await expect(
+      store.matchPersistentRule({
+        category: "git_mutation",
+        gitAction: "stage",
+      }),
+    ).resolves.toBe(true);
+    await expect(
+      store.matchPersistentRule({
+        category: "git_mutation",
+        gitAction: "commit",
+      }),
+    ).resolves.toBe(false);
+  });
 });
 
 class InMemoryStorage implements RuntimeStorage {
