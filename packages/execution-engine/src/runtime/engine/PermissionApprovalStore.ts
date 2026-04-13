@@ -1,12 +1,68 @@
 import type { RuntimeDurableObjectState } from "../types.js";
+import type {
+  ApprovalDecision,
+  ApprovalRequest,
+  ProposedPersistentRule,
+  RiskyActionCategory,
+} from "@repo/shared-types";
+import { RISKY_ACTION_CATEGORIES } from "@repo/shared-types";
 
 interface ApprovalState {
   crossRepo: Record<string, string>;
   destructiveExpiresAt?: string;
+  pendingRequest?: ApprovalRequest;
+  runAllowances: Record<
+    string,
+    {
+      scope: "once" | "run";
+      createdAt: string;
+      consumedAt?: string;
+    }
+  >;
+  persistentRules: StoredPersistentPermissionRule[];
+  riskyAttempts: Record<
+    string,
+    {
+      count: number;
+      reason: string;
+      updatedAt: string;
+    }
+  >;
   updatedAt: string;
 }
 
 const APPROVAL_KEY_PREFIX = "permission:approvals:";
+const RISKY_ATTEMPT_WINDOW_MS = 5 * 60 * 1000;
+
+interface StoredPersistentPermissionRule {
+  ruleId: string;
+  createdAt: string;
+  createdByUserId: string;
+  source: "approval";
+  category: ProposedPersistentRule["category"];
+  payload: ProposedPersistentRule;
+}
+
+export interface PermissionDecisionResult {
+  request: ApprovalRequest;
+  decision: ApprovalDecision["kind"];
+  status: "approved" | "denied" | "aborted";
+  persistentRuleId?: string;
+}
+
+const UNSAFE_SHELL_PREFIXES = new Set([
+  "bash",
+  "sh",
+  "zsh",
+  "python",
+  "python3",
+  "node",
+  "deno",
+  "perl",
+  "ruby",
+  "env",
+  "sudo",
+]);
 
 export class PermissionApprovalStore {
   constructor(
@@ -60,6 +116,225 @@ export class PermissionApprovalStore {
     });
   }
 
+  async getPendingRequest(): Promise<ApprovalRequest | null> {
+    return await this.ctx.blockConcurrencyWhile(async () => {
+      const state = await this.loadState();
+      const pending = state.pendingRequest;
+      if (!pending) {
+        return null;
+      }
+      if (pending.expiresAt && Date.parse(pending.expiresAt) <= Date.now()) {
+        const next = this.withPrunedApprovals(state, Date.now());
+        delete next.pendingRequest;
+        await this.persistIfChanged(state, next);
+        return null;
+      }
+      return pending;
+    });
+  }
+
+  async setPendingRequest(request: ApprovalRequest): Promise<ApprovalRequest> {
+    return await this.ctx.blockConcurrencyWhile(async () => {
+      const state = await this.loadState();
+      const now = Date.now();
+      const next = this.withPrunedApprovals(state, now);
+      if (next.pendingRequest && !isExpired(next.pendingRequest, now)) {
+        if (
+          next.pendingRequest.actionFingerprint === request.actionFingerprint &&
+          request.category === RISKY_ACTION_CATEGORIES.DANGEROUS_RETRY &&
+          next.pendingRequest.category !== RISKY_ACTION_CATEGORIES.DANGEROUS_RETRY
+        ) {
+          next.pendingRequest = request;
+          next.updatedAt = new Date(now).toISOString();
+          await this.ctx.storage.put(this.key(), next);
+          return request;
+        }
+        return next.pendingRequest;
+      }
+      next.pendingRequest = request;
+      next.updatedAt = new Date(now).toISOString();
+      await this.ctx.storage.put(this.key(), next);
+      return request;
+    });
+  }
+
+  async clearPendingRequest(requestId?: string): Promise<boolean> {
+    return await this.ctx.blockConcurrencyWhile(async () => {
+      const state = await this.loadState();
+      const pending = state.pendingRequest;
+      if (!pending) {
+        return false;
+      }
+      if (requestId && pending.requestId !== requestId) {
+        return false;
+      }
+      const next = this.withPrunedApprovals(state, Date.now());
+      delete next.pendingRequest;
+      await this.persistIfChanged(state, next);
+      return true;
+    });
+  }
+
+  async resolveDecision(
+    decision: ApprovalDecision,
+    createdByUserId: string,
+  ): Promise<PermissionDecisionResult> {
+    return await this.ctx.blockConcurrencyWhile(async () => {
+      const state = await this.loadState();
+      const now = Date.now();
+      const next = this.withPrunedApprovals(state, now);
+      const pending = next.pendingRequest;
+      if (!pending) {
+        throw new Error("No pending approval request found.");
+      }
+      if (pending.requestId !== decision.requestId) {
+        throw new Error("Approval request id does not match pending request.");
+      }
+      if (!pending.availableDecisions.includes(decision.kind)) {
+        throw new Error("Decision kind is not allowed for this request.");
+      }
+
+      const resolution: PermissionDecisionResult = {
+        request: pending,
+        decision: decision.kind,
+        status:
+          decision.kind === "abort"
+            ? "aborted"
+            : decision.kind === "deny"
+              ? "denied"
+              : "approved",
+      };
+
+      if (decision.kind === "allow_once") {
+        next.runAllowances[pending.actionFingerprint] = {
+          scope: "once",
+          createdAt: new Date(now).toISOString(),
+        };
+      } else if (decision.kind === "allow_for_run") {
+        next.runAllowances[pending.actionFingerprint] = {
+          scope: "run",
+          createdAt: new Date(now).toISOString(),
+        };
+      } else if (decision.kind === "allow_persistent_rule") {
+        if (!pending.proposedPersistentRule) {
+          throw new Error("No persistent rule is available for this request.");
+        }
+        if (!isValidProposedPersistentRule(pending.proposedPersistentRule)) {
+          throw new Error(
+            "Persistent rule was rejected because it is too broad or unsafe.",
+          );
+        }
+        const persistentRuleId = crypto.randomUUID();
+        next.persistentRules.push({
+          ruleId: persistentRuleId,
+          category: pending.proposedPersistentRule.category,
+          payload: pending.proposedPersistentRule,
+          createdAt: new Date(now).toISOString(),
+          createdByUserId,
+          source: "approval",
+        });
+        resolution.persistentRuleId = persistentRuleId;
+      }
+
+      if (resolution.status === "approved") {
+        this.resetRiskyAttempt(next, pending.actionFingerprint);
+      }
+      delete next.pendingRequest;
+      next.updatedAt = new Date(now).toISOString();
+      await this.ctx.storage.put(this.key(), next);
+      return resolution;
+    });
+  }
+
+  async isActionAllowed(actionFingerprint: string): Promise<boolean> {
+    return await this.ctx.blockConcurrencyWhile(async () => {
+      const state = await this.loadState();
+      const now = Date.now();
+      const next = this.withPrunedApprovals(state, now);
+      const grant = next.runAllowances[actionFingerprint];
+      if (!grant) {
+        await this.persistIfChanged(state, next);
+        return false;
+      }
+
+      if (grant.scope === "once") {
+        if (grant.consumedAt) {
+          delete next.runAllowances[actionFingerprint];
+          await this.persistIfChanged(state, next);
+          return false;
+        }
+        grant.consumedAt = new Date(now).toISOString();
+        next.runAllowances[actionFingerprint] = grant;
+        await this.persistIfChanged(state, next);
+        return true;
+      }
+
+      await this.persistIfChanged(state, next);
+      return true;
+    });
+  }
+
+  async matchPersistentRule(input: {
+    category: RiskyActionCategory;
+    command?: string;
+    gitAction?: "stage" | "commit";
+    providerId?: string;
+    providerOperation?: "validate" | "connect";
+  }): Promise<boolean> {
+    return await this.ctx.blockConcurrencyWhile(async () => {
+      const state = await this.loadState();
+      const next = this.withPrunedApprovals(state, Date.now());
+
+      const matched = next.persistentRules.some((rule) =>
+        matchesPersistentRule(rule, input),
+      );
+      await this.persistIfChanged(state, next);
+      return matched;
+    });
+  }
+
+  async registerRiskyAttempt(
+    actionFingerprint: string,
+    reason: string,
+  ): Promise<number> {
+    return await this.ctx.blockConcurrencyWhile(async () => {
+      const state = await this.loadState();
+      const now = Date.now();
+      const next = this.withPrunedApprovals(state, now);
+      const existing = next.riskyAttempts[actionFingerprint];
+      if (!existing) {
+        next.riskyAttempts[actionFingerprint] = {
+          count: 1,
+          reason,
+          updatedAt: new Date(now).toISOString(),
+        };
+        await this.persistIfChanged(state, next);
+        return 1;
+      }
+
+      const updatedAtMs = Date.parse(existing.updatedAt);
+      const withinWindow =
+        Number.isFinite(updatedAtMs) && now - updatedAtMs <= RISKY_ATTEMPT_WINDOW_MS;
+
+      next.riskyAttempts[actionFingerprint] = {
+        count: withinWindow ? existing.count + 1 : 1,
+        reason,
+        updatedAt: new Date(now).toISOString(),
+      };
+      await this.persistIfChanged(state, next);
+      return next.riskyAttempts[actionFingerprint]?.count ?? 1;
+    });
+  }
+
+  async clearRiskyAttempt(actionFingerprint: string): Promise<void> {
+    await this.ctx.blockConcurrencyWhile(async () => {
+      const state = await this.loadState();
+      const next = this.withPrunedApprovals(state, Date.now());
+      this.resetRiskyAttempt(next, actionFingerprint);
+      await this.persistIfChanged(state, next);
+    });
+  }
+
   private key(): string {
     return `${APPROVAL_KEY_PREFIX}${this.runId}`;
   }
@@ -70,11 +345,18 @@ export class PermissionApprovalStore {
       return {
         crossRepo: { ...(stored.crossRepo ?? {}) },
         destructiveExpiresAt: stored.destructiveExpiresAt,
+        pendingRequest: stored.pendingRequest,
+        runAllowances: { ...(stored.runAllowances ?? {}) },
+        persistentRules: [...(stored.persistentRules ?? [])],
+        riskyAttempts: { ...(stored.riskyAttempts ?? {}) },
         updatedAt: stored.updatedAt || new Date().toISOString(),
       };
     }
     return {
       crossRepo: {},
+      runAllowances: {},
+      persistentRules: [],
+      riskyAttempts: {},
       updatedAt: new Date().toISOString(),
     };
   }
@@ -87,6 +369,10 @@ export class PermissionApprovalStore {
       crossRepo: {},
       updatedAt: state.updatedAt,
       destructiveExpiresAt: state.destructiveExpiresAt,
+      pendingRequest: state.pendingRequest,
+      runAllowances: { ...(state.runAllowances ?? {}) },
+      persistentRules: [...(state.persistentRules ?? [])],
+      riskyAttempts: {},
     };
 
     for (const [repoRef, expiresAt] of Object.entries(state.crossRepo)) {
@@ -100,6 +386,22 @@ export class PermissionApprovalStore {
       Date.parse(nextState.destructiveExpiresAt) <= nowMs
     ) {
       delete nextState.destructiveExpiresAt;
+    }
+
+    if (nextState.pendingRequest && isExpired(nextState.pendingRequest, nowMs)) {
+      delete nextState.pendingRequest;
+    }
+
+    for (const [fingerprint, attempt] of Object.entries(
+      state.riskyAttempts ?? {},
+    )) {
+      const updatedAtMs = Date.parse(attempt.updatedAt);
+      if (
+        Number.isFinite(updatedAtMs) &&
+        nowMs - updatedAtMs <= RISKY_ATTEMPT_WINDOW_MS
+      ) {
+        nextState.riskyAttempts[fingerprint] = attempt;
+      }
     }
 
     return nextState;
@@ -116,10 +418,28 @@ export class PermissionApprovalStore {
     await this.ctx.storage.put(this.key(), nextState);
   }
 
+  private resetRiskyAttempt(state: ApprovalState, actionFingerprint: string) {
+    delete state.riskyAttempts[actionFingerprint];
+  }
 }
 
 function isSameState(a: ApprovalState, b: ApprovalState): boolean {
   if (a.destructiveExpiresAt !== b.destructiveExpiresAt) {
+    return false;
+  }
+  if (a.pendingRequest?.requestId !== b.pendingRequest?.requestId) {
+    return false;
+  }
+  if (!areJsonEqual(a.pendingRequest, b.pendingRequest)) {
+    return false;
+  }
+  if (!areJsonEqual(a.runAllowances, b.runAllowances)) {
+    return false;
+  }
+  if (!areJsonEqual(a.persistentRules, b.persistentRules)) {
+    return false;
+  }
+  if (!areJsonEqual(a.riskyAttempts, b.riskyAttempts)) {
     return false;
   }
 
@@ -146,4 +466,142 @@ function isSameState(a: ApprovalState, b: ApprovalState): boolean {
   }
 
   return true;
+}
+
+function isExpired(request: ApprovalRequest, nowMs: number): boolean {
+  if (!request.expiresAt) {
+    return false;
+  }
+  const expiresAtMs = Date.parse(request.expiresAt);
+  return Number.isFinite(expiresAtMs) && expiresAtMs <= nowMs;
+}
+
+function matchesPersistentRule(
+  rule: StoredPersistentPermissionRule,
+  input: {
+    category: RiskyActionCategory;
+    command?: string;
+    gitAction?: "stage" | "commit";
+    providerId?: string;
+    providerOperation?: "validate" | "connect";
+  },
+): boolean {
+  if (rule.category !== input.category) {
+    return false;
+  }
+
+  if (rule.category === "shell_command") {
+    const payload = rule.payload;
+    if (!input.command) {
+      return false;
+    }
+    const command = input.command.trim();
+    if (!command) {
+      return false;
+    }
+    const commandTokens = command.split(/\s+/).map((token) => token.toLowerCase());
+    if (payload.category !== "shell_command") {
+      return false;
+    }
+    if (payload.prefixTokens.length > commandTokens.length) {
+      return false;
+    }
+    return payload.prefixTokens.every(
+      (token, index) => commandTokens[index] === token,
+    );
+  }
+
+  if (rule.category === "git_mutation") {
+    const payload = rule.payload;
+    if (payload.category !== "git_mutation") {
+      return false;
+    }
+    if (!input.gitAction) {
+      return false;
+    }
+    return payload.allowedActions.includes(input.gitAction);
+  }
+
+  if (rule.category === "provider_connect") {
+    const payload = rule.payload;
+    if (payload.category !== "provider_connect") {
+      return false;
+    }
+    if (!input.providerId || !input.providerOperation) {
+      return false;
+    }
+    return (
+      payload.providerId === input.providerId &&
+      payload.allowedOperations.includes(input.providerOperation)
+    );
+  }
+
+  return false;
+}
+
+function isValidProposedPersistentRule(
+  rule: ProposedPersistentRule,
+): boolean {
+  if (rule.category === "shell_command") {
+    if (rule.cwdScope !== "current_repo") {
+      return false;
+    }
+    if (rule.prefixTokens.length === 0 || rule.prefixTokens.length > 4) {
+      return false;
+    }
+    const normalized = rule.prefixTokens.map((token) => token.trim().toLowerCase());
+    if (normalized.some((token) => token.length === 0)) {
+      return false;
+    }
+    const first = normalized[0];
+    if (!first || UNSAFE_SHELL_PREFIXES.has(first)) {
+      return false;
+    }
+    return normalized.every((token) => /^[a-z0-9._:-]+$/.test(token));
+  }
+
+  if (rule.category === "git_mutation") {
+    if (rule.repoScope !== "current_repo") {
+      return false;
+    }
+    if (rule.allowedActions.length === 0) {
+      return false;
+    }
+    return rule.allowedActions.every(
+      (action) => action === "stage" || action === "commit",
+    );
+  }
+
+  if (rule.category === "provider_connect") {
+    if (!rule.providerId.trim()) {
+      return false;
+    }
+    if (rule.allowedOperations.length === 0) {
+      return false;
+    }
+    return rule.allowedOperations.every(
+      (operation) => operation === "validate" || operation === "connect",
+    );
+  }
+
+  return false;
+}
+
+function areJsonEqual(left: unknown, right: unknown): boolean {
+  return stableStringify(left) === stableStringify(right);
+}
+
+function stableStringify(value: unknown): string {
+  if (value === null || typeof value !== "object") {
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map(stableStringify).join(",")}]`;
+  }
+  const entries = Object.entries(value as Record<string, unknown>).sort(
+    ([a], [b]) => a.localeCompare(b),
+  );
+  return `{${entries
+    .map(([key, val]) => `${JSON.stringify(key)}:${stableStringify(val)}`)
+    .join(",")}}`;
 }
