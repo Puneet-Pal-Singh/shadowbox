@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { Message } from "@ai-sdk/react";
 import { ChatInterface } from "./ChatInterface.js";
+import { runApprovalPath } from "../../lib/platform-endpoints.js";
 
 const mockChatInputBar = vi.hoisted(() =>
   vi.fn((props: unknown) => {
@@ -38,12 +39,21 @@ vi.mock("../../hooks/useProviderStore.js", () => ({
   useProviderStore: vi.fn(() => ({ providerModels: {} })),
 }));
 
+const mockDispatchRunSummaryRefresh = vi.fn();
+vi.mock("../../lib/run-summary-events.js", () => ({
+  RUN_SUMMARY_REFRESH_EVENT: "shadowbox:run-summary:refresh",
+  dispatchRunSummaryRefresh: (...args: unknown[]) =>
+    mockDispatchRunSummaryRefresh(...args),
+}));
+
 import { useRunSummary } from "../../hooks/useRunSummary.js";
 import { useRunActivityFeed } from "../../hooks/useRunActivityFeed.js";
 
 describe("ChatInterface", () => {
   beforeEach(() => {
+    vi.unstubAllGlobals();
     mockChatInputBar.mockClear();
+    mockDispatchRunSummaryRefresh.mockReset();
     Object.defineProperty(HTMLElement.prototype, "scrollTo", {
       configurable: true,
       value: vi.fn(),
@@ -118,6 +128,89 @@ describe("ChatInterface", () => {
         ],
       },
     });
+  });
+
+  it("renders backend-provided approval decisions and resolves the selected decision", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.mocked(useRunSummary).mockReturnValue({
+      summary: {
+        runId: "run-approval",
+        status: "WAITING",
+        totalTasks: 0,
+        completedTasks: 0,
+        failedTasks: 0,
+        planArtifact: null,
+        permissionContext: {
+          state: {
+            productMode: "auto_for_safe",
+            approvalPolicy: "ask_on_request",
+            executionScope: "workspace_safe",
+            workflowIntent: "ship",
+          },
+          label: "Default permissions",
+          resolverInput: {
+            runMode: "build",
+            entrypoint: "composer_submit",
+          },
+          resolvedAt: "2026-01-01T00:00:00.000Z",
+        },
+        pendingApproval: {
+          requestId: "req-1",
+          runId: "run-approval",
+          origin: "agent",
+          category: "git_mutation",
+          title: "Shadowbox wants to commit repository changes",
+          reason: "Git mutation actions can change repository history.",
+          actionFingerprint: "git_mutation:git_commit:{}",
+          command: "git commit -m \"feat: update\"",
+          availableDecisions: ["allow_once", "deny"],
+          createdAt: "2026-01-01T00:00:00.000Z",
+        },
+      },
+    });
+
+    render(
+      <ChatInterface
+        chatProps={{
+          messages: [],
+          runId: "run-approval",
+          input: "",
+          handleInputChange: vi.fn(),
+          handleSubmit: vi.fn(),
+          append: vi.fn(),
+          stop: vi.fn(),
+          isLoading: false,
+          error: null,
+          debugEvents: [],
+        }}
+        sessionId="session-1"
+        mode="build"
+      />,
+    );
+
+    expect(
+      screen.getByText("Shadowbox wants to commit repository changes"),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Allow once" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Deny" })).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Allow in future" }),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Allow once" }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        runApprovalPath(),
+        expect.objectContaining({
+          method: "POST",
+        }),
+      );
+    });
+    expect(mockDispatchRunSummaryRefresh).toHaveBeenCalledWith("run-approval");
   });
 
   it("switches to build mode and stages the approved handoff prompt", async () => {
