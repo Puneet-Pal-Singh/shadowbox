@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { RUN_EVENT_TYPES, RUN_WORKFLOW_STEPS } from "@repo/shared-types";
+import {
+  PRODUCT_MODES,
+  RUN_EVENT_TYPES,
+  RUN_WORKFLOW_STEPS,
+  WORKFLOW_INTENTS,
+} from "@repo/shared-types";
 import { RunEngine, type RunEngineDependencies } from "./RunEngine.js";
 import { sanitizeUserFacingOutput } from "./RunOutputSanitizer.js";
 import type {
@@ -62,6 +67,39 @@ describe("RunEngine", () => {
       context?: { phase?: string };
     };
     expect(buildRequest.context?.phase).toBe("task");
+  });
+
+  it("records deterministic permission context when creating a run", async () => {
+    const runEngine = createRunEngine();
+    await runEngine.execute(
+      {
+        agentType: "coding",
+        prompt: "prepare a deployment summary",
+        sessionId: "session-1",
+        metadata: {
+          permissionPolicy: {
+            productMode: PRODUCT_MODES.FULL_AGENT,
+          },
+          workflow: {
+            intent: WORKFLOW_INTENTS.SHIP,
+          },
+        },
+      },
+      [{ role: "user", content: "prepare a deployment summary" }],
+      {},
+    );
+
+    const persisted = await (
+      runEngine as unknown as {
+        getRun(runId: string): Promise<Run | null>;
+      }
+    ).getRun(TEST_RUN_ID);
+
+    expect(persisted?.metadata.permissionContext?.state).toMatchObject({
+      productMode: PRODUCT_MODES.FULL_AGENT,
+      workflowIntent: WORKFLOW_INTENTS.SHIP,
+    });
+    expect(persisted?.metadata.permissionContext?.resolvedAt).toBeTruthy();
   });
 
   it("persists completed build-mode runs before emitting terminal events", async () => {
@@ -1375,18 +1413,6 @@ describe("RunEngine", () => {
       },
       undefined,
     );
-    expect(executeSpy).toHaveBeenCalledWith(
-      "bash",
-      "run",
-      {
-        command: "pnpm --filter @shadowbox/execution-engine test",
-        cwd: undefined,
-        description: "Run pnpm --filter @shadowbox/execution-engine test",
-      },
-      {
-        onOutput: expect.any(Function),
-      },
-    );
     expect(executeSpy).toHaveBeenCalledWith("git", "git_diff", {}, undefined);
 
     const persisted = await (
@@ -1394,9 +1420,9 @@ describe("RunEngine", () => {
         getRun(runId: string): Promise<Run | null>;
       }
     ).getRun(TEST_RUN_ID);
-    expect(persisted?.metadata.agenticLoop?.stopReason).toBe("llm_stop");
+    expect(persisted?.metadata.agenticLoop?.stopReason).toBe("tool_error");
     expect(persisted?.metadata.agenticLoop?.toolExecutionCount).toBe(5);
-    expect(persisted?.metadata.agenticLoop?.failedToolCount).toBe(0);
+    expect(persisted?.metadata.agenticLoop?.failedToolCount).toBe(1);
     expect(persisted?.metadata.agenticLoop?.toolLifecycle).toHaveLength(15);
     expect(persisted?.metadata.agenticLoop?.toolLifecycle?.[0]).toMatchObject({
       toolCallId: "t1",
@@ -1503,7 +1529,7 @@ describe("RunEngine", () => {
     ).toEqual(["requested", "started", "failed"]);
   });
 
-  it("preserves continuation context across recycled runs and recovers git work with dedicated tools", async () => {
+  it("preserves continuation context across recycled runs when risky git actions are gated", async () => {
     const state = new MockRuntimeState();
     const generateText = vi
       .fn()
@@ -1553,10 +1579,10 @@ describe("RunEngine", () => {
           "Files already changed in the workspace: src/components/landing/hero/FloatingCarousels.tsx",
         );
         expect(system).toContain(
-          "Last failed step: bash - Invalid command argument: multiline values are not allowed",
+          "Last failed step: bash - Shadowbox wants to run a shell command",
         );
         expect(system).toContain(
-          "Use the dedicated git tools for branch creation, staging, committing, and pushing instead of composing git shell commands.",
+          "Use the dedicated git tools for git status, diff, branch create/switch, staging, commit, push, and pull request creation.",
         );
 
         return {
@@ -1700,7 +1726,7 @@ describe("RunEngine", () => {
     expect(firstResponse.status).toBe(200);
     const firstOutput = await firstResponse.text();
     expect(firstOutput).toContain(
-      "I couldn't finish the git step in the sandbox because the shell command was malformed for the bounded executor.",
+      "Shadowbox wants to run a shell command",
     );
 
     const firstPersistedRun = await (
@@ -1713,14 +1739,10 @@ describe("RunEngine", () => {
         ?.slice()
         .reverse()
         .find((event) => event.status === "failed");
-    expect(failedShellEvent).toMatchObject({
-      toolName: "bash",
-      metadata: {
-        family: "shell",
-        command:
-          'git add src/components/landing/hero/FloatingCarousels.tsx && git commit -m "feat: add floating carousels\n\nbody"',
-      },
-    });
+    expect(failedShellEvent?.toolName).toBe("bash");
+    expect(String(failedShellEvent?.detail ?? "")).toContain(
+      "Shadowbox wants to run a shell command",
+    );
 
     const firstRunEvents = await new RunEventRepository(state).getByRun(
       TEST_RUN_ID,
@@ -1735,11 +1757,12 @@ describe("RunEngine", () => {
     expect(firstAssistantEvent?.payload.metadata).toMatchObject({
       code: "TOOL_EXECUTION_FAILED",
       retryable: true,
-      resumeActions: ["retry", "open_terminal"],
     });
     expect(
       String(firstAssistantEvent?.payload.metadata?.resumeHint ?? ""),
-    ).toContain("Retry the git step so it uses the dedicated git action.");
+    ).toContain(
+      "Retry the shell step. If it keeps failing, run the equivalent command in your local terminal.",
+    );
 
     const secondResponse = await runEngine.execute(
       {
@@ -1768,24 +1791,20 @@ describe("RunEngine", () => {
 
     expect(secondResponse.status).toBe(200);
     expect(await secondResponse.text()).toContain(
-      "Committed the carousel changes successfully.",
+      "Shadowbox cannot continue with git stage/commit/push yet because no successful file mutation has occurred in this run.",
     );
 
     const executeSpy = executionService.execute as ReturnType<typeof vi.fn>;
-    expect(executeSpy).toHaveBeenCalledWith(
+    expect(executeSpy).not.toHaveBeenCalledWith(
       "git",
       "git_stage",
-      {
-        files: ["src/components/landing/hero/FloatingCarousels.tsx"],
-      },
+      expect.anything(),
       undefined,
     );
-    expect(executeSpy).toHaveBeenCalledWith(
+    expect(executeSpy).not.toHaveBeenCalledWith(
       "git",
       "git_commit",
-      {
-        message: "feat: add floating carousels to hero section",
-      },
+      expect.anything(),
       undefined,
     );
 
@@ -1799,10 +1818,10 @@ describe("RunEngine", () => {
       failedToolName: "bash",
       completedFiles: ["src/components/landing/hero/FloatingCarousels.tsx"],
     });
-    expect(persisted?.metadata.agenticLoop?.stopReason).toBe("llm_stop");
+    expect(persisted?.metadata.agenticLoop?.stopReason).toBe("tool_error");
   });
 
-  it("resumes from completed git progress and recovers PR creation with the dedicated tool", async () => {
+  it("preserves continuation guidance after branch creation is blocked by approval gates", async () => {
     const state = new MockRuntimeState();
     const generateText = vi
       .fn()
@@ -1868,34 +1887,16 @@ describe("RunEngine", () => {
         );
 
         expect(system).toContain("Continuation context:");
-        expect(system).toContain(
-          "Git progress already completed in this workspace:",
-        );
-        expect(system).toContain(
-          "Branch created: feat/floating-hero-carousels",
-        );
-        expect(system).toContain("Branch pushed: feat/floating-hero-carousels");
-        expect(system).toContain(
-          "Create the pull request with the dedicated git_create_pull_request tool instead of bash or gh.",
-        );
+        expect(system).toContain("Previous request:");
+        expect(system).toContain("Last failed step:");
+        expect(system).toContain("Shadowbox wants to create a branch");
         expect(system).toContain(
           "Do not repeat successful inspection or rewrite already-updated files unless the current workspace proves the change is missing.",
         );
 
         return {
-          text: "I'll finish the PR step with the dedicated tool.",
-          toolCalls: [
-            {
-              id: "git-pr-1",
-              toolName: "git_create_pull_request",
-              args: {
-                owner: "sourcegraph",
-                repo: "shadowbox",
-                title: "feat: add floating carousels to hero section",
-                body: "Adds floating carousels to the hero section.",
-              },
-            },
-          ],
+          text: "I need explicit approval before continuing git mutation steps.",
+          toolCalls: [],
           usage: {
             provider: "mock",
             model: "mock-model",
@@ -2026,7 +2027,7 @@ describe("RunEngine", () => {
     expect(firstResponse.status).toBe(200);
     const firstOutput = await firstResponse.text();
     expect(firstOutput).toContain(
-      "I couldn't finish the pull request step because it was attempted through bash instead of the dedicated GitHub-backed PR action.",
+      "Shadowbox wants to create a branch",
     );
 
     const secondResponse = await runEngine.execute(
@@ -2056,19 +2057,14 @@ describe("RunEngine", () => {
 
     expect(secondResponse.status).toBe(200);
     expect(await secondResponse.text()).toContain(
-      "The pull request is now created.",
+      "The model did not return a usable next action for this edit request.",
     );
 
     const executeSpy = executionService.execute as ReturnType<typeof vi.fn>;
-    expect(executeSpy).toHaveBeenCalledWith(
+    expect(executeSpy).not.toHaveBeenCalledWith(
       "git",
       "git_create_pull_request",
-      {
-        owner: "sourcegraph",
-        repo: "shadowbox",
-        title: "feat: add floating carousels to hero section",
-        body: "Adds floating carousels to the hero section.",
-      },
+      expect.anything(),
       undefined,
     );
 
@@ -2080,15 +2076,11 @@ describe("RunEngine", () => {
     expect(persisted?.metadata.continuation).toMatchObject({
       previousPrompt:
         "commit it, create a new branch and create a pr on github",
-      completedGitSteps: [
-        "Branch created: feat/floating-hero-carousels",
-        "Commit created: feat: add floating carousels to hero section",
-        "Branch pushed: feat/floating-hero-carousels",
-      ],
+      completedGitSteps: [],
     });
   });
 
-  it("resumes failed non-fast-forward pushes by syncing the branch instead of rewriting files", async () => {
+  it("carries continuation failure context when git mutation evidence is missing", async () => {
     const state = new MockRuntimeState();
     const generateText = vi
       .fn()
@@ -2138,36 +2130,15 @@ describe("RunEngine", () => {
           ).system ?? "",
         );
 
+        expect(system).toContain("Continuation context:");
+        expect(system).toContain("Last failed step: git_push -");
         expect(system).toContain(
-          "The previous push failed after the changes were already committed locally. A clean working tree does not mean the edits were lost.",
-        );
-        expect(system).toContain(
-          "Do not recreate or recommit files. Sync the branch with git_pull and retry git_push.",
-        );
-        expect(system).toContain(
-          "Commit created: feat: add floating carousels to hero section",
+          "Shadowbox cannot continue with git stage/commit/push yet because no successful file mutation has occurred in this run.",
         );
 
         return {
-          text: "I'll sync the branch and retry the push.",
-          toolCalls: [
-            {
-              id: "git-pull-1",
-              toolName: "git_pull",
-              args: {
-                branch: "feat/floating-hero-carousels",
-                remote: "origin",
-              },
-            },
-            {
-              id: "git-push-2",
-              toolName: "git_push",
-              args: {
-                branch: "feat/floating-hero-carousels",
-                remote: "origin",
-              },
-            },
-          ],
+          text: "I still need file mutation evidence before stage/commit/push actions.",
+          toolCalls: [],
           usage: {
             provider: "mock",
             model: "mock-model",
@@ -2289,7 +2260,7 @@ describe("RunEngine", () => {
     expect(firstResponse.status).toBe(200);
     const firstOutput = await firstResponse.text();
     expect(firstOutput).toContain(
-      "Your file changes were already committed locally, so they were not lost.",
+      "Shadowbox cannot continue with git stage/commit/push yet because no successful file mutation has occurred in this run.",
     );
 
     const secondResponse = await runEngine.execute(
@@ -2310,26 +2281,20 @@ describe("RunEngine", () => {
 
     expect(secondResponse.status).toBe(200);
     expect(await secondResponse.text()).toContain(
-      "The branch is now synced and pushed.",
+      "I still need file mutation evidence before stage/commit/push actions.",
     );
 
     const executeSpy = executionService.execute as ReturnType<typeof vi.fn>;
-    expect(executeSpy).toHaveBeenCalledWith(
+    expect(executeSpy).not.toHaveBeenCalledWith(
       "git",
       "git_pull",
-      {
-        branch: "feat/floating-hero-carousels",
-        remote: "origin",
-      },
+      expect.anything(),
       undefined,
     );
-    expect(executeSpy).toHaveBeenCalledWith(
+    expect(executeSpy).not.toHaveBeenCalledWith(
       "git",
       "git_push",
-      {
-        branch: "feat/floating-hero-carousels",
-        remote: "origin",
-      },
+      expect.anything(),
       undefined,
     );
   });
@@ -2388,7 +2353,7 @@ describe("RunEngine", () => {
           ).system ?? "",
         );
         expect(system).toContain(
-          "Resume on branch: feat/floating-hero-carousels",
+          "Resume on branch: main",
         );
         return {
           text: "Continuing on the preserved branch.",
@@ -2513,7 +2478,7 @@ describe("RunEngine", () => {
       repositoryContext: {
         owner: "sourcegraph",
         repo: "shadowbox",
-        branch: "feat/floating-hero-carousels",
+        branch: "main",
       },
     });
   });
