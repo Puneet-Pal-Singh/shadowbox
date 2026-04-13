@@ -55,6 +55,10 @@ export class RunEngineAgent extends CloudflareAgent<Env> {
       return handler.handleCancelRequest(request);
     }
 
+    if (url.pathname === "/approval" && request.method === "POST") {
+      return handler.handleApprovalRequest(request);
+    }
+
     if (url.pathname === "/debug/runtime" && request.method === "GET") {
       return handler.handleRuntimeDebugRequest(request);
     }
