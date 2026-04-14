@@ -36,6 +36,11 @@ import { dispatchRunSummaryRefresh } from "../../lib/run-summary-events.js";
 // Flip to true when you want to temporarily inspect the legacy workflow debug UI.
 const SHOW_WORKFLOW_DEBUG_PANEL = false;
 const WEB_PROVIDER_POLICY = resolveWebProviderProductPolicy();
+const PRIMARY_APPROVAL_DECISIONS: ApprovalDecisionKind[] = [
+  "allow_once",
+  "allow_for_run",
+  "deny",
+];
 
 function ChatErrorNotice({
   message,
@@ -326,6 +331,18 @@ export function ChatInterface({
   useEffect(() => {
     onPendingApprovalChange?.(Boolean(pendingApproval));
   }, [onPendingApprovalChange, pendingApproval]);
+  const displayedApprovalDecisions = useMemo(() => {
+    if (!pendingApproval) {
+      return [];
+    }
+    const preferredDecisions = PRIMARY_APPROVAL_DECISIONS.filter((decision) =>
+      pendingApproval.availableDecisions.includes(decision),
+    );
+    if (preferredDecisions.length > 0) {
+      return preferredDecisions;
+    }
+    return pendingApproval.availableDecisions;
+  }, [pendingApproval]);
   const chatEntries = useMemo(
     () => buildChatEntries(conversationTurns, activityViewModel.turns),
     [activityViewModel.turns, conversationTurns],
@@ -475,6 +492,9 @@ export function ChatInterface({
               <p className="text-xs font-semibold uppercase tracking-[0.16em] text-amber-300">
                 Permissions approval
               </p>
+              <p className="mt-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-400">
+                Request
+              </p>
               <p className="mt-1 text-xl font-semibold leading-tight">
                 {pendingApproval.title}
               </p>
@@ -482,18 +502,23 @@ export function ChatInterface({
                 {pendingApproval.reason}
               </p>
               {pendingApproval.command ? (
-                <p className="mt-3 rounded-lg border border-zinc-700 bg-black/35 px-3 py-2 font-mono text-[13px] text-zinc-100">
-                  {pendingApproval.command}
-                </p>
+                <>
+                  <p className="mt-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-400">
+                    Command
+                  </p>
+                  <p className="mt-1 rounded-lg border border-zinc-700 bg-black/35 px-3 py-2 font-mono text-[13px] text-zinc-100">
+                    {pendingApproval.command}
+                  </p>
+                </>
               ) : null}
               <div className="mt-3 flex flex-wrap gap-2">
-                {pendingApproval.availableDecisions.map((decision) => (
+                {displayedApprovalDecisions.map((decision) => (
                   <button
                     key={decision}
                     type="button"
                     disabled={approvalBusyDecision !== null}
                     onClick={() => void resolveApprovalDecision(decision)}
-                    className="rounded-lg border border-zinc-600 bg-black/40 px-3 py-1.5 text-sm font-medium text-zinc-100 transition hover:border-zinc-500 hover:bg-black/55 disabled:cursor-not-allowed disabled:opacity-60"
+                    className={approvalDecisionButtonClassName(decision)}
                   >
                     {formatApprovalDecisionLabel(decision)}
                   </button>
@@ -567,7 +592,7 @@ function formatApprovalDecisionLabel(decision: ApprovalDecisionKind): string {
     case "allow_once":
       return "Allow once";
     case "allow_for_run":
-      return "Allow for this run";
+      return "Allow for this session";
     case "allow_persistent_rule":
       return "Allow in future";
     case "deny":
@@ -576,6 +601,20 @@ function formatApprovalDecisionLabel(decision: ApprovalDecisionKind): string {
       return "Abort";
     default:
       return decision;
+  }
+}
+
+function approvalDecisionButtonClassName(
+  decision: ApprovalDecisionKind,
+): string {
+  switch (decision) {
+    case "allow_for_run":
+      return "rounded-lg border border-emerald-500/60 bg-emerald-500/10 px-3 py-1.5 text-sm font-medium text-emerald-200 transition hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-60";
+    case "deny":
+    case "abort":
+      return "rounded-lg border border-red-500/50 bg-red-500/10 px-3 py-1.5 text-sm font-medium text-red-200 transition hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-60";
+    default:
+      return "rounded-lg border border-zinc-600 bg-black/40 px-3 py-1.5 text-sm font-medium text-zinc-100 transition hover:border-zinc-500 hover:bg-black/55 disabled:cursor-not-allowed disabled:opacity-60";
   }
 }
 
