@@ -195,6 +195,9 @@ describe("ChatInterface", () => {
       screen.getByText("Shadowbox wants to commit repository changes"),
     ).toBeInTheDocument();
     expect(screen.getByText("Permissions approval")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Permission mode" }),
+    ).toBeInTheDocument();
     expect(screen.queryByTestId("chat-input-bar")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Allow once" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Deny" })).toBeInTheDocument();
@@ -213,6 +216,72 @@ describe("ChatInterface", () => {
       );
     });
     expect(mockDispatchRunSummaryRefresh).toHaveBeenCalledWith("run-approval");
+  });
+
+  it("treats stale approval requests as already resolved", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ error: "No pending approval request found." }), {
+        status: 409,
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    vi.mocked(useRunSummary).mockReturnValue({
+      summary: {
+        runId: "run-stale-approval",
+        status: "WAITING",
+        totalTasks: 0,
+        completedTasks: 0,
+        failedTasks: 0,
+        planArtifact: null,
+        pendingApproval: {
+          requestId: "req-stale",
+          runId: "run-stale-approval",
+          origin: "agent",
+          category: "shell_command",
+          title: "Shadowbox wants to run a shell command",
+          reason:
+            "Shell commands can change repository or environment state and should be confirmed.",
+          actionFingerprint: "shell_command:bash:{\"command\":\"pnpm test\"}",
+          command: "pnpm test",
+          availableDecisions: ["allow_once", "deny"],
+          createdAt: "2026-01-01T00:00:00.000Z",
+        },
+      },
+    });
+
+    render(
+      <ChatInterface
+        chatProps={{
+          messages: [],
+          runId: "run-stale-approval",
+          input: "",
+          handleInputChange: vi.fn(),
+          handleSubmit: vi.fn(),
+          append: vi.fn(),
+          stop: vi.fn(),
+          isLoading: false,
+          error: null,
+          debugEvents: [],
+        }}
+        sessionId="session-1"
+        mode="build"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Allow once" }));
+
+    await waitFor(() => {
+      expect(mockDispatchRunSummaryRefresh).toHaveBeenCalledWith(
+        "run-stale-approval",
+      );
+    });
+    await waitFor(() => {
+      expect(screen.queryByText("Permissions approval")).not.toBeInTheDocument();
+    });
+    expect(screen.getByTestId("chat-input-bar")).toBeInTheDocument();
+    expect(
+      screen.queryByText("No pending approval request found."),
+    ).not.toBeInTheDocument();
   });
 
   it("switches to build mode and stages the approved handoff prompt", async () => {
