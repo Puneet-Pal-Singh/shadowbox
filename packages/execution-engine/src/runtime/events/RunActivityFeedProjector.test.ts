@@ -193,7 +193,8 @@ describe("RunActivityFeedProjector", () => {
           role: "user",
         }),
         createEvent(RUN_EVENT_TYPES.MESSAGE_EMITTED, {
-          content: "The model did not return a usable next action for this edit request.",
+          content:
+            "The model did not return a usable next action for this edit request.",
           role: "assistant",
           metadata: {
             code: "TASK_MODEL_NO_ACTION",
@@ -335,7 +336,10 @@ describe("RunActivityFeedProjector", () => {
         item.toolName === "git_commit",
     );
     expect(tool?.kind).toBe("tool");
-    if (tool?.kind !== "tool" || tool.metadata.family !== TOOL_ACTIVITY_FAMILIES.GIT) {
+    if (
+      tool?.kind !== "tool" ||
+      tool.metadata.family !== TOOL_ACTIVITY_FAMILIES.GIT
+    ) {
       throw new Error("Expected git tool activity part");
     }
 
@@ -373,16 +377,20 @@ describe("RunActivityFeedProjector", () => {
       ],
     });
 
-    const approval = snapshot.items.find(
+    const approvalItems = snapshot.items.filter(
       (item) => item.kind === ACTIVITY_PART_KINDS.APPROVAL,
     );
+    expect(approvalItems).toHaveLength(1);
+    const [approval] = approvalItems;
     expect(approval?.kind).toBe("approval");
     if (approval?.kind !== "approval") {
       throw new Error("Expected approval activity part");
     }
 
     expect(approval.status).toBe("denied");
-    expect(approval.summary).toBe("Shadowbox wants to commit repository changes");
+    expect(approval.summary).toBe(
+      "Shadowbox wants to commit repository changes",
+    );
     expect(approval.details).toContain("Decision: deny");
   });
 });
