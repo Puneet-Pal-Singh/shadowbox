@@ -6,6 +6,7 @@
 
 import { z } from "zod";
 import {
+  ApprovalDecisionKindSchema,
   ProductModeSchema,
   RunModeSchema,
   WorkflowEntrypointSchema,
@@ -107,15 +108,7 @@ export const ExecuteRunPayloadSchema = z.object({
             .optional(),
           permissionDecision: z
             .object({
-              kind: z
-                .enum([
-                  "allow_once",
-                  "allow_for_run",
-                  "allow_persistent_rule",
-                  "deny",
-                  "abort",
-                ])
-                .optional(),
+              kind: ApprovalDecisionKindSchema.optional(),
               requestId: z.string().min(1).optional(),
             })
             .optional(),
