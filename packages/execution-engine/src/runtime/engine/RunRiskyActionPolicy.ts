@@ -41,6 +41,8 @@ const UNSAFE_INTERPRETER_PREFIXES = new Set([
   "perl",
   "ruby",
 ]);
+const BROAD_PERSISTENT_SHELL_PREFIXES = new Set(["git", "npm", "pnpm", "yarn"]);
+const SHELL_PREFIX_VERB_TOKENS = new Set(["run", "exec", "dlx"]);
 const APPROVAL_TTL_MS = 10 * 60 * 1000;
 const DANGEROUS_RETRY_THRESHOLD = 3;
 
@@ -70,6 +72,10 @@ export type ToolPermissionGateResult =
   | { kind: "allow" }
   | PermissionAskResult
   | PermissionDenyResult;
+type PolicyDecisionResult =
+  | { kind: "allow" }
+  | { kind: "ask" }
+  | PermissionDenyResult;
 
 interface ClassifiedRiskAction {
   category: RiskyActionCategory;
@@ -91,98 +97,29 @@ export async function evaluateToolPermission(
 ): Promise<ToolPermissionGateResult> {
   const classified = classifyRiskAction(input.toolName, input.toolArgs);
 
-  if (requiresMutationEvidence(classified, input.toolName)) {
-    if (!input.hasMutationEvidence) {
-      return {
-        kind: "deny",
-        reason:
-          "Shadowbox cannot continue with git stage/commit/push yet because no successful file mutation has occurred in this run.",
-      };
-    }
-  }
-
-  const runApproved = await input.approvalStore.isActionAllowed(
-    classified.actionFingerprint,
+  const mutationEvidenceDenial = getMutationEvidenceDenial(
+    classified,
+    input.toolName,
+    input.hasMutationEvidence,
   );
-  if (runApproved) {
-    await input.approvalStore.clearRiskyAttempt(classified.actionFingerprint);
+  if (mutationEvidenceDenial) {
+    return mutationEvidenceDenial;
+  }
+
+  if (await hasPreapprovedAction(input.approvalStore, classified)) {
     return { kind: "allow" };
   }
 
-  const persistentApproved = await input.approvalStore.matchPersistentRule({
-    category: classified.category,
-    command: classified.command,
-    gitAction:
-      classified.gitAction === "stage" || classified.gitAction === "commit"
-        ? classified.gitAction
-        : undefined,
-    providerOperation: classified.providerOperation,
-  });
-  if (persistentApproved) {
-    await input.approvalStore.clearRiskyAttempt(classified.actionFingerprint);
-    return { kind: "allow" };
-  }
-
-  const policyDecision = shouldAskForAction({
+  const policyDecision = decidePolicyOutcome({
     productMode: input.productMode,
     workflowIntent: input.workflowIntent,
     classified,
   });
-
-  if (policyDecision.kind === "allow") {
-    await input.approvalStore.clearRiskyAttempt(classified.actionFingerprint);
-    return { kind: "allow" };
+  if (policyDecision.kind !== "ask") {
+    return policyDecision;
   }
 
-  if (policyDecision.kind === "deny") {
-    return { kind: "deny", reason: policyDecision.reason };
-  }
-
-  const attemptCount = await input.approvalStore.registerRiskyAttempt(
-    classified.actionFingerprint,
-    classified.reason,
-  );
-  const category =
-    attemptCount >= DANGEROUS_RETRY_THRESHOLD
-      ? RISKY_ACTION_CATEGORIES.DANGEROUS_RETRY
-      : classified.category;
-
-  const proposedPersistentRule = buildProposedPersistentRule(
-    classified,
-    input.toolName,
-  );
-  const request = await input.approvalStore.setPendingRequest({
-    requestId: crypto.randomUUID(),
-    runId: input.runId,
-    sessionId: input.sessionId,
-    origin: input.origin,
-    category,
-    title:
-      category === RISKY_ACTION_CATEGORIES.DANGEROUS_RETRY
-        ? "Shadowbox paused repeated risky retries"
-        : classified.title,
-    reason:
-      category === RISKY_ACTION_CATEGORIES.DANGEROUS_RETRY
-        ? "The same risky action was attempted repeatedly without progress. Confirm how to proceed."
-        : classified.reason,
-    command: classified.command,
-    cwd: classified.cwd,
-    affectedPaths: classified.affectedPaths,
-    remoteTarget: classified.remoteTarget,
-    actionFingerprint: classified.actionFingerprint,
-    availableDecisions: buildAvailableDecisions(
-      category,
-      Boolean(proposedPersistentRule),
-    ),
-    proposedPersistentRule: proposedPersistentRule ?? undefined,
-    createdAt: new Date().toISOString(),
-    expiresAt: new Date(Date.now() + APPROVAL_TTL_MS).toISOString(),
-  });
-
-  return {
-    kind: "ask",
-    request,
-  };
+  return await createApprovalAskResult(input, classified);
 }
 
 export function mapPermissionGateToEvaluationResult(
@@ -207,6 +144,54 @@ function requiresMutationEvidence(
       toolName === "git_commit" ||
       toolName === "git_push")
   );
+}
+
+function getMutationEvidenceDenial(
+  classified: ClassifiedRiskAction,
+  toolName: GoldenFlowToolName,
+  hasMutationEvidence: boolean,
+): PermissionDenyResult | null {
+  if (
+    requiresMutationEvidence(classified, toolName) &&
+    !hasMutationEvidence
+  ) {
+    return {
+      kind: "deny",
+      reason:
+        "Shadowbox cannot continue with git stage/commit/push yet because no successful file mutation has occurred in this run.",
+    };
+  }
+
+  return null;
+}
+
+async function hasPreapprovedAction(
+  approvalStore: PermissionApprovalStore,
+  classified: ClassifiedRiskAction,
+): Promise<boolean> {
+  const runApproved = await approvalStore.isActionAllowed(
+    classified.actionFingerprint,
+  );
+  if (runApproved) {
+    await approvalStore.clearRiskyAttempt(classified.actionFingerprint);
+    return true;
+  }
+
+  const persistentApproved = await approvalStore.matchPersistentRule({
+    category: classified.category,
+    command: classified.command,
+    gitAction:
+      classified.gitAction === "stage" || classified.gitAction === "commit"
+        ? classified.gitAction
+        : undefined,
+    providerOperation: classified.providerOperation,
+  });
+  if (persistentApproved) {
+    await approvalStore.clearRiskyAttempt(classified.actionFingerprint);
+    return true;
+  }
+
+  return false;
 }
 
 function classifyRiskAction(
@@ -355,79 +340,159 @@ function classifyRiskAction(
   };
 }
 
-function shouldAskForAction(input: {
+function decidePolicyOutcome(input: {
   productMode: ProductMode;
   workflowIntent: WorkflowIntent;
   classified: ClassifiedRiskAction;
-}):
-  | { kind: "allow" }
-  | { kind: "ask" }
-  | { kind: "deny"; reason: string } {
+}): PolicyDecisionResult {
   const { productMode, workflowIntent, classified } = input;
+  const guaranteedDecision = getGuaranteedDecision(classified);
+  if (guaranteedDecision) {
+    return guaranteedDecision;
+  }
+
+  const workflowDecision = getWorkflowDecision(workflowIntent);
+  if (workflowDecision) {
+    return workflowDecision;
+  }
+
+  return getProductModeDecision(productMode, classified);
+}
+
+function getGuaranteedDecision(
+  classified: ClassifiedRiskAction,
+): PolicyDecisionResult | null {
   if (classified.safeByDefault) {
     return { kind: "allow" };
   }
-
   if (classified.category === RISKY_ACTION_CATEGORIES.DANGEROUS_RETRY) {
     return { kind: "ask" };
   }
-
-  if (workflowIntent === "review" || workflowIntent === "explore") {
-    if (classified.category !== RISKY_ACTION_CATEGORIES.FILESYSTEM_WRITE) {
-      return { kind: "allow" };
-    }
-    return { kind: "ask" };
-  }
-
   if (classified.category === RISKY_ACTION_CATEGORIES.OUTSIDE_WORKSPACE) {
     return { kind: "ask" };
   }
-
   if (classified.destructive) {
     return { kind: "ask" };
   }
+  return null;
+}
 
+function getWorkflowDecision(
+  workflowIntent: WorkflowIntent,
+): { kind: "ask" } | null {
+  if (workflowIntent === "review" || workflowIntent === "explore") {
+    return { kind: "ask" };
+  }
+  return null;
+}
+
+function getProductModeDecision(
+  productMode: ProductMode,
+  classified: ClassifiedRiskAction,
+): PolicyDecisionResult {
   switch (productMode) {
     case "ask_always":
       return { kind: "ask" };
     case "auto_for_safe":
-      if (
-        classified.category === RISKY_ACTION_CATEGORIES.GIT_MUTATION ||
-        classified.category === RISKY_ACTION_CATEGORIES.SHELL_COMMAND ||
-        classified.category === RISKY_ACTION_CATEGORIES.NETWORK_EXTERNAL ||
-        classified.category ===
-          RISKY_ACTION_CATEGORIES.DEPLOY_OR_INFRA_MUTATION
-      ) {
-        return { kind: "ask" };
-      }
-      return { kind: "allow" };
+      return isAutoForSafeCategory(classified.category)
+        ? { kind: "ask" }
+        : { kind: "allow" };
     case "auto_for_same_repo":
-      if (
-        classified.category === RISKY_ACTION_CATEGORIES.GIT_MUTATION ||
-        classified.category === RISKY_ACTION_CATEGORIES.SHELL_COMMAND ||
-        classified.category === RISKY_ACTION_CATEGORIES.NETWORK_EXTERNAL ||
-        classified.category ===
-          RISKY_ACTION_CATEGORIES.DEPLOY_OR_INFRA_MUTATION
-      ) {
-        return { kind: "ask" };
-      }
-      return { kind: "allow" };
+      return isSameRepoApprovalCategory(classified.category)
+        ? { kind: "ask" }
+        : { kind: "allow" };
     case "full_agent":
-      if (
-        classified.category === RISKY_ACTION_CATEGORIES.GIT_MUTATION ||
-        classified.category === RISKY_ACTION_CATEGORIES.NETWORK_EXTERNAL ||
-        classified.category ===
-          RISKY_ACTION_CATEGORIES.DEPLOY_OR_INFRA_MUTATION
-      ) {
-        return { kind: "ask" };
-      }
-      return { kind: "allow" };
+      return isFullAgentApprovalCategory(classified.category)
+        ? { kind: "ask" }
+        : { kind: "allow" };
     default:
       return {
         kind: "deny",
         reason: "Unknown product mode. Refusing to run mutating action.",
       };
   }
+}
+
+function isAutoForSafeCategory(category: RiskyActionCategory): boolean {
+  return (
+    category === RISKY_ACTION_CATEGORIES.FILESYSTEM_WRITE ||
+    isSameRepoApprovalCategory(category)
+  );
+}
+
+function isSameRepoApprovalCategory(category: RiskyActionCategory): boolean {
+  return (
+    category === RISKY_ACTION_CATEGORIES.GIT_MUTATION ||
+    category === RISKY_ACTION_CATEGORIES.SHELL_COMMAND ||
+    category === RISKY_ACTION_CATEGORIES.NETWORK_EXTERNAL ||
+    category === RISKY_ACTION_CATEGORIES.DEPLOY_OR_INFRA_MUTATION
+  );
+}
+
+function isFullAgentApprovalCategory(category: RiskyActionCategory): boolean {
+  return (
+    category === RISKY_ACTION_CATEGORIES.GIT_MUTATION ||
+    category === RISKY_ACTION_CATEGORIES.NETWORK_EXTERNAL ||
+    category === RISKY_ACTION_CATEGORIES.DEPLOY_OR_INFRA_MUTATION
+  );
+}
+
+async function createApprovalAskResult(
+  input: RiskyActionEvaluationInput,
+  classified: ClassifiedRiskAction,
+): Promise<PermissionAskResult> {
+  const attemptCount = await input.approvalStore.registerRiskyAttempt(
+    classified.actionFingerprint,
+    classified.reason,
+  );
+  const category =
+    attemptCount >= DANGEROUS_RETRY_THRESHOLD
+      ? RISKY_ACTION_CATEGORIES.DANGEROUS_RETRY
+      : classified.category;
+  const proposedPersistentRule = buildProposedPersistentRule(
+    classified,
+    input.toolName,
+  );
+  const request = await input.approvalStore.setPendingRequest({
+    requestId: crypto.randomUUID(),
+    runId: input.runId,
+    sessionId: input.sessionId,
+    origin: input.origin,
+    category,
+    title: getApprovalTitle(category, classified),
+    reason: getApprovalReason(category, classified),
+    command: classified.command,
+    cwd: classified.cwd,
+    affectedPaths: classified.affectedPaths,
+    remoteTarget: classified.remoteTarget,
+    actionFingerprint: classified.actionFingerprint,
+    availableDecisions: buildAvailableDecisions(
+      category,
+      Boolean(proposedPersistentRule),
+    ),
+    proposedPersistentRule: proposedPersistentRule ?? undefined,
+    createdAt: new Date().toISOString(),
+    expiresAt: new Date(Date.now() + APPROVAL_TTL_MS).toISOString(),
+  });
+  return { kind: "ask", request };
+}
+
+function getApprovalTitle(
+  category: RiskyActionCategory,
+  classified: ClassifiedRiskAction,
+): string {
+  return category === RISKY_ACTION_CATEGORIES.DANGEROUS_RETRY
+    ? "Shadowbox paused repeated risky retries"
+    : classified.title;
+}
+
+function getApprovalReason(
+  category: RiskyActionCategory,
+  classified: ClassifiedRiskAction,
+): string {
+  return category === RISKY_ACTION_CATEGORIES.DANGEROUS_RETRY
+    ? "The same risky action was attempted repeatedly without progress. Confirm how to proceed."
+    : classified.reason;
 }
 
 function buildAvailableDecisions(
@@ -459,20 +524,13 @@ function buildProposedPersistentRule(
     if (!classified.command) {
       return null;
     }
-    const tokens = classified.command.split(/\s+/).filter(Boolean);
-    const first = tokens[0]?.toLowerCase();
-    if (!first) {
-      return null;
-    }
-    if (UNSAFE_INTERPRETER_PREFIXES.has(first)) {
-      return null;
-    }
-    if (!SAFE_PERSISTENT_SHELL_PREFIXES.has(first)) {
+    const prefixTokens = buildShellPersistentPrefixTokens(classified.command);
+    if (!prefixTokens) {
       return null;
     }
     return {
       category: "shell_command",
-      prefixTokens: [first],
+      prefixTokens,
       cwdScope: "current_repo",
       networkAccess: "none",
     };
@@ -500,6 +558,37 @@ function buildActionFingerprint(input: {
   return `${input.category}:${input.toolName}:${stableStringify(input.toolArgs)}`;
 }
 
+function buildShellPersistentPrefixTokens(command: string): string[] | null {
+  const tokens = command
+    .split(/\s+/)
+    .map((token) => token.trim().toLowerCase())
+    .filter(Boolean);
+  const [first, second, third] = tokens;
+  if (!first) {
+    return null;
+  }
+  if (UNSAFE_INTERPRETER_PREFIXES.has(first)) {
+    return null;
+  }
+  if (!SAFE_PERSISTENT_SHELL_PREFIXES.has(first)) {
+    return null;
+  }
+  if (!BROAD_PERSISTENT_SHELL_PREFIXES.has(first)) {
+    return [first];
+  }
+  if (!isSafeShellPrefixToken(second)) {
+    return null;
+  }
+  if (SHELL_PREFIX_VERB_TOKENS.has(second)) {
+    return isSafeShellPrefixToken(third) ? [first, second, third] : null;
+  }
+  return [first, second];
+}
+
+function isSafeShellPrefixToken(token: string | undefined): token is string {
+  return typeof token === "string" && /^[a-z0-9._:-]+$/.test(token);
+}
+
 function stableStringify(value: unknown): string {
   if (value === null || typeof value !== "object") {
     return JSON.stringify(value);
@@ -520,6 +609,10 @@ function extractCandidatePaths(toolArgs: Record<string, unknown>): string[] {
   const directPath = toolArgs.path;
   if (typeof directPath === "string" && directPath.trim()) {
     candidates.push(directPath.trim());
+  }
+  const cwd = toolArgs.cwd;
+  if (typeof cwd === "string" && cwd.trim()) {
+    candidates.push(cwd.trim());
   }
   const files = toolArgs.files;
   if (Array.isArray(files)) {
