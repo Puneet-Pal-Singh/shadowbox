@@ -151,10 +151,7 @@ function getMutationEvidenceDenial(
   toolName: GoldenFlowToolName,
   hasMutationEvidence: boolean,
 ): PermissionDenyResult | null {
-  if (
-    requiresMutationEvidence(classified, toolName) &&
-    !hasMutationEvidence
-  ) {
+  if (requiresMutationEvidence(classified, toolName) && !hasMutationEvidence) {
     return {
       kind: "deny",
       reason:
@@ -414,10 +411,7 @@ function getProductModeDecision(
 }
 
 function isAutoForSafeCategory(category: RiskyActionCategory): boolean {
-  return (
-    category === RISKY_ACTION_CATEGORIES.FILESYSTEM_WRITE ||
-    isSameRepoApprovalCategory(category)
-  );
+  return isSameRepoApprovalCategory(category);
 }
 
 function isSameRepoApprovalCategory(category: RiskyActionCategory): boolean {
@@ -600,7 +594,10 @@ function stableStringify(value: unknown): string {
     ([leftKey], [rightKey]) => leftKey.localeCompare(rightKey),
   );
   return `{${entries
-    .map(([key, entryValue]) => `${JSON.stringify(key)}:${stableStringify(entryValue)}`)
+    .map(
+      ([key, entryValue]) =>
+        `${JSON.stringify(key)}:${stableStringify(entryValue)}`,
+    )
     .join(",")}}`;
 }
 
@@ -677,7 +674,9 @@ function describeGitMutationTitle(toolName: GoldenFlowToolName): string {
   return "Shadowbox wants to mutate git state";
 }
 
-function extractRemoteTarget(toolArgs: Record<string, unknown>): string | undefined {
+function extractRemoteTarget(
+  toolArgs: Record<string, unknown>,
+): string | undefined {
   const owner = typeof toolArgs.owner === "string" ? toolArgs.owner.trim() : "";
   const repo = typeof toolArgs.repo === "string" ? toolArgs.repo.trim() : "";
   if (owner && repo) {

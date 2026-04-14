@@ -7,6 +7,16 @@ import type {
 } from "@repo/shared-types";
 import { RISKY_ACTION_CATEGORIES } from "@repo/shared-types";
 
+function cloneRunAllowances(
+  allowances: ApprovalState["runAllowances"],
+): ApprovalState["runAllowances"] {
+  const cloned: ApprovalState["runAllowances"] = {};
+  for (const [fingerprint, grant] of Object.entries(allowances)) {
+    cloned[fingerprint] = { ...grant };
+  }
+  return cloned;
+}
+
 interface ApprovalState {
   crossRepo: Record<string, string>;
   destructiveExpiresAt?: string;
@@ -143,7 +153,8 @@ export class PermissionApprovalStore {
         if (
           next.pendingRequest.actionFingerprint === request.actionFingerprint &&
           request.category === RISKY_ACTION_CATEGORIES.DANGEROUS_RETRY &&
-          next.pendingRequest.category !== RISKY_ACTION_CATEGORIES.DANGEROUS_RETRY
+          next.pendingRequest.category !==
+            RISKY_ACTION_CATEGORIES.DANGEROUS_RETRY
         ) {
           next.pendingRequest = request;
           next.updatedAt = new Date(now).toISOString();
@@ -217,8 +228,10 @@ export class PermissionApprovalStore {
           await this.persistIfChanged(state, next);
           return false;
         }
-        grant.consumedAt = new Date(now).toISOString();
-        next.runAllowances[actionFingerprint] = grant;
+        next.runAllowances[actionFingerprint] = {
+          ...grant,
+          consumedAt: new Date(now).toISOString(),
+        };
         await this.persistIfChanged(state, next);
         return true;
       }
@@ -268,7 +281,8 @@ export class PermissionApprovalStore {
 
       const updatedAtMs = Date.parse(existing.updatedAt);
       const withinWindow =
-        Number.isFinite(updatedAtMs) && now - updatedAtMs <= RISKY_ATTEMPT_WINDOW_MS;
+        Number.isFinite(updatedAtMs) &&
+        now - updatedAtMs <= RISKY_ATTEMPT_WINDOW_MS;
 
       next.riskyAttempts[actionFingerprint] = {
         count: withinWindow ? existing.count + 1 : 1,
@@ -324,7 +338,7 @@ export class PermissionApprovalStore {
       updatedAt: state.updatedAt,
       destructiveExpiresAt: state.destructiveExpiresAt,
       pendingRequest: state.pendingRequest,
-      runAllowances: { ...(state.runAllowances ?? {}) },
+      runAllowances: cloneRunAllowances(state.runAllowances ?? {}),
       persistentRules: [...(state.persistentRules ?? [])],
       riskyAttempts: {},
     };
@@ -342,7 +356,10 @@ export class PermissionApprovalStore {
       delete nextState.destructiveExpiresAt;
     }
 
-    if (nextState.pendingRequest && isExpired(nextState.pendingRequest, nowMs)) {
+    if (
+      nextState.pendingRequest &&
+      isExpired(nextState.pendingRequest, nowMs)
+    ) {
       delete nextState.pendingRequest;
     }
 
@@ -568,7 +585,9 @@ function matchesPersistentRule(
     if (!command) {
       return false;
     }
-    const commandTokens = command.split(/\s+/).map((token) => token.toLowerCase());
+    const commandTokens = command
+      .split(/\s+/)
+      .map((token) => token.toLowerCase());
     if (payload.category !== "shell_command") {
       return false;
     }
@@ -608,9 +627,7 @@ function matchesPersistentRule(
   return false;
 }
 
-function isValidProposedPersistentRule(
-  rule: ProposedPersistentRule,
-): boolean {
+function isValidProposedPersistentRule(rule: ProposedPersistentRule): boolean {
   if (rule.category === "shell_command") {
     if (rule.cwdScope !== "current_repo") {
       return false;
@@ -618,7 +635,9 @@ function isValidProposedPersistentRule(
     if (rule.prefixTokens.length === 0 || rule.prefixTokens.length > 4) {
       return false;
     }
-    const normalized = rule.prefixTokens.map((token) => token.trim().toLowerCase());
+    const normalized = rule.prefixTokens.map((token) =>
+      token.trim().toLowerCase(),
+    );
     if (normalized.some((token) => token.length === 0)) {
       return false;
     }
