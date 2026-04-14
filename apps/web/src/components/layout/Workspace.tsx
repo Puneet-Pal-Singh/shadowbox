@@ -1,5 +1,8 @@
-import { useRef, useEffect } from "react";
-import type { RunMode } from "@repo/shared-types";
+import { useRef, useEffect, useState } from "react";
+import {
+  type ProductMode,
+  type RunMode,
+} from "@repo/shared-types";
 import { motion } from "framer-motion";
 import { FileExplorerHandle } from "../FileExplorer";
 import { ChatInterface } from "../chat/ChatInterface";
@@ -14,6 +17,10 @@ import { useFileLoader } from "./workspace/useFileLoader";
 import { SidebarHeader } from "./workspace/SidebarHeader";
 import { SidebarContent } from "./workspace/SidebarContent";
 import { bootstrapGitWorkspace } from "../../lib/git-workspace-bootstrap";
+import {
+  loadStoredProductMode,
+  persistProductMode,
+} from "../../lib/product-mode-storage";
 import { GitReviewProvider } from "../git/GitReviewContext";
 import { GitReviewDialog } from "../git/GitReviewDialog";
 
@@ -23,6 +30,7 @@ interface WorkspaceProps {
   repository: string;
   mode?: RunMode;
   onModeChange?: (mode: RunMode) => void;
+  onPendingApprovalStateChange?: (hasPendingApproval: boolean) => void;
   isRightSidebarOpen?: boolean;
   setIsRightSidebarOpen?: (open: boolean) => void;
   isGitReviewOpen?: boolean;
@@ -36,6 +44,7 @@ export function Workspace({
   repository,
   mode = "build",
   onModeChange,
+  onPendingApprovalStateChange,
   isRightSidebarOpen = false,
   setIsRightSidebarOpen,
   isGitReviewOpen = false,
@@ -47,6 +56,9 @@ export function Workspace({
   const workspaceBootstrapInFlightRef = useRef<string | null>(null);
   const previousChatLoadingRef = useRef(false);
   const sandboxId = sessionId;
+  const [productMode, setProductMode] = useState<ProductMode>(() =>
+    loadStoredProductMode(sessionId),
+  );
 
   // Custom Hooks
   const {
@@ -88,6 +100,7 @@ export function Workspace({
       explorerRef.current?.refresh();
     },
     mode,
+    productMode,
   );
   const { status, refetch: refetchGitStatus } = useGitStatus(
     activeRunId,
@@ -117,6 +130,14 @@ export function Workspace({
   useEffect(() => {
     explorerRef.current?.refresh();
   }, [activeRunId]);
+
+  useEffect(() => {
+    setProductMode(loadStoredProductMode(sessionId));
+  }, [sessionId]);
+
+  useEffect(() => {
+    persistProductMode(sessionId, productMode);
+  }, [productMode, sessionId]);
 
   useEffect(() => {
     const runFinished = previousChatLoadingRef.current && !isLoading;
@@ -257,6 +278,9 @@ export function Workspace({
               sessionId={sessionId}
               mode={mode}
               onModeChange={onModeChange}
+              permissionMode={productMode}
+              onPermissionModeChange={setProductMode}
+              onPendingApprovalChange={onPendingApprovalStateChange}
               repoTree={repoTree}
               isLoadingRepoTree={isLoadingTree}
               onArtifactOpen={(path, content) => {
