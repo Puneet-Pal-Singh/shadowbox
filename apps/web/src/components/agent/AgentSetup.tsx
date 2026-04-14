@@ -1,5 +1,9 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
-import { DEFAULT_RUN_MODE, type RunMode } from "@repo/shared-types";
+import {
+  DEFAULT_RUN_MODE,
+  type ProductMode,
+  type RunMode,
+} from "@repo/shared-types";
 import { motion } from "framer-motion";
 import {
   ChevronDown,
@@ -39,6 +43,7 @@ import { useGitStatus } from "../../hooks/useGitStatus";
 import { useGitDiff } from "../../hooks/useGitDiff";
 import type { FileExplorerHandle } from "../FileExplorer";
 import { ChatModeToggle } from "../chat/ChatModeToggle.js";
+import { PermissionModeControl } from "../chat/PermissionModeControl.js";
 import {
   applyFileMention,
   filterFileMentionCandidates,
@@ -46,6 +51,10 @@ import {
 } from "../chat/fileMentions";
 import { GitReviewDialog } from "../git/GitReviewDialog";
 import { GitReviewProvider, useGitReview } from "../git/GitReviewContext";
+import {
+  loadStoredProductMode,
+  persistProductMode,
+} from "../../lib/product-mode-storage";
 
 interface AgentSetupProps {
   sessionId: string;
@@ -131,6 +140,9 @@ export function AgentSetup({
   const { repo, branch } = useGitHub();
   const { runId } = useRunContext();
   const [task, setTask] = useState("");
+  const [productMode, setProductMode] = useState<ProductMode>(() =>
+    loadStoredProductMode(sessionId),
+  );
   const [isInputFocused, setIsInputFocused] = useState(false);
   const [cursorPosition, setCursorPosition] = useState(0);
   const [highlightedFileIndex, setHighlightedFileIndex] = useState(0);
@@ -296,6 +308,14 @@ export function AgentSetup({
   ]);
 
   useEffect(() => {
+    setProductMode(loadStoredProductMode(sessionId));
+  }, [sessionId]);
+
+  useEffect(() => {
+    persistProductMode(sessionId, productMode);
+  }, [productMode, sessionId]);
+
+  useEffect(() => {
     if (openProviderDialogSignal === previousProviderDialogSignalRef.current) {
       return;
     }
@@ -397,6 +417,7 @@ export function AgentSetup({
     }
 
     if (task.trim()) {
+      persistProductMode(sessionId, productMode);
       onStart({
         repo: repo?.full_name || "",
         branch: branch || "main",
@@ -917,8 +938,12 @@ export function AgentSetup({
                   </div>
                 </motion.div>
               </form>
-              <div className="pl-6 mt-1">
+              <div className="mt-1 flex items-center gap-2 pl-6">
                 <ChatBranchSelector />
+                <PermissionModeControl
+                  value={productMode}
+                  onChange={setProductMode}
+                />
               </div>
               {requiresRepository && !hasRepositoryContext ? (
                 <div className="pl-6 mt-2 text-xs text-zinc-500">
