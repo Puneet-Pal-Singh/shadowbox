@@ -179,6 +179,7 @@ export interface RunManifest {
 
 export interface RunMetadata {
   prompt: string;
+  actorUserId?: string;
   permissionContext?: {
     state: EffectivePermissionState;
     label: PermissionRuntimeLabel;
