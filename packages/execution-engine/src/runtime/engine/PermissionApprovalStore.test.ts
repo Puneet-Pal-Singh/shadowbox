@@ -168,6 +168,66 @@ describe("PermissionApprovalStore", () => {
       }),
     ).resolves.toBe(false);
   });
+
+  it("rejects broad one-token git shell rules", async () => {
+    const state = new MockRuntimeState();
+    const store = new PermissionApprovalStore(state, "run-approval-6");
+
+    await store.setPendingRequest({
+      requestId: "req-broad-git",
+      runId: "run-approval-6",
+      origin: "agent",
+      category: "shell_command",
+      title: "Run git status",
+      reason: "Needs approval.",
+      actionFingerprint: "shell:git status",
+      availableDecisions: ["allow_persistent_rule", "deny"],
+      proposedPersistentRule: {
+        category: "shell_command",
+        prefixTokens: ["git"],
+        cwdScope: "current_repo",
+        networkAccess: "none",
+      },
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    await expect(
+      store.resolveDecision(
+        { kind: "allow_persistent_rule", requestId: "req-broad-git" },
+        "user-1",
+      ),
+    ).rejects.toThrow("Persistent rule was rejected because it is too broad or unsafe.");
+  });
+
+  it("requires an authenticated user id for persistent approvals", async () => {
+    const state = new MockRuntimeState();
+    const store = new PermissionApprovalStore(state, "run-approval-7");
+
+    await store.setPendingRequest({
+      requestId: "req-no-user",
+      runId: "run-approval-7",
+      origin: "agent",
+      category: "shell_command",
+      title: "Run git status",
+      reason: "Needs approval.",
+      actionFingerprint: "shell:git status",
+      availableDecisions: ["allow_persistent_rule", "deny"],
+      proposedPersistentRule: {
+        category: "shell_command",
+        prefixTokens: ["git", "status"],
+        cwdScope: "current_repo",
+        networkAccess: "none",
+      },
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    await expect(
+      store.resolveDecision(
+        { kind: "allow_persistent_rule", requestId: "req-no-user" },
+        undefined,
+      ),
+    ).rejects.toThrow("Persistent approval requires an authenticated user id.");
+  });
 });
 
 class InMemoryStorage implements RuntimeStorage {
