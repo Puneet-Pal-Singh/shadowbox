@@ -99,6 +99,100 @@ describe("RunRiskyActionPolicy", () => {
     );
   });
 
+  it("narrows persistent shell rules for broad executables", async () => {
+    const store = new PermissionApprovalStore(new MockRuntimeState(), "run-risk-4b");
+
+    const result = await evaluateToolPermission({
+      runId: "run-risk-4b",
+      sessionId: "session-1",
+      origin: "agent",
+      productMode: "auto_for_safe",
+      workflowIntent: "build",
+      toolName: "bash",
+      toolArgs: { command: "git status --short" },
+      hasMutationEvidence: true,
+      approvalStore: store,
+    });
+
+    expect(result.kind).toBe("ask");
+    if (result.kind !== "ask") {
+      throw new Error("Expected ask result");
+    }
+    expect(result.request.proposedPersistentRule).toEqual({
+      category: "shell_command",
+      prefixTokens: ["git", "status"],
+      cwdScope: "current_repo",
+      networkAccess: "none",
+    });
+  });
+
+  it("treats bash cwd traversal as outside-workspace work even in full_agent", async () => {
+    const store = new PermissionApprovalStore(new MockRuntimeState(), "run-risk-4c");
+
+    const result = await evaluateToolPermission({
+      runId: "run-risk-4c",
+      sessionId: "session-1",
+      origin: "agent",
+      productMode: "full_agent",
+      workflowIntent: "build",
+      toolName: "bash",
+      toolArgs: { command: "pwd", cwd: "../.." },
+      hasMutationEvidence: true,
+      approvalStore: store,
+    });
+
+    expect(result.kind).toBe("ask");
+    if (result.kind !== "ask") {
+      throw new Error("Expected ask result");
+    }
+    expect(result.request.category).toBe("outside_workspace");
+    expect(result.request.affectedPaths).toContain("../..");
+  });
+
+  it("asks for risky git actions in review intent instead of auto-allowing them", async () => {
+    const store = new PermissionApprovalStore(new MockRuntimeState(), "run-risk-4d");
+
+    const result = await evaluateToolPermission({
+      runId: "run-risk-4d",
+      sessionId: "session-1",
+      origin: "agent",
+      productMode: "full_agent",
+      workflowIntent: "review",
+      toolName: "git_push",
+      toolArgs: { remote: "origin" },
+      hasMutationEvidence: true,
+      approvalStore: store,
+    });
+
+    expect(result.kind).toBe("ask");
+    if (result.kind !== "ask") {
+      throw new Error("Expected ask result");
+    }
+    expect(result.request.category).toBe("git_mutation");
+  });
+
+  it("asks before file writes in auto_for_safe mode", async () => {
+    const store = new PermissionApprovalStore(new MockRuntimeState(), "run-risk-4e");
+
+    const result = await evaluateToolPermission({
+      runId: "run-risk-4e",
+      sessionId: "session-1",
+      origin: "agent",
+      productMode: "auto_for_safe",
+      workflowIntent: "build",
+      toolName: "write_file",
+      toolArgs: { path: "src/index.ts", content: "export const ok = true;" },
+      hasMutationEvidence: true,
+      approvalStore: store,
+    });
+
+    expect(result.kind).toBe("ask");
+    if (result.kind !== "ask") {
+      throw new Error("Expected ask result");
+    }
+    expect(result.request.category).toBe("filesystem_write");
+  });
+
   it("escalates repeated risky retries into dangerous_retry interruption", async () => {
     const store = new PermissionApprovalStore(new MockRuntimeState(), "run-risk-5");
 
