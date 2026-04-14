@@ -114,6 +114,7 @@ export interface RunEngineOptions {
   env: RunEngineEnv;
   sessionId: string;
   runId: string;
+  userId?: string;
   correlationId: string;
   requestOrigin?: string;
 }
@@ -310,7 +311,7 @@ export class RunEngine implements IRunEngine {
       if (approvalDecision) {
         const decisionResult = await this.permissionApprovalStore.resolveDecision(
           approvalDecision,
-          run.sessionId,
+          run.metadata.actorUserId ?? this.options.userId,
         );
         await this.runEventRecorder.recordApprovalResolved({
           requestId: decisionResult.request.requestId,
@@ -844,6 +845,7 @@ export class RunEngine implements IRunEngine {
       undefined,
       {
         prompt: input.prompt,
+        actorUserId: this.options.userId,
         manifest,
         permissionContext: resolveRunPermissionContext(input),
         orchestrationTelemetry: {
