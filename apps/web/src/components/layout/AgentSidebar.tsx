@@ -12,6 +12,7 @@ interface AgentSidebarProps {
   sessions: AgentSession[];
   repositories: string[];
   activeSessionId: string | null;
+  approvalStatesBySessionId?: Record<string, boolean>;
   onSelect: (id: string) => void;
   onCreate: (repo?: string) => void;
   onRemove: (id: string) => void;
@@ -24,6 +25,7 @@ interface AgentSidebarProps {
 
 type TaskStatusFilter =
   | "all"
+  | "needs_approval"
   | "running"
   | "idle"
   | "completed"
@@ -31,6 +33,7 @@ type TaskStatusFilter =
 
 const FILTER_OPTIONS: Array<{ value: TaskStatusFilter; label: string }> = [
   { value: "all", label: "All tasks" },
+  { value: "needs_approval", label: "Awaiting approval" },
   { value: "running", label: "Running" },
   { value: "failed", label: "Failed" },
   { value: "completed", label: "Completed" },
@@ -73,6 +76,7 @@ export function AgentSidebar({
   sessions,
   repositories,
   activeSessionId,
+  approvalStatesBySessionId = {},
   onSelect,
   onCreate,
   onRemove,
@@ -122,9 +126,14 @@ export function AgentSidebar({
           .map<SidebarTaskItem>((session) => ({
             id: session.id,
             title: session.name,
-            status: mapSessionStatus(session.status),
+            status: approvalStatesBySessionId[session.id]
+              ? "needs_approval"
+              : mapSessionStatus(session.status),
             updatedAt: session.updatedAt,
             isActive: session.id === activeSessionId,
+            metrics: approvalStatesBySessionId[session.id]
+              ? { label: "Awaiting approval" }
+              : undefined,
           }));
 
         const statusFilteredTasks = filterTasks(allTasks, "", statusFilter);
@@ -143,7 +152,14 @@ export function AgentSidebar({
         };
       })
       .filter((section) => section.shouldRender);
-  }, [activeSessionId, normalizedQuery, repositorySource, sessions, statusFilter]);
+  }, [
+    activeSessionId,
+    approvalStatesBySessionId,
+    normalizedQuery,
+    repositorySource,
+    sessions,
+    statusFilter,
+  ]);
 
   const utility = (
     <div className="space-y-2.5">
