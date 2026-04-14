@@ -63,6 +63,7 @@ const UNSAFE_SHELL_PREFIXES = new Set([
   "env",
   "sudo",
 ]);
+const BROAD_SHELL_EXECUTABLES = new Set(["git", "npm", "pnpm", "yarn"]);
 
 export class PermissionApprovalStore {
   constructor(
@@ -177,70 +178,23 @@ export class PermissionApprovalStore {
 
   async resolveDecision(
     decision: ApprovalDecision,
-    createdByUserId: string,
+    createdByUserId?: string,
   ): Promise<PermissionDecisionResult> {
     return await this.ctx.blockConcurrencyWhile(async () => {
       const state = await this.loadState();
       const now = Date.now();
       const next = this.withPrunedApprovals(state, now);
-      const pending = next.pendingRequest;
-      if (!pending) {
-        throw new Error("No pending approval request found.");
-      }
-      if (pending.requestId !== decision.requestId) {
-        throw new Error("Approval request id does not match pending request.");
-      }
-      if (!pending.availableDecisions.includes(decision.kind)) {
-        throw new Error("Decision kind is not allowed for this request.");
-      }
+      const pending = this.validatePendingDecision(next, decision);
+      const resolution = createPermissionDecisionResult(pending, decision.kind);
 
-      const resolution: PermissionDecisionResult = {
-        request: pending,
-        decision: decision.kind,
-        status:
-          decision.kind === "abort"
-            ? "aborted"
-            : decision.kind === "deny"
-              ? "denied"
-              : "approved",
-      };
-
-      if (decision.kind === "allow_once") {
-        next.runAllowances[pending.actionFingerprint] = {
-          scope: "once",
-          createdAt: new Date(now).toISOString(),
-        };
-      } else if (decision.kind === "allow_for_run") {
-        next.runAllowances[pending.actionFingerprint] = {
-          scope: "run",
-          createdAt: new Date(now).toISOString(),
-        };
-      } else if (decision.kind === "allow_persistent_rule") {
-        if (!pending.proposedPersistentRule) {
-          throw new Error("No persistent rule is available for this request.");
-        }
-        if (!isValidProposedPersistentRule(pending.proposedPersistentRule)) {
-          throw new Error(
-            "Persistent rule was rejected because it is too broad or unsafe.",
-          );
-        }
-        const persistentRuleId = crypto.randomUUID();
-        next.persistentRules.push({
-          ruleId: persistentRuleId,
-          category: pending.proposedPersistentRule.category,
-          payload: pending.proposedPersistentRule,
-          createdAt: new Date(now).toISOString(),
-          createdByUserId,
-          source: "approval",
-        });
-        resolution.persistentRuleId = persistentRuleId;
-      }
-
-      if (resolution.status === "approved") {
-        this.resetRiskyAttempt(next, pending.actionFingerprint);
-      }
-      delete next.pendingRequest;
-      next.updatedAt = new Date(now).toISOString();
+      this.applyDecisionOutcome(
+        next,
+        pending,
+        resolution,
+        createdByUserId,
+        now,
+      );
+      this.finalizeResolvedDecision(next, pending, resolution.status, now);
       await this.ctx.storage.put(this.key(), next);
       return resolution;
     });
@@ -421,6 +375,121 @@ export class PermissionApprovalStore {
   private resetRiskyAttempt(state: ApprovalState, actionFingerprint: string) {
     delete state.riskyAttempts[actionFingerprint];
   }
+
+  private validatePendingDecision(
+    state: ApprovalState,
+    decision: ApprovalDecision,
+  ): ApprovalRequest {
+    const pending = state.pendingRequest;
+    if (!pending) {
+      throw new Error("No pending approval request found.");
+    }
+    if (pending.requestId !== decision.requestId) {
+      throw new Error("Approval request id does not match pending request.");
+    }
+    if (!pending.availableDecisions.includes(decision.kind)) {
+      throw new Error("Decision kind is not allowed for this request.");
+    }
+    return pending;
+  }
+
+  private applyDecisionOutcome(
+    state: ApprovalState,
+    pending: ApprovalRequest,
+    resolution: PermissionDecisionResult,
+    createdByUserId: string | undefined,
+    now: number,
+  ): void {
+    if (resolution.decision === "allow_once") {
+      this.grantRunAllowance(state, pending.actionFingerprint, "once", now);
+      return;
+    }
+    if (resolution.decision === "allow_for_run") {
+      this.grantRunAllowance(state, pending.actionFingerprint, "run", now);
+      return;
+    }
+    if (resolution.decision === "allow_persistent_rule") {
+      resolution.persistentRuleId = this.persistValidatedRule(
+        state,
+        pending,
+        createdByUserId,
+        now,
+      );
+    }
+  }
+
+  private grantRunAllowance(
+    state: ApprovalState,
+    actionFingerprint: string,
+    scope: "once" | "run",
+    now: number,
+  ): void {
+    state.runAllowances[actionFingerprint] = {
+      scope,
+      createdAt: new Date(now).toISOString(),
+    };
+  }
+
+  private persistValidatedRule(
+    state: ApprovalState,
+    pending: ApprovalRequest,
+    createdByUserId: string | undefined,
+    now: number,
+  ): string {
+    const proposedRule = pending.proposedPersistentRule;
+    if (!proposedRule) {
+      throw new Error("No persistent rule is available for this request.");
+    }
+    if (!isValidProposedPersistentRule(proposedRule)) {
+      throw new Error(
+        "Persistent rule was rejected because it is too broad or unsafe.",
+      );
+    }
+    const trimmedUserId = createdByUserId?.trim();
+    if (!trimmedUserId) {
+      throw new Error("Persistent approval requires an authenticated user id.");
+    }
+
+    const persistentRuleId = crypto.randomUUID();
+    state.persistentRules.push({
+      ruleId: persistentRuleId,
+      category: proposedRule.category,
+      payload: proposedRule,
+      createdAt: new Date(now).toISOString(),
+      createdByUserId: trimmedUserId,
+      source: "approval",
+    });
+    return persistentRuleId;
+  }
+
+  private finalizeResolvedDecision(
+    state: ApprovalState,
+    pending: ApprovalRequest,
+    status: PermissionDecisionResult["status"],
+    now: number,
+  ): void {
+    if (status === "approved") {
+      this.resetRiskyAttempt(state, pending.actionFingerprint);
+    }
+    delete state.pendingRequest;
+    state.updatedAt = new Date(now).toISOString();
+  }
+}
+
+function createPermissionDecisionResult(
+  request: ApprovalRequest,
+  decision: ApprovalDecision["kind"],
+): PermissionDecisionResult {
+  return {
+    request,
+    decision,
+    status:
+      decision === "abort"
+        ? "aborted"
+        : decision === "deny"
+          ? "denied"
+          : "approved",
+  };
 }
 
 function isSameState(a: ApprovalState, b: ApprovalState): boolean {
@@ -555,6 +624,9 @@ function isValidProposedPersistentRule(
     }
     const first = normalized[0];
     if (!first || UNSAFE_SHELL_PREFIXES.has(first)) {
+      return false;
+    }
+    if (normalized.length === 1 && BROAD_SHELL_EXECUTABLES.has(first)) {
       return false;
     }
     return normalized.every((token) => /^[a-z0-9._:-]+$/.test(token));
