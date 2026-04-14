@@ -361,7 +361,7 @@ export class RunEngineRequestHandler {
           kind: payload.decision,
           requestId: payload.requestId,
         },
-        run.sessionId,
+        run.metadata.actorUserId,
       );
     } catch (error) {
       const message =
@@ -377,7 +377,9 @@ export class RunEngineRequestHandler {
               ? 400
               : message.includes("rejected because it is too broad")
                 ? 400
-                : 500;
+                : message.includes("authenticated user id")
+                  ? 400
+                  : 500;
       return runEngineErrorResponse(request, this.env, message, status);
     }
 
@@ -450,6 +452,7 @@ export class RunEngineRequestHandler {
             env: this.env,
             sessionId: payload.sessionId,
             runId: payload.runId,
+            userId: payload.userId,
             correlationId: payload.correlationId,
             requestOrigin: payload.requestOrigin,
           },
