@@ -196,13 +196,21 @@ export class HandleChatRequest {
               agenticLoopV1: this.isAgenticLoopEnabled(),
               reviewerPassV1: this.isReviewerPassEnabled(),
             },
-            permissionPolicy: {
-              productMode: input.productMode,
-            },
-            workflow: {
-              entrypoint: input.workflowEntrypoint ?? "composer_submit",
-              intent: input.workflowIntent,
-            },
+            ...(input.productMode
+              ? {
+                  permissionPolicy: {
+                    productMode: input.productMode,
+                  },
+                }
+              : {}),
+            ...(input.workflowEntrypoint || input.workflowIntent
+              ? {
+                  workflow: {
+                    entrypoint: input.workflowEntrypoint,
+                    intent: input.workflowIntent,
+                  },
+                }
+              : {}),
           },
           // Phase 4: Include repository context for workspace-aware operations
           repositoryContext:
