@@ -354,7 +354,7 @@ describe("RunActivityFeedProjector", () => {
         createEvent(RUN_EVENT_TYPES.APPROVAL_REQUESTED, {
           request: {
             requestId: "req-1",
-            runId: "run-1",
+            runId: "run-approval",
             origin: "agent",
             category: "git_mutation",
             title: "Shadowbox wants to commit repository changes",
