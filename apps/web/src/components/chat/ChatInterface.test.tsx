@@ -202,6 +202,9 @@ describe("ChatInterface", () => {
     expect(screen.getByRole("button", { name: "Allow once" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Deny" })).toBeInTheDocument();
     expect(
+      screen.queryByRole("button", { name: "Allow for this session" }),
+    ).not.toBeInTheDocument();
+    expect(
       screen.queryByRole("button", { name: "Allow in future" }),
     ).not.toBeInTheDocument();
 
@@ -281,6 +284,63 @@ describe("ChatInterface", () => {
     expect(screen.getByTestId("chat-input-bar")).toBeInTheDocument();
     expect(
       screen.queryByText("No pending approval request found."),
+    ).not.toBeInTheDocument();
+  });
+
+  it("prefers session-safe action labels over persistent allow action", () => {
+    vi.mocked(useRunSummary).mockReturnValue({
+      summary: {
+        runId: "run-labels",
+        status: "WAITING",
+        totalTasks: 0,
+        completedTasks: 0,
+        failedTasks: 0,
+        planArtifact: null,
+        pendingApproval: {
+          requestId: "req-labels",
+          runId: "run-labels",
+          origin: "agent",
+          category: "shell_command",
+          title: "Shadowbox wants to run a shell command",
+          reason:
+            "Shell commands can change repository or environment state and should be confirmed.",
+          actionFingerprint: "shell_command:bash:{\"command\":\"pnpm test\"}",
+          command: "pnpm test",
+          availableDecisions: [
+            "allow_once",
+            "allow_for_run",
+            "allow_persistent_rule",
+            "deny",
+          ],
+          createdAt: "2026-01-01T00:00:00.000Z",
+        },
+      },
+    });
+
+    render(
+      <ChatInterface
+        chatProps={{
+          messages: [],
+          runId: "run-labels",
+          input: "",
+          handleInputChange: vi.fn(),
+          handleSubmit: vi.fn(),
+          append: vi.fn(),
+          stop: vi.fn(),
+          isLoading: false,
+          error: null,
+          debugEvents: [],
+        }}
+        sessionId="session-1"
+        mode="build"
+      />,
+    );
+
+    expect(
+      screen.getByRole("button", { name: "Allow for this session" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Allow in future" }),
     ).not.toBeInTheDocument();
   });
 
