@@ -194,6 +194,8 @@ describe("ChatInterface", () => {
     expect(
       screen.getByText("Shadowbox wants to commit repository changes"),
     ).toBeInTheDocument();
+    expect(screen.getByText("Permissions approval")).toBeInTheDocument();
+    expect(screen.queryByTestId("chat-input-bar")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Allow once" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Deny" })).toBeInTheDocument();
     expect(
