@@ -1,5 +1,9 @@
 import { useChat as useVercelChat, type Message } from "@ai-sdk/react";
-import { DEFAULT_RUN_MODE, type RunMode } from "@repo/shared-types";
+import {
+  DEFAULT_RUN_MODE,
+  type ProductMode,
+  type RunMode,
+} from "@repo/shared-types";
 import { useCallback, useMemo, useRef, useState, type FormEvent } from "react";
 import { chatStreamPath, getBrainHttpBase } from "../lib/platform-endpoints.js";
 import { dispatchRunSummaryRefresh } from "../lib/run-summary-events.js";
@@ -27,6 +31,7 @@ interface ChatRequestBody {
   sessionId: string;
   runId: string;
   mode?: RunMode;
+  productMode?: ProductMode;
   providerId?: string;
   modelId?: string;
   harnessId?: RuntimeHarnessId;
@@ -52,6 +57,7 @@ export function useChatCore(
   sessionId: string,
   externalRunId?: string,
   mode: RunMode = DEFAULT_RUN_MODE,
+  productMode?: ProductMode,
 ): UseChatCoreResult {
   const [internalRunId, setInternalRunId] = useState<string>(() =>
     crypto.randomUUID(),
@@ -110,6 +116,7 @@ export function useChatCore(
       sessionId,
       runId,
       mode,
+      productMode,
     },
     initialMessages: [],
     id: instanceKey,
@@ -193,6 +200,7 @@ export function useChatCore(
         sessionId,
         runId,
         mode,
+        productMode,
         harnessId: resolvedHarnessId,
         providerId,
         modelId,
@@ -229,6 +237,7 @@ export function useChatCore(
       sessionId,
       status,
       mode,
+      productMode,
       pushDebugEvent,
       apiPath,
     ],
