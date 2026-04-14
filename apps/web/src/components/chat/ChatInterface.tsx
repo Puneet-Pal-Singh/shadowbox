@@ -2,12 +2,15 @@ import { useRef, useEffect, useState, useMemo, useCallback } from "react";
 import { ChatMessage } from "./ChatMessage";
 import { ChatInputBar } from "./ChatInputBar";
 import { ChatBranchSelector } from "./ChatBranchSelector";
+import { PermissionModeControl } from "./PermissionModeControl";
 import { ProviderDialog } from "../provider/ProviderDialog";
 import type { Message } from "@ai-sdk/react";
 import {
+  PRODUCT_MODES,
   RUN_EVENT_TYPES,
   type ApprovalDecisionKind,
   type ApprovalRequest,
+  type ProductMode,
   type RunEvent,
   type RunMode,
 } from "@repo/shared-types";
@@ -76,6 +79,9 @@ interface ChatInterfaceProps {
   sessionId: string;
   mode?: RunMode;
   onModeChange?: (mode: RunMode) => void;
+  permissionMode?: ProductMode;
+  onPermissionModeChange?: (mode: ProductMode) => void;
+  onPendingApprovalChange?: (hasPendingApproval: boolean) => void;
   onArtifactOpen?: (path: string, content: string) => void;
   onModelSelect?: (providerId: ProviderId, modelId: string) => void;
   repoTree?: Array<{ path: string; type: string; sha: string }>;
@@ -87,6 +93,9 @@ export function ChatInterface({
   sessionId,
   mode = "build",
   onModeChange,
+  permissionMode,
+  onPermissionModeChange,
+  onPendingApprovalChange,
   onArtifactOpen,
   onModelSelect,
   repoTree = [],
@@ -270,6 +279,9 @@ export function ChatInterface({
       ? handleUsePlanInBuild
       : undefined;
   const pendingApproval = summary?.pendingApproval ?? pendingApprovalFromEvents;
+  useEffect(() => {
+    onPendingApprovalChange?.(Boolean(pendingApproval));
+  }, [onPendingApprovalChange, pendingApproval]);
   const chatEntries = useMemo(
     () => buildChatEntries(conversationTurns, activityViewModel.turns),
     [activityViewModel.turns, conversationTurns],
@@ -414,20 +426,10 @@ export function ChatInterface({
               />
             </div>
           )}
-          {summary?.permissionContext ? (
-            <div className="mb-3 flex flex-wrap gap-2 text-[11px] text-zinc-300">
-              <span className="rounded-full border border-zinc-700 bg-zinc-900/80 px-2 py-0.5">
-                Policy: {formatProductModeLabel(summary.permissionContext.state.productMode)}
-              </span>
-              <span className="rounded-full border border-zinc-700 bg-zinc-900/80 px-2 py-0.5">
-                Runtime: {summary.permissionContext.label}
-              </span>
-            </div>
-          ) : null}
           {pendingApproval ? (
-            <div className="mb-4 rounded-2xl border border-amber-500/40 bg-amber-950/30 p-4 text-amber-100">
+            <div className="mb-2 rounded-3xl border border-amber-500/40 bg-zinc-900/90 p-4 text-amber-100">
               <p className="text-xs font-semibold uppercase tracking-[0.16em] text-amber-300">
-                Approval Required
+                Permissions approval
               </p>
               <p className="mt-1 text-sm font-semibold">
                 {pendingApproval.title}
@@ -458,23 +460,32 @@ export function ChatInterface({
               ) : null}
             </div>
           ) : null}
-          <ChatInputBar
-            input={input}
-            onChange={handleInputChangeWrapper}
-            onSubmit={handleSubmit}
-            onStop={stop}
-            isLoading={isLoading}
-            sessionId={sessionId}
-            mode={mode}
-            onModeChange={onModeChange}
-            hasMessages={messages.length > 0}
-            onModelSelect={onModelSelect}
-            repoTree={repoTree}
-            isLoadingRepoTree={isLoadingRepoTree}
-          />
-          <div className="pl-6 mt-1">
-            <ChatBranchSelector />
-          </div>
+          {pendingApproval ? null : (
+            <>
+              <ChatInputBar
+                input={input}
+                onChange={handleInputChangeWrapper}
+                onSubmit={handleSubmit}
+                onStop={stop}
+                isLoading={isLoading}
+                sessionId={sessionId}
+                mode={mode}
+                onModeChange={onModeChange}
+                hasMessages={messages.length > 0}
+                onModelSelect={onModelSelect}
+                repoTree={repoTree}
+                isLoadingRepoTree={isLoadingRepoTree}
+              />
+              <div className="mt-1 flex items-center gap-2 pl-6">
+                <ChatBranchSelector />
+                <PermissionModeControl
+                  value={permissionMode ?? PRODUCT_MODES.AUTO_FOR_SAFE}
+                  onChange={(nextMode) => onPermissionModeChange?.(nextMode)}
+                  disabled={isLoading || !onPermissionModeChange}
+                />
+              </div>
+            </>
+          )}
         </div>
       </div>
       <ProviderDialog
@@ -523,21 +534,6 @@ function formatApprovalDecisionLabel(decision: ApprovalDecisionKind): string {
       return "Abort";
     default:
       return decision;
-  }
-}
-
-function formatProductModeLabel(mode: string): string {
-  switch (mode) {
-    case "ask_always":
-      return "Ask Always";
-    case "auto_for_safe":
-      return "Auto for Safe";
-    case "auto_for_same_repo":
-      return "Auto for Same Repo";
-    case "full_agent":
-      return "Full Agent";
-    default:
-      return mode;
   }
 }
 
