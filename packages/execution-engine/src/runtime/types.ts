@@ -1,4 +1,10 @@
-import type { RunMode, ToolActivityMetadata } from "@repo/shared-types";
+import type {
+  EffectivePermissionState,
+  PermissionRuntimeLabel,
+  RunMode,
+  ToolActivityMetadata,
+  WorkflowIntentResolverInput,
+} from "@repo/shared-types";
 
 export interface RuntimeStorage {
   get<T>(key: string): Promise<T | undefined>;
@@ -173,6 +179,13 @@ export interface RunManifest {
 
 export interface RunMetadata {
   prompt: string;
+  actorUserId?: string;
+  permissionContext?: {
+    state: EffectivePermissionState;
+    label: PermissionRuntimeLabel;
+    resolverInput: WorkflowIntentResolverInput;
+    resolvedAt: string;
+  };
   continuation?: RunContinuationState;
   manifest?: RunManifest;
   turnMode?: {

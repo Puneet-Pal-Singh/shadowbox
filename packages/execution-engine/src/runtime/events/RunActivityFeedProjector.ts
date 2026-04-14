@@ -42,6 +42,7 @@ export function projectRunActivityFeed(
   );
   const items: ActivityPart[] = [];
   const toolParts = new Map<string, ToolActivityPart>();
+  const approvalParts = new Map<string, ApprovalActivityPart>();
   let turnIndex = 0;
   let currentTurnId: string | undefined;
 
@@ -68,6 +69,15 @@ export function projectRunActivityFeed(
       }
       case RUN_EVENT_TYPES.RUN_PROGRESS:
         items.push(createProgressPart(event, currentTurnId));
+        break;
+      case RUN_EVENT_TYPES.APPROVAL_REQUESTED: {
+        const part = createApprovalRequestedPart(event, currentTurnId);
+        approvalParts.set(event.payload.request.requestId, part);
+        items.push(part);
+        break;
+      }
+      case RUN_EVENT_TYPES.APPROVAL_RESOLVED:
+        applyApprovalResolution(approvalParts, event);
         break;
       case RUN_EVENT_TYPES.TOOL_REQUESTED: {
         const part = createRequestedToolPart(event, currentTurnId);
@@ -96,7 +106,9 @@ export function projectRunActivityFeed(
     }
   }
 
-  items.push(...createApprovalParts(run, currentTurnId));
+  if (approvalParts.size === 0) {
+    items.push(...createApprovalParts(run, currentTurnId));
+  }
   const handoffPart = createHandoffPart(run, currentTurnId);
   if (handoffPart) {
     items.push(handoffPart);
@@ -384,6 +396,78 @@ function updateToolPart(
     return;
   }
   Object.assign(part, patch);
+}
+
+function createApprovalRequestedPart(
+  event: Extract<RunEvent, { type: typeof RUN_EVENT_TYPES.APPROVAL_REQUESTED }>,
+  turnId: string | undefined,
+): ApprovalActivityPart {
+  return {
+    id: `approval:${event.payload.request.requestId}`,
+    runId: event.runId,
+    sessionId: event.sessionId,
+    turnId,
+    kind: ACTIVITY_PART_KINDS.APPROVAL,
+    createdAt: event.timestamp,
+    updatedAt: event.timestamp,
+    source: event.source,
+    approvalType: "permission",
+    status: "requested",
+    summary: event.payload.request.title,
+    details: buildApprovalDetails(event.payload.request.reason, event.payload.request.command),
+    expiresAt: event.payload.request.expiresAt,
+  };
+}
+
+function applyApprovalResolution(
+  approvalParts: Map<string, ApprovalActivityPart>,
+  event: Extract<RunEvent, { type: typeof RUN_EVENT_TYPES.APPROVAL_RESOLVED }>,
+): void {
+  const part = approvalParts.get(event.payload.requestId);
+  if (part) {
+    part.status = mapApprovalResolutionStatus(event.payload.status);
+    part.updatedAt = event.timestamp;
+    part.details = part.details
+      ? `${part.details}\nDecision: ${event.payload.decision}`
+      : `Decision: ${event.payload.decision}`;
+    return;
+  }
+
+  approvalParts.set(event.payload.requestId, {
+    id: `approval:${event.payload.requestId}`,
+    runId: event.runId,
+    sessionId: event.sessionId,
+    kind: ACTIVITY_PART_KINDS.APPROVAL,
+    createdAt: event.timestamp,
+    updatedAt: event.timestamp,
+    source: event.source,
+    approvalType: "permission",
+    status: mapApprovalResolutionStatus(event.payload.status),
+    summary: "Approval decision recorded",
+    details: `Decision: ${event.payload.decision}`,
+  });
+}
+
+function mapApprovalResolutionStatus(
+  status: Extract<
+    RunEvent,
+    { type: typeof RUN_EVENT_TYPES.APPROVAL_RESOLVED }
+  >["payload"]["status"],
+): ApprovalActivityPart["status"] {
+  if (status === "approved") {
+    return "granted";
+  }
+  if (status === "expired") {
+    return "expired";
+  }
+  return "denied";
+}
+
+function buildApprovalDetails(reason: string, command?: string): string {
+  if (!command) {
+    return reason;
+  }
+  return `${reason}\nCommand: ${command}`;
 }
 
 function createApprovalParts(

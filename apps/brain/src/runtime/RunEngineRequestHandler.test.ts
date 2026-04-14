@@ -5,6 +5,7 @@ import {
   TOOL_ACTIVITY_FAMILIES,
 } from "@repo/shared-types";
 import {
+  PermissionApprovalStore,
   Run,
   RunEventRepository,
   RunRepository,
@@ -466,6 +467,108 @@ describe("RunEngineRequestHandler", () => {
           item.metadata.command === "pnpm test",
       ),
     ).toBe(true);
+  });
+
+  it("resolves pending approvals through the approval endpoint and emits approval.resolved", async () => {
+    const ctx = new MockDurableObjectState();
+    const runtimeState = tagRuntimeStateSemantics(ctx, "do");
+    const runRepo = new RunRepository(runtimeState);
+    const eventRepo = new RunEventRepository(runtimeState);
+    const runId = "123e4567-e89b-42d3-a456-426614174333";
+    const run = new Run(runId, "session-1", "RUNNING", "coding", {
+      agentType: "coding",
+      prompt: "commit changes",
+      sessionId: "session-1",
+    });
+    await runRepo.create(run);
+
+    const approvalStore = new PermissionApprovalStore(runtimeState, runId);
+    await approvalStore.setPendingRequest({
+      requestId: "req-1",
+      runId,
+      origin: "agent",
+      category: "git_mutation",
+      title: "Commit changes",
+      reason: "Git mutation actions can change repository history.",
+      actionFingerprint: "git:commit",
+      availableDecisions: ["allow_once", "deny"],
+      createdAt: "2026-03-24T10:00:00.000Z",
+    });
+
+    const handler = new RunEngineRequestHandler(
+      ctx as unknown as DurableObjectState,
+      {} as Env,
+      async (operation) => operation(),
+    );
+
+    const response = await handler.handleApprovalRequest(
+      new Request("https://brain.local/approval", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          runId,
+          requestId: "req-1",
+          decision: "allow_once",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      status: string;
+      decision: string;
+      pendingApproval: unknown;
+    };
+    expect(body.status).toBe("approved");
+    expect(body.decision).toBe("allow_once");
+    expect(body.pendingApproval).toBeNull();
+
+    const events = await eventRepo.getByRun(runId);
+    expect(
+      events.some(
+        (event) =>
+          event.type === RUN_EVENT_TYPES.APPROVAL_RESOLVED &&
+          event.payload.requestId === "req-1",
+      ),
+    ).toBe(true);
+  });
+
+  it("returns conflict when resolving approval without a matching pending request", async () => {
+    const ctx = new MockDurableObjectState();
+    const runtimeState = tagRuntimeStateSemantics(ctx, "do");
+    const runRepo = new RunRepository(runtimeState);
+    const runId = "123e4567-e89b-42d3-a456-426614174334";
+    await runRepo.create(
+      new Run(runId, "session-1", "RUNNING", "coding", {
+        agentType: "coding",
+        prompt: "commit changes",
+        sessionId: "session-1",
+      }),
+    );
+
+    const handler = new RunEngineRequestHandler(
+      ctx as unknown as DurableObjectState,
+      {} as Env,
+      async (operation) => operation(),
+    );
+
+    const response = await handler.handleApprovalRequest(
+      new Request("https://brain.local/approval", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          runId,
+          requestId: "missing",
+          decision: "deny",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(409);
   });
 });
 

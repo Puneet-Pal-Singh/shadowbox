@@ -5,7 +5,13 @@
  */
 
 import { z } from "zod";
-import { RunModeSchema } from "@repo/shared-types";
+import {
+  ApprovalDecisionKindSchema,
+  ProductModeSchema,
+  RunModeSchema,
+  WorkflowEntrypointSchema,
+  WorkflowIntentSchema,
+} from "@repo/shared-types";
 
 /**
  * Core message schema for AI SDK messages.
@@ -87,6 +93,23 @@ export const ExecuteRunPayloadSchema = z.object({
             .object({
               agenticLoopV1: z.boolean().optional(),
               reviewerPassV1: z.boolean().optional(),
+            })
+            .optional(),
+          permissionPolicy: z
+            .object({
+              productMode: ProductModeSchema.optional(),
+            })
+            .optional(),
+          workflow: z
+            .object({
+              entrypoint: WorkflowEntrypointSchema.optional(),
+              intent: WorkflowIntentSchema.optional(),
+            })
+            .optional(),
+          permissionDecision: z
+            .object({
+              kind: ApprovalDecisionKindSchema.optional(),
+              requestId: z.string().min(1).optional(),
             })
             .optional(),
         })

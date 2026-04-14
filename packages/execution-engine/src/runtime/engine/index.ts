@@ -9,6 +9,10 @@ export {
   type RunEngineEnv,
   type RunEngineOptions,
 } from "./RunEngine.js";
+export {
+  PermissionApprovalStore,
+  type PermissionDecisionResult,
+} from "./PermissionApprovalStore.js";
 
 export { DefaultTaskExecutor, AgentTaskExecutor } from "./TaskExecutor.js";
 export {

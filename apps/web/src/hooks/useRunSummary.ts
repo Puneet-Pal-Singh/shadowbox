@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getBrainHttpBase } from "../lib/platform-endpoints.js";
 import { RUN_SUMMARY_REFRESH_EVENT } from "../lib/run-summary-events.js";
+import type {
+  ApprovalRequest,
+  PermissionRuntimeLabel,
+  WorkflowIntentResolverInput,
+} from "@repo/shared-types";
 
 interface RunPlanArtifactTask {
   id: string;
@@ -37,6 +42,18 @@ interface RunSummary {
   eventCount?: number;
   lastEventType?: string | null;
   planArtifact?: RunPlanArtifact | null;
+  permissionContext?: {
+    state: {
+      productMode: string;
+      approvalPolicy: string;
+      executionScope: string;
+      workflowIntent: string;
+    };
+    label: PermissionRuntimeLabel;
+    resolverInput: WorkflowIntentResolverInput;
+    resolvedAt: string;
+  } | null;
+  pendingApproval?: ApprovalRequest | null;
 }
 
 interface UseRunSummaryResult {

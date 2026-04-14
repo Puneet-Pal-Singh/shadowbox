@@ -2,11 +2,13 @@ import type { DurableObjectState as LegacyDurableObjectState } from "@cloudflare
 import type { CoreMessage, CoreTool } from "ai";
 import { z } from "zod";
 import {
+  ApprovalDecisionKindSchema,
   RUN_EVENT_TYPES,
   RUN_WORKFLOW_STEPS,
   type RunEvent,
 } from "@repo/shared-types";
 import {
+  PermissionApprovalStore,
   RunEngine,
   RunEventRecorder,
   RunEventRepository,
@@ -42,6 +44,11 @@ import {
 const RunIdSchema = z.string().uuid();
 const CancelRunRequestSchema = z.object({
   runId: RunIdSchema,
+});
+const ApprovalDecisionRequestSchema = z.object({
+  runId: RunIdSchema,
+  requestId: z.string().min(1),
+  decision: ApprovalDecisionKindSchema,
 });
 
 export interface RunEngineRequestLock {
@@ -90,9 +97,11 @@ export class RunEngineRequestHandler {
     const runtimeState = this.createRuntimeState();
     const runRepo = new RunRepository(runtimeState);
     const eventRepo = new RunEventRepository(runtimeState);
+    const approvalStore = new PermissionApprovalStore(runtimeState, runId);
 
     const run = await runRepo.getById(runId);
     const events = await eventRepo.getByRun(runId);
+    const pendingApproval = await approvalStore.getPendingRequest();
     const summary = projectRunSummaryFromEvents(
       runId,
       run?.status ?? null,
@@ -102,6 +111,8 @@ export class RunEngineRequestHandler {
     return runEngineJsonResponse(request, this.env, {
       ...summary,
       planArtifact: run?.metadata.planArtifact ?? null,
+      permissionContext: run?.metadata.permissionContext ?? null,
+      pendingApproval,
     });
   }
 
@@ -303,6 +314,96 @@ export class RunEngineRequestHandler {
     });
   }
 
+  async handleApprovalRequest(request: Request): Promise<Response> {
+    let payload: z.infer<typeof ApprovalDecisionRequestSchema>;
+    try {
+      const body = await parseRequestBody(request, "run-approval");
+      payload = validateWithSchema(
+        body,
+        ApprovalDecisionRequestSchema,
+        "run-approval",
+      );
+    } catch {
+      return runEngineErrorResponse(
+        request,
+        this.env,
+        "Invalid approval payload",
+        400,
+      );
+    }
+
+    const runtimeState = this.createRuntimeState();
+    const runRepo = new RunRepository(runtimeState);
+    const run = await runRepo.getById(payload.runId);
+    if (!run) {
+      return runEngineErrorResponse(
+        request,
+        this.env,
+        "Run not found",
+        404,
+      );
+    }
+
+    const approvalStore = new PermissionApprovalStore(runtimeState, payload.runId);
+    const runEventRecorder = new RunEventRecorder(
+      new RunEventRepository(runtimeState),
+      payload.runId,
+      run.sessionId,
+      (event) => {
+        this.emitLiveEvent(event);
+      },
+    );
+
+    let decisionResult: Awaited<ReturnType<typeof approvalStore.resolveDecision>>;
+    try {
+      decisionResult = await approvalStore.resolveDecision(
+        {
+          kind: payload.decision,
+          requestId: payload.requestId,
+        },
+        run.metadata.actorUserId,
+      );
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Unable to resolve approval decision";
+      const status =
+        message.includes("No pending approval request")
+          ? 409
+          : message.includes("does not match pending request")
+            ? 409
+            : message.includes("not allowed for this request")
+              ? 400
+              : message.includes("rejected because it is too broad")
+                ? 400
+                : message.includes("authenticated user id")
+                  ? 400
+                  : 500;
+      return runEngineErrorResponse(request, this.env, message, status);
+    }
+
+    await runEventRecorder.recordApprovalResolved({
+      requestId: decisionResult.request.requestId,
+      decision: decisionResult.decision,
+      status:
+        decisionResult.status === "approved"
+          ? "approved"
+          : decisionResult.status === "aborted"
+            ? "aborted"
+            : "denied",
+    });
+
+    return runEngineJsonResponse(request, this.env, {
+      runId: payload.runId,
+      requestId: decisionResult.request.requestId,
+      decision: decisionResult.decision,
+      status: decisionResult.status,
+      persistentRuleId: decisionResult.persistentRuleId ?? null,
+      pendingApproval: await approvalStore.getPendingRequest(),
+    });
+  }
+
   async handleRuntimeDebugRequest(request: Request): Promise<Response> {
     return runEngineJsonResponse(
       request,
@@ -351,6 +452,7 @@ export class RunEngineRequestHandler {
             env: this.env,
             sessionId: payload.sessionId,
             runId: payload.runId,
+            userId: payload.userId,
             correlationId: payload.correlationId,
             requestOrigin: payload.requestOrigin,
           },

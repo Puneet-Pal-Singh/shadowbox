@@ -112,6 +112,10 @@ export class RunEngineRuntime extends DurableObject {
       return requestHandler.handleCancelRequest(request);
     }
 
+    if (url.pathname === "/approval" && request.method === "POST") {
+      return requestHandler.handleApprovalRequest(request);
+    }
+
     if (url.pathname === "/debug/runtime" && request.method === "GET") {
       return requestHandler.handleRuntimeDebugRequest(request);
     }

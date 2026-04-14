@@ -148,6 +148,32 @@ describe("HandleChatRequest", () => {
     });
   });
 
+  it("keeps workflow metadata sparse when no workflow entrypoint is provided", async () => {
+    vi.spyOn(PersistenceService.prototype, "persistUserMessage").mockResolvedValue();
+
+    const useCase = new HandleChatRequest(createEnv());
+    const result = await useCase.execute({
+      sessionId: "session-1",
+      runId: "123e4567-e89b-42d3-a456-426614174000",
+      correlationId: "corr-workflow",
+      agentType: "coding",
+      prompt: "review this diff",
+      messages: [{ role: "user", content: "review this diff" }],
+      workflowIntent: "review",
+    });
+
+    expect(result.executionPayload.input.metadata).toEqual({
+      featureFlags: {
+        agenticLoopV1: false,
+        reviewerPassV1: false,
+      },
+      workflow: {
+        entrypoint: undefined,
+        intent: "review",
+      },
+    });
+  });
+
   it("throws NO_MESSAGES when messages are empty", async () => {
     vi.spyOn(PersistenceService.prototype, "persistUserMessage").mockResolvedValue();
 

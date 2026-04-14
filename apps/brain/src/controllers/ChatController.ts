@@ -1,6 +1,11 @@
 import type { CoreMessage } from "ai";
 import type { AgentType } from "@shadowbox/execution-engine/runtime";
-import { RunModeSchema } from "@repo/shared-types";
+import {
+  ProductModeSchema,
+  RunModeSchema,
+  WorkflowEntrypointSchema,
+  WorkflowIntentSchema,
+} from "@repo/shared-types";
 import { z } from "zod";
 import type { Env } from "../types/ai";
 import { HandleChatRequest } from "../application/chat";
@@ -58,6 +63,9 @@ const ChatRequestBodySchema = z.object({
     .optional(),
   harnessMode: z.enum(["platform_owned", "delegated"]).optional(),
   authMode: z.enum(["api_key", "oauth"]).optional(),
+  productMode: ProductModeSchema.optional(),
+  workflowIntent: WorkflowIntentSchema.optional(),
+  workflowEntrypoint: WorkflowEntrypointSchema.optional(),
   repositoryOwner: z.string().optional(),
   repositoryName: z.string().optional(),
   repositoryBranch: z.string().optional(),
@@ -249,6 +257,9 @@ export class ChatController {
           executionBackend: body.executionBackend,
           harnessMode: body.harnessMode,
           authMode: body.authMode,
+          productMode: body.productMode,
+          workflowIntent: body.workflowIntent,
+          workflowEntrypoint: body.workflowEntrypoint,
           repositoryOwner: body.repositoryOwner,
           repositoryName: body.repositoryName,
           repositoryBranch: body.repositoryBranch,

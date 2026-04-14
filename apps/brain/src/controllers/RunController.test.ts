@@ -108,8 +108,22 @@ describe("RunController", () => {
           items: [
             {
               id: "tool-1",
+              runId: "123e4567-e89b-42d3-a456-426614174101",
+              sessionId: "session-1",
               kind: "tool",
+              createdAt: "2026-03-24T12:00:00.000Z",
+              updatedAt: "2026-03-24T12:00:01.000Z",
+              source: "brain",
+              toolId: "tool-1",
               toolName: "read_file",
+              status: "completed",
+              metadata: {
+                family: "read",
+                count: 1,
+                truncated: false,
+                loadedPaths: ["README.md"],
+                path: "README.md",
+              },
             },
           ],
         }),
@@ -140,6 +154,79 @@ describe("RunController", () => {
     );
     await expect(response.json()).resolves.toMatchObject({
       items: [{ toolName: "read_file" }],
+    });
+  });
+
+  it("validates approval payloads before calling the runtime route", async () => {
+    const env = {} as Env;
+
+    const response = await RunController.approve(
+      new Request("https://brain.local/api/run/approval", {
+        method: "POST",
+        body: JSON.stringify({ runId: "", requestId: "req-1" }),
+      }),
+      env,
+    );
+
+    expect(response.status).toBe(400);
+    expect(runtimeHelpers.fetchRunRuntimeRoute).not.toHaveBeenCalled();
+    await expect(response.json()).resolves.toMatchObject({
+      error: "runId, requestId, and decision are required",
+    });
+  });
+
+  it("proxies approval decisions through the brain worker route", async () => {
+    const env = {} as Env;
+    runtimeHelpers.fetchRunRuntimeRoute.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          runId: "123e4567-e89b-42d3-a456-426614174102",
+          requestId: "req-1",
+          decision: "allow_once",
+          status: "approved",
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        },
+      ),
+    );
+
+    const response = await RunController.approve(
+      new Request("https://brain.local/api/run/approval", {
+        method: "POST",
+        body: JSON.stringify({
+          runId: "123e4567-e89b-42d3-a456-426614174102",
+          requestId: "req-1",
+          decision: "allow_once",
+          orchestratorBackend: "cloudflare_agents",
+        }),
+      }),
+      env,
+    );
+
+    expect(runtimeHelpers.fetchRunRuntimeRoute).toHaveBeenCalledWith(
+      env,
+      "123e4567-e89b-42d3-a456-426614174102",
+      "cloudflare_agents",
+      {
+        method: "POST",
+        path: "/approval",
+        body: JSON.stringify({
+          runId: "123e4567-e89b-42d3-a456-426614174102",
+          requestId: "req-1",
+          decision: "allow_once",
+        }),
+        headers: {
+          "Content-Type": "application/json",
+        },
+      },
+    );
+    await expect(response.json()).resolves.toMatchObject({
+      decision: "allow_once",
+      status: "approved",
     });
   });
 });

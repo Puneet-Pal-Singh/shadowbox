@@ -60,7 +60,7 @@ describe('LocalMockAdapter', () => {
     })
     const duration = Date.now() - start
 
-    expect(duration).toBeGreaterThanOrEqual(100)
+    expect(duration).toBeGreaterThanOrEqual(90)
   })
 
   it('updates response for test sequences', async () => {

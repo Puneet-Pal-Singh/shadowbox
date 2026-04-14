@@ -1,10 +1,25 @@
 import type { Env } from "../types/ai";
-import { parseActivityFeedSnapshot } from "@repo/shared-types";
+import {
+  ApprovalDecisionKindSchema,
+  type ApprovalDecisionKind,
+  parseActivityFeedSnapshot,
+} from "@repo/shared-types";
+import { z } from "zod";
 import { getCorsHeaders } from "../lib/cors";
 import { getBrainRuntimeHeaders } from "../core/observability/runtime";
 import { fetchRunRuntimeRoute } from "./chat-runtime-helpers";
 
 type RuntimeOrchestratorBackend = "execution-engine-v1" | "cloudflare_agents";
+const RuntimeOrchestratorBackendSchema = z.enum([
+  "execution-engine-v1",
+  "cloudflare_agents",
+]);
+const ApproveRunRequestSchema = z.object({
+  runId: z.string().trim().min(1),
+  requestId: z.string().trim().min(1),
+  decision: ApprovalDecisionKindSchema,
+  orchestratorBackend: RuntimeOrchestratorBackendSchema.optional(),
+});
 
 interface RunSummaryResponse {
   runId: string;
@@ -17,6 +32,8 @@ interface RunSummaryResponse {
   cancelledTasks: number;
   eventCount?: number;
   lastEventType?: string | null;
+  permissionContext?: unknown;
+  pendingApproval?: unknown;
 }
 
 export class RunController {
@@ -98,6 +115,25 @@ export class RunController {
         req,
         env,
         error instanceof Error ? error.message : "Failed to cancel run",
+        500,
+      );
+    }
+  }
+
+  static async approve(req: Request, env: Env): Promise<Response> {
+    try {
+      const payload = await parseApproveRequest(req);
+      const responsePayload = await resolveApprovalFromRuntime(env, payload);
+      return jsonResponse(req, env, responsePayload);
+    } catch (error) {
+      if (error instanceof ApproveRequestError) {
+        return errorResponse(req, env, error.message, error.status);
+      }
+      console.error("[RunController:approve] Error:", error);
+      return errorResponse(
+        req,
+        env,
+        error instanceof Error ? error.message : "Failed to resolve approval",
         500,
       );
     }
@@ -249,6 +285,78 @@ async function fetchRunCancelFromRuntime(
       "Content-Type": "application/json",
     },
   });
+}
+
+async function fetchRunApprovalFromRuntime(
+  env: Env,
+  runId: string,
+  requestId: string,
+  decision: ApprovalDecisionKind,
+  requestedBackend: RuntimeOrchestratorBackend,
+): Promise<Response> {
+  return fetchRunRuntimeRoute(env, runId, requestedBackend, {
+    method: "POST",
+    path: "/approval",
+    body: JSON.stringify({ runId, requestId, decision }),
+    headers: {
+      "Content-Type": "application/json",
+    },
+  });
+}
+
+async function parseApproveRequest(req: Request): Promise<
+  z.infer<typeof ApproveRunRequestSchema> & {
+    requestedBackend: RuntimeOrchestratorBackend;
+  }
+> {
+  const body = await req.json().catch(() => null);
+  const parsed = ApproveRunRequestSchema.safeParse(body);
+  if (!parsed.success) {
+    throw new ApproveRequestError(
+      "runId, requestId, and decision are required",
+      400,
+    );
+  }
+
+  return {
+    ...parsed.data,
+    requestedBackend: parsed.data.orchestratorBackend ?? "execution-engine-v1",
+  };
+}
+
+async function resolveApprovalFromRuntime(
+  env: Env,
+  payload: z.infer<typeof ApproveRunRequestSchema> & {
+    requestedBackend: RuntimeOrchestratorBackend;
+  },
+): Promise<unknown> {
+  const response = await fetchRunApprovalFromRuntime(
+    env,
+    payload.runId,
+    payload.requestId,
+    payload.decision,
+    payload.requestedBackend,
+  );
+  if (!response.ok) {
+    const details = await readErrorPreview(response);
+    const suffix = details ? `: ${details}` : "";
+    throw new ApproveRequestError(
+      `Failed to resolve approval${suffix}`,
+      response.status,
+    );
+  }
+
+  return (await response.json()) as unknown;
+}
+
+class ApproveRequestError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+    this.name = "ApproveRequestError";
+  }
 }
 
 async function fetchRunEventsFromRuntime(
