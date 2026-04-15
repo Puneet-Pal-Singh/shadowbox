@@ -926,6 +926,24 @@ describe("ModelPickerPopover", () => {
       });
       expect(triggerButton).toBeDisabled();
     });
+
+    it("shows inline loading text while selected provider models are still loading", async () => {
+      render(
+        <ModelPickerPopover
+          {...defaultProps}
+          selectedProviderId="openai"
+          selectedModelId="gpt-4"
+          isLoading={false}
+          isLoadingMoreSelectedProviderModels={true}
+        />,
+      );
+
+      fireEvent.click(
+        screen.getByRole("button", { name: /open model picker/i }),
+      );
+
+      expect(await screen.findByText("Loading models...")).toBeInTheDocument();
+    });
   });
 
   describe("Empty State", () => {

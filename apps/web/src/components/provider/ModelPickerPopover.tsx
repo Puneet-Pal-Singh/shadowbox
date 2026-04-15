@@ -482,6 +482,9 @@ export function ModelPickerPopover({
   const canLoadMoreSelectedProviderModels = Boolean(
     onLoadMoreSelectedProviderModels,
   );
+  const isLoadingModelsInline =
+    !isLoading &&
+    (isLoadingMoreSelectedProviderModels || isRefreshingSelectedProviderModels);
 
   // Close on outside click
   useEffect(() => {
@@ -725,6 +728,11 @@ export function ModelPickerPopover({
 
           {/* Provider Groups */}
           <div className="flex flex-1 flex-col overflow-hidden">
+            {isLoadingModelsInline && (
+              <div className="border-b border-neutral-800 px-3 py-1.5 text-[11px] text-neutral-400">
+                Loading models...
+              </div>
+            )}
             <div className="overflow-y-auto flex-1">
               {isLoading ? (
                 <div className="p-6 text-center text-neutral-400 text-sm">
