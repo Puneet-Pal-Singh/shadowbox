@@ -21,6 +21,7 @@ import {
   LLMTimeoutError,
   LLMUnusableResponseError,
 } from "../llm/LLMGateway.js";
+import { PermissionApprovalStore } from "./PermissionApprovalStore.js";
 
 const TEST_RUN_ID = "f462a003-5c36-4c86-a95d-367b92bf46c9";
 
@@ -730,6 +731,118 @@ describe("RunEngine", () => {
       { path: "README.md" },
       undefined,
     );
+  });
+
+  it("waits for approval and resumes tool execution after approval is resolved", async () => {
+    const state = new MockRuntimeState();
+    const executionService: RuntimeExecutionService = {
+      execute: vi.fn(async () => ({
+        success: true,
+        output: "ok",
+      })),
+    };
+    const llmGateway: ILLMGateway = {
+      generateText: vi
+        .fn()
+        .mockResolvedValueOnce({
+          text: "I will run tests now.",
+          toolCalls: [
+            {
+              id: "bash-approval-1",
+              toolName: "bash",
+              args: { command: "pnpm test", cwd: "." },
+            },
+          ],
+          usage: {
+            provider: "mock",
+            model: "mock-model",
+            promptTokens: 4,
+            completionTokens: 8,
+            totalTokens: 12,
+          },
+        })
+        .mockResolvedValueOnce({
+          text: "Completed after approval.",
+          toolCalls: [],
+          usage: {
+            provider: "mock",
+            model: "mock-model",
+            promptTokens: 4,
+            completionTokens: 6,
+            totalTokens: 10,
+          },
+        }),
+      generateStructured: async () => ({
+        object: { tasks: [], metadata: { estimatedSteps: 1 } },
+        usage: {
+          provider: "mock",
+          model: "mock-model",
+          promptTokens: 1,
+          completionTokens: 1,
+          totalTokens: 2,
+        },
+      }),
+      generateStream: async () =>
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.close();
+          },
+        }),
+    };
+    const runEngine = new RunEngine(
+      state,
+      {
+        env: {
+          NODE_ENV: "test",
+          APPROVAL_WAIT_TIMEOUT_MS: "500",
+        } as unknown,
+        sessionId: "session-1",
+        runId: TEST_RUN_ID,
+      },
+      new CodingAgent(llmGateway, executionService),
+      undefined,
+      { llmGateway },
+    );
+    const approvalStore = new PermissionApprovalStore(state, TEST_RUN_ID);
+
+    const responsePromise = runEngine.execute(
+      {
+        agentType: "coding",
+        prompt: "run tests",
+        sessionId: "session-1",
+      },
+      [{ role: "user", content: "run tests" }],
+      {},
+    );
+
+    const approvalResolutionPromise = (async () => {
+      for (let attempt = 0; attempt < 50; attempt += 1) {
+        const pending = await approvalStore.getPendingRequest();
+        if (pending) {
+          await approvalStore.resolveDecision({
+            kind: "allow_once",
+            requestId: pending.requestId,
+          });
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      throw new Error("Timed out waiting for a pending approval request in test.");
+    })();
+
+    const response = await responsePromise;
+    await approvalResolutionPromise;
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain("Completed after approval.");
+    expect(executionService.execute).toHaveBeenCalledWith(
+      "bash",
+      "run",
+      expect.objectContaining({ command: "pnpm test" }),
+      expect.anything(),
+    );
+    const pendingAfterResolution = await approvalStore.getPendingRequest();
+    expect(pendingAfterResolution).toBeNull();
   });
 
   it("keeps build mode running when planner would fail, because planner is inactive", async () => {
