@@ -1,5 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { Check, ChevronDown, Shield, ShieldAlert } from "lucide-react";
+import {
+  Check,
+  ChevronDown,
+  Lock,
+  LockOpen,
+  PencilLine,
+  type LucideIcon,
+} from "lucide-react";
 import { PRODUCT_MODES, type ProductMode } from "@repo/shared-types";
 import { cn } from "../../lib/utils";
 
@@ -13,21 +20,31 @@ interface PermissionModeOption {
   value: ProductMode;
   label: string;
   shortLabel: string;
-  Icon: typeof Shield;
+  description: string;
+  Icon: LucideIcon;
 }
 
 const PERMISSION_MODE_OPTIONS: PermissionModeOption[] = [
   {
+    value: PRODUCT_MODES.ASK_ALWAYS,
+    label: "Supervised",
+    shortLabel: "Supervised",
+    description: "Ask before commands and file changes.",
+    Icon: Lock,
+  },
+  {
     value: PRODUCT_MODES.AUTO_FOR_SAFE,
-    label: "Default permissions",
-    shortLabel: "Default",
-    Icon: Shield,
+    label: "Auto-accept edits",
+    shortLabel: "Auto edits",
+    description: "Auto-approve edits, ask before risky actions.",
+    Icon: PencilLine,
   },
   {
     value: PRODUCT_MODES.FULL_AGENT,
     label: "Full access",
     shortLabel: "Full access",
-    Icon: ShieldAlert,
+    description: "Allow commands and edits without prompts.",
+    Icon: LockOpen,
   },
 ];
 
@@ -38,8 +55,12 @@ export function PermissionModeControl({
 }: PermissionModeControlProps) {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const normalizedValue =
+    value === PRODUCT_MODES.AUTO_FOR_SAME_REPO
+      ? PRODUCT_MODES.AUTO_FOR_SAFE
+      : value;
   const selectedOption =
-    PERMISSION_MODE_OPTIONS.find((option) => option.value === value) ??
+    PERMISSION_MODE_OPTIONS.find((option) => option.value === normalizedValue) ??
     PERMISSION_MODE_OPTIONS[0]!;
   const SelectedIcon = selectedOption.Icon;
 
@@ -92,7 +113,7 @@ export function PermissionModeControl({
       {isOpen ? (
         <div
           role="menu"
-          className="absolute bottom-full left-0 z-40 mb-2 w-56 rounded-3xl border border-zinc-700/80 bg-zinc-900/95 p-2 shadow-2xl"
+          className="absolute bottom-full left-0 z-40 mb-2 w-[19rem] rounded-3xl border border-zinc-700/80 bg-zinc-900/95 p-2 shadow-2xl"
           data-testid="permission-mode-menu"
         >
           {PERMISSION_MODE_OPTIONS.map((option) => {
@@ -109,17 +130,24 @@ export function PermissionModeControl({
                   setIsOpen(false);
                 }}
                 className={cn(
-                  "flex w-full items-center justify-between rounded-2xl px-3 py-2 text-left text-sm transition",
+                  "flex w-full items-start justify-between rounded-2xl px-3 py-2 text-left transition",
                   isSelected
                     ? "bg-zinc-800/70 text-zinc-100"
                     : "text-zinc-200 hover:bg-zinc-800/50",
                 )}
               >
-                <span className="flex items-center gap-2.5">
-                  <OptionIcon size={16} className="text-zinc-400" />
-                  {option.label}
+                <span className="flex items-start gap-2.5">
+                  <OptionIcon size={16} className="mt-0.5 shrink-0 text-zinc-400" />
+                  <span className="space-y-0.5">
+                    <span className="block text-sm font-medium">{option.label}</span>
+                    <span className="block text-xs text-zinc-400">
+                      {option.description}
+                    </span>
+                  </span>
                 </span>
-                {isSelected ? <Check size={17} className="text-zinc-100" /> : null}
+                {isSelected ? (
+                  <Check size={17} className="mt-0.5 shrink-0 text-zinc-100" />
+                ) : null}
               </button>
             );
           })}
