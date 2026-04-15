@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { Message } from "@ai-sdk/react";
+import type { RunEvent } from "@repo/shared-types";
 import { ChatInterface } from "./ChatInterface.js";
 import { runApprovalPath } from "../../lib/platform-endpoints.js";
 
@@ -47,6 +48,7 @@ vi.mock("../../lib/run-summary-events.js", () => ({
 }));
 
 import { useRunSummary } from "../../hooks/useRunSummary.js";
+import { useRunEvents } from "../../hooks/useRunEvents.js";
 import { useRunActivityFeed } from "../../hooks/useRunActivityFeed.js";
 
 describe("ChatInterface", () => {
@@ -54,6 +56,7 @@ describe("ChatInterface", () => {
     vi.unstubAllGlobals();
     mockChatInputBar.mockClear();
     mockDispatchRunSummaryRefresh.mockReset();
+    vi.mocked(useRunEvents).mockReturnValue({ events: [] });
     Object.defineProperty(HTMLElement.prototype, "scrollTo", {
       configurable: true,
       value: vi.fn(),
@@ -343,6 +346,71 @@ describe("ChatInterface", () => {
     expect(
       screen.queryByRole("button", { name: "Allow in future" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("does not revive stale event-based approvals when summary reports no pending request", () => {
+    const staleApprovalEvent: RunEvent = {
+      version: 1,
+      eventId: "evt-approval-requested",
+      runId: "run-no-pending",
+      timestamp: "2026-01-01T00:00:00.000Z",
+      source: "brain",
+      type: "approval.requested",
+      payload: {
+        request: {
+          requestId: "req-stale-event",
+          runId: "run-no-pending",
+          origin: "agent",
+          category: "shell_command",
+          title: "Shadowbox wants to run a shell command",
+          reason:
+            "Shell commands can change repository or environment state and should be confirmed.",
+          actionFingerprint: "shell_command:bash:{\"command\":\"pnpm test\"}",
+          command: "pnpm test",
+          availableDecisions: ["allow_once", "deny"],
+          createdAt: "2026-01-01T00:00:00.000Z",
+        },
+      },
+    };
+
+    vi.mocked(useRunSummary).mockReturnValue({
+      summary: {
+        runId: "run-no-pending",
+        status: "COMPLETED",
+        totalTasks: 1,
+        completedTasks: 1,
+        failedTasks: 0,
+        planArtifact: null,
+        pendingApproval: null,
+      },
+    });
+    vi.mocked(useRunEvents).mockReturnValue({
+      events: [staleApprovalEvent],
+    });
+
+    render(
+      <ChatInterface
+        chatProps={{
+          messages: [],
+          runId: "run-no-pending",
+          input: "",
+          handleInputChange: vi.fn(),
+          handleSubmit: vi.fn(),
+          append: vi.fn(),
+          stop: vi.fn(),
+          isLoading: false,
+          error: null,
+          debugEvents: [],
+        }}
+        sessionId="session-1"
+        mode="build"
+      />,
+    );
+
+    expect(
+      screen.queryByRole("button", { name: "Allow once" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByTestId("chat-input-bar")).toBeInTheDocument();
   });
 
   it("uses the simplified default permission prompt when title is not question-style", () => {

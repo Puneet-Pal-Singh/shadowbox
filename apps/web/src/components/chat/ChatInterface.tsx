@@ -300,8 +300,17 @@ export function ChatInterface({
     summary?.planArtifact?.handoff && (mode === "build" || onModeChange)
       ? handleUsePlanInBuild
       : undefined;
-  const pendingApprovalCandidate =
-    summary?.pendingApproval ?? pendingApprovalFromEvents;
+  const pendingApprovalCandidate = useMemo(() => {
+    if (!summary) {
+      return pendingApprovalFromEvents;
+    }
+
+    if ("pendingApproval" in summary) {
+      return summary.pendingApproval ?? null;
+    }
+
+    return pendingApprovalFromEvents;
+  }, [pendingApprovalFromEvents, summary]);
   const pendingApproval = useMemo(() => {
     if (!pendingApprovalCandidate) {
       return null;
