@@ -497,33 +497,47 @@ export function ChatInterface({
             </div>
           )}
           {pendingApproval ? (
-            <div className="mb-2 rounded-2xl border border-zinc-700/80 bg-[#171717] p-4 text-zinc-100 shadow-[0_8px_26px_rgba(0,0,0,0.34)]">
-              <p className="text-2xl font-semibold leading-tight text-zinc-100">
-                {buildApprovalPromptTitle(pendingApproval)}
-              </p>
-              {pendingApproval.command ? (
-                <p className="mt-4 rounded-lg border border-zinc-700 bg-black/35 px-3 py-2 font-mono text-[13px] text-zinc-100">
-                  {pendingApproval.command}
+            <div className="mb-2 overflow-hidden rounded-2xl border border-zinc-700/80 bg-[linear-gradient(180deg,#18181b_0%,#151518_55%,#141418_100%)] text-zinc-100 shadow-[0_8px_26px_rgba(0,0,0,0.34)]">
+              <div className="border-b border-zinc-800/90 px-4 py-2">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-300">
+                  Pending approval
+                  <span className="ml-2 text-[12px] font-medium normal-case tracking-normal text-zinc-400">
+                    Command approval requested
+                  </span>
                 </p>
-              ) : (
-                <p className="mt-2 text-sm text-zinc-300">{pendingApproval.reason}</p>
-              )}
-              <div className="mt-3 flex flex-wrap gap-2">
-                {displayedApprovalDecisions.map((decision) => (
-                  <button
-                    key={decision}
-                    type="button"
-                    disabled={approvalBusyDecision !== null}
-                    onClick={() => void resolveApprovalDecision(decision)}
-                    className={approvalDecisionButtonClassName(decision)}
-                  >
-                    {formatApprovalDecisionLabel(decision)}
-                  </button>
-                ))}
               </div>
-              {approvalError ? (
-                <p className="mt-2 text-xs text-red-300">{approvalError}</p>
-              ) : null}
+              <div className="p-4">
+                <p className="text-[clamp(1.1rem,1.35vw,1.45rem)] font-semibold leading-tight text-zinc-100">
+                  {buildApprovalPromptTitle(pendingApproval)}
+                </p>
+                {pendingApproval.command ? (
+                  <p className="mt-3 rounded-lg border border-zinc-700 bg-black/35 px-3 py-2 font-mono text-[13px] text-zinc-100">
+                    {pendingApproval.command}
+                  </p>
+                ) : (
+                  <p className="mt-2 text-sm text-zinc-300">
+                    {pendingApproval.reason}
+                  </p>
+                )}
+              </div>
+              <div className="border-t border-zinc-800/90 px-4 pb-4 pt-3">
+                <div className="flex flex-wrap gap-2">
+                  {displayedApprovalDecisions.map((decision) => (
+                    <button
+                      key={decision}
+                      type="button"
+                      disabled={approvalBusyDecision !== null}
+                      onClick={() => void resolveApprovalDecision(decision)}
+                      className={approvalDecisionButtonClassName(decision)}
+                    >
+                      {formatApprovalDecisionLabel(decision)}
+                    </button>
+                  ))}
+                </div>
+                {approvalError ? (
+                  <p className="mt-3 text-xs text-red-300">{approvalError}</p>
+                ) : null}
+              </div>
             </div>
           ) : null}
           {pendingApproval ? null : (
@@ -604,8 +618,21 @@ function formatApprovalDecisionLabel(decision: ApprovalDecisionKind): string {
 function approvalDecisionButtonClassName(
   decision: ApprovalDecisionKind,
 ): string {
-  void decision;
-  return "rounded-lg border border-zinc-600 bg-zinc-900/80 px-3 py-1.5 text-sm font-medium text-zinc-100 transition hover:border-zinc-500 hover:bg-zinc-800/80 disabled:cursor-not-allowed disabled:opacity-60";
+  const baseClassName =
+    "rounded-lg border px-3 py-1.5 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-60";
+
+  switch (decision) {
+    case "allow_once":
+      return `${baseClassName} border-blue-500/35 bg-blue-500/10 text-blue-100 hover:border-blue-400/50 hover:bg-blue-500/15`;
+    case "allow_for_run":
+      return `${baseClassName} border-emerald-500/35 bg-emerald-500/10 text-emerald-100 hover:border-emerald-400/50 hover:bg-emerald-500/15`;
+    case "deny":
+    case "abort":
+      return `${baseClassName} border-red-500/35 bg-red-500/10 text-red-100 hover:border-red-400/50 hover:bg-red-500/15`;
+    case "allow_persistent_rule":
+    default:
+      return `${baseClassName} border-zinc-600 bg-zinc-900/80 text-zinc-100 hover:border-zinc-500 hover:bg-zinc-800/80`;
+  }
 }
 
 function buildApprovalPromptTitle(pendingApproval: ApprovalRequest): string {
