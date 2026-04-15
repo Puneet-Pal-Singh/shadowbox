@@ -14,10 +14,10 @@ describe("PermissionModeControl", () => {
 
     expect(
       screen.getByRole("button", { name: "Permission mode" }),
-    ).toHaveTextContent("Default");
+    ).toHaveTextContent("Auto edits");
   });
 
-  it("lets users switch from default permissions to full access", () => {
+  it("lets users switch from auto edits to full access", () => {
     const onChange = vi.fn();
     render(
       <PermissionModeControl
@@ -27,9 +27,24 @@ describe("PermissionModeControl", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Permission mode" }));
-    fireEvent.click(screen.getByRole("menuitemradio", { name: "Full access" }));
+    fireEvent.click(
+      screen.getByRole("menuitemradio", { name: /full access/i }),
+    );
 
     expect(onChange).toHaveBeenCalledWith(PRODUCT_MODES.FULL_AGENT);
     expect(screen.queryByTestId("permission-mode-menu")).not.toBeInTheDocument();
+  });
+
+  it("maps legacy same-repo mode to the auto edits label", () => {
+    render(
+      <PermissionModeControl
+        value={PRODUCT_MODES.AUTO_FOR_SAME_REPO}
+        onChange={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.getByRole("button", { name: "Permission mode" }),
+    ).toHaveTextContent("Auto edits");
   });
 });
