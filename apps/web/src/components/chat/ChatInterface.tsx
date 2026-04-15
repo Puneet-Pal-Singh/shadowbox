@@ -489,28 +489,16 @@ export function ChatInterface({
           )}
           {pendingApproval ? (
             <div className="mb-2 rounded-2xl border border-zinc-700/80 bg-[#171717] p-4 text-zinc-100 shadow-[0_8px_26px_rgba(0,0,0,0.34)]">
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-amber-300">
-                Permissions approval
-              </p>
-              <p className="mt-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-400">
-                Request
-              </p>
-              <p className="mt-1 text-xl font-semibold leading-tight">
-                {pendingApproval.title}
-              </p>
-              <p className="mt-1 text-sm text-zinc-300">
-                {pendingApproval.reason}
+              <p className="text-2xl font-semibold leading-tight text-zinc-100">
+                {buildApprovalPromptTitle(pendingApproval)}
               </p>
               {pendingApproval.command ? (
-                <>
-                  <p className="mt-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-400">
-                    Command
-                  </p>
-                  <p className="mt-1 rounded-lg border border-zinc-700 bg-black/35 px-3 py-2 font-mono text-[13px] text-zinc-100">
-                    {pendingApproval.command}
-                  </p>
-                </>
-              ) : null}
+                <p className="mt-4 rounded-lg border border-zinc-700 bg-black/35 px-3 py-2 font-mono text-[13px] text-zinc-100">
+                  {pendingApproval.command}
+                </p>
+              ) : (
+                <p className="mt-2 text-sm text-zinc-300">{pendingApproval.reason}</p>
+              )}
               <div className="mt-3 flex flex-wrap gap-2">
                 {displayedApprovalDecisions.map((decision) => (
                   <button
@@ -607,14 +595,41 @@ function formatApprovalDecisionLabel(decision: ApprovalDecisionKind): string {
 function approvalDecisionButtonClassName(
   decision: ApprovalDecisionKind,
 ): string {
-  switch (decision) {
-    case "allow_for_run":
-      return "rounded-lg border border-emerald-500/60 bg-emerald-500/10 px-3 py-1.5 text-sm font-medium text-emerald-200 transition hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-60";
-    case "deny":
-    case "abort":
-      return "rounded-lg border border-red-500/50 bg-red-500/10 px-3 py-1.5 text-sm font-medium text-red-200 transition hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-60";
+  void decision;
+  return "rounded-lg border border-zinc-600 bg-zinc-900/80 px-3 py-1.5 text-sm font-medium text-zinc-100 transition hover:border-zinc-500 hover:bg-zinc-800/80 disabled:cursor-not-allowed disabled:opacity-60";
+}
+
+function buildApprovalPromptTitle(pendingApproval: ApprovalRequest): string {
+  const title = pendingApproval.title.trim();
+  if (title.endsWith("?")) {
+    return title;
+  }
+
+  const wantsToMatch = title.match(/^(?:shadowbox|codex)\s+wants\s+to\s+(.+)$/i);
+  if (wantsToMatch?.[1]) {
+    return `Do you want me to ${wantsToMatch[1]}?`;
+  }
+
+  switch (pendingApproval.category) {
+    case "git_mutation":
+      return "Do you want me to run this git command?";
+    case "filesystem_write":
+      return "Do you want me to write files in this workspace?";
+    case "network_external":
+      return "Do you want me to access an external network target?";
+    case "outside_workspace":
+      return "Do you want me to run this command outside the workspace?";
+    case "subagent_spawn":
+      return "Do you want me to start a sub-agent?";
+    case "provider_connect":
+      return "Do you want me to connect this provider?";
+    case "deploy_or_infra_mutation":
+      return "Do you want me to run this deployment action?";
+    case "dangerous_retry":
+      return "Do you want me to retry this risky action?";
+    case "shell_command":
     default:
-      return "rounded-lg border border-zinc-600 bg-black/40 px-3 py-1.5 text-sm font-medium text-zinc-100 transition hover:border-zinc-500 hover:bg-black/55 disabled:cursor-not-allowed disabled:opacity-60";
+      return "Do you want me to run this command?";
   }
 }
 
