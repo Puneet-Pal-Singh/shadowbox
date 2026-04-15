@@ -1,6 +1,7 @@
 import type { CoreMessage, CoreTool } from "ai";
 import {
   RUN_WORKFLOW_STEPS,
+  type ApprovalRequest,
   type RunEvent,
 } from "@repo/shared-types";
 import { Run, RunRepository, RunStateMachine } from "../run/index.js";
@@ -123,9 +124,14 @@ export interface RunEngineEnv {
   COST_UNKNOWN_PRICING_MODE?: string;
   MAX_RUN_BUDGET?: string;
   MAX_SESSION_BUDGET?: string;
+  APPROVAL_WAIT_TIMEOUT_MS?: string;
   NODE_ENV?: string;
   ALLOW_DEFAULT_EXECUTOR?: string;
 }
+
+const TEST_APPROVAL_WAIT_TIMEOUT_MS = 50;
+const DEFAULT_APPROVAL_WAIT_TIMEOUT_MS = 5 * 60 * 1000;
+const APPROVAL_WAIT_POLL_INTERVAL_MS = 250;
 
 export interface RunEngineDependencies {
   aiService?: LLMRuntimeAIService;
@@ -567,7 +573,22 @@ export class RunEngine implements IRunEngine {
                 await this.runEventRecorder.recordApprovalRequested(
                   permissionResult.request,
                 );
-                throw PermissionGateError.fromAsk(permissionResult.request);
+                const approvalOutcome = await this.waitForApprovalDecision(
+                  permissionResult.request,
+                );
+                if (approvalOutcome === "approved") {
+                  // Continue with the original tool call after approval is granted.
+                } else if (approvalOutcome === "timed_out") {
+                  throw PermissionGateError.fromAsk(permissionResult.request);
+                } else if (approvalOutcome === "cancelled") {
+                  throw PermissionGateError.fromDeny(
+                    "Run was cancelled while waiting for approval.",
+                  );
+                } else {
+                  throw PermissionGateError.fromDeny(
+                    "Approval request was denied.",
+                  );
+                }
               }
               if (permissionResult.kind === "deny") {
                 throw PermissionGateError.fromDeny(permissionResult.reason);
@@ -710,6 +731,37 @@ export class RunEngine implements IRunEngine {
       }
       throw error;
     }
+  }
+
+  private async waitForApprovalDecision(
+    request: ApprovalRequest,
+  ): Promise<"approved" | "denied" | "timed_out" | "cancelled"> {
+    const timeoutMs = resolveApprovalWaitTimeoutMs(this.options.env);
+    const startedAt = Date.now();
+    const pollIntervalMs = Math.min(APPROVAL_WAIT_POLL_INTERVAL_MS, timeoutMs);
+
+    while (Date.now() - startedAt < timeoutMs) {
+      const currentRun = await this.runRepo.getById(this.options.runId);
+      if (currentRun?.status === "CANCELLED") {
+        return "cancelled";
+      }
+
+      const isApproved = await this.permissionApprovalStore.isActionAllowed(
+        request.actionFingerprint,
+      );
+      if (isApproved) {
+        return "approved";
+      }
+
+      const pending = await this.permissionApprovalStore.getPendingRequest();
+      if (!pending || pending.requestId !== request.requestId) {
+        return "denied";
+      }
+
+      await waitForApprovalPollCycle(pollIntervalMs);
+    }
+
+    return "timed_out";
   }
 
   private async persistConversationMessages(
@@ -1036,6 +1088,23 @@ function parseOptionalNumber(value?: string): number | undefined {
   }
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function resolveApprovalWaitTimeoutMs(env: RunEngineEnv): number {
+  const configured = parseOptionalNumber(env.APPROVAL_WAIT_TIMEOUT_MS);
+  if (typeof configured === "number" && configured > 0) {
+    return configured;
+  }
+
+  return env.NODE_ENV === "test"
+    ? TEST_APPROVAL_WAIT_TIMEOUT_MS
+    : DEFAULT_APPROVAL_WAIT_TIMEOUT_MS;
+}
+
+function waitForApprovalPollCycle(delayMs: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, delayMs);
+  });
 }
 
 export class RunEngineError extends Error {
