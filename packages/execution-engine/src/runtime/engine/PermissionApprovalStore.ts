@@ -21,6 +21,14 @@ interface ApprovalState {
   crossRepo: Record<string, string>;
   destructiveExpiresAt?: string;
   pendingRequest?: ApprovalRequest;
+  resolvedDecisions: Record<
+    string,
+    {
+      decision: ApprovalDecision["kind"];
+      status: "approved" | "denied" | "aborted";
+      resolvedAt: string;
+    }
+  >;
   runAllowances: Record<
     string,
     {
@@ -43,6 +51,7 @@ interface ApprovalState {
 
 const APPROVAL_KEY_PREFIX = "permission:approvals:";
 const RISKY_ATTEMPT_WINDOW_MS = 5 * 60 * 1000;
+const RESOLVED_DECISION_WINDOW_MS = 10 * 60 * 1000;
 
 interface StoredPersistentPermissionRule {
   ruleId: string;
@@ -205,7 +214,13 @@ export class PermissionApprovalStore {
         createdByUserId,
         now,
       );
-      this.finalizeResolvedDecision(next, pending, resolution.status, now);
+      this.finalizeResolvedDecision(
+        next,
+        pending,
+        resolution.decision,
+        resolution.status,
+        now,
+      );
       await this.ctx.storage.put(this.key(), next);
       return resolution;
     });
@@ -303,6 +318,20 @@ export class PermissionApprovalStore {
     });
   }
 
+  async getResolvedDecision(requestId: string): Promise<{
+    decision: ApprovalDecision["kind"];
+    status: "approved" | "denied" | "aborted";
+    resolvedAt: string;
+  } | null> {
+    return await this.ctx.blockConcurrencyWhile(async () => {
+      const state = await this.loadState();
+      const next = this.withPrunedApprovals(state, Date.now());
+      const resolved = next.resolvedDecisions[requestId] ?? null;
+      await this.persistIfChanged(state, next);
+      return resolved;
+    });
+  }
+
   private key(): string {
     return `${APPROVAL_KEY_PREFIX}${this.runId}`;
   }
@@ -314,6 +343,7 @@ export class PermissionApprovalStore {
         crossRepo: { ...(stored.crossRepo ?? {}) },
         destructiveExpiresAt: stored.destructiveExpiresAt,
         pendingRequest: stored.pendingRequest,
+        resolvedDecisions: { ...(stored.resolvedDecisions ?? {}) },
         runAllowances: { ...(stored.runAllowances ?? {}) },
         persistentRules: [...(stored.persistentRules ?? [])],
         riskyAttempts: { ...(stored.riskyAttempts ?? {}) },
@@ -322,6 +352,7 @@ export class PermissionApprovalStore {
     }
     return {
       crossRepo: {},
+      resolvedDecisions: {},
       runAllowances: {},
       persistentRules: [],
       riskyAttempts: {},
@@ -338,6 +369,7 @@ export class PermissionApprovalStore {
       updatedAt: state.updatedAt,
       destructiveExpiresAt: state.destructiveExpiresAt,
       pendingRequest: state.pendingRequest,
+      resolvedDecisions: {},
       runAllowances: cloneRunAllowances(state.runAllowances ?? {}),
       persistentRules: [...(state.persistentRules ?? [])],
       riskyAttempts: {},
@@ -361,6 +393,18 @@ export class PermissionApprovalStore {
       isExpired(nextState.pendingRequest, nowMs)
     ) {
       delete nextState.pendingRequest;
+    }
+
+    for (const [requestId, resolvedDecision] of Object.entries(
+      state.resolvedDecisions ?? {},
+    )) {
+      const resolvedAtMs = Date.parse(resolvedDecision.resolvedAt);
+      if (
+        Number.isFinite(resolvedAtMs) &&
+        nowMs - resolvedAtMs <= RESOLVED_DECISION_WINDOW_MS
+      ) {
+        nextState.resolvedDecisions[requestId] = resolvedDecision;
+      }
     }
 
     for (const [fingerprint, attempt] of Object.entries(
@@ -482,12 +526,18 @@ export class PermissionApprovalStore {
   private finalizeResolvedDecision(
     state: ApprovalState,
     pending: ApprovalRequest,
+    decision: ApprovalDecision["kind"],
     status: PermissionDecisionResult["status"],
     now: number,
   ): void {
     if (status === "approved") {
       this.resetRiskyAttempt(state, pending.actionFingerprint);
     }
+    state.resolvedDecisions[pending.requestId] = {
+      decision,
+      status,
+      resolvedAt: new Date(now).toISOString(),
+    };
     delete state.pendingRequest;
     state.updatedAt = new Date(now).toISOString();
   }
@@ -517,6 +567,9 @@ function isSameState(a: ApprovalState, b: ApprovalState): boolean {
     return false;
   }
   if (!areJsonEqual(a.pendingRequest, b.pendingRequest)) {
+    return false;
+  }
+  if (!areJsonEqual(a.resolvedDecisions, b.resolvedDecisions)) {
     return false;
   }
   if (!areJsonEqual(a.runAllowances, b.runAllowances)) {
