@@ -440,13 +440,19 @@ function ApprovalRow({
   displayMode: "card" | "transcript";
   collapsible: boolean;
 }) {
+  const tone =
+    row.status === "granted"
+      ? "completed"
+      : row.status === "requested"
+        ? "requested"
+        : "failed";
   return (
     <ExpandableRow
-      label="Approval Required"
+      label={getApprovalRowLabel(row.status)}
       summary={row.summary}
       expanded={expanded}
       onToggle={onToggle}
-      tone={row.status === "granted" ? "completed" : "requested"}
+      tone={tone}
       displayMode={displayMode}
       collapsible={collapsible}
     >
@@ -455,6 +461,21 @@ function ApprovalRow({
       </div>
     </ExpandableRow>
   );
+}
+
+function getApprovalRowLabel(
+  status: Extract<ActivityFeedRowViewModel, { kind: "approval" }>["status"],
+): string {
+  if (status === "granted") {
+    return "Approval Resolved";
+  }
+  if (status === "denied") {
+    return "Approval Denied";
+  }
+  if (status === "expired") {
+    return "Approval Expired";
+  }
+  return "Approval Required";
 }
 
 function HandoffRow({
