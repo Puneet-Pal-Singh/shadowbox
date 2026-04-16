@@ -804,6 +804,7 @@ describe("RunEngine", () => {
       { llmGateway },
     );
     const approvalStore = new PermissionApprovalStore(state, TEST_RUN_ID);
+    let resolvedRequestId: string | null = null;
 
     const responsePromise = runEngine.execute(
       {
@@ -819,6 +820,7 @@ describe("RunEngine", () => {
       for (let attempt = 0; attempt < 50; attempt += 1) {
         const pending = await approvalStore.getPendingRequest();
         if (pending) {
+          resolvedRequestId = pending.requestId;
           await approvalStore.resolveDecision({
             kind: "allow_once",
             requestId: pending.requestId,
@@ -843,6 +845,23 @@ describe("RunEngine", () => {
     );
     const pendingAfterResolution = await approvalStore.getPendingRequest();
     expect(pendingAfterResolution).toBeNull();
+    expect(resolvedRequestId).toBeTruthy();
+
+    const events = await new RunEventRepository(state).getByRun(TEST_RUN_ID);
+    const approvalResolvedIndex = events.findIndex(
+      (event) =>
+        event.type === RUN_EVENT_TYPES.APPROVAL_RESOLVED &&
+        event.payload.requestId === resolvedRequestId,
+    );
+    const firstToolTerminalIndex = events.findIndex(
+      (event) =>
+        event.type === RUN_EVENT_TYPES.TOOL_COMPLETED ||
+        event.type === RUN_EVENT_TYPES.TOOL_FAILED,
+    );
+
+    expect(approvalResolvedIndex).toBeGreaterThan(-1);
+    expect(firstToolTerminalIndex).toBeGreaterThan(-1);
+    expect(approvalResolvedIndex).toBeLessThan(firstToolTerminalIndex);
   });
 
   it("keeps build mode running when planner would fail, because planner is inactive", async () => {
