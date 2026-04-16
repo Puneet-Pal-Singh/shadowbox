@@ -97,6 +97,35 @@ describe("PermissionApprovalStore", () => {
     await expect(runB.isActionAllowed("shell:pnpm test")).resolves.toBe(false);
   });
 
+  it("exposes resolved decision metadata for the waiting runtime loop", async () => {
+    const state = new MockRuntimeState();
+    const store = new PermissionApprovalStore(state, "run-approval-resolved");
+
+    await store.setPendingRequest({
+      requestId: "req-resolved",
+      runId: "run-approval-resolved",
+      origin: "agent",
+      category: "shell_command",
+      title: "Run tests",
+      reason: "Shell command can mutate state.",
+      actionFingerprint: "shell:pnpm test",
+      availableDecisions: ["allow_once", "deny"],
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    await store.resolveDecision(
+      { kind: "allow_once", requestId: "req-resolved" },
+      "user-1",
+    );
+
+    await expect(store.getResolvedDecision("req-resolved")).resolves.toMatchObject(
+      {
+        decision: "allow_once",
+        status: "approved",
+      },
+    );
+  });
+
   it("rejects broad unsafe persistent shell rules", async () => {
     const state = new MockRuntimeState();
     const store = new PermissionApprovalStore(state, "run-approval-4");
