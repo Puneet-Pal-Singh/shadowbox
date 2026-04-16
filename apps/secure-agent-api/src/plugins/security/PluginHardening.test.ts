@@ -32,6 +32,22 @@ function createSandboxMock(): SandboxMock {
   };
 }
 
+function createSandboxMockWithResponder(
+  responder: (command: string, index: number) => ExecResult,
+): SandboxMock {
+  const execCalls: string[] = [];
+  return {
+    execCalls,
+    async exec(command: string): Promise<ExecResult> {
+      execCalls.push(command);
+      return responder(command, execCalls.length - 1);
+    },
+    async writeFile(): Promise<void> {
+      return;
+    },
+  };
+}
+
 function asSandbox(mock: SandboxMock): Sandbox {
   return mock as unknown as Sandbox;
 }
@@ -94,6 +110,64 @@ describe("secure-agent-api plugin hardening", () => {
 
     expect(result.success).toBe(true);
     expect(sandbox.execCalls).toHaveLength(2);
+  });
+
+  it("adds a corepack fallback when running pnpm shell commands", async () => {
+    const plugin = new BashPlugin();
+    const sandbox = createSandboxMockWithResponder((command, index) => {
+      if (index === 0) {
+        return { exitCode: 0, stdout: "", stderr: "" };
+      }
+      if (!command.includes("command -v corepack")) {
+        return {
+          exitCode: 1,
+          stdout: "",
+          stderr: "missing pnpm/corepack fallback wrapper",
+        };
+      }
+      return { exitCode: 0, stdout: "ok", stderr: "" };
+    });
+
+    const result = await plugin.execute(asSandbox(sandbox), {
+      action: "run",
+      runId: "run-safe-bash-pnpm",
+      command: "pnpm run test",
+    });
+
+    expect(result.success).toBe(true);
+    expect(sandbox.execCalls).toHaveLength(2);
+    expect(sandbox.execCalls[1]).toContain("command -v pnpm");
+    expect(sandbox.execCalls[1]).toContain("command -v corepack");
+    expect(sandbox.execCalls[1]).toContain("corepack pnpm run test");
+  });
+
+  it("falls back to npm run when pnpm and corepack are unavailable", async () => {
+    const plugin = new BashPlugin();
+    const sandbox = createSandboxMockWithResponder((command, index) => {
+      if (index === 0) {
+        return { exitCode: 0, stdout: "", stderr: "" };
+      }
+      if (!command.includes("else npm run test;")) {
+        return {
+          exitCode: 1,
+          stdout: "",
+          stderr: "missing npm fallback wrapper",
+        };
+      }
+      return { exitCode: 0, stdout: "ok", stderr: "" };
+    });
+
+    const result = await plugin.execute(asSandbox(sandbox), {
+      action: "run",
+      runId: "run-safe-bash-pnpm-npm-fallback",
+      command: "pnpm run test",
+    });
+
+    expect(result.success).toBe(true);
+    expect(sandbox.execCalls).toHaveLength(2);
+    expect(sandbox.execCalls[1]).toContain("command -v pnpm");
+    expect(sandbox.execCalls[1]).toContain("command -v corepack");
+    expect(sandbox.execCalls[1]).toContain("else npm run test;");
   });
 
   it("registers the bash tool with the canonical runtime name", () => {
