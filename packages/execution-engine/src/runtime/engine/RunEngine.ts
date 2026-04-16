@@ -1,6 +1,8 @@
 import type { CoreMessage, CoreTool } from "ai";
 import {
+  RUN_EVENT_TYPES,
   RUN_WORKFLOW_STEPS,
+  type ApprovalDecisionKind,
   type ApprovalRequest,
   type RunEvent,
 } from "@repo/shared-types";
@@ -576,13 +578,40 @@ export class RunEngine implements IRunEngine {
                 const approvalOutcome = await this.waitForApprovalDecision(
                   permissionResult.request,
                 );
-                if (approvalOutcome === "approved") {
+                if (
+                  approvalOutcome.outcome === "approved" ||
+                  approvalOutcome.outcome === "denied" ||
+                  approvalOutcome.outcome === "aborted"
+                ) {
+                  await this.ensureApprovalResolvedEventRecorded({
+                    requestId: permissionResult.request.requestId,
+                    decision:
+                      approvalOutcome.decision ??
+                      (approvalOutcome.outcome === "approved"
+                        ? "allow_once"
+                        : approvalOutcome.outcome === "aborted"
+                          ? "abort"
+                          : "deny"),
+                    status:
+                      approvalOutcome.outcome === "approved"
+                        ? "approved"
+                        : approvalOutcome.outcome === "aborted"
+                          ? "aborted"
+                          : "denied",
+                  });
+                }
+
+                if (approvalOutcome.outcome === "approved") {
                   // Continue with the original tool call after approval is granted.
-                } else if (approvalOutcome === "timed_out") {
+                } else if (approvalOutcome.outcome === "timed_out") {
                   throw PermissionGateError.fromAsk(permissionResult.request);
-                } else if (approvalOutcome === "cancelled") {
+                } else if (approvalOutcome.outcome === "cancelled") {
                   throw PermissionGateError.fromDeny(
                     "Run was cancelled while waiting for approval.",
+                  );
+                } else if (approvalOutcome.outcome === "aborted") {
+                  throw PermissionGateError.fromDeny(
+                    "Approval request was aborted.",
                   );
                 } else {
                   throw PermissionGateError.fromDeny(
@@ -735,7 +764,10 @@ export class RunEngine implements IRunEngine {
 
   private async waitForApprovalDecision(
     request: ApprovalRequest,
-  ): Promise<"approved" | "denied" | "timed_out" | "cancelled"> {
+  ): Promise<{
+    outcome: "approved" | "denied" | "aborted" | "timed_out" | "cancelled";
+    decision?: ApprovalDecisionKind;
+  }> {
     const timeoutMs = resolveApprovalWaitTimeoutMs(this.options.env);
     const startedAt = Date.now();
     const pollIntervalMs = Math.min(APPROVAL_WAIT_POLL_INTERVAL_MS, timeoutMs);
@@ -743,25 +775,75 @@ export class RunEngine implements IRunEngine {
     while (Date.now() - startedAt < timeoutMs) {
       const currentRun = await this.runRepo.getById(this.options.runId);
       if (currentRun?.status === "CANCELLED") {
-        return "cancelled";
+        return { outcome: "cancelled" };
+      }
+
+      const resolvedDecision =
+        await this.permissionApprovalStore.getResolvedDecision(
+          request.requestId,
+        );
+      if (resolvedDecision) {
+        if (resolvedDecision.status === "approved") {
+          return {
+            outcome: "approved",
+            decision: resolvedDecision.decision,
+          };
+        }
+        if (resolvedDecision.status === "aborted") {
+          return {
+            outcome: "aborted",
+            decision: resolvedDecision.decision,
+          };
+        }
+        return {
+          outcome: "denied",
+          decision: resolvedDecision.decision,
+        };
       }
 
       const isApproved = await this.permissionApprovalStore.isActionAllowed(
         request.actionFingerprint,
       );
       if (isApproved) {
-        return "approved";
+        return { outcome: "approved", decision: "allow_once" };
       }
 
       const pending = await this.permissionApprovalStore.getPendingRequest();
       if (!pending || pending.requestId !== request.requestId) {
-        return "denied";
+        return { outcome: "denied", decision: "deny" };
       }
 
       await waitForApprovalPollCycle(pollIntervalMs);
     }
 
-    return "timed_out";
+    return { outcome: "timed_out" };
+  }
+
+  private async ensureApprovalResolvedEventRecorded(input: {
+    requestId: string;
+    decision: ApprovalDecisionKind;
+    status: "approved" | "denied" | "aborted";
+  }): Promise<void> {
+    const events = await this.runEventRepo.getByRun(this.options.runId);
+    const alreadyRecorded = events.some(
+      (event) =>
+        event.type === RUN_EVENT_TYPES.APPROVAL_RESOLVED &&
+        event.payload.requestId === input.requestId,
+    );
+    if (alreadyRecorded) {
+      return;
+    }
+
+    await this.runEventRecorder.recordApprovalResolved({
+      requestId: input.requestId,
+      decision: input.decision,
+      status:
+        input.status === "approved"
+          ? "approved"
+          : input.status === "aborted"
+            ? "aborted"
+            : "denied",
+    });
   }
 
   private async persistConversationMessages(
