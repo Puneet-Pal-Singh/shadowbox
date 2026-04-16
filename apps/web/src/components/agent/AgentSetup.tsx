@@ -55,6 +55,10 @@ import {
   loadStoredProductMode,
   persistProductMode,
 } from "../../lib/product-mode-storage";
+import {
+  isProviderModelBootstrapLoading,
+  isProviderVisibleModelHydrationPending,
+} from "../../lib/provider-model-bootstrap-loading.js";
 
 interface AgentSetupProps {
   sessionId: string;
@@ -172,17 +176,40 @@ export function AgentSetup({
     selectedModelId,
     selectedModelView,
     providerModels,
+    manageProviderModels,
     providerModelsMetadata,
     providerModelsPage,
     visibleModelIds,
     loadingModelsForProviderId,
+    loadingManageModelsForProviderIds,
     refreshingModelsForProviderId,
     loadProviderModels,
+    loadManageProviderModels,
     loadMoreProviderModels,
     refreshProviderModels,
     setModelView,
     applySessionSelection,
   } = useProviderStore();
+  const isModelPickerLoading = useMemo(
+    () =>
+      isProviderModelBootstrapLoading({
+        status,
+        catalog,
+        credentials,
+        providerModels,
+      }),
+    [status, catalog, credentials, providerModels],
+  );
+  const isSelectedProviderModelHydrationPending = useMemo(
+    () =>
+      isProviderVisibleModelHydrationPending({
+        selectedProviderId,
+        providerModels,
+        visibleModelIds,
+        manageProviderModels: manageProviderModels ?? {},
+      }),
+    [manageProviderModels, providerModels, selectedProviderId, visibleModelIds],
+  );
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const explorerRef = useRef<FileExplorerHandle>(null);
   const previousProviderDialogSignalRef = useRef(openProviderDialogSignal);
@@ -304,6 +331,30 @@ export function AgentSetup({
     loadProviderModels,
     providerModels,
     selectedModelView,
+    selectedProviderId,
+  ]);
+
+  useEffect(() => {
+    if (!selectedProviderId || !isSelectedProviderModelHydrationPending) {
+      return;
+    }
+    if (loadingManageModelsForProviderIds?.[selectedProviderId]) {
+      return;
+    }
+    if (!loadManageProviderModels) {
+      return;
+    }
+
+    void loadManageProviderModels(selectedProviderId).catch((error) => {
+      console.warn(
+        "[agent-setup/model-picker] failed to hydrate selected visible models",
+        error,
+      );
+    });
+  }, [
+    isSelectedProviderModelHydrationPending,
+    loadManageProviderModels,
+    loadingManageModelsForProviderIds,
     selectedProviderId,
   ]);
 
@@ -888,7 +939,10 @@ export function AgentSetup({
                             setProviderDialogVariant("manage-models-only");
                             setShowProviderDialog(true);
                           }}
-                          isLoading={status === "loading"}
+                          isLoading={isModelPickerLoading}
+                          isHydratingVisibleModels={
+                            isSelectedProviderModelHydrationPending
+                          }
                         />
                       </div>
                     </div>
