@@ -918,13 +918,19 @@ describe("ModelPickerPopover", () => {
   });
 
   describe("Loading State", () => {
-    it("disables trigger button when isLoading is true", () => {
+    it("shows a loading view when isLoading is true", async () => {
       render(<ModelPickerPopover {...defaultProps} isLoading={true} />);
 
       const triggerButton = screen.getByRole("button", {
         name: /open model picker/i,
       });
-      expect(triggerButton).toBeDisabled();
+      expect(triggerButton).toHaveTextContent(/loading models/i);
+
+      fireEvent.click(triggerButton);
+
+      expect(
+        await screen.findByText(/fetching available models from your providers/i),
+      ).toBeInTheDocument();
     });
 
     it("shows inline loading text while selected provider models are still loading", async () => {
@@ -943,6 +949,25 @@ describe("ModelPickerPopover", () => {
       );
 
       expect(await screen.findByText("Loading models...")).toBeInTheDocument();
+    });
+
+    it("shows inline selected-model hydration loading text", async () => {
+      render(
+        <ModelPickerPopover
+          {...defaultProps}
+          selectedProviderId="openai"
+          selectedModelId="gpt-4"
+          isHydratingVisibleModels={true}
+        />,
+      );
+
+      fireEvent.click(
+        screen.getByRole("button", { name: /open model picker/i }),
+      );
+
+      expect(
+        await screen.findByText("Loading selected models..."),
+      ).toBeInTheDocument();
     });
   });
 
