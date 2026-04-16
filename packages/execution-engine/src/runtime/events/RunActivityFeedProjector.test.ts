@@ -388,10 +388,57 @@ describe("RunActivityFeedProjector", () => {
     }
 
     expect(approval.status).toBe("denied");
-    expect(approval.summary).toBe(
-      "Shadowbox wants to commit repository changes",
-    );
+    expect(approval.summary).toBe("Approval denied");
     expect(approval.details).toContain("Decision: deny");
+  });
+
+  it("does not duplicate approval decision details when duplicate resolved events arrive", () => {
+    const snapshot = projectRunActivityFeed({
+      runId: "run-approval-duplicate",
+      run: null,
+      events: [
+        createEvent(RUN_EVENT_TYPES.APPROVAL_REQUESTED, {
+          request: {
+            requestId: "req-dup",
+            runId: "run-approval-duplicate",
+            origin: "agent",
+            category: "shell_command",
+            title: "Shadowbox wants to run a shell command",
+            reason: "Shell commands can change repository state.",
+            actionFingerprint: "shell:pnpm test",
+            availableDecisions: ["allow_once", "deny"],
+            createdAt: "2026-03-24T10:00:00.000Z",
+          },
+        }),
+        createEvent(RUN_EVENT_TYPES.APPROVAL_RESOLVED, {
+          requestId: "req-dup",
+          decision: "allow_once",
+          status: "approved",
+          resolvedAt: "2026-03-24T10:00:01.000Z",
+        }),
+        createEvent(RUN_EVENT_TYPES.APPROVAL_RESOLVED, {
+          requestId: "req-dup",
+          decision: "allow_once",
+          status: "approved",
+          resolvedAt: "2026-03-24T10:00:02.000Z",
+        }),
+      ],
+    });
+
+    const approval = snapshot.items.find(
+      (item) =>
+        item.kind === ACTIVITY_PART_KINDS.APPROVAL &&
+        item.id === "approval:req-dup",
+    );
+    expect(approval?.kind).toBe("approval");
+    if (approval?.kind !== "approval") {
+      throw new Error("Expected approval activity part");
+    }
+
+    expect(approval.summary).toBe("Approval resolved");
+    expect(approval.details).toBe(
+      "Shell commands can change repository state.\nDecision: allow_once",
+    );
   });
 });
 
