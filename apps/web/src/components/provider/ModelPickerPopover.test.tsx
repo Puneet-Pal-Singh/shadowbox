@@ -393,7 +393,7 @@ describe("ModelPickerPopover", () => {
       });
     });
 
-    it("shows pending selected model while provider models are hydrating", async () => {
+    it("shows selected model id while provider models are hydrating", async () => {
       render(
         <ModelPickerPopover
           {...defaultProps}
@@ -409,11 +409,12 @@ describe("ModelPickerPopover", () => {
 
       await waitFor(() => {
         expect(screen.getByText("gpt-4-turbo")).toBeInTheDocument();
-        expect(screen.getByText("Loading...")).toBeInTheDocument();
+        expect(screen.queryByText("Pending")).not.toBeInTheDocument();
+        expect(screen.queryByText("Stale")).not.toBeInTheDocument();
       });
     });
 
-    it("keeps explicit selection pending when provider models are only partially loaded", async () => {
+    it("keeps explicit selected model visible when provider models are partially loaded", async () => {
       render(
         <ModelPickerPopover
           {...defaultProps}
@@ -436,7 +437,7 @@ describe("ModelPickerPopover", () => {
 
       await waitFor(() => {
         expect(screen.getByText("gpt-4-turbo")).toBeInTheDocument();
-        expect(screen.getByText("Pending")).toBeInTheDocument();
+        expect(screen.queryByText("Pending")).not.toBeInTheDocument();
       });
     });
 
@@ -768,7 +769,7 @@ describe("ModelPickerPopover", () => {
       ).toBeInTheDocument();
     });
 
-    it("shows stale badge and refreshes selected provider models", async () => {
+    it("refreshes selected provider models when metadata is stale", async () => {
       render(
         <ModelPickerPopover
           {...defaultProps}
@@ -786,7 +787,8 @@ describe("ModelPickerPopover", () => {
       fireEvent.click(
         screen.getByRole("button", { name: /open model picker/i }),
       );
-      expect(await screen.findByText("Stale")).toBeInTheDocument();
+      await screen.findByRole("button", { name: /refresh/i });
+      expect(screen.queryByText("Stale")).not.toBeInTheDocument();
 
       fireEvent.click(screen.getByRole("button", { name: /refresh/i }));
       await waitFor(() => {
