@@ -136,6 +136,9 @@ describe("secure-agent-api plugin hardening", () => {
 
     expect(result.success).toBe(true);
     expect(sandbox.execCalls).toHaveLength(2);
+    expect(sandbox.execCalls[1]).toContain(
+      'export PATH="$PATH:/usr/local/bin:/usr/bin:/bin:/home/sandbox/.local/share/pnpm"; if command -v pnpm',
+    );
     expect(sandbox.execCalls[1]).toContain("command -v pnpm");
     expect(sandbox.execCalls[1]).toContain("command -v corepack");
     expect(sandbox.execCalls[1]).toContain("corepack pnpm run test");
