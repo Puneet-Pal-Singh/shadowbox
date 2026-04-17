@@ -143,7 +143,7 @@ export function useRunSummary(
       const isTerminal = Boolean(
         summary?.status && TERMINAL_RUN_STATUSES.has(summary.status),
       );
-      if (!shouldPoll || isTerminal || document.visibilityState !== "visible") {
+      if (isTerminal || document.visibilityState !== "visible") {
         return;
       }
       void fetchSummary();
@@ -153,7 +153,7 @@ export function useRunSummary(
     return () => {
       window.removeEventListener(RUN_SUMMARY_REFRESH_EVENT, handleRefreshEvent);
     };
-  }, [fetchSummary, runId, shouldPoll, summary?.status]);
+  }, [fetchSummary, runId, summary?.status]);
 
   return { summary };
 }
