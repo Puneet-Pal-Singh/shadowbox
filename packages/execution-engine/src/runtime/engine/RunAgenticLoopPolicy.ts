@@ -592,6 +592,11 @@ function describeSingleFailedTool(
     return "I couldn't finish the pull request step because it was attempted through bash instead of the dedicated GitHub-backed PR action. Retry the step so it creates the PR with the dedicated tool, or open the PR manually in your local terminal.";
   }
 
+  const missingPackageScript = extractMissingPackageScriptFailure(event);
+  if (missingPackageScript) {
+    return `A shell step failed because this workspace does not define a script named "${missingPackageScript.scriptName}". I should rerun the correct script for this repository after checking available scripts.`;
+  }
+
   if (event.toolName === "bash") {
     return `A shell step failed: ${summarizeLifecycleDetail(event.detail)}`;
   }
@@ -657,6 +662,11 @@ function deriveToolFailureResumeHint(
 
   if (isPullRequestShellFailure(event)) {
     return "Retry the pull request step so it uses the dedicated PR action. If needed, open the pull request from your local terminal.";
+  }
+
+  const missingPackageScript = extractMissingPackageScriptFailure(event);
+  if (missingPackageScript) {
+    return `This repo does not define "${missingPackageScript.scriptName}". Run \`pnpm run\` (or \`npm run\`) to list scripts, then retry with the correct script command.`;
   }
 
   if (event.toolName === "bash") {
@@ -775,6 +785,34 @@ function isPullRequestShellFailure(
   return /invalid (arguments|command argument)|maximum length|too big/i.test(
     detail,
   );
+}
+
+function extractMissingPackageScriptFailure(
+  event: AgenticLoopToolLifecycleEvent,
+): {
+  scriptName: string;
+} | null {
+  if (event.toolName !== "bash" || event.metadata?.family !== "shell") {
+    return null;
+  }
+
+  const detail = `${event.detail ?? ""} ${event.metadata.stderr ?? ""}`;
+  const missingScriptMatch = detail.match(
+    /(?:npm|pnpm|yarn)\s+error\s+Missing script:\s*["']?([^"'\n]+)["']?/i,
+  );
+  const pnpmCodeMatch = detail.match(
+    /\bERR_PNPM_NO_SCRIPT\b[^"'\n]*["']?([^"'\n]+)["']?/i,
+  );
+  const scriptName =
+    missingScriptMatch?.[1]?.trim() ??
+    pnpmCodeMatch?.[1]?.trim() ??
+    null;
+
+  if (!scriptName) {
+    return null;
+  }
+
+  return { scriptName };
 }
 
 function collectCompletedEditEvents(
