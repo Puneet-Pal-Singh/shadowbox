@@ -139,7 +139,7 @@ function buildRuntimeBashCommand(command: string): string {
   const finalFallbackInvocation = npmFallbackInvocation ?? pnpmInvocation;
 
   return [
-    'export PATH="$PATH:/usr/local/bin:/usr/bin:/bin:/home/sandbox/.local/share/pnpm"',
+    'export PATH="$PATH:/usr/local/bin:/usr/bin:/bin:/home/sandbox/.local/share/pnpm";',
     `if command -v pnpm >/dev/null 2>&1; then ${pnpmInvocation};`,
     `elif command -v corepack >/dev/null 2>&1; then ${corepackInvocation};`,
     `else ${finalFallbackInvocation};`,
