@@ -71,7 +71,7 @@ describe("useRunActivityFeed", () => {
         ]),
       );
 
-    const { result } = renderHook(() => useRunActivityFeed("run-1", true));
+    const { result } = renderHook(() => useRunActivityFeed("run-1"));
 
     await waitFor(() => {
       expect(result.current.feed?.items).toHaveLength(1);
