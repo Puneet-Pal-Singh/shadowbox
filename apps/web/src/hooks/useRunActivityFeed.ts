@@ -16,7 +16,6 @@ const ACTIVITY_FEED_MIN_FETCH_INTERVAL_MS = 800;
 
 export function useRunActivityFeed(
   runId: string,
-  shouldRefresh: boolean,
 ): UseRunActivityFeedResult {
   const [feed, setFeed] = useState<ActivityFeedSnapshot | null>(null);
   const inFlightRef = useRef(false);
@@ -89,7 +88,7 @@ export function useRunActivityFeed(
 
     const handleRefreshEvent = (event: Event) => {
       const customEvent = event as CustomEvent<{ runId?: string }>;
-      if (customEvent.detail?.runId !== runId || !shouldRefresh) {
+      if (customEvent.detail?.runId !== runId) {
         return;
       }
       if (document.visibilityState !== "visible") {
@@ -113,7 +112,7 @@ export function useRunActivityFeed(
       window.removeEventListener(RUN_SUMMARY_REFRESH_EVENT, handleRefreshEvent);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [fetchFeed, runId, shouldRefresh]);
+  }, [fetchFeed, runId]);
 
   return { feed };
 }
