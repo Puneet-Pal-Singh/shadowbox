@@ -250,7 +250,6 @@ export function ModelPickerPopover({
   selectedProviderId,
   selectedModelId,
   selectedModelView = "popular",
-  selectedProviderMetadata = null,
   hasMoreSelectedProviderModels = false,
   isLoadingMoreSelectedProviderModels = false,
   isRefreshingSelectedProviderModels = false,
@@ -695,17 +694,6 @@ export function ModelPickerPopover({
                   ))}
                 </div>
                 <div className="flex items-center gap-2">
-                  {selectedProviderMetadata?.stale && (
-                    <span
-                      className="rounded border border-amber-700/60 bg-amber-900/30 px-1.5 py-0.5 text-[10px] text-amber-200"
-                      title={
-                        selectedProviderMetadata.staleReason ??
-                        "Using stale model data from cache"
-                      }
-                    >
-                      Stale
-                    </span>
-                  )}
                   <button
                     type="button"
                     onClick={() => {
@@ -846,11 +834,6 @@ export function ModelPickerPopover({
                                   <p className="truncate font-medium">
                                     {effectiveSelection.modelId}
                                   </p>
-                                  <span className="ml-auto rounded border border-amber-700/60 bg-amber-900/30 px-1.5 py-0.5 text-[10px] text-amber-200">
-                                    {group.isModelListLoaded
-                                      ? "Pending"
-                                      : "Loading..."}
-                                  </span>
                                 </div>
                               </div>
                             )}
