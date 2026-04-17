@@ -413,6 +413,72 @@ describe("ChatInterface", () => {
     expect(screen.getByTestId("chat-input-bar")).toBeInTheDocument();
   });
 
+  it("shows event-based pending approval when summary is temporarily stale during an active run", () => {
+    const pendingApprovalEvent: RunEvent = {
+      version: 1,
+      eventId: "evt-approval-requested-active",
+      runId: "run-active-no-summary-pending",
+      timestamp: "2026-01-01T00:00:00.000Z",
+      source: "brain",
+      type: "approval.requested",
+      payload: {
+        request: {
+          requestId: "req-active-event",
+          runId: "run-active-no-summary-pending",
+          origin: "agent",
+          category: "shell_command",
+          title: "Shadowbox wants to run a shell command",
+          reason:
+            "Shell commands can change repository or environment state and should be confirmed.",
+          actionFingerprint: "shell_command:bash:{\"command\":\"pnpm test\"}",
+          command: "pnpm test",
+          availableDecisions: ["allow_once", "deny"],
+          createdAt: "2026-01-01T00:00:00.000Z",
+        },
+      },
+    };
+
+    vi.mocked(useRunSummary).mockReturnValue({
+      summary: {
+        runId: "run-active-no-summary-pending",
+        status: "RUNNING",
+        totalTasks: 1,
+        completedTasks: 0,
+        failedTasks: 0,
+        planArtifact: null,
+        pendingApproval: null,
+      },
+    });
+    vi.mocked(useRunEvents).mockReturnValue({
+      events: [pendingApprovalEvent],
+    });
+
+    render(
+      <ChatInterface
+        chatProps={{
+          messages: [],
+          runId: "run-active-no-summary-pending",
+          input: "",
+          handleInputChange: vi.fn(),
+          handleSubmit: vi.fn(),
+          append: vi.fn(),
+          stop: vi.fn(),
+          isLoading: true,
+          error: null,
+          debugEvents: [],
+        }}
+        sessionId="session-1"
+        mode="build"
+      />,
+    );
+
+    expect(
+      screen.getByText("Do you want me to run a shell command?"),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Allow once" })).toBeInTheDocument();
+    expect(screen.queryByTestId("chat-input-bar")).not.toBeInTheDocument();
+  });
+
   it("uses the simplified default permission prompt when title is not question-style", () => {
     vi.mocked(useRunSummary).mockReturnValue({
       summary: {
