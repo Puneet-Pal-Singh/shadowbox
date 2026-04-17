@@ -30,12 +30,13 @@ import { buildActivityFeedViewModel } from "../../services/activity/ActivityFeed
 import { ActivityTurn } from "./activity/ActivityTurn.js";
 import { WorkflowTimeline } from "./workflow/WorkflowTimeline.js";
 import type { ActivityTurnViewModel } from "../../services/activity/ActivityFeedViewModel.js";
-import { runApprovalPath } from "../../lib/platform-endpoints.js";
+import { getBrainHttpBase, runApprovalPath } from "../../lib/platform-endpoints.js";
 import { dispatchRunSummaryRefresh } from "../../lib/run-summary-events.js";
 
 // Flip to true when you want to temporarily inspect the legacy workflow debug UI.
 const SHOW_WORKFLOW_DEBUG_PANEL = false;
 const WEB_PROVIDER_POLICY = resolveWebProviderProductPolicy();
+const TERMINAL_RUN_STATUSES = new Set(["COMPLETED", "FAILED", "CANCELLED"]);
 const PRIMARY_APPROVAL_DECISIONS: ApprovalDecisionKind[] = [
   "allow_once",
   "allow_for_run",
@@ -131,7 +132,7 @@ export function ChatInterface({
 
   const { summary } = useRunSummary(runId, isLoading);
   const { events } = useRunEvents(runId, isLoading);
-  const { feed } = useRunActivityFeed(runId, isLoading);
+  const { feed } = useRunActivityFeed(runId);
   const showDebugPanel =
     import.meta.env.VITE_ENABLE_CHAT_DEBUG_PANEL === "true";
   const [showProviderDialog, setShowProviderDialog] = useState(false);
@@ -235,19 +236,42 @@ export function ChatInterface({
       setApprovalBusyDecision(decision);
       setApprovalError(null);
       try {
-        const response = await fetch(runApprovalPath(), {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({
-            runId,
-            requestId: pending.requestId,
-            decision,
-          }),
+        const response = await submitApprovalDecision({
+          runId,
+          requestId: pending.requestId,
+          decision,
         });
         if (!response.ok) {
           const message = await readApprovalErrorMessage(response);
           if (isNoPendingApprovalError(message)) {
+            const latestPending = await fetchLatestPendingApproval(runId);
+            if (
+              latestPending &&
+              latestPending.requestId !== pending.requestId &&
+              latestPending.availableDecisions.includes(decision)
+            ) {
+              const retryResponse = await submitApprovalDecision({
+                runId,
+                requestId: latestPending.requestId,
+                decision,
+              });
+              if (!retryResponse.ok) {
+                const retryMessage = await readApprovalErrorMessage(retryResponse);
+                if (isNoPendingApprovalError(retryMessage)) {
+                  setDismissedApprovalRequestId(latestPending.requestId);
+                  dispatchRunSummaryRefresh(runId);
+                  return;
+                }
+                throw new Error(
+                  retryMessage ||
+                    `Failed to resolve approval (${retryResponse.status})`,
+                );
+              }
+              setDismissedApprovalRequestId(latestPending.requestId);
+              dispatchRunSummaryRefresh(runId);
+              return;
+            }
+
             setDismissedApprovalRequestId(pending.requestId);
             dispatchRunSummaryRefresh(runId);
             return;
@@ -306,7 +330,13 @@ export function ChatInterface({
     }
 
     if ("pendingApproval" in summary) {
-      return summary.pendingApproval ?? null;
+      if (summary.pendingApproval) {
+        return summary.pendingApproval;
+      }
+      const isTerminal = Boolean(
+        summary.status && TERMINAL_RUN_STATUSES.has(summary.status),
+      );
+      return isTerminal ? null : pendingApprovalFromEvents;
     }
 
     return pendingApprovalFromEvents;
@@ -581,6 +611,42 @@ export function ChatInterface({
       />
     </div>
   );
+}
+
+async function submitApprovalDecision(input: {
+  runId: string;
+  requestId: string;
+  decision: ApprovalDecisionKind;
+}): Promise<Response> {
+  return fetch(runApprovalPath(), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({
+      runId: input.runId,
+      requestId: input.requestId,
+      decision: input.decision,
+    }),
+  });
+}
+
+async function fetchLatestPendingApproval(
+  runId: string,
+): Promise<ApprovalRequest | null> {
+  const response = await fetch(
+    `${getBrainHttpBase()}/api/run/summary?runId=${encodeURIComponent(runId)}`,
+    {
+      credentials: "include",
+    },
+  );
+  if (!response.ok) {
+    return null;
+  }
+
+  const payload = (await response.json()) as {
+    pendingApproval?: ApprovalRequest | null;
+  };
+  return payload.pendingApproval ?? null;
 }
 
 function formatDebugPayload(payload: unknown): string {
