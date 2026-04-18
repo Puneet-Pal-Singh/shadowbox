@@ -39,6 +39,11 @@ export async function waitForApprovalDecision(input: {
       );
     if (resolvedDecision) {
       if (resolvedDecision.status === "approved") {
+        if (resolvedDecision.decision === "allow_once") {
+          await input.permissionApprovalStore.isActionAllowed(
+            input.request.actionFingerprint,
+          );
+        }
         return {
           outcome: "approved",
           decision: resolvedDecision.decision,
