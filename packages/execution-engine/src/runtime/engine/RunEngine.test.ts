@@ -864,6 +864,116 @@ describe("RunEngine", () => {
     expect(approvalResolvedIndex).toBeLessThan(firstToolTerminalIndex);
   });
 
+  it("keeps a run cancelled when approval waiting is interrupted by user cancellation", async () => {
+    const state = new MockRuntimeState();
+    const executionService: RuntimeExecutionService = {
+      execute: vi.fn(async () => ({
+        success: true,
+        output: "ok",
+      })),
+    };
+    const llmGateway: ILLMGateway = {
+      generateText: vi
+        .fn()
+        .mockResolvedValueOnce({
+          text: "I will run tests now.",
+          toolCalls: [
+            {
+              id: "bash-approval-cancel-1",
+              toolName: "bash",
+              args: { command: "pnpm test", cwd: "." },
+            },
+          ],
+          usage: {
+            provider: "mock",
+            model: "mock-model",
+            promptTokens: 4,
+            completionTokens: 8,
+            totalTokens: 12,
+          },
+        })
+        .mockResolvedValueOnce({
+          text: "This should not be returned.",
+          toolCalls: [],
+          usage: {
+            provider: "mock",
+            model: "mock-model",
+            promptTokens: 4,
+            completionTokens: 6,
+            totalTokens: 10,
+          },
+        }),
+      generateStructured: async () => ({
+        object: { tasks: [], metadata: { estimatedSteps: 1 } },
+        usage: {
+          provider: "mock",
+          model: "mock-model",
+          promptTokens: 1,
+          completionTokens: 1,
+          totalTokens: 2,
+        },
+      }),
+      generateStream: async () =>
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.close();
+          },
+        }),
+    };
+    const runEngine = new RunEngine(
+      state,
+      {
+        env: {
+          NODE_ENV: "test",
+          APPROVAL_WAIT_TIMEOUT_MS: "5000",
+        } as unknown,
+        sessionId: "session-1",
+        runId: TEST_RUN_ID,
+      },
+      new CodingAgent(llmGateway, executionService),
+      undefined,
+      { llmGateway },
+    );
+    const approvalStore = new PermissionApprovalStore(state, TEST_RUN_ID);
+
+    const responsePromise = runEngine.execute(
+      {
+        agentType: "coding",
+        prompt: "run tests",
+        sessionId: "session-1",
+      },
+      [{ role: "user", content: "run tests" }],
+      {},
+    );
+
+    const cancelPromise = (async () => {
+      for (let attempt = 0; attempt < 100; attempt += 1) {
+        const pending = await approvalStore.getPendingRequest();
+        if (pending) {
+          await runEngine.cancel(TEST_RUN_ID);
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      throw new Error("Timed out waiting for a pending approval request in test.");
+    })();
+
+    const response = await responsePromise;
+    await cancelPromise;
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe("");
+    expect(executionService.execute).not.toHaveBeenCalled();
+
+    const run = await new RunRepository(state).getById(TEST_RUN_ID);
+    expect(run?.status).toBe("CANCELLED");
+
+    const events = await new RunEventRepository(state).getByRun(TEST_RUN_ID);
+    expect(
+      events.some((event) => event.type === RUN_EVENT_TYPES.RUN_COMPLETED),
+    ).toBe(false);
+  });
+
   it("keeps build mode running when planner would fail, because planner is inactive", async () => {
     const planner = {
       plan: vi.fn(async () => {
