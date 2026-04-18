@@ -173,6 +173,44 @@ describe("secure-agent-api plugin hardening", () => {
     expect(sandbox.execCalls[1]).toContain("else npm run test;");
   });
 
+  it("surfaces a clear fallback error for unsupported pnpm subcommands", async () => {
+    const plugin = new BashPlugin();
+    const sandbox = createSandboxMockWithResponder((command, index) => {
+      if (index === 0) {
+        return { exitCode: 0, stdout: "", stderr: "" };
+      }
+      if (
+        !command.includes(
+          'pnpm is unavailable in this runtime and no npm fallback mapping exists for: pnpm add lodash',
+        )
+      ) {
+        return {
+          exitCode: 1,
+          stdout: "",
+          stderr: "missing unsupported-subcommand fallback message",
+        };
+      }
+      return {
+        exitCode: 127,
+        stdout: "",
+        stderr:
+          "pnpm is unavailable in this runtime and no npm fallback mapping exists for: pnpm add lodash",
+      };
+    });
+
+    const result = await plugin.execute(asSandbox(sandbox), {
+      action: "run",
+      runId: "run-safe-bash-pnpm-unsupported",
+      command: "pnpm add lodash",
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain(
+      "pnpm is unavailable in this runtime and no npm fallback mapping exists for: pnpm add lodash",
+    );
+    expect(sandbox.execCalls).toHaveLength(2);
+  });
+
   it("registers the bash tool with the canonical runtime name", () => {
     expect(BashTool.name).toBe("bash");
   });
