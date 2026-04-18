@@ -201,6 +201,29 @@ describe("ModelPickerPopover", () => {
       ).toHaveTextContent("OpenAI: gpt-4-turbo");
     });
 
+    it("uses the hydration-specific loading label during full loading", () => {
+      render(
+        <ModelPickerPopover
+          {...defaultProps}
+          providerModels={{ axis: mockModels.axis ?? [] }}
+          selectedProviderId="openai"
+          selectedModelId="gpt-4"
+          isHydratingVisibleModels
+          isLoading
+        />,
+      );
+
+      expect(
+        screen.getByRole("button", { name: /open model picker/i }),
+      ).toHaveTextContent("Loading selected models...");
+
+      fireEvent.click(screen.getByRole("button", { name: /open model picker/i }));
+
+      expect(
+        screen.getByTestId("model-picker-popover"),
+      ).toHaveTextContent("Loading selected models...");
+    });
+
     it("opens popover on button click", async () => {
       render(
         <ModelPickerPopover
@@ -393,7 +416,7 @@ describe("ModelPickerPopover", () => {
       });
     });
 
-    it("shows pending selected model while provider models are hydrating", async () => {
+    it("shows selected model id while provider models are hydrating", async () => {
       render(
         <ModelPickerPopover
           {...defaultProps}
@@ -409,11 +432,12 @@ describe("ModelPickerPopover", () => {
 
       await waitFor(() => {
         expect(screen.getByText("gpt-4-turbo")).toBeInTheDocument();
-        expect(screen.getByText("Loading...")).toBeInTheDocument();
+        expect(screen.queryByText("Pending")).not.toBeInTheDocument();
+        expect(screen.queryByText("Stale")).not.toBeInTheDocument();
       });
     });
 
-    it("keeps explicit selection pending when provider models are only partially loaded", async () => {
+    it("keeps explicit selected model visible when provider models are partially loaded", async () => {
       render(
         <ModelPickerPopover
           {...defaultProps}
@@ -436,7 +460,7 @@ describe("ModelPickerPopover", () => {
 
       await waitFor(() => {
         expect(screen.getByText("gpt-4-turbo")).toBeInTheDocument();
-        expect(screen.getByText("Pending")).toBeInTheDocument();
+        expect(screen.queryByText("Pending")).not.toBeInTheDocument();
       });
     });
 
@@ -768,7 +792,7 @@ describe("ModelPickerPopover", () => {
       ).toBeInTheDocument();
     });
 
-    it("shows stale badge and refreshes selected provider models", async () => {
+    it("refreshes selected provider models when metadata is stale", async () => {
       render(
         <ModelPickerPopover
           {...defaultProps}
@@ -786,7 +810,8 @@ describe("ModelPickerPopover", () => {
       fireEvent.click(
         screen.getByRole("button", { name: /open model picker/i }),
       );
-      expect(await screen.findByText("Stale")).toBeInTheDocument();
+      await screen.findByRole("button", { name: /refresh/i });
+      expect(screen.queryByText("Stale")).not.toBeInTheDocument();
 
       fireEvent.click(screen.getByRole("button", { name: /refresh/i }));
       await waitFor(() => {
@@ -918,13 +943,56 @@ describe("ModelPickerPopover", () => {
   });
 
   describe("Loading State", () => {
-    it("disables trigger button when isLoading is true", () => {
+    it("shows a loading view when isLoading is true", async () => {
       render(<ModelPickerPopover {...defaultProps} isLoading={true} />);
 
       const triggerButton = screen.getByRole("button", {
         name: /open model picker/i,
       });
-      expect(triggerButton).toBeDisabled();
+      expect(triggerButton).toHaveTextContent(/loading models/i);
+
+      fireEvent.click(triggerButton);
+
+      expect(
+        await screen.findByText(/fetching available models from your providers/i),
+      ).toBeInTheDocument();
+    });
+
+    it("shows inline loading text while selected provider models are still loading", async () => {
+      render(
+        <ModelPickerPopover
+          {...defaultProps}
+          selectedProviderId="openai"
+          selectedModelId="gpt-4"
+          isLoading={false}
+          isLoadingMoreSelectedProviderModels={true}
+        />,
+      );
+
+      fireEvent.click(
+        screen.getByRole("button", { name: /open model picker/i }),
+      );
+
+      expect(await screen.findByText("Loading models...")).toBeInTheDocument();
+    });
+
+    it("shows inline selected-model hydration loading text", async () => {
+      render(
+        <ModelPickerPopover
+          {...defaultProps}
+          selectedProviderId="openai"
+          selectedModelId="gpt-4"
+          isHydratingVisibleModels={true}
+        />,
+      );
+
+      fireEvent.click(
+        screen.getByRole("button", { name: /open model picker/i }),
+      );
+
+      expect(
+        await screen.findByText("Loading selected models..."),
+      ).toBeInTheDocument();
     });
   });
 

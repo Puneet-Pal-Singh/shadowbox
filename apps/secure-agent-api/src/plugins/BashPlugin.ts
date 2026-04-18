@@ -17,6 +17,7 @@ import {
 const BASH_ALLOWED_COMMANDS = ["bash"] as const;
 const MAX_BASH_COMMAND_LENGTH = 4_000;
 const LOG_CHUNK_SIZE = 4_096;
+const PNPM_COMMAND_PREFIX = /^\s*pnpm(?:\s|$)/i;
 
 const BashPayloadSchema = z.object({
   action: z.literal("run"),
@@ -58,12 +59,13 @@ export class BashPlugin implements IPlugin {
         source: "stdout",
       });
 
+      const runtimeCommand = buildRuntimeBashCommand(parsed.command);
       const result = await runSafeCommand(
         sandbox,
         withToolboxCommandContext(
           {
             command: "bash",
-            args: ["-lc", parsed.command],
+            args: ["-lc", runtimeCommand],
             cwd,
             runId,
           },
@@ -122,6 +124,65 @@ function validateBashCommand(command: string): void {
       throw new Error("Dangerous bash command pattern detected");
     }
   }
+}
+
+function buildRuntimeBashCommand(command: string): string {
+  if (!PNPM_COMMAND_PREFIX.test(command)) {
+    return command;
+  }
+
+  const pnpmArgs = command.trim().replace(/^pnpm\b/i, "").trim();
+  const pnpmInvocation = pnpmArgs.length > 0 ? `pnpm ${pnpmArgs}` : "pnpm";
+  const corepackInvocation =
+    pnpmArgs.length > 0 ? `corepack pnpm ${pnpmArgs}` : "corepack pnpm";
+  const npmFallbackInvocation = buildNpmFallbackInvocation(pnpmArgs);
+  const finalFallbackInvocation =
+    npmFallbackInvocation ?? buildPnpmUnavailableFallbackInvocation(pnpmArgs);
+
+  return [
+    'export PATH="$PATH:/usr/local/bin:/usr/bin:/bin:/home/sandbox/.local/share/pnpm";',
+    `if command -v pnpm >/dev/null 2>&1; then ${pnpmInvocation};`,
+    `elif command -v corepack >/dev/null 2>&1; then ${corepackInvocation};`,
+    `else ${finalFallbackInvocation};`,
+    "fi",
+  ].join(" ");
+}
+
+function buildNpmFallbackInvocation(pnpmArgs: string): string | null {
+  const trimmedArgs = pnpmArgs.trim();
+  if (!trimmedArgs) {
+    return null;
+  }
+
+  const runScriptMatch = trimmedArgs.match(/^run\s+(.+)$/i);
+  if (runScriptMatch?.[1]) {
+    return `npm run ${runScriptMatch[1]}`;
+  }
+
+  const testMatch = trimmedArgs.match(/^test(?:\s+(.+))?$/i);
+  if (testMatch) {
+    return testMatch[1] ? `npm test ${testMatch[1]}` : "npm test";
+  }
+
+  const installMatch = trimmedArgs.match(/^install(?:\s+(.+))?$/i);
+  if (installMatch) {
+    return installMatch[1] ? `npm install ${installMatch[1]}` : "npm install";
+  }
+
+  return null;
+}
+
+function buildPnpmUnavailableFallbackInvocation(pnpmArgs: string): string {
+  const requestedCommand = pnpmArgs.trim().length > 0 ? `pnpm ${pnpmArgs.trim()}` : "pnpm";
+  const quotedRequestedCommand = quoteShellLiteral(
+    `pnpm is unavailable in this runtime and no npm fallback mapping exists for: ${requestedCommand}`,
+  );
+
+  return `printf '%s\\n' ${quotedRequestedCommand} >&2; exit 127`;
+}
+
+function quoteShellLiteral(value: string): string {
+  return `'${value.replaceAll("'", `'"'"'`)}'`;
 }
 
 function emitCommandLogs(

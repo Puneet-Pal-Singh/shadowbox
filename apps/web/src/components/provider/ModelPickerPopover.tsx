@@ -74,6 +74,7 @@ export interface ModelPickerPopoverProps {
   onConnectProvider: () => void;
   onManageModels: () => void;
   isLoading?: boolean;
+  isHydratingVisibleModels?: boolean;
 }
 
 /**
@@ -249,7 +250,6 @@ export function ModelPickerPopover({
   selectedProviderId,
   selectedModelId,
   selectedModelView = "popular",
-  selectedProviderMetadata = null,
   hasMoreSelectedProviderModels = false,
   isLoadingMoreSelectedProviderModels = false,
   isRefreshingSelectedProviderModels = false,
@@ -260,6 +260,7 @@ export function ModelPickerPopover({
   onConnectProvider,
   onManageModels,
   isLoading = false,
+  isHydratingVisibleModels = false,
 }: ModelPickerPopoverProps): React.ReactElement {
   const [isOpen, setIsOpen] = useState(false);
   const [placement, setPlacement] = useState<PopoverPlacement>({
@@ -409,6 +410,10 @@ export function ModelPickerPopover({
 
     return `${formatProviderDisplayName(provider.providerId, provider.displayName)}: ${model.name}`;
   }, [connectedProviderIds, effectiveSelection, catalog, providerModels]);
+  const modelLoadingLabel = isHydratingVisibleModels
+    ? "Loading selected models..."
+    : "Loading models...";
+  const triggerLabel = isLoading ? modelLoadingLabel : selectedModelLabel;
 
   // Handle model selection
   const handleSelectModel = async (
@@ -482,6 +487,13 @@ export function ModelPickerPopover({
   const canLoadMoreSelectedProviderModels = Boolean(
     onLoadMoreSelectedProviderModels,
   );
+  const isLoadingModelsInline =
+    !isLoading &&
+    (
+      isLoadingMoreSelectedProviderModels ||
+      isRefreshingSelectedProviderModels ||
+      isHydratingVisibleModels
+    );
 
   // Close on outside click
   useEffect(() => {
@@ -545,9 +557,6 @@ export function ModelPickerPopover({
   };
 
   const handleToggle = (): void => {
-    if (isLoading) {
-      return;
-    }
     if (!isOpen) {
       setPlacement(resolvePlacement());
     }
@@ -584,19 +593,17 @@ export function ModelPickerPopover({
         ref={triggerButtonRef}
         type="button"
         onClick={handleToggle}
-        disabled={isLoading}
         className={`
           inline-flex h-7 max-w-[min(16rem,calc(100vw-6rem))] items-center gap-1.5 rounded-md
           bg-transparent px-2 text-xs font-medium text-neutral-400
           transition-colors hover:bg-neutral-800/50 hover:text-neutral-200
           focus:outline-none focus:ring-2 focus:ring-blue-500
-          disabled:cursor-not-allowed disabled:opacity-50
         `}
         aria-label="Open model picker"
         aria-expanded={isOpen}
-        title={selectedModelLabel}
+        title={triggerLabel}
       >
-        <span className="truncate max-w-[13rem]">{selectedModelLabel}</span>
+        <span className="truncate max-w-[13rem]">{triggerLabel}</span>
         <ChevronDown
           size={14}
           className={`shrink-0 transition-transform ${
@@ -620,115 +627,130 @@ export function ModelPickerPopover({
             maxWidth: `calc(100vw - ${VIEWPORT_PADDING_PX * 2}px)`,
           }}
         >
-          {/* Search + Actions */}
-          <div className="flex items-center gap-1.5 border-b border-neutral-800 p-1.5">
-            <div className="relative flex-1">
-              <Search
-                size={14}
-                className="absolute left-2.5 top-2.5 text-neutral-500"
-              />
-              <input
-                ref={searchInputRef}
-                type="text"
-                placeholder="Search models or providers..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className={`
-                  h-8 w-full rounded-md
-                  bg-neutral-800 border border-neutral-700
-                  pl-8 pr-3 text-xs text-neutral-100 placeholder-neutral-500
-                  focus:outline-none focus:ring-2 focus:ring-blue-500
-                `}
-              />
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                setIsOpen(false);
-                onConnectProvider();
-              }}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-neutral-700 text-neutral-300 transition-colors hover:bg-neutral-800 hover:text-neutral-100"
-              aria-label="Connect provider"
-              title="Connect provider"
-            >
-              <Plus size={12} />
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setIsOpen(false);
-                onManageModels();
-              }}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-neutral-700 text-neutral-300 transition-colors hover:bg-neutral-800 hover:text-neutral-100"
-              aria-label="Manage model visibility"
-              title="Manage model visibility"
-            >
-              <Settings size={12} />
-            </button>
-          </div>
-
-          <div className="flex items-center justify-between gap-2 border-b border-neutral-800 px-2 py-1.5">
-            <div className="inline-flex rounded-md border border-neutral-700 p-0.5">
-              {(["popular", "all"] as const).map((view) => (
+          {!isLoading && (
+            <>
+              {/* Search + Actions */}
+              <div className="flex items-center gap-1.5 border-b border-neutral-800 p-1.5">
+                <div className="relative flex-1">
+                  <Search
+                    size={14}
+                    className="absolute left-2.5 top-2.5 text-neutral-500"
+                  />
+                  <input
+                    ref={searchInputRef}
+                    type="text"
+                    placeholder="Search models or providers..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className={`
+                      h-8 w-full rounded-md
+                      bg-neutral-800 border border-neutral-700
+                      pl-8 pr-3 text-xs text-neutral-100 placeholder-neutral-500
+                      focus:outline-none focus:ring-2 focus:ring-blue-500
+                    `}
+                  />
+                </div>
                 <button
-                  key={view}
                   type="button"
                   onClick={() => {
-                    void handleModelViewChange(view);
+                    setIsOpen(false);
+                    onConnectProvider();
                   }}
-                  disabled={!canSelectModelView || isSwitchingView || isLoading}
-                  className={`rounded px-2 py-1 text-[11px] font-medium transition ${
-                    selectedModelView === view
-                      ? "bg-neutral-200 text-neutral-900"
-                      : "text-neutral-300 hover:bg-neutral-800"
-                  }`}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-neutral-700 text-neutral-300 transition-colors hover:bg-neutral-800 hover:text-neutral-100"
+                  aria-label="Connect provider"
+                  title="Connect provider"
                 >
-                  {getViewLabel(view, selectedProviderId)}
+                  <Plus size={12} />
                 </button>
-              ))}
-            </div>
-            <div className="flex items-center gap-2">
-              {selectedProviderMetadata?.stale && (
-                <span
-                  className="rounded border border-amber-700/60 bg-amber-900/30 px-1.5 py-0.5 text-[10px] text-amber-200"
-                  title={
-                    selectedProviderMetadata.staleReason ??
-                    "Using stale model data from cache"
-                  }
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsOpen(false);
+                    onManageModels();
+                  }}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-neutral-700 text-neutral-300 transition-colors hover:bg-neutral-800 hover:text-neutral-100"
+                  aria-label="Manage model visibility"
+                  title="Manage model visibility"
                 >
-                  Stale
-                </span>
-              )}
-              <button
-                type="button"
-                onClick={() => {
-                  void handleRefresh();
-                }}
-                disabled={
-                  !canRefreshSelectedProviderModels ||
-                  !(effectiveSelection.providerId ?? selectedProviderId) ||
-                  isRefreshingSelectedProviderModels ||
-                  isLoading
-                }
-                className="inline-flex h-7 items-center gap-1 rounded-md border border-neutral-700 px-2 text-[11px] text-neutral-300 transition-colors hover:bg-neutral-800 disabled:opacity-50"
-              >
-                <RefreshCw
-                  size={11}
-                  className={
-                    isRefreshingSelectedProviderModels ? "animate-spin" : ""
-                  }
-                />
-                Refresh
-              </button>
-            </div>
-          </div>
+                  <Settings size={12} />
+                </button>
+              </div>
+
+              <div className="flex items-center justify-between gap-2 border-b border-neutral-800 px-2 py-1.5">
+                <div className="inline-flex rounded-md border border-neutral-700 p-0.5">
+                  {(["popular", "all"] as const).map((view) => (
+                    <button
+                      key={view}
+                      type="button"
+                      onClick={() => {
+                        void handleModelViewChange(view);
+                      }}
+                      disabled={!canSelectModelView || isSwitchingView || isLoading}
+                      className={`rounded px-2 py-1 text-[11px] font-medium transition ${
+                        selectedModelView === view
+                          ? "bg-neutral-200 text-neutral-900"
+                          : "text-neutral-300 hover:bg-neutral-800"
+                      }`}
+                    >
+                      {getViewLabel(view, selectedProviderId)}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void handleRefresh();
+                    }}
+                    disabled={
+                      !canRefreshSelectedProviderModels ||
+                      !(effectiveSelection.providerId ?? selectedProviderId) ||
+                      isRefreshingSelectedProviderModels ||
+                      isLoading
+                    }
+                    className="inline-flex h-7 items-center gap-1 rounded-md border border-neutral-700 px-2 text-[11px] text-neutral-300 transition-colors hover:bg-neutral-800 disabled:opacity-50"
+                  >
+                    <RefreshCw
+                      size={11}
+                      className={
+                        isRefreshingSelectedProviderModels ? "animate-spin" : ""
+                      }
+                    />
+                    Refresh
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
 
           {/* Provider Groups */}
-          <div className="flex flex-1 flex-col overflow-hidden">
-            <div className="overflow-y-auto flex-1">
+          <div
+            className={`flex flex-1 flex-col overflow-hidden ${
+              isLoading ? "min-h-[12rem]" : ""
+            }`}
+          >
+            {isLoadingModelsInline && (
+              <div
+                role="status"
+                aria-live="polite"
+                className="border-b border-neutral-800 px-3 py-1.5 text-[11px] text-neutral-400"
+              >
+                {modelLoadingLabel}
+              </div>
+            )}
+            <div
+              className={`overflow-y-auto flex-1 ${
+                isLoading ? "flex items-center justify-center" : ""
+              }`}
+            >
               {isLoading ? (
-                <div className="p-6 text-center text-neutral-400 text-sm">
-                  Loading models...
+                <div className="px-6 py-8 text-center">
+                  <p className="text-sm font-medium text-neutral-200">
+                    {modelLoadingLabel}
+                  </p>
+                  <p className="mt-1 text-xs text-neutral-500">
+                    Fetching available models from your providers.
+                  </p>
                 </div>
               ) : filteredGroups.length === 0 ? (
                 <div className="p-6 text-center text-neutral-400 text-sm">
@@ -817,11 +839,6 @@ export function ModelPickerPopover({
                                   <p className="truncate font-medium">
                                     {effectiveSelection.modelId}
                                   </p>
-                                  <span className="ml-auto rounded border border-amber-700/60 bg-amber-900/30 px-1.5 py-0.5 text-[10px] text-amber-200">
-                                    {group.isModelListLoaded
-                                      ? "Pending"
-                                      : "Loading..."}
-                                  </span>
                                 </div>
                               </div>
                             )}

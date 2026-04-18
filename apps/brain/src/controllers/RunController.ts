@@ -129,6 +129,9 @@ export class RunController {
       if (error instanceof ApproveRequestError) {
         return errorResponse(req, env, error.message, error.status);
       }
+      if (isStaleApprovalResolutionError(error)) {
+        return errorResponse(req, env, "No pending approval request found.", 409);
+      }
       console.error("[RunController:approve] Error:", error);
       return errorResponse(
         req,
@@ -330,15 +333,26 @@ async function resolveApprovalFromRuntime(
     requestedBackend: RuntimeOrchestratorBackend;
   },
 ): Promise<unknown> {
-  const response = await fetchRunApprovalFromRuntime(
-    env,
-    payload.runId,
-    payload.requestId,
-    payload.decision,
-    payload.requestedBackend,
-  );
+  let response: Response;
+  try {
+    response = await fetchRunApprovalFromRuntime(
+      env,
+      payload.runId,
+      payload.requestId,
+      payload.decision,
+      payload.requestedBackend,
+    );
+  } catch (error) {
+    if (isStaleApprovalResolutionError(error)) {
+      throw new ApproveRequestError("No pending approval request found.", 409);
+    }
+    throw error;
+  }
   if (!response.ok) {
     const details = await readErrorPreview(response);
+    if (isStaleApprovalResolutionError(details)) {
+      throw new ApproveRequestError("No pending approval request found.", 409);
+    }
     const suffix = details ? `: ${details}` : "";
     throw new ApproveRequestError(
       `Failed to resolve approval${suffix}`,
@@ -357,6 +371,27 @@ class ApproveRequestError extends Error {
     super(message);
     this.name = "ApproveRequestError";
   }
+}
+
+function isStaleApprovalResolutionError(error: unknown): boolean {
+  const message = extractErrorMessage(error).toLowerCase();
+  return message.includes("no pending approval request found");
+}
+
+function extractErrorMessage(error: unknown): string {
+  if (typeof error === "string") {
+    return error;
+  }
+  if (error instanceof Error) {
+    return error.message;
+  }
+  if (error && typeof error === "object" && "error" in error) {
+    const candidate = (error as { error?: unknown }).error;
+    if (typeof candidate === "string") {
+      return candidate;
+    }
+  }
+  return "";
 }
 
 async function fetchRunEventsFromRuntime(

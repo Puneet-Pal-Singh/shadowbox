@@ -170,6 +170,8 @@ export function TaskListRow({
                     ? "text-red-300"
                     : task.status === "running"
                       ? "text-emerald-300"
+                      : task.status === "needs_approval"
+                        ? "text-amber-300"
                       : "text-zinc-400",
                 )}
               >

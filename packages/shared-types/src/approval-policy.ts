@@ -127,6 +127,28 @@ export interface ApprovalRequest {
   expiresAt?: string;
 }
 
+export const ApprovalRequestSchema: z.ZodType<ApprovalRequest> = z.object({
+  requestId: z.string().min(1),
+  runId: z.string().min(1),
+  threadId: z.string().min(1).optional(),
+  sessionId: z.string().min(1).optional(),
+  turnId: z.string().min(1).optional(),
+  itemId: z.string().min(1).optional(),
+  origin: z.enum(["user", "agent"]),
+  category: RiskyActionCategorySchema,
+  title: z.string().min(1),
+  reason: z.string().min(1),
+  command: z.string().min(1).optional(),
+  cwd: z.string().min(1).optional(),
+  affectedPaths: z.array(z.string().min(1)).optional(),
+  remoteTarget: z.string().min(1).optional(),
+  actionFingerprint: z.string().min(1),
+  availableDecisions: z.array(ApprovalDecisionKindSchema).min(1),
+  proposedPersistentRule: ProposedPersistentRuleSchema.optional(),
+  createdAt: z.string().datetime(),
+  expiresAt: z.string().datetime().optional(),
+});
+
 export type ApprovalDecision =
   | { kind: "allow_once"; requestId: string }
   | { kind: "allow_for_run"; requestId: string }

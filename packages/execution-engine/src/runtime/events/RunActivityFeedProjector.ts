@@ -424,12 +424,12 @@ function applyApprovalResolution(
   event: Extract<RunEvent, { type: typeof RUN_EVENT_TYPES.APPROVAL_RESOLVED }>,
 ): void {
   const part = approvalParts.get(event.payload.requestId);
+  const decisionDetail = `Decision: ${event.payload.decision}`;
   if (part) {
     part.status = mapApprovalResolutionStatus(event.payload.status);
     part.updatedAt = event.timestamp;
-    part.details = part.details
-      ? `${part.details}\nDecision: ${event.payload.decision}`
-      : `Decision: ${event.payload.decision}`;
+    part.summary = buildApprovalResolutionSummary(event.payload.status);
+    part.details = appendApprovalDecisionDetail(part.details, decisionDetail);
     return;
   }
 
@@ -443,8 +443,8 @@ function applyApprovalResolution(
     source: event.source,
     approvalType: "permission",
     status: mapApprovalResolutionStatus(event.payload.status),
-    summary: "Approval decision recorded",
-    details: `Decision: ${event.payload.decision}`,
+    summary: buildApprovalResolutionSummary(event.payload.status),
+    details: decisionDetail,
   });
 }
 
@@ -457,10 +457,44 @@ function mapApprovalResolutionStatus(
   if (status === "approved") {
     return "granted";
   }
+  if (status === "aborted") {
+    return "denied";
+  }
   if (status === "expired") {
     return "expired";
   }
   return "denied";
+}
+
+function buildApprovalResolutionSummary(
+  status: Extract<
+    RunEvent,
+    { type: typeof RUN_EVENT_TYPES.APPROVAL_RESOLVED }
+  >["payload"]["status"],
+): string {
+  if (status === "approved") {
+    return "Approval resolved";
+  }
+  if (status === "expired") {
+    return "Approval expired";
+  }
+  if (status === "aborted") {
+    return "Approval cancelled";
+  }
+  return "Approval denied";
+}
+
+function appendApprovalDecisionDetail(
+  currentDetails: string | undefined,
+  decisionDetail: string,
+): string {
+  if (!currentDetails) {
+    return decisionDetail;
+  }
+  if (currentDetails.includes(decisionDetail)) {
+    return currentDetails;
+  }
+  return `${currentDetails}\n${decisionDetail}`;
 }
 
 function buildApprovalDetails(reason: string, command?: string): string {

@@ -29,6 +29,10 @@ import {
   getPreferredMentionPath,
 } from "./fileMentions";
 import { resolveWebProviderProductPolicy } from "../../lib/provider-product-policy";
+import {
+  isProviderModelBootstrapLoading,
+  isProviderVisibleModelHydrationPending,
+} from "../../lib/provider-model-bootstrap-loading.js";
 
 const IDLE_SWITCH_WARNING =
   "Changing models mid-conversation will degrade performance.";
@@ -102,12 +106,15 @@ export function ChatInputBar({
     selectedModelView,
     lastResolvedConfig,
     providerModels,
+    manageProviderModels,
     providerModelsMetadata,
     providerModelsPage,
     visibleModelIds,
     loadingModelsForProviderId,
+    loadingManageModelsForProviderIds,
     refreshingModelsForProviderId,
     loadProviderModels,
+    loadManageProviderModels,
     loadMoreProviderModels,
     refreshProviderModels,
     setModelView,
@@ -153,6 +160,26 @@ export function ChatInputBar({
   );
   const shouldShowFilePicker =
     activeMention !== null && dismissedMentionKey !== activeMentionKey;
+  const isModelPickerLoading = useMemo(
+    () =>
+      isProviderModelBootstrapLoading({
+        status,
+        catalog,
+        credentials,
+        providerModels,
+      }),
+    [status, catalog, credentials, providerModels],
+  );
+  const isSelectedProviderModelHydrationPending = useMemo(
+    () =>
+      isProviderVisibleModelHydrationPending({
+        selectedProviderId,
+        providerModels,
+        visibleModelIds,
+        manageProviderModels: manageProviderModels ?? {},
+      }),
+    [manageProviderModels, providerModels, selectedProviderId, visibleModelIds],
+  );
   const highlightedSuggestionIndex =
     suggestedEntries.length === 0
       ? 0
@@ -259,6 +286,30 @@ export function ChatInputBar({
     loadProviderModels,
     providerModels,
     selectedModelView,
+    selectedProviderId,
+  ]);
+
+  useEffect(() => {
+    if (!selectedProviderId || !isSelectedProviderModelHydrationPending) {
+      return;
+    }
+    if (loadingManageModelsForProviderIds?.[selectedProviderId]) {
+      return;
+    }
+    if (!loadManageProviderModels) {
+      return;
+    }
+
+    void loadManageProviderModels(selectedProviderId).catch((error) => {
+      console.warn(
+        "[chat-input/model-picker] failed to hydrate selected visible models",
+        error,
+      );
+    });
+  }, [
+    isSelectedProviderModelHydrationPending,
+    loadManageProviderModels,
+    loadingManageModelsForProviderIds,
     selectedProviderId,
   ]);
 
@@ -598,7 +649,8 @@ export function ChatInputBar({
                   setProviderDialogVariant("manage-models-only");
                   setShowProviderDialog(true);
                 }}
-                isLoading={status === "loading"}
+                isLoading={isModelPickerLoading}
+                isHydratingVisibleModels={isSelectedProviderModelHydrationPending}
               />
 
               {selectedProviderId === AXIS_PROVIDER_ID &&

@@ -43,7 +43,7 @@ const UNSAFE_INTERPRETER_PREFIXES = new Set([
 ]);
 const BROAD_PERSISTENT_SHELL_PREFIXES = new Set(["git", "npm", "pnpm", "yarn"]);
 const SHELL_PREFIX_VERB_TOKENS = new Set(["run", "exec", "dlx"]);
-const APPROVAL_TTL_MS = 10 * 60 * 1000;
+const APPROVAL_TTL_MS = 30 * 60 * 1000;
 const DANGEROUS_RETRY_THRESHOLD = 3;
 
 export interface RiskyActionEvaluationInput {

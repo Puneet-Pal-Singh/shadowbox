@@ -2,15 +2,20 @@ import { useRef, useEffect, useState, useMemo, useCallback } from "react";
 import { ChatMessage } from "./ChatMessage";
 import { ChatInputBar } from "./ChatInputBar";
 import { ChatBranchSelector } from "./ChatBranchSelector";
+import { PermissionModeControl } from "./PermissionModeControl";
 import { ProviderDialog } from "../provider/ProviderDialog";
 import type { Message } from "@ai-sdk/react";
 import {
+  ApprovalRequestSchema,
+  PRODUCT_MODES,
   RUN_EVENT_TYPES,
   type ApprovalDecisionKind,
   type ApprovalRequest,
+  type ProductMode,
   type RunEvent,
   type RunMode,
 } from "@repo/shared-types";
+import { z } from "zod";
 import type { ProviderId } from "../../types/provider";
 import type { ChatDebugEvent } from "../../types/chat-debug.js";
 import { useRunSummary } from "../../hooks/useRunSummary.js";
@@ -27,12 +32,21 @@ import { buildActivityFeedViewModel } from "../../services/activity/ActivityFeed
 import { ActivityTurn } from "./activity/ActivityTurn.js";
 import { WorkflowTimeline } from "./workflow/WorkflowTimeline.js";
 import type { ActivityTurnViewModel } from "../../services/activity/ActivityFeedViewModel.js";
-import { runApprovalPath } from "../../lib/platform-endpoints.js";
+import { getBrainHttpBase, runApprovalPath } from "../../lib/platform-endpoints.js";
 import { dispatchRunSummaryRefresh } from "../../lib/run-summary-events.js";
 
 // Flip to true when you want to temporarily inspect the legacy workflow debug UI.
 const SHOW_WORKFLOW_DEBUG_PANEL = false;
 const WEB_PROVIDER_POLICY = resolveWebProviderProductPolicy();
+const TERMINAL_RUN_STATUSES = new Set(["COMPLETED", "FAILED", "CANCELLED"]);
+const PRIMARY_APPROVAL_DECISIONS: ApprovalDecisionKind[] = [
+  "allow_once",
+  "allow_for_run",
+  "deny",
+];
+const RunSummaryPendingApprovalSchema = z.object({
+  pendingApproval: ApprovalRequestSchema.nullish(),
+});
 
 function ChatErrorNotice({
   message,
@@ -76,6 +90,9 @@ interface ChatInterfaceProps {
   sessionId: string;
   mode?: RunMode;
   onModeChange?: (mode: RunMode) => void;
+  permissionMode?: ProductMode;
+  onPermissionModeChange?: (mode: ProductMode) => void;
+  onPendingApprovalChange?: (hasPendingApproval: boolean) => void;
   onArtifactOpen?: (path: string, content: string) => void;
   onModelSelect?: (providerId: ProviderId, modelId: string) => void;
   repoTree?: Array<{ path: string; type: string; sha: string }>;
@@ -87,6 +104,9 @@ export function ChatInterface({
   sessionId,
   mode = "build",
   onModeChange,
+  permissionMode,
+  onPermissionModeChange,
+  onPendingApprovalChange,
   onArtifactOpen,
   onModelSelect,
   repoTree = [],
@@ -117,7 +137,7 @@ export function ChatInterface({
 
   const { summary } = useRunSummary(runId, isLoading);
   const { events } = useRunEvents(runId, isLoading);
-  const { feed } = useRunActivityFeed(runId, isLoading);
+  const { feed } = useRunActivityFeed(runId);
   const showDebugPanel =
     import.meta.env.VITE_ENABLE_CHAT_DEBUG_PANEL === "true";
   const [showProviderDialog, setShowProviderDialog] = useState(false);
@@ -133,6 +153,9 @@ export function ChatInterface({
   const [approvalBusyDecision, setApprovalBusyDecision] =
     useState<ApprovalDecisionKind | null>(null);
   const [approvalError, setApprovalError] = useState<string | null>(null);
+  const [dismissedApprovalRequestId, setDismissedApprovalRequestId] = useState<
+    string | null
+  >(null);
   const { providerModels } = useProviderStore(runId);
 
   const messageMetadataById = useMemo(() => {
@@ -209,28 +232,65 @@ export function ChatInterface({
   const resolveApprovalDecision = useCallback(
     async (decision: ApprovalDecisionKind) => {
       const pending = summary?.pendingApproval ?? pendingApprovalFromEvents;
-      if (!pending) {
+      if (
+        !pending ||
+        pending.requestId === dismissedApprovalRequestId
+      ) {
         return;
       }
       setApprovalBusyDecision(decision);
       setApprovalError(null);
       try {
-        const response = await fetch(runApprovalPath(), {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({
-            runId,
-            requestId: pending.requestId,
-            decision,
-          }),
+        const response = await submitApprovalDecision({
+          runId,
+          requestId: pending.requestId,
+          decision,
         });
         if (!response.ok) {
-          const message = await response.text();
+          const message = await readApprovalErrorMessage(response);
+          const isStaleApproval =
+            response.status === 409 || isNoPendingApprovalError(message);
+          if (isStaleApproval) {
+            const latestPending = await fetchLatestPendingApproval(runId);
+            if (
+              latestPending &&
+              latestPending.requestId !== pending.requestId &&
+              latestPending.availableDecisions.includes(decision)
+            ) {
+              const retryResponse = await submitApprovalDecision({
+                runId,
+                requestId: latestPending.requestId,
+                decision,
+              });
+              if (!retryResponse.ok) {
+                const retryMessage = await readApprovalErrorMessage(retryResponse);
+                const isRetryStaleApproval =
+                  retryResponse.status === 409 ||
+                  isNoPendingApprovalError(retryMessage);
+                if (isRetryStaleApproval) {
+                  setDismissedApprovalRequestId(latestPending.requestId);
+                  dispatchRunSummaryRefresh(runId);
+                  return;
+                }
+                throw new Error(
+                  retryMessage ||
+                    `Failed to resolve approval (${retryResponse.status})`,
+                );
+              }
+              setDismissedApprovalRequestId(latestPending.requestId);
+              dispatchRunSummaryRefresh(runId);
+              return;
+            }
+
+            setDismissedApprovalRequestId(pending.requestId);
+            dispatchRunSummaryRefresh(runId);
+            return;
+          }
           throw new Error(
             message || `Failed to resolve approval (${response.status})`,
           );
         }
+        setDismissedApprovalRequestId(pending.requestId);
         dispatchRunSummaryRefresh(runId);
       } catch (error) {
         setApprovalError(
@@ -242,7 +302,12 @@ export function ChatInterface({
         setApprovalBusyDecision(null);
       }
     },
-    [pendingApprovalFromEvents, runId, summary?.pendingApproval],
+    [
+      dismissedApprovalRequestId,
+      pendingApprovalFromEvents,
+      runId,
+      summary?.pendingApproval,
+    ],
   );
 
   const recoveryAdvice = getProviderRecoveryAdvice(error);
@@ -269,7 +334,64 @@ export function ChatInterface({
     summary?.planArtifact?.handoff && (mode === "build" || onModeChange)
       ? handleUsePlanInBuild
       : undefined;
-  const pendingApproval = summary?.pendingApproval ?? pendingApprovalFromEvents;
+  const pendingApprovalCandidate = useMemo(() => {
+    if (!summary) {
+      return pendingApprovalFromEvents;
+    }
+
+    if ("pendingApproval" in summary) {
+      if (summary.pendingApproval) {
+        return summary.pendingApproval;
+      }
+      const isTerminal = Boolean(
+        summary.status && TERMINAL_RUN_STATUSES.has(summary.status),
+      );
+      return isTerminal ? null : pendingApprovalFromEvents;
+    }
+
+    return pendingApprovalFromEvents;
+  }, [pendingApprovalFromEvents, summary]);
+  const pendingApproval = useMemo(() => {
+    if (!pendingApprovalCandidate) {
+      return null;
+    }
+    if (pendingApprovalCandidate.requestId === dismissedApprovalRequestId) {
+      return null;
+    }
+    return pendingApprovalCandidate;
+  }, [dismissedApprovalRequestId, pendingApprovalCandidate]);
+
+  useEffect(() => {
+    if (!pendingApprovalCandidate) {
+      if (dismissedApprovalRequestId !== null) {
+        setDismissedApprovalRequestId(null);
+      }
+      return;
+    }
+    if (
+      dismissedApprovalRequestId &&
+      pendingApprovalCandidate.requestId !== dismissedApprovalRequestId
+    ) {
+      setDismissedApprovalRequestId(null);
+      setApprovalError(null);
+    }
+  }, [dismissedApprovalRequestId, pendingApprovalCandidate]);
+
+  useEffect(() => {
+    onPendingApprovalChange?.(Boolean(pendingApproval));
+  }, [onPendingApprovalChange, pendingApproval]);
+  const displayedApprovalDecisions = useMemo(() => {
+    if (!pendingApproval) {
+      return [];
+    }
+    const preferredDecisions = PRIMARY_APPROVAL_DECISIONS.filter((decision) =>
+      pendingApproval.availableDecisions.includes(decision),
+    );
+    const remainingDecisions = pendingApproval.availableDecisions.filter(
+      (decision) => !preferredDecisions.includes(decision),
+    );
+    return [...preferredDecisions, ...remainingDecisions];
+  }, [pendingApproval]);
   const chatEntries = useMemo(
     () => buildChatEntries(conversationTurns, activityViewModel.turns),
     [activityViewModel.turns, conversationTurns],
@@ -414,66 +536,73 @@ export function ChatInterface({
               />
             </div>
           )}
-          {summary?.permissionContext ? (
-            <div className="mb-3 flex flex-wrap gap-2 text-[11px] text-zinc-300">
-              <span className="rounded-full border border-zinc-700 bg-zinc-900/80 px-2 py-0.5">
-                Policy: {formatProductModeLabel(summary.permissionContext.state.productMode)}
-              </span>
-              <span className="rounded-full border border-zinc-700 bg-zinc-900/80 px-2 py-0.5">
-                Runtime: {summary.permissionContext.label}
-              </span>
-            </div>
-          ) : null}
           {pendingApproval ? (
-            <div className="mb-4 rounded-2xl border border-amber-500/40 bg-amber-950/30 p-4 text-amber-100">
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-amber-300">
-                Approval Required
-              </p>
-              <p className="mt-1 text-sm font-semibold">
-                {pendingApproval.title}
-              </p>
-              <p className="mt-1 text-xs text-amber-100/90">
-                {pendingApproval.reason}
-              </p>
-              {pendingApproval.command ? (
-                <p className="mt-2 rounded bg-black/30 px-2 py-1 font-mono text-[11px] text-amber-100/90">
-                  {pendingApproval.command}
+            <div className="mb-2 overflow-hidden rounded-2xl border border-zinc-700/80 bg-[linear-gradient(180deg,#18181b_0%,#151518_55%,#141418_100%)] text-zinc-100 shadow-[0_8px_26px_rgba(0,0,0,0.34)]">
+              <div className="border-b border-zinc-800/90 px-4 py-2">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-300">
+                  Pending approval
+                  <span className="ml-2 text-[12px] font-medium normal-case tracking-normal text-zinc-400">
+                    Command approval requested
+                  </span>
                 </p>
-              ) : null}
-              <div className="mt-3 flex flex-wrap gap-2">
-                {pendingApproval.availableDecisions.map((decision) => (
-                  <button
-                    key={decision}
-                    type="button"
-                    disabled={approvalBusyDecision !== null}
-                    onClick={() => void resolveApprovalDecision(decision)}
-                    className="rounded-lg border border-amber-300/40 bg-black/30 px-2.5 py-1.5 text-xs font-medium text-amber-100 transition hover:bg-black/50 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {formatApprovalDecisionLabel(decision)}
-                  </button>
-                ))}
               </div>
-              {approvalError ? (
-                <p className="mt-2 text-xs text-red-300">{approvalError}</p>
-              ) : null}
+              <div className="p-4">
+                <p className="text-[clamp(1.1rem,1.35vw,1.45rem)] font-semibold leading-tight text-zinc-100">
+                  {buildApprovalPromptTitle(pendingApproval)}
+                </p>
+                {pendingApproval.command ? (
+                  <p className="mt-3 rounded-lg border border-zinc-700 bg-black/35 px-3 py-2 font-mono text-[13px] text-zinc-100">
+                    {pendingApproval.command}
+                  </p>
+                ) : (
+                  <p className="mt-2 text-sm text-zinc-300">
+                    {pendingApproval.reason}
+                  </p>
+                )}
+              </div>
+              <div className="border-t border-zinc-800/90 px-4 pb-4 pt-3">
+                <div className="flex flex-wrap gap-2">
+                  {displayedApprovalDecisions.map((decision) => (
+                    <button
+                      key={decision}
+                      type="button"
+                      disabled={approvalBusyDecision !== null}
+                      onClick={() => void resolveApprovalDecision(decision)}
+                      className={approvalDecisionButtonClassName(decision)}
+                    >
+                      {formatApprovalDecisionLabel(decision)}
+                    </button>
+                  ))}
+                </div>
+                {approvalError ? (
+                  <p className="mt-3 text-xs text-red-300">{approvalError}</p>
+                ) : null}
+              </div>
             </div>
           ) : null}
-          <ChatInputBar
-            input={input}
-            onChange={handleInputChangeWrapper}
-            onSubmit={handleSubmit}
-            onStop={stop}
-            isLoading={isLoading}
-            sessionId={sessionId}
-            mode={mode}
-            onModeChange={onModeChange}
-            hasMessages={messages.length > 0}
-            onModelSelect={onModelSelect}
-            repoTree={repoTree}
-            isLoadingRepoTree={isLoadingRepoTree}
-          />
-          <div className="pl-6 mt-1">
+          {pendingApproval ? null : (
+            <ChatInputBar
+              input={input}
+              onChange={handleInputChangeWrapper}
+              onSubmit={handleSubmit}
+              onStop={stop}
+              isLoading={isLoading}
+              sessionId={sessionId}
+              mode={mode}
+              onModeChange={onModeChange}
+              hasMessages={messages.length > 0}
+              onModelSelect={onModelSelect}
+              repoTree={repoTree}
+              isLoadingRepoTree={isLoadingRepoTree}
+            />
+          )}
+          <div className="mt-1 flex items-center gap-2 pl-6">
             <ChatBranchSelector />
+            <PermissionModeControl
+              value={permissionMode ?? PRODUCT_MODES.AUTO_FOR_SAFE}
+              onChange={(nextMode) => onPermissionModeChange?.(nextMode)}
+              disabled={isLoading || !onPermissionModeChange}
+            />
           </div>
         </div>
       </div>
@@ -492,6 +621,48 @@ export function ChatInterface({
       />
     </div>
   );
+}
+
+async function submitApprovalDecision(input: {
+  runId: string;
+  requestId: string;
+  decision: ApprovalDecisionKind;
+}): Promise<Response> {
+  return fetch(runApprovalPath(), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({
+      runId: input.runId,
+      requestId: input.requestId,
+      decision: input.decision,
+    }),
+  });
+}
+
+async function fetchLatestPendingApproval(
+  runId: string,
+): Promise<ApprovalRequest | null> {
+  const response = await fetch(
+    `${getBrainHttpBase()}/api/run/summary?runId=${encodeURIComponent(runId)}`,
+    {
+      credentials: "include",
+    },
+  );
+  if (!response.ok) {
+    return null;
+  }
+
+  const payload = RunSummaryPendingApprovalSchema.safeParse(await response.json());
+  if (!payload.success) {
+    console.warn(
+      `[chat/interface] Invalid run summary payload while refreshing approval for runId=${runId}`,
+      payload.error,
+    );
+    return null;
+  }
+
+  return payload.data.pendingApproval ?? null;
 }
 
 function formatDebugPayload(payload: unknown): string {
@@ -514,7 +685,7 @@ function formatApprovalDecisionLabel(decision: ApprovalDecisionKind): string {
     case "allow_once":
       return "Allow once";
     case "allow_for_run":
-      return "Allow for this run";
+      return "Allow for this session";
     case "allow_persistent_rule":
       return "Allow in future";
     case "deny":
@@ -526,19 +697,83 @@ function formatApprovalDecisionLabel(decision: ApprovalDecisionKind): string {
   }
 }
 
-function formatProductModeLabel(mode: string): string {
-  switch (mode) {
-    case "ask_always":
-      return "Ask Always";
-    case "auto_for_safe":
-      return "Auto for Safe";
-    case "auto_for_same_repo":
-      return "Auto for Same Repo";
-    case "full_agent":
-      return "Full Agent";
+function approvalDecisionButtonClassName(
+  decision: ApprovalDecisionKind,
+): string {
+  const baseClassName =
+    "rounded-lg border px-3 py-1.5 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-60";
+
+  switch (decision) {
+    case "allow_once":
+      return `${baseClassName} border-blue-500/35 bg-blue-500/10 text-blue-100 hover:border-blue-400/50 hover:bg-blue-500/15`;
+    case "allow_for_run":
+      return `${baseClassName} border-emerald-500/35 bg-emerald-500/10 text-emerald-100 hover:border-emerald-400/50 hover:bg-emerald-500/15`;
+    case "deny":
+    case "abort":
+      return `${baseClassName} border-red-500/35 bg-red-500/10 text-red-100 hover:border-red-400/50 hover:bg-red-500/15`;
+    case "allow_persistent_rule":
     default:
-      return mode;
+      return `${baseClassName} border-zinc-600 bg-zinc-900/80 text-zinc-100 hover:border-zinc-500 hover:bg-zinc-800/80`;
   }
+}
+
+function buildApprovalPromptTitle(pendingApproval: ApprovalRequest): string {
+  const title = pendingApproval.title.trim();
+  if (title.endsWith("?")) {
+    return title;
+  }
+
+  const wantsToMatch = title.match(/^(?:shadowbox|codex)\s+wants\s+to\s+(.+)$/i);
+  if (wantsToMatch?.[1]) {
+    return `Do you want me to ${wantsToMatch[1]}?`;
+  }
+
+  switch (pendingApproval.category) {
+    case "git_mutation":
+      return "Do you want me to run this git command?";
+    case "filesystem_write":
+      return "Do you want me to write files in this workspace?";
+    case "network_external":
+      return "Do you want me to access an external network target?";
+    case "outside_workspace":
+      return "Do you want me to run this command outside the workspace?";
+    case "subagent_spawn":
+      return "Do you want me to start a sub-agent?";
+    case "provider_connect":
+      return "Do you want me to connect this provider?";
+    case "deploy_or_infra_mutation":
+      return "Do you want me to run this deployment action?";
+    case "dangerous_retry":
+      return "Do you want me to retry this risky action?";
+    case "shell_command":
+    default:
+      return "Do you want me to run this command?";
+  }
+}
+
+async function readApprovalErrorMessage(response: Response): Promise<string> {
+  const raw = await response.text();
+  if (!raw.trim()) {
+    return `Failed to resolve approval (${response.status})`;
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as { error?: unknown; message?: unknown };
+    if (typeof parsed.error === "string" && parsed.error.trim()) {
+      return parsed.error.trim();
+    }
+    if (typeof parsed.message === "string" && parsed.message.trim()) {
+      return parsed.message.trim();
+    }
+  } catch {
+    // Non-JSON responses fall back to raw text.
+  }
+
+  return raw.trim();
+}
+
+function isNoPendingApprovalError(message: string): boolean {
+  return message.toLowerCase().includes("no pending approval request found");
 }
 
 function derivePendingApprovalFromEvents(

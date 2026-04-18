@@ -18,6 +18,7 @@ import type { RunInboxItem } from "./components/run/RunInbox";
 import { SessionStateService } from "./services/SessionStateService";
 import { RunContextProvider } from "./hooks/useRunContext";
 import { useProviderStore } from "./hooks/useProviderStore";
+import { usePendingApprovalStateBySession } from "./hooks/usePendingApprovalStateBySession";
 import { resolveShellStartupState } from "./lib/startup-shell-state";
 import { LockedShellCard } from "./components/startup/LockedShellCard";
 import type { SetupSessionState } from "./types/session";
@@ -69,6 +70,8 @@ function AppContent() {
   const [gitReviewSessionId, setGitReviewSessionId] = useState<string | null>(
     null,
   );
+  const { approvalStatesBySessionId, handlePendingApprovalStateChange } =
+    usePendingApprovalStateBySession();
   const [gitReviewIntent, setGitReviewIntent] = useState<"review" | "commit">(
     "review",
   );
@@ -249,6 +252,14 @@ function AppContent() {
     return localStorage.getItem("shadowbox_right_sidebar_open") === "true";
   });
   const [sidebarWidth, setSidebarWidth] = useState(320);
+
+  const scopedApprovalStatesBySessionId = useMemo(() => {
+    const validSessionIds = new Set(sessions.map((session) => session.id));
+    const nextEntries = Object.entries(approvalStatesBySessionId).filter(
+      ([sessionId]) => validSessionIds.has(sessionId),
+    );
+    return Object.fromEntries(nextEntries);
+  }, [approvalStatesBySessionId, sessions]);
 
   useEffect(() => {
     localStorage.setItem(
@@ -563,6 +574,7 @@ function AppContent() {
             sessions={sessions}
             repositories={repositories}
             activeSessionId={activeSessionId}
+            approvalStatesBySessionId={scopedApprovalStatesBySessionId}
             onSelect={handleSelectSession}
             onCreate={handleNewTask}
             onRemove={removeSession}
@@ -701,6 +713,12 @@ function AppContent() {
                   onModeChange={(mode) =>
                     updateSession(activeSessionId, { mode })
                   }
+                  onPendingApprovalStateChange={(hasPendingApproval) => {
+                    handlePendingApprovalStateChange(
+                      activeSessionId,
+                      hasPendingApproval,
+                    );
+                  }}
                   isRightSidebarOpen={isRightSidebarOpen}
                   setIsRightSidebarOpen={setIsRightSidebarOpen}
                   isGitReviewOpen={

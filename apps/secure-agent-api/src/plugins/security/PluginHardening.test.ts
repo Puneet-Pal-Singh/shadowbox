@@ -32,6 +32,22 @@ function createSandboxMock(): SandboxMock {
   };
 }
 
+function createSandboxMockWithResponder(
+  responder: (command: string, index: number) => ExecResult,
+): SandboxMock {
+  const execCalls: string[] = [];
+  return {
+    execCalls,
+    async exec(command: string): Promise<ExecResult> {
+      execCalls.push(command);
+      return responder(command, execCalls.length - 1);
+    },
+    async writeFile(): Promise<void> {
+      return;
+    },
+  };
+}
+
 function asSandbox(mock: SandboxMock): Sandbox {
   return mock as unknown as Sandbox;
 }
@@ -94,6 +110,132 @@ describe("secure-agent-api plugin hardening", () => {
 
     expect(result.success).toBe(true);
     expect(sandbox.execCalls).toHaveLength(2);
+  });
+
+  it("adds a corepack fallback when running pnpm shell commands", async () => {
+    const plugin = new BashPlugin();
+    const sandbox = createSandboxMockWithResponder((command, index) => {
+      if (index === 0) {
+        return { exitCode: 0, stdout: "", stderr: "" };
+      }
+      if (!command.includes("command -v corepack")) {
+        return {
+          exitCode: 1,
+          stdout: "",
+          stderr: "missing pnpm/corepack fallback wrapper",
+        };
+      }
+      return { exitCode: 0, stdout: "ok", stderr: "" };
+    });
+
+    const result = await plugin.execute(asSandbox(sandbox), {
+      action: "run",
+      runId: "run-safe-bash-pnpm",
+      command: "pnpm run test",
+    });
+
+    expect(result.success).toBe(true);
+    expect(sandbox.execCalls).toHaveLength(2);
+    expect(sandbox.execCalls[1]).toContain(
+      'export PATH="$PATH:/usr/local/bin:/usr/bin:/bin:/home/sandbox/.local/share/pnpm"; if command -v pnpm',
+    );
+    expect(sandbox.execCalls[1]).toContain("command -v pnpm");
+    expect(sandbox.execCalls[1]).toContain("command -v corepack");
+    expect(sandbox.execCalls[1]).toContain("corepack pnpm run test");
+  });
+
+  it("falls back to npm run when pnpm and corepack are unavailable", async () => {
+    const plugin = new BashPlugin();
+    const sandbox = createSandboxMockWithResponder((command, index) => {
+      if (index === 0) {
+        return { exitCode: 0, stdout: "", stderr: "" };
+      }
+      if (!command.includes("else npm run test;")) {
+        return {
+          exitCode: 1,
+          stdout: "",
+          stderr: "missing npm fallback wrapper",
+        };
+      }
+      return { exitCode: 0, stdout: "ok", stderr: "" };
+    });
+
+    const result = await plugin.execute(asSandbox(sandbox), {
+      action: "run",
+      runId: "run-safe-bash-pnpm-npm-fallback",
+      command: "pnpm run test",
+    });
+
+    expect(result.success).toBe(true);
+    expect(sandbox.execCalls).toHaveLength(2);
+    expect(sandbox.execCalls[1]).toContain("command -v pnpm");
+    expect(sandbox.execCalls[1]).toContain("command -v corepack");
+    expect(sandbox.execCalls[1]).toContain("else npm run test;");
+  });
+
+  it("surfaces a clear fallback error for unsupported pnpm subcommands", async () => {
+    const plugin = new BashPlugin();
+    const sandbox = createSandboxMockWithResponder((command, index) => {
+      if (index === 0) {
+        return { exitCode: 0, stdout: "", stderr: "" };
+      }
+      if (
+        !command.includes(
+          'pnpm is unavailable in this runtime and no npm fallback mapping exists for: pnpm add lodash',
+        )
+      ) {
+        return {
+          exitCode: 1,
+          stdout: "",
+          stderr: "missing unsupported-subcommand fallback message",
+        };
+      }
+      return {
+        exitCode: 127,
+        stdout: "",
+        stderr:
+          "pnpm is unavailable in this runtime and no npm fallback mapping exists for: pnpm add lodash",
+      };
+    });
+
+    const result = await plugin.execute(asSandbox(sandbox), {
+      action: "run",
+      runId: "run-safe-bash-pnpm-unsupported",
+      command: "pnpm add lodash",
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain(
+      "pnpm is unavailable in this runtime and no npm fallback mapping exists for: pnpm add lodash",
+    );
+    expect(sandbox.execCalls).toHaveLength(2);
+  });
+
+  it("quotes unsupported pnpm fallback messages without shell expansion", async () => {
+    const plugin = new BashPlugin();
+    const sandbox = createSandboxMockWithResponder((command, index) => {
+      if (index === 0) {
+        return { exitCode: 0, stdout: "", stderr: "" };
+      }
+
+      return {
+        exitCode: 127,
+        stdout: "",
+        stderr: "",
+      };
+    });
+
+    await plugin.execute(asSandbox(sandbox), {
+      action: "run",
+      runId: "run-safe-bash-pnpm-quoted-fallback",
+      command: "pnpm unsupported $TOKEN",
+    });
+
+    expect(sandbox.execCalls[1]).toContain("printf");
+    expect(sandbox.execCalls[1]).toContain("pnpm unsupported $TOKEN");
+    expect(sandbox.execCalls[1]).not.toContain(
+      'echo "pnpm is unavailable in this runtime and no npm fallback mapping exists for: pnpm unsupported $TOKEN"',
+    );
   });
 
   it("registers the bash tool with the canonical runtime name", () => {

@@ -1,6 +1,6 @@
 import type { FormEvent } from "react";
 import type { Message } from "@ai-sdk/react";
-import type { RunMode } from "@repo/shared-types";
+import type { ProductMode, RunMode } from "@repo/shared-types";
 import { useChatCore } from "./useChatCore";
 import { useChatHydration } from "./useChatHydration";
 import { useChatPersistence } from "./useChatPersistence";
@@ -35,6 +35,7 @@ export function useChat(
   runId?: string,
   onFileCreated?: () => void,
   mode?: RunMode,
+  productMode?: ProductMode,
 ): UseChatResult {
   // Core chat functionality
   const {
@@ -51,7 +52,7 @@ export function useChat(
     isModelConfigReady,
     error,
     debugEvents,
-  } = useChatCore(sessionId, runId, mode);
+  } = useChatCore(sessionId, runId, mode, productMode);
 
   // Handle message hydration
   const { isHydrating } = useChatHydration(

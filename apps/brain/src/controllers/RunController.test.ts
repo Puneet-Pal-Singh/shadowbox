@@ -229,4 +229,28 @@ describe("RunController", () => {
       status: "approved",
     });
   });
+
+  it("returns 409 when an approval resolve targets a stale pending request", async () => {
+    const env = {} as Env;
+    runtimeHelpers.fetchRunRuntimeRoute.mockRejectedValueOnce(
+      new Error("No pending approval request found."),
+    );
+
+    const response = await RunController.approve(
+      new Request("https://brain.local/api/run/approval", {
+        method: "POST",
+        body: JSON.stringify({
+          runId: "123e4567-e89b-42d3-a456-426614174102",
+          requestId: "req-stale",
+          decision: "allow_once",
+        }),
+      }),
+      env,
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      error: "No pending approval request found.",
+    });
+  });
 });

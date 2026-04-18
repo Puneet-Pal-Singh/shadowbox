@@ -1,5 +1,8 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
-import { DEFAULT_RUN_MODE, type RunMode } from "@repo/shared-types";
+import {
+  DEFAULT_RUN_MODE,
+  type RunMode,
+} from "@repo/shared-types";
 import { motion } from "framer-motion";
 import {
   ChevronDown,
@@ -39,6 +42,7 @@ import { useGitStatus } from "../../hooks/useGitStatus";
 import { useGitDiff } from "../../hooks/useGitDiff";
 import type { FileExplorerHandle } from "../FileExplorer";
 import { ChatModeToggle } from "../chat/ChatModeToggle.js";
+import { PermissionModeControl } from "../chat/PermissionModeControl.js";
 import {
   applyFileMention,
   filterFileMentionCandidates,
@@ -46,6 +50,11 @@ import {
 } from "../chat/fileMentions";
 import { GitReviewDialog } from "../git/GitReviewDialog";
 import { GitReviewProvider, useGitReview } from "../git/GitReviewContext";
+import {
+  isProviderModelBootstrapLoading,
+} from "../../lib/provider-model-bootstrap-loading.js";
+import { useSessionProductMode } from "./hooks/useSessionProductMode";
+import { useSelectedProviderModelHydration } from "./hooks/useSelectedProviderModelHydration";
 
 interface AgentSetupProps {
   sessionId: string;
@@ -131,6 +140,7 @@ export function AgentSetup({
   const { repo, branch } = useGitHub();
   const { runId } = useRunContext();
   const [task, setTask] = useState("");
+  const { productMode, setProductMode } = useSessionProductMode(sessionId);
   const [isInputFocused, setIsInputFocused] = useState(false);
   const [cursorPosition, setCursorPosition] = useState(0);
   const [highlightedFileIndex, setHighlightedFileIndex] = useState(0);
@@ -160,17 +170,39 @@ export function AgentSetup({
     selectedModelId,
     selectedModelView,
     providerModels,
+    manageProviderModels,
     providerModelsMetadata,
     providerModelsPage,
     visibleModelIds,
     loadingModelsForProviderId,
+    loadingManageModelsForProviderIds,
     refreshingModelsForProviderId,
     loadProviderModels,
+    loadManageProviderModels,
     loadMoreProviderModels,
     refreshProviderModels,
     setModelView,
     applySessionSelection,
   } = useProviderStore();
+  const isModelPickerLoading = useMemo(
+    () =>
+      isProviderModelBootstrapLoading({
+        status,
+        catalog,
+        credentials,
+        providerModels,
+      }),
+    [status, catalog, credentials, providerModels],
+  );
+  const { isSelectedProviderModelHydrationPending } =
+    useSelectedProviderModelHydration({
+      selectedProviderId,
+      providerModels,
+      visibleModelIds,
+      manageProviderModels: manageProviderModels ?? {},
+      loadingManageModelsForProviderIds,
+      loadManageProviderModels,
+    });
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const explorerRef = useRef<FileExplorerHandle>(null);
   const previousProviderDialogSignalRef = useRef(openProviderDialogSignal);
@@ -867,7 +899,10 @@ export function AgentSetup({
                             setProviderDialogVariant("manage-models-only");
                             setShowProviderDialog(true);
                           }}
-                          isLoading={status === "loading"}
+                          isLoading={isModelPickerLoading}
+                          isHydratingVisibleModels={
+                            isSelectedProviderModelHydrationPending
+                          }
                         />
                       </div>
                     </div>
@@ -917,8 +952,12 @@ export function AgentSetup({
                   </div>
                 </motion.div>
               </form>
-              <div className="pl-6 mt-1">
+              <div className="mt-1 flex items-center gap-2 pl-6">
                 <ChatBranchSelector />
+                <PermissionModeControl
+                  value={productMode}
+                  onChange={setProductMode}
+                />
               </div>
               {requiresRepository && !hasRepositoryContext ? (
                 <div className="pl-6 mt-2 text-xs text-zinc-500">

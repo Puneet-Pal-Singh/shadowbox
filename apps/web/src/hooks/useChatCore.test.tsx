@@ -139,6 +139,35 @@ describe("useChatCore", () => {
     );
   });
 
+  it("includes selected product mode in request overrides", async () => {
+    mockResolveForChat.mockResolvedValue({
+      providerId: "axis",
+      credentialId: "cred-axis",
+      modelId: "z-ai/glm-4.5-air:free",
+      resolvedAt: "workspace_preference",
+      resolvedAtTime: new Date().toISOString(),
+    });
+
+    const { result } = renderHook(() =>
+      useChatCore("session-1", undefined, "build", "full_agent"),
+    );
+
+    await act(async () => {
+      await result.current.append({ role: "user", content: "Run this end-to-end" });
+    });
+
+    expect(appendSpy).toHaveBeenCalledWith(
+      { role: "user", content: "Run this end-to-end" },
+      expect.objectContaining({
+        body: expect.objectContaining({
+          sessionId: "session-1",
+          mode: "build",
+          productMode: "full_agent",
+        }),
+      }),
+    );
+  });
+
   it("keeps stop active until the cancel request settles", async () => {
     let resolveFetch: ((value: Response) => void) | null = null;
     const fetchSpy = vi

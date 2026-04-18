@@ -509,6 +509,46 @@ describe("RunAgenticLoopPolicy", () => {
     );
   });
 
+  it("summarizes missing package scripts with an actionable retry hint", () => {
+    const finalMessage = buildAgenticLoopFinalMessage({
+      stopReason: "tool_error",
+      messages: [{ role: "user", content: "run pnpm test" }],
+      toolExecutionCount: 1,
+      failedToolCount: 1,
+      stepsExecuted: 1,
+      requiresMutation: false,
+      completedMutatingToolCount: 0,
+      completedReadOnlyToolCount: 0,
+      toolLifecycle: [
+        {
+          toolCallId: "tool-1",
+          toolName: "bash",
+          status: "failed",
+          mutating: true,
+          recordedAt: "2026-04-17T14:17:37.000Z",
+          detail:
+            'npm error Missing script: "test" npm error To see a list of scripts, run: npm run',
+          metadata: {
+            family: "shell",
+            command: "pnpm test",
+            cwd: ".",
+            origin: "agent_tool",
+            stderr:
+              'npm error Missing script: "test" npm error To see a list of scripts, run: npm run',
+            truncated: false,
+          },
+        },
+      ],
+    });
+
+    expect(finalMessage.text).toContain(
+      'does not define a script named "test"',
+    );
+    expect(finalMessage.metadata?.resumeHint).toContain(
+      'Run `pnpm run` (or `npm run`) to list scripts',
+    );
+  });
+
   it("explains missing local git refs during push recovery in plain language", () => {
     const result: AgenticLoopResult = {
       stopReason: "tool_error",

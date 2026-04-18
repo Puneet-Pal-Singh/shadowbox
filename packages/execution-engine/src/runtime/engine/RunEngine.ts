@@ -23,6 +23,7 @@ import { PlannerService } from "../planner/index.js";
 import { TaskScheduler, type TaskExecutor } from "../orchestration/index.js";
 import { DefaultTaskExecutor, AgentTaskExecutor } from "./TaskExecutor.js";
 import { AgenticLoop } from "./AgenticLoop.js";
+import { AgenticLoopCancelledError } from "./AgenticLoop.js";
 import { executeAgenticLoopTool } from "./AgenticLoopToolExecutor.js";
 import { buildAgenticLoopWorkspaceContext } from "./RunContinuationContext.js";
 import {
@@ -100,6 +101,18 @@ import { applyReviewerPassIfEnabled } from "./RunReviewerPassPolicy.js";
 import { RunEventRecorder, RunEventRepository } from "../events/index.js";
 import { getToolPresentation } from "../lib/ToolPresentation.js";
 import { tryHandleTaskExecutionErrorPolicy } from "./RunTaskExecutionRecoveryPolicy.js";
+import {
+  ensureApprovalResolvedEventRecorded,
+  waitForApprovalDecision,
+} from "./RunApprovalWaitPolicy.js";
+import {
+  resolveBudgetConfig,
+  resolveUnknownPricingMode,
+} from "./RunEngineConfigPolicy.js";
+import {
+  handleExecutionErrorPolicy,
+  safeMemoryOperation as safeMemoryOperationPolicy,
+} from "./RunEngineReliabilityPolicy.js";
 
 export interface IRunEngine {
   execute(
@@ -123,6 +136,7 @@ export interface RunEngineEnv {
   COST_UNKNOWN_PRICING_MODE?: string;
   MAX_RUN_BUDGET?: string;
   MAX_SESSION_BUDGET?: string;
+  APPROVAL_WAIT_TIMEOUT_MS?: string;
   NODE_ENV?: string;
   ALLOW_DEFAULT_EXECUTOR?: string;
 }
@@ -194,7 +208,7 @@ export class RunEngine implements IRunEngine {
       new CostTracker(
         ctx,
         this.pricingRegistry,
-        this.getUnknownPricingMode(options.env),
+        resolveUnknownPricingMode(options.env),
       );
 
     this.budgetManager =
@@ -202,7 +216,7 @@ export class RunEngine implements IRunEngine {
       new BudgetManager(
         this.costTracker,
         this.pricingRegistry,
-        this.getBudgetConfig(options.env),
+        resolveBudgetConfig(options.env),
         ctx,
       );
     this.sessionCostsLoaded = this.budgetManager.loadSessionCosts();
@@ -212,7 +226,7 @@ export class RunEngine implements IRunEngine {
     const pricingResolver =
       dependencies.pricingResolver ??
       new PricingResolver(this.pricingRegistry, {
-        unknownPricingMode: this.getUnknownPricingMode(options.env),
+        unknownPricingMode: resolveUnknownPricingMode(options.env),
       });
 
     if (dependencies.llmGateway) {
@@ -567,12 +581,57 @@ export class RunEngine implements IRunEngine {
                 await this.runEventRecorder.recordApprovalRequested(
                   permissionResult.request,
                 );
-                throw PermissionGateError.fromAsk(permissionResult.request);
+                const approvalOutcome = await waitForApprovalDecision({
+                  request: permissionResult.request,
+                  env: this.options.env,
+                  runId: this.options.runId,
+                  runRepo: this.runRepo,
+                  permissionApprovalStore: this.permissionApprovalStore,
+                });
+                if (
+                  approvalOutcome.outcome === "approved" ||
+                  approvalOutcome.outcome === "denied" ||
+                  approvalOutcome.outcome === "aborted"
+                ) {
+                  await ensureApprovalResolvedEventRecorded({
+                    runEventRecorder: this.runEventRecorder,
+                    requestId: permissionResult.request.requestId,
+                    decision:
+                      approvalOutcome.decision ??
+                      (approvalOutcome.outcome === "approved"
+                        ? "allow_once"
+                        : approvalOutcome.outcome === "aborted"
+                          ? "abort"
+                          : "deny"),
+                    status:
+                      approvalOutcome.outcome === "approved"
+                        ? "approved"
+                        : approvalOutcome.outcome === "aborted"
+                          ? "aborted"
+                          : "denied",
+                  });
+                }
+                if (approvalOutcome.outcome === "approved") {
+                  // Continue with the original tool call after approval is granted.
+                } else if (approvalOutcome.outcome === "timed_out") {
+                  throw PermissionGateError.fromAsk(permissionResult.request);
+                } else if (approvalOutcome.outcome === "cancelled") {
+                  throw new AgenticLoopCancelledError(
+                    "Run was cancelled while waiting for approval.",
+                  );
+                } else if (approvalOutcome.outcome === "aborted") {
+                  throw PermissionGateError.fromDeny(
+                    "Approval request was aborted.",
+                  );
+                } else {
+                  throw PermissionGateError.fromDeny(
+                    "Approval request was denied.",
+                  );
+                }
               }
               if (permissionResult.kind === "deny") {
                 throw PermissionGateError.fromDeny(permissionResult.reason);
               }
-
               return executeAgenticLoopTool(directExecutionService, {
                 taskId: toolCall.id,
                 toolName: toolCall.toolName,
@@ -612,9 +671,7 @@ export class RunEngine implements IRunEngine {
           });
         },
         onProgress: async (progress) => {
-          if (!progress) {
-            return;
-          }
+          if (!progress) return;
           await this.runEventRecorder.recordRunProgress(
             progress.phase,
             progress.label,
@@ -640,9 +697,7 @@ export class RunEngine implements IRunEngine {
           });
         },
         onToolCompleted: async (toolCall, result, executionTimeMs) => {
-          if (toolCall.toolName === "write_file") {
-            hasMutationEvidence = true;
-          }
+          if (toolCall.toolName === "write_file") hasMutationEvidence = true;
           await this.runEventRecorder.recordToolCompleted(
             {
               id: toolCall.id,
@@ -663,7 +718,6 @@ export class RunEngine implements IRunEngine {
           );
         },
       });
-
       recordAgenticLoopMetadata(run, loopResult);
       if (loopResult.stopReason === "cancelled") {
         console.log(`[run/engine] Agentic loop observed cancellation for run ${run.id}`);
@@ -691,6 +745,11 @@ export class RunEngine implements IRunEngine {
             code: "APPROVAL_REQUIRED",
             approvalRequest: gateResult.request,
           });
+        }
+        const currentRun = await this.runRepo.getById(run.id);
+        if (currentRun?.status === "CANCELLED") {
+          console.log(`[run/engine] Returning empty response for cancelled run ${run.id}`);
+          return createStreamResponse("");
         }
         const denialReason =
           gateResult.kind === "deny" ? gateResult.reason : error.message;
@@ -933,42 +992,19 @@ export class RunEngine implements IRunEngine {
     runId: string,
     error: unknown,
   ): Promise<void> {
-    const errorMessage =
-      error instanceof Error ? error.message : "Unknown execution error";
-    try {
-      const run = await this.runRepo.getById(runId);
-      if (run) {
-        transitionRunToFailed(run, runId);
-        recordLifecycleStep(run, "TERMINAL", "status=FAILED");
-        recordOrchestrationTerminal(run);
-        run.metadata.error = errorMessage;
-        await this.runRepo.update(run);
-        if (run.status === "FAILED") {
-          await this.runEventRecorder.recordRunFailed(
-            errorMessage,
-            this.getRunDurationMs(run),
-          );
-        }
-      }
-    } catch (handlerError) {
-      console.error(
-        `[run/engine] Failed to handle execution error for run ${runId}:`,
-        handlerError,
-      );
-    }
-
-    console.error(`[run/engine] Run ${runId} failed:`, errorMessage);
+    await handleExecutionErrorPolicy({
+      runId,
+      error,
+      runRepo: this.runRepo,
+      runEventRecorder: this.runEventRecorder,
+      getRunDurationMs: this.getRunDurationMs.bind(this),
+    });
   }
 
   private async safeMemoryOperation<T>(
     operation: () => Promise<T>,
   ): Promise<T | undefined> {
-    try {
-      return await operation();
-    } catch (error) {
-      console.warn("[run/engine] Memory subsystem operation failed:", error);
-      return undefined;
-    }
+    return safeMemoryOperationPolicy(operation);
   }
   async getCostSnapshot(runId: string): Promise<CostSnapshot> {
     return this.costLedger.aggregate(runId);
@@ -1003,41 +1039,7 @@ export class RunEngine implements IRunEngine {
     });
   }
 
-  private getUnknownPricingMode(env: RunEngineEnv): "warn" | "block" {
-    const configuredMode = env.COST_UNKNOWN_PRICING_MODE as unknown;
-    if (typeof configuredMode === "string") {
-      const normalized = configuredMode.trim().toLowerCase();
-      if (normalized === "warn" || normalized === "block") {
-        return normalized;
-      }
-      console.warn(
-        `[run/engine] Invalid COST_UNKNOWN_PRICING_MODE=${configuredMode}. Falling back to NODE_ENV default.`,
-      );
-    }
-    const nodeEnv =
-      typeof process !== "undefined" ? process.env?.NODE_ENV : undefined;
-    return nodeEnv === "production" ? "block" : "warn";
-  }
-
-  private getBudgetConfig(env: RunEngineEnv): {
-    maxCostPerRun?: number;
-    maxCostPerSession?: number;
-  } {
-    return {
-      maxCostPerRun: parseOptionalNumber(env.MAX_RUN_BUDGET),
-      maxCostPerSession: parseOptionalNumber(env.MAX_SESSION_BUDGET),
-    };
-  }
 }
-
-function parseOptionalNumber(value?: string): number | undefined {
-  if (!value || value.trim() === "") {
-    return undefined;
-  }
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : undefined;
-}
-
 export class RunEngineError extends Error {
   constructor(message: string) {
     super(`[run/engine] ${message}`);
