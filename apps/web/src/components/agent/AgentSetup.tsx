@@ -1,7 +1,6 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import {
   DEFAULT_RUN_MODE,
-  type ProductMode,
   type RunMode,
 } from "@repo/shared-types";
 import { motion } from "framer-motion";
@@ -52,13 +51,10 @@ import {
 import { GitReviewDialog } from "../git/GitReviewDialog";
 import { GitReviewProvider, useGitReview } from "../git/GitReviewContext";
 import {
-  loadStoredProductMode,
-  persistProductMode,
-} from "../../lib/product-mode-storage";
-import {
   isProviderModelBootstrapLoading,
-  isProviderVisibleModelHydrationPending,
 } from "../../lib/provider-model-bootstrap-loading.js";
+import { useSessionProductMode } from "./hooks/useSessionProductMode";
+import { useSelectedProviderModelHydration } from "./hooks/useSelectedProviderModelHydration";
 
 interface AgentSetupProps {
   sessionId: string;
@@ -144,9 +140,7 @@ export function AgentSetup({
   const { repo, branch } = useGitHub();
   const { runId } = useRunContext();
   const [task, setTask] = useState("");
-  const [productMode, setProductMode] = useState<ProductMode>(() =>
-    loadStoredProductMode(sessionId),
-  );
+  const { productMode, setProductMode } = useSessionProductMode(sessionId);
   const [isInputFocused, setIsInputFocused] = useState(false);
   const [cursorPosition, setCursorPosition] = useState(0);
   const [highlightedFileIndex, setHighlightedFileIndex] = useState(0);
@@ -200,16 +194,15 @@ export function AgentSetup({
       }),
     [status, catalog, credentials, providerModels],
   );
-  const isSelectedProviderModelHydrationPending = useMemo(
-    () =>
-      isProviderVisibleModelHydrationPending({
-        selectedProviderId,
-        providerModels,
-        visibleModelIds,
-        manageProviderModels: manageProviderModels ?? {},
-      }),
-    [manageProviderModels, providerModels, selectedProviderId, visibleModelIds],
-  );
+  const { isSelectedProviderModelHydrationPending } =
+    useSelectedProviderModelHydration({
+      selectedProviderId,
+      providerModels,
+      visibleModelIds,
+      manageProviderModels: manageProviderModels ?? {},
+      loadingManageModelsForProviderIds,
+      loadManageProviderModels,
+    });
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const explorerRef = useRef<FileExplorerHandle>(null);
   const previousProviderDialogSignalRef = useRef(openProviderDialogSignal);
@@ -335,38 +328,6 @@ export function AgentSetup({
   ]);
 
   useEffect(() => {
-    if (!selectedProviderId || !isSelectedProviderModelHydrationPending) {
-      return;
-    }
-    if (loadingManageModelsForProviderIds?.[selectedProviderId]) {
-      return;
-    }
-    if (!loadManageProviderModels) {
-      return;
-    }
-
-    void loadManageProviderModels(selectedProviderId).catch((error) => {
-      console.warn(
-        "[agent-setup/model-picker] failed to hydrate selected visible models",
-        error,
-      );
-    });
-  }, [
-    isSelectedProviderModelHydrationPending,
-    loadManageProviderModels,
-    loadingManageModelsForProviderIds,
-    selectedProviderId,
-  ]);
-
-  useEffect(() => {
-    setProductMode(loadStoredProductMode(sessionId));
-  }, [sessionId]);
-
-  useEffect(() => {
-    persistProductMode(sessionId, productMode);
-  }, [productMode, sessionId]);
-
-  useEffect(() => {
     if (openProviderDialogSignal === previousProviderDialogSignalRef.current) {
       return;
     }
@@ -468,7 +429,6 @@ export function AgentSetup({
     }
 
     if (task.trim()) {
-      persistProductMode(sessionId, productMode);
       onStart({
         repo: repo?.full_name || "",
         branch: branch || "main",
