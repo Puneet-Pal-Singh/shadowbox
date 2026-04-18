@@ -98,6 +98,13 @@ interface AgenticLoopHooks {
   ) => Promise<void>;
 }
 
+export class AgenticLoopCancelledError extends Error {
+  constructor(message = "Run was cancelled") {
+    super(message);
+    this.name = "AgenticLoopCancelledError";
+  }
+}
+
 /**
  * AgenticLoop executes a bounded loop of LLM calls and tool execution
  * with explicit stop conditions and budget enforcement
@@ -429,6 +436,10 @@ export class AgenticLoop {
             });
           }
         } catch (error) {
+          if (error instanceof AgenticLoopCancelledError) {
+            stopReason = "cancelled";
+            break;
+          }
           this.failedToolCount++;
           const errorMessage =
             error instanceof Error ? error.message : "Unknown error";
