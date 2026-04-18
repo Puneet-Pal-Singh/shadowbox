@@ -1,30 +1,35 @@
-import { useEffect, useState } from "react";
+import { useMemo } from "react";
 import { PRODUCT_MODES, type ProductMode } from "@repo/shared-types";
-import {
-  loadStoredProductMode,
-  persistProductMode,
-} from "../../../lib/product-mode-storage";
+import { persistProductMode } from "../../../lib/product-mode-storage";
 
 export function useSessionProductMode(sessionId: string) {
-  const [productMode, setProductMode] = useState<ProductMode>(() =>
-    loadStoredProductMode(sessionId),
+  const productMode = useMemo(
+    () => loadStoredProductMode(sessionId),
+    [sessionId],
   );
 
-  useEffect(() => {
-    const storedMode = loadStoredProductMode(sessionId);
-    setProductMode((currentMode) =>
-      currentMode === storedMode ? currentMode : storedMode,
-    );
-  }, [sessionId]);
+  persistProductMode(sessionId, normalizeProductMode(productMode));
 
-  useEffect(() => {
-    persistProductMode(sessionId, normalizeProductMode(productMode));
-  }, [productMode, sessionId]);
+  const setProductMode = (mode: ProductMode) => {
+    persistProductMode(sessionId, normalizeProductMode(mode));
+  };
 
   return {
     productMode: normalizeProductMode(productMode),
     setProductMode,
   };
+}
+
+function loadStoredProductMode(sessionId: string): ProductMode {
+  try {
+    const stored = localStorage.getItem(`productMode:${sessionId}`);
+    if (stored && stored in PRODUCT_MODES) {
+      return stored as ProductMode;
+    }
+  } catch {
+    console.warn("[useSessionProductMode] Failed to load from localStorage");
+  }
+  return PRODUCT_MODES.AUTO;
 }
 
 function normalizeProductMode(mode: ProductMode): ProductMode {
