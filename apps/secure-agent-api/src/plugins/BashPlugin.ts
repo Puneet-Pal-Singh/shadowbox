@@ -136,7 +136,8 @@ function buildRuntimeBashCommand(command: string): string {
   const corepackInvocation =
     pnpmArgs.length > 0 ? `corepack pnpm ${pnpmArgs}` : "corepack pnpm";
   const npmFallbackInvocation = buildNpmFallbackInvocation(pnpmArgs);
-  const finalFallbackInvocation = npmFallbackInvocation ?? pnpmInvocation;
+  const finalFallbackInvocation =
+    npmFallbackInvocation ?? buildPnpmUnavailableFallbackInvocation(pnpmArgs);
 
   return [
     'export PATH="$PATH:/usr/local/bin:/usr/bin:/bin:/home/sandbox/.local/share/pnpm";',
@@ -169,6 +170,15 @@ function buildNpmFallbackInvocation(pnpmArgs: string): string | null {
   }
 
   return null;
+}
+
+function buildPnpmUnavailableFallbackInvocation(pnpmArgs: string): string {
+  const requestedCommand = pnpmArgs.trim().length > 0 ? `pnpm ${pnpmArgs.trim()}` : "pnpm";
+  const escapedRequestedCommand = requestedCommand
+    .replaceAll("\\", "\\\\")
+    .replaceAll('"', '\\"');
+
+  return `echo "pnpm is unavailable in this runtime and no npm fallback mapping exists for: ${escapedRequestedCommand}" >&2; exit 127`;
 }
 
 function emitCommandLogs(
