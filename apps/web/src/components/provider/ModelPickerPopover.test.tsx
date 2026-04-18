@@ -201,6 +201,29 @@ describe("ModelPickerPopover", () => {
       ).toHaveTextContent("OpenAI: gpt-4-turbo");
     });
 
+    it("uses the hydration-specific loading label during full loading", () => {
+      render(
+        <ModelPickerPopover
+          {...defaultProps}
+          providerModels={{ axis: mockModels.axis ?? [] }}
+          selectedProviderId="openai"
+          selectedModelId="gpt-4"
+          isHydratingVisibleModels
+          isLoading
+        />,
+      );
+
+      expect(
+        screen.getByRole("button", { name: /open model picker/i }),
+      ).toHaveTextContent("Loading selected models...");
+
+      fireEvent.click(screen.getByRole("button", { name: /open model picker/i }));
+
+      expect(
+        screen.getByTestId("model-picker-popover"),
+      ).toHaveTextContent("Loading selected models...");
+    });
+
     it("opens popover on button click", async () => {
       render(
         <ModelPickerPopover
