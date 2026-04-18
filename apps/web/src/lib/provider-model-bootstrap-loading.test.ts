@@ -109,6 +109,19 @@ describe("isProviderModelBootstrapLoading", () => {
 });
 
 describe("isProviderVisibleModelHydrationPending", () => {
+  it("returns false before selected provider picker models are loaded", () => {
+    expect(
+      isProviderVisibleModelHydrationPending({
+        selectedProviderId: "openrouter",
+        providerModels: {},
+        visibleModelIds: {
+          openrouter: new Set(["model-a"]),
+        },
+        manageProviderModels: {},
+      }),
+    ).toBe(false);
+  });
+
   it("returns true when selected visible models are missing from picker models", () => {
     expect(
       isProviderVisibleModelHydrationPending({
