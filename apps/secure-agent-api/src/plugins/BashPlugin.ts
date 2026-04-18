@@ -174,11 +174,15 @@ function buildNpmFallbackInvocation(pnpmArgs: string): string | null {
 
 function buildPnpmUnavailableFallbackInvocation(pnpmArgs: string): string {
   const requestedCommand = pnpmArgs.trim().length > 0 ? `pnpm ${pnpmArgs.trim()}` : "pnpm";
-  const escapedRequestedCommand = requestedCommand
-    .replaceAll("\\", "\\\\")
-    .replaceAll('"', '\\"');
+  const quotedRequestedCommand = quoteShellLiteral(
+    `pnpm is unavailable in this runtime and no npm fallback mapping exists for: ${requestedCommand}`,
+  );
 
-  return `echo "pnpm is unavailable in this runtime and no npm fallback mapping exists for: ${escapedRequestedCommand}" >&2; exit 127`;
+  return `printf '%s\\n' ${quotedRequestedCommand} >&2; exit 127`;
+}
+
+function quoteShellLiteral(value: string): string {
+  return `'${value.replaceAll("'", `'"'"'`)}'`;
 }
 
 function emitCommandLogs(
