@@ -14,7 +14,8 @@ export function resolveUnknownPricingMode(
     );
   }
   const nodeEnv =
-    typeof process !== "undefined" ? process.env?.NODE_ENV : undefined;
+    env.NODE_ENV ??
+    (typeof process !== "undefined" ? process.env?.NODE_ENV : undefined);
   return nodeEnv === "production" ? "block" : "warn";
 }
 
@@ -23,15 +24,26 @@ export function resolveBudgetConfig(env: RunEngineEnv): {
   maxCostPerSession?: number;
 } {
   return {
-    maxCostPerRun: parseOptionalNumber(env.MAX_RUN_BUDGET),
-    maxCostPerSession: parseOptionalNumber(env.MAX_SESSION_BUDGET),
+    maxCostPerRun: parseOptionalBudget("MAX_RUN_BUDGET", env.MAX_RUN_BUDGET),
+    maxCostPerSession: parseOptionalBudget(
+      "MAX_SESSION_BUDGET",
+      env.MAX_SESSION_BUDGET,
+    ),
   };
 }
 
-function parseOptionalNumber(value?: string): number | undefined {
+function parseOptionalBudget(
+  name: string,
+  value?: string,
+): number | undefined {
   if (!value || value.trim() === "") {
     return undefined;
   }
   const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : undefined;
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    throw new Error(
+      `[run/engine] Invalid ${name}=${value}. Expected a non-negative number.`,
+    );
+  }
+  return parsed;
 }
