@@ -94,6 +94,23 @@ export class RunEventRecorder {
     await this.append(createApprovalResolvedEvent(this.baseInput(), input));
   }
 
+  async recordApprovalResolvedIfNotExists(input: {
+    requestId: string;
+    decision: ApprovalDecisionKind;
+    status: ApprovalResolutionStatus;
+    resolvedAt?: string;
+  }): Promise<boolean> {
+    const event = createApprovalResolvedEvent(this.baseInput(), input);
+    const inserted = await this.repository.appendApprovalResolvedIfMissing(
+      this.runId,
+      event,
+    );
+    if (inserted && this.eventListener) {
+      await this.eventListener(event);
+    }
+    return inserted;
+  }
+
   async recordToolRequested(
     task: Pick<SerializedTask, "id" | "type"> & {
       input?: Record<string, unknown>;
