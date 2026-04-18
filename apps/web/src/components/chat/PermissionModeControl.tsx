@@ -40,6 +40,13 @@ const PERMISSION_MODE_OPTIONS: PermissionModeOption[] = [
     Icon: PencilLine,
   },
   {
+    value: PRODUCT_MODES.AUTO_FOR_SAME_REPO,
+    label: "Auto same repo",
+    shortLabel: "Auto repo",
+    description: "Auto-run safe actions when they stay inside this repository.",
+    Icon: PencilLine,
+  },
+  {
     value: PRODUCT_MODES.FULL_AGENT,
     label: "Full access",
     shortLabel: "Full access",
@@ -55,13 +62,7 @@ export function PermissionModeControl({
 }: PermissionModeControlProps) {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
-  const normalizedValue =
-    value === PRODUCT_MODES.AUTO_FOR_SAME_REPO
-      ? PRODUCT_MODES.AUTO_FOR_SAFE
-      : value;
-  const selectedOption =
-    PERMISSION_MODE_OPTIONS.find((option) => option.value === normalizedValue) ??
-    PERMISSION_MODE_OPTIONS[0]!;
+  const selectedOption = resolvePermissionModeOption(value);
   const SelectedIcon = selectedOption.Icon;
 
   useEffect(() => {
@@ -155,4 +156,16 @@ export function PermissionModeControl({
       ) : null}
     </div>
   );
+}
+
+function resolvePermissionModeOption(value: ProductMode): PermissionModeOption {
+  const option = PERMISSION_MODE_OPTIONS.find((entry) => entry.value === value);
+  if (option) {
+    return option;
+  }
+
+  console.warn(
+    `[permission-mode-control] Unsupported mode "${value}" received; defaulting to supervised.`,
+  );
+  return PERMISSION_MODE_OPTIONS[0]!;
 }
