@@ -105,9 +105,16 @@ export class RunEventRecorder {
       this.runId,
       event,
     );
-    if (inserted && this.eventListener) {
-      await this.eventListener(event);
+    if (!inserted || !this.eventListener) {
+      return inserted;
     }
+
+    try {
+      await this.eventListener(event);
+    } catch (error) {
+      console.warn("[run/events] failed to emit live run event", error);
+    }
+
     return inserted;
   }
 
