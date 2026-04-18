@@ -291,7 +291,7 @@ describe("ChatInterface", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("prefers session-safe action labels over persistent allow action", () => {
+  it("orders primary approval actions first but keeps additional actions visible", () => {
     vi.mocked(useRunSummary).mockReturnValue({
       summary: {
         runId: "run-labels",
@@ -344,8 +344,8 @@ describe("ChatInterface", () => {
       screen.getByRole("button", { name: "Allow for this session" }),
     ).toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: "Allow in future" }),
-    ).not.toBeInTheDocument();
+      screen.getByRole("button", { name: "Allow in future" }),
+    ).toBeInTheDocument();
   });
 
   it("does not revive stale event-based approvals when summary reports no pending request", () => {
