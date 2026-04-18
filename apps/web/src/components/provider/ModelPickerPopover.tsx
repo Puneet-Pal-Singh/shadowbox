@@ -410,7 +410,10 @@ export function ModelPickerPopover({
 
     return `${formatProviderDisplayName(provider.providerId, provider.displayName)}: ${model.name}`;
   }, [connectedProviderIds, effectiveSelection, catalog, providerModels]);
-  const triggerLabel = isLoading ? "Loading models..." : selectedModelLabel;
+  const modelLoadingLabel = isHydratingVisibleModels
+    ? "Loading selected models..."
+    : "Loading models...";
+  const triggerLabel = isLoading ? modelLoadingLabel : selectedModelLabel;
 
   // Handle model selection
   const handleSelectModel = async (
@@ -732,9 +735,7 @@ export function ModelPickerPopover({
                 aria-live="polite"
                 className="border-b border-neutral-800 px-3 py-1.5 text-[11px] text-neutral-400"
               >
-                {isHydratingVisibleModels
-                  ? "Loading selected models..."
-                  : "Loading models..."}
+                {modelLoadingLabel}
               </div>
             )}
             <div
@@ -745,7 +746,7 @@ export function ModelPickerPopover({
               {isLoading ? (
                 <div className="px-6 py-8 text-center">
                   <p className="text-sm font-medium text-neutral-200">
-                    Loading models...
+                    {modelLoadingLabel}
                   </p>
                   <p className="mt-1 text-xs text-neutral-500">
                     Fetching available models from your providers.
