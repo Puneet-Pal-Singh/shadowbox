@@ -63,6 +63,7 @@ interface UseRunSummaryResult {
 const TERMINAL_RUN_STATUSES = new Set(["COMPLETED", "FAILED", "CANCELLED"]);
 const SUMMARY_ERROR_LOG_WINDOW_MS = 30_000;
 const RUN_SUMMARY_MIN_FETCH_INTERVAL_MS = 1_200;
+const RUN_SUMMARY_POLL_INTERVAL_MS = 1_500;
 
 export function useRunSummary(
   runId: string,
@@ -143,7 +144,7 @@ export function useRunSummary(
       const isTerminal = Boolean(
         summary?.status && TERMINAL_RUN_STATUSES.has(summary.status),
       );
-      if (isTerminal || document.visibilityState !== "visible") {
+      if ((!shouldPoll && isTerminal) || document.visibilityState !== "visible") {
         return;
       }
       void fetchSummary();
@@ -153,7 +154,24 @@ export function useRunSummary(
     return () => {
       window.removeEventListener(RUN_SUMMARY_REFRESH_EVENT, handleRefreshEvent);
     };
-  }, [fetchSummary, runId, summary?.status]);
+  }, [fetchSummary, runId, shouldPoll, summary?.status]);
+
+  useEffect(() => {
+    if (!runId || !shouldPoll) {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      if (document.visibilityState !== "visible") {
+        return;
+      }
+      void fetchSummary();
+    }, RUN_SUMMARY_POLL_INTERVAL_MS);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [fetchSummary, runId, shouldPoll]);
 
   return { summary };
 }
