@@ -66,7 +66,7 @@ export function isProviderVisibleModelHydrationPending({
   }
 
   if (!Object.prototype.hasOwnProperty.call(providerModels, selectedProviderId)) {
-    return true;
+    return false;
   }
 
   const pickerModelIds = new Set(
