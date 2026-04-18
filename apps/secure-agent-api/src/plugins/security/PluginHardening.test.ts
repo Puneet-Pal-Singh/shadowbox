@@ -211,6 +211,33 @@ describe("secure-agent-api plugin hardening", () => {
     expect(sandbox.execCalls).toHaveLength(2);
   });
 
+  it("quotes unsupported pnpm fallback messages without shell expansion", async () => {
+    const plugin = new BashPlugin();
+    const sandbox = createSandboxMockWithResponder((command, index) => {
+      if (index === 0) {
+        return { exitCode: 0, stdout: "", stderr: "" };
+      }
+
+      return {
+        exitCode: 127,
+        stdout: "",
+        stderr: "",
+      };
+    });
+
+    await plugin.execute(asSandbox(sandbox), {
+      action: "run",
+      runId: "run-safe-bash-pnpm-quoted-fallback",
+      command: "pnpm unsupported $TOKEN",
+    });
+
+    expect(sandbox.execCalls[1]).toContain("printf");
+    expect(sandbox.execCalls[1]).toContain("pnpm unsupported $TOKEN");
+    expect(sandbox.execCalls[1]).not.toContain(
+      'echo "pnpm is unavailable in this runtime and no npm fallback mapping exists for: pnpm unsupported $TOKEN"',
+    );
+  });
+
   it("registers the bash tool with the canonical runtime name", () => {
     expect(BashTool.name).toBe("bash");
   });
