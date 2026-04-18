@@ -6,6 +6,7 @@ import { PermissionModeControl } from "./PermissionModeControl";
 import { ProviderDialog } from "../provider/ProviderDialog";
 import type { Message } from "@ai-sdk/react";
 import {
+  ApprovalRequestSchema,
   PRODUCT_MODES,
   RUN_EVENT_TYPES,
   type ApprovalDecisionKind,
@@ -14,6 +15,7 @@ import {
   type RunEvent,
   type RunMode,
 } from "@repo/shared-types";
+import { z } from "zod";
 import type { ProviderId } from "../../types/provider";
 import type { ChatDebugEvent } from "../../types/chat-debug.js";
 import { useRunSummary } from "../../hooks/useRunSummary.js";
@@ -42,6 +44,9 @@ const PRIMARY_APPROVAL_DECISIONS: ApprovalDecisionKind[] = [
   "allow_for_run",
   "deny",
 ];
+const RunSummaryPendingApprovalSchema = z.object({
+  pendingApproval: ApprovalRequestSchema.nullish(),
+});
 
 function ChatErrorNotice({
   message,
@@ -648,10 +653,16 @@ async function fetchLatestPendingApproval(
     return null;
   }
 
-  const payload = (await response.json()) as {
-    pendingApproval?: ApprovalRequest | null;
-  };
-  return payload.pendingApproval ?? null;
+  const payload = RunSummaryPendingApprovalSchema.safeParse(await response.json());
+  if (!payload.success) {
+    console.warn(
+      `[chat/interface] Invalid run summary payload while refreshing approval for runId=${runId}`,
+      payload.error,
+    );
+    return null;
+  }
+
+  return payload.data.pendingApproval ?? null;
 }
 
 function formatDebugPayload(payload: unknown): string {
