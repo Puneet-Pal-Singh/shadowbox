@@ -18,6 +18,7 @@ import type { RunInboxItem } from "./components/run/RunInbox";
 import { SessionStateService } from "./services/SessionStateService";
 import { RunContextProvider } from "./hooks/useRunContext";
 import { useProviderStore } from "./hooks/useProviderStore";
+import { usePendingApprovalStateBySession } from "./hooks/usePendingApprovalStateBySession";
 import { resolveShellStartupState } from "./lib/startup-shell-state";
 import { LockedShellCard } from "./components/startup/LockedShellCard";
 import type { SetupSessionState } from "./types/session";
@@ -69,9 +70,8 @@ function AppContent() {
   const [gitReviewSessionId, setGitReviewSessionId] = useState<string | null>(
     null,
   );
-  const [approvalStatesBySessionId, setApprovalStatesBySessionId] = useState<
-    Record<string, boolean>
-  >({});
+  const { approvalStatesBySessionId, handlePendingApprovalStateChange } =
+    usePendingApprovalStateBySession();
   const [gitReviewIntent, setGitReviewIntent] = useState<"review" | "commit">(
     "review",
   );
@@ -714,17 +714,10 @@ function AppContent() {
                     updateSession(activeSessionId, { mode })
                   }
                   onPendingApprovalStateChange={(hasPendingApproval) => {
-                    setApprovalStatesBySessionId((current) => {
-                      if (hasPendingApproval) {
-                        return { ...current, [activeSessionId]: true };
-                      }
-                      if (!current[activeSessionId]) {
-                        return current;
-                      }
-                      const next = { ...current };
-                      delete next[activeSessionId];
-                      return next;
-                    });
+                    handlePendingApprovalStateChange(
+                      activeSessionId,
+                      hasPendingApproval,
+                    );
                   }}
                   isRightSidebarOpen={isRightSidebarOpen}
                   setIsRightSidebarOpen={setIsRightSidebarOpen}
