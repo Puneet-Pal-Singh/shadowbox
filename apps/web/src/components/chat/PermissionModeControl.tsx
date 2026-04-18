@@ -79,6 +79,12 @@ export function PermissionModeControl({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  useEffect(() => {
+    if (disabled) {
+      setIsOpen(false);
+    }
+  }, [disabled]);
+
   return (
     <div ref={containerRef} className="relative">
       <button
@@ -111,7 +117,7 @@ export function PermissionModeControl({
         />
       </button>
 
-      {isOpen ? (
+      {isOpen && !disabled ? (
         <div
           role="menu"
           className="absolute bottom-full left-0 z-40 mb-2 w-[19rem] rounded-3xl border border-zinc-700/80 bg-zinc-900/95 p-2 shadow-2xl"
@@ -127,9 +133,13 @@ export function PermissionModeControl({
                 role="menuitemradio"
                 aria-checked={isSelected}
                 onClick={() => {
+                  if (disabled) {
+                    return;
+                  }
                   onChange(option.value);
                   setIsOpen(false);
                 }}
+                disabled={disabled}
                 className={cn(
                   "flex w-full items-start justify-between rounded-2xl px-3 py-2 text-left transition",
                   isSelected
@@ -164,8 +174,7 @@ function resolvePermissionModeOption(value: ProductMode): PermissionModeOption {
     return option;
   }
 
-  console.warn(
-    `[permission-mode-control] Unsupported mode "${value}" received; defaulting to supervised.`,
+  throw new Error(
+    `[permission-mode-control] Unsupported mode "${value}" received.`,
   );
-  return PERMISSION_MODE_OPTIONS[0]!;
 }
