@@ -23,6 +23,7 @@ import { PlannerService } from "../planner/index.js";
 import { TaskScheduler, type TaskExecutor } from "../orchestration/index.js";
 import { DefaultTaskExecutor, AgentTaskExecutor } from "./TaskExecutor.js";
 import { AgenticLoop } from "./AgenticLoop.js";
+import { AgenticLoopCancelledError } from "./AgenticLoop.js";
 import { executeAgenticLoopTool } from "./AgenticLoopToolExecutor.js";
 import { buildAgenticLoopWorkspaceContext } from "./RunContinuationContext.js";
 import {
@@ -616,7 +617,7 @@ export class RunEngine implements IRunEngine {
                 } else if (approvalOutcome.outcome === "timed_out") {
                   throw PermissionGateError.fromAsk(permissionResult.request);
                 } else if (approvalOutcome.outcome === "cancelled") {
-                  throw PermissionGateError.fromDeny(
+                  throw new AgenticLoopCancelledError(
                     "Run was cancelled while waiting for approval.",
                   );
                 } else if (approvalOutcome.outcome === "aborted") {
@@ -751,6 +752,13 @@ export class RunEngine implements IRunEngine {
             code: "APPROVAL_REQUIRED",
             approvalRequest: gateResult.request,
           });
+        }
+        const currentRun = await this.runRepo.getById(run.id);
+        if (currentRun?.status === "CANCELLED") {
+          console.log(
+            `[run/engine] Returning empty response for cancelled run ${run.id}`,
+          );
+          return createStreamResponse("");
         }
         const denialReason =
           gateResult.kind === "deny" ? gateResult.reason : error.message;
