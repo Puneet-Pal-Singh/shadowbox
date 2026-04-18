@@ -243,7 +243,9 @@ export function ChatInterface({
         });
         if (!response.ok) {
           const message = await readApprovalErrorMessage(response);
-          if (isNoPendingApprovalError(message)) {
+          const isStaleApproval =
+            response.status === 409 || isNoPendingApprovalError(message);
+          if (isStaleApproval) {
             const latestPending = await fetchLatestPendingApproval(runId);
             if (
               latestPending &&
@@ -257,7 +259,10 @@ export function ChatInterface({
               });
               if (!retryResponse.ok) {
                 const retryMessage = await readApprovalErrorMessage(retryResponse);
-                if (isNoPendingApprovalError(retryMessage)) {
+                const isRetryStaleApproval =
+                  retryResponse.status === 409 ||
+                  isNoPendingApprovalError(retryMessage);
+                if (isRetryStaleApproval) {
                   setDismissedApprovalRequestId(latestPending.requestId);
                   dispatchRunSummaryRefresh(runId);
                   return;
@@ -377,10 +382,10 @@ export function ChatInterface({
     const preferredDecisions = PRIMARY_APPROVAL_DECISIONS.filter((decision) =>
       pendingApproval.availableDecisions.includes(decision),
     );
-    if (preferredDecisions.length > 0) {
-      return preferredDecisions;
-    }
-    return pendingApproval.availableDecisions;
+    const remainingDecisions = pendingApproval.availableDecisions.filter(
+      (decision) => !preferredDecisions.includes(decision),
+    );
+    return [...preferredDecisions, ...remainingDecisions];
   }, [pendingApproval]);
   const chatEntries = useMemo(
     () => buildChatEntries(conversationTurns, activityViewModel.turns),
