@@ -1,9 +1,6 @@
 import type { CoreMessage, CoreTool } from "ai";
 import {
-  RUN_EVENT_TYPES,
   RUN_WORKFLOW_STEPS,
-  type ApprovalDecisionKind,
-  type ApprovalRequest,
   type RunEvent,
 } from "@repo/shared-types";
 import { Run, RunRepository, RunStateMachine } from "../run/index.js";
@@ -103,6 +100,18 @@ import { applyReviewerPassIfEnabled } from "./RunReviewerPassPolicy.js";
 import { RunEventRecorder, RunEventRepository } from "../events/index.js";
 import { getToolPresentation } from "../lib/ToolPresentation.js";
 import { tryHandleTaskExecutionErrorPolicy } from "./RunTaskExecutionRecoveryPolicy.js";
+import {
+  ensureApprovalResolvedEventRecorded,
+  waitForApprovalDecision,
+} from "./RunApprovalWaitPolicy.js";
+import {
+  resolveBudgetConfig,
+  resolveUnknownPricingMode,
+} from "./RunEngineConfigPolicy.js";
+import {
+  handleExecutionErrorPolicy,
+  safeMemoryOperation as safeMemoryOperationPolicy,
+} from "./RunEngineReliabilityPolicy.js";
 
 export interface IRunEngine {
   execute(
@@ -130,10 +139,6 @@ export interface RunEngineEnv {
   NODE_ENV?: string;
   ALLOW_DEFAULT_EXECUTOR?: string;
 }
-
-const TEST_APPROVAL_WAIT_TIMEOUT_MS = 50;
-const DEFAULT_APPROVAL_WAIT_TIMEOUT_MS = 5 * 60 * 1000;
-const APPROVAL_WAIT_POLL_INTERVAL_MS = 250;
 
 export interface RunEngineDependencies {
   aiService?: LLMRuntimeAIService;
@@ -202,7 +207,7 @@ export class RunEngine implements IRunEngine {
       new CostTracker(
         ctx,
         this.pricingRegistry,
-        this.getUnknownPricingMode(options.env),
+        resolveUnknownPricingMode(options.env),
       );
 
     this.budgetManager =
@@ -210,7 +215,7 @@ export class RunEngine implements IRunEngine {
       new BudgetManager(
         this.costTracker,
         this.pricingRegistry,
-        this.getBudgetConfig(options.env),
+        resolveBudgetConfig(options.env),
         ctx,
       );
     this.sessionCostsLoaded = this.budgetManager.loadSessionCosts();
@@ -220,7 +225,7 @@ export class RunEngine implements IRunEngine {
     const pricingResolver =
       dependencies.pricingResolver ??
       new PricingResolver(this.pricingRegistry, {
-        unknownPricingMode: this.getUnknownPricingMode(options.env),
+        unknownPricingMode: resolveUnknownPricingMode(options.env),
       });
 
     if (dependencies.llmGateway) {
@@ -575,15 +580,20 @@ export class RunEngine implements IRunEngine {
                 await this.runEventRecorder.recordApprovalRequested(
                   permissionResult.request,
                 );
-                const approvalOutcome = await this.waitForApprovalDecision(
-                  permissionResult.request,
-                );
+                const approvalOutcome = await waitForApprovalDecision({
+                  request: permissionResult.request,
+                  env: this.options.env,
+                  runId: this.options.runId,
+                  runRepo: this.runRepo,
+                  permissionApprovalStore: this.permissionApprovalStore,
+                });
                 if (
                   approvalOutcome.outcome === "approved" ||
                   approvalOutcome.outcome === "denied" ||
                   approvalOutcome.outcome === "aborted"
                 ) {
-                  await this.ensureApprovalResolvedEventRecorded({
+                  await ensureApprovalResolvedEventRecorded({
+                    runEventRecorder: this.runEventRecorder,
                     requestId: permissionResult.request.requestId,
                     decision:
                       approvalOutcome.decision ??
@@ -760,90 +770,6 @@ export class RunEngine implements IRunEngine {
       }
       throw error;
     }
-  }
-
-  private async waitForApprovalDecision(
-    request: ApprovalRequest,
-  ): Promise<{
-    outcome: "approved" | "denied" | "aborted" | "timed_out" | "cancelled";
-    decision?: ApprovalDecisionKind;
-  }> {
-    const timeoutMs = resolveApprovalWaitTimeoutMs(this.options.env);
-    const startedAt = Date.now();
-    const pollIntervalMs = Math.min(APPROVAL_WAIT_POLL_INTERVAL_MS, timeoutMs);
-
-    while (Date.now() - startedAt < timeoutMs) {
-      const currentRun = await this.runRepo.getById(this.options.runId);
-      if (currentRun?.status === "CANCELLED") {
-        return { outcome: "cancelled" };
-      }
-
-      const resolvedDecision =
-        await this.permissionApprovalStore.getResolvedDecision(
-          request.requestId,
-        );
-      if (resolvedDecision) {
-        if (resolvedDecision.status === "approved") {
-          return {
-            outcome: "approved",
-            decision: resolvedDecision.decision,
-          };
-        }
-        if (resolvedDecision.status === "aborted") {
-          return {
-            outcome: "aborted",
-            decision: resolvedDecision.decision,
-          };
-        }
-        return {
-          outcome: "denied",
-          decision: resolvedDecision.decision,
-        };
-      }
-
-      const isApproved = await this.permissionApprovalStore.isActionAllowed(
-        request.actionFingerprint,
-      );
-      if (isApproved) {
-        return { outcome: "approved", decision: "allow_once" };
-      }
-
-      const pending = await this.permissionApprovalStore.getPendingRequest();
-      if (!pending || pending.requestId !== request.requestId) {
-        return { outcome: "denied", decision: "deny" };
-      }
-
-      await waitForApprovalPollCycle(pollIntervalMs);
-    }
-
-    return { outcome: "timed_out" };
-  }
-
-  private async ensureApprovalResolvedEventRecorded(input: {
-    requestId: string;
-    decision: ApprovalDecisionKind;
-    status: "approved" | "denied" | "aborted";
-  }): Promise<void> {
-    const events = await this.runEventRepo.getByRun(this.options.runId);
-    const alreadyRecorded = events.some(
-      (event) =>
-        event.type === RUN_EVENT_TYPES.APPROVAL_RESOLVED &&
-        event.payload.requestId === input.requestId,
-    );
-    if (alreadyRecorded) {
-      return;
-    }
-
-    await this.runEventRecorder.recordApprovalResolved({
-      requestId: input.requestId,
-      decision: input.decision,
-      status:
-        input.status === "approved"
-          ? "approved"
-          : input.status === "aborted"
-            ? "aborted"
-            : "denied",
-    });
   }
 
   private async persistConversationMessages(
@@ -1067,42 +993,19 @@ export class RunEngine implements IRunEngine {
     runId: string,
     error: unknown,
   ): Promise<void> {
-    const errorMessage =
-      error instanceof Error ? error.message : "Unknown execution error";
-    try {
-      const run = await this.runRepo.getById(runId);
-      if (run) {
-        transitionRunToFailed(run, runId);
-        recordLifecycleStep(run, "TERMINAL", "status=FAILED");
-        recordOrchestrationTerminal(run);
-        run.metadata.error = errorMessage;
-        await this.runRepo.update(run);
-        if (run.status === "FAILED") {
-          await this.runEventRecorder.recordRunFailed(
-            errorMessage,
-            this.getRunDurationMs(run),
-          );
-        }
-      }
-    } catch (handlerError) {
-      console.error(
-        `[run/engine] Failed to handle execution error for run ${runId}:`,
-        handlerError,
-      );
-    }
-
-    console.error(`[run/engine] Run ${runId} failed:`, errorMessage);
+    await handleExecutionErrorPolicy({
+      runId,
+      error,
+      runRepo: this.runRepo,
+      runEventRecorder: this.runEventRecorder,
+      getRunDurationMs: this.getRunDurationMs.bind(this),
+    });
   }
 
   private async safeMemoryOperation<T>(
     operation: () => Promise<T>,
   ): Promise<T | undefined> {
-    try {
-      return await operation();
-    } catch (error) {
-      console.warn("[run/engine] Memory subsystem operation failed:", error);
-      return undefined;
-    }
+    return safeMemoryOperationPolicy(operation);
   }
   async getCostSnapshot(runId: string): Promise<CostSnapshot> {
     return this.costLedger.aggregate(runId);
@@ -1137,58 +1040,7 @@ export class RunEngine implements IRunEngine {
     });
   }
 
-  private getUnknownPricingMode(env: RunEngineEnv): "warn" | "block" {
-    const configuredMode = env.COST_UNKNOWN_PRICING_MODE as unknown;
-    if (typeof configuredMode === "string") {
-      const normalized = configuredMode.trim().toLowerCase();
-      if (normalized === "warn" || normalized === "block") {
-        return normalized;
-      }
-      console.warn(
-        `[run/engine] Invalid COST_UNKNOWN_PRICING_MODE=${configuredMode}. Falling back to NODE_ENV default.`,
-      );
-    }
-    const nodeEnv =
-      typeof process !== "undefined" ? process.env?.NODE_ENV : undefined;
-    return nodeEnv === "production" ? "block" : "warn";
-  }
-
-  private getBudgetConfig(env: RunEngineEnv): {
-    maxCostPerRun?: number;
-    maxCostPerSession?: number;
-  } {
-    return {
-      maxCostPerRun: parseOptionalNumber(env.MAX_RUN_BUDGET),
-      maxCostPerSession: parseOptionalNumber(env.MAX_SESSION_BUDGET),
-    };
-  }
 }
-
-function parseOptionalNumber(value?: string): number | undefined {
-  if (!value || value.trim() === "") {
-    return undefined;
-  }
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : undefined;
-}
-
-function resolveApprovalWaitTimeoutMs(env: RunEngineEnv): number {
-  const configured = parseOptionalNumber(env.APPROVAL_WAIT_TIMEOUT_MS);
-  if (typeof configured === "number" && configured > 0) {
-    return configured;
-  }
-
-  return env.NODE_ENV === "test"
-    ? TEST_APPROVAL_WAIT_TIMEOUT_MS
-    : DEFAULT_APPROVAL_WAIT_TIMEOUT_MS;
-}
-
-function waitForApprovalPollCycle(delayMs: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, delayMs);
-  });
-}
-
 export class RunEngineError extends Error {
   constructor(message: string) {
     super(`[run/engine] ${message}`);
