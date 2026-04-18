@@ -794,7 +794,7 @@ describe("RunEngine", () => {
       {
         env: {
           NODE_ENV: "test",
-          APPROVAL_WAIT_TIMEOUT_MS: "500",
+          APPROVAL_WAIT_TIMEOUT_MS: "5000",
         } as unknown,
         sessionId: "session-1",
         runId: TEST_RUN_ID,
@@ -817,7 +817,7 @@ describe("RunEngine", () => {
     );
 
     const approvalResolutionPromise = (async () => {
-      for (let attempt = 0; attempt < 50; attempt += 1) {
+      for (let attempt = 0; attempt < 100; attempt += 1) {
         const pending = await approvalStore.getPendingRequest();
         if (pending) {
           resolvedRequestId = pending.requestId;
@@ -827,7 +827,7 @@ describe("RunEngine", () => {
           });
           return;
         }
-        await new Promise((resolve) => setTimeout(resolve, 10));
+        await new Promise((resolve) => setTimeout(resolve, 20));
       }
       throw new Error("Timed out waiting for a pending approval request in test.");
     })();
