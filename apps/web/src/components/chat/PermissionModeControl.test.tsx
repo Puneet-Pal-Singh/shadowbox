@@ -35,7 +35,7 @@ describe("PermissionModeControl", () => {
     expect(screen.queryByTestId("permission-mode-menu")).not.toBeInTheDocument();
   });
 
-  it("maps legacy same-repo mode to the auto edits label", () => {
+  it("shows a distinct label for same-repo auto mode", () => {
     render(
       <PermissionModeControl
         value={PRODUCT_MODES.AUTO_FOR_SAME_REPO}
@@ -45,6 +45,6 @@ describe("PermissionModeControl", () => {
 
     expect(
       screen.getByRole("button", { name: "Permission mode" }),
-    ).toHaveTextContent("Auto edits");
+    ).toHaveTextContent("Auto repo");
   });
 });
