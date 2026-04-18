@@ -124,6 +124,7 @@ export {
   RISKY_ACTION_CATEGORIES,
   APPROVAL_DECISION_KINDS,
   APPROVAL_RESOLUTION_STATUSES,
+  ApprovalRequestSchema,
   RiskyActionCategorySchema,
   ApprovalDecisionKindSchema,
   ApprovalResolutionStatusSchema,
