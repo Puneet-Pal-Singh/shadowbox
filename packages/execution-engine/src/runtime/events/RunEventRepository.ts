@@ -1,4 +1,4 @@
-import type { RunEvent } from "@repo/shared-types";
+import { RUN_EVENT_TYPES, type RunEvent } from "@repo/shared-types";
 import type { RuntimeDurableObjectState } from "../types.js";
 
 const RUN_EVENTS_KEY_PREFIX = "run_events:";
@@ -11,6 +11,26 @@ export class RunEventRepository {
     await this.ctx.blockConcurrencyWhile(async () => {
       const events = (await this.ctx.storage.get<RunEvent[]>(key)) ?? [];
       await this.ctx.storage.put(key, [...events, event]);
+    });
+  }
+
+  async appendApprovalResolvedIfMissing(
+    runId: string,
+    event: Extract<RunEvent, { type: typeof RUN_EVENT_TYPES.APPROVAL_RESOLVED }>,
+  ): Promise<boolean> {
+    const key = this.getRunEventsKey(runId);
+    return await this.ctx.blockConcurrencyWhile(async () => {
+      const events = (await this.ctx.storage.get<RunEvent[]>(key)) ?? [];
+      const alreadyExists = events.some(
+        (existingEvent) =>
+          existingEvent.type === RUN_EVENT_TYPES.APPROVAL_RESOLVED &&
+          existingEvent.payload.requestId === event.payload.requestId,
+      );
+      if (alreadyExists) {
+        return false;
+      }
+      await this.ctx.storage.put(key, [...events, event]);
+      return true;
     });
   }
 
