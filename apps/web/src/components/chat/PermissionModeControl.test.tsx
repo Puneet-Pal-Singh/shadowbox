@@ -47,4 +47,29 @@ describe("PermissionModeControl", () => {
       screen.getByRole("button", { name: "Permission mode" }),
     ).toHaveTextContent("Auto repo");
   });
+
+  it("closes the menu and blocks changes when disabled while open", () => {
+    const onChange = vi.fn();
+    const { rerender } = render(
+      <PermissionModeControl
+        value={PRODUCT_MODES.AUTO_FOR_SAFE}
+        onChange={onChange}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Permission mode" }));
+    expect(screen.getByTestId("permission-mode-menu")).toBeInTheDocument();
+
+    rerender(
+      <PermissionModeControl
+        value={PRODUCT_MODES.AUTO_FOR_SAFE}
+        onChange={onChange}
+        disabled
+      />,
+    );
+
+    expect(screen.queryByTestId("permission-mode-menu")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Permission mode" })).toBeDisabled();
+    expect(onChange).not.toHaveBeenCalled();
+  });
 });
