@@ -611,7 +611,6 @@ export class RunEngine implements IRunEngine {
                           : "denied",
                   });
                 }
-
                 if (approvalOutcome.outcome === "approved") {
                   // Continue with the original tool call after approval is granted.
                 } else if (approvalOutcome.outcome === "timed_out") {
@@ -633,7 +632,6 @@ export class RunEngine implements IRunEngine {
               if (permissionResult.kind === "deny") {
                 throw PermissionGateError.fromDeny(permissionResult.reason);
               }
-
               return executeAgenticLoopTool(directExecutionService, {
                 taskId: toolCall.id,
                 toolName: toolCall.toolName,
@@ -673,9 +671,7 @@ export class RunEngine implements IRunEngine {
           });
         },
         onProgress: async (progress) => {
-          if (!progress) {
-            return;
-          }
+          if (!progress) return;
           await this.runEventRecorder.recordRunProgress(
             progress.phase,
             progress.label,
@@ -701,9 +697,7 @@ export class RunEngine implements IRunEngine {
           });
         },
         onToolCompleted: async (toolCall, result, executionTimeMs) => {
-          if (toolCall.toolName === "write_file") {
-            hasMutationEvidence = true;
-          }
+          if (toolCall.toolName === "write_file") hasMutationEvidence = true;
           await this.runEventRecorder.recordToolCompleted(
             {
               id: toolCall.id,
@@ -724,7 +718,6 @@ export class RunEngine implements IRunEngine {
           );
         },
       });
-
       recordAgenticLoopMetadata(run, loopResult);
       if (loopResult.stopReason === "cancelled") {
         console.log(`[run/engine] Agentic loop observed cancellation for run ${run.id}`);
@@ -755,9 +748,7 @@ export class RunEngine implements IRunEngine {
         }
         const currentRun = await this.runRepo.getById(run.id);
         if (currentRun?.status === "CANCELLED") {
-          console.log(
-            `[run/engine] Returning empty response for cancelled run ${run.id}`,
-          );
+          console.log(`[run/engine] Returning empty response for cancelled run ${run.id}`);
           return createStreamResponse("");
         }
         const denialReason =

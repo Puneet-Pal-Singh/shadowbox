@@ -64,6 +64,7 @@ export function PermissionModeControl({
   const containerRef = useRef<HTMLDivElement>(null);
   const selectedOption = resolvePermissionModeOption(value);
   const SelectedIcon = selectedOption.Icon;
+  const isMenuOpen = isOpen && !disabled;
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -78,12 +79,6 @@ export function PermissionModeControl({
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
-
-  useEffect(() => {
-    if (disabled) {
-      setIsOpen(false);
-    }
-  }, [disabled]);
 
   return (
     <div ref={containerRef} className="relative">
@@ -102,7 +97,7 @@ export function PermissionModeControl({
           disabled && "cursor-not-allowed opacity-60 hover:border-zinc-700/70",
         )}
         aria-haspopup="menu"
-        aria-expanded={isOpen}
+        aria-expanded={isMenuOpen}
         aria-label="Permission mode"
         data-testid="permission-mode-control"
       >
@@ -112,12 +107,12 @@ export function PermissionModeControl({
           size={14}
           className={cn(
             "text-zinc-400 transition-transform",
-            isOpen && "rotate-180",
+            isMenuOpen && "rotate-180",
           )}
         />
       </button>
 
-      {isOpen && !disabled ? (
+      {isMenuOpen ? (
         <div
           role="menu"
           className="absolute bottom-full left-0 z-40 mb-2 w-[19rem] rounded-3xl border border-zinc-700/80 bg-zinc-900/95 p-2 shadow-2xl"
