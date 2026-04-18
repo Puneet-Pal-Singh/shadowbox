@@ -727,7 +727,11 @@ export function ModelPickerPopover({
             }`}
           >
             {isLoadingModelsInline && (
-              <div className="border-b border-neutral-800 px-3 py-1.5 text-[11px] text-neutral-400">
+              <div
+                role="status"
+                aria-live="polite"
+                className="border-b border-neutral-800 px-3 py-1.5 text-[11px] text-neutral-400"
+              >
                 {isHydratingVisibleModels
                   ? "Loading selected models..."
                   : "Loading models..."}
