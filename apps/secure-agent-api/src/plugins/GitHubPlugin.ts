@@ -4,6 +4,9 @@ import type { IPlugin, LogCallback, PluginResult } from "../interfaces/types";
 import { GitHubTools } from "../schemas/github";
 
 const SAFE_SEGMENT_REGEX = /^[A-Za-z0-9._-]{1,100}$/;
+const GITHUB_REQUEST_TIMEOUT_MS = 15_000;
+const REVIEW_COMMENTS_PAGE_SIZE = 100;
+const REVIEW_COMMENTS_MAX_PAGES = 20;
 
 const GitHubPayloadSchema = z.object({
   action: z.enum([
@@ -160,9 +163,11 @@ export class GitHubPlugin implements IPlugin {
     token: string,
   ): Promise<PluginResult> {
     const number = requireNumber(payload.number, "Pull request number");
-    const comments = await this.requestGitHub<Array<Record<string, unknown>>>(
+    const { comments, truncated } = await this.fetchReviewComments(
+      payload.owner,
+      payload.repo,
+      number,
       token,
-      `/repos/${payload.owner}/${payload.repo}/pulls/${number}/comments?per_page=100`,
     );
 
     const commentMap = new Map<number, Record<string, unknown>>();
@@ -214,6 +219,7 @@ export class GitHubPlugin implements IPlugin {
       output: JSON.stringify({
         pullRequestNumber: number,
         threadCount: grouped.size,
+        truncated,
         threads: Array.from(grouped.values()),
       }),
     };
@@ -282,15 +288,32 @@ export class GitHubPlugin implements IPlugin {
     path: string,
     init: GitHubRequestInit = {},
   ): Promise<T> {
-    const response = await fetch(`https://api.github.com${path}`, {
-      method: init.method ?? "GET",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: "application/vnd.github+json",
-        "User-Agent": "Shadowbox-GitHub-Connector/0.1.0",
-        "X-GitHub-Api-Version": "2022-11-28",
-      },
-    });
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => {
+      controller.abort();
+    }, GITHUB_REQUEST_TIMEOUT_MS);
+    let response: Response;
+    try {
+      response = await fetch(`https://api.github.com${path}`, {
+        method: init.method ?? "GET",
+        signal: controller.signal,
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: "application/vnd.github+json",
+          "User-Agent": "Shadowbox-GitHub-Connector/0.1.0",
+          "X-GitHub-Api-Version": "2022-11-28",
+        },
+      });
+    } catch (error) {
+      if (isAbortError(error)) {
+        throw new Error(
+          `GitHub API request timed out after ${GITHUB_REQUEST_TIMEOUT_MS}ms.`,
+        );
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeoutId);
+    }
 
     const text = await response.text();
     if (!response.ok) {
@@ -307,6 +330,27 @@ export class GitHubPlugin implements IPlugin {
         }`,
       );
     }
+  }
+
+  private async fetchReviewComments(
+    owner: string,
+    repo: string,
+    number: number,
+    token: string,
+  ): Promise<{ comments: Array<Record<string, unknown>>; truncated: boolean }> {
+    const comments: Array<Record<string, unknown>> = [];
+    for (let page = 1; page <= REVIEW_COMMENTS_MAX_PAGES; page += 1) {
+      const pageComments = await this.requestGitHub<Array<Record<string, unknown>>>(
+        token,
+        `/repos/${owner}/${repo}/pulls/${number}/comments?per_page=${REVIEW_COMMENTS_PAGE_SIZE}&page=${page}`,
+      );
+      comments.push(...pageComments);
+      if (pageComments.length < REVIEW_COMMENTS_PAGE_SIZE) {
+        return { comments, truncated: false };
+      }
+    }
+
+    return { comments, truncated: true };
   }
 }
 
@@ -371,4 +415,12 @@ function resolveRootReviewCommentId(
   }
 
   return rootId;
+}
+
+function isAbortError(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) {
+    return false;
+  }
+  const maybeName = (error as { name?: unknown }).name;
+  return typeof maybeName === "string" && maybeName === "AbortError";
 }

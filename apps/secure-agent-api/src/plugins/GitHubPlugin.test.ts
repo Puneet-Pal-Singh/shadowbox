@@ -89,4 +89,65 @@ describe("GitHubPlugin", () => {
     expect(result.error).toContain("owner contains unsupported characters");
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  it("paginates review comments and reports non-truncated results", async () => {
+    const firstPage = Array.from({ length: 100 }, (_, index) => ({
+      id: index + 1,
+      body: `Comment ${index + 1}`,
+      user: { login: "reviewer" },
+      created_at: "2026-04-19T10:00:00Z",
+    }));
+    const secondPage = [
+      {
+        id: 201,
+        body: "Final comment",
+        user: { login: "reviewer-2" },
+        created_at: "2026-04-19T10:05:00Z",
+      },
+    ];
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(firstPage), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(secondPage), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const plugin = new GitHubPlugin();
+    const result = await plugin.execute(asSandbox(), {
+      action: "review_threads_get",
+      owner: "acme",
+      repo: "career-crew",
+      number: 229,
+      token: "ghp_test",
+    });
+
+    expect(result.success).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const output = JSON.parse(String(result.output)) as {
+      pullRequestNumber: number;
+      truncated: boolean;
+      threadCount: number;
+    };
+    expect(output.pullRequestNumber).toBe(229);
+    expect(output.truncated).toBe(false);
+    expect(output.threadCount).toBe(101);
+  });
+
+  it("fails fast when GitHub request exceeds timeout", async () => {
+    const abortError = new Error("aborted");
+    abortError.name = "AbortError";
+    const fetchMock = vi.fn().mockRejectedValueOnce(abortError);
+    vi.stubGlobal("fetch", fetchMock);
+
+    const plugin = new GitHubPlugin();
+    const result = await plugin.execute(asSandbox(), {
+      action: "pr_get",
+      owner: "acme",
+      repo: "career-crew",
+      number: 229,
+      token: "ghp_test",
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("timed out");
+  });
 });

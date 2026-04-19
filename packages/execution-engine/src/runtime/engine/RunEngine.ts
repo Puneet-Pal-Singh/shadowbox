@@ -1,7 +1,6 @@
 import type { CoreMessage, CoreTool } from "ai";
 import {
   RUN_WORKFLOW_STEPS,
-  type RunEvent,
 } from "@repo/shared-types";
 import { Run, RunRepository, RunStateMachine } from "../run/index.js";
 import { Task, TaskRepository } from "../task/index.js";
@@ -23,12 +22,9 @@ import { PlannerService } from "../planner/index.js";
 import { TaskScheduler, type TaskExecutor } from "../orchestration/index.js";
 import { DefaultTaskExecutor, AgentTaskExecutor } from "./TaskExecutor.js";
 import { AgenticLoop } from "./AgenticLoop.js";
-import { AgenticLoopCancelledError } from "./AgenticLoop.js";
-import { executeAgenticLoopTool } from "./AgenticLoopToolExecutor.js";
 import { buildAgenticLoopWorkspaceContext } from "./RunContinuationContext.js";
 import {
   enforceGoldenFlowToolFloor,
-  isGoldenFlowToolName,
 } from "../contracts/CodingToolGateway.js";
 import type {
   RunInput,
@@ -58,7 +54,6 @@ import {
   getPermissionPolicyMessage,
   getWorkspaceBootstrapMessage,
   evaluateWorkspaceBootstrap,
-  type WorkspaceBootstrapEvaluation,
   processPermissionDirectives as processPermissionDirectivesPolicy,
 } from "./RunPermissionWorkspacePolicy.js";
 import {
@@ -93,7 +88,6 @@ import {
 } from "./RunMetadataPolicy.js";
 import { resolveRunPermissionContext } from "./RunPermissionContextPolicy.js";
 import { PermissionGateError } from "./PermissionGateError.js";
-import { evaluateToolPermission } from "./RunRiskyActionPolicy.js";
 import {
   buildApprovalDecisionMessage,
   extractApprovalDecision,
@@ -101,12 +95,7 @@ import {
 import { resetRecyclableRun } from "./RunRecyclableResetPolicy.js";
 import { applyReviewerPassIfEnabled } from "./RunReviewerPassPolicy.js";
 import { RunEventRecorder, RunEventRepository } from "../events/index.js";
-import { getToolPresentation } from "../lib/ToolPresentation.js";
 import { tryHandleTaskExecutionErrorPolicy } from "./RunTaskExecutionRecoveryPolicy.js";
-import {
-  ensureApprovalResolvedEventRecorded,
-  waitForApprovalDecision,
-} from "./RunApprovalWaitPolicy.js";
 import {
   resolveBudgetConfig,
   resolveUnknownPricingMode,
@@ -118,51 +107,25 @@ import {
 import { GitHubTaskStrategy } from "./GitHubTaskStrategy.js";
 import {
   GitToolFailureClassifier,
-  type GitToolFailureKind,
 } from "./GitToolFailureClassifier.js";
+import {
+  describeWorkspaceBootstrapSummary,
+} from "./RunWorkspaceBootstrapSummaryPolicy.js";
+import { resolveGitTaskStrategyPolicy } from "./RunGitTaskStrategyPolicy.js";
+import { buildAgenticLoopCallbacks } from "./RunAgenticLoopCallbacksPolicy.js";
+import type {
+  GitHubAuthAvailabilityChecker,
+  IRunEngine,
+  RunEngineDependencies,
+  RunEngineOptions,
+} from "./RunEngineTypes.js";
 
-export interface IRunEngine {
-  execute(
-    input: RunInput,
-    messages: CoreMessage[],
-    tools: Record<string, CoreTool>,
-  ): Promise<Response>;
-  getRunStatus(runId: string): Promise<RunStatus | null>;
-  cancel(runId: string): Promise<boolean>;
-}
-export interface RunEngineOptions {
-  env: RunEngineEnv;
-  sessionId: string;
-  runId: string;
-  userId?: string;
-  correlationId: string;
-  requestOrigin?: string;
-}
-export interface RunEngineEnv {
-  COST_FAIL_ON_UNSEEDED_PRICING?: string;
-  COST_UNKNOWN_PRICING_MODE?: string;
-  MAX_RUN_BUDGET?: string;
-  MAX_SESSION_BUDGET?: string;
-  APPROVAL_WAIT_TIMEOUT_MS?: string;
-  NODE_ENV?: string;
-  ALLOW_DEFAULT_EXECUTOR?: string;
-}
-
-export interface RunEngineDependencies {
-  aiService?: LLMRuntimeAIService;
-  llmGateway?: ILLMGateway;
-  costLedger?: ICostLedger;
-  costTracker?: ICostTracker;
-  pricingRegistry?: IPricingRegistry;
-  pricingResolver?: IPricingResolver;
-  budgetManager?: IBudgetManager & BudgetPolicy;
-  planner?: PlannerService;
-  scheduler?: TaskScheduler;
-  memoryCoordinator?: MemoryCoordinator;
-  sessionMemoryClient?: MemoryCoordinatorDependencies["sessionMemoryClient"];
-  workspaceBootstrapper?: WorkspaceBootstrapper;
-  runEventListener?: (event: RunEvent) => Promise<void> | void;
-}
+export type {
+  IRunEngine,
+  RunEngineDependencies,
+  RunEngineEnv,
+  RunEngineOptions,
+} from "./RunEngineTypes.js";
 
 const gitHubTaskStrategy = new GitHubTaskStrategy();
 const gitToolFailureClassifier = new GitToolFailureClassifier();
@@ -187,6 +150,7 @@ export class RunEngine implements IRunEngine {
   private readonly sessionCostsLoaded: Promise<void>;
   private workspaceBootstrapper?: WorkspaceBootstrapper;
   private permissionApprovalStore: PermissionApprovalStore;
+  private hasGitHubAuthChecker?: GitHubAuthAvailabilityChecker;
 
   constructor(
     ctx: RuntimeDurableObjectState,
@@ -295,6 +259,7 @@ export class RunEngine implements IRunEngine {
     }
 
     this.workspaceBootstrapper = dependencies.workspaceBootstrapper;
+    this.hasGitHubAuthChecker = dependencies.hasGitHubAuth;
     this.permissionApprovalStore = new PermissionApprovalStore(
       ctx,
       options.runId,
@@ -543,7 +508,7 @@ export class RunEngine implements IRunEngine {
     run.transition("RUNNING");
     recordPhaseSelectionSnapshot(run, "execution");
     recordLifecycleStep(run, "TASK_EXECUTING", "agentic_loop");
-    run.metadata.gitTaskStrategy = this.resolveGitTaskStrategy(run, input);
+    run.metadata.gitTaskStrategy = await this.resolveGitTaskStrategy(run, input);
     await this.runEventRecorder.recordRunStatusChanged(
       previousStatus,
       run.status,
@@ -566,7 +531,15 @@ export class RunEngine implements IRunEngine {
       this.agent instanceof BaseAgent
         ? this.agent.getRuntimeExecutionService()
         : undefined;
-    let hasMutationEvidence = false;
+    const loopCallbacks = buildAgenticLoopCallbacks({
+      run,
+      directExecutionService,
+      runEventRecorder: this.runEventRecorder,
+      permissionApprovalStore: this.permissionApprovalStore,
+      runRepo: this.runRepo,
+      env: this.options.env,
+      runId: this.options.runId,
+    });
     try {
       const loopResult = await loop.execute(messages, tools, {
         agentType: run.agentType,
@@ -581,129 +554,11 @@ export class RunEngine implements IRunEngine {
           const currentRun = await this.runRepo.getById(run.id);
           return currentRun?.status === "CANCELLED";
         },
-        executeTool: directExecutionService
-          ? async (toolCall) => {
-              const toolPresentation = getToolPresentation(
-                toolCall.toolName,
-                toolCall.args,
-              );
-              if (!isGoldenFlowToolName(toolCall.toolName)) {
-                throw new Error(
-                  `Unsupported direct agentic tool: ${toolCall.toolName}`,
-                );
-              }
-              const permissionState =
-                run.metadata.permissionContext?.state ??
-                resolveRunPermissionContext(run.input).state;
-              const permissionResult = await evaluateToolPermission({
-                runId: run.id,
-                sessionId: run.sessionId,
-                origin: "agent",
-                productMode: permissionState.productMode,
-                workflowIntent: permissionState.workflowIntent,
-                toolName: toolCall.toolName,
-                toolArgs: toolCall.args,
-                hasMutationEvidence,
-                approvalStore: this.permissionApprovalStore,
-              });
-              if (permissionResult.kind === "ask") {
-                recordLifecycleStep(
-                  run,
-                  "APPROVAL_WAIT",
-                  "structured approval request emitted",
-                );
-                await this.runEventRecorder.recordApprovalRequested(
-                  permissionResult.request,
-                );
-                const approvalOutcome = await waitForApprovalDecision({
-                  request: permissionResult.request,
-                  env: this.options.env,
-                  runId: this.options.runId,
-                  runRepo: this.runRepo,
-                  permissionApprovalStore: this.permissionApprovalStore,
-                });
-                if (
-                  approvalOutcome.outcome === "approved" ||
-                  approvalOutcome.outcome === "denied" ||
-                  approvalOutcome.outcome === "aborted"
-                ) {
-                  await ensureApprovalResolvedEventRecorded({
-                    runEventRecorder: this.runEventRecorder,
-                    requestId: permissionResult.request.requestId,
-                    decision:
-                      approvalOutcome.decision ??
-                      (approvalOutcome.outcome === "approved"
-                        ? "allow_once"
-                        : approvalOutcome.outcome === "aborted"
-                          ? "abort"
-                          : "deny"),
-                    status:
-                      approvalOutcome.outcome === "approved"
-                        ? "approved"
-                        : approvalOutcome.outcome === "aborted"
-                          ? "aborted"
-                          : "denied",
-                  });
-                }
-                if (approvalOutcome.outcome === "approved") {
-                  // Continue with the original tool call after approval is granted.
-                } else if (approvalOutcome.outcome === "timed_out") {
-                  throw PermissionGateError.fromAsk(permissionResult.request);
-                } else if (approvalOutcome.outcome === "cancelled") {
-                  throw new AgenticLoopCancelledError(
-                    "Run was cancelled while waiting for approval.",
-                  );
-                } else if (approvalOutcome.outcome === "aborted") {
-                  throw PermissionGateError.fromDeny(
-                    "Approval request was aborted.",
-                  );
-                } else {
-                  throw PermissionGateError.fromDeny(
-                    "Approval request was denied.",
-                  );
-                }
-              }
-              if (permissionResult.kind === "deny") {
-                throw PermissionGateError.fromDeny(permissionResult.reason);
-              }
-              return executeAgenticLoopTool(directExecutionService, {
-                taskId: toolCall.id,
-                toolName: toolCall.toolName,
-                toolInput: {
-                  description: toolPresentation.description,
-                  displayText: toolPresentation.displayText,
-                  ...toolCall.args,
-                },
-                onOutputAppended: async (chunk) => {
-                  await this.runEventRecorder.recordToolOutputAppended(
-                    {
-                      id: toolCall.id,
-                      type: toolCall.toolName,
-                    },
-                    chunk,
-                  );
-                },
-              });
-            }
-          : undefined,
+        executeTool: loopCallbacks.executeTool,
         modelId: input.modelId,
         providerId: input.providerId,
         temperature: 0.2,
-        onToolRequested: async (toolCall) => {
-          const toolPresentation = getToolPresentation(
-            toolCall.toolName,
-            toolCall.args,
-          );
-          await this.runEventRecorder.recordToolRequested({
-            id: toolCall.id,
-            type: toolCall.toolName,
-            input: {
-              ...toolCall.args,
-              description: toolPresentation.description,
-              displayText: toolPresentation.displayText,
-            },
-          });
-        },
+        onToolRequested: loopCallbacks.onToolRequested,
         onProgress: async (progress) => {
           if (!progress) return;
           await this.runEventRecorder.recordRunProgress(
@@ -724,33 +579,9 @@ export class RunEngine implements IRunEngine {
             },
           );
         },
-        onToolStarted: async (toolCall) => {
-          await this.runEventRecorder.recordToolStarted({
-            id: toolCall.id,
-            type: toolCall.toolName,
-          });
-        },
-        onToolCompleted: async (toolCall, result, executionTimeMs) => {
-          if (toolCall.toolName === "write_file") hasMutationEvidence = true;
-          await this.runEventRecorder.recordToolCompleted(
-            {
-              id: toolCall.id,
-              type: toolCall.toolName,
-            },
-            result,
-            executionTimeMs,
-          );
-        },
-        onToolFailed: async (toolCall, error, executionTimeMs) => {
-          await this.runEventRecorder.recordToolFailed(
-            {
-              id: toolCall.id,
-              type: toolCall.toolName,
-            },
-            error,
-            executionTimeMs,
-          );
-        },
+        onToolStarted: loopCallbacks.onToolStarted,
+        onToolCompleted: loopCallbacks.onToolCompleted,
+        onToolFailed: loopCallbacks.onToolFailed,
       });
       recordAgenticLoopMetadata(run, loopResult);
       if (loopResult.stopReason === "cancelled") {
@@ -1012,65 +843,15 @@ export class RunEngine implements IRunEngine {
     return processPermissionDirectivesPolicy(prompt, this.permissionApprovalStore);
   }
 
-  private async getPermissionPolicyMessage(prompt: string, repositoryContext?: RepositoryContext): Promise<string | null> {
-    return getPermissionPolicyMessage(prompt, repositoryContext, this.permissionApprovalStore);
-  }
-  private resolveGitTaskStrategy(
-    run: Run,
-    input: RunInput,
-  ): Run["metadata"]["gitTaskStrategy"] {
-    const prompt = input.prompt?.trim();
-    if (!prompt) {
-      return undefined;
-    }
-
-    const runMode = run.metadata.manifest?.mode ?? "build";
-    const repositoryReady =
-      run.metadata.workspaceBootstrap?.ready ?? !input.repositoryContext;
-    const currentFailure = this.resolveContinuationGitFailure(run);
-    const decision = gitHubTaskStrategy.decide({
-      userRequest: prompt,
-      runMode,
-      repositoryReady,
-      hasGitHubAuth: Boolean(run.metadata.actorUserId ?? this.options.userId),
-      connectorAvailable: true,
-      currentFailure,
-    });
-
-    return {
-      ...decision,
-      recordedAt: new Date().toISOString(),
-    };
-  }
-
-  private resolveContinuationGitFailure(
-    run: Run,
-  ): {
-    kind: GitToolFailureKind;
-    toolName: string;
-  } | null {
-    const continuation = run.metadata.continuation;
-    if (!continuation?.failedToolName || !continuation.failedToolDetail) {
-      return null;
-    }
-
-    if (continuation.failedToolName === "bash") {
-      const command = continuation.failedCommand?.toLowerCase() ?? "";
-      if (!/\b(git|gh)\b/.test(command)) {
-        return null;
-      }
-    } else if (!continuation.failedToolName.startsWith("git_")) {
-      return null;
-    }
-
-    const decision = gitToolFailureClassifier.classify({
-      toolName: continuation.failedToolName,
-      message: continuation.failedToolDetail,
-    });
-    return {
-      kind: decision.kind,
-      toolName: continuation.failedToolName,
-    };
+  private async getPermissionPolicyMessage(
+    prompt: string,
+    repositoryContext?: RepositoryContext,
+  ): Promise<string | null> {
+    return getPermissionPolicyMessage(
+      prompt,
+      repositoryContext,
+      this.permissionApprovalStore,
+    );
   }
 
   private async getWorkspaceBootstrapMessage(
@@ -1078,7 +859,42 @@ export class RunEngine implements IRunEngine {
     prompt: string,
     repositoryContext?: RepositoryContext,
   ): Promise<string | null> {
-    return getWorkspaceBootstrapMessage(runId, prompt, repositoryContext, this.workspaceBootstrapper);
+    return getWorkspaceBootstrapMessage(
+      runId,
+      prompt,
+      repositoryContext,
+      this.workspaceBootstrapper,
+    );
+  }
+
+  private async resolveGitTaskStrategy(
+    run: Run,
+    input: RunInput,
+  ): Promise<Run["metadata"]["gitTaskStrategy"]> {
+    const hasGitHubAuth = await this.resolveGitHubAuthAvailability(input);
+    return resolveGitTaskStrategyPolicy({
+      run,
+      runInput: input,
+      hasGitHubAuth,
+      strategy: gitHubTaskStrategy,
+      classifier: gitToolFailureClassifier,
+    });
+  }
+
+  private async resolveGitHubAuthAvailability(
+    input: RunInput,
+  ): Promise<boolean> {
+    if (!this.hasGitHubAuthChecker) {
+      return false;
+    }
+    return Boolean(
+      await this.hasGitHubAuthChecker({
+        userId: this.options.userId,
+        runId: this.options.runId,
+        sessionId: this.options.sessionId,
+        runInput: input,
+      }),
+    );
   }
   private async handleExecutionError(
     runId: string,
@@ -1131,30 +947,6 @@ export class RunEngine implements IRunEngine {
     });
   }
 
-}
-
-function describeWorkspaceBootstrapSummary(
-  evaluation: WorkspaceBootstrapEvaluation,
-): string {
-  if (evaluation.status === "skipped") {
-    return "Repository bootstrap was skipped because no repository context was provided for this run.";
-  }
-
-  if (evaluation.blocked) {
-    if (evaluation.expectedMiss) {
-      return "Repository bootstrap reported an expected startup miss and paused execution until workspace checkout is available.";
-    }
-    return (
-      evaluation.message ??
-      "Repository bootstrap blocked execution because the workspace is not ready."
-    );
-  }
-
-  if (evaluation.mode) {
-    return `Repository bootstrap is ready for ${evaluation.mode} actions.`;
-  }
-
-  return "Repository bootstrap is ready.";
 }
 
 export class RunEngineError extends Error {
