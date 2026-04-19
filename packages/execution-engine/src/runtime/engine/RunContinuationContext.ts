@@ -1,7 +1,9 @@
 import type {
   AgenticLoopToolLifecycleEvent,
   RepositoryContext,
+  RunGitTaskStrategyState,
   RunContinuationState,
+  RunWorkspaceBootstrapState,
 } from "../types.js";
 import type { Run } from "../run/index.js";
 
@@ -67,8 +69,12 @@ export function buildAgenticLoopWorkspaceContext(input: {
   repositoryContext?: RepositoryContext;
   prompt: string;
   continuation?: RunContinuationState;
+  workspaceBootstrap?: RunWorkspaceBootstrapState;
+  gitTaskStrategy?: RunGitTaskStrategyState;
 }): string | undefined {
   const lines = buildRepositoryContextLines(input.repositoryContext);
+  appendWorkspaceBootstrapLines(lines, input.workspaceBootstrap);
+  appendGitTaskStrategyLines(lines, input.gitTaskStrategy);
   const continuation = shouldApplyContinuationContext(
     input.prompt,
     input.continuation,
@@ -115,13 +121,13 @@ export function buildAgenticLoopWorkspaceContext(input: {
 
     if (isGitShellFailure(continuation)) {
       lines.push(
-        "Use the dedicated git tools for branch creation, staging, committing, and pushing instead of composing git shell commands.",
+        "Prefer shell/bash for local git recovery by default. Use typed git tools only when they simplify a structured step like stage/commit/push.",
       );
     }
 
     if (isPullRequestShellFailure(continuation)) {
       lines.push(
-        "Create the pull request with the dedicated git_create_pull_request tool instead of bash or gh.",
+        "For pull-request metadata and checks, prefer connector reads first. If connector coverage is missing, retry with a shorter gh command through shell.",
       );
     }
 
@@ -191,6 +197,57 @@ function summarizeLine(value: string): string {
     return normalized;
   }
   return `${normalized.slice(0, 177)}...`;
+}
+
+function appendWorkspaceBootstrapLines(
+  lines: string[],
+  workspaceBootstrap: RunWorkspaceBootstrapState | undefined,
+): void {
+  if (!workspaceBootstrap) {
+    return;
+  }
+
+  if (!workspaceBootstrap.requested) {
+    lines.push(
+      "Workspace bootstrap state: skipped (no repository context was selected for this turn).",
+    );
+    return;
+  }
+
+  const readiness = workspaceBootstrap.ready ? "ready" : "blocked";
+  const modeSuffix = workspaceBootstrap.mode
+    ? `, mode=${workspaceBootstrap.mode}`
+    : "";
+  lines.push(
+    `Workspace bootstrap state: ${readiness} (status=${workspaceBootstrap.status}${modeSuffix}).`,
+  );
+
+  if (workspaceBootstrap.expectedMiss) {
+    lines.push(
+      "Bootstrap note: the last bootstrap miss is expected startup noise, not a generic platform failure.",
+    );
+  }
+
+  if (workspaceBootstrap.message) {
+    lines.push(`Latest bootstrap detail: ${summarizeLine(workspaceBootstrap.message)}`);
+  }
+}
+
+function appendGitTaskStrategyLines(
+  lines: string[],
+  gitTaskStrategy: RunGitTaskStrategyState | undefined,
+): void {
+  if (!gitTaskStrategy) {
+    return;
+  }
+
+  const fallbackSuffix = gitTaskStrategy.fallbackLane
+    ? ` (fallback: ${gitTaskStrategy.fallbackLane})`
+    : "";
+  lines.push(
+    `Git/GitHub strategy hint: ${gitTaskStrategy.classification} -> ${gitTaskStrategy.preferredLane}${fallbackSuffix}.`,
+  );
+  lines.push(`Strategy rationale: ${gitTaskStrategy.rationale}`);
 }
 
 function isGitShellFailure(continuation: RunContinuationState): boolean {
