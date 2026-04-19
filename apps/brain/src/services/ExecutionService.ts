@@ -195,7 +195,8 @@ export class ExecutionService {
     action: string,
     payload: Record<string, unknown>,
   ): Promise<Record<string, unknown>> {
-    if (plugin !== "git" || !this.userId) {
+    const shouldInjectGitHubToken = plugin === "git" || plugin === "github";
+    if (!shouldInjectGitHubToken || !this.userId) {
       return payload;
     }
 
@@ -206,7 +207,7 @@ export class ExecutionService {
       console.log(`[ExecutionService] Injected GitHub token for ${action}`);
     }
 
-    if (action !== "git_commit") {
+    if (plugin !== "git" || action !== "git_commit") {
       return nextPayload;
     }
 
