@@ -114,7 +114,7 @@ describe("RunContinuationContext", () => {
       "Resume on branch: feat/floating-hero-carousels",
     );
     expect(workspaceContext).toContain(
-      "Use the dedicated git tools for branch creation, staging, committing, and pushing instead of composing git shell commands.",
+      "Prefer shell/bash for local git recovery by default. Use typed git tools only when they simplify a structured step like stage/commit/push.",
     );
   });
 
@@ -142,7 +142,7 @@ describe("RunContinuationContext", () => {
     });
 
     expect(workspaceContext).toContain(
-      "Create the pull request with the dedicated git_create_pull_request tool instead of bash or gh.",
+      "For pull-request metadata and checks, prefer connector reads first. If connector coverage is missing, retry with a shorter gh command through shell.",
     );
     expect(workspaceContext).toContain(
       "Branch pushed: feat/floating-hero-carousels",
@@ -181,5 +181,36 @@ describe("RunContinuationContext", () => {
     expect(workspaceContext).toContain(
       "Do not recreate or recommit files. Sync the branch with git_pull and retry git_push.",
     );
+  });
+
+  it("includes bootstrap readiness and git strategy hints in workspace context", () => {
+    const workspaceContext = buildAgenticLoopWorkspaceContext({
+      prompt: "inspect PR 228 checks and fix failing tests",
+      workspaceBootstrap: {
+        requested: true,
+        ready: true,
+        status: "ready",
+        mode: "git_write",
+        blocked: false,
+        expectedMiss: false,
+        recordedAt: new Date().toISOString(),
+      },
+      gitTaskStrategy: {
+        classification: "hybrid_pr_ci",
+        preferredLane: "github_connector",
+        fallbackLane: "shell_git",
+        rationale:
+          "Hybrid PR/CI flow should start with connector metadata and continue with shell-first local repair.",
+        recordedAt: new Date().toISOString(),
+      },
+    });
+
+    expect(workspaceContext).toContain(
+      "Workspace bootstrap state: ready (status=ready, mode=git_write).",
+    );
+    expect(workspaceContext).toContain(
+      "Git/GitHub strategy hint: hybrid_pr_ci -> github_connector (fallback: shell_git).",
+    );
+    expect(workspaceContext).toContain("Strategy rationale:");
   });
 });
