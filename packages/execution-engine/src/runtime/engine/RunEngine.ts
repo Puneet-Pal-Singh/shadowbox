@@ -57,6 +57,8 @@ import {
 import {
   getPermissionPolicyMessage,
   getWorkspaceBootstrapMessage,
+  evaluateWorkspaceBootstrap,
+  type WorkspaceBootstrapEvaluation,
   processPermissionDirectives as processPermissionDirectivesPolicy,
 } from "./RunPermissionWorkspacePolicy.js";
 import {
@@ -113,6 +115,11 @@ import {
   handleExecutionErrorPolicy,
   safeMemoryOperation as safeMemoryOperationPolicy,
 } from "./RunEngineReliabilityPolicy.js";
+import { GitHubTaskStrategy } from "./GitHubTaskStrategy.js";
+import {
+  GitToolFailureClassifier,
+  type GitToolFailureKind,
+} from "./GitToolFailureClassifier.js";
 
 export interface IRunEngine {
   execute(
@@ -156,6 +163,9 @@ export interface RunEngineDependencies {
   workspaceBootstrapper?: WorkspaceBootstrapper;
   runEventListener?: (event: RunEvent) => Promise<void> | void;
 }
+
+const gitHubTaskStrategy = new GitHubTaskStrategy();
+const gitToolFailureClassifier = new GitToolFailureClassifier();
 
 export class RunEngine implements IRunEngine {
   private runRepo: RunRepository;
@@ -408,19 +418,40 @@ export class RunEngine implements IRunEngine {
       }
 
       if (runMode === "build") {
-        const bootstrapMessage = await getWorkspaceBootstrapMessage(
+        const bootstrapEvaluation = await evaluateWorkspaceBootstrap(
           run.id,
           effectiveInput.prompt,
           effectiveInput.repositoryContext,
           this.workspaceBootstrapper,
         );
-        if (bootstrapMessage) {
+        run.metadata.workspaceBootstrap = {
+          requested: bootstrapEvaluation.status !== "skipped",
+          ready: !bootstrapEvaluation.blocked,
+          status: bootstrapEvaluation.status,
+          mode: bootstrapEvaluation.mode,
+          blocked: bootstrapEvaluation.blocked,
+          message: bootstrapEvaluation.message ?? undefined,
+          expectedMiss: bootstrapEvaluation.expectedMiss,
+          recordedAt: new Date().toISOString(),
+        };
+        await this.runRepo.update(run);
+        await this.runEventRecorder.recordRunProgress(
+          "planning",
+          "Workspace bootstrap",
+          describeWorkspaceBootstrapSummary(bootstrapEvaluation),
+          "completed",
+        );
+
+        if (bootstrapEvaluation.message) {
+          const bootstrapLogLabel = bootstrapEvaluation.expectedMiss
+            ? "Workspace bootstrap expected miss blocked action planning"
+            : "Workspace bootstrap blocked action planning";
           console.log(
-            `[run/engine] Workspace bootstrap blocked action planning for run ${runId}`,
+            `[run/engine] ${bootstrapLogLabel} for run ${runId}`,
           );
           return await this.completeRunWithAssistantMessage(
             run,
-            bootstrapMessage,
+            bootstrapEvaluation.message,
           );
         }
       }
@@ -512,6 +543,7 @@ export class RunEngine implements IRunEngine {
     run.transition("RUNNING");
     recordPhaseSelectionSnapshot(run, "execution");
     recordLifecycleStep(run, "TASK_EXECUTING", "agentic_loop");
+    run.metadata.gitTaskStrategy = this.resolveGitTaskStrategy(run, input);
     await this.runEventRecorder.recordRunStatusChanged(
       previousStatus,
       run.status,
@@ -542,6 +574,8 @@ export class RunEngine implements IRunEngine {
           repositoryContext: input.repositoryContext,
           prompt: input.prompt,
           continuation: run.metadata.continuation,
+          workspaceBootstrap: run.metadata.workspaceBootstrap,
+          gitTaskStrategy: run.metadata.gitTaskStrategy,
         }),
         isRunCancelled: async () => {
           const currentRun = await this.runRepo.getById(run.id);
@@ -981,6 +1015,64 @@ export class RunEngine implements IRunEngine {
   private async getPermissionPolicyMessage(prompt: string, repositoryContext?: RepositoryContext): Promise<string | null> {
     return getPermissionPolicyMessage(prompt, repositoryContext, this.permissionApprovalStore);
   }
+  private resolveGitTaskStrategy(
+    run: Run,
+    input: RunInput,
+  ): Run["metadata"]["gitTaskStrategy"] {
+    const prompt = input.prompt?.trim();
+    if (!prompt) {
+      return undefined;
+    }
+
+    const runMode = run.metadata.manifest?.mode ?? "build";
+    const repositoryReady =
+      run.metadata.workspaceBootstrap?.ready ?? !input.repositoryContext;
+    const currentFailure = this.resolveContinuationGitFailure(run);
+    const decision = gitHubTaskStrategy.decide({
+      userRequest: prompt,
+      runMode,
+      repositoryReady,
+      hasGitHubAuth: Boolean(run.metadata.actorUserId ?? this.options.userId),
+      connectorAvailable: true,
+      currentFailure,
+    });
+
+    return {
+      ...decision,
+      recordedAt: new Date().toISOString(),
+    };
+  }
+
+  private resolveContinuationGitFailure(
+    run: Run,
+  ): {
+    kind: GitToolFailureKind;
+    toolName: string;
+  } | null {
+    const continuation = run.metadata.continuation;
+    if (!continuation?.failedToolName || !continuation.failedToolDetail) {
+      return null;
+    }
+
+    if (continuation.failedToolName === "bash") {
+      const command = continuation.failedCommand?.toLowerCase() ?? "";
+      if (!/\b(git|gh)\b/.test(command)) {
+        return null;
+      }
+    } else if (!continuation.failedToolName.startsWith("git_")) {
+      return null;
+    }
+
+    const decision = gitToolFailureClassifier.classify({
+      toolName: continuation.failedToolName,
+      message: continuation.failedToolDetail,
+    });
+    return {
+      kind: decision.kind,
+      toolName: continuation.failedToolName,
+    };
+  }
+
   private async getWorkspaceBootstrapMessage(
     runId: string,
     prompt: string,
@@ -1040,6 +1132,31 @@ export class RunEngine implements IRunEngine {
   }
 
 }
+
+function describeWorkspaceBootstrapSummary(
+  evaluation: WorkspaceBootstrapEvaluation,
+): string {
+  if (evaluation.status === "skipped") {
+    return "Repository bootstrap was skipped because no repository context was provided for this run.";
+  }
+
+  if (evaluation.blocked) {
+    if (evaluation.expectedMiss) {
+      return "Repository bootstrap reported an expected startup miss and paused execution until workspace checkout is available.";
+    }
+    return (
+      evaluation.message ??
+      "Repository bootstrap blocked execution because the workspace is not ready."
+    );
+  }
+
+  if (evaluation.mode) {
+    return `Repository bootstrap is ready for ${evaluation.mode} actions.`;
+  }
+
+  return "Repository bootstrap is ready.";
+}
+
 export class RunEngineError extends Error {
   constructor(message: string) {
     super(`[run/engine] ${message}`);
