@@ -272,6 +272,85 @@ describe("ExecutionService", () => {
     });
   });
 
+  it("injects GitHub token for github connector actions without commit identity fields", async () => {
+    const fetchMock = vi.fn<
+      Parameters<Env["SECURE_API"]["fetch"]>,
+      ReturnType<Env["SECURE_API"]["fetch"]>
+    >();
+
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            sessionId: "sess-github",
+            token: "tok-github",
+            expiresAt: Date.now() + 60_000,
+          }),
+          { status: 201, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            taskId: "task-github",
+            status: "success",
+            output: '{"number":228}',
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+
+    const service = new ExecutionService(
+      {
+        SECURE_API: { fetch: fetchMock },
+        SESSIONS: {
+          get: vi.fn(async (key: string) =>
+            key === "user_session:user-456"
+              ? JSON.stringify({
+                  userId: "user-456",
+                  login: "puneet",
+                  avatar: "",
+                  email: "puneet@example.com",
+                  name: "Puneet Pal Singh",
+                  encryptedToken: "encrypted-token",
+                  createdAt: Date.now(),
+                })
+              : null,
+          ),
+        },
+      } as unknown as Env,
+      "session-github",
+      "run-github",
+      "user-456",
+    );
+
+    await service.execute("github", "pr_get", {
+      owner: "acme",
+      repo: "career-crew",
+      number: 228,
+    });
+
+    const [, executeInit] = fetchMock.mock.calls[1]!;
+    expect(JSON.parse(String(executeInit?.body))).toMatchObject({
+      action: "github.execute",
+      params: {
+        action: "pr_get",
+        runId: "run-github",
+        owner: "acme",
+        repo: "career-crew",
+        number: 228,
+        token: "token:encrypted-token",
+      },
+    });
+
+    expect(JSON.parse(String(executeInit?.body))).not.toMatchObject({
+      params: {
+        authorName: expect.any(String),
+        authorEmail: expect.any(String),
+      },
+    });
+  });
+
   it("does not allow payload to override canonical action or runId", async () => {
     const fetchMock = vi.fn<
       Parameters<Env["SECURE_API"]["fetch"]>,
