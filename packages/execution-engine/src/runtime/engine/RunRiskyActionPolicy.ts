@@ -220,13 +220,23 @@ function classifyRiskAction(
     toolName === "glob" ||
     toolName === "grep" ||
     toolName === "git_status" ||
-    toolName === "git_diff"
+    toolName === "git_diff" ||
+    toolName === "github_pr_get" ||
+    toolName === "github_pr_checks_get" ||
+    toolName === "github_review_threads_get" ||
+    toolName === "github_issue_get" ||
+    toolName === "github_actions_run_get"
   ) {
     return {
       category: RISKY_ACTION_CATEGORIES.FILESYSTEM_WRITE,
-      title: "Shadowbox wants to inspect repository state",
+      title:
+        toolName.startsWith("github_")
+          ? "Shadowbox wants to inspect GitHub metadata"
+          : "Shadowbox wants to inspect repository state",
       reason:
-        "This is a read-only exploration action and is allowed under the current policy.",
+        toolName.startsWith("github_")
+          ? "This is a read-only connector metadata action and is allowed under the current policy."
+          : "This is a read-only exploration action and is allowed under the current policy.",
       affectedPaths,
       actionFingerprint: buildActionFingerprint({
         category: RISKY_ACTION_CATEGORIES.FILESYSTEM_WRITE,
