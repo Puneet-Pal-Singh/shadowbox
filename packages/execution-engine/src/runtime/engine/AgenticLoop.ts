@@ -25,6 +25,10 @@ import type {
   TaskResult,
 } from "../types.js";
 import { detectsMutation } from "./detectsMutation.js";
+import {
+  GitToolFailureClassifier,
+  shouldClassifyAsGitOrShellFailure,
+} from "./GitToolFailureClassifier.js";
 import { isGitWritePrompt } from "./WorkspaceBootstrapModePolicy.js";
 
 export interface AgenticLoopConfig {
@@ -104,6 +108,8 @@ export class AgenticLoopCancelledError extends Error {
     this.name = "AgenticLoopCancelledError";
   }
 }
+
+const gitToolFailureClassifier = new GitToolFailureClassifier();
 
 /**
  * AgenticLoop executes a bounded loop of LLM calls and tool execution
@@ -420,11 +426,14 @@ export class AgenticLoop {
           } else {
             this.failedToolCount++;
             const toolError = result.error?.message || "Tool execution failed";
+            const activityMetadata = extractToolActivityMetadata(
+              result.output?.metadata,
+            );
             this.recordToolLifecycle(
               toolCall,
               "failed",
               toolError,
-              extractToolActivityMetadata(result.output?.metadata),
+              activityMetadata,
             );
             await context.onToolFailed?.(toolCall, toolError, executionTimeMs);
             toolResults.push({
@@ -432,7 +441,11 @@ export class AgenticLoop {
               toolName: toolCall.toolName,
               result: null,
               error: toolError,
-              terminalError: isTerminalToolFailure(toolCall.toolName),
+              terminalError: isTerminalToolFailure({
+                toolName: toolCall.toolName,
+                error: toolError,
+                metadata: activityMetadata,
+              }),
             });
           }
         } catch (error) {
@@ -455,7 +468,10 @@ export class AgenticLoop {
             toolName: toolCall.toolName,
             result: null,
             error: errorMessage,
-            terminalError: isTerminalToolFailure(toolCall.toolName),
+            terminalError: isTerminalToolFailure({
+              toolName: toolCall.toolName,
+              error: errorMessage,
+            }),
           });
         }
       }
@@ -692,8 +708,10 @@ function buildAgenticLoopSystemPrompt(input: {
     "Your job is to inspect the real workspace, decide which tools to use, and answer the user's request in clear natural language.",
     "Start with the real workspace before concluding anything. Never invent file contents, project structure, git state, or completed work.",
     "Tool strategy:",
-    "- Use the dedicated git tools for git status, diff, branch create/switch, staging, commit, push, and pull request creation. Do not compose git or GitHub workflows with bash unless the request truly requires a non-git shell command.",
-    "- Never use gh pr create through bash when git_create_pull_request can satisfy the request.",
+    "- For local repository git work, use shell/bash by default so you can run flexible repo-local commands and recover from normal command failures.",
+    "- Treat typed git tools as structured accelerators for common safe steps (status, diff, branch, stage, commit, push, PR) when they simplify the workflow.",
+    "- Use GitHub connector read tools for remote metadata (PRs, checks, reviews, issues). If connector coverage is missing, use gh through shell.",
+    "- When a git/gh shell command fails with a normal nonzero exit, inspect the error and choose the next bounded recovery step instead of stopping immediately.",
     "- A clean git status after a failed push or PR step often means the changes were already committed locally. Do not recreate files just because the working tree is clean.",
     "- When staging for a request, detect the changed paths and stage only those specific files. Never stage the whole workspace just to make commit or push succeed.",
     "- If git_push fails because the remote branch is ahead or non-fast-forward, do not rewrite files. Use git_pull to sync with a fast-forward-only pull, then retry git_push. If git_pull cannot fast-forward, stop and explain that manual branch resolution is required.",
@@ -701,7 +719,7 @@ function buildAgenticLoopSystemPrompt(input: {
     "- For vague component, page, route, or file questions, discover with list_files, glob, or grep before read_file.",
     "- Prefer narrowing search after one broad listing. Do not repeat the same missing path after a file-not-found error.",
     "- If a non-mutating tool returns no match or not found, keep exploring with different tools or paths instead of stopping.",
-    "- If a mutating tool fails, stop and explain what failed.",
+    "- If a file-edit mutation tool fails, stop and explain what failed.",
     "- git_commit messages must be a single-line conventional commit subject (for example: feat: add hero carousel).",
     "Answer quality:",
     "- After gathering enough evidence, answer the user directly in plain English.",
@@ -814,8 +832,20 @@ function stableSerialize(value: unknown): string {
   return JSON.stringify(value);
 }
 
-function isTerminalToolFailure(toolName: string): boolean {
-  return isMutatingGoldenFlowToolName(toolName);
+function isTerminalToolFailure(input: {
+  toolName: string;
+  error: string;
+  metadata?: ToolActivityMetadata;
+}): boolean {
+  if (shouldClassifyAsGitOrShellFailure(input)) {
+    return gitToolFailureClassifier.classify({
+      toolName: input.toolName,
+      message: input.error,
+      metadata: input.metadata,
+    }).terminal;
+  }
+
+  return isMutatingGoldenFlowToolName(input.toolName);
 }
 
 function hasEditMutationEvidence(toolName: string, metadata: unknown): boolean {
