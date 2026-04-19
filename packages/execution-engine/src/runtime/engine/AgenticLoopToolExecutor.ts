@@ -118,6 +118,36 @@ export async function executeAgenticLoopTool(
         input.taskId,
         input.toolInput,
       );
+    case "github_pr_get":
+      return executeGitHubPullRequestGetTool(
+        executionService,
+        input.taskId,
+        input.toolInput,
+      );
+    case "github_pr_checks_get":
+      return executeGitHubPullRequestChecksGetTool(
+        executionService,
+        input.taskId,
+        input.toolInput,
+      );
+    case "github_review_threads_get":
+      return executeGitHubReviewThreadsGetTool(
+        executionService,
+        input.taskId,
+        input.toolInput,
+      );
+    case "github_issue_get":
+      return executeGitHubIssueGetTool(
+        executionService,
+        input.taskId,
+        input.toolInput,
+      );
+    case "github_actions_run_get":
+      return executeGitHubActionsRunGetTool(
+        executionService,
+        input.taskId,
+        input.toolInput,
+      );
     case "glob":
       return executeGlobTool(executionService, input.taskId, input.toolInput);
     case "grep":
@@ -726,6 +756,122 @@ async function executeGitDiffTool(
     return buildFailureResult(taskId, failure);
   }
   return buildSuccessResult(taskId, formatExecutionResult(result));
+}
+
+async function executeGitHubPullRequestGetTool(
+  executionService: RuntimeExecutionService,
+  taskId: string,
+  taskInput: TaskInput,
+): Promise<TaskResult> {
+  const validatedInput = validateGoldenFlowToolInput("github_pr_get", taskInput);
+  return executeGitHubReadTool(executionService, taskId, "github_pr_get", {
+    owner: validatedInput.owner.trim(),
+    repo: validatedInput.repo.trim(),
+    number: validatedInput.number,
+  });
+}
+
+async function executeGitHubPullRequestChecksGetTool(
+  executionService: RuntimeExecutionService,
+  taskId: string,
+  taskInput: TaskInput,
+): Promise<TaskResult> {
+  const validatedInput = validateGoldenFlowToolInput(
+    "github_pr_checks_get",
+    taskInput,
+  );
+  return executeGitHubReadTool(executionService, taskId, "github_pr_checks_get", {
+    owner: validatedInput.owner.trim(),
+    repo: validatedInput.repo.trim(),
+    number: validatedInput.number,
+  });
+}
+
+async function executeGitHubReviewThreadsGetTool(
+  executionService: RuntimeExecutionService,
+  taskId: string,
+  taskInput: TaskInput,
+): Promise<TaskResult> {
+  const validatedInput = validateGoldenFlowToolInput(
+    "github_review_threads_get",
+    taskInput,
+  );
+  return executeGitHubReadTool(
+    executionService,
+    taskId,
+    "github_review_threads_get",
+    {
+      owner: validatedInput.owner.trim(),
+      repo: validatedInput.repo.trim(),
+      number: validatedInput.number,
+    },
+  );
+}
+
+async function executeGitHubIssueGetTool(
+  executionService: RuntimeExecutionService,
+  taskId: string,
+  taskInput: TaskInput,
+): Promise<TaskResult> {
+  const validatedInput = validateGoldenFlowToolInput("github_issue_get", taskInput);
+  return executeGitHubReadTool(executionService, taskId, "github_issue_get", {
+    owner: validatedInput.owner.trim(),
+    repo: validatedInput.repo.trim(),
+    number: validatedInput.number,
+  });
+}
+
+async function executeGitHubActionsRunGetTool(
+  executionService: RuntimeExecutionService,
+  taskId: string,
+  taskInput: TaskInput,
+): Promise<TaskResult> {
+  const validatedInput = validateGoldenFlowToolInput(
+    "github_actions_run_get",
+    taskInput,
+  );
+  return executeGitHubReadTool(
+    executionService,
+    taskId,
+    "github_actions_run_get",
+    {
+      owner: validatedInput.owner.trim(),
+      repo: validatedInput.repo.trim(),
+      actionsRunId: validatedInput.actionsRunId,
+    },
+  );
+}
+
+async function executeGitHubReadTool(
+  executionService: RuntimeExecutionService,
+  taskId: string,
+  toolName:
+    | "github_pr_get"
+    | "github_pr_checks_get"
+    | "github_review_threads_get"
+    | "github_issue_get"
+    | "github_actions_run_get",
+  payload: Record<string, unknown>,
+): Promise<TaskResult> {
+  const result = await executeGatewayPlugin(executionService, toolName, payload);
+  const failure = extractExecutionFailure(result);
+  if (failure) {
+    return buildFailureResult(taskId, failure, {
+      activity: {
+        family: "generic",
+        displayText: "Reading GitHub metadata",
+        summary: `${toolName} failed`,
+      },
+    });
+  }
+
+  return buildSuccessResult(taskId, formatExecutionResult(result), {
+    activity: {
+      family: "generic",
+      displayText: "Reading GitHub metadata",
+      summary: `${toolName} completed`,
+    },
+  });
 }
 
 async function executeGlobTool(
