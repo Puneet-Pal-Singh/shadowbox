@@ -1241,9 +1241,13 @@ describe("RunEngine", () => {
         content: "read README.md",
       },
     });
-    expect(events[2]).toMatchObject({
-      payload: { workflowStep: RUN_WORKFLOW_STEPS.EXECUTION },
-    });
+    expect(
+      events.some(
+        (event) =>
+          event.type === RUN_EVENT_TYPES.RUN_STATUS_CHANGED &&
+          event.payload.workflowStep === RUN_WORKFLOW_STEPS.EXECUTION,
+      ),
+    ).toBe(true);
     expect(
       events.some(
         (event) =>
@@ -1443,6 +1447,17 @@ describe("RunEngine", () => {
     expect(persisted?.metadata.agenticLoop?.enabled).toBe(true);
     expect(persisted?.metadata.agenticLoop?.stopReason).toBe("llm_stop");
     expect(persisted?.metadata.agenticLoop?.toolExecutionCount).toBe(1);
+    expect(persisted?.metadata.workspaceBootstrap).toMatchObject({
+      requested: false,
+      ready: true,
+      status: "skipped",
+      blocked: false,
+    });
+    expect(persisted?.metadata.gitTaskStrategy).toMatchObject({
+      classification: "local_mutation",
+      preferredLane: "shell_git",
+      fallbackLane: "typed_git",
+    });
   });
 
   it("answers build-mode prompts without invoking structured turn classification", async () => {
@@ -1824,7 +1839,7 @@ describe("RunEngine", () => {
           "Last failed step: bash - Shadowbox wants to run a shell command",
         );
         expect(system).toContain(
-          "Use the dedicated git tools for git status, diff, branch create/switch, staging, commit, push, and pull request creation.",
+          "For local repository git work, use shell/bash by default so you can run flexible repo-local commands and recover from normal command failures.",
         );
 
         return {
@@ -3457,6 +3472,42 @@ describe("RunEngine", () => {
     );
 
     expect(message).toContain("GitHub authorization");
+  });
+
+  it("records expected bootstrap misses separately from generic failures", async () => {
+    const runEngine = createRunEngine({
+      workspaceBootstrapper: {
+        bootstrap: async () => ({
+          status: "sync-failed",
+          message: "fatal: not a git repository",
+        }),
+      },
+    });
+
+    const response = await runEngine.execute(
+      {
+        agentType: "coding",
+        prompt: "check git status",
+        sessionId: "session-1",
+        repositoryContext: {
+          owner: "sourcegraph",
+          repo: "shadowbox",
+          branch: "main",
+        },
+      },
+      [{ role: "user", content: "check git status" }],
+      {},
+    );
+
+    expect(response.status).toBe(200);
+    const persisted = await runEngine.getRun(TEST_RUN_ID);
+    expect(persisted?.metadata.workspaceBootstrap).toMatchObject({
+      requested: true,
+      ready: false,
+      status: "sync-failed",
+      blocked: true,
+      expectedMiss: true,
+    });
   });
 
   it("blocks cross-repo actions until explicit approval is recorded", async () => {
