@@ -64,8 +64,10 @@ type GitPayload = z.infer<typeof GitPayloadSchema>;
 const SAFE_GIT_REF_REGEX = /^[A-Za-z0-9._/-]{1,200}$/;
 const CLONE_DESTINATION_NOT_EMPTY_PATTERN =
   /destination path .* already exists and is not an empty directory/i;
+const BRANCH_PATHSPEC_MISSING_PATTERN =
+  /pathspec .* did not match any file known to git/i;
 const MISSING_GIT_AUTHOR_ERROR =
-  "Git commit author is not configured. Set git user.name and user.email for this workspace before committing.";
+  "Git commit author is not configured for this workspace commit request.";
 const WRITE_GIT_AUTHOR_ERROR =
   "Git commit author could not be written to this workspace before committing.";
 
@@ -941,6 +943,30 @@ export class GitPlugin implements IPlugin {
       toolboxContext,
       "git.branch_switch",
     );
+    if (result.exitCode === 0) {
+      return buildGitResult(result, `Switched to branch: ${safeBranch}`);
+    }
+
+    // If the branch only exists on origin, create a local tracking branch.
+    if (BRANCH_PATHSPEC_MISSING_PATTERN.test(result.stderr)) {
+      const trackingResult = await this.runToolboxCommand(
+        sandbox,
+        {
+          command: "git",
+          args: ["-C", worktree, "checkout", "--track", `origin/${safeBranch}`],
+          runId,
+        },
+        ["git"],
+        toolboxContext,
+        "git.branch_switch_track_remote",
+      );
+      if (trackingResult.exitCode === 0) {
+        return {
+          success: true,
+          output: `Switched to tracking branch: ${safeBranch}`,
+        };
+      }
+    }
 
     return buildGitResult(result, `Switched to branch: ${safeBranch}`);
   }
