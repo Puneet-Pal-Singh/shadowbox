@@ -39,7 +39,7 @@ export class GitHubTaskStrategy {
       return {
         classification: "remote_metadata",
         preferredLane: "github_connector",
-        fallbackLane: "shell_gh",
+        fallbackLane: "shell_git",
         rationale:
           "In plan mode, start with connector metadata to anchor the execution plan before local mutation steps.",
       };
@@ -63,7 +63,7 @@ export class GitHubTaskStrategy {
       return {
         classification: "remote_metadata",
         preferredLane: "github_connector",
-        fallbackLane: "shell_gh",
+        fallbackLane: "shell_git",
         rationale:
           "The previous attempt indicates missing git auth state; retry remote metadata through the connector lane first.",
       };
@@ -77,7 +77,7 @@ export class GitHubTaskStrategy {
       return {
         classification: "remote_metadata",
         preferredLane: "github_connector",
-        fallbackLane: "shell_gh",
+        fallbackLane: "shell_git",
         rationale:
           "Shell dependencies were unavailable in the previous step, so connector metadata should be the primary lane.",
       };
@@ -135,10 +135,10 @@ export class GitHubTaskStrategy {
 
     return {
       classification: "connector_gap",
-      preferredLane: "shell_gh",
+      preferredLane: "github_connector",
       fallbackLane: "shell_git",
       rationale:
-        "Remote metadata is needed but connector access is unavailable; use gh through shell, then continue locally.",
+        "Remote metadata is needed but connector access appears limited; retry connector reads and continue with local shell git only for workspace steps.",
     };
   }
 
@@ -154,7 +154,7 @@ export class GitHubTaskStrategy {
       return {
         classification: "remote_metadata",
         preferredLane: "github_connector",
-        fallbackLane: "shell_gh",
+        fallbackLane: "shell_git",
         rationale:
           "Remote PR/issue/check metadata is connector-first when authenticated connector access is available.",
       };
@@ -162,10 +162,10 @@ export class GitHubTaskStrategy {
 
     return {
       classification: "connector_gap",
-      preferredLane: "shell_gh",
-      fallbackLane: "github_connector",
+      preferredLane: "github_connector",
+      fallbackLane: "shell_git",
       rationale:
-        "Connector metadata path is unavailable or explicitly bypassed; fall back to gh in shell.",
+        "Connector metadata path is unavailable or explicitly bypassed; avoid gh shell commands and continue only with local shell git steps.",
     };
   }
 }
