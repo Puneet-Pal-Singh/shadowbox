@@ -53,10 +53,14 @@ export async function tryHandleTaskExecutionErrorPolicy(
 }
 
 async function handleTaskTimeoutRecovery(
-  input: Pick<TaskExecutionRecoveryInput, "run" | "prompt" | "loop" | "deps">,
+  input: Pick<
+    TaskExecutionRecoveryInput,
+    "run" | "prompt" | "loop" | "deps" | "error"
+  >,
 ): Promise<Response> {
   const { run, deps } = input;
   const context = buildTaskExecutionRecoveryContext(input);
+  const timeoutDetails = buildTaskTimeoutDetails(input.run, input.error, context);
   const text = buildTaskExecutionTimeoutMessage({
     requiresMutation: context.requiresMutation,
     noFileChanged:
@@ -64,6 +68,10 @@ async function handleTaskTimeoutRecovery(
       context.stats.completedMutatingToolCount === 0,
     toolExecutionCount: context.stats.toolExecutionCount,
     stepsExecuted: context.stats.stepsExecuted,
+    timeoutMs: timeoutDetails.timeoutMs,
+    providerId: timeoutDetails.providerId,
+    modelId: timeoutDetails.modelId,
+    lastCompletedAction: timeoutDetails.lastCompletedAction,
   });
 
   await deps.runEventRecorder.recordRunProgress(
@@ -76,7 +84,7 @@ async function handleTaskTimeoutRecovery(
   return deps.completeRunWithRecoveredAssistantMessage(
     run,
     text,
-    buildTaskExecutionTimeoutMetadata(),
+    buildTaskExecutionTimeoutMetadata(timeoutDetails),
     "TASK_EXECUTION_TIMEOUT: Model timed out before choosing the next action.",
   );
 }
@@ -159,14 +167,33 @@ function buildTaskExecutionTimeoutMessage(input: {
   noFileChanged: boolean;
   toolExecutionCount: number;
   stepsExecuted: number;
+  timeoutMs: number | null;
+  providerId: string | null;
+  modelId: string | null;
+  lastCompletedAction: string | null;
 }): string {
-  const lines = [
-    "The model timed out before choosing the next action.",
+  const lines = ["The model timed out before choosing the next action."];
+
+  if (typeof input.timeoutMs === "number" && Number.isFinite(input.timeoutMs)) {
+    lines.push(
+      `Model response timeout: ${Math.round(input.timeoutMs / 1000)}s.`,
+    );
+  }
+
+  const modelLabel = formatModelLabel(input.providerId, input.modelId);
+  if (modelLabel) {
+    lines.push(`Active model: ${modelLabel}.`);
+  }
+  if (input.lastCompletedAction) {
+    lines.push(`Last completed action: ${input.lastCompletedAction}.`);
+  }
+
+  lines.push(
     input.noFileChanged
       ? "No file was changed before the timeout."
       : "The run timed out after some progress, but before it could finish the next step.",
     `Execution stats so far: ${input.stepsExecuted} step(s), ${input.toolExecutionCount} tool call(s).`,
-  ];
+  );
 
   if (input.requiresMutation) {
     lines.push(
@@ -179,13 +206,116 @@ function buildTaskExecutionTimeoutMessage(input: {
   return lines.join("\n");
 }
 
-function buildTaskExecutionTimeoutMetadata(): Record<string, unknown> {
+function buildTaskExecutionTimeoutMetadata(input: {
+  timeoutMs: number | null;
+  providerId: string | null;
+  modelId: string | null;
+  lastCompletedAction: string | null;
+}): Record<string, unknown> {
   return {
     code: "TASK_EXECUTION_TIMEOUT",
     retryable: true,
+    ...(typeof input.timeoutMs === "number"
+      ? { timeoutMs: input.timeoutMs }
+      : undefined),
+    ...(input.providerId ? { providerId: input.providerId } : undefined),
+    ...(input.modelId ? { modelId: input.modelId } : undefined),
+    ...(input.lastCompletedAction
+      ? { lastCompletedAction: input.lastCompletedAction }
+      : undefined),
     resumeHint: "Retry the task or switch to a faster or more reliable model.",
     resumeActions: ["retry", "switch_model"],
   };
+}
+
+function buildTaskTimeoutDetails(
+  run: Run,
+  error: unknown,
+  context: TaskExecutionRecoveryContext,
+): {
+  timeoutMs: number | null;
+  providerId: string | null;
+  modelId: string | null;
+  lastCompletedAction: string | null;
+} {
+  const timeoutMs = resolveTaskTimeoutMs(error);
+  const providerId = sanitizeOptionalString(
+    run.metadata.manifest?.providerId ?? run.input.providerId ?? null,
+  );
+  const modelId = sanitizeOptionalString(
+    run.metadata.manifest?.modelId ?? run.input.modelId ?? null,
+  );
+  const lastCompletedAction = describeLastCompletedAction(
+    context.stats.toolLifecycle,
+  );
+
+  return {
+    timeoutMs,
+    providerId,
+    modelId,
+    lastCompletedAction,
+  };
+}
+
+function resolveTaskTimeoutMs(error: unknown): number | null {
+  if (error instanceof LLMTimeoutError) {
+    return error.timeoutMs;
+  }
+
+  if (!(error instanceof Error)) {
+    return null;
+  }
+
+  const timeoutMatch = error.message.match(/timed out after\s+(\d+)ms/i);
+  if (!timeoutMatch?.[1]) {
+    return null;
+  }
+
+  const parsed = Number.parseInt(timeoutMatch[1], 10);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function sanitizeOptionalString(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : null;
+}
+
+function formatModelLabel(
+  providerId: string | null,
+  modelId: string | null,
+): string | null {
+  if (providerId && modelId) {
+    return `${providerId} / ${modelId}`;
+  }
+  return providerId ?? modelId;
+}
+
+function describeLastCompletedAction(
+  toolLifecycle: TaskExecutionRecoveryContext["stats"]["toolLifecycle"],
+): string | null {
+  const latestCompletedEvent = [...toolLifecycle]
+    .reverse()
+    .find((event) => event.status === "completed");
+  if (!latestCompletedEvent) {
+    return null;
+  }
+
+  const displayText = sanitizeOptionalString(
+    latestCompletedEvent.metadata?.displayText,
+  );
+  const baseAction = displayText ?? latestCompletedEvent.toolName;
+  const detail = sanitizeOptionalString(latestCompletedEvent.detail);
+  if (!detail) {
+    return baseAction;
+  }
+
+  const compactDetail =
+    detail.length <= 96 ? detail : `${detail.slice(0, 93).trimEnd()}...`;
+  return `${baseAction} (${compactDetail})`;
 }
 
 function buildTerminalLlmIssueFromError(
