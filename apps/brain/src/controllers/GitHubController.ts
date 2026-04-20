@@ -99,6 +99,10 @@ export class GitHubController {
       const url = new URL(request.url);
       const owner = url.searchParams.get("owner");
       const repo = url.searchParams.get("repo");
+      const rawPerPage = parseInt(url.searchParams.get("per_page") || "100", 10);
+      const perPage = Number.isFinite(rawPerPage)
+        ? Math.min(100, Math.max(1, rawPerPage))
+        : 100;
 
       if (!owner || !repo) {
         return errorResponse(
@@ -109,7 +113,7 @@ export class GitHubController {
         );
       }
 
-      const branches = await client.listBranches(owner, repo);
+      const branches = await client.listBranches(owner, repo, perPage);
 
       return envJsonResponse(request, env, { branches });
     } catch (error) {
@@ -215,6 +219,11 @@ export class GitHubController {
       const repo = url.searchParams.get("repo");
       const state =
         (url.searchParams.get("state") as "open" | "closed" | "all") || "open";
+      const head = url.searchParams.get("head") || undefined;
+      const rawPerPage = parseInt(url.searchParams.get("per_page") || "100", 10);
+      const perPage = Number.isFinite(rawPerPage)
+        ? Math.min(100, Math.max(1, rawPerPage))
+        : 100;
 
       if (!owner || !repo) {
         return errorResponse(
@@ -225,7 +234,10 @@ export class GitHubController {
         );
       }
 
-      const pullRequests = await client.listPullRequests(owner, repo, state);
+      const pullRequests = await client.listPullRequests(owner, repo, state, {
+        head,
+        perPage,
+      });
 
       return envJsonResponse(request, env, { pullRequests });
     } catch (error) {
