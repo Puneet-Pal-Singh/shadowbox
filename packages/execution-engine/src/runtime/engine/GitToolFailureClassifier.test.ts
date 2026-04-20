@@ -49,6 +49,18 @@ describe("GitToolFailureClassifier", () => {
     });
   });
 
+  it("marks sandbox shell safety blocks as terminal", () => {
+    expect(
+      classifier.classify({
+        toolName: "bash",
+        message: "Dangerous bash command pattern detected",
+      }),
+    ).toEqual({
+      kind: "policy_blocked",
+      terminal: true,
+    });
+  });
+
   it("defaults to recoverable command failures for ordinary shell errors", () => {
     expect(
       classifier.classify({
