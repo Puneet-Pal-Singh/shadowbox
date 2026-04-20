@@ -39,7 +39,7 @@ function doesRepoContextMatch(
 }
 
 export function useGitHubTree(expectedRepo?: string) {
-  const { repo, branch, isLoaded: isGitHubLoaded } = useGitHub();
+  const { repo, branch, switchBranch, isLoaded: isGitHubLoaded } = useGitHub();
   const [repoTree, setRepoTree] = useState<
     Array<{ path: string; type: string; sha: string }>
   >([]);
@@ -88,6 +88,7 @@ export function useGitHubTree(expectedRepo?: string) {
     isLoadingTree: isLoadingTree || isContextMismatch,
     repo,
     branch,
+    switchBranch,
     isGitHubLoaded,
   };
 }
