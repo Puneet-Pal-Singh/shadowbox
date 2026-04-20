@@ -72,6 +72,61 @@ describe("GitHubPlugin", () => {
     });
   });
 
+  it("lists pull requests by head branch through the GitHub connector", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify([
+          {
+            number: 229,
+            title: "Fix review comments",
+            state: "open",
+            draft: false,
+            html_url: "https://github.com/acme/career-crew/pull/229",
+            head: { ref: "chore/axis-model-routing-cleanup", sha: "def456" },
+            base: { ref: "main" },
+            user: { login: "puneet" },
+            created_at: "2026-04-20T10:00:00Z",
+            updated_at: "2026-04-20T11:00:00Z",
+          },
+        ]),
+        { status: 200 },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const plugin = new GitHubPlugin();
+    const result = await plugin.execute(asSandbox(), {
+      action: "pr_list",
+      owner: "acme",
+      repo: "career-crew",
+      state: "open",
+      head: "chore/axis-model-routing-cleanup",
+      token: "ghp_test",
+    });
+
+    expect(result.success).toBe(true);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.github.com/repos/acme/career-crew/pulls?state=open&per_page=100&head=acme%3Achore%2Faxis-model-routing-cleanup",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: "Bearer ghp_test",
+        }),
+      }),
+    );
+    expect(JSON.parse(String(result.output))).toMatchObject({
+      state: "open",
+      head: "chore/axis-model-routing-cleanup",
+      count: 1,
+      pullRequests: [
+        expect.objectContaining({
+          number: 229,
+          title: "Fix review comments",
+          headRef: "chore/axis-model-routing-cleanup",
+        }),
+      ],
+    });
+  });
+
   it("rejects unsupported repository path segments before making API calls", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
