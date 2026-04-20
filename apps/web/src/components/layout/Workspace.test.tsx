@@ -14,7 +14,7 @@ const mockChatState = vi.hoisted(() => ({
   isLoading: false,
   isHydrating: false,
   runId: "run-123",
-  error: null,
+  error: null as string | null,
   debugEvents: [],
 }));
 const mockGitHubTreeState = vi.hoisted(() => ({
@@ -28,6 +28,7 @@ const mockGitHubTreeState = vi.hoisted(() => ({
     default_branch: string;
   } | null,
   branch: "main",
+  switchBranch: vi.fn(),
   isGitHubLoaded: false,
 }));
 const mockChatInterface = vi.hoisted(() =>
@@ -132,15 +133,18 @@ describe("Workspace", () => {
     mockChatState.isLoading = false;
     mockGitHubTreeState.repo = null;
     mockGitHubTreeState.branch = "main";
+    mockGitHubTreeState.switchBranch.mockClear();
     mockGitHubTreeState.isGitHubLoaded = false;
   });
 
   it("refreshes git status when a chat run finishes", async () => {
+    const onSessionStatusChange = vi.fn();
     const { rerender } = render(
       <Workspace
         sessionId="session-123"
         runId="run-123"
         repository="career-crew"
+        onSessionStatusChange={onSessionStatusChange}
       />,
     );
 
@@ -152,10 +156,12 @@ describe("Workspace", () => {
         sessionId="session-123"
         runId="run-123"
         repository="career-crew"
+        onSessionStatusChange={onSessionStatusChange}
       />,
     );
 
     expect(mockRefetchGitStatus).not.toHaveBeenCalled();
+    expect(onSessionStatusChange).toHaveBeenCalledWith("running");
 
     mockChatState.isLoading = false;
     rerender(
@@ -163,12 +169,53 @@ describe("Workspace", () => {
         sessionId="session-123"
         runId="run-123"
         repository="career-crew"
+        onSessionStatusChange={onSessionStatusChange}
       />,
     );
 
     await waitFor(() => {
       expect(mockRefetchGitStatus).toHaveBeenCalledWith(true);
     });
+    expect(onSessionStatusChange).toHaveBeenCalledWith("completed");
+  });
+
+  it("marks session as error when a run finishes with chat error", async () => {
+    const onSessionStatusChange = vi.fn();
+    const { rerender } = render(
+      <Workspace
+        sessionId="session-123"
+        runId="run-123"
+        repository="career-crew"
+        onSessionStatusChange={onSessionStatusChange}
+      />,
+    );
+
+    mockChatState.isLoading = true;
+    rerender(
+      <Workspace
+        sessionId="session-123"
+        runId="run-123"
+        repository="career-crew"
+        onSessionStatusChange={onSessionStatusChange}
+      />,
+    );
+
+    mockChatState.isLoading = false;
+    mockChatState.error = "Model timeout";
+    rerender(
+      <Workspace
+        sessionId="session-123"
+        runId="run-123"
+        repository="career-crew"
+        onSessionStatusChange={onSessionStatusChange}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(onSessionStatusChange).toHaveBeenCalledWith("error");
+    });
+
+    mockChatState.error = null;
   });
 
   it("forces a fresh git status fetch after workspace bootstrap succeeds", async () => {
@@ -196,6 +243,29 @@ describe("Workspace", () => {
     await waitFor(() => {
       expect(mockRefetchGitStatus).toHaveBeenCalledWith(true);
     });
+  });
+
+  it("does not trigger workspace bootstrap while a run is actively loading", async () => {
+    mockGitHubTreeState.repo = {
+      owner: { login: "Puneet-Pal-Singh" },
+      name: "career-crew",
+      full_name: "Puneet-Pal-Singh/career-crew",
+      html_url: "https://github.com/Puneet-Pal-Singh/career-crew",
+      default_branch: "main",
+    };
+    mockGitHubTreeState.isGitHubLoaded = true;
+    mockChatState.isLoading = true;
+
+    render(
+      <Workspace
+        sessionId="session-123"
+        runId="run-123"
+        repository="Puneet-Pal-Singh/career-crew"
+      />,
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(mockBootstrapGitWorkspace).not.toHaveBeenCalled();
   });
 
   it("passes repo tree state to the chat interface", () => {
