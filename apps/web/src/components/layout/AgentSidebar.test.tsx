@@ -33,6 +33,10 @@ describe("AgentSidebar", () => {
     );
 
     expect(screen.getByText("Awaiting approval")).toBeInTheDocument();
+    expect(screen.getByTestId("task-status-needs_approval")).toHaveAttribute(
+      "data-status-kind",
+      "dot",
+    );
   });
 
   it("shows the awaiting approval filter option in the sidebar menu", () => {
@@ -51,5 +55,90 @@ describe("AgentSidebar", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Filter tasks" }));
     expect(screen.getByRole("menuitemradio", { name: "Awaiting approval" })).toBeInTheDocument();
+  });
+
+  it("renders a spinner indicator for running sessions", () => {
+    render(
+      <AgentSidebar
+        sessions={[createSession()]}
+        repositories={["shadowbox/shadowbox"]}
+        activeSessionId="session-1"
+        onSelect={vi.fn()}
+        onCreate={vi.fn()}
+        onRemove={vi.fn()}
+        onAddRepository={vi.fn()}
+      />,
+    );
+
+    const indicator = screen.getByTestId("task-status-running");
+    expect(indicator).toHaveAttribute("data-status-kind", "spinner");
+    expect(indicator.className).toContain("animate-spin");
+  });
+
+  it("shows recently completed non-active sessions as blue completed status", () => {
+    render(
+      <AgentSidebar
+        sessions={[
+          createSession({
+            id: "session-2",
+            status: "completed",
+            updatedAt: new Date().toISOString(),
+          }),
+        ]}
+        repositories={["shadowbox/shadowbox"]}
+        activeSessionId="different-session"
+        onSelect={vi.fn()}
+        onCreate={vi.fn()}
+        onRemove={vi.fn()}
+        onAddRepository={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId("task-status-completed")).toBeInTheDocument();
+  });
+
+  it("shows completed active sessions as idle status", () => {
+    render(
+      <AgentSidebar
+        sessions={[
+          createSession({
+            status: "completed",
+            updatedAt: new Date().toISOString(),
+          }),
+        ]}
+        repositories={["shadowbox/shadowbox"]}
+        activeSessionId="session-1"
+        onSelect={vi.fn()}
+        onCreate={vi.fn()}
+        onRemove={vi.fn()}
+        onAddRepository={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId("task-status-idle")).toBeInTheDocument();
+  });
+
+  it("shows stale completed sessions as idle status after highlight window", () => {
+    const staleDate = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+
+    render(
+      <AgentSidebar
+        sessions={[
+          createSession({
+            id: "session-3",
+            status: "completed",
+            updatedAt: staleDate,
+          }),
+        ]}
+        repositories={["shadowbox/shadowbox"]}
+        activeSessionId="different-session"
+        onSelect={vi.fn()}
+        onCreate={vi.fn()}
+        onRemove={vi.fn()}
+        onAddRepository={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId("task-status-idle")).toBeInTheDocument();
   });
 });
