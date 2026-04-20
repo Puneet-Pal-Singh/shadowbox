@@ -81,7 +81,8 @@ export class BashPlugin implements IPlugin {
       return {
         success: result.exitCode === 0,
         output: result.stdout,
-        error: result.exitCode === 0 ? undefined : result.stderr || "Command failed",
+        error:
+          result.exitCode === 0 ? undefined : result.stderr || "Command failed",
       };
     } catch (error: unknown) {
       const message =
@@ -94,7 +95,10 @@ export class BashPlugin implements IPlugin {
   }
 }
 
-function resolveBashCwd(workspaceRoot: string, cwd: string | undefined): string {
+function resolveBashCwd(
+  workspaceRoot: string,
+  cwd: string | undefined,
+): string {
   if (!cwd || cwd.trim() === "." || cwd.trim() === "./") {
     return workspaceRoot;
   }
@@ -111,7 +115,6 @@ function validateBashCommand(command: string): void {
 
   const dangerousPatterns = [
     /(^|[;&|]\s*)rm\s+/i,
-    />\s*\/dev\/null/i,
     /;\s*killall/i,
     /\$\(/i,
     /`/i,
@@ -131,7 +134,10 @@ function buildRuntimeBashCommand(command: string): string {
     return command;
   }
 
-  const pnpmArgs = command.trim().replace(/^pnpm\b/i, "").trim();
+  const pnpmArgs = command
+    .trim()
+    .replace(/^pnpm\b/i, "")
+    .trim();
   const pnpmInvocation = pnpmArgs.length > 0 ? `pnpm ${pnpmArgs}` : "pnpm";
   const corepackInvocation =
     pnpmArgs.length > 0 ? `corepack pnpm ${pnpmArgs}` : "corepack pnpm";
@@ -173,7 +179,8 @@ function buildNpmFallbackInvocation(pnpmArgs: string): string | null {
 }
 
 function buildPnpmUnavailableFallbackInvocation(pnpmArgs: string): string {
-  const requestedCommand = pnpmArgs.trim().length > 0 ? `pnpm ${pnpmArgs.trim()}` : "pnpm";
+  const requestedCommand =
+    pnpmArgs.trim().length > 0 ? `pnpm ${pnpmArgs.trim()}` : "pnpm";
   const quotedRequestedCommand = quoteShellLiteral(
     `pnpm is unavailable in this runtime and no npm fallback mapping exists for: ${requestedCommand}`,
   );
