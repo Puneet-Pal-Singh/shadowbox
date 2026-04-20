@@ -15,6 +15,7 @@ type GitAction =
   | "git_fetch"
   | "git_branch_switch"
   | "git_branch_create"
+  | "git_branch_list"
   | "git_pull";
 
 interface GitPluginResult {
@@ -41,6 +42,11 @@ interface NormalizedRepositoryContext {
 
 interface WorkspaceSyncCacheEntry {
   lastSyncedAt: number;
+}
+
+interface BranchAvailability {
+  localExists: boolean;
+  remoteExists: boolean;
 }
 
 const SAFE_REPOSITORY_SEGMENT_REGEX = /^[A-Za-z0-9._-]{1,100}$/;
@@ -282,6 +288,7 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
   ): Promise<WorkspaceBootstrapResult> {
     const shouldFetch = mode !== "read_only";
     const shouldPull = mode === "git_write";
+    let branchExistsOnRemote: boolean | null = null;
 
     if (shouldFetch) {
       const fetchResult = await this.executeGit(
@@ -339,6 +346,11 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
         return mapGitFailure(switchError);
       }
 
+      const availability = await this.readBranchAvailability(branch, runId);
+      if (availability) {
+        branchExistsOnRemote = availability.remoteExists;
+      }
+
       const createResult = await this.executeGit(
         "git_branch_create",
         { branch },
@@ -352,6 +364,10 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
     }
 
     if (shouldPull) {
+      if (branchExistsOnRemote === false) {
+        setWorkspaceSyncCache(cacheKey);
+        return { status: "ready" };
+      }
       const pullResult = await this.executeGit(
         "git_pull",
         {
@@ -377,6 +393,18 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
 
     setWorkspaceSyncCache(cacheKey);
     return { status: "ready" };
+  }
+
+  private async readBranchAvailability(
+    branch: string,
+    runId: string,
+  ): Promise<BranchAvailability | null> {
+    const branchListResult = await this.executeGit("git_branch_list", {}, runId);
+    if (!branchListResult.success || typeof branchListResult.output !== "string") {
+      return null;
+    }
+
+    return parseBranchAvailability(branchListResult.output, branch);
   }
 
   private async executeGit(
@@ -617,4 +645,38 @@ function sanitizeError(error: string): string {
 
 function matchesAny(value: string, patterns: RegExp[]): boolean {
   return patterns.some((pattern) => pattern.test(value));
+}
+
+function parseBranchAvailability(
+  rawBranchList: string,
+  targetBranch: string,
+): BranchAvailability {
+  const normalizedTarget = targetBranch.trim();
+  const localCandidates = new Set<string>();
+  const remoteCandidates = new Set<string>();
+
+  rawBranchList
+    .split("\n")
+    .map((line) => line.trim().replace(/^\*\s*/, ""))
+    .filter(Boolean)
+    .forEach((entry) => {
+      if (entry.includes(" -> ")) {
+        return;
+      }
+      if (entry.startsWith("remotes/")) {
+        const [, remoteName, ...rest] = entry.split("/");
+        if (!remoteName || rest.length === 0) {
+          return;
+        }
+        const branchName = rest.join("/");
+        remoteCandidates.add(branchName);
+        return;
+      }
+      localCandidates.add(entry);
+    });
+
+  return {
+    localExists: localCandidates.has(normalizedTarget),
+    remoteExists: remoteCandidates.has(normalizedTarget),
+  };
 }
