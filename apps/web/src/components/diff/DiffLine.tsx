@@ -1,11 +1,13 @@
 import { memo } from "react";
 import { Plus } from "lucide-react";
 import type { DiffLine as DiffLineType } from "@repo/shared-types";
+import { DiffCodeText } from "./DiffCodeText";
 
 interface DiffLineProps {
   line: DiffLineType;
   hunksIndex: number;
   lineIndex: number;
+  language?: string;
   isSelected?: boolean;
   annotationCount?: number;
   onClick?: (event: React.MouseEvent<HTMLDivElement>) => void;
@@ -17,6 +19,7 @@ const DiffLine = memo(
     line,
     hunksIndex,
     lineIndex,
+    language = "text",
     isSelected = false,
     annotationCount = 0,
     onClick,
@@ -91,9 +94,9 @@ const DiffLine = memo(
         <div className="w-12 flex-shrink-0 bg-zinc-900/50 px-2 py-1 text-right text-xs text-zinc-500">
           {line.newLineNumber && <span>{line.newLineNumber}</span>}
         </div>
-        <div className={`flex-1 px-3 py-1 ${textColor}`}>
+        <div className={`flex-1 overflow-x-auto px-3 py-1 ${textColor}`}>
           <span className="mr-1 select-none">{prefix}</span>
-          <span className="break-all">{line.content}</span>
+          <DiffCodeText content={line.content} language={language} />
         </div>
         {annotationCount > 0 ? (
           <div className="mr-3 flex items-center text-[10px] uppercase tracking-[0.16em] text-amber-300">
