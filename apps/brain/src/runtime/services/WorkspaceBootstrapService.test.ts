@@ -159,12 +159,16 @@ describe("WorkspaceBootstrapService", () => {
       .mockResolvedValueOnce({
         success: false,
         error: "pathspec 'feature/bootstrap' did not match any file",
-      })
-      .mockResolvedValueOnce({ success: true }) // create branch
+      }) // switch
       .mockResolvedValueOnce({
-        success: false,
-        error: "fatal: couldn't find remote ref feature/bootstrap",
-      }); // pull is allowed to fail for a fresh branch
+        success: true,
+        output: [
+          "* main",
+          "  remotes/origin/main",
+        ].join("\n"),
+      }) // branch list (branch missing on local+remote)
+      .mockResolvedValueOnce({ success: true }) // create branch
+      .mockResolvedValueOnce({ success: true }); // pull (unused because no remote branch)
     const service = new WorkspaceBootstrapService({ execute }, 0);
 
     const result = await service.bootstrap({
@@ -178,6 +182,7 @@ describe("WorkspaceBootstrapService", () => {
     });
 
     expect(result.status).toBe("ready");
+    expect(execute).toHaveBeenCalledWith("git", "git_branch_list", {});
     expect(execute).toHaveBeenCalledWith("git", "git_branch_create", {
       branch: "feature/bootstrap",
     });
