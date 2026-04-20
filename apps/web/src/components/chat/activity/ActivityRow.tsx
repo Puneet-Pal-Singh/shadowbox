@@ -121,7 +121,9 @@ function isRecoveryCommentaryRow(
   return hasRecoveryMetadata(row.metadata);
 }
 
-function hasRecoveryMetadata(metadata: Record<string, unknown> | undefined): boolean {
+function hasRecoveryMetadata(
+  metadata: Record<string, unknown> | undefined,
+): boolean {
   if (metadata?.recovery === true) {
     return true;
   }
@@ -359,10 +361,7 @@ function deriveRecoveryLabel(code: string | undefined): string {
   return "Run update";
 }
 
-function deriveRecoverySummary(
-  rowContent: string,
-  resumeHint: string,
-): string {
+function deriveRecoverySummary(rowContent: string, resumeHint: string): string {
   return resumeHint || rowContent.split("\n")[0] || "";
 }
 
@@ -782,11 +781,7 @@ function ExpandableRow({
               <ChevronIcon expanded={expanded} muted />
             </span>
           ) : !emphasizeThinking ? (
-            <span
-              className={
-                "mt-[7px] h-1.5 w-1.5 rounded-full bg-zinc-600"
-              }
-            />
+            <span className={"mt-[7px] h-1.5 w-1.5 rounded-full bg-zinc-600"} />
           ) : null}
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
@@ -858,7 +853,9 @@ function CompactTranscriptRow({
           <LabelWithBadge label={label} badge={badge} />
         </span>
       </div>
-      {detail ? <div className="pl-4 text-sm text-zinc-500">{detail}</div> : null}
+      {detail ? (
+        <div className="pl-4 text-sm text-zinc-500">{detail}</div>
+      ) : null}
     </div>
   );
 }
@@ -1021,7 +1018,17 @@ function extractCommandLabel(detail: string): string {
     return "";
   }
 
-  return firstLine.slice(2).trim();
+  return truncateTranscriptCommandLabel(firstLine.slice(2).trim());
+}
+
+const COMMAND_LABEL_MAX_LENGTH = 160;
+
+function truncateTranscriptCommandLabel(command: string): string {
+  if (command.length <= COMMAND_LABEL_MAX_LENGTH) {
+    return command;
+  }
+
+  return `${command.slice(0, COMMAND_LABEL_MAX_LENGTH - 1)}…`;
 }
 
 function getShellStatusLabel(
