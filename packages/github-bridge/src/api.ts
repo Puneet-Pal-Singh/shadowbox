@@ -210,9 +210,10 @@ export class GitHubAPIClient {
   ): Promise<
     Array<{ path: string; type: string; sha: string; size?: number }>
   > {
+    const encodedSha = encodeURIComponent(sha);
     const response = await this.request<{
       tree: Array<{ path: string; type: string; sha: string; size?: number }>;
-    }>(`/repos/${owner}/${repo}/git/trees/${sha}?recursive=1`);
+    }>(`/repos/${owner}/${repo}/git/trees/${encodedSha}?recursive=1`);
 
     return response.tree;
   }
@@ -243,8 +244,9 @@ export class GitHubAPIClient {
     repo: string,
     branch: string,
   ): Promise<string> {
+    const encodedBranch = encodeURIComponent(branch);
     const response = await this.request<{ object: { sha: string } }>(
-      `/repos/${owner}/${repo}/git/refs/heads/${branch}`,
+      `/repos/${owner}/${repo}/git/refs/heads/${encodedBranch}`,
     );
     return response.object.sha;
   }
