@@ -1884,7 +1884,7 @@ describe("RunEngine", () => {
           "Last failed step: bash - Shadowbox wants to run a shell command",
         );
         expect(system).toContain(
-          "For local repository git work, use shell/bash by default so you can run flexible repo-local commands and recover from normal command failures.",
+          "Prefer typed git tools for repository work (status, diff, branch, stage, commit, push, PR) to keep actions structured and auditable.",
         );
 
         return {
