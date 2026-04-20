@@ -118,6 +118,12 @@ export async function executeAgenticLoopTool(
         input.taskId,
         input.toolInput,
       );
+    case "github_pr_list":
+      return executeGitHubPullRequestListTool(
+        executionService,
+        input.taskId,
+        input.toolInput,
+      );
     case "github_pr_get":
       return executeGitHubPullRequestGetTool(
         executionService,
@@ -771,6 +777,20 @@ async function executeGitHubPullRequestGetTool(
   });
 }
 
+async function executeGitHubPullRequestListTool(
+  executionService: RuntimeExecutionService,
+  taskId: string,
+  taskInput: TaskInput,
+): Promise<TaskResult> {
+  const validatedInput = validateGoldenFlowToolInput("github_pr_list", taskInput);
+  return executeGitHubReadTool(executionService, taskId, "github_pr_list", {
+    owner: validatedInput.owner.trim(),
+    repo: validatedInput.repo.trim(),
+    state: validatedInput.state,
+    head: validatedInput.head?.trim(),
+  });
+}
+
 async function executeGitHubPullRequestChecksGetTool(
   executionService: RuntimeExecutionService,
   taskId: string,
@@ -846,6 +866,7 @@ async function executeGitHubReadTool(
   executionService: RuntimeExecutionService,
   taskId: string,
   toolName:
+    | "github_pr_list"
     | "github_pr_get"
     | "github_pr_checks_get"
     | "github_review_threads_get"
