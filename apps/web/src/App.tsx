@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useSessionManager } from "./hooks/useSessionManager";
 import { AgentSidebar } from "./components/layout/AgentSidebar";
@@ -88,6 +88,7 @@ function AppContent() {
         return null;
       }
     });
+  const lastSyncedGitHubSessionIdRef = useRef<string | null>(null);
 
   // Get active session for workspace rendering
   // Use memoized activeSession to avoid unnecessary re-renders
@@ -168,6 +169,8 @@ function AppContent() {
   useEffect(() => {
     if (!activeSessionId) return;
     if (!activeSession) return;
+    const sessionChanged = lastSyncedGitHubSessionIdRef.current !== activeSessionId;
+    lastSyncedGitHubSessionIdRef.current = activeSessionId;
 
     const sessionContext =
       SessionStateService.loadSessionGitHubContext(activeSessionId);
@@ -193,15 +196,22 @@ function AppContent() {
         updated_at: new Date().toISOString(),
       };
 
-      // Update global context if it differs
-      if (
+      const hasCurrentBranch = branch.trim().length > 0;
+      const shouldHydrateFromSession =
+        sessionChanged ||
         repo?.full_name !== sessionContext.fullName ||
-        branch !== sessionContext.branch
-      ) {
+        !hasCurrentBranch;
+
+      if (shouldHydrateFromSession) {
         console.log(
           `[App] Switching GitHub context to session ${activeSessionId}: ${sessionContext.fullName}`,
         );
         setContext(storedRepo, sessionContext.branch);
+      } else if (branch !== sessionContext.branch) {
+        SessionStateService.saveSessionGitHubContext(activeSessionId, {
+          ...sessionContext,
+          branch,
+        });
       }
     } else {
       // No stored context for this session.
