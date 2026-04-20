@@ -26,7 +26,7 @@ import { PermissionApprovalStore } from "./PermissionApprovalStore.js";
 const TEST_RUN_ID = "f462a003-5c36-4c86-a95d-367b92bf46c9";
 
 describe("RunEngine", () => {
-  it("routes build-mode greetings through the canonical tool-capable loop", async () => {
+  it("returns a conversational response for greeting-only prompts", async () => {
     const generateText = vi.fn(async () => ({
       text: "ok",
       usage: {
@@ -62,12 +62,56 @@ describe("RunEngine", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(await response.text()).toBe("ok");
-    expect(generateText).toHaveBeenCalledTimes(1);
-    const buildRequest = generateText.mock.calls[0]?.[0] as {
-      context?: { phase?: string };
+    expect(await response.text()).toContain("Hey! I can help with code changes");
+    expect(generateText).not.toHaveBeenCalled();
+  });
+
+  it("bypasses explicit plan mode planning for greeting-only prompts", async () => {
+    const planner = {
+      plan: vi.fn(async () => ({
+        tasks: [],
+        metadata: { estimatedSteps: 1 },
+      })),
+    } as unknown as RunEngineDependencies["planner"];
+    const generateText = vi.fn(async () => ({
+      text: "unused",
+      usage: {
+        provider: "mock",
+        model: "mock-model",
+        promptTokens: 1,
+        completionTokens: 1,
+        totalTokens: 2,
+      },
+    }));
+    const llmGateway: ILLMGateway = {
+      generateText,
+      generateStructured: vi.fn(async () => {
+        throw new Error("structured turn classification should be inactive");
+      }),
+      generateStream: async () =>
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.close();
+          },
+        }),
     };
-    expect(buildRequest.context?.phase).toBe("task");
+    const runEngine = createRunEngine({ llmGateway, planner });
+
+    const response = await runEngine.execute(
+      {
+        agentType: "coding",
+        mode: "plan",
+        prompt: "hey",
+        sessionId: "session-1",
+      },
+      [{ role: "user", content: "hey" }],
+      {},
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain("Hey! I can help with code changes");
+    expect(planner.plan).not.toHaveBeenCalled();
+    expect(generateText).not.toHaveBeenCalled();
   });
 
   it("records deterministic permission context when creating a run", async () => {
@@ -829,7 +873,9 @@ describe("RunEngine", () => {
         }
         await new Promise((resolve) => setTimeout(resolve, 20));
       }
-      throw new Error("Timed out waiting for a pending approval request in test.");
+      throw new Error(
+        "Timed out waiting for a pending approval request in test.",
+      );
     })();
 
     const response = await responsePromise;
@@ -955,7 +1001,9 @@ describe("RunEngine", () => {
         }
         await new Promise((resolve) => setTimeout(resolve, 20));
       }
-      throw new Error("Timed out waiting for a pending approval request in test.");
+      throw new Error(
+        "Timed out waiting for a pending approval request in test.",
+      );
     })();
 
     const response = await responsePromise;
@@ -986,10 +1034,10 @@ describe("RunEngine", () => {
     const response = await runEngine.execute(
       {
         agentType: "coding",
-        prompt: "hello there",
+        prompt: "summarize repository status",
         sessionId: "session-1",
       },
-      [{ role: "user", content: "hello there" }],
+      [{ role: "user", content: "summarize repository status" }],
       {},
     );
 
@@ -1081,7 +1129,7 @@ describe("RunEngine", () => {
 
     expect(response.status).toBe(200);
     expect(output).toContain("No files, commands, or mutating tools were run");
-    expect(output).toContain("Switch to Build mode");
+    expect(output).not.toContain("Build handoff");
     expect(scheduler.execute).not.toHaveBeenCalled();
     expect(tasks).toHaveLength(0);
     expect(persisted?.metadata.planArtifact).toMatchObject({
@@ -1504,12 +1552,9 @@ describe("RunEngine", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(await response.text()).toBe("Longer budget applied.");
+    expect(await response.text()).toContain("Hey! I can help with code changes");
+    expect(generateText).not.toHaveBeenCalled();
     expect(generateStructured).not.toHaveBeenCalled();
-    const buildRequest = generateText.mock.calls[0]?.[0] as {
-      context?: { phase?: string };
-    };
-    expect(buildRequest.context?.phase).toBe("task");
   });
 
   it("completes the golden-flow tool roundtrip in one agentic run", async () => {
@@ -1982,9 +2027,7 @@ describe("RunEngine", () => {
 
     expect(firstResponse.status).toBe(200);
     const firstOutput = await firstResponse.text();
-    expect(firstOutput).toContain(
-      "Shadowbox wants to run a shell command",
-    );
+    expect(firstOutput).toContain("Shadowbox wants to run a shell command");
 
     const firstPersistedRun = await (
       runEngine as unknown as {
@@ -2283,9 +2326,7 @@ describe("RunEngine", () => {
 
     expect(firstResponse.status).toBe(200);
     const firstOutput = await firstResponse.text();
-    expect(firstOutput).toContain(
-      "Shadowbox wants to create a branch",
-    );
+    expect(firstOutput).toContain("Shadowbox wants to create a branch");
 
     const secondResponse = await runEngine.execute(
       {
@@ -2609,9 +2650,7 @@ describe("RunEngine", () => {
             }
           ).system ?? "",
         );
-        expect(system).toContain(
-          "Resume on branch: main",
-        );
+        expect(system).toContain("Resume on branch: main");
         return {
           text: "Continuing on the preserved branch.",
           toolCalls: [],
@@ -2738,6 +2777,15 @@ describe("RunEngine", () => {
         branch: "main",
       },
     });
+
+    const events = await new RunEventRepository(state).getByRun(TEST_RUN_ID);
+    expect(
+      events.some(
+        (event) =>
+          event.type === RUN_EVENT_TYPES.RUN_PROGRESS &&
+          event.payload.label === "Workspace bootstrap",
+      ),
+    ).toBe(false);
   });
 
   it("enforces the bounded golden-flow tool floor for agentic-loop tool maps", async () => {
