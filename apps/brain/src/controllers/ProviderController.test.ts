@@ -13,7 +13,9 @@ function createMockEnv(options?: {
   axisConnected?: boolean;
   catalogError?: boolean;
   connectionsError?: boolean;
+  failedConnectionProviders?: ProviderId[];
   preferencesError?: boolean;
+  sessionsGetError?: boolean;
   environment?: "production" | "staging" | "development";
 }): Env {
   const axisConnected = options?.axisConnected ?? true;
@@ -53,7 +55,10 @@ function createMockEnv(options?: {
         id: "arcee-ai/trinity-large-preview:free",
         name: "arcee-ai/trinity-large-preview:free",
       },
-      { id: "stepfun/step-3.5-flash:free", name: "stepfun/step-3.5-flash:free" },
+      {
+        id: "stepfun/step-3.5-flash:free",
+        name: "stepfun/step-3.5-flash:free",
+      },
       {
         id: "qwen/qwen3.6-plus:free",
         name: "qwen/qwen3.6-plus:free",
@@ -90,7 +95,10 @@ function createMockEnv(options?: {
         }
         const connectedProviders = providerState.get(scopeKey)!;
 
-        if (url.pathname === "/providers/connect" && request.method === "POST") {
+        if (
+          url.pathname === "/providers/connect" &&
+          request.method === "POST"
+        ) {
           const body = (await request.json()) as { providerId: ProviderId };
           if (body.providerId === "axis") {
             return jsonError(
@@ -135,30 +143,36 @@ function createMockEnv(options?: {
             );
           }
           return jsonOk({
-            providers: (["axis", "openrouter", "openai", "groq"] as ProviderId[]).map(
-              (providerId) => ({
-                providerId,
-                displayName: providerId.toUpperCase(),
-                capabilities: {
-                  streaming: true,
-                  tools: true,
-                  structuredOutputs: true,
-                  jsonMode: true,
-                },
-                models: catalog[providerId].map((model) => ({
-                  ...model,
-                  provider: providerId,
-                })),
-              }),
-            ),
+            providers: (
+              ["axis", "openrouter", "openai", "groq"] as ProviderId[]
+            ).map((providerId) => ({
+              providerId,
+              displayName: providerId.toUpperCase(),
+              capabilities: {
+                streaming: true,
+                tools: true,
+                structuredOutputs: true,
+                jsonMode: true,
+              },
+              models: catalog[providerId].map((model) => ({
+                ...model,
+                provider: providerId,
+              })),
+            })),
             generatedAt: new Date().toISOString(),
           });
         }
 
         if (url.pathname === "/providers/models" && request.method === "GET") {
-          const providerId = url.searchParams.get("providerId") as ProviderId | null;
+          const providerId = url.searchParams.get(
+            "providerId",
+          ) as ProviderId | null;
           if (!providerId || !(providerId in catalog)) {
-            return jsonError("Missing or invalid providerId", 400, "MISSING_PROVIDER_ID");
+            return jsonError(
+              "Missing or invalid providerId",
+              400,
+              "MISSING_PROVIDER_ID",
+            );
           }
           const view = url.searchParams.get("view");
           if (view) {
@@ -219,26 +233,43 @@ function createMockEnv(options?: {
             );
           }
           return jsonOk({
-            connections: (["axis", "openrouter", "openai", "groq"] as ProviderId[]).map(
-              (providerId) => ({
-                providerId,
-                status:
-                  (providerId === "axis" && axisConnected) ||
-                  connectedProviders.has(providerId)
+            connections: (
+              ["axis", "openrouter", "openai", "groq"] as ProviderId[]
+            ).map((providerId) => {
+              const failedProviders = new Set(
+                options?.failedConnectionProviders ?? [],
+              );
+              const status = failedProviders.has(providerId)
+                ? "failed"
+                : (providerId === "axis" && axisConnected) ||
+                    connectedProviders.has(providerId)
                   ? "connected"
-                  : "disconnected",
+                  : "disconnected";
+
+              return {
+                providerId,
+                status,
+                errorCode:
+                  status === "failed" ? "PROVIDER_UNAVAILABLE" : undefined,
+                errorMessage:
+                  status === "failed"
+                    ? "Credential store is temporarily unavailable for this provider."
+                    : undefined,
                 capabilities: {
                   streaming: true,
                   tools: true,
                   structuredOutputs: true,
                   jsonMode: true,
                 },
-              }),
-            ),
+              };
+            }),
           });
         }
 
-        if (url.pathname === "/providers/axis/quota" && request.method === "GET") {
+        if (
+          url.pathname === "/providers/axis/quota" &&
+          request.method === "GET"
+        ) {
           return jsonOk({
             used: 0,
             limit: 5,
@@ -246,7 +277,10 @@ function createMockEnv(options?: {
           });
         }
 
-        if (url.pathname === "/providers/validate" && request.method === "POST") {
+        if (
+          url.pathname === "/providers/validate" &&
+          request.method === "POST"
+        ) {
           const body = (await request.json()) as { providerId: ProviderId };
           if (!connectedProviders.has(body.providerId)) {
             return jsonError(
@@ -300,7 +334,8 @@ function createMockEnv(options?: {
             updatedAt: new Date().toISOString(),
           };
           const next = {
-            defaultProviderId: body.defaultProviderId ?? current.defaultProviderId,
+            defaultProviderId:
+              body.defaultProviderId ?? current.defaultProviderId,
             defaultModelId: body.defaultModelId ?? current.defaultModelId,
             credentialLabels: current.credentialLabels ?? {},
             updatedAt: new Date().toISOString(),
@@ -335,7 +370,9 @@ function createMockEnv(options?: {
         }
 
         if (
-          url.pathname.startsWith("/providers/preferences/credential-labels/") &&
+          url.pathname.startsWith(
+            "/providers/preferences/credential-labels/",
+          ) &&
           request.method === "DELETE"
         ) {
           const credentialId = decodeURIComponent(
@@ -367,7 +404,12 @@ function createMockEnv(options?: {
     SESSION_SECRET: TEST_SESSION_SECRET,
     BYOK_DB: byokDb.database,
     SESSIONS: {
-      get: async (key: string) => sessions.get(key) ?? null,
+      get: async (key: string) => {
+        if (options?.sessionsGetError) {
+          throw new Error("KV GET failed: 500 Internal Server Error");
+        }
+        return sessions.get(key) ?? null;
+      },
       put: async (key: string, value: string) => {
         sessions.set(key, value);
       },
@@ -396,7 +438,10 @@ async function withByokHeaders(
   };
 }
 
-async function createSessionToken(userId: string, secret: string): Promise<string> {
+async function createSessionToken(
+  userId: string,
+  secret: string,
+): Promise<string> {
   const timestamp = Date.now().toString();
   const data = `${userId}:${timestamp}`;
   const encoder = new TextEncoder();
@@ -438,14 +483,17 @@ describe("ProviderController", () => {
   describe("byok v2", () => {
     it("connects provider with valid API key", async () => {
       const env = createMockEnv();
-      const request = new Request("http://localhost/api/byok/providers/connect", {
-        method: "POST",
-        body: JSON.stringify({
-          providerId: "openai",
-          apiKey: "sk-test-1234567890",
-        }),
-        headers: await withByokHeaders(env),
-      });
+      const request = new Request(
+        "http://localhost/api/byok/providers/connect",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            providerId: "openai",
+            apiKey: "sk-test-1234567890",
+          }),
+          headers: await withByokHeaders(env),
+        },
+      );
 
       const response = await ProviderController.byokConnect(request, env);
       const data = await response.json();
@@ -460,14 +508,17 @@ describe("ProviderController", () => {
       const headers = await withByokHeaders(env);
       delete headers["X-Run-Id"];
 
-      const request = new Request("http://localhost/api/byok/providers/connect", {
-        method: "POST",
-        body: JSON.stringify({
-          providerId: "openai",
-          apiKey: "sk-test-1234567890",
-        }),
-        headers,
-      });
+      const request = new Request(
+        "http://localhost/api/byok/providers/connect",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            providerId: "openai",
+            apiKey: "sk-test-1234567890",
+          }),
+          headers,
+        },
+      );
 
       const response = await ProviderController.byokConnect(request, env);
       expect(response.status).toBe(400);
@@ -475,10 +526,13 @@ describe("ProviderController", () => {
 
     it("rejects requests without valid auth claims", async () => {
       const env = createMockEnv();
-      const request = new Request("http://localhost/api/byok/providers/catalog", {
-        method: "GET",
-        headers: { "X-Run-Id": TEST_RUN_ID },
-      });
+      const request = new Request(
+        "http://localhost/api/byok/providers/catalog",
+        {
+          method: "GET",
+          headers: { "X-Run-Id": TEST_RUN_ID },
+        },
+      );
 
       const response = await ProviderController.byokCatalog(request, env);
       const data = await response.json();
@@ -489,10 +543,15 @@ describe("ProviderController", () => {
 
     it("rejects client-supplied user scope mismatch", async () => {
       const env = createMockEnv();
-      const request = new Request("http://localhost/api/byok/providers/catalog", {
-        method: "GET",
-        headers: await withByokHeaders(env, { "X-User-Id": "different-user" }),
-      });
+      const request = new Request(
+        "http://localhost/api/byok/providers/catalog",
+        {
+          method: "GET",
+          headers: await withByokHeaders(env, {
+            "X-User-Id": "different-user",
+          }),
+        },
+      );
 
       const response = await ProviderController.byokCatalog(request, env);
       const data = await response.json();
@@ -503,12 +562,15 @@ describe("ProviderController", () => {
 
     it("rejects unauthorized workspace scope", async () => {
       const env = createMockEnv();
-      const request = new Request("http://localhost/api/byok/providers/catalog", {
-        method: "GET",
-        headers: await withByokHeaders(env, {
-          "X-Workspace-Id": "workspace-other",
-        }),
-      });
+      const request = new Request(
+        "http://localhost/api/byok/providers/catalog",
+        {
+          method: "GET",
+          headers: await withByokHeaders(env, {
+            "X-Workspace-Id": "workspace-other",
+          }),
+        },
+      );
 
       const response = await ProviderController.byokCatalog(request, env);
       const data = await response.json();
@@ -533,10 +595,13 @@ describe("ProviderController", () => {
 
     it("returns provider catalog", async () => {
       const env = createMockEnv();
-      const request = new Request("http://localhost/api/byok/providers/catalog", {
-        method: "GET",
-        headers: await withByokHeaders(env),
-      });
+      const request = new Request(
+        "http://localhost/api/byok/providers/catalog",
+        {
+          method: "GET",
+          headers: await withByokHeaders(env),
+        },
+      );
 
       const response = await ProviderController.byokCatalog(request, env);
       const data = await response.json();
@@ -593,11 +658,14 @@ describe("ProviderController", () => {
         env,
       );
 
-      const request = new Request("http://localhost/api/byok/providers/disconnect", {
-        method: "POST",
-        body: JSON.stringify({ providerId: "openai" }),
-        headers: await withByokHeaders(env),
-      });
+      const request = new Request(
+        "http://localhost/api/byok/providers/disconnect",
+        {
+          method: "POST",
+          body: JSON.stringify({ providerId: "openai" }),
+          headers: await withByokHeaders(env),
+        },
+      );
 
       const response = await ProviderController.byokDisconnect(request, env);
       const data = await response.json();
@@ -955,6 +1023,50 @@ describe("ProviderController", () => {
       });
     });
 
+    it("ignores failed provider connection states during resolve selection", async () => {
+      const env = createMockEnv({
+        environment: "staging",
+        failedConnectionProviders: ["axis"],
+      });
+
+      const resolveResponse = await ProviderController.byokResolve(
+        new Request("http://localhost/api/byok/resolve", {
+          method: "POST",
+          headers: await withByokHeaders(env),
+          body: JSON.stringify({}),
+        }),
+        env,
+      );
+      const resolveData = await resolveResponse.json();
+
+      expect(resolveResponse.status).toBe(400);
+      expect(resolveData.error.code).toBe("AUTH_FAILED");
+      expect(resolveData.error.message).toContain(
+        "Missing AXIS_OPENROUTER_API_KEY",
+      );
+    });
+
+    it("returns provider unavailable when session KV reads fail", async () => {
+      const env = createMockEnv({ sessionsGetError: true });
+
+      const resolveResponse = await ProviderController.byokResolve(
+        new Request("http://localhost/api/byok/resolve", {
+          method: "POST",
+          headers: await withByokHeaders(env),
+          body: JSON.stringify({}),
+        }),
+        env,
+      );
+      const resolveData = await resolveResponse.json();
+
+      expect(resolveResponse.status).toBe(503);
+      expect(resolveData.error.code).toBe("PROVIDER_UNAVAILABLE");
+      expect(resolveData.error.retryable).toBe(true);
+      expect(resolveData.error.message).toContain(
+        "Session store is temporarily unavailable",
+      );
+    });
+
     it("disables implicit axis fallback in production", async () => {
       const env = createMockEnv({ environment: "production" });
 
@@ -991,8 +1103,12 @@ describe("ProviderController", () => {
 
       expect(resolveResponse.status).toBe(400);
       expect(resolveData.error.code).toBe("AUTH_FAILED");
-      expect(resolveData.error.message).toContain("Missing AXIS_OPENROUTER_API_KEY");
-      expect(resolveData.error.message).toContain("Connect a BYOK API-key provider");
+      expect(resolveData.error.message).toContain(
+        "Missing AXIS_OPENROUTER_API_KEY",
+      );
+      expect(resolveData.error.message).toContain(
+        "Connect a BYOK API-key provider",
+      );
     });
 
     it("fails fast when session-selected provider is not connected", async () => {
@@ -1106,16 +1222,17 @@ describe("ProviderController", () => {
 
       const disconnectHeaders = await withByokHeaders(env);
       delete disconnectHeaders["Content-Type"];
-      const disconnectResponse = await ProviderController.byokDisconnectCredential(
-        new Request(
-          `http://localhost/api/byok/credentials/${connectData.credentialId}`,
-          {
-            method: "DELETE",
-            headers: disconnectHeaders,
-          },
-        ),
-        env,
-      );
+      const disconnectResponse =
+        await ProviderController.byokDisconnectCredential(
+          new Request(
+            `http://localhost/api/byok/credentials/${connectData.credentialId}`,
+            {
+              method: "DELETE",
+              headers: disconnectHeaders,
+            },
+          ),
+          env,
+        );
 
       expect(disconnectResponse.status).toBe(204);
     });
