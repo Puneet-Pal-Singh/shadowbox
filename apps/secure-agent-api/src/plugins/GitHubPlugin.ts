@@ -10,6 +10,7 @@ const REVIEW_COMMENTS_MAX_PAGES = 20;
 
 const GitHubPayloadSchema = z.object({
   action: z.enum([
+    "pr_list",
     "pr_get",
     "pr_checks_get",
     "review_threads_get",
@@ -18,6 +19,8 @@ const GitHubPayloadSchema = z.object({
   ]),
   owner: z.string().min(1).max(100),
   repo: z.string().min(1).max(100),
+  state: z.enum(["open", "closed", "all"]).optional(),
+  head: z.string().min(1).max(200).optional(),
   number: z.number().int().positive().optional(),
   actionsRunId: z.number().int().positive().optional(),
   token: z.string().min(1).optional(),
@@ -51,6 +54,8 @@ export class GitHubPlugin implements IPlugin {
       }
 
       switch (parsed.action) {
+        case "pr_list":
+          return await this.listPullRequests(parsed, token);
         case "pr_get":
           return await this.getPullRequest(parsed, token);
         case "pr_checks_get":
@@ -73,6 +78,49 @@ export class GitHubPlugin implements IPlugin {
             : "GitHub connector request failed.",
       };
     }
+  }
+
+  private async listPullRequests(
+    payload: GitHubPayload,
+    token: string,
+  ): Promise<PluginResult> {
+    const query = new URLSearchParams();
+    query.set("state", payload.state ?? "open");
+    query.set("per_page", "100");
+    if (payload.head) {
+      query.set("head", `${payload.owner}:${payload.head}`);
+    }
+
+    const pullRequests = await this.requestGitHub<Array<Record<string, unknown>>>(
+      token,
+      `/repos/${payload.owner}/${payload.repo}/pulls?${query.toString()}`,
+    );
+
+    const items = pullRequests
+      .map((pr) => ({
+        number: readNumber(pr.number),
+        title: readString(pr.title),
+        state: readString(pr.state),
+        draft: readBoolean(pr.draft),
+        htmlUrl: readString(pr.html_url),
+        headRef: readString((pr.head as Record<string, unknown> | undefined)?.ref),
+        headSha: readString((pr.head as Record<string, unknown> | undefined)?.sha),
+        baseRef: readString((pr.base as Record<string, unknown> | undefined)?.ref),
+        author: readString((pr.user as Record<string, unknown> | undefined)?.login),
+        createdAt: readString(pr.created_at),
+        updatedAt: readString(pr.updated_at),
+      }))
+      .filter((item) => typeof item.number === "number");
+
+    return {
+      success: true,
+      output: JSON.stringify({
+        state: payload.state ?? "open",
+        head: payload.head ?? null,
+        count: items.length,
+        pullRequests: items,
+      }),
+    };
   }
 
   private async getPullRequest(
