@@ -127,7 +127,7 @@ export function buildAgenticLoopWorkspaceContext(input: {
 
     if (isPullRequestShellFailure(continuation)) {
       lines.push(
-        "For pull-request metadata and checks, prefer connector reads first. If connector coverage is missing, retry with a shorter gh command through shell.",
+        "For pull-request metadata and checks, prefer connector reads first. Use github_pr_list to discover the active PR and avoid gh shell commands unless the user explicitly requested gh.",
       );
     }
 
