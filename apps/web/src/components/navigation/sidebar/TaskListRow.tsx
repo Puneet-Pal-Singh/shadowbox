@@ -1,4 +1,3 @@
-import { motion } from "framer-motion";
 import { Trash2 } from "lucide-react";
 import { useEffect, useState, type KeyboardEvent } from "react";
 import { formatTimeAgo } from "../../../lib/timeFormat";
@@ -16,30 +15,31 @@ interface TaskListRowProps {
 }
 
 interface StatusVisual {
-  dotClass: string;
-  animate: boolean;
+  indicatorClass: string;
+  kind: "dot" | "spinner" | "ring";
 }
 
 const STATUS_VISUALS: Record<SidebarTaskStatus, StatusVisual> = {
   idle: {
-    dotClass: "bg-zinc-500/70",
-    animate: false,
+    indicatorClass: "h-2.5 w-2.5 rounded-full bg-zinc-500/75",
+    kind: "dot",
   },
   running: {
-    dotClass: "bg-emerald-400",
-    animate: true,
+    indicatorClass:
+      "h-3.5 w-3.5 rounded-full border-2 border-zinc-100/90 border-t-transparent animate-spin",
+    kind: "spinner",
   },
   failed: {
-    dotClass: "bg-red-400",
-    animate: false,
+    indicatorClass: "h-2.5 w-2.5 rounded-full bg-red-400",
+    kind: "dot",
   },
   completed: {
-    dotClass: "bg-blue-300",
-    animate: false,
+    indicatorClass: "h-2.5 w-2.5 rounded-full bg-sky-300",
+    kind: "dot",
   },
   needs_approval: {
-    dotClass: "bg-amber-400",
-    animate: false,
+    indicatorClass: "h-2.5 w-2.5 rounded-full bg-amber-300",
+    kind: "dot",
   },
 };
 
@@ -92,17 +92,15 @@ function handleRowKeyDown(
 function StatusDot({ status }: { status: SidebarTaskStatus }) {
   const visual = STATUS_VISUALS[status];
 
-  if (visual.animate) {
-    return (
-      <motion.span
-        className={cn("h-2 w-2 rounded-full", visual.dotClass)}
-        animate={{ scale: [1, 1.25, 1], opacity: [1, 0.75, 1] }}
-        transition={{ duration: 1.2, repeat: Infinity, ease: "easeInOut" }}
+  return (
+    <span className="inline-flex h-3.5 w-3.5 items-center justify-center" aria-hidden="true">
+      <span
+        data-testid={`task-status-${status}`}
+        data-status-kind={visual.kind}
+        className={visual.indicatorClass}
       />
-    );
-  }
-
-  return <span className={cn("h-2 w-2 rounded-full", visual.dotClass)} />;
+    </span>
+  );
 }
 
 export function TaskListRow({
