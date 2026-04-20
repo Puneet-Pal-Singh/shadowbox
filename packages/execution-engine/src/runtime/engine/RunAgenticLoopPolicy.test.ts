@@ -211,7 +211,10 @@ describe("RunAgenticLoopPolicy", () => {
     const result: AgenticLoopResult = {
       stopReason: "tool_error",
       messages: [
-        { role: "user", content: "make the hero prettier with floating carousels" },
+        {
+          role: "user",
+          content: "make the hero prettier with floating carousels",
+        },
       ],
       toolExecutionCount: 3,
       failedToolCount: 1,
@@ -545,7 +548,7 @@ describe("RunAgenticLoopPolicy", () => {
       'does not define a script named "test"',
     );
     expect(finalMessage.metadata?.resumeHint).toContain(
-      'Run `pnpm run` (or `npm run`) to list scripts',
+      "Run `pnpm run` (or `npm run`) to list scripts",
     );
   });
 
@@ -789,7 +792,7 @@ describe("RunAgenticLoopPolicy", () => {
     const output = buildAgenticLoopFinalOutput(result);
 
     expect(output).toContain(
-      "Agentic loop completed without assistant synthesis output.",
+      "I completed the tool loop, but I could not produce a final assistant answer for this run.",
     );
     expect(output).not.toContain("<tool_call>");
   });
