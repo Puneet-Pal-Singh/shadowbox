@@ -144,6 +144,33 @@ describe("RunRiskyActionPolicy", () => {
     });
   });
 
+  it("denies shell git commit identity config commands", async () => {
+    const store = new PermissionApprovalStore(new MockRuntimeState(), "run-risk-4bb");
+
+    const result = await evaluateToolPermission({
+      runId: "run-risk-4bb",
+      sessionId: "session-1",
+      origin: "agent",
+      productMode: "auto_for_safe",
+      workflowIntent: "build",
+      toolName: "bash",
+      toolArgs: {
+        command:
+          'git config user.email "agent@shadowbox.ai" && git config user.name "Shadowbox Agent"',
+      },
+      hasMutationEvidence: true,
+      approvalStore: store,
+    });
+
+    expect(result.kind).toBe("deny");
+    if (result.kind !== "deny") {
+      throw new Error("Expected deny result");
+    }
+    expect(result.reason).toContain(
+      "Do not run git config user.name/user.email through shell",
+    );
+  });
+
   it("treats bash cwd traversal as outside-workspace work even in full_agent", async () => {
     const store = new PermissionApprovalStore(new MockRuntimeState(), "run-risk-4c");
 
