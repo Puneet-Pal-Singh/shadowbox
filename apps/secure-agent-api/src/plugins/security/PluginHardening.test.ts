@@ -112,6 +112,21 @@ describe("secure-agent-api plugin hardening", () => {
     expect(sandbox.execCalls).toHaveLength(2);
   });
 
+  it("allows safe shell redirection patterns used by read-only grep flows", async () => {
+    const plugin = new BashPlugin();
+    const sandbox = createSandboxMock();
+
+    const result = await plugin.execute(asSandbox(sandbox), {
+      action: "run",
+      runId: "run-safe-bash-redirection",
+      command:
+        'rg -n "newsletter" supabase/migrations/ 2>/dev/null || echo "not found"',
+    });
+
+    expect(result.success).toBe(true);
+    expect(sandbox.execCalls).toHaveLength(2);
+  });
+
   it("adds a corepack fallback when running pnpm shell commands", async () => {
     const plugin = new BashPlugin();
     const sandbox = createSandboxMockWithResponder((command, index) => {
@@ -181,7 +196,7 @@ describe("secure-agent-api plugin hardening", () => {
       }
       if (
         !command.includes(
-          'pnpm is unavailable in this runtime and no npm fallback mapping exists for: pnpm add lodash',
+          "pnpm is unavailable in this runtime and no npm fallback mapping exists for: pnpm add lodash",
         )
       ) {
         return {
@@ -281,7 +296,9 @@ describe("secure-agent-api plugin hardening", () => {
       token: "ghp_validToken123",
     });
     expect(validToken.success).toBe(true);
-    expect(validToken.output).toBe("Token validated for authenticated git actions");
+    expect(validToken.output).toBe(
+      "Token validated for authenticated git actions",
+    );
   });
 
   it("fails git commits when the workspace author is not configured", async () => {
