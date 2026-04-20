@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import type { DiffContent, DiffHunk, DiffLine as DiffLineType } from "@repo/shared-types";
 import DiffLine from "./DiffLine";
+import { DiffCodeText, resolveDiffLanguage } from "./DiffCodeText";
 
 interface DiffViewerProps {
   diff: DiffContent;
@@ -80,6 +81,10 @@ export function DiffViewer({ diff, className = "" }: DiffViewerProps) {
         0,
       ),
     [diff.hunks],
+  );
+  const language = useMemo(
+    () => resolveDiffLanguage(diff.newPath || diff.oldPath),
+    [diff.newPath, diff.oldPath],
   );
   const deletions = useMemo(
     () =>
@@ -245,6 +250,7 @@ export function DiffViewer({ diff, className = "" }: DiffViewerProps) {
                       <StackedHunkView
                         hunk={hunk}
                         hunkIndex={hunkIndex}
+                        language={language}
                         selectedRowKeys={selectedRowKeys}
                         annotationDraft={annotationDraft}
                         annotationsByAnchor={annotationsByAnchor}
@@ -261,6 +267,7 @@ export function DiffViewer({ diff, className = "" }: DiffViewerProps) {
                       <SplitHunkView
                         hunk={hunk}
                         hunkIndex={hunkIndex}
+                        language={language}
                         selectedRowKeys={selectedRowKeys}
                         annotationDraft={annotationDraft}
                         annotationsByAnchor={annotationsByAnchor}
@@ -288,6 +295,7 @@ export function DiffViewer({ diff, className = "" }: DiffViewerProps) {
 interface StackedHunkViewProps {
   hunk: DiffHunk;
   hunkIndex: number;
+  language: string;
   selectedRowKeys: string[];
   annotationDraft: string;
   annotationsByAnchor: Map<string, DiffAnnotation[]>;
@@ -307,6 +315,7 @@ interface StackedHunkViewProps {
 function StackedHunkView({
   hunk,
   hunkIndex,
+  language,
   selectedRowKeys,
   annotationDraft,
   annotationsByAnchor,
@@ -333,6 +342,7 @@ function StackedHunkView({
               line={line}
               hunksIndex={hunkIndex}
               lineIndex={lineIndex}
+              language={language}
               isSelected={selectedRowKeys.includes(rowKey)}
               annotationCount={annotationCounts.get(rowKey) ?? 0}
               onClick={(event) => onRowSelect(rowKey, event)}
@@ -368,6 +378,7 @@ function StackedHunkView({
 interface SplitHunkViewProps {
   hunk: DiffHunk;
   hunkIndex: number;
+  language: string;
   selectedRowKeys: string[];
   annotationDraft: string;
   annotationsByAnchor: Map<string, DiffAnnotation[]>;
@@ -387,6 +398,7 @@ interface SplitHunkViewProps {
 function SplitHunkView({
   hunk,
   hunkIndex,
+  language,
   selectedRowKeys,
   annotationDraft,
   annotationsByAnchor,
@@ -421,6 +433,7 @@ function SplitHunkView({
             <SplitDiffCell
               line={row.left}
               side="left"
+              language={language}
               isSelected={isSelected}
               annotationCount={annotationCount}
               onClick={(event) => onRowSelect(row.key, event)}
@@ -432,6 +445,7 @@ function SplitHunkView({
             <SplitDiffCell
               line={row.right}
               side="right"
+              language={language}
               isSelected={isSelected}
               annotationCount={annotationCount}
               onClick={(event) => onRowSelect(row.key, event)}
@@ -473,6 +487,7 @@ function SplitHunkView({
 interface SplitDiffCellProps {
   line: DiffLineType | null;
   side: "left" | "right";
+  language: string;
   isSelected: boolean;
   annotationCount: number;
   onClick: (event: React.MouseEvent<HTMLDivElement>) => void;
@@ -482,6 +497,7 @@ interface SplitDiffCellProps {
 function SplitDiffCell({
   line,
   side,
+  language,
   isSelected,
   annotationCount,
   onClick,
@@ -553,9 +569,9 @@ function SplitDiffCell({
       <div className="w-12 shrink-0 bg-zinc-900/50 px-2 py-1 text-right text-xs text-zinc-500">
         {lineNumber ?? ""}
       </div>
-      <div className={`flex-1 px-3 py-1 ${textColor}`}>
+      <div className={`flex-1 overflow-x-auto px-3 py-1 ${textColor}`}>
         <span className="mr-1 select-none">{marker}</span>
-        <span className="break-all">{line.content}</span>
+        <DiffCodeText content={line.content} language={language} />
       </div>
       {annotationCount > 0 ? (
         <div className="mr-3 flex items-center text-[10px] uppercase tracking-[0.16em] text-amber-300">
