@@ -7,7 +7,10 @@ import {
   SAFE_SCOPE_IDENTIFIER_REGEX,
   type ProviderStoreScopeInput,
 } from "../../types/provider-scope";
-import { extractSessionToken, verifySessionToken } from "../../services/AuthService";
+import {
+  extractSessionToken,
+  verifySessionToken,
+} from "../../services/AuthService";
 
 const DEFAULT_WORKSPACE_ID = "default";
 const RunIdSchema = z.string().uuid();
@@ -64,7 +67,8 @@ export async function resolveAuthorizedProviderScope(
 
 function rejectLegacyQueryScope(request: Request, correlationId: string): void {
   const url = new URL(request.url);
-  const hasLegacyScopeQuery = url.searchParams.has("runId") ||
+  const hasLegacyScopeQuery =
+    url.searchParams.has("runId") ||
     url.searchParams.has("userId") ||
     url.searchParams.has("workspaceId");
   if (hasLegacyScopeQuery) {
@@ -86,7 +90,11 @@ function parseRequiredRunId(request: Request, correlationId: string): string {
     );
   }
 
-  return validateWithSchema<string>(runIdHeader.trim(), RunIdSchema, correlationId);
+  return validateWithSchema<string>(
+    runIdHeader.trim(),
+    RunIdSchema,
+    correlationId,
+  );
 }
 
 async function loadSessionClaims(
@@ -104,7 +112,18 @@ async function loadSessionClaims(
     throw unauthorized(correlationId);
   }
 
-  const sessionData = await env.SESSIONS.get(`user_session:${verifiedUserId}`);
+  let sessionData: string | null;
+  try {
+    sessionData = await env.SESSIONS.get(`user_session:${verifiedUserId}`);
+  } catch {
+    throw new DomainError(
+      "PROVIDER_UNAVAILABLE",
+      "Session store is temporarily unavailable. Please retry.",
+      503,
+      true,
+      correlationId,
+    );
+  }
   if (!sessionData) {
     throw unauthorized(correlationId);
   }
@@ -155,7 +174,11 @@ function buildSessionClaims(
   }
 
   return {
-    userId: parseRequiredScopeId(verifiedUserId, "verifiedUserId", correlationId),
+    userId: parseRequiredScopeId(
+      verifiedUserId,
+      "verifiedUserId",
+      correlationId,
+    ),
     workspaceIds,
     defaultWorkspaceId,
   };
@@ -167,7 +190,11 @@ function collectWorkspaceIds(
 ): string[] {
   const scoped = new Set<string>();
   for (const value of session.workspaceIds ?? []) {
-    const parsed = parseOptionalScopeId(value, "session.workspaceIds", correlationId);
+    const parsed = parseOptionalScopeId(
+      value,
+      "session.workspaceIds",
+      correlationId,
+    );
     if (parsed) {
       scoped.add(parsed);
     }
@@ -243,7 +270,11 @@ function parseOptionalScopeId(
   }
 
   try {
-    return validateWithSchema<string>(value.trim(), ScopeIdSchema, correlationId);
+    return validateWithSchema<string>(
+      value.trim(),
+      ScopeIdSchema,
+      correlationId,
+    );
   } catch {
     throw new ValidationError(
       `Invalid ${fieldName}.`,
