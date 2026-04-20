@@ -18,6 +18,8 @@ const SHELL_DEPLOY_PATTERN =
   /\b(wrangler\s+deploy|terraform\s+apply|pulumi\s+up|kubectl\s+apply|serverless\s+deploy)\b/i;
 const SHELL_DESTRUCTIVE_PATTERN =
   /\b(rm\s+-rf|git\s+reset\s+--hard|git\s+clean\s+-fd|git\s+push\s+--force)\b/i;
+const GIT_COMMIT_IDENTITY_CONFIG_SEGMENT_PATTERN =
+  /\bgit(?:\s+-C\s+\S+)?\s+config\b.*\buser\.(?:name|email)\b/i;
 const SAFE_PERSISTENT_SHELL_PREFIXES = new Set([
   "git",
   "pnpm",
@@ -111,6 +113,7 @@ export async function evaluateToolPermission(
   }
 
   const policyDecision = decidePolicyOutcome({
+    origin: input.origin,
     productMode: input.productMode,
     workflowIntent: input.workflowIntent,
     classified,
@@ -349,11 +352,19 @@ function classifyRiskAction(
 }
 
 function decidePolicyOutcome(input: {
+  origin: "user" | "agent";
   productMode: ProductMode;
   workflowIntent: WorkflowIntent;
   classified: ClassifiedRiskAction;
 }): PolicyDecisionResult {
-  const { productMode, workflowIntent, classified } = input;
+  const { origin, productMode, workflowIntent, classified } = input;
+  const disallowedShellReason = getDisallowedShellReason(origin, classified);
+  if (disallowedShellReason) {
+    return {
+      kind: "deny",
+      reason: disallowedShellReason,
+    };
+  }
   const guaranteedDecision = getGuaranteedDecision(classified);
   if (guaranteedDecision) {
     return guaranteedDecision;
@@ -561,6 +572,32 @@ function buildActionFingerprint(input: {
   toolArgs: Record<string, unknown>;
 }): string {
   return `${input.category}:${input.toolName}:${stableStringify(input.toolArgs)}`;
+}
+
+function getDisallowedShellReason(
+  origin: "user" | "agent",
+  classified: ClassifiedRiskAction,
+): string | null {
+  if (origin !== "agent") {
+    return null;
+  }
+  if (classified.category !== RISKY_ACTION_CATEGORIES.SHELL_COMMAND) {
+    return null;
+  }
+  if (!classified.command) {
+    return null;
+  }
+  const commandSegments = classified.command
+    .split(/&&|\|\||;|\|/)
+    .map((segment) => segment.trim())
+    .filter((segment) => segment.length > 0);
+  const hasCommitIdentityConfigSegment = commandSegments.some((segment) =>
+    GIT_COMMIT_IDENTITY_CONFIG_SEGMENT_PATTERN.test(segment),
+  );
+  if (!hasCommitIdentityConfigSegment) {
+    return null;
+  }
+  return "Do not run git config user.name/user.email through shell. Use git_commit with authorName and authorEmail, or retry commit from the Git commit dialog so OAuth-backed identity is applied.";
 }
 
 function buildShellPersistentPrefixTokens(command: string): string[] | null {
