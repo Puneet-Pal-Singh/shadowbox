@@ -58,6 +58,8 @@ const POLICY_BLOCKED_PATTERNS = [
   /approval required/i,
   /permission denied by policy/i,
   /forbidden command/i,
+  /dangerous bash command pattern detected/i,
+  /unsafe shell token detected/i,
 ];
 
 const RUNTIME_FATAL_PATTERNS = [
