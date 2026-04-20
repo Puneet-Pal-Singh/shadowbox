@@ -114,6 +114,9 @@ const GENERIC_EXECUTION_REASONING_SUMMARIES = new Set([
   "Running the selected coding tools.",
   "Deciding whether to read, search, edit, run a command, or respond.",
 ]);
+const GENERIC_PLANNING_REASONING_SUMMARIES = new Set([
+  "Preparing a safe execution plan for this request.",
+]);
 const GENERIC_SYNTHESIS_REASONING_SUMMARIES = new Set([
   "Preparing the operational plan.",
   "Summarizing execution results for the final response.",
@@ -261,6 +264,10 @@ function buildTurnRows(
       continue;
     }
 
+    if (shouldSuppressApprovalRow(item)) {
+      continue;
+    }
+
     flushExploreGroup(rows, pendingExplore);
     pendingExplore = [];
     trailingThinkingRow = null;
@@ -286,7 +293,8 @@ function finalizeTurnRows(
   isActiveTurn: boolean,
 ): ActivityFeedRowViewModel[] {
   return rows.filter(
-    (row) => !isThinkingReasoningRow(row) || (isActiveTurn && row.status === "active"),
+    (row) =>
+      !isThinkingReasoningRow(row) || (isActiveTurn && row.status === "active"),
   );
 }
 
@@ -420,10 +428,15 @@ function createNonToolRow(item: Exclude<ActivityPart, ToolActivityPart>) {
 function isSuppressedReasoning(
   item: Extract<ActivityPart, { kind: typeof ACTIVITY_PART_KINDS.REASONING }>,
 ): boolean {
+  const normalizedSummary = normalizeReasoningSummary(item.summary, item.phase);
+  const authoredLabel = item.label.trim();
   return (
-    item.phase === "synthesis" &&
-    normalizeReasoningSummary(item.summary, item.phase) === "" &&
-    item.label.trim() === ""
+    (item.phase === "synthesis" &&
+      normalizedSummary === "" &&
+      authoredLabel === "") ||
+    (item.phase === "planning" &&
+      normalizedSummary === "" &&
+      (authoredLabel === "" || authoredLabel === "Planning next step"))
   );
 }
 
@@ -440,6 +453,10 @@ function normalizeReasoningSummary(
   }
 
   if (isGenericExecutionReasoningSummary(trimmed, phase)) {
+    return "";
+  }
+
+  if (isGenericPlanningReasoningSummary(trimmed, phase)) {
     return "";
   }
 
@@ -516,6 +533,12 @@ function shouldDisplayCommentaryRow(
   return true;
 }
 
+function shouldSuppressApprovalRow(item: ActivityPart): boolean {
+  return (
+    item.kind === ACTIVITY_PART_KINDS.APPROVAL && item.status === "granted"
+  );
+}
+
 function createToolRow(item: ToolActivityPart): ActivityToolRowViewModel {
   return {
     kind: "tool",
@@ -583,16 +606,20 @@ function buildExploreGroupCopy(
   };
 }
 
-function resolveExploreGroupTitle(input: {
-  hasRunningRows: boolean;
-}): string {
+function resolveExploreGroupTitle(input: { hasRunningRows: boolean }): string {
   return input.hasRunningRows ? "Exploring" : "Explored";
 }
 
-function summarizeExploreGroup(exploreRows: ActivityToolRowViewModel[]): string {
-  const listCount = exploreRows.filter((row) => row.toolName === "list_files").length;
+function summarizeExploreGroup(
+  exploreRows: ActivityToolRowViewModel[],
+): string {
+  const listCount = exploreRows.filter(
+    (row) => row.toolName === "list_files",
+  ).length;
   const fileCount = exploreRows.filter(
-    (row) => row.family === TOOL_ACTIVITY_FAMILIES.READ && row.toolName !== "list_files",
+    (row) =>
+      row.family === TOOL_ACTIVITY_FAMILIES.READ &&
+      row.toolName !== "list_files",
   ).length;
   const searchCount = exploreRows.filter(
     (row) => row.family === TOOL_ACTIVITY_FAMILIES.SEARCH,
@@ -603,7 +630,10 @@ function summarizeExploreGroup(exploreRows: ActivityToolRowViewModel[]): string 
     formatExploreCount(searchCount, "search"),
   ].filter(Boolean);
 
-  return parts.join(", ") || `${exploreRows.length} step${exploreRows.length === 1 ? "" : "s"}`;
+  return (
+    parts.join(", ") ||
+    `${exploreRows.length} step${exploreRows.length === 1 ? "" : "s"}`
+  );
 }
 
 function formatExploreCount(
@@ -633,6 +663,16 @@ function isGenericExecutionReasoningSummary(
   );
 }
 
+function isGenericPlanningReasoningSummary(
+  summary: string,
+  phase?: Extract<
+    ActivityPart,
+    { kind: typeof ACTIVITY_PART_KINDS.REASONING }
+  >["phase"],
+): boolean {
+  return phase === "planning" && GENERIC_PLANNING_REASONING_SUMMARIES.has(summary);
+}
+
 function isGenericSynthesisReasoningSummary(
   summary: string,
   phase?: Extract<
@@ -640,7 +680,9 @@ function isGenericSynthesisReasoningSummary(
     { kind: typeof ACTIVITY_PART_KINDS.REASONING }
   >["phase"],
 ): boolean {
-  return phase === "synthesis" && GENERIC_SYNTHESIS_REASONING_SUMMARIES.has(summary);
+  return (
+    phase === "synthesis" && GENERIC_SYNTHESIS_REASONING_SUMMARIES.has(summary)
+  );
 }
 
 function getToolTitle(item: ToolActivityPart): string {
@@ -715,7 +757,7 @@ function getToolSummary(item: ToolActivityPart): string {
           ? "Running"
           : item.status === "requested"
             ? "Queued"
-          : "";
+            : "";
     case TOOL_ACTIVITY_FAMILIES.EDIT:
       return `+${item.metadata.additions} / -${item.metadata.deletions}`;
     case TOOL_ACTIVITY_FAMILIES.READ:
@@ -737,7 +779,9 @@ function getToolDetails(item: ToolActivityPart): string[] {
         item.metadata.outputTail
           ? `${item.metadata.command ? "\n" : ""}${item.metadata.outputTail}`
           : "",
-        item.metadata.truncated ? "Output truncated to the latest shell tail." : "",
+        item.metadata.truncated
+          ? "Output truncated to the latest shell tail."
+          : "",
       ].filter(Boolean);
     case TOOL_ACTIVITY_FAMILIES.EDIT:
       return [item.metadata.diffPreview ?? ""].filter(Boolean);
@@ -758,7 +802,8 @@ function buildFeedSummary(
     (item) => item.kind === ACTIVITY_PART_KINDS.TOOL,
   ).length;
   const approvalCount = feed.items.filter(
-    (item) => item.kind === ACTIVITY_PART_KINDS.APPROVAL,
+    (item) =>
+      item.kind === ACTIVITY_PART_KINDS.APPROVAL && item.status !== "granted",
   ).length;
   const handoffCount = feed.items.filter(
     (item) => item.kind === ACTIVITY_PART_KINDS.HANDOFF,
