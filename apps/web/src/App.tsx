@@ -20,6 +20,7 @@ import { RunContextProvider } from "./hooks/useRunContext";
 import { useProviderStore } from "./hooks/useProviderStore";
 import { usePendingApprovalStateBySession } from "./hooks/usePendingApprovalStateBySession";
 import { resolveShellStartupState } from "./lib/startup-shell-state";
+import { getBrainHttpBase } from "./lib/platform-endpoints";
 import { LockedShellCard } from "./components/startup/LockedShellCard";
 import type { SetupSessionState } from "./types/session";
 import { StartupOnboardingOverlay } from "./components/onboarding/StartupOnboardingOverlay";
@@ -29,6 +30,36 @@ function buildOnboardingDismissedKey(userId: string | null): string {
     return "shadowbox:startup-onboarding:dismissed-state:anonymous";
   }
   return `shadowbox:startup-onboarding:dismissed-state:${userId}`;
+}
+
+const TERMINAL_RUN_STATUSES = new Set(["COMPLETED", "FAILED", "CANCELLED"]);
+const RUN_STATUS_RECONCILE_INTERVAL_MS = 12_000;
+interface RunSummaryStatusPayload {
+  status?: string | null;
+}
+
+function mapRunSummaryStatusToSessionStatus(
+  runStatus: string | null | undefined,
+): "completed" | "error" | null {
+  if (runStatus === "COMPLETED") {
+    return "completed";
+  }
+  if (runStatus === "FAILED" || runStatus === "CANCELLED") {
+    return "error";
+  }
+  return null;
+}
+
+async function fetchRunSummaryStatus(runId: string): Promise<string | null> {
+  const response = await fetch(
+    `${getBrainHttpBase()}/api/run/summary?runId=${encodeURIComponent(runId)}`,
+    { credentials: "include" },
+  );
+  if (!response.ok) {
+    return null;
+  }
+  const payload = (await response.json()) as RunSummaryStatusPayload;
+  return payload.status ?? null;
 }
 
 /**
@@ -270,6 +301,62 @@ function AppContent() {
     );
     return Object.fromEntries(nextEntries);
   }, [approvalStatesBySessionId, sessions]);
+  const runningSessions = useMemo(
+    () => sessions.filter((session) => session.status === "running"),
+    [sessions],
+  );
+
+  useEffect(() => {
+    if (!isAuthenticated || runningSessions.length === 0) {
+      return;
+    }
+
+    let cancelled = false;
+    const reconcile = async (): Promise<void> => {
+      const updates = await Promise.all(
+        runningSessions.map(async (session) => {
+          try {
+            const runStatus = await fetchRunSummaryStatus(session.activeRunId);
+            if (!runStatus || !TERMINAL_RUN_STATUSES.has(runStatus)) {
+              return null;
+            }
+
+            return {
+              sessionId: session.id,
+              status: mapRunSummaryStatusToSessionStatus(runStatus),
+            };
+          } catch (error) {
+            console.warn(
+              `[App] Failed to reconcile run status for session ${session.id}`,
+              error,
+            );
+            return null;
+          }
+        }),
+      );
+
+      if (cancelled) {
+        return;
+      }
+
+      updates.forEach((update) => {
+        if (!update?.status) {
+          return;
+        }
+        updateSession(update.sessionId, { status: update.status });
+      });
+    };
+
+    void reconcile();
+    const intervalId = window.setInterval(() => {
+      void reconcile();
+    }, RUN_STATUS_RECONCILE_INTERVAL_MS);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [isAuthenticated, runningSessions, updateSession]);
 
   useEffect(() => {
     localStorage.setItem(
@@ -722,6 +809,9 @@ function AppContent() {
                   mode={activeSession?.mode}
                   onModeChange={(mode) =>
                     updateSession(activeSessionId, { mode })
+                  }
+                  onSessionStatusChange={(status) =>
+                    updateSession(activeSessionId, { status })
                   }
                   onPendingApprovalStateChange={(hasPendingApproval) => {
                     handlePendingApprovalStateChange(
