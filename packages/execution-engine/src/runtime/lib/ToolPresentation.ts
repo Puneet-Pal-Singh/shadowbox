@@ -98,6 +98,10 @@ const TOOL_PRESENTERS: Record<
     presentGitStatus(validateToolPresentationInput("git_status", input)),
   git_diff: (input) =>
     presentGitDiff(validateToolPresentationInput("git_diff", input)),
+  github_pr_list: (input) =>
+    presentGitHubPullRequestList(
+      validateToolPresentationInput("github_pr_list", input),
+    ),
   github_pr_get: (input) =>
     presentGitHubPullRequestGet(
       validateToolPresentationInput("github_pr_get", input),
@@ -303,6 +307,18 @@ function presentGitDiff(
     summary: path
       ? `Checking repository changes for ${path}.`
       : "Checking repository changes in the workspace.",
+  };
+}
+
+function presentGitHubPullRequestList(
+  input: ToolPresentationInputByName["github_pr_list"],
+): ToolPresentation {
+  const branchSuffix = input.head ? ` for ${input.head}` : "";
+  const state = input.state ?? "open";
+  return {
+    description: `List ${state} PRs${branchSuffix}`,
+    displayText: `Loading ${state} PRs${branchSuffix}`,
+    summary: `Loading ${state} pull requests${branchSuffix} from ${input.owner}/${input.repo}.`,
   };
 }
 
