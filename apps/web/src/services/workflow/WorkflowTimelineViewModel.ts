@@ -158,9 +158,7 @@ export function buildWorkflowTimelineViewModel(params: {
           currentContextBlock = planningBlock;
           appendDetail(
             planningBlock,
-            event.payload.reason
-              ? toSentence(event.payload.reason)
-              : "Preparing a safe execution plan for this request.",
+            event.payload.reason ? toSentence(event.payload.reason) : "",
           );
         } else if (step === RUN_WORKFLOW_STEPS.EXECUTION) {
           currentContextBlock = null;
