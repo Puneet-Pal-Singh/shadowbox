@@ -254,6 +254,9 @@ export class ProviderStore {
 
     const previousRunId = this.activeRunId;
     const didSwitchRun = previousRunId !== null && previousRunId !== runId;
+    const carryForwardSelection = didSwitchRun
+      ? this.captureRunScopedSelectionSnapshot()
+      : null;
     this.activeRunId = runId;
 
     if (didSwitchRun) {
@@ -264,9 +267,11 @@ export class ProviderStore {
       this.resetRunScope();
     }
 
-    this.restoreRunScopedSelection(runId);
+    const restoredRunScopedSelection = this.restoreRunScopedSelection(runId);
     if (hasWorkspaceGlobalState(this.state)) {
-      this.hydrateRunScopedSelectionFromWorkspaceState();
+      this.hydrateRunScopedSelectionFromWorkspaceState(
+        !restoredRunScopedSelection ? carryForwardSelection : null,
+      );
       return false;
     }
 
@@ -1497,10 +1502,10 @@ export class ProviderStore {
     ].join("|");
   }
 
-  private restoreRunScopedSelection(runId: string): void {
+  private restoreRunScopedSelection(runId: string): boolean {
     const persistedSelection = readRunScopedSelection(runId);
     if (!persistedSelection) {
-      return;
+      return false;
     }
 
     this.log("[run] restoring persisted run-scoped selection", {
@@ -1510,18 +1515,25 @@ export class ProviderStore {
       modelId: persistedSelection.selectedModelId,
     });
     this.setState(persistedSelection);
+    return true;
   }
 
-  private hydrateRunScopedSelectionFromWorkspaceState(): void {
+  private hydrateRunScopedSelectionFromWorkspaceState(
+    preferredSelection: ProviderSelectionSnapshot | null = null,
+  ): void {
     const selection = this.deriveSelectionSnapshot({
       catalog: this.state.catalog,
       credentials: this.state.credentials,
       preferences: this.state.preferences,
       providerModels: this.state.providerModels,
       visibleModelIds: this.state.visibleModelIds,
-      selectedProviderId: this.state.selectedProviderId,
-      selectedCredentialId: this.state.selectedCredentialId,
-      selectedModelId: this.state.selectedModelId,
+      selectedProviderId:
+        preferredSelection?.selectedProviderId ?? this.state.selectedProviderId,
+      selectedCredentialId:
+        preferredSelection?.selectedCredentialId ??
+        this.state.selectedCredentialId,
+      selectedModelId:
+        preferredSelection?.selectedModelId ?? this.state.selectedModelId,
     });
 
     this.setState({
@@ -1529,6 +1541,14 @@ export class ProviderStore {
       selectedCredentialId: selection.selectedCredentialId,
       selectedModelId: selection.selectedModelId,
     });
+  }
+
+  private captureRunScopedSelectionSnapshot(): ProviderSelectionSnapshot {
+    return {
+      selectedProviderId: this.state.selectedProviderId,
+      selectedCredentialId: this.state.selectedCredentialId,
+      selectedModelId: this.state.selectedModelId,
+    };
   }
 
   private persistRunScopedSelection(
