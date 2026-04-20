@@ -23,10 +23,6 @@ export function buildPlanModeResponse(artifact: RunPlanArtifact): string {
     "",
     "Planned steps:",
     ...taskLines,
-    "",
-    "Build handoff:",
-    artifact.handoff.summary,
-    artifact.handoff.prompt,
   ].join("\n");
 }
 
