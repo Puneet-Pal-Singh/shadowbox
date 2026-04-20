@@ -33,7 +33,7 @@ describe("GitHubTaskStrategy", () => {
 
     expect(decision.classification).toBe("remote_metadata");
     expect(decision.preferredLane).toBe("github_connector");
-    expect(decision.fallbackLane).toBe("shell_gh");
+    expect(decision.fallbackLane).toBe("shell_git");
   });
 
   it("classifies hybrid PR/CI tasks as connector-first with shell fallback", () => {
@@ -55,7 +55,7 @@ describe("GitHubTaskStrategy", () => {
     });
   });
 
-  it("falls back to shell gh when connector is unavailable", () => {
+  it("stays connector-first when connector health is uncertain", () => {
     const decision = strategy.decide({
       userRequest: "show PR 228 checks and comments",
       runMode: "build",
@@ -65,7 +65,7 @@ describe("GitHubTaskStrategy", () => {
     });
 
     expect(decision.classification).toBe("connector_gap");
-    expect(decision.preferredLane).toBe("shell_gh");
+    expect(decision.preferredLane).toBe("github_connector");
   });
 
   it("anchors remote planning turns on connector metadata", () => {
@@ -79,6 +79,6 @@ describe("GitHubTaskStrategy", () => {
 
     expect(decision.classification).toBe("remote_metadata");
     expect(decision.preferredLane).toBe("github_connector");
-    expect(decision.fallbackLane).toBe("shell_gh");
+    expect(decision.fallbackLane).toBe("shell_git");
   });
 });
