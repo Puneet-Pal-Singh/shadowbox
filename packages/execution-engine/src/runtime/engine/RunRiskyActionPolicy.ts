@@ -221,6 +221,7 @@ function classifyRiskAction(
     toolName === "grep" ||
     toolName === "git_status" ||
     toolName === "git_diff" ||
+    toolName === "github_pr_list" ||
     toolName === "github_pr_get" ||
     toolName === "github_pr_checks_get" ||
     toolName === "github_review_threads_get" ||
