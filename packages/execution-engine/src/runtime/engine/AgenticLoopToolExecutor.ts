@@ -25,6 +25,9 @@ type LineMatcherPatternSource =
   | "external_user_input"
   | "deriveGrepPatternFromHint";
 
+const GIT_COMMIT_IDENTITY_CONFIG_SEGMENT_PATTERN =
+  /\bgit(?:\s+-C\s+\S+)?\s+config\b.*\buser\.(?:name|email)\b/i;
+
 export async function executeAgenticLoopTool(
   executionService: RuntimeExecutionService,
   input: {
@@ -263,6 +266,13 @@ async function executeBashTool(
     );
   }
 
+  if (isGitCommitIdentityConfigShellCommand(command)) {
+    return buildFailureResult(
+      taskId,
+      "Do not run git config user.name/user.email through bash in agent flow. Use git_commit with authorName and authorEmail, or retry commit from the Git commit dialog so OAuth-backed identity is used.",
+    );
+  }
+
   if (/^ls(\s|$)/i.test(command)) {
     const path = resolveWorkspaceRelativeShellPath(
       normalizedInput.cwd,
@@ -387,17 +397,6 @@ async function executeGitCommitTool(
     );
   }
 
-  const commitIdentityMessage = await buildMissingCommitIdentityMessage(
-    executionService,
-    {
-      authorName: validatedInput.authorName?.trim(),
-      authorEmail: validatedInput.authorEmail?.trim(),
-    },
-  );
-  if (commitIdentityMessage) {
-    return buildFailureResult(taskId, commitIdentityMessage);
-  }
-
   const payload: Record<string, unknown> = {
     message: validatedInput.message.trim(),
   };
@@ -455,83 +454,6 @@ async function readGitChangeEvidence(
   return hasChanges ? "changes_present" : "no_changes";
 }
 
-async function buildMissingCommitIdentityMessage(
-  executionService: RuntimeExecutionService,
-  providedIdentity?: {
-    authorName?: string;
-    authorEmail?: string;
-  },
-): Promise<string | null> {
-  const providedAuthorName = normalizeOptionalIdentityField(
-    providedIdentity?.authorName,
-  );
-  const providedAuthorEmail = normalizeOptionalIdentityField(
-    providedIdentity?.authorEmail,
-  );
-  if (providedAuthorName && providedAuthorEmail) {
-    return null;
-  }
-
-  const authorName = providedAuthorName
-    ? { status: "present", value: providedAuthorName }
-    : await readGitConfigValue(executionService, "user.name");
-  const authorEmail = providedAuthorEmail
-    ? { status: "present", value: providedAuthorEmail }
-    : await readGitConfigValue(executionService, "user.email");
-  if (authorName.status === "unknown" || authorEmail.status === "unknown") {
-    return null;
-  }
-
-  if (authorName.status === "present" && authorEmail.status === "present") {
-    return null;
-  }
-
-  return "Git commit identity is not configured in this workspace. Set git user.name and user.email, then retry the commit.";
-}
-
-function normalizeOptionalIdentityField(
-  value: string | undefined,
-): string | null {
-  if (!value) {
-    return null;
-  }
-  const normalized = value.trim();
-  return normalized.length > 0 ? normalized : null;
-}
-
-async function readGitConfigValue(
-  executionService: RuntimeExecutionService,
-  key: "user.name" | "user.email",
-): Promise<
-  | { status: "present"; value: string }
-  | { status: "missing" }
-  | { status: "unknown" }
-> {
-  const result = await executeGatewayPlugin(executionService, "bash", {
-    command: `git config --get ${key}`,
-    description: `Read ${key} for commit preflight`,
-  });
-  const failure = extractExecutionFailure(result);
-  if (failure) {
-    if (isUnknownGitConfigFailure(failure)) {
-      return { status: "unknown" };
-    }
-    return { status: "missing" };
-  }
-
-  const value = formatExecutionResult(result).trim();
-  if (!value) {
-    return { status: "missing" };
-  }
-
-  const normalized = value.split("\n")[0]?.trim();
-  if (!normalized) {
-    return { status: "missing" };
-  }
-
-  return { status: "present", value: normalized };
-}
-
 function parseGitStatusPayload(
   formattedResult: string,
 ): { files: unknown[]; hasStaged: boolean; hasUnstaged: boolean } | null {
@@ -561,12 +483,6 @@ function parseGitStatusPayload(
   } catch {
     return null;
   }
-}
-
-function isUnknownGitConfigFailure(failure: string): boolean {
-  return /unexpected route|unsupported|not registered|invalid arguments?|invalid command argument/i.test(
-    failure,
-  );
 }
 
 async function executeGitPushTool(
@@ -1146,6 +1062,16 @@ function buildFailureResult(
       : undefined,
     completedAt: new Date(),
   };
+}
+
+function isGitCommitIdentityConfigShellCommand(command: string): boolean {
+  const commandSegments = command
+    .split(/&&|\|\||;|\|/)
+    .map((segment) => segment.trim())
+    .filter((segment) => segment.length > 0);
+  return commandSegments.some((segment) =>
+    GIT_COMMIT_IDENTITY_CONFIG_SEGMENT_PATTERN.test(segment),
+  );
 }
 
 function buildWriteActivityMetadata(
