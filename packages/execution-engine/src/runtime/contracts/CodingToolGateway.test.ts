@@ -25,6 +25,7 @@ describe("CodingToolGateway", () => {
       "git_branch_switch",
       "git_status",
       "git_diff",
+      "github_pr_list",
       "github_pr_get",
       "github_pr_checks_get",
       "github_review_threads_get",
@@ -63,6 +64,11 @@ describe("CodingToolGateway", () => {
       toolName: "github_pr_get",
       plugin: "github",
       action: "pr_get",
+    });
+    expect(getGoldenFlowToolRoute("github_pr_list")).toEqual({
+      toolName: "github_pr_list",
+      plugin: "github",
+      action: "pr_list",
     });
     expect(getGoldenFlowToolRoute("github_actions_run_get")).toEqual({
       toolName: "github_actions_run_get",
