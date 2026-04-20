@@ -1,7 +1,5 @@
 import type { CoreMessage, CoreTool } from "ai";
-import {
-  RUN_WORKFLOW_STEPS,
-} from "@repo/shared-types";
+import { RUN_WORKFLOW_STEPS } from "@repo/shared-types";
 import { Run, RunRepository, RunStateMachine } from "../run/index.js";
 import { Task, TaskRepository } from "../task/index.js";
 import {
@@ -23,9 +21,7 @@ import { TaskScheduler, type TaskExecutor } from "../orchestration/index.js";
 import { DefaultTaskExecutor, AgentTaskExecutor } from "./TaskExecutor.js";
 import { AgenticLoop } from "./AgenticLoop.js";
 import { buildAgenticLoopWorkspaceContext } from "./RunContinuationContext.js";
-import {
-  enforceGoldenFlowToolFloor,
-} from "../contracts/CodingToolGateway.js";
+import { enforceGoldenFlowToolFloor } from "../contracts/CodingToolGateway.js";
 import type {
   RunInput,
   RunStatus,
@@ -47,9 +43,7 @@ import {
   type MemoryCoordinatorDependencies,
   type MemoryContext,
 } from "../memory/index.js";
-import {
-  PermissionApprovalStore,
-} from "./PermissionApprovalStore.js";
+import { PermissionApprovalStore } from "./PermissionApprovalStore.js";
 import {
   getPermissionPolicyMessage,
   getWorkspaceBootstrapMessage,
@@ -85,6 +79,7 @@ import {
   recordOrchestrationActivation,
   recordOrchestrationTerminal,
   recordPhaseSelectionSnapshot,
+  recordTurnModeDecision,
 } from "./RunMetadataPolicy.js";
 import { resolveRunPermissionContext } from "./RunPermissionContextPolicy.js";
 import { PermissionGateError } from "./PermissionGateError.js";
@@ -105,12 +100,8 @@ import {
   safeMemoryOperation as safeMemoryOperationPolicy,
 } from "./RunEngineReliabilityPolicy.js";
 import { GitHubTaskStrategy } from "./GitHubTaskStrategy.js";
-import {
-  GitToolFailureClassifier,
-} from "./GitToolFailureClassifier.js";
-import {
-  describeWorkspaceBootstrapSummary,
-} from "./RunWorkspaceBootstrapSummaryPolicy.js";
+import { GitToolFailureClassifier } from "./GitToolFailureClassifier.js";
+import { describeWorkspaceBootstrapSummary } from "./RunWorkspaceBootstrapSummaryPolicy.js";
 import { resolveGitTaskStrategyPolicy } from "./RunGitTaskStrategyPolicy.js";
 import { buildAgenticLoopCallbacks } from "./RunAgenticLoopCallbacksPolicy.js";
 import type {
@@ -298,10 +289,11 @@ export class RunEngine implements IRunEngine {
       const approvalDecision = extractApprovalDecision(effectiveInput);
 
       if (approvalDecision) {
-        const decisionResult = await this.permissionApprovalStore.resolveDecision(
-          approvalDecision,
-          run.metadata.actorUserId ?? this.options.userId,
-        );
+        const decisionResult =
+          await this.permissionApprovalStore.resolveDecision(
+            approvalDecision,
+            run.metadata.actorUserId ?? this.options.userId,
+          );
         await this.runEventRecorder.recordApprovalResolved({
           requestId: decisionResult.request.requestId,
           decision: decisionResult.decision,
@@ -318,12 +310,28 @@ export class RunEngine implements IRunEngine {
           `approval decision resolved (${decisionResult.decision})`,
         );
         const decisionMessage = buildApprovalDecisionMessage(decisionResult);
-        return await this.completeRunWithAssistantMessage(run, decisionMessage, {
-          code: "APPROVAL_DECISION_RECORDED",
-          requestId: decisionResult.request.requestId,
-          decision: decisionResult.decision,
-          status: decisionResult.status,
+        return await this.completeRunWithAssistantMessage(
+          run,
+          decisionMessage,
+          {
+            code: "APPROVAL_DECISION_RECORDED",
+            requestId: decisionResult.request.requestId,
+            decision: decisionResult.decision,
+            status: decisionResult.status,
+          },
+        );
+      }
+
+      const conversationalReply = resolveConversationalReply(effectiveInput.prompt);
+      if (conversationalReply) {
+        recordTurnModeDecision(run, {
+          mode: "chat",
+          source: "heuristic",
+          rationale: "Detected conversational greeting/pleasantry.",
+          confidence: 1,
         });
+        await this.runRepo.update(run);
+        return await this.completeRunWithAssistantMessage(run, conversationalReply);
       }
 
       if (
@@ -400,20 +408,20 @@ export class RunEngine implements IRunEngine {
           recordedAt: new Date().toISOString(),
         };
         await this.runRepo.update(run);
-        await this.runEventRecorder.recordRunProgress(
-          "planning",
-          "Workspace bootstrap",
-          describeWorkspaceBootstrapSummary(bootstrapEvaluation),
-          "completed",
-        );
+        if (bootstrapEvaluation.blocked) {
+          await this.runEventRecorder.recordRunProgress(
+            "planning",
+            "Workspace bootstrap",
+            describeWorkspaceBootstrapSummary(bootstrapEvaluation),
+            "completed",
+          );
+        }
 
         if (bootstrapEvaluation.message) {
           const bootstrapLogLabel = bootstrapEvaluation.expectedMiss
             ? "Workspace bootstrap expected miss blocked action planning"
             : "Workspace bootstrap blocked action planning";
-          console.log(
-            `[run/engine] ${bootstrapLogLabel} for run ${runId}`,
-          );
+          console.log(`[run/engine] ${bootstrapLogLabel} for run ${runId}`);
           return await this.completeRunWithAssistantMessage(
             run,
             bootstrapEvaluation.message,
@@ -508,7 +516,10 @@ export class RunEngine implements IRunEngine {
     run.transition("RUNNING");
     recordPhaseSelectionSnapshot(run, "execution");
     recordLifecycleStep(run, "TASK_EXECUTING", "agentic_loop");
-    run.metadata.gitTaskStrategy = await this.resolveGitTaskStrategy(run, input);
+    run.metadata.gitTaskStrategy = await this.resolveGitTaskStrategy(
+      run,
+      input,
+    );
     await this.runEventRecorder.recordRunStatusChanged(
       previousStatus,
       run.status,
@@ -585,7 +596,9 @@ export class RunEngine implements IRunEngine {
       });
       recordAgenticLoopMetadata(run, loopResult);
       if (loopResult.stopReason === "cancelled") {
-        console.log(`[run/engine] Agentic loop observed cancellation for run ${run.id}`);
+        console.log(
+          `[run/engine] Agentic loop observed cancellation for run ${run.id}`,
+        );
         return createStreamResponse("");
       }
       const finalMessage = buildAgenticLoopFinalMessage(loopResult);
@@ -613,7 +626,9 @@ export class RunEngine implements IRunEngine {
         }
         const currentRun = await this.runRepo.getById(run.id);
         if (currentRun?.status === "CANCELLED") {
-          console.log(`[run/engine] Returning empty response for cancelled run ${run.id}`);
+          console.log(
+            `[run/engine] Returning empty response for cancelled run ${run.id}`,
+          );
           return createStreamResponse("");
         }
         const denialReason =
@@ -839,8 +854,13 @@ export class RunEngine implements IRunEngine {
     });
   }
 
-  private async processPermissionDirectives(prompt: string): Promise<string | null> {
-    return processPermissionDirectivesPolicy(prompt, this.permissionApprovalStore);
+  private async processPermissionDirectives(
+    prompt: string,
+  ): Promise<string | null> {
+    return processPermissionDirectivesPolicy(
+      prompt,
+      this.permissionApprovalStore,
+    );
   }
 
   private async getPermissionPolicyMessage(
@@ -946,7 +966,6 @@ export class RunEngine implements IRunEngine {
       },
     });
   }
-
 }
 
 export class RunEngineError extends Error {
@@ -954,4 +973,26 @@ export class RunEngineError extends Error {
     super(`[run/engine] ${message}`);
     this.name = "RunEngineError";
   }
+}
+
+const CONVERSATIONAL_GREETING_PATTERN =
+  /^(?:hi|hello|hey|yo|sup|howdy|good\s+(?:morning|afternoon|evening))(?:[\s!.?,-]+(?:there|team|bro|buddy))?[\s!.?,-]*$/i;
+const CONVERSATIONAL_THANKS_PATTERN =
+  /^(?:thanks|thank you|thx|ty)(?:[\s!.?,-]+(?:bro|team|buddy))?[\s!.?,-]*$/i;
+
+function resolveConversationalReply(prompt: string): string | null {
+  const normalizedPrompt = prompt.trim();
+  if (!normalizedPrompt) {
+    return null;
+  }
+
+  if (CONVERSATIONAL_GREETING_PATTERN.test(normalizedPrompt)) {
+    return "Hey! I can help with code changes, debugging, PR/CI checks, or repo questions. Tell me what you want to do.";
+  }
+
+  if (CONVERSATIONAL_THANKS_PATTERN.test(normalizedPrompt)) {
+    return "You're welcome. Share the next task whenever you're ready.";
+  }
+
+  return null;
 }
