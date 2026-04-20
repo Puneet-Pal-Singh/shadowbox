@@ -2,6 +2,28 @@ import type { ToolDefinition } from "../interfaces/types";
 
 export const GitHubTools: ToolDefinition[] = [
   {
+    name: "github_pr_list",
+    description:
+      "List pull requests for a repository, optionally filtered by state and head branch.",
+    parameters: {
+      type: "object",
+      properties: {
+        owner: { type: "string", description: "Repository owner" },
+        repo: { type: "string", description: "Repository name" },
+        state: {
+          type: "string",
+          description: "Pull request state (open, closed, all)",
+        },
+        head: {
+          type: "string",
+          description:
+            "Head branch filter. For same-repo branches, pass only the branch name.",
+        },
+      },
+      required: ["owner", "repo"],
+    },
+  },
+  {
     name: "github_pr_get",
     description: "Get remote metadata for a GitHub pull request.",
     parameters: {
