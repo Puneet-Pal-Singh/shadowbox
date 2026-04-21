@@ -482,7 +482,7 @@ export class GitPlugin implements IPlugin {
       "--unified=999999",
     ];
     if (staged) {
-      args.push("--staged");
+      args.push("--cached");
     }
     if (filePath) {
       args.push(validateRepoRelativePath(filePath));
