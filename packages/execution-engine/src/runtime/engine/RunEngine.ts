@@ -322,18 +322,6 @@ export class RunEngine implements IRunEngine {
         );
       }
 
-      const conversationalReply = resolveConversationalReply(effectiveInput.prompt);
-      if (conversationalReply) {
-        recordTurnModeDecision(run, {
-          mode: "chat",
-          source: "heuristic",
-          rationale: "Detected conversational greeting/pleasantry.",
-          confidence: 1,
-        });
-        await this.runRepo.update(run);
-        return await this.completeRunWithAssistantMessage(run, conversationalReply);
-      }
-
       if (
         runMode === "build" &&
         isPlatformApprovalOwner(run.metadata.manifest)
@@ -973,26 +961,4 @@ export class RunEngineError extends Error {
     super(`[run/engine] ${message}`);
     this.name = "RunEngineError";
   }
-}
-
-const CONVERSATIONAL_GREETING_PATTERN =
-  /^(?:hi|hello|hey|yo|sup|howdy|good\s+(?:morning|afternoon|evening))(?:[\s!.?,-]+(?:there|team|bro|buddy))?[\s!.?,-]*$/i;
-const CONVERSATIONAL_THANKS_PATTERN =
-  /^(?:thanks|thank you|thx|ty)(?:[\s!.?,-]+(?:bro|team|buddy))?[\s!.?,-]*$/i;
-
-function resolveConversationalReply(prompt: string): string | null {
-  const normalizedPrompt = prompt.trim();
-  if (!normalizedPrompt) {
-    return null;
-  }
-
-  if (CONVERSATIONAL_GREETING_PATTERN.test(normalizedPrompt)) {
-    return "Hey! I can help with code changes, debugging, PR/CI checks, or repo questions. Tell me what you want to do.";
-  }
-
-  if (CONVERSATIONAL_THANKS_PATTERN.test(normalizedPrompt)) {
-    return "You're welcome. Share the next task whenever you're ready.";
-  }
-
-  return null;
 }
