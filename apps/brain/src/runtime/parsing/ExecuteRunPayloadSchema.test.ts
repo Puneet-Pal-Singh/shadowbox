@@ -87,4 +87,21 @@ describe("ExecuteRunPayloadSchema tools validation", () => {
     const result = ExecuteRunPayloadSchema.parse(payload);
     expect(result.input.mode).toBe("plan");
   });
+
+  it("accepts provider/model overrides without repository context", () => {
+    const payload = createValidPayload();
+    payload.input.providerId = "gemini";
+    payload.input.modelId = "gemma-3-27b-it";
+
+    const result = ExecuteRunPayloadSchema.safeParse(payload);
+    expect(result.success).toBe(true);
+  });
+
+  it("still enforces provider/model pair semantics", () => {
+    const payload = createValidPayload();
+    payload.input.providerId = "gemini";
+
+    const result = ExecuteRunPayloadSchema.safeParse(payload);
+    expect(result.success).toBe(false);
+  });
 });
