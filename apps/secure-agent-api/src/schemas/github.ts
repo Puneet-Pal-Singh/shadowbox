@@ -88,4 +88,23 @@ export const GitHubTools: ToolDefinition[] = [
       required: ["owner", "repo", "actionsRunId"],
     },
   },
+  {
+    name: "github_actions_job_logs_get",
+    description:
+      "Get the latest log tail for a GitHub Actions workflow job.",
+    parameters: {
+      type: "object",
+      properties: {
+        owner: { type: "string", description: "Repository owner" },
+        repo: { type: "string", description: "Repository name" },
+        actionsJobId: { type: "number", description: "Workflow job id" },
+        tailLines: {
+          type: "number",
+          description:
+            "Optional max number of trailing log lines to return (default: 300).",
+        },
+      },
+      required: ["owner", "repo", "actionsJobId"],
+    },
+  },
 ];
