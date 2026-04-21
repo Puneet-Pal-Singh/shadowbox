@@ -10,6 +10,7 @@ import { dispatchRunSummaryRefresh } from "../lib/run-summary-events.js";
 import { useProviderStore } from "./useProviderStore.js";
 import type { ChatDebugEvent } from "../types/chat-debug.js";
 import { SessionStateService } from "../services/SessionStateService";
+import { doesSessionContextMatchRepository } from "../lib/repository-context-match";
 
 interface UseChatCoreResult {
   messages: Message[];
@@ -91,6 +92,10 @@ export function useChatCore(
   const {
     status,
     credentials,
+    selectedProviderId,
+    selectedCredentialId,
+    selectedModelId,
+    lastResolvedConfig,
     resolveForChat,
   } = useProviderStore(runId);
   const authenticatedChatFetch = useCallback(
@@ -185,10 +190,23 @@ export function useChatCore(
       setError(null);
       setIsStopping(false);
 
-      const resolvedConfig = await resolveForChat();
-      const providerId = resolvedConfig.providerId;
-      const modelId = resolvedConfig.modelId;
-      const credentialId = resolvedConfig.credentialId;
+      let providerId =
+        selectedProviderId?.trim() || lastResolvedConfig?.providerId?.trim();
+      let modelId =
+        selectedModelId?.trim() || lastResolvedConfig?.modelId?.trim();
+      let credentialId =
+        selectedCredentialId?.trim() || lastResolvedConfig?.credentialId?.trim();
+      let configResolutionSource: "store_selection" | "provider_resolve_api" =
+        "store_selection";
+
+      if (!providerId || !modelId || !credentialId) {
+        const resolvedConfig = await resolveForChat();
+        providerId = resolvedConfig.providerId?.trim();
+        modelId = resolvedConfig.modelId?.trim();
+        credentialId = resolvedConfig.credentialId?.trim();
+        configResolutionSource = "provider_resolve_api";
+      }
+
       if (!providerId || !modelId || !credentialId) {
         throw new Error(
           "Provider resolution failed: missing explicit provider/model credential selection.",
@@ -218,6 +236,7 @@ export function useChatCore(
             providerId,
             modelId,
             credentialId,
+            source: configResolutionSource,
           },
         },
       });
@@ -236,6 +255,10 @@ export function useChatCore(
       runId,
       sessionId,
       status,
+      selectedProviderId,
+      selectedCredentialId,
+      selectedModelId,
+      lastResolvedConfig,
       mode,
       productMode,
       pushDebugEvent,
@@ -421,6 +444,9 @@ function mapKnownChatErrorMessage(
     return "Planning timed out before executable tasks were generated. Retry with a narrower request.";
   }
   if (payload?.code === "PROVIDER_UNAVAILABLE") {
+    if (message.toLowerCase().includes("session store")) {
+      return "Session service is temporarily unavailable. Retry in a few seconds.";
+    }
     return "Provider request failed after retries. Check provider health/model availability or switch providers and retry.";
   }
   if (payload?.code === "RATE_LIMITED") {
@@ -576,6 +602,21 @@ function loadRepositoryContextFields(
 > {
   const context = SessionStateService.loadSessionGitHubContext(sessionId);
   if (!context) {
+    return {};
+  }
+
+  const session = SessionStateService.loadSessions()[sessionId];
+  if (
+    session &&
+    !doesSessionContextMatchRepository(session.repository, {
+      fullName: context.fullName,
+      repoName: context.repoName,
+    })
+  ) {
+    console.warn(
+      `[useChatCore] Ignoring stale repository context for session ${sessionId}. Expected ${session.repository}, received ${context.fullName}.`,
+    );
+    SessionStateService.clearSessionGitHubContext(sessionId);
     return {};
   }
 
