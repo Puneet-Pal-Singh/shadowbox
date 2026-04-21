@@ -31,6 +31,7 @@ describe("CodingToolGateway", () => {
       "github_review_threads_get",
       "github_issue_get",
       "github_actions_run_get",
+      "github_actions_job_logs_get",
       "glob",
       "grep",
     ]);
@@ -74,6 +75,11 @@ describe("CodingToolGateway", () => {
       toolName: "github_actions_run_get",
       plugin: "github",
       action: "actions_run_get",
+    });
+    expect(getGoldenFlowToolRoute("github_actions_job_logs_get")).toEqual({
+      toolName: "github_actions_job_logs_get",
+      plugin: "github",
+      action: "actions_job_logs_get",
     });
     expect(getGoldenFlowToolRoute("git_pull")).toEqual({
       toolName: "git_pull",
