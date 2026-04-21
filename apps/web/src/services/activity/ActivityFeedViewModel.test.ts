@@ -43,6 +43,34 @@ describe("ActivityFeedViewModel", () => {
     expect(viewModel.turns[0]?.defaultCollapsed).toBe(true);
   });
 
+  it("uses wall-clock time for active turn elapsed labels", () => {
+    const nowMs = Date.parse("2026-03-24T10:01:20.000Z");
+    const viewModel = buildActivityFeedViewModel(
+      {
+        runId: "run-live-elapsed",
+        sessionId: "session-live-elapsed",
+        status: "RUNNING",
+        items: [
+          {
+            id: "text-user",
+            runId: "run-live-elapsed",
+            sessionId: "session-live-elapsed",
+            turnId: "turn-1",
+            kind: ACTIVITY_PART_KINDS.TEXT,
+            createdAt: "2026-03-24T10:00:00.000Z",
+            updatedAt: "2026-03-24T10:00:00.000Z",
+            source: "brain",
+            role: "user",
+            content: "yo",
+          },
+        ],
+      },
+      nowMs,
+    );
+
+    expect(viewModel.turns[0]?.elapsedLabel).toBe("Working for 1m 20s");
+  });
+
   it("labels active read batches with specific progress copy", () => {
     const snapshot = createFeedSnapshot();
     const runningTool = snapshot.items[3];
