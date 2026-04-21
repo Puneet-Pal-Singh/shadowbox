@@ -7,6 +7,8 @@ const SAFE_SEGMENT_REGEX = /^[A-Za-z0-9._-]{1,100}$/;
 const GITHUB_REQUEST_TIMEOUT_MS = 15_000;
 const REVIEW_COMMENTS_PAGE_SIZE = 100;
 const REVIEW_COMMENTS_MAX_PAGES = 20;
+const DEFAULT_ACTIONS_LOG_TAIL_LINES = 300;
+const MAX_ACTIONS_LOG_TAIL_LINES = 2_000;
 
 const GitHubPayloadSchema = z.object({
   action: z.enum([
@@ -16,6 +18,7 @@ const GitHubPayloadSchema = z.object({
     "review_threads_get",
     "issue_get",
     "actions_run_get",
+    "actions_job_logs_get",
   ]),
   owner: z.string().min(1).max(100),
   repo: z.string().min(1).max(100),
@@ -23,6 +26,8 @@ const GitHubPayloadSchema = z.object({
   head: z.string().min(1).max(200).optional(),
   number: z.number().int().positive().optional(),
   actionsRunId: z.number().int().positive().optional(),
+  actionsJobId: z.number().int().positive().optional(),
+  tailLines: z.number().int().min(1).max(MAX_ACTIONS_LOG_TAIL_LINES).optional(),
   token: z.string().min(1).optional(),
 });
 
@@ -66,6 +71,8 @@ export class GitHubPlugin implements IPlugin {
           return await this.getIssue(parsed, token);
         case "actions_run_get":
           return await this.getActionsRun(parsed, token);
+        case "actions_job_logs_get":
+          return await this.getActionsJobLogs(parsed, token);
         default:
           return { success: false, error: "Unsupported github action" };
       }
@@ -331,6 +338,45 @@ export class GitHubPlugin implements IPlugin {
     };
   }
 
+  private async getActionsJobLogs(
+    payload: GitHubPayload,
+    token: string,
+  ): Promise<PluginResult> {
+    const actionsJobId = requireNumber(payload.actionsJobId, "Actions job id");
+    const tailLines = normalizeActionsTailLineLimit(payload.tailLines);
+    let logs: string;
+    try {
+      logs = await this.requestGitHubText(
+        token,
+        `/repos/${payload.owner}/${payload.repo}/actions/jobs/${actionsJobId}/logs`,
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (isGitHubActionsLogsAuthError(message)) {
+        return {
+          success: false,
+          error:
+            "GitHub Actions job logs require additional authorization (401/403). Reconnect GitHub with Actions read access and retry.",
+        };
+      }
+      throw error;
+    }
+    const normalizedLogs = logs.replace(/\r\n/g, "\n");
+    const lines = normalizedLogs.length === 0 ? [] : normalizedLogs.split("\n");
+    const tail = lines.slice(-tailLines).join("\n");
+
+    return {
+      success: true,
+      output: JSON.stringify({
+        actionsJobId,
+        tailLines,
+        totalLines: lines.length,
+        truncated: lines.length > tailLines,
+        logsTail: tail,
+      }),
+    };
+  }
+
   private async requestGitHub<T>(
     token: string,
     path: string,
@@ -378,6 +424,47 @@ export class GitHubPlugin implements IPlugin {
         }`,
       );
     }
+  }
+
+  private async requestGitHubText(
+    token: string,
+    path: string,
+    init: GitHubRequestInit = {},
+  ): Promise<string> {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => {
+      controller.abort();
+    }, GITHUB_REQUEST_TIMEOUT_MS);
+    let response: Response;
+    try {
+      response = await fetch(`https://api.github.com${path}`, {
+        method: init.method ?? "GET",
+        signal: controller.signal,
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: "application/vnd.github+json",
+          "User-Agent": "Shadowbox-GitHub-Connector/0.1.0",
+          "X-GitHub-Api-Version": "2022-11-28",
+        },
+      });
+    } catch (error) {
+      if (isAbortError(error)) {
+        throw new Error(
+          `GitHub API request timed out after ${GITHUB_REQUEST_TIMEOUT_MS}ms.`,
+        );
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+
+    const text = await response.text();
+    if (!response.ok) {
+      const detail = text.trim() || "GitHub API request failed.";
+      throw new Error(`GitHub API error (${response.status}): ${detail}`);
+    }
+
+    return text;
   }
 
   private async fetchReviewComments(
@@ -471,4 +558,20 @@ function isAbortError(error: unknown): boolean {
   }
   const maybeName = (error as { name?: unknown }).name;
   return typeof maybeName === "string" && maybeName === "AbortError";
+}
+
+function normalizeActionsTailLineLimit(value: number | undefined): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return DEFAULT_ACTIONS_LOG_TAIL_LINES;
+  }
+
+  if (value < 1) {
+    return DEFAULT_ACTIONS_LOG_TAIL_LINES;
+  }
+
+  return Math.min(Math.floor(value), MAX_ACTIONS_LOG_TAIL_LINES);
+}
+
+function isGitHubActionsLogsAuthError(message: string): boolean {
+  return /GitHub API error \((401|403)\):/i.test(message);
 }
