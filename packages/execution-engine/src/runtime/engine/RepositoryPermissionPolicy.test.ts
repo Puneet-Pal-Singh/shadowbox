@@ -31,6 +31,18 @@ describe("RepositoryPermissionPolicy", () => {
     expect(detected).toBeNull();
   });
 
+  it("ignores non-repository owner/repo-like tokens such as api/gh", () => {
+    const selectedRepo = getSelectedRepoRef({
+      owner: "puneet-pal-singh",
+      repo: "shadowbox",
+    });
+    const prompt = "Use github api/gh to fetch checks.";
+
+    const detected = detectCrossRepoTarget(prompt, selectedRepo);
+
+    expect(detected).toBeNull();
+  });
+
   it("parses cross-repo and destructive approval directives", () => {
     const crossRepoDirective = parsePermissionApprovalDirective(
       "approve cross-repo acme/platform-core for 30m",
