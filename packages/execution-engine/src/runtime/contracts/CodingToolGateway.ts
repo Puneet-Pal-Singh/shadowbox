@@ -27,6 +27,7 @@ export type GoldenFlowToolName =
   | "github_review_threads_get"
   | "github_issue_get"
   | "github_actions_run_get"
+  | "github_actions_job_logs_get"
   | "glob"
   | "grep";
 
@@ -181,6 +182,13 @@ const GITHUB_ACTIONS_RUN_GET_TOOL_INPUT_SCHEMA = createToolInputSchema({
   actionsRunId: z.number().int().positive(),
 });
 
+const GITHUB_ACTIONS_JOB_LOGS_GET_TOOL_INPUT_SCHEMA = createToolInputSchema({
+  owner: z.string().min(1).max(MAX_PATH_LENGTH),
+  repo: z.string().min(1).max(MAX_PATH_LENGTH),
+  actionsJobId: z.number().int().positive(),
+  tailLines: z.number().int().min(1).max(2_000).optional(),
+});
+
 const GLOB_TOOL_INPUT_SCHEMA = createToolInputSchema({
   pattern: z.string().min(1).max(MAX_PATTERN_LENGTH),
   path: z.string().min(1).max(MAX_PATH_LENGTH).optional(),
@@ -219,6 +227,9 @@ export type GoldenFlowToolInputByName = {
   >;
   github_issue_get: z.infer<typeof GITHUB_ISSUE_GET_TOOL_INPUT_SCHEMA>;
   github_actions_run_get: z.infer<typeof GITHUB_ACTIONS_RUN_GET_TOOL_INPUT_SCHEMA>;
+  github_actions_job_logs_get: z.infer<
+    typeof GITHUB_ACTIONS_JOB_LOGS_GET_TOOL_INPUT_SCHEMA
+  >;
   glob: z.infer<typeof GLOB_TOOL_INPUT_SCHEMA>;
   grep: z.infer<typeof GREP_TOOL_INPUT_SCHEMA>;
 };
@@ -365,6 +376,16 @@ const GOLDEN_FLOW_TOOL_SPECS: Record<GoldenFlowToolName, GoldenFlowToolSpec> = {
       toolName: "github_actions_run_get",
       plugin: "github",
       action: "actions_run_get",
+    },
+  },
+  github_actions_job_logs_get: {
+    description:
+      "Get the latest log tail for a GitHub Actions workflow job.",
+    parameters: GITHUB_ACTIONS_JOB_LOGS_GET_TOOL_INPUT_SCHEMA,
+    route: {
+      toolName: "github_actions_job_logs_get",
+      plugin: "github",
+      action: "actions_job_logs_get",
     },
   },
   glob: {
