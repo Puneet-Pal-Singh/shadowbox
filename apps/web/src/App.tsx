@@ -21,6 +21,7 @@ import { useProviderStore } from "./hooks/useProviderStore";
 import { usePendingApprovalStateBySession } from "./hooks/usePendingApprovalStateBySession";
 import { resolveShellStartupState } from "./lib/startup-shell-state";
 import { getBrainHttpBase } from "./lib/platform-endpoints";
+import { doesSessionContextMatchRepository } from "./lib/repository-context-match";
 import { LockedShellCard } from "./components/startup/LockedShellCard";
 import type { SetupSessionState } from "./types/session";
 import { StartupOnboardingOverlay } from "./components/onboarding/StartupOnboardingOverlay";
@@ -207,6 +208,22 @@ function AppContent() {
       SessionStateService.loadSessionGitHubContext(activeSessionId);
 
     if (sessionContext) {
+      if (
+        !doesSessionContextMatchRepository(activeSession.repository, {
+          fullName: sessionContext.fullName,
+          repoName: sessionContext.repoName,
+        })
+      ) {
+        console.warn(
+          `[App] Invalid session context for ${activeSessionId}. Expected ${activeSession.repository}, found ${sessionContext.fullName}. Clearing stale context.`,
+        );
+        SessionStateService.clearSessionGitHubContext(activeSessionId);
+        if (repo) {
+          clearContext();
+        }
+        return;
+      }
+
       // Reconstruct Repository object from stored context
       // Only include fields actually needed; others should be loaded on demand
       const storedRepo: Repository = {
