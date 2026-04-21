@@ -80,4 +80,48 @@ describe("ChatMessage", () => {
 
     expect(container.querySelector("img")).toBeNull();
   });
+
+  it("shows assistant duration and completion time metadata", () => {
+    const message = {
+      id: "assistant-meta",
+      role: "assistant",
+      content: "Done.",
+    } as Message;
+
+    render(
+      <ChatMessage
+        message={message}
+        metadata={{
+          modeLabel: "Build",
+          durationLabel: "195s",
+          timeLabel: "12:42 AM",
+        }}
+      />,
+    );
+
+    expect(screen.getByText("Build · 12:42 AM")).toBeInTheDocument();
+    expect(screen.queryByText("Build · 195s · 12:42 AM")).toBeNull();
+  });
+
+  it("shows only the prompt time for user message metadata", () => {
+    const message = {
+      id: "user-meta",
+      role: "user",
+      content: "ship it",
+    } as Message;
+
+    render(
+      <ChatMessage
+        message={message}
+        metadata={{
+          modeLabel: "Build",
+          modelLabel: "Gemma 4 31B",
+          timeLabel: "12:40 AM",
+        }}
+      />,
+    );
+
+    expect(screen.getByText("12:40 AM")).toBeInTheDocument();
+    expect(screen.queryByText("Build · Gemma 4 31B · 12:40 AM")).toBeNull();
+  });
 });
