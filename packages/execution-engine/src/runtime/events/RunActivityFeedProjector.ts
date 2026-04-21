@@ -596,6 +596,7 @@ function buildToolMetadata(
     case "github_review_threads_get":
     case "github_issue_get":
     case "github_actions_run_get":
+    case "github_actions_job_logs_get":
       return buildGitMetadata(
         input,
         outputText,
