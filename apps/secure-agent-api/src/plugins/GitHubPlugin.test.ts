@@ -205,4 +205,57 @@ describe("GitHubPlugin", () => {
     expect(result.success).toBe(false);
     expect(result.error).toContain("timed out");
   });
+
+  it("returns trailing GitHub Actions job log lines", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response("line-1\nline-2\nline-3\nline-4", { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const plugin = new GitHubPlugin();
+    const result = await plugin.execute(asSandbox(), {
+      action: "actions_job_logs_get",
+      owner: "acme",
+      repo: "career-crew",
+      actionsJobId: 123456,
+      tailLines: 2,
+      token: "ghp_test",
+    });
+
+    expect(result.success).toBe(true);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.github.com/repos/acme/career-crew/actions/jobs/123456/logs",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: "Bearer ghp_test",
+        }),
+      }),
+    );
+
+    expect(JSON.parse(String(result.output))).toEqual({
+      actionsJobId: 123456,
+      tailLines: 2,
+      totalLines: 4,
+      truncated: true,
+      logsTail: "line-3\nline-4",
+    });
+  });
+
+  it("returns a clear authorization error when Actions log access is denied", async () => {
+    const fetchMock = vi.fn(async () => new Response("Unauthorized", { status: 401 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const plugin = new GitHubPlugin();
+    const result = await plugin.execute(asSandbox(), {
+      action: "actions_job_logs_get",
+      owner: "acme",
+      repo: "career-crew",
+      actionsJobId: 123456,
+      token: "ghp_test",
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("additional authorization");
+    expect(result.error).toContain("Actions read access");
+  });
 });
