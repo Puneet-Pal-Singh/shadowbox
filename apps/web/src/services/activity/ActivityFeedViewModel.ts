@@ -124,6 +124,7 @@ const GENERIC_SYNTHESIS_REASONING_SUMMARIES = new Set([
 
 export function buildActivityFeedViewModel(
   feed: ActivityFeedSnapshot | null,
+  nowMs: number = Date.now(),
 ): ActivityFeedViewModel {
   if (!feed) {
     return {
@@ -140,7 +141,7 @@ export function buildActivityFeedViewModel(
   const turnGroups = groupItemsIntoTurns(feed.items);
   const lastTurnIndex = turnGroups.length - 1;
   return {
-    summary: buildFeedSummary(feed),
+    summary: buildFeedSummary(feed, nowMs),
     turns: turnGroups.flatMap((turn, index) => {
       const turnKey = resolveActivityTurnKey(turn.turnId, index);
       if (!turnKey) {
@@ -157,6 +158,7 @@ export function buildActivityFeedViewModel(
             turn.items[0]?.createdAt ?? null,
             turn.items[turn.items.length - 1]?.updatedAt ?? null,
             isActiveTurn,
+            nowMs,
           ),
           summaryLabel: buildTurnSummary(rows),
           defaultCollapsed: !isActiveTurn,
@@ -797,6 +799,7 @@ function getToolDetails(item: ToolActivityPart): string[] {
 
 function buildFeedSummary(
   feed: ActivityFeedSnapshot,
+  nowMs: number,
 ): ActivityFeedSummaryViewModel {
   const toolCount = feed.items.filter(
     (item) => item.kind === ACTIVITY_PART_KINDS.TOOL,
@@ -810,7 +813,7 @@ function buildFeedSummary(
   ).length;
   const startedAt = feed.items[0]?.createdAt ?? null;
   const endedAt = feed.items[feed.items.length - 1]?.updatedAt ?? null;
-  const elapsed = formatDuration(startedAt, endedAt);
+  const elapsed = formatDuration(startedAt, endedAt, feed.status === "RUNNING", nowMs);
 
   return {
     elapsedLabel: elapsed,
@@ -830,15 +833,27 @@ function formatDuration(
   startedAt: string | null,
   endedAt: string | null,
   isActive: boolean = false,
+  nowMs: number = Date.now(),
 ): string {
-  if (!startedAt || !endedAt) {
+  if (!startedAt) {
     return isActive ? "Working now" : "Started just now";
   }
-  const elapsedMs = Math.max(0, Date.parse(endedAt) - Date.parse(startedAt));
+
+  const startedAtMs = Date.parse(startedAt);
+  if (Number.isNaN(startedAtMs)) {
+    return isActive ? "Working now" : "Started just now";
+  }
+
+  const endedAtMs = isActive ? nowMs : Date.parse(endedAt ?? "");
+  if (Number.isNaN(endedAtMs)) {
+    return isActive ? "Working now" : "Started just now";
+  }
+
+  const elapsedMs = Math.max(0, endedAtMs - startedAtMs);
   if (elapsedMs < 1_000) {
-    return isActive ? "Working now" : "Started just now";
+    return isActive ? "Working for 1s" : "Started just now";
   }
-  const totalSeconds = Math.round(elapsedMs / 1_000);
+  const totalSeconds = Math.max(1, Math.floor(elapsedMs / 1_000));
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
   if (minutes === 0) {
