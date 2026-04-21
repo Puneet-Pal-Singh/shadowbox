@@ -229,7 +229,8 @@ function classifyRiskAction(
     toolName === "github_pr_checks_get" ||
     toolName === "github_review_threads_get" ||
     toolName === "github_issue_get" ||
-    toolName === "github_actions_run_get"
+    toolName === "github_actions_run_get" ||
+    toolName === "github_actions_job_logs_get"
   ) {
     return {
       category: RISKY_ACTION_CATEGORIES.FILESYSTEM_WRITE,
