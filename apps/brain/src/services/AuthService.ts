@@ -31,6 +31,19 @@ export interface AuthResult {
   session: UserSessionRecord;
 }
 
+export class SessionStoreUnavailableError extends Error {
+  constructor() {
+    super("Session store is temporarily unavailable. Please retry.");
+    this.name = "SessionStoreUnavailableError";
+  }
+}
+
+export function isSessionStoreUnavailableError(
+  error: unknown,
+): error is SessionStoreUnavailableError {
+  return error instanceof SessionStoreUnavailableError;
+}
+
 /**
  * Extract session token from request
  * Checks both cookies and Authorization header
@@ -141,7 +154,16 @@ export async function getAuthenticatedUserSession(
   }
 
   // Get user session from KV storage
-  const sessionData = await env.SESSIONS.get(`user_session:${userId}`);
+  let sessionData: string | null;
+  try {
+    sessionData = await env.SESSIONS.get(`user_session:${userId}`);
+  } catch (error) {
+    console.warn("[auth/session] failed to read session record", {
+      userId,
+      error: formatUnknownError(error),
+    });
+    throw new SessionStoreUnavailableError();
+  }
   if (!sessionData) {
     console.warn("[auth/session] verified token but no session record found", {
       userId,
@@ -205,4 +227,11 @@ function isEncryptedTokenRecord(value: unknown): value is EncryptedToken {
     typeof token.iv === "string" &&
     typeof token.tag === "string"
   );
+}
+
+function formatUnknownError(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
 }
