@@ -8,7 +8,10 @@
 
 import { getCorsHeaders } from "../lib/cors";
 import { Env } from "../types/ai";
-import { getGitHubClient } from "../services/AuthService";
+import {
+  getGitHubClient,
+  isSessionStoreUnavailableError,
+} from "../services/AuthService";
 import type { CreatePullRequestParams } from "@shadowbox/github-bridge";
 import type {
   CreatePullRequestPayload,
@@ -76,10 +79,13 @@ export class GitHubController {
 
       return envJsonResponse(request, env, { repositories: repos });
     } catch (error) {
-      console.error("[GitHub] List repos error:", error);
-      const message =
-        error instanceof Error ? error.message : "Failed to list repositories";
-      return errorResponse(request, env, message, 500);
+      return handleGitHubControllerError(
+        request,
+        env,
+        error,
+        "[GitHub] List repos error:",
+        "Failed to list repositories",
+      );
     }
   }
 
@@ -117,10 +123,13 @@ export class GitHubController {
 
       return envJsonResponse(request, env, { branches });
     } catch (error) {
-      console.error("[GitHub] List branches error:", error);
-      const message =
-        error instanceof Error ? error.message : "Failed to list branches";
-      return errorResponse(request, env, message, 500);
+      return handleGitHubControllerError(
+        request,
+        env,
+        error,
+        "[GitHub] List branches error:",
+        "Failed to list branches",
+      );
     }
   }
 
@@ -156,10 +165,13 @@ export class GitHubController {
 
       return envJsonResponse(request, env, { contents });
     } catch (error) {
-      console.error("[GitHub] Get contents error:", error);
-      const message =
-        error instanceof Error ? error.message : "Failed to get contents";
-      return errorResponse(request, env, message, 500);
+      return handleGitHubControllerError(
+        request,
+        env,
+        error,
+        "[GitHub] Get contents error:",
+        "Failed to get contents",
+      );
     }
   }
 
@@ -194,10 +206,13 @@ export class GitHubController {
 
       return envJsonResponse(request, env, { tree });
     } catch (error) {
-      console.error("[GitHub] Get tree error:", error);
-      const message =
-        error instanceof Error ? error.message : "Failed to get tree";
-      return errorResponse(request, env, message, 500);
+      return handleGitHubControllerError(
+        request,
+        env,
+        error,
+        "[GitHub] Get tree error:",
+        "Failed to get tree",
+      );
     }
   }
 
@@ -241,10 +256,13 @@ export class GitHubController {
 
       return envJsonResponse(request, env, { pullRequests });
     } catch (error) {
-      console.error("[GitHub] List PRs error:", error);
-      const message =
-        error instanceof Error ? error.message : "Failed to list pull requests";
-      return errorResponse(request, env, message, 500);
+      return handleGitHubControllerError(
+        request,
+        env,
+        error,
+        "[GitHub] List PRs error:",
+        "Failed to list pull requests",
+      );
     }
   }
 
@@ -281,10 +299,13 @@ export class GitHubController {
 
       return envJsonResponse(request, env, { pullRequest });
     } catch (error) {
-      console.error("[GitHub] Get PR error:", error);
-      const message =
-        error instanceof Error ? error.message : "Failed to get pull request";
-      return errorResponse(request, env, message, 500);
+      return handleGitHubControllerError(
+        request,
+        env,
+        error,
+        "[GitHub] Get PR error:",
+        "Failed to get pull request",
+      );
     }
   }
 
@@ -342,20 +363,63 @@ export class GitHubController {
         201,
       );
     } catch (error) {
-      console.error("[GitHub] Create PR error:", error);
-      const message =
-        error instanceof Error
-          ? error.message
-          : "Failed to create pull request";
+      const resolvedError = resolveGitHubControllerError(error);
+      if (resolvedError.status >= 500) {
+        console.error("[GitHub] Create PR error:", error);
+      } else {
+        console.warn("[GitHub] Create PR warning:", error);
+      }
       return envJsonResponse(
         request,
         env,
         {
-          error: message,
+          error: resolvedError.message,
           code: "PR_CREATION_FAILED",
         },
-        500,
+        resolvedError.status,
       );
     }
   }
+}
+
+function handleGitHubControllerError(
+  request: Request,
+  env: Env,
+  error: unknown,
+  logLabel: string,
+  fallbackMessage: string,
+): Response {
+  const resolvedError = resolveGitHubControllerError(error);
+  if (resolvedError.status >= 500) {
+    console.error(logLabel, error);
+  } else {
+    console.warn(logLabel, error);
+  }
+
+  const message =
+    error instanceof Error ? error.message : fallbackMessage;
+  return errorResponse(
+    request,
+    env,
+    resolvedError.status === 500 ? message : resolvedError.message,
+    resolvedError.status,
+  );
+}
+
+function resolveGitHubControllerError(error: unknown): {
+  status: number;
+  message: string;
+} {
+  if (isSessionStoreUnavailableError(error)) {
+    return {
+      status: 503,
+      message: "Session store is temporarily unavailable. Please retry.",
+    };
+  }
+
+  return {
+    status: 500,
+    message:
+      error instanceof Error ? error.message : "GitHub API request failed",
+  };
 }
