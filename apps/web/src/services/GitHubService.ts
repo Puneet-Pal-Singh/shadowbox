@@ -210,7 +210,16 @@ export async function listBranches(
     );
 
     if (!response.ok) {
-      throw new Error("Failed to fetch branches");
+      const message = await readGitHubErrorMessage(response);
+      if (shouldFallbackToEmptyBranches(response.status, message)) {
+        console.warn(
+          "[github/branches] falling back to empty branch list due to transient server error",
+          { status: response.status, message },
+        );
+        writeCache(branchesCache, cacheKey, []);
+        return [];
+      }
+      throw new Error(message || "Failed to fetch branches");
     }
 
     const data = await response.json();
@@ -227,6 +236,22 @@ export async function listBranches(
       branchesInFlight.delete(cacheKey);
     }
   }
+}
+
+function shouldFallbackToEmptyBranches(
+  status: number,
+  message: string,
+): boolean {
+  if (status >= 500) {
+    return true;
+  }
+
+  const normalized = message.toLowerCase();
+  return (
+    normalized.includes("session store is temporarily unavailable") ||
+    normalized.includes("kv get failed") ||
+    normalized.includes("not a git repository")
+  );
 }
 
 /**
