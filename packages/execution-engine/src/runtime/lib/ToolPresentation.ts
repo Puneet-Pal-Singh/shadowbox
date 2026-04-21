@@ -122,6 +122,10 @@ const TOOL_PRESENTERS: Record<
     presentGitHubActionsRunGet(
       validateToolPresentationInput("github_actions_run_get", input),
     ),
+  github_actions_job_logs_get: (input) =>
+    presentGitHubActionsJobLogsGet(
+      validateToolPresentationInput("github_actions_job_logs_get", input),
+    ),
 };
 
 function presentReadFile(
@@ -369,6 +373,16 @@ function presentGitHubActionsRunGet(
     description: `Load Actions run #${input.actionsRunId}`,
     displayText: `Loading Actions run #${input.actionsRunId}`,
     summary: `Loading GitHub Actions run #${input.actionsRunId} from ${input.owner}/${input.repo}.`,
+  };
+}
+
+function presentGitHubActionsJobLogsGet(
+  input: ToolPresentationInputByName["github_actions_job_logs_get"],
+): ToolPresentation {
+  return {
+    description: `Load Actions job #${input.actionsJobId} logs`,
+    displayText: `Loading logs for job #${input.actionsJobId}`,
+    summary: `Loading GitHub Actions job logs for #${input.actionsJobId} from ${input.owner}/${input.repo}.`,
   };
 }
 
