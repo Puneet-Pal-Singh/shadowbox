@@ -157,6 +157,12 @@ export async function executeAgenticLoopTool(
         input.taskId,
         input.toolInput,
       );
+    case "github_actions_job_logs_get":
+      return executeGitHubActionsJobLogsGetTool(
+        executionService,
+        input.taskId,
+        input.toolInput,
+      );
     case "glob":
       return executeGlobTool(executionService, input.taskId, input.toolInput);
     case "grep":
@@ -778,6 +784,28 @@ async function executeGitHubActionsRunGetTool(
   );
 }
 
+async function executeGitHubActionsJobLogsGetTool(
+  executionService: RuntimeExecutionService,
+  taskId: string,
+  taskInput: TaskInput,
+): Promise<TaskResult> {
+  const validatedInput = validateGoldenFlowToolInput(
+    "github_actions_job_logs_get",
+    taskInput,
+  );
+  return executeGitHubReadTool(
+    executionService,
+    taskId,
+    "github_actions_job_logs_get",
+    {
+      owner: validatedInput.owner.trim(),
+      repo: validatedInput.repo.trim(),
+      actionsJobId: validatedInput.actionsJobId,
+      tailLines: validatedInput.tailLines,
+    },
+  );
+}
+
 async function executeGitHubReadTool(
   executionService: RuntimeExecutionService,
   taskId: string,
@@ -787,7 +815,8 @@ async function executeGitHubReadTool(
     | "github_pr_checks_get"
     | "github_review_threads_get"
     | "github_issue_get"
-    | "github_actions_run_get",
+    | "github_actions_run_get"
+    | "github_actions_job_logs_get",
   payload: Record<string, unknown>,
 ): Promise<TaskResult> {
   const result = await executeGatewayPlugin(executionService, toolName, payload);
