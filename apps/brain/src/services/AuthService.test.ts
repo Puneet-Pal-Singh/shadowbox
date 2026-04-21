@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { Env } from "../types/ai";
-import { getAuthenticatedUserSession } from "./AuthService";
+import {
+  getAuthenticatedUserSession,
+  SessionStoreUnavailableError,
+} from "./AuthService";
 
 describe("AuthService", () => {
   it("returns the authenticated session for valid encrypted token payloads", async () => {
@@ -60,6 +63,32 @@ describe("AuthService", () => {
     );
 
     expect(result).toBeNull();
+  });
+
+  it("throws a typed error when session KV is unavailable", async () => {
+    const secret = "test-secret";
+    const token = await createSignedSessionToken("user-1", secret);
+    const request = new Request("https://shadowbox.test", {
+      headers: {
+        Cookie: `shadowbox_session=${token}`,
+      },
+    });
+
+    const resultPromise = getAuthenticatedUserSession(
+      request,
+      {
+        SESSION_SECRET: secret,
+        SESSIONS: {
+          get: async () => {
+            throw new Error("KV GET failed: 400 Bad Request");
+          },
+        },
+      } as unknown as Env,
+    );
+
+    await expect(resultPromise).rejects.toBeInstanceOf(
+      SessionStoreUnavailableError,
+    );
   });
 });
 
