@@ -4,9 +4,15 @@ import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
 interface DiffCodeTextProps {
   content: string;
   language: string;
+  wrap?: boolean;
 }
 
-export function DiffCodeText({ content, language }: DiffCodeTextProps) {
+export function DiffCodeText({
+  content,
+  language,
+  wrap = false,
+}: DiffCodeTextProps) {
+  const whiteSpace = wrap ? "pre-wrap" : "pre";
   return (
     <SyntaxHighlighter
       language={language}
@@ -18,11 +24,14 @@ export function DiffCodeText({ content, language }: DiffCodeTextProps) {
         margin: 0,
         padding: 0,
         background: "transparent",
-        whiteSpace: "pre",
+        overflow: "visible",
+        whiteSpace,
       }}
       codeTagProps={{
         style: {
-          whiteSpace: "pre",
+          display: "inline",
+          whiteSpace,
+          wordBreak: wrap ? "break-word" : "normal",
           background: "transparent",
         },
       }}
