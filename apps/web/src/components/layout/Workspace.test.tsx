@@ -30,6 +30,7 @@ const mockGitHubTreeState = vi.hoisted(() => ({
   branch: "main",
   switchBranch: vi.fn(),
   isGitHubLoaded: false,
+  isContextMismatch: false,
 }));
 const mockChatInterface = vi.hoisted(() =>
   vi.fn((props: unknown) => {
@@ -135,6 +136,7 @@ describe("Workspace", () => {
     mockGitHubTreeState.branch = "main";
     mockGitHubTreeState.switchBranch.mockClear();
     mockGitHubTreeState.isGitHubLoaded = false;
+    mockGitHubTreeState.isContextMismatch = false;
   });
 
   it("refreshes git status when a chat run finishes", async () => {
@@ -261,6 +263,29 @@ describe("Workspace", () => {
         sessionId="session-123"
         runId="run-123"
         repository="Puneet-Pal-Singh/career-crew"
+      />,
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(mockBootstrapGitWorkspace).not.toHaveBeenCalled();
+  });
+
+  it("does not trigger workspace bootstrap when repository context mismatches active workspace", async () => {
+    mockGitHubTreeState.repo = {
+      owner: { login: "Puneet-Pal-Singh" },
+      name: "career-crew",
+      full_name: "Puneet-Pal-Singh/career-crew",
+      html_url: "https://github.com/Puneet-Pal-Singh/career-crew",
+      default_branch: "main",
+    };
+    mockGitHubTreeState.isGitHubLoaded = true;
+    mockGitHubTreeState.isContextMismatch = true;
+
+    render(
+      <Workspace
+        sessionId="session-123"
+        runId="run-123"
+        repository="Puneet-Pal-Singh/shadowbox"
       />,
     );
 
