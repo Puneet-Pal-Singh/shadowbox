@@ -168,8 +168,12 @@ function mapTurnsToMessageMetadata(
     const modelLabel = turn.request?.modelId
       ? resolveModelLabel(turn.request.modelId)
       : undefined;
-    const userTimeLabel = formatTimestamp(turn.userAtMs);
-    const assistantTimeLabel = formatTimestamp(turn.assistantAtMs);
+    const userTimeLabel = formatTimestamp(
+      turn.userAtMs ?? turn.request?.startedAtMs,
+    );
+    const assistantTimeLabel = formatTimestamp(
+      turn.assistantAtMs ?? turn.request?.finishedAtMs,
+    );
     const durationLabel = formatDuration(resolveTurnDurationMs(turn));
 
     if (turn.userMessage) {
@@ -227,10 +231,16 @@ function formatTimestamp(timestampMs?: number): string | undefined {
   if (!timestampMs) {
     return undefined;
   }
-  return new Date(timestampMs).toLocaleTimeString([], {
+  const localizedTime = new Date(timestampMs).toLocaleTimeString([], {
     hour: "numeric",
     minute: "2-digit",
+    hour12: true,
   });
+
+  return localizedTime.replace(
+    /\b(a\.?m\.?|p\.?m\.?)\b/gi,
+    (meridiem) => meridiem.toUpperCase(),
+  );
 }
 
 function formatDuration(durationMs?: number): string | undefined {
