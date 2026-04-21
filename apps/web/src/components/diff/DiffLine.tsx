@@ -8,6 +8,7 @@ interface DiffLineProps {
   hunksIndex: number;
   lineIndex: number;
   language?: string;
+  wrap?: boolean;
   isSelected?: boolean;
   annotationCount?: number;
   onClick?: (event: React.MouseEvent<HTMLDivElement>) => void;
@@ -20,6 +21,7 @@ const DiffLine = memo(
     hunksIndex,
     lineIndex,
     language = "text",
+    wrap = false,
     isSelected = false,
     annotationCount = 0,
     onClick,
@@ -27,27 +29,24 @@ const DiffLine = memo(
   }: DiffLineProps) => {
     const bgColor =
       line.type === "added"
-        ? "bg-green-900/20"
+        ? "bg-emerald-500/16"
         : line.type === "deleted"
-          ? "bg-red-900/20"
-          : "";
+          ? "bg-rose-500/16"
+          : "bg-black";
 
     const borderColor =
       line.type === "added"
-        ? "border-l-green-600"
+        ? "border-l-emerald-400"
         : line.type === "deleted"
-          ? "border-l-red-600"
+          ? "border-l-rose-400"
           : "border-l-transparent";
 
     const textColor =
       line.type === "added"
-        ? "text-green-300"
+        ? "text-emerald-200"
         : line.type === "deleted"
-          ? "text-red-300"
+          ? "text-rose-200"
           : "text-zinc-300";
-
-    const prefix =
-      line.type === "added" ? "+" : line.type === "deleted" ? "-" : " ";
 
     return (
       <div
@@ -61,7 +60,9 @@ const DiffLine = memo(
         role={onClick ? "button" : undefined}
         tabIndex={onClick ? 0 : undefined}
         aria-pressed={onClick ? isSelected : undefined}
-        className={`group relative flex w-full border-l-2 text-left font-mono text-sm transition-colors ${
+        className={`group relative flex min-w-full border-l-2 text-left font-mono text-sm transition-colors ${
+          wrap ? "w-full" : "w-max"
+        } ${
           isSelected ? "bg-sky-500/10" : ""
         } ${borderColor} ${bgColor}`}
         key={`${hunksIndex}-${lineIndex}`}
@@ -94,9 +95,8 @@ const DiffLine = memo(
         <div className="w-12 flex-shrink-0 bg-zinc-900/50 px-2 py-1 text-right text-xs text-zinc-500">
           {line.newLineNumber && <span>{line.newLineNumber}</span>}
         </div>
-        <div className={`flex-1 overflow-x-auto px-3 py-1 ${textColor}`}>
-          <span className="mr-1 select-none">{prefix}</span>
-          <DiffCodeText content={line.content} language={language} />
+        <div className={`flex-1 px-3 py-1 ${textColor}`}>
+          <DiffCodeText content={line.content} language={language} wrap={wrap} />
         </div>
         {annotationCount > 0 ? (
           <div className="mr-3 flex items-center text-[10px] uppercase tracking-[0.16em] text-amber-300">
