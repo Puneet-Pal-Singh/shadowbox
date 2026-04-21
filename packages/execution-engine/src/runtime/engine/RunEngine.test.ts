@@ -26,7 +26,7 @@ import { PermissionApprovalStore } from "./PermissionApprovalStore.js";
 const TEST_RUN_ID = "f462a003-5c36-4c86-a95d-367b92bf46c9";
 
 describe("RunEngine", () => {
-  it("returns a conversational response for greeting-only prompts", async () => {
+  it("routes greeting-only prompts through normal build execution", async () => {
     const generateText = vi.fn(async () => ({
       text: "ok",
       usage: {
@@ -62,11 +62,11 @@ describe("RunEngine", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(await response.text()).toContain("Hey! I can help with code changes");
-    expect(generateText).not.toHaveBeenCalled();
+    expect(await response.text()).toContain("ok");
+    expect(generateText).toHaveBeenCalled();
   });
 
-  it("bypasses explicit plan mode planning for greeting-only prompts", async () => {
+  it("does not bypass explicit plan mode planning for greeting-only prompts", async () => {
     const planner = {
       plan: vi.fn(async () => ({
         tasks: [],
@@ -109,9 +109,7 @@ describe("RunEngine", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(await response.text()).toContain("Hey! I can help with code changes");
-    expect(planner.plan).not.toHaveBeenCalled();
-    expect(generateText).not.toHaveBeenCalled();
+    expect(planner.plan).toHaveBeenCalled();
   });
 
   it("records deterministic permission context when creating a run", async () => {
@@ -1552,8 +1550,8 @@ describe("RunEngine", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(await response.text()).toContain("Hey! I can help with code changes");
-    expect(generateText).not.toHaveBeenCalled();
+    expect(await response.text()).toContain("Longer budget applied.");
+    expect(generateText).toHaveBeenCalled();
     expect(generateStructured).not.toHaveBeenCalled();
   });
 
@@ -3572,7 +3570,7 @@ describe("RunEngine", () => {
       "check repository acme/platform-core README.md",
       { owner: "sourcegraph", repo: "shadowbox" },
     );
-    expect(blockedMessage).toContain("approve cross-repo acme/platform-core");
+    expect(blockedMessage).toContain("Cross-repo access requires explicit approval");
 
     const directiveMessage = await privateApi.processPermissionDirectives(
       "approve cross-repo acme/platform-core for 20m",
@@ -3633,7 +3631,7 @@ describe("RunEngine", () => {
       "check repository acme/platform-core README.md",
       { owner: "sourcegraph", repo: "shadowbox" },
     );
-    expect(blockedMessage).toContain("approve cross-repo acme/platform-core");
+    expect(blockedMessage).toContain("Cross-repo access requires explicit approval");
   });
 
   it("forces platform approval gate when delegated harness mode is untrusted", async () => {
@@ -3676,7 +3674,7 @@ describe("RunEngine", () => {
 
     expect(lifecycleSteps).toContain("APPROVAL_WAIT");
     expect(persisted?.metadata.manifest?.harnessMode).toBe("platform_owned");
-    expect(output).toContain("approve cross-repo acme/platform-core");
+    expect(output).toContain("Cross-repo access requires explicit approval");
     expect(persisted?.status).toBe("COMPLETED");
   });
 
