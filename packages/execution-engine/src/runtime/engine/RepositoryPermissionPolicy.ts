@@ -11,6 +11,7 @@ const DESTRUCTIVE_APPROVAL_REGEX =
   /\b(?:approve|allow)\s+destructive(?:\s+actions?)?(?:\s+for\s+(\d+)\s*([mh]))?\b/i;
 const APPROVAL_ONLY_PREFIX_REGEX = /^(?:please\s+)?(?:approve|allow)\b/i;
 const OWNER_DENYLIST = new Set([
+  "api",
   "src",
   "lib",
   "docs",
@@ -22,6 +23,14 @@ const OWNER_DENYLIST = new Set([
   "node_modules",
   "dist",
   "build",
+  "gh",
+  "github",
+  "http",
+  "https",
+  "www",
+  "npm",
+  "pnpm",
+  "curl",
 ]);
 
 const DESTRUCTIVE_PATTERNS = [
@@ -98,7 +107,7 @@ export function formatCrossRepoApprovalMessage(
   selectedRepoRef: string | null,
 ): string {
   const currentRepo = selectedRepoRef ?? "the current session repository";
-  return `This request targets ${targetRepo}, but the selected repo is ${currentRepo}. Reply with \`approve cross-repo ${targetRepo} for 15m\` to continue.`;
+  return `This request targets ${targetRepo}, but the selected repo is ${currentRepo}. Cross-repo access requires explicit approval before I can continue.`;
 }
 
 export function formatDestructiveApprovalMessage(): string {
