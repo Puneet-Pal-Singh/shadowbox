@@ -8,6 +8,36 @@ interface RepoPickerProps {
   onSkip: () => void;
 }
 
+export function sortBranchesForRepoPicker(
+  branches: Branch[],
+  defaultBranch: string,
+): Branch[] {
+  const normalizedDefaultBranch = defaultBranch.trim();
+
+  return [...branches].sort((a, b) => {
+    const aIsDefault = a.name === normalizedDefaultBranch;
+    const bIsDefault = b.name === normalizedDefaultBranch;
+
+    if (aIsDefault && !bIsDefault) {
+      return -1;
+    }
+
+    if (!aIsDefault && bIsDefault) {
+      return 1;
+    }
+
+    if (a.protected && !b.protected) {
+      return -1;
+    }
+
+    if (!a.protected && b.protected) {
+      return 1;
+    }
+
+    return a.name.localeCompare(b.name);
+  });
+}
+
 export function RepoPicker({ onRepoSelect, onSkip }: RepoPickerProps) {
   const [repos, setRepos] = useState<Repository[]>([]);
   const [filteredRepos, setFilteredRepos] = useState<Repository[]>([]);
@@ -62,7 +92,7 @@ export function RepoPicker({ onRepoSelect, onSkip }: RepoPickerProps) {
         repo.owner.login,
         repo.name,
       );
-      setBranches(branchList);
+      setBranches(sortBranchesForRepoPicker(branchList, repo.default_branch));
       setSelectedBranch(repo.default_branch);
     } catch (error) {
       console.error("Failed to load branches:", error);
