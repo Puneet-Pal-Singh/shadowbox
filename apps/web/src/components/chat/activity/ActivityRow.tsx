@@ -894,7 +894,7 @@ function MessageMarkdownContent({ content }: { content: string }) {
         "[&_li]:my-1",
         "[&_hr]:my-4 [&_hr]:border-zinc-700/60",
         "[&_blockquote]:my-3 [&_blockquote]:border-l-2 [&_blockquote]:border-zinc-600/80 [&_blockquote]:pl-3 [&_blockquote]:italic",
-        "[&_code]:rounded [&_code]:bg-zinc-900/80 [&_code]:px-1 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-[0.85em]",
+        "[&_code]:rounded [&_code]:border [&_code]:border-zinc-700/90 [&_code]:bg-zinc-900/88 [&_code]:px-1 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-[0.85em]",
         "[&_pre]:my-3 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:bg-zinc-950/80 [&_pre]:p-3",
         "[&_pre_code]:bg-transparent [&_pre_code]:p-0",
         "[&_table]:my-3 [&_table]:w-full [&_table]:border-collapse [&_table]:text-left",
