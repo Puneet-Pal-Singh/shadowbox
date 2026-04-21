@@ -231,13 +231,17 @@ function formatMetadataText(
   if (!metadata) {
     return "";
   }
-  const trailing = isUser
-    ? metadata.timeLabel
-    : (metadata.durationLabel ?? metadata.timeLabel);
-  return [metadata.modeLabel, metadata.modelLabel, trailing]
-    .filter((value): value is string =>
-      Boolean(value && value.trim().length > 0),
-    )
+
+  if (isUser) {
+    return metadata.timeLabel ?? "";
+  }
+
+  return [
+    metadata.modeLabel,
+    metadata.modelLabel,
+    metadata.timeLabel,
+  ]
+    .filter((value): value is string => Boolean(value?.trim()))
     .join(" · ");
 }
 
@@ -284,15 +288,15 @@ function MarkdownMessageContent({
         "[&_li]:my-1",
         "[&_hr]:my-4 [&_hr]:border-zinc-700/60",
         "[&_blockquote]:my-3 [&_blockquote]:border-l-2 [&_blockquote]:pl-3 [&_blockquote]:italic",
-        "[&_code]:rounded [&_code]:px-1 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-[0.85em]",
+        "[&_code]:rounded [&_code]:border [&_code]:px-1 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-[0.85em]",
         "[&_pre]:my-3 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:p-3",
         "[&_pre_code]:bg-transparent [&_pre_code]:p-0",
         "[&_table]:my-3 [&_table]:w-full [&_table]:border-collapse [&_table]:text-left",
         "[&_th]:border [&_th]:px-2 [&_th]:py-1 [&_th]:font-semibold",
         "[&_td]:border [&_td]:px-2 [&_td]:py-1",
         isUser
-          ? "text-white [&_blockquote]:border-zinc-400/60 [&_code]:bg-zinc-800/80 [&_pre]:bg-zinc-900/70 [&_th]:border-zinc-500/70 [&_td]:border-zinc-500/60"
-          : "text-zinc-100 [&_blockquote]:border-zinc-600/80 [&_code]:bg-zinc-900/80 [&_pre]:bg-zinc-950/80 [&_th]:border-zinc-700/80 [&_td]:border-zinc-800/80",
+          ? "text-white [&_blockquote]:border-zinc-400/60 [&_code]:border-zinc-700/85 [&_code]:bg-zinc-900/92 [&_pre]:bg-zinc-900/70 [&_th]:border-zinc-500/70 [&_td]:border-zinc-500/60"
+          : "text-zinc-100 [&_blockquote]:border-zinc-600/80 [&_code]:border-zinc-700/90 [&_code]:bg-zinc-900/88 [&_pre]:bg-zinc-950/80 [&_th]:border-zinc-700/80 [&_td]:border-zinc-800/80",
       )}
     >
       <ReactMarkdown
