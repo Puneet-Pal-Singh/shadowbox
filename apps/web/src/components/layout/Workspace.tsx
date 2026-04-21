@@ -81,8 +81,15 @@ export function Workspace({
     setIsLoadingContent,
   } = useWorkspaceState();
 
-  const { repoTree, isLoadingTree, repo, branch, switchBranch, isGitHubLoaded } =
-    useGitHubTree(repository);
+  const {
+    repoTree,
+    isLoadingTree,
+    repo,
+    branch,
+    switchBranch,
+    isGitHubLoaded,
+    isContextMismatch,
+  } = useGitHubTree(repository);
 
   const {
     messages,
@@ -167,6 +174,10 @@ export function Workspace({
   }, [chatError, isLoading, onSessionStatusChange, refetchGitStatus]);
 
   useEffect(() => {
+    if (isContextMismatch) {
+      return;
+    }
+
     if (!isGitHubLoaded || !repo) {
       return;
     }
@@ -181,7 +192,7 @@ export function Workspace({
     }
 
     switchBranch(currentWorkspaceBranch);
-  }, [branch, isGitHubLoaded, repo, status?.branch, switchBranch]);
+  }, [branch, isContextMismatch, isGitHubLoaded, repo, status?.branch, switchBranch]);
 
   useEffect(() => {
     if (!sessionId || !activeRunId) {
@@ -193,6 +204,10 @@ export function Workspace({
     }
 
     if (!isGitHubLoaded) {
+      return;
+    }
+
+    if (isContextMismatch) {
       return;
     }
 
@@ -251,6 +266,7 @@ export function Workspace({
   }, [
     activeRunId,
     isLoading,
+    isContextMismatch,
     isGitHubLoaded,
     refetchGitStatus,
     repositoryBaseUrl,
