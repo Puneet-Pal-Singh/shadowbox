@@ -1,6 +1,8 @@
 import type {
   RepositoryContext,
+  WorkspaceBootstrapMode,
   WorkspaceBootstrapResult,
+  WorkspaceBootstrapStatus,
   WorkspaceBootstrapper,
 } from "../types.js";
 import type { PermissionApprovalStore } from "./PermissionApprovalStore.js";
@@ -16,6 +18,14 @@ import {
 } from "./RepositoryPermissionPolicy.js";
 import { hasRepositorySelection } from "./ConversationPolicy.js";
 import { resolveWorkspaceBootstrapMode } from "./WorkspaceBootstrapModePolicy.js";
+
+export interface WorkspaceBootstrapEvaluation {
+  mode?: WorkspaceBootstrapMode;
+  status: WorkspaceBootstrapStatus | "skipped";
+  message: string | null;
+  blocked: boolean;
+  expectedMiss: boolean;
+}
 
 export async function processPermissionDirectives(
   prompt: string,
@@ -86,12 +96,38 @@ export async function getWorkspaceBootstrapMessage(
   repositoryContext: RepositoryContext | undefined,
   workspaceBootstrapper: WorkspaceBootstrapper | undefined,
 ): Promise<string | null> {
+  const evaluation = await evaluateWorkspaceBootstrap(
+    runId,
+    prompt,
+    repositoryContext,
+    workspaceBootstrapper,
+  );
+  return evaluation.message;
+}
+
+export async function evaluateWorkspaceBootstrap(
+  runId: string,
+  prompt: string,
+  repositoryContext: RepositoryContext | undefined,
+  workspaceBootstrapper: WorkspaceBootstrapper | undefined,
+): Promise<WorkspaceBootstrapEvaluation> {
   if (!repositoryContext || !workspaceBootstrapper) {
-    return null;
+    return {
+      status: "skipped",
+      message: null,
+      blocked: false,
+      expectedMiss: false,
+    };
   }
 
   if (!hasRepositorySelection(repositoryContext)) {
-    return "I need a valid repository selection before I can run repository actions. Please reselect the repository and try again.";
+    return {
+      status: "invalid-context",
+      message:
+        "I need a valid repository selection before I can run repository actions. Please reselect the repository and try again.",
+      blocked: true,
+      expectedMiss: false,
+    };
   }
 
   try {
@@ -101,12 +137,26 @@ export async function getWorkspaceBootstrapMessage(
       repositoryContext,
       mode: bootstrapMode,
     });
-    return mapBootstrapResultToMessage(bootstrapResult, repositoryContext);
+    const message = mapBootstrapResultToMessage(bootstrapResult, repositoryContext);
+    return {
+      mode: bootstrapMode,
+      status: bootstrapResult.status,
+      message,
+      blocked: message !== null,
+      expectedMiss: isExpectedBootstrapMiss(bootstrapResult.message),
+    };
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "workspace bootstrap failed";
     const repoRef = describeRepositoryRef(repositoryContext);
-    return `I couldn't prepare the workspace for ${repoRef}. ${errorMessage}`;
+    const message = `I couldn't prepare the workspace for ${repoRef}. ${errorMessage}`;
+    return {
+      mode: resolveWorkspaceBootstrapMode(prompt),
+      status: "sync-failed",
+      message,
+      blocked: true,
+      expectedMiss: isExpectedBootstrapMiss(errorMessage),
+    };
   }
 }
 
@@ -144,4 +194,11 @@ function describeRepositoryRef(repositoryContext: RepositoryContext): string {
   const repo = repositoryContext.repo?.trim() || "unknown-repo";
   const branch = repositoryContext.branch?.trim();
   return branch ? `${owner}/${repo}@${branch}` : `${owner}/${repo}`;
+}
+
+function isExpectedBootstrapMiss(message: string | undefined): boolean {
+  if (!message) {
+    return false;
+  }
+  return /not a git repository/i.test(message);
 }

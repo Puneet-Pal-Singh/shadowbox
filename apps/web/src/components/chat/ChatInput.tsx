@@ -34,7 +34,6 @@ export function ChatInput({
     error: storeError,
     lastResolvedConfig,
     bootstrap,
-    resolveForChat,
   } = useProviderStore();
 
   // Bootstrap store on mount
@@ -65,24 +64,7 @@ export function ChatInput({
       return;
     }
 
-    // Gate 2: Resolve config if not already resolved
-    if (!lastResolvedConfig) {
-      try {
-        setShowProviderError(false);
-        setIsLoading(true);
-        await resolveForChat();
-      } catch (err) {
-        setShowProviderError(true);
-        setProviderErrorMessage(
-          err instanceof Error ? err.message : "Failed to resolve provider."
-        );
-        setIsLoading(false);
-        return;
-      }
-      setIsLoading(false);
-    }
-
-    // Gate 3: Message not empty
+    // Gate 2: Message not empty
     const trimmedMessage = message.trim();
     if (!trimmedMessage) {
       return;
@@ -135,8 +117,7 @@ export function ChatInput({
     disabled ||
     isLoading ||
     status !== "ready" ||
-    !message.trim() ||
-    !lastResolvedConfig;
+    !message.trim();
 
   return (
     <div className="flex flex-col gap-3">
@@ -228,9 +209,7 @@ export function ChatInput({
           title={
             status !== "ready"
               ? "Waiting for provider configuration..."
-              : !lastResolvedConfig
-                ? "Resolving provider..."
-                : "Send message (Enter)"
+              : "Send message (Enter)"
           }
         >
           {isLoading ? (

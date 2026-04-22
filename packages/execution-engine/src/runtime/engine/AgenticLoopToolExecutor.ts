@@ -25,6 +25,9 @@ type LineMatcherPatternSource =
   | "external_user_input"
   | "deriveGrepPatternFromHint";
 
+const GIT_COMMIT_IDENTITY_CONFIG_SEGMENT_PATTERN =
+  /\bgit(?:\s+-C\s+\S+)?\s+config\b.*\buser\.(?:name|email)\b/i;
+
 export async function executeAgenticLoopTool(
   executionService: RuntimeExecutionService,
   input: {
@@ -114,6 +117,48 @@ export async function executeAgenticLoopTool(
       );
     case "git_diff":
       return executeGitDiffTool(
+        executionService,
+        input.taskId,
+        input.toolInput,
+      );
+    case "github_pr_list":
+      return executeGitHubPullRequestListTool(
+        executionService,
+        input.taskId,
+        input.toolInput,
+      );
+    case "github_pr_get":
+      return executeGitHubPullRequestGetTool(
+        executionService,
+        input.taskId,
+        input.toolInput,
+      );
+    case "github_pr_checks_get":
+      return executeGitHubPullRequestChecksGetTool(
+        executionService,
+        input.taskId,
+        input.toolInput,
+      );
+    case "github_review_threads_get":
+      return executeGitHubReviewThreadsGetTool(
+        executionService,
+        input.taskId,
+        input.toolInput,
+      );
+    case "github_issue_get":
+      return executeGitHubIssueGetTool(
+        executionService,
+        input.taskId,
+        input.toolInput,
+      );
+    case "github_actions_run_get":
+      return executeGitHubActionsRunGetTool(
+        executionService,
+        input.taskId,
+        input.toolInput,
+      );
+    case "github_actions_job_logs_get":
+      return executeGitHubActionsJobLogsGetTool(
         executionService,
         input.taskId,
         input.toolInput,
@@ -224,6 +269,13 @@ async function executeBashTool(
     return buildFailureResult(
       taskId,
       "Shell command must be a concrete non-empty command",
+    );
+  }
+
+  if (isGitCommitIdentityConfigShellCommand(command)) {
+    return buildFailureResult(
+      taskId,
+      "Do not run git config user.name/user.email through bash in agent flow. Use git_commit with authorName and authorEmail, or retry commit from the Git commit dialog so OAuth-backed identity is used.",
     );
   }
 
@@ -351,17 +403,6 @@ async function executeGitCommitTool(
     );
   }
 
-  const commitIdentityMessage = await buildMissingCommitIdentityMessage(
-    executionService,
-    {
-      authorName: validatedInput.authorName?.trim(),
-      authorEmail: validatedInput.authorEmail?.trim(),
-    },
-  );
-  if (commitIdentityMessage) {
-    return buildFailureResult(taskId, commitIdentityMessage);
-  }
-
   const payload: Record<string, unknown> = {
     message: validatedInput.message.trim(),
   };
@@ -419,83 +460,6 @@ async function readGitChangeEvidence(
   return hasChanges ? "changes_present" : "no_changes";
 }
 
-async function buildMissingCommitIdentityMessage(
-  executionService: RuntimeExecutionService,
-  providedIdentity?: {
-    authorName?: string;
-    authorEmail?: string;
-  },
-): Promise<string | null> {
-  const providedAuthorName = normalizeOptionalIdentityField(
-    providedIdentity?.authorName,
-  );
-  const providedAuthorEmail = normalizeOptionalIdentityField(
-    providedIdentity?.authorEmail,
-  );
-  if (providedAuthorName && providedAuthorEmail) {
-    return null;
-  }
-
-  const authorName = providedAuthorName
-    ? { status: "present", value: providedAuthorName }
-    : await readGitConfigValue(executionService, "user.name");
-  const authorEmail = providedAuthorEmail
-    ? { status: "present", value: providedAuthorEmail }
-    : await readGitConfigValue(executionService, "user.email");
-  if (authorName.status === "unknown" || authorEmail.status === "unknown") {
-    return null;
-  }
-
-  if (authorName.status === "present" && authorEmail.status === "present") {
-    return null;
-  }
-
-  return "Git commit identity is not configured in this workspace. Set git user.name and user.email, then retry the commit.";
-}
-
-function normalizeOptionalIdentityField(
-  value: string | undefined,
-): string | null {
-  if (!value) {
-    return null;
-  }
-  const normalized = value.trim();
-  return normalized.length > 0 ? normalized : null;
-}
-
-async function readGitConfigValue(
-  executionService: RuntimeExecutionService,
-  key: "user.name" | "user.email",
-): Promise<
-  | { status: "present"; value: string }
-  | { status: "missing" }
-  | { status: "unknown" }
-> {
-  const result = await executeGatewayPlugin(executionService, "bash", {
-    command: `git config --get ${key}`,
-    description: `Read ${key} for commit preflight`,
-  });
-  const failure = extractExecutionFailure(result);
-  if (failure) {
-    if (isUnknownGitConfigFailure(failure)) {
-      return { status: "unknown" };
-    }
-    return { status: "missing" };
-  }
-
-  const value = formatExecutionResult(result).trim();
-  if (!value) {
-    return { status: "missing" };
-  }
-
-  const normalized = value.split("\n")[0]?.trim();
-  if (!normalized) {
-    return { status: "missing" };
-  }
-
-  return { status: "present", value: normalized };
-}
-
 function parseGitStatusPayload(
   formattedResult: string,
 ): { files: unknown[]; hasStaged: boolean; hasUnstaged: boolean } | null {
@@ -525,12 +489,6 @@ function parseGitStatusPayload(
   } catch {
     return null;
   }
-}
-
-function isUnknownGitConfigFailure(failure: string): boolean {
-  return /unexpected route|unsupported|not registered|invalid arguments?|invalid command argument/i.test(
-    failure,
-  );
 }
 
 async function executeGitPushTool(
@@ -726,6 +684,158 @@ async function executeGitDiffTool(
     return buildFailureResult(taskId, failure);
   }
   return buildSuccessResult(taskId, formatExecutionResult(result));
+}
+
+async function executeGitHubPullRequestGetTool(
+  executionService: RuntimeExecutionService,
+  taskId: string,
+  taskInput: TaskInput,
+): Promise<TaskResult> {
+  const validatedInput = validateGoldenFlowToolInput("github_pr_get", taskInput);
+  return executeGitHubReadTool(executionService, taskId, "github_pr_get", {
+    owner: validatedInput.owner.trim(),
+    repo: validatedInput.repo.trim(),
+    number: validatedInput.number,
+  });
+}
+
+async function executeGitHubPullRequestListTool(
+  executionService: RuntimeExecutionService,
+  taskId: string,
+  taskInput: TaskInput,
+): Promise<TaskResult> {
+  const validatedInput = validateGoldenFlowToolInput("github_pr_list", taskInput);
+  return executeGitHubReadTool(executionService, taskId, "github_pr_list", {
+    owner: validatedInput.owner.trim(),
+    repo: validatedInput.repo.trim(),
+    state: validatedInput.state,
+    head: validatedInput.head?.trim(),
+  });
+}
+
+async function executeGitHubPullRequestChecksGetTool(
+  executionService: RuntimeExecutionService,
+  taskId: string,
+  taskInput: TaskInput,
+): Promise<TaskResult> {
+  const validatedInput = validateGoldenFlowToolInput(
+    "github_pr_checks_get",
+    taskInput,
+  );
+  return executeGitHubReadTool(executionService, taskId, "github_pr_checks_get", {
+    owner: validatedInput.owner.trim(),
+    repo: validatedInput.repo.trim(),
+    number: validatedInput.number,
+  });
+}
+
+async function executeGitHubReviewThreadsGetTool(
+  executionService: RuntimeExecutionService,
+  taskId: string,
+  taskInput: TaskInput,
+): Promise<TaskResult> {
+  const validatedInput = validateGoldenFlowToolInput(
+    "github_review_threads_get",
+    taskInput,
+  );
+  return executeGitHubReadTool(
+    executionService,
+    taskId,
+    "github_review_threads_get",
+    {
+      owner: validatedInput.owner.trim(),
+      repo: validatedInput.repo.trim(),
+      number: validatedInput.number,
+    },
+  );
+}
+
+async function executeGitHubIssueGetTool(
+  executionService: RuntimeExecutionService,
+  taskId: string,
+  taskInput: TaskInput,
+): Promise<TaskResult> {
+  const validatedInput = validateGoldenFlowToolInput("github_issue_get", taskInput);
+  return executeGitHubReadTool(executionService, taskId, "github_issue_get", {
+    owner: validatedInput.owner.trim(),
+    repo: validatedInput.repo.trim(),
+    number: validatedInput.number,
+  });
+}
+
+async function executeGitHubActionsRunGetTool(
+  executionService: RuntimeExecutionService,
+  taskId: string,
+  taskInput: TaskInput,
+): Promise<TaskResult> {
+  const validatedInput = validateGoldenFlowToolInput(
+    "github_actions_run_get",
+    taskInput,
+  );
+  return executeGitHubReadTool(
+    executionService,
+    taskId,
+    "github_actions_run_get",
+    {
+      owner: validatedInput.owner.trim(),
+      repo: validatedInput.repo.trim(),
+      actionsRunId: validatedInput.actionsRunId,
+    },
+  );
+}
+
+async function executeGitHubActionsJobLogsGetTool(
+  executionService: RuntimeExecutionService,
+  taskId: string,
+  taskInput: TaskInput,
+): Promise<TaskResult> {
+  const validatedInput = validateGoldenFlowToolInput(
+    "github_actions_job_logs_get",
+    taskInput,
+  );
+  return executeGitHubReadTool(
+    executionService,
+    taskId,
+    "github_actions_job_logs_get",
+    {
+      owner: validatedInput.owner.trim(),
+      repo: validatedInput.repo.trim(),
+      actionsJobId: validatedInput.actionsJobId,
+      tailLines: validatedInput.tailLines,
+    },
+  );
+}
+
+async function executeGitHubReadTool(
+  executionService: RuntimeExecutionService,
+  taskId: string,
+  toolName:
+    | "github_pr_list"
+    | "github_pr_get"
+    | "github_pr_checks_get"
+    | "github_review_threads_get"
+    | "github_issue_get"
+    | "github_actions_run_get"
+    | "github_actions_job_logs_get",
+  payload: Record<string, unknown>,
+): Promise<TaskResult> {
+  const result = await executeGatewayPlugin(executionService, toolName, payload);
+  const failure = extractExecutionFailure(result);
+  if (failure) {
+    return buildFailureResult(taskId, failure, {
+      activity: {
+        displayText: "Reading GitHub metadata",
+        summary: `${toolName} failed`,
+      },
+    });
+  }
+
+  return buildSuccessResult(taskId, formatExecutionResult(result), {
+    activity: {
+      displayText: "Reading GitHub metadata",
+      summary: `${toolName} completed`,
+    },
+  });
 }
 
 async function executeGlobTool(
@@ -979,6 +1089,16 @@ function buildFailureResult(
       : undefined,
     completedAt: new Date(),
   };
+}
+
+function isGitCommitIdentityConfigShellCommand(command: string): boolean {
+  const commandSegments = command
+    .split(/&&|\|\||;|\|/)
+    .map((segment) => segment.trim())
+    .filter((segment) => segment.length > 0);
+  return commandSegments.some((segment) =>
+    GIT_COMMIT_IDENTITY_CONFIG_SEGMENT_PATTERN.test(segment),
+  );
 }
 
 function buildWriteActivityMetadata(

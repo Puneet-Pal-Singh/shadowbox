@@ -22,6 +22,24 @@ describe("RunRiskyActionPolicy", () => {
     expect(result.kind).toBe("allow");
   });
 
+  it("allows read-only GitHub connector metadata tools by default", async () => {
+    const store = new PermissionApprovalStore(new MockRuntimeState(), "run-risk-1b");
+
+    const result = await evaluateToolPermission({
+      runId: "run-risk-1b",
+      sessionId: "session-1",
+      origin: "agent",
+      productMode: "auto_for_safe",
+      workflowIntent: "explore",
+      toolName: "github_pr_get",
+      toolArgs: { owner: "acme", repo: "career-crew", number: 228 },
+      hasMutationEvidence: false,
+      approvalStore: store,
+    });
+
+    expect(result.kind).toBe("allow");
+  });
+
   it("denies git commit until mutation evidence exists", async () => {
     const store = new PermissionApprovalStore(new MockRuntimeState(), "run-risk-2");
 
@@ -126,6 +144,33 @@ describe("RunRiskyActionPolicy", () => {
     });
   });
 
+  it("denies shell git commit identity config commands", async () => {
+    const store = new PermissionApprovalStore(new MockRuntimeState(), "run-risk-4bb");
+
+    const result = await evaluateToolPermission({
+      runId: "run-risk-4bb",
+      sessionId: "session-1",
+      origin: "agent",
+      productMode: "auto_for_safe",
+      workflowIntent: "build",
+      toolName: "bash",
+      toolArgs: {
+        command:
+          'git config user.email "agent@shadowbox.ai" && git config user.name "Shadowbox Agent"',
+      },
+      hasMutationEvidence: true,
+      approvalStore: store,
+    });
+
+    expect(result.kind).toBe("deny");
+    if (result.kind !== "deny") {
+      throw new Error("Expected deny result");
+    }
+    expect(result.reason).toContain(
+      "Do not run git config user.name/user.email through shell",
+    );
+  });
+
   it("treats bash cwd traversal as outside-workspace work even in full_agent", async () => {
     const store = new PermissionApprovalStore(new MockRuntimeState(), "run-risk-4c");
 
@@ -171,7 +216,7 @@ describe("RunRiskyActionPolicy", () => {
     expect(result.request.category).toBe("git_mutation");
   });
 
-  it("asks before file writes in auto_for_safe mode", async () => {
+  it("allows file writes in auto_for_safe mode", async () => {
     const store = new PermissionApprovalStore(new MockRuntimeState(), "run-risk-4e");
 
     const result = await evaluateToolPermission({
@@ -186,11 +231,7 @@ describe("RunRiskyActionPolicy", () => {
       approvalStore: store,
     });
 
-    expect(result.kind).toBe("ask");
-    if (result.kind !== "ask") {
-      throw new Error("Expected ask result");
-    }
-    expect(result.request.category).toBe("filesystem_write");
+    expect(result.kind).toBe("allow");
   });
 
   it("escalates repeated risky retries into dangerous_retry interruption", async () => {

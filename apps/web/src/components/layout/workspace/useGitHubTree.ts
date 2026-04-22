@@ -1,52 +1,22 @@
 import { useState, useEffect } from "react";
 import { getRepositoryTree } from "../../../services/GitHubService";
 import { useGitHub } from "../../github/GitHubContextProvider";
-
-function normalizeRepoIdentifier(value: string | undefined): string {
-  return value?.trim().toLowerCase() ?? "";
-}
-
-function getRepoName(value: string | undefined): string {
-  const normalizedValue = normalizeRepoIdentifier(value);
-  if (!normalizedValue) {
-    return "";
-  }
-
-  const segments = normalizedValue.split("/").filter(Boolean);
-  return segments[segments.length - 1] ?? "";
-}
-
-function doesRepoContextMatch(
-  expectedRepo: string | undefined,
-  actualFullName: string | undefined,
-): boolean {
-  const normalizedExpectedRepo = normalizeRepoIdentifier(expectedRepo);
-  const normalizedActualFullName = normalizeRepoIdentifier(actualFullName);
-
-  if (!normalizedExpectedRepo) {
-    return true;
-  }
-
-  if (!normalizedActualFullName) {
-    return false;
-  }
-
-  if (normalizedExpectedRepo.includes("/")) {
-    return normalizedExpectedRepo === normalizedActualFullName;
-  }
-
-  return getRepoName(normalizedExpectedRepo) === getRepoName(normalizedActualFullName);
-}
+import { doesRepositorySelectionMatch } from "../../../lib/repository-context-match";
 
 export function useGitHubTree(expectedRepo?: string) {
-  const { repo, branch, isLoaded: isGitHubLoaded } = useGitHub();
+  const { repo, branch, switchBranch, isLoaded: isGitHubLoaded } = useGitHub();
   const [repoTree, setRepoTree] = useState<
     Array<{ path: string; type: string; sha: string }>
   >([]);
   const [isLoadingTree, setIsLoadingTree] = useState(false);
 
   // If the current context doesn't match the expected repo, we are in a loading/switching state
-  const isContextMismatch = !doesRepoContextMatch(expectedRepo, repo?.full_name);
+  const isContextMismatch = !doesRepositorySelectionMatch(
+    expectedRepo,
+    repo?.full_name,
+  );
+  const effectiveRepo = isContextMismatch ? null : repo;
+  const effectiveBranch = isContextMismatch ? "" : branch;
 
   useEffect(() => {
     if (isContextMismatch) {
@@ -86,8 +56,10 @@ export function useGitHubTree(expectedRepo?: string) {
   return {
     repoTree,
     isLoadingTree: isLoadingTree || isContextMismatch,
-    repo,
-    branch,
+    repo: effectiveRepo,
+    branch: effectiveBranch,
+    switchBranch,
     isGitHubLoaded,
+    isContextMismatch,
   };
 }

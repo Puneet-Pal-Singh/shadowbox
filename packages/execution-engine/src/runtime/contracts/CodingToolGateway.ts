@@ -21,12 +21,19 @@ export type GoldenFlowToolName =
   | "git_branch_switch"
   | "git_status"
   | "git_diff"
+  | "github_pr_list"
+  | "github_pr_get"
+  | "github_pr_checks_get"
+  | "github_review_threads_get"
+  | "github_issue_get"
+  | "github_actions_run_get"
+  | "github_actions_job_logs_get"
   | "glob"
   | "grep";
 
 export interface ToolGatewayRoute {
   toolName: GoldenFlowToolName;
-  plugin: "filesystem" | "node" | "git" | "bash" | "internal";
+  plugin: "filesystem" | "node" | "git" | "github" | "bash" | "internal";
   action: string;
 }
 
@@ -138,6 +145,50 @@ const GIT_DIFF_TOOL_INPUT_SCHEMA = createToolInputSchema(
   { allowNullishEmptyObject: true },
 );
 
+const GITHUB_PR_GET_TOOL_INPUT_SCHEMA = createToolInputSchema({
+  owner: z.string().min(1).max(MAX_PATH_LENGTH),
+  repo: z.string().min(1).max(MAX_PATH_LENGTH),
+  number: z.number().int().positive(),
+});
+
+const GITHUB_PR_LIST_TOOL_INPUT_SCHEMA = createToolInputSchema({
+  owner: z.string().min(1).max(MAX_PATH_LENGTH),
+  repo: z.string().min(1).max(MAX_PATH_LENGTH),
+  state: z.enum(["open", "closed", "all"]).optional(),
+  head: z.string().min(1).max(MAX_PATH_LENGTH).optional(),
+});
+
+const GITHUB_PR_CHECKS_GET_TOOL_INPUT_SCHEMA = createToolInputSchema({
+  owner: z.string().min(1).max(MAX_PATH_LENGTH),
+  repo: z.string().min(1).max(MAX_PATH_LENGTH),
+  number: z.number().int().positive(),
+});
+
+const GITHUB_REVIEW_THREADS_GET_TOOL_INPUT_SCHEMA = createToolInputSchema({
+  owner: z.string().min(1).max(MAX_PATH_LENGTH),
+  repo: z.string().min(1).max(MAX_PATH_LENGTH),
+  number: z.number().int().positive(),
+});
+
+const GITHUB_ISSUE_GET_TOOL_INPUT_SCHEMA = createToolInputSchema({
+  owner: z.string().min(1).max(MAX_PATH_LENGTH),
+  repo: z.string().min(1).max(MAX_PATH_LENGTH),
+  number: z.number().int().positive(),
+});
+
+const GITHUB_ACTIONS_RUN_GET_TOOL_INPUT_SCHEMA = createToolInputSchema({
+  owner: z.string().min(1).max(MAX_PATH_LENGTH),
+  repo: z.string().min(1).max(MAX_PATH_LENGTH),
+  actionsRunId: z.number().int().positive(),
+});
+
+const GITHUB_ACTIONS_JOB_LOGS_GET_TOOL_INPUT_SCHEMA = createToolInputSchema({
+  owner: z.string().min(1).max(MAX_PATH_LENGTH),
+  repo: z.string().min(1).max(MAX_PATH_LENGTH),
+  actionsJobId: z.number().int().positive(),
+  tailLines: z.number().int().min(1).max(2_000).optional(),
+});
+
 const GLOB_TOOL_INPUT_SCHEMA = createToolInputSchema({
   pattern: z.string().min(1).max(MAX_PATTERN_LENGTH),
   path: z.string().min(1).max(MAX_PATH_LENGTH).optional(),
@@ -168,6 +219,17 @@ export type GoldenFlowToolInputByName = {
   git_branch_switch: z.infer<typeof GIT_BRANCH_SWITCH_TOOL_INPUT_SCHEMA>;
   git_status: z.infer<typeof GIT_STATUS_TOOL_INPUT_SCHEMA>;
   git_diff: z.infer<typeof GIT_DIFF_TOOL_INPUT_SCHEMA>;
+  github_pr_list: z.infer<typeof GITHUB_PR_LIST_TOOL_INPUT_SCHEMA>;
+  github_pr_get: z.infer<typeof GITHUB_PR_GET_TOOL_INPUT_SCHEMA>;
+  github_pr_checks_get: z.infer<typeof GITHUB_PR_CHECKS_GET_TOOL_INPUT_SCHEMA>;
+  github_review_threads_get: z.infer<
+    typeof GITHUB_REVIEW_THREADS_GET_TOOL_INPUT_SCHEMA
+  >;
+  github_issue_get: z.infer<typeof GITHUB_ISSUE_GET_TOOL_INPUT_SCHEMA>;
+  github_actions_run_get: z.infer<typeof GITHUB_ACTIONS_RUN_GET_TOOL_INPUT_SCHEMA>;
+  github_actions_job_logs_get: z.infer<
+    typeof GITHUB_ACTIONS_JOB_LOGS_GET_TOOL_INPUT_SCHEMA
+  >;
   glob: z.infer<typeof GLOB_TOOL_INPUT_SCHEMA>;
   grep: z.infer<typeof GREP_TOOL_INPUT_SCHEMA>;
 };
@@ -260,6 +322,71 @@ const GOLDEN_FLOW_TOOL_SPECS: Record<GoldenFlowToolName, GoldenFlowToolSpec> = {
     description: "Get git diff for workspace changes.",
     parameters: GIT_DIFF_TOOL_INPUT_SCHEMA,
     route: { toolName: "git_diff", plugin: "git", action: "git_diff" },
+  },
+  github_pr_list: {
+    description:
+      "List remote GitHub pull requests, optionally filtered by state and head branch.",
+    parameters: GITHUB_PR_LIST_TOOL_INPUT_SCHEMA,
+    route: {
+      toolName: "github_pr_list",
+      plugin: "github",
+      action: "pr_list",
+    },
+  },
+  github_pr_get: {
+    description: "Get remote GitHub pull request metadata.",
+    parameters: GITHUB_PR_GET_TOOL_INPUT_SCHEMA,
+    route: {
+      toolName: "github_pr_get",
+      plugin: "github",
+      action: "pr_get",
+    },
+  },
+  github_pr_checks_get: {
+    description: "Get GitHub check runs for a pull request head commit.",
+    parameters: GITHUB_PR_CHECKS_GET_TOOL_INPUT_SCHEMA,
+    route: {
+      toolName: "github_pr_checks_get",
+      plugin: "github",
+      action: "pr_checks_get",
+    },
+  },
+  github_review_threads_get: {
+    description: "Get pull request review thread metadata from GitHub.",
+    parameters: GITHUB_REVIEW_THREADS_GET_TOOL_INPUT_SCHEMA,
+    route: {
+      toolName: "github_review_threads_get",
+      plugin: "github",
+      action: "review_threads_get",
+    },
+  },
+  github_issue_get: {
+    description: "Get remote GitHub issue metadata.",
+    parameters: GITHUB_ISSUE_GET_TOOL_INPUT_SCHEMA,
+    route: {
+      toolName: "github_issue_get",
+      plugin: "github",
+      action: "issue_get",
+    },
+  },
+  github_actions_run_get: {
+    description: "Get a GitHub Actions workflow run summary.",
+    parameters: GITHUB_ACTIONS_RUN_GET_TOOL_INPUT_SCHEMA,
+    route: {
+      toolName: "github_actions_run_get",
+      plugin: "github",
+      action: "actions_run_get",
+    },
+  },
+  github_actions_job_logs_get: {
+    description:
+      "Get the latest log tail for a GitHub Actions workflow job.",
+    parameters: GITHUB_ACTIONS_JOB_LOGS_GET_TOOL_INPUT_SCHEMA,
+    route: {
+      toolName: "github_actions_job_logs_get",
+      plugin: "github",
+      action: "actions_job_logs_get",
+    },
   },
   glob: {
     description: "Find files by glob pattern.",

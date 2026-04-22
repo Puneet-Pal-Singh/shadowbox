@@ -15,6 +15,16 @@ vi.mock("./useProviderStore.js", () => ({
   useProviderStore: () => ({
     status: "ready",
     credentials: [{ credentialId: "cred-axis", providerId: "axis" }],
+    selectedProviderId: "axis",
+    selectedCredentialId: "cred-axis",
+    selectedModelId: "z-ai/glm-4.5-air:free",
+    lastResolvedConfig: {
+      providerId: "axis",
+      credentialId: "cred-axis",
+      modelId: "z-ai/glm-4.5-air:free",
+      resolvedAt: "workspace_preference",
+      resolvedAtTime: new Date().toISOString(),
+    },
     resolveForChat: mockResolveForChat,
   }),
 }));
@@ -114,14 +124,6 @@ describe("useChatCore", () => {
   });
 
   it("sends explicit plan mode in request overrides", async () => {
-    mockResolveForChat.mockResolvedValue({
-      providerId: "axis",
-      credentialId: "cred-axis",
-      modelId: "z-ai/glm-4.5-air:free",
-      resolvedAt: "workspace_preference",
-      resolvedAtTime: new Date().toISOString(),
-    });
-
     const { result } = renderHook(() => useChatCore("session-1", undefined, "plan"));
 
     await act(async () => {
@@ -140,14 +142,6 @@ describe("useChatCore", () => {
   });
 
   it("includes selected product mode in request overrides", async () => {
-    mockResolveForChat.mockResolvedValue({
-      providerId: "axis",
-      credentialId: "cred-axis",
-      modelId: "z-ai/glm-4.5-air:free",
-      resolvedAt: "workspace_preference",
-      resolvedAtTime: new Date().toISOString(),
-    });
-
     const { result } = renderHook(() =>
       useChatCore("session-1", undefined, "build", "full_agent"),
     );
@@ -163,6 +157,25 @@ describe("useChatCore", () => {
           sessionId: "session-1",
           mode: "build",
           productMode: "full_agent",
+        }),
+      }),
+    );
+  });
+
+  it("skips provider resolve API call when selection already exists", async () => {
+    const { result } = renderHook(() => useChatCore("session-1"));
+
+    await act(async () => {
+      await result.current.append({ role: "user", content: "Fast path submit" });
+    });
+
+    expect(mockResolveForChat).not.toHaveBeenCalled();
+    expect(appendSpy).toHaveBeenCalledWith(
+      { role: "user", content: "Fast path submit" },
+      expect.objectContaining({
+        body: expect.objectContaining({
+          providerId: "axis",
+          modelId: "z-ai/glm-4.5-air:free",
         }),
       }),
     );

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useSessionManager } from "./hooks/useSessionManager";
 import { AgentSidebar } from "./components/layout/AgentSidebar";
@@ -20,6 +20,8 @@ import { RunContextProvider } from "./hooks/useRunContext";
 import { useProviderStore } from "./hooks/useProviderStore";
 import { usePendingApprovalStateBySession } from "./hooks/usePendingApprovalStateBySession";
 import { resolveShellStartupState } from "./lib/startup-shell-state";
+import { getBrainHttpBase } from "./lib/platform-endpoints";
+import { doesSessionContextMatchRepository } from "./lib/repository-context-match";
 import { LockedShellCard } from "./components/startup/LockedShellCard";
 import type { SetupSessionState } from "./types/session";
 import { StartupOnboardingOverlay } from "./components/onboarding/StartupOnboardingOverlay";
@@ -29,6 +31,36 @@ function buildOnboardingDismissedKey(userId: string | null): string {
     return "shadowbox:startup-onboarding:dismissed-state:anonymous";
   }
   return `shadowbox:startup-onboarding:dismissed-state:${userId}`;
+}
+
+const TERMINAL_RUN_STATUSES = new Set(["COMPLETED", "FAILED", "CANCELLED"]);
+const RUN_STATUS_RECONCILE_INTERVAL_MS = 12_000;
+interface RunSummaryStatusPayload {
+  status?: string | null;
+}
+
+function mapRunSummaryStatusToSessionStatus(
+  runStatus: string | null | undefined,
+): "completed" | "error" | null {
+  if (runStatus === "COMPLETED") {
+    return "completed";
+  }
+  if (runStatus === "FAILED" || runStatus === "CANCELLED") {
+    return "error";
+  }
+  return null;
+}
+
+async function fetchRunSummaryStatus(runId: string): Promise<string | null> {
+  const response = await fetch(
+    `${getBrainHttpBase()}/api/run/summary?runId=${encodeURIComponent(runId)}`,
+    { credentials: "include" },
+  );
+  if (!response.ok) {
+    return null;
+  }
+  const payload = (await response.json()) as RunSummaryStatusPayload;
+  return payload.status ?? null;
 }
 
 /**
@@ -88,6 +120,7 @@ function AppContent() {
         return null;
       }
     });
+  const lastSyncedGitHubSessionIdRef = useRef<string | null>(null);
 
   // Get active session for workspace rendering
   // Use memoized activeSession to avoid unnecessary re-renders
@@ -168,11 +201,29 @@ function AppContent() {
   useEffect(() => {
     if (!activeSessionId) return;
     if (!activeSession) return;
+    const sessionChanged = lastSyncedGitHubSessionIdRef.current !== activeSessionId;
+    lastSyncedGitHubSessionIdRef.current = activeSessionId;
 
     const sessionContext =
       SessionStateService.loadSessionGitHubContext(activeSessionId);
 
     if (sessionContext) {
+      if (
+        !doesSessionContextMatchRepository(activeSession.repository, {
+          fullName: sessionContext.fullName,
+          repoName: sessionContext.repoName,
+        })
+      ) {
+        console.warn(
+          `[App] Invalid session context for ${activeSessionId}. Expected ${activeSession.repository}, found ${sessionContext.fullName}. Clearing stale context.`,
+        );
+        SessionStateService.clearSessionGitHubContext(activeSessionId);
+        if (repo) {
+          clearContext();
+        }
+        return;
+      }
+
       // Reconstruct Repository object from stored context
       // Only include fields actually needed; others should be loaded on demand
       const storedRepo: Repository = {
@@ -193,15 +244,22 @@ function AppContent() {
         updated_at: new Date().toISOString(),
       };
 
-      // Update global context if it differs
-      if (
+      const hasCurrentBranch = branch.trim().length > 0;
+      const shouldHydrateFromSession =
+        sessionChanged ||
         repo?.full_name !== sessionContext.fullName ||
-        branch !== sessionContext.branch
-      ) {
+        !hasCurrentBranch;
+
+      if (shouldHydrateFromSession) {
         console.log(
           `[App] Switching GitHub context to session ${activeSessionId}: ${sessionContext.fullName}`,
         );
         setContext(storedRepo, sessionContext.branch);
+      } else if (branch !== sessionContext.branch) {
+        SessionStateService.saveSessionGitHubContext(activeSessionId, {
+          ...sessionContext,
+          branch,
+        });
       }
     } else {
       // No stored context for this session.
@@ -260,6 +318,62 @@ function AppContent() {
     );
     return Object.fromEntries(nextEntries);
   }, [approvalStatesBySessionId, sessions]);
+  const runningSessions = useMemo(
+    () => sessions.filter((session) => session.status === "running"),
+    [sessions],
+  );
+
+  useEffect(() => {
+    if (!isAuthenticated || runningSessions.length === 0) {
+      return;
+    }
+
+    let cancelled = false;
+    const reconcile = async (): Promise<void> => {
+      const updates = await Promise.all(
+        runningSessions.map(async (session) => {
+          try {
+            const runStatus = await fetchRunSummaryStatus(session.activeRunId);
+            if (!runStatus || !TERMINAL_RUN_STATUSES.has(runStatus)) {
+              return null;
+            }
+
+            return {
+              sessionId: session.id,
+              status: mapRunSummaryStatusToSessionStatus(runStatus),
+            };
+          } catch (error) {
+            console.warn(
+              `[App] Failed to reconcile run status for session ${session.id}`,
+              error,
+            );
+            return null;
+          }
+        }),
+      );
+
+      if (cancelled) {
+        return;
+      }
+
+      updates.forEach((update) => {
+        if (!update?.status) {
+          return;
+        }
+        updateSession(update.sessionId, { status: update.status });
+      });
+    };
+
+    void reconcile();
+    const intervalId = window.setInterval(() => {
+      void reconcile();
+    }, RUN_STATUS_RECONCILE_INTERVAL_MS);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [isAuthenticated, runningSessions, updateSession]);
 
   useEffect(() => {
     localStorage.setItem(
@@ -712,6 +826,9 @@ function AppContent() {
                   mode={activeSession?.mode}
                   onModeChange={(mode) =>
                     updateSession(activeSessionId, { mode })
+                  }
+                  onSessionStatusChange={(status) =>
+                    updateSession(activeSessionId, { status })
                   }
                   onPendingApprovalStateChange={(hasPendingApproval) => {
                     handlePendingApprovalStateChange(

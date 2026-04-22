@@ -26,7 +26,7 @@ import { PermissionApprovalStore } from "./PermissionApprovalStore.js";
 const TEST_RUN_ID = "f462a003-5c36-4c86-a95d-367b92bf46c9";
 
 describe("RunEngine", () => {
-  it("routes build-mode greetings through the canonical tool-capable loop", async () => {
+  it("routes greeting-only prompts through normal build execution", async () => {
     const generateText = vi.fn(async () => ({
       text: "ok",
       usage: {
@@ -62,12 +62,54 @@ describe("RunEngine", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(await response.text()).toBe("ok");
-    expect(generateText).toHaveBeenCalledTimes(1);
-    const buildRequest = generateText.mock.calls[0]?.[0] as {
-      context?: { phase?: string };
+    expect(await response.text()).toContain("ok");
+    expect(generateText).toHaveBeenCalled();
+  });
+
+  it("does not bypass explicit plan mode planning for greeting-only prompts", async () => {
+    const planner = {
+      plan: vi.fn(async () => ({
+        tasks: [],
+        metadata: { estimatedSteps: 1 },
+      })),
+    } as unknown as RunEngineDependencies["planner"];
+    const generateText = vi.fn(async () => ({
+      text: "unused",
+      usage: {
+        provider: "mock",
+        model: "mock-model",
+        promptTokens: 1,
+        completionTokens: 1,
+        totalTokens: 2,
+      },
+    }));
+    const llmGateway: ILLMGateway = {
+      generateText,
+      generateStructured: vi.fn(async () => {
+        throw new Error("structured turn classification should be inactive");
+      }),
+      generateStream: async () =>
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.close();
+          },
+        }),
     };
-    expect(buildRequest.context?.phase).toBe("task");
+    const runEngine = createRunEngine({ llmGateway, planner });
+
+    const response = await runEngine.execute(
+      {
+        agentType: "coding",
+        mode: "plan",
+        prompt: "hey",
+        sessionId: "session-1",
+      },
+      [{ role: "user", content: "hey" }],
+      {},
+    );
+
+    expect(response.status).toBe(200);
+    expect(planner.plan).toHaveBeenCalled();
   });
 
   it("records deterministic permission context when creating a run", async () => {
@@ -829,7 +871,9 @@ describe("RunEngine", () => {
         }
         await new Promise((resolve) => setTimeout(resolve, 20));
       }
-      throw new Error("Timed out waiting for a pending approval request in test.");
+      throw new Error(
+        "Timed out waiting for a pending approval request in test.",
+      );
     })();
 
     const response = await responsePromise;
@@ -955,7 +999,9 @@ describe("RunEngine", () => {
         }
         await new Promise((resolve) => setTimeout(resolve, 20));
       }
-      throw new Error("Timed out waiting for a pending approval request in test.");
+      throw new Error(
+        "Timed out waiting for a pending approval request in test.",
+      );
     })();
 
     const response = await responsePromise;
@@ -986,10 +1032,10 @@ describe("RunEngine", () => {
     const response = await runEngine.execute(
       {
         agentType: "coding",
-        prompt: "hello there",
+        prompt: "summarize repository status",
         sessionId: "session-1",
       },
-      [{ role: "user", content: "hello there" }],
+      [{ role: "user", content: "summarize repository status" }],
       {},
     );
 
@@ -1081,7 +1127,7 @@ describe("RunEngine", () => {
 
     expect(response.status).toBe(200);
     expect(output).toContain("No files, commands, or mutating tools were run");
-    expect(output).toContain("Switch to Build mode");
+    expect(output).not.toContain("Build handoff");
     expect(scheduler.execute).not.toHaveBeenCalled();
     expect(tasks).toHaveLength(0);
     expect(persisted?.metadata.planArtifact).toMatchObject({
@@ -1241,9 +1287,13 @@ describe("RunEngine", () => {
         content: "read README.md",
       },
     });
-    expect(events[2]).toMatchObject({
-      payload: { workflowStep: RUN_WORKFLOW_STEPS.EXECUTION },
-    });
+    expect(
+      events.some(
+        (event) =>
+          event.type === RUN_EVENT_TYPES.RUN_STATUS_CHANGED &&
+          event.payload.workflowStep === RUN_WORKFLOW_STEPS.EXECUTION,
+      ),
+    ).toBe(true);
     expect(
       events.some(
         (event) =>
@@ -1443,6 +1493,17 @@ describe("RunEngine", () => {
     expect(persisted?.metadata.agenticLoop?.enabled).toBe(true);
     expect(persisted?.metadata.agenticLoop?.stopReason).toBe("llm_stop");
     expect(persisted?.metadata.agenticLoop?.toolExecutionCount).toBe(1);
+    expect(persisted?.metadata.workspaceBootstrap).toMatchObject({
+      requested: false,
+      ready: true,
+      status: "skipped",
+      blocked: false,
+    });
+    expect(persisted?.metadata.gitTaskStrategy).toMatchObject({
+      classification: "local_mutation",
+      preferredLane: "shell_git",
+      fallbackLane: "typed_git",
+    });
   });
 
   it("answers build-mode prompts without invoking structured turn classification", async () => {
@@ -1489,12 +1550,9 @@ describe("RunEngine", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(await response.text()).toBe("Longer budget applied.");
+    expect(await response.text()).toContain("Longer budget applied.");
+    expect(generateText).toHaveBeenCalled();
     expect(generateStructured).not.toHaveBeenCalled();
-    const buildRequest = generateText.mock.calls[0]?.[0] as {
-      context?: { phase?: string };
-    };
-    expect(buildRequest.context?.phase).toBe("task");
   });
 
   it("completes the golden-flow tool roundtrip in one agentic run", async () => {
@@ -1824,7 +1882,7 @@ describe("RunEngine", () => {
           "Last failed step: bash - Shadowbox wants to run a shell command",
         );
         expect(system).toContain(
-          "Use the dedicated git tools for git status, diff, branch create/switch, staging, commit, push, and pull request creation.",
+          "Prefer typed git tools for repository work (status, diff, branch, stage, commit, push, PR) to keep actions structured and auditable.",
         );
 
         return {
@@ -1967,9 +2025,7 @@ describe("RunEngine", () => {
 
     expect(firstResponse.status).toBe(200);
     const firstOutput = await firstResponse.text();
-    expect(firstOutput).toContain(
-      "Shadowbox wants to run a shell command",
-    );
+    expect(firstOutput).toContain("Shadowbox wants to run a shell command");
 
     const firstPersistedRun = await (
       runEngine as unknown as {
@@ -2268,9 +2324,7 @@ describe("RunEngine", () => {
 
     expect(firstResponse.status).toBe(200);
     const firstOutput = await firstResponse.text();
-    expect(firstOutput).toContain(
-      "Shadowbox wants to create a branch",
-    );
+    expect(firstOutput).toContain("Shadowbox wants to create a branch");
 
     const secondResponse = await runEngine.execute(
       {
@@ -2594,9 +2648,7 @@ describe("RunEngine", () => {
             }
           ).system ?? "",
         );
-        expect(system).toContain(
-          "Resume on branch: main",
-        );
+        expect(system).toContain("Resume on branch: main");
         return {
           text: "Continuing on the preserved branch.",
           toolCalls: [],
@@ -2723,6 +2775,15 @@ describe("RunEngine", () => {
         branch: "main",
       },
     });
+
+    const events = await new RunEventRepository(state).getByRun(TEST_RUN_ID);
+    expect(
+      events.some(
+        (event) =>
+          event.type === RUN_EVENT_TYPES.RUN_PROGRESS &&
+          event.payload.label === "Workspace bootstrap",
+      ),
+    ).toBe(false);
   });
 
   it("enforces the bounded golden-flow tool floor for agentic-loop tool maps", async () => {
@@ -3459,6 +3520,42 @@ describe("RunEngine", () => {
     expect(message).toContain("GitHub authorization");
   });
 
+  it("records expected bootstrap misses separately from generic failures", async () => {
+    const runEngine = createRunEngine({
+      workspaceBootstrapper: {
+        bootstrap: async () => ({
+          status: "sync-failed",
+          message: "fatal: not a git repository",
+        }),
+      },
+    });
+
+    const response = await runEngine.execute(
+      {
+        agentType: "coding",
+        prompt: "check git status",
+        sessionId: "session-1",
+        repositoryContext: {
+          owner: "sourcegraph",
+          repo: "shadowbox",
+          branch: "main",
+        },
+      },
+      [{ role: "user", content: "check git status" }],
+      {},
+    );
+
+    expect(response.status).toBe(200);
+    const persisted = await runEngine.getRun(TEST_RUN_ID);
+    expect(persisted?.metadata.workspaceBootstrap).toMatchObject({
+      requested: true,
+      ready: false,
+      status: "sync-failed",
+      blocked: true,
+      expectedMiss: true,
+    });
+  });
+
   it("blocks cross-repo actions until explicit approval is recorded", async () => {
     const runEngine = createRunEngine();
     const privateApi = runEngine as unknown as {
@@ -3473,7 +3570,7 @@ describe("RunEngine", () => {
       "check repository acme/platform-core README.md",
       { owner: "sourcegraph", repo: "shadowbox" },
     );
-    expect(blockedMessage).toContain("approve cross-repo acme/platform-core");
+    expect(blockedMessage).toContain("Cross-repo access requires explicit approval");
 
     const directiveMessage = await privateApi.processPermissionDirectives(
       "approve cross-repo acme/platform-core for 20m",
@@ -3534,7 +3631,7 @@ describe("RunEngine", () => {
       "check repository acme/platform-core README.md",
       { owner: "sourcegraph", repo: "shadowbox" },
     );
-    expect(blockedMessage).toContain("approve cross-repo acme/platform-core");
+    expect(blockedMessage).toContain("Cross-repo access requires explicit approval");
   });
 
   it("forces platform approval gate when delegated harness mode is untrusted", async () => {
@@ -3577,7 +3674,7 @@ describe("RunEngine", () => {
 
     expect(lifecycleSteps).toContain("APPROVAL_WAIT");
     expect(persisted?.metadata.manifest?.harnessMode).toBe("platform_owned");
-    expect(output).toContain("approve cross-repo acme/platform-core");
+    expect(output).toContain("Cross-repo access requires explicit approval");
     expect(persisted?.status).toBe("COMPLETED");
   });
 

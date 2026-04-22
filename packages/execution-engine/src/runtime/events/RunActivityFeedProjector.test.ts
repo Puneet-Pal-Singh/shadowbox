@@ -8,7 +8,7 @@ import {
 import { projectRunActivityFeed } from "./RunActivityFeedProjector.js";
 
 describe("RunActivityFeedProjector", () => {
-  it("projects reasoning, shell tool, approval, and handoff activity parts", () => {
+  it("projects reasoning, shell tool, and approval activity parts", () => {
     const snapshot = projectRunActivityFeed({
       runId: "run-1",
       run: {
@@ -91,7 +91,7 @@ describe("RunActivityFeedProjector", () => {
     ).toBe(true);
     expect(
       snapshot.items.some((item) => item.kind === ACTIVITY_PART_KINDS.HANDOFF),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it("appends bounded shell output deltas onto the same bash row", () => {

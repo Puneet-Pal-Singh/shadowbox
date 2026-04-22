@@ -2,6 +2,7 @@ import { Fragment, useMemo, useState } from "react";
 import {
   ChevronDown,
   ChevronRight,
+  Ellipsis,
   MessageSquareText,
   Plus,
   Rows3,
@@ -9,6 +10,8 @@ import {
 } from "lucide-react";
 import type { DiffContent, DiffHunk, DiffLine as DiffLineType } from "@repo/shared-types";
 import DiffLine from "./DiffLine";
+import { DiffCodeText } from "./DiffCodeText";
+import { resolveDiffLanguage } from "./resolveDiffLanguage";
 
 interface DiffViewerProps {
   diff: DiffContent;
@@ -33,6 +36,8 @@ export function DiffViewer({ diff, className = "" }: DiffViewerProps) {
     new Set(diff.hunks.map((_: DiffHunk, index: number) => index)),
   );
   const [layout, setLayout] = useState<"stacked" | "split">("stacked");
+  const [wordWrap, setWordWrap] = useState(false);
+  const [showViewMenu, setShowViewMenu] = useState(false);
   const [selectionAnchor, setSelectionAnchor] = useState<string | null>(null);
   const [selectedRowKeys, setSelectedRowKeys] = useState<string[]>([]);
   const [annotationDraft, setAnnotationDraft] = useState("");
@@ -80,6 +85,10 @@ export function DiffViewer({ diff, className = "" }: DiffViewerProps) {
         0,
       ),
     [diff.hunks],
+  );
+  const language = useMemo(
+    () => resolveDiffLanguage(diff.newPath || diff.oldPath),
+    [diff.newPath, diff.oldPath],
   );
   const deletions = useMemo(
     () =>
@@ -192,6 +201,36 @@ export function DiffViewer({ diff, className = "" }: DiffViewerProps) {
             </div>
 
             <div className="flex items-center gap-2 text-xs">
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setShowViewMenu((previous) => !previous)}
+                  className="inline-flex items-center gap-2 rounded-md border border-zinc-800 px-2.5 py-1 text-zinc-300 transition-colors hover:border-zinc-700 hover:bg-zinc-900 hover:text-white"
+                  aria-haspopup="menu"
+                  aria-expanded={showViewMenu}
+                  aria-label="Diff view options"
+                >
+                  <Ellipsis size={14} />
+                </button>
+                {showViewMenu ? (
+                  <div
+                    role="menu"
+                    className="absolute right-0 top-9 z-20 min-w-48 rounded-xl border border-zinc-800 bg-zinc-950 p-1.5 shadow-2xl"
+                  >
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setWordWrap((previous) => !previous);
+                        setShowViewMenu(false);
+                      }}
+                      className="w-full rounded-lg px-3 py-2 text-left text-sm text-zinc-200 transition-colors hover:bg-zinc-900 hover:text-white"
+                    >
+                      {wordWrap ? "Disable word wrap" : "Enable word wrap"}
+                    </button>
+                  </div>
+                ) : null}
+              </div>
               <button
                 type="button"
                 onClick={() => setLayout("split")}
@@ -245,6 +284,8 @@ export function DiffViewer({ diff, className = "" }: DiffViewerProps) {
                       <StackedHunkView
                         hunk={hunk}
                         hunkIndex={hunkIndex}
+                        language={language}
+                        wrap={wordWrap}
                         selectedRowKeys={selectedRowKeys}
                         annotationDraft={annotationDraft}
                         annotationsByAnchor={annotationsByAnchor}
@@ -261,6 +302,8 @@ export function DiffViewer({ diff, className = "" }: DiffViewerProps) {
                       <SplitHunkView
                         hunk={hunk}
                         hunkIndex={hunkIndex}
+                        language={language}
+                        wrap={wordWrap}
                         selectedRowKeys={selectedRowKeys}
                         annotationDraft={annotationDraft}
                         annotationsByAnchor={annotationsByAnchor}
@@ -288,6 +331,8 @@ export function DiffViewer({ diff, className = "" }: DiffViewerProps) {
 interface StackedHunkViewProps {
   hunk: DiffHunk;
   hunkIndex: number;
+  language: string;
+  wrap: boolean;
   selectedRowKeys: string[];
   annotationDraft: string;
   annotationsByAnchor: Map<string, DiffAnnotation[]>;
@@ -307,6 +352,8 @@ interface StackedHunkViewProps {
 function StackedHunkView({
   hunk,
   hunkIndex,
+  language,
+  wrap,
   selectedRowKeys,
   annotationDraft,
   annotationsByAnchor,
@@ -333,6 +380,8 @@ function StackedHunkView({
               line={line}
               hunksIndex={hunkIndex}
               lineIndex={lineIndex}
+              language={language}
+              wrap={wrap}
               isSelected={selectedRowKeys.includes(rowKey)}
               annotationCount={annotationCounts.get(rowKey) ?? 0}
               onClick={(event) => onRowSelect(rowKey, event)}
@@ -368,6 +417,8 @@ function StackedHunkView({
 interface SplitHunkViewProps {
   hunk: DiffHunk;
   hunkIndex: number;
+  language: string;
+  wrap: boolean;
   selectedRowKeys: string[];
   annotationDraft: string;
   annotationsByAnchor: Map<string, DiffAnnotation[]>;
@@ -387,6 +438,8 @@ interface SplitHunkViewProps {
 function SplitHunkView({
   hunk,
   hunkIndex,
+  language,
+  wrap,
   selectedRowKeys,
   annotationDraft,
   annotationsByAnchor,
@@ -406,7 +459,13 @@ function SplitHunkView({
   );
 
   return (
-    <div className="grid grid-cols-2 divide-x divide-zinc-800">
+    <div
+      className={`grid divide-x divide-zinc-800 ${
+        wrap
+          ? "w-full grid-cols-2"
+          : "min-w-full w-max grid-cols-[max-content_max-content]"
+      }`}
+    >
       {rows.map((row) => {
         const isSelected = row.rowKeys.some((rowKey) => selectedRowKeys.includes(rowKey));
         const annotationCount = row.rowKeys.reduce(
@@ -421,6 +480,8 @@ function SplitHunkView({
             <SplitDiffCell
               line={row.left}
               side="left"
+              language={language}
+              wrap={wrap}
               isSelected={isSelected}
               annotationCount={annotationCount}
               onClick={(event) => onRowSelect(row.key, event)}
@@ -432,6 +493,8 @@ function SplitHunkView({
             <SplitDiffCell
               line={row.right}
               side="right"
+              language={language}
+              wrap={wrap}
               isSelected={isSelected}
               annotationCount={annotationCount}
               onClick={(event) => onRowSelect(row.key, event)}
@@ -473,6 +536,8 @@ function SplitHunkView({
 interface SplitDiffCellProps {
   line: DiffLineType | null;
   side: "left" | "right";
+  language: string;
+  wrap: boolean;
   isSelected: boolean;
   annotationCount: number;
   onClick: (event: React.MouseEvent<HTMLDivElement>) => void;
@@ -482,6 +547,8 @@ interface SplitDiffCellProps {
 function SplitDiffCell({
   line,
   side,
+  language,
+  wrap,
   isSelected,
   annotationCount,
   onClick,
@@ -509,17 +576,22 @@ function SplitDiffCell({
 
   const background =
     line.type === "added"
-      ? "bg-emerald-500/10"
+      ? "bg-emerald-500/16"
       : line.type === "deleted"
-        ? "bg-red-500/10"
+        ? "bg-rose-500/16"
         : "bg-black";
   const textColor =
     line.type === "added"
-      ? "text-emerald-300"
+      ? "text-emerald-200"
       : line.type === "deleted"
-        ? "text-red-300"
+        ? "text-rose-200"
         : "text-zinc-300";
-  const marker = line.type === "added" ? "+" : line.type === "deleted" ? "-" : " ";
+  const borderColor =
+    line.type === "added"
+      ? "border-l-emerald-400"
+      : line.type === "deleted"
+        ? "border-l-rose-400"
+        : "border-l-transparent";
   const lineNumber = side === "left" ? line.oldLineNumber : line.newLineNumber;
 
   return (
@@ -534,9 +606,11 @@ function SplitDiffCell({
       role="button"
       tabIndex={0}
       aria-pressed={isSelected}
-      className={`group relative flex min-h-8 border-b border-zinc-900/80 font-mono text-sm ${
+      className={`group relative flex min-h-8 min-w-full border-b border-l-2 border-zinc-900/80 font-mono text-sm ${
+        wrap ? "w-full" : "w-max"
+      } ${
         isSelected ? "ring-1 ring-inset ring-sky-500/50" : ""
-      } ${background}`}
+      } ${background} ${borderColor}`}
     >
       <div className="absolute left-0 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2">
         <button
@@ -554,8 +628,7 @@ function SplitDiffCell({
         {lineNumber ?? ""}
       </div>
       <div className={`flex-1 px-3 py-1 ${textColor}`}>
-        <span className="mr-1 select-none">{marker}</span>
-        <span className="break-all">{line.content}</span>
+        <DiffCodeText content={line.content} language={language} wrap={wrap} />
       </div>
       {annotationCount > 0 ? (
         <div className="mr-3 flex items-center text-[10px] uppercase tracking-[0.16em] text-amber-300">

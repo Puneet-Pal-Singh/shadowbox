@@ -238,7 +238,7 @@ describe("ProviderStore", () => {
       expect(store.setActiveRunId("run-1")).toBe(false);
     });
 
-    it("preserves workspace-global state across run switches", async () => {
+  it("preserves workspace-global state across run switches", async () => {
       store.setActiveRunId("run-1");
       await store.bootstrap();
       await store.loadProviderModels("openai");
@@ -255,8 +255,26 @@ describe("ProviderStore", () => {
       expect(state.selectedModelId).toBe("gpt-4");
       expect(mockApiClient.getCatalog).toHaveBeenCalledTimes(1);
       expect(mockApiClient.getCredentials).toHaveBeenCalledTimes(1);
-      expect(mockApiClient.getPreferences).toHaveBeenCalledTimes(1);
+    expect(mockApiClient.getPreferences).toHaveBeenCalledTimes(1);
+  });
+
+  it("carries forward the latest run selection when switching to a new run in-session", async () => {
+    store.setActiveRunId("run-1");
+    await store.bootstrap();
+
+    await store.applySessionSelection({
+      providerId: "openai",
+      credentialId: credential1Id,
+      modelId: "gpt-4-turbo",
     });
+
+    expect(store.setActiveRunId("run-2")).toBe(false);
+
+    const state = store.getState();
+    expect(state.selectedProviderId).toBe("openai");
+    expect(state.selectedCredentialId).toBe(credential1Id);
+    expect(state.selectedModelId).toBe("gpt-4-turbo");
+  });
 
     it("allows workspace-global model loads to complete after a run switch", async () => {
       const deferred = createDeferred<{

@@ -80,6 +80,10 @@ export interface CreatePullRequestParams {
   base: string;
 }
 
+const MAX_GITHUB_PER_PAGE = 100;
+const DEFAULT_BRANCHES_PER_PAGE = 100;
+const MAX_BRANCH_PAGES = 10;
+
 export class GitHubAPIClient {
   private accessToken: string;
   private baseUrl = "https://api.github.com";
@@ -128,8 +132,25 @@ export class GitHubAPIClient {
   /**
    * List branches for a repository
    */
-  async listBranches(owner: string, repo: string): Promise<Branch[]> {
-    return this.request(`/repos/${owner}/${repo}/branches`);
+  async listBranches(
+    owner: string,
+    repo: string,
+    perPage: number = DEFAULT_BRANCHES_PER_PAGE,
+  ): Promise<Branch[]> {
+    const safePerPage = normalizePageSize(perPage);
+    const branches: Branch[] = [];
+
+    for (let page = 1; page <= MAX_BRANCH_PAGES; page += 1) {
+      const pageBranches = await this.request<Branch[]>(
+        `/repos/${owner}/${repo}/branches?per_page=${safePerPage}&page=${page}`,
+      );
+      branches.push(...pageBranches);
+      if (pageBranches.length < safePerPage) {
+        break;
+      }
+    }
+
+    return branches;
   }
 
   /**
@@ -189,9 +210,10 @@ export class GitHubAPIClient {
   ): Promise<
     Array<{ path: string; type: string; sha: string; size?: number }>
   > {
+    const encodedSha = encodeURIComponent(sha);
     const response = await this.request<{
       tree: Array<{ path: string; type: string; sha: string; size?: number }>;
-    }>(`/repos/${owner}/${repo}/git/trees/${sha}?recursive=1`);
+    }>(`/repos/${owner}/${repo}/git/trees/${encodedSha}?recursive=1`);
 
     return response.tree;
   }
@@ -222,8 +244,9 @@ export class GitHubAPIClient {
     repo: string,
     branch: string,
   ): Promise<string> {
+    const encodedBranch = encodeURIComponent(branch);
     const response = await this.request<{ object: { sha: string } }>(
-      `/repos/${owner}/${repo}/git/refs/heads/${branch}`,
+      `/repos/${owner}/${repo}/git/refs/heads/${encodedBranch}`,
     );
     return response.object.sha;
   }
@@ -249,8 +272,21 @@ export class GitHubAPIClient {
     owner: string,
     repo: string,
     state: "open" | "closed" | "all" = "open",
+    options: {
+      head?: string;
+      perPage?: number;
+    } = {},
   ): Promise<PullRequest[]> {
-    return this.request(`/repos/${owner}/${repo}/pulls?state=${state}`);
+    const query = new URLSearchParams();
+    query.set("state", state);
+    query.set(
+      "per_page",
+      String(normalizePageSize(options.perPage ?? DEFAULT_BRANCHES_PER_PAGE)),
+    );
+    if (options.head) {
+      query.set("head", `${owner}:${options.head}`);
+    }
+    return this.request(`/repos/${owner}/${repo}/pulls?${query.toString()}`);
   }
 
   /**
@@ -270,4 +306,11 @@ export class GitHubAPIClient {
   async listEmails(): Promise<GitHubEmail[]> {
     return this.request("/user/emails");
   }
+}
+
+function normalizePageSize(value: number): number {
+  if (!Number.isFinite(value) || value <= 0) {
+    return DEFAULT_BRANCHES_PER_PAGE;
+  }
+  return Math.min(MAX_GITHUB_PER_PAGE, Math.floor(value));
 }

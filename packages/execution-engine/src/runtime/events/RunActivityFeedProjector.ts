@@ -3,7 +3,6 @@ import {
   ACTIVITY_PART_KINDS,
   COMMENTARY_ACTIVITY_PHASES,
   COMMENTARY_ACTIVITY_STATUSES,
-  HANDOFF_ACTIVITY_STATUSES,
   MESSAGE_TRANSCRIPT_PHASES,
   REASONING_ACTIVITY_STATUSES,
   RUN_EVENT_TYPES,
@@ -14,7 +13,6 @@ import {
   type ActivityPart,
   type ApprovalActivityPart,
   type CommentaryActivityPart,
-  type HandoffActivityPart,
   type ReasoningActivityPart,
   type RunEvent,
   type ToolActivityMetadata,
@@ -109,11 +107,6 @@ export function projectRunActivityFeed(
   if (approvalParts.size === 0) {
     items.push(...createApprovalParts(run, currentTurnId));
   }
-  const handoffPart = createHandoffPart(run, currentTurnId);
-  if (handoffPart) {
-    items.push(handoffPart);
-  }
-
   return {
     runId,
     sessionId: run?.sessionId,
@@ -527,35 +520,6 @@ function createApprovalParts(
     }));
 }
 
-function createHandoffPart(
-  run: Pick<SerializedRun, "id" | "sessionId" | "status" | "metadata"> | null,
-  turnId: string | undefined,
-): HandoffActivityPart | null {
-  const handoff = run?.metadata.planArtifact?.handoff;
-  if (!handoff) {
-    return null;
-  }
-  const timestamp =
-    run?.metadata.planArtifact?.createdAt ??
-    run?.metadata.completedAt ??
-    UNKNOWN_ACTIVITY_TIMESTAMP;
-
-  return {
-    id: `${run?.id ?? "run"}:handoff`,
-    runId: run?.id ?? "",
-    sessionId: run?.sessionId,
-    turnId,
-    kind: ACTIVITY_PART_KINDS.HANDOFF,
-    createdAt: timestamp,
-    updatedAt: timestamp,
-    source: "brain",
-    targetMode: handoff.targetMode,
-    summary: handoff.summary,
-    prompt: handoff.prompt,
-    status: HANDOFF_ACTIVITY_STATUSES.READY,
-  };
-}
-
 function buildToolMetadata(
   toolName: string,
   input: Record<string, unknown> | undefined,
@@ -626,6 +590,13 @@ function buildToolMetadata(
     case "git_branch_switch":
     case "git_status":
     case "git_diff":
+    case "github_pr_list":
+    case "github_pr_get":
+    case "github_pr_checks_get":
+    case "github_review_threads_get":
+    case "github_issue_get":
+    case "github_actions_run_get":
+    case "github_actions_job_logs_get":
       return buildGitMetadata(
         input,
         outputText,

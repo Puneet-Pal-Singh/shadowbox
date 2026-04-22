@@ -156,6 +156,7 @@ export function ChatInterface({
   const [dismissedApprovalRequestId, setDismissedApprovalRequestId] = useState<
     string | null
   >(null);
+  const [activityNowMs, setActivityNowMs] = useState(() => Date.now());
   const { providerModels } = useProviderStore(runId);
 
   const messageMetadataById = useMemo(() => {
@@ -171,8 +172,8 @@ export function ChatInterface({
     [events],
   );
   const activityViewModel = useMemo(
-    () => buildActivityFeedViewModel(feed),
-    [feed],
+    () => buildActivityFeedViewModel(feed, activityNowMs),
+    [feed, activityNowMs],
   );
   const conversationTurns = useMemo(
     () => buildConversationTurns(messages),
@@ -183,6 +184,20 @@ export function ChatInterface({
     setExpandedActivityTurns({});
     setExpandedActivityRows({});
   }, [runId]);
+
+  useEffect(() => {
+    if (feed?.status !== "RUNNING") {
+      return;
+    }
+
+    const timerId = window.setInterval(() => {
+      setActivityNowMs(Date.now());
+    }, 1_000);
+
+    return () => {
+      window.clearInterval(timerId);
+    };
+  }, [feed?.status]);
 
   const handleInputChangeWrapper = useCallback(
     (value: string) => {
@@ -493,7 +508,7 @@ export function ChatInterface({
 
           {/* Loading indicator */}
           {isLoading && !activeInlineTurn && (
-            <div className="px-4 py-2 text-sm font-medium text-zinc-500">
+            <div className="py-2 text-sm font-medium text-zinc-500">
               <span className="bg-[linear-gradient(90deg,rgba(113,113,122,0.9)_0%,rgba(228,228,231,0.95)_45%,rgba(113,113,122,0.9)_100%)] bg-[length:220%_100%] bg-clip-text text-transparent animate-shimmer">
                 Thinking
               </span>

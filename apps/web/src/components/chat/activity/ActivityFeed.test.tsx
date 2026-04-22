@@ -70,6 +70,7 @@ describe("ActivityFeed", () => {
     expect(
       screen.queryByRole("button", { name: /worked for/i }),
     ).not.toBeInTheDocument();
+    expect(screen.getByText(/working for/i)).toBeInTheDocument();
     expect(screen.getByText("Analyzing repository")).toBeInTheDocument();
     expect(
       screen.getByText("Inspecting the repository before the next tool call."),

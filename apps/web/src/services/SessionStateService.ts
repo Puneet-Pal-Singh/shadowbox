@@ -232,7 +232,26 @@ export class SessionStateService {
     try {
       const key = getSessionContextKey(sessionId);
       const stored = localStorage.getItem(key);
-      return stored ? (JSON.parse(stored) as SessionGitHubContext) : null;
+      if (!stored) {
+        return null;
+      }
+
+      const parsed = JSON.parse(stored) as Partial<SessionGitHubContext>;
+      if (
+        typeof parsed.repoOwner !== "string" ||
+        typeof parsed.repoName !== "string" ||
+        typeof parsed.fullName !== "string" ||
+        typeof parsed.branch !== "string"
+      ) {
+        return null;
+      }
+
+      return {
+        repoOwner: parsed.repoOwner,
+        repoName: parsed.repoName,
+        fullName: parsed.fullName,
+        branch: parsed.branch,
+      };
     } catch (e) {
       console.error(
         "[SessionStateService] Failed to load GitHub context for session:",

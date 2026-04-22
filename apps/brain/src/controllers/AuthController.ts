@@ -19,6 +19,7 @@ import {
 import {
   extractSessionToken,
   getAuthenticatedUserSession,
+  isSessionStoreUnavailableError,
   verifySessionToken,
 } from "../services/AuthService";
 import {
@@ -268,6 +269,14 @@ export class AuthController {
       });
     } catch (error) {
       console.error("[auth/session] error:", error);
+      if (isSessionStoreUnavailableError(error)) {
+        return errorResponse(
+          request,
+          env,
+          "Session store is temporarily unavailable. Please retry.",
+          503,
+        );
+      }
       return errorResponse(request, env, "Failed to get session", 500);
     }
   }
@@ -333,4 +342,3 @@ function createSessionCookie(token: string): string {
   // Secure is usually required for HttpOnly in modern browsers even on localhost
   return `shadowbox_session=${token}; Path=/; Max-Age=604800; HttpOnly; Secure; SameSite=Lax`;
 }
-

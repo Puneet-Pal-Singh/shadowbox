@@ -64,8 +64,10 @@ type GitPayload = z.infer<typeof GitPayloadSchema>;
 const SAFE_GIT_REF_REGEX = /^[A-Za-z0-9._/-]{1,200}$/;
 const CLONE_DESTINATION_NOT_EMPTY_PATTERN =
   /destination path .* already exists and is not an empty directory/i;
+const BRANCH_PATHSPEC_MISSING_PATTERN =
+  /pathspec .* did not match any file(?:\(s\))? known to git/i;
 const MISSING_GIT_AUTHOR_ERROR =
-  "Git commit author is not configured. Set git user.name and user.email for this workspace before committing.";
+  "Git commit author is not configured for this workspace commit request.";
 const WRITE_GIT_AUTHOR_ERROR =
   "Git commit author could not be written to this workspace before committing.";
 
@@ -126,6 +128,7 @@ export class GitPlugin implements IPlugin {
             parsed.files,
             parsed.authorName,
             parsed.authorEmail,
+            parsed.token,
             toolboxContext,
             runId,
           );
@@ -480,7 +483,7 @@ export class GitPlugin implements IPlugin {
       "--unified=999999",
     ];
     if (staged) {
-      args.push("--staged");
+      args.push("--cached");
     }
     if (filePath) {
       args.push(validateRepoRelativePath(filePath));
@@ -620,6 +623,7 @@ export class GitPlugin implements IPlugin {
     files: string[] | undefined,
     authorName: string | undefined,
     authorEmail: string | undefined,
+    token: string | undefined,
     toolboxContext: ReturnType<typeof readToolboxCommandContext>,
     runId: string,
   ): Promise<PluginResult> {
@@ -651,6 +655,7 @@ export class GitPlugin implements IPlugin {
       worktree,
       authorName,
       authorEmail,
+      token,
       toolboxContext,
       runId,
     );
@@ -678,6 +683,7 @@ export class GitPlugin implements IPlugin {
     worktree: string,
     authorName: string | undefined,
     authorEmail: string | undefined,
+    token: string | undefined,
     toolboxContext: ReturnType<typeof readToolboxCommandContext>,
     runId: string,
   ): Promise<PluginResult> {
@@ -701,7 +707,14 @@ export class GitPlugin implements IPlugin {
       return { success: true };
     }
 
-    if (!authorName || !authorEmail) {
+    const fallbackIdentity =
+      !authorName || !authorEmail
+        ? await this.resolveCommitIdentityFromToken(token)
+        : null;
+    const effectiveAuthorName = authorName ?? fallbackIdentity?.authorName;
+    const effectiveAuthorEmail = authorEmail ?? fallbackIdentity?.authorEmail;
+
+    if (!effectiveAuthorName || !effectiveAuthorEmail) {
       return {
         success: false,
         error: MISSING_GIT_AUTHOR_ERROR,
@@ -712,7 +725,7 @@ export class GitPlugin implements IPlugin {
       sandbox,
       worktree,
       "user.name",
-      authorName,
+      effectiveAuthorName,
       toolboxContext,
       runId,
       "git.commit_author_name.write",
@@ -725,7 +738,7 @@ export class GitPlugin implements IPlugin {
       sandbox,
       worktree,
       "user.email",
-      authorEmail,
+      effectiveAuthorEmail,
       toolboxContext,
       runId,
       "git.commit_author_email.write",
@@ -735,6 +748,89 @@ export class GitPlugin implements IPlugin {
     }
 
     return { success: true };
+  }
+
+  private async resolveCommitIdentityFromToken(
+    token: string | undefined,
+  ): Promise<GitCommitIdentity | null> {
+    const accessToken = token?.trim();
+    if (!accessToken) {
+      return null;
+    }
+
+    try {
+      const profile = await this.fetchGitHubJson<Record<string, unknown>>(
+        accessToken,
+        "/user",
+      );
+      const login = readStringValue(profile.login);
+      const id = readNumberValue(profile.id);
+      const authorName = readStringValue(profile.name) ?? login ?? null;
+      const directEmail = readStringValue(profile.email);
+
+      const emailFromList = await this.resolvePrimaryEmailFromToken(accessToken);
+      const authorEmail =
+        directEmail ??
+        emailFromList ??
+        (login && id !== null ? `${id}+${login}@users.noreply.github.com` : null);
+
+      if (!authorName || !authorEmail) {
+        return null;
+      }
+
+      return {
+        authorName,
+        authorEmail,
+        source: "github_profile",
+        verified: Boolean(emailFromList),
+      };
+    } catch (error) {
+      console.warn(
+        "[git/commit-identity] Failed to resolve identity from GitHub token",
+        error instanceof Error ? error.message : String(error),
+      );
+      return null;
+    }
+  }
+
+  private async resolvePrimaryEmailFromToken(
+    token: string,
+  ): Promise<string | null> {
+    try {
+      const emails = await this.fetchGitHubJson<
+        Array<Record<string, unknown>>
+      >(token, "/user/emails");
+      const selected =
+        emails.find((entry) => readBooleanValue(entry.primary) && readBooleanValue(entry.verified)) ??
+        emails.find((entry) => readBooleanValue(entry.verified)) ??
+        emails.find((entry) => readBooleanValue(entry.primary)) ??
+        null;
+      return selected ? (readStringValue(selected.email) ?? null) : null;
+    } catch (error) {
+      return null;
+    }
+  }
+
+  private async fetchGitHubJson<T>(
+    token: string,
+    path: string,
+  ): Promise<T> {
+    const response = await fetch(`https://api.github.com${path}`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/vnd.github+json",
+        "User-Agent": "Shadowbox-Git-Plugin/0.1.0",
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+    });
+
+    const text = await response.text();
+    if (!response.ok) {
+      throw new Error(`GitHub API error (${response.status}): ${text}`);
+    }
+
+    return JSON.parse(text) as T;
   }
 
   private async readGitConfigValue(
@@ -941,6 +1037,30 @@ export class GitPlugin implements IPlugin {
       toolboxContext,
       "git.branch_switch",
     );
+    if (result.exitCode === 0) {
+      return buildGitResult(result, `Switched to branch: ${safeBranch}`);
+    }
+
+    // If the branch only exists on origin, create a local tracking branch.
+    if (BRANCH_PATHSPEC_MISSING_PATTERN.test(result.stderr)) {
+      const trackingResult = await this.runToolboxCommand(
+        sandbox,
+        {
+          command: "git",
+          args: ["-C", worktree, "checkout", "--track", `origin/${safeBranch}`],
+          runId,
+        },
+        ["git"],
+        toolboxContext,
+        "git.branch_switch_track_remote",
+      );
+      if (trackingResult.exitCode === 0) {
+        return {
+          success: true,
+          output: `Switched to tracking branch: ${safeBranch}`,
+        };
+      }
+    }
 
     return buildGitResult(result, `Switched to branch: ${safeBranch}`);
   }
@@ -1169,4 +1289,18 @@ function buildGitResult(
     output: result.exitCode === 0 ? successMessage : undefined,
     error: result.exitCode === 0 ? undefined : result.stderr,
   };
+}
+
+function readStringValue(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0
+    ? value.trim()
+    : null;
+}
+
+function readNumberValue(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function readBooleanValue(value: unknown): boolean {
+  return value === true;
 }

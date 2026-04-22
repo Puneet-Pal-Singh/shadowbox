@@ -31,6 +31,7 @@ import {
 import {
   getAuthenticatedUserSession,
   getGitHubClient,
+  isSessionStoreUnavailableError,
 } from "../services/AuthService";
 
 const GitBootstrapRequestBodySchema = z.object({
@@ -1003,6 +1004,15 @@ function mapGitControllerError(
   retryable: boolean;
   metadata?: GitMutationErrorMetadata;
 } {
+  if (isSessionStoreUnavailableError(error)) {
+    return {
+      status: 503,
+      code: "SESSION_STORE_UNAVAILABLE",
+      message: "Session store is temporarily unavailable. Please retry.",
+      retryable: true,
+    };
+  }
+
   if (error instanceof CommitIdentityError) {
     return {
       status: error.status,

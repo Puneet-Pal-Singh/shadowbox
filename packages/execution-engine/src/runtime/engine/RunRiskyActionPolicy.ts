@@ -18,6 +18,8 @@ const SHELL_DEPLOY_PATTERN =
   /\b(wrangler\s+deploy|terraform\s+apply|pulumi\s+up|kubectl\s+apply|serverless\s+deploy)\b/i;
 const SHELL_DESTRUCTIVE_PATTERN =
   /\b(rm\s+-rf|git\s+reset\s+--hard|git\s+clean\s+-fd|git\s+push\s+--force)\b/i;
+const GIT_COMMIT_IDENTITY_CONFIG_SEGMENT_PATTERN =
+  /\bgit(?:\s+-C\s+\S+)?\s+config\b.*\buser\.(?:name|email)\b/i;
 const SAFE_PERSISTENT_SHELL_PREFIXES = new Set([
   "git",
   "pnpm",
@@ -111,6 +113,7 @@ export async function evaluateToolPermission(
   }
 
   const policyDecision = decidePolicyOutcome({
+    origin: input.origin,
     productMode: input.productMode,
     workflowIntent: input.workflowIntent,
     classified,
@@ -220,13 +223,25 @@ function classifyRiskAction(
     toolName === "glob" ||
     toolName === "grep" ||
     toolName === "git_status" ||
-    toolName === "git_diff"
+    toolName === "git_diff" ||
+    toolName === "github_pr_list" ||
+    toolName === "github_pr_get" ||
+    toolName === "github_pr_checks_get" ||
+    toolName === "github_review_threads_get" ||
+    toolName === "github_issue_get" ||
+    toolName === "github_actions_run_get" ||
+    toolName === "github_actions_job_logs_get"
   ) {
     return {
       category: RISKY_ACTION_CATEGORIES.FILESYSTEM_WRITE,
-      title: "Shadowbox wants to inspect repository state",
+      title:
+        toolName.startsWith("github_")
+          ? "Shadowbox wants to inspect GitHub metadata"
+          : "Shadowbox wants to inspect repository state",
       reason:
-        "This is a read-only exploration action and is allowed under the current policy.",
+        toolName.startsWith("github_")
+          ? "This is a read-only connector metadata action and is allowed under the current policy."
+          : "This is a read-only exploration action and is allowed under the current policy.",
       affectedPaths,
       actionFingerprint: buildActionFingerprint({
         category: RISKY_ACTION_CATEGORIES.FILESYSTEM_WRITE,
@@ -338,11 +353,19 @@ function classifyRiskAction(
 }
 
 function decidePolicyOutcome(input: {
+  origin: "user" | "agent";
   productMode: ProductMode;
   workflowIntent: WorkflowIntent;
   classified: ClassifiedRiskAction;
 }): PolicyDecisionResult {
-  const { productMode, workflowIntent, classified } = input;
+  const { origin, productMode, workflowIntent, classified } = input;
+  const disallowedShellReason = getDisallowedShellReason(origin, classified);
+  if (disallowedShellReason) {
+    return {
+      kind: "deny",
+      reason: disallowedShellReason,
+    };
+  }
   const guaranteedDecision = getGuaranteedDecision(classified);
   if (guaranteedDecision) {
     return guaranteedDecision;
@@ -550,6 +573,32 @@ function buildActionFingerprint(input: {
   toolArgs: Record<string, unknown>;
 }): string {
   return `${input.category}:${input.toolName}:${stableStringify(input.toolArgs)}`;
+}
+
+function getDisallowedShellReason(
+  origin: "user" | "agent",
+  classified: ClassifiedRiskAction,
+): string | null {
+  if (origin !== "agent") {
+    return null;
+  }
+  if (classified.category !== RISKY_ACTION_CATEGORIES.SHELL_COMMAND) {
+    return null;
+  }
+  if (!classified.command) {
+    return null;
+  }
+  const commandSegments = classified.command
+    .split(/&&|\|\||;|\|/)
+    .map((segment) => segment.trim())
+    .filter((segment) => segment.length > 0);
+  const hasCommitIdentityConfigSegment = commandSegments.some((segment) =>
+    GIT_COMMIT_IDENTITY_CONFIG_SEGMENT_PATTERN.test(segment),
+  );
+  if (!hasCommitIdentityConfigSegment) {
+    return null;
+  }
+  return "Do not run git config user.name/user.email through shell. Use git_commit with authorName and authorEmail, or retry commit from the Git commit dialog so OAuth-backed identity is applied.";
 }
 
 function buildShellPersistentPrefixTokens(command: string): string[] | null {

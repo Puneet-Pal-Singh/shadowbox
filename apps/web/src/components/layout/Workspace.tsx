@@ -23,6 +23,7 @@ import {
 } from "../../lib/product-mode-storage";
 import { GitReviewProvider } from "../git/GitReviewContext";
 import { GitReviewDialog } from "../git/GitReviewDialog";
+import type { SessionStatus } from "../../types/session";
 
 interface WorkspaceProps {
   sessionId: string;
@@ -30,6 +31,7 @@ interface WorkspaceProps {
   repository: string;
   mode?: RunMode;
   onModeChange?: (mode: RunMode) => void;
+  onSessionStatusChange?: (status: SessionStatus) => void;
   onPendingApprovalStateChange?: (hasPendingApproval: boolean) => void;
   isRightSidebarOpen?: boolean;
   setIsRightSidebarOpen?: (open: boolean) => void;
@@ -44,6 +46,7 @@ export function Workspace({
   repository,
   mode = "build",
   onModeChange,
+  onSessionStatusChange,
   onPendingApprovalStateChange,
   isRightSidebarOpen = false,
   setIsRightSidebarOpen,
@@ -78,8 +81,15 @@ export function Workspace({
     setIsLoadingContent,
   } = useWorkspaceState();
 
-  const { repoTree, isLoadingTree, repo, branch, isGitHubLoaded } =
-    useGitHubTree(repository);
+  const {
+    repoTree,
+    isLoadingTree,
+    repo,
+    branch,
+    switchBranch,
+    isGitHubLoaded,
+    isContextMismatch,
+  } = useGitHubTree(repository);
 
   const {
     messages,
@@ -109,7 +119,12 @@ export function Workspace({
   const changesCount = status?.files?.length ?? 0;
   const repositoryOwner = repo?.owner?.login?.trim() ?? "";
   const repositoryName = repo?.name?.trim() ?? "";
-  const repositoryBranch = (branch || repo?.default_branch || "main").trim();
+  const repositoryBranch = (
+    status?.branch?.trim() ||
+    branch ||
+    repo?.default_branch ||
+    "main"
+  ).trim();
   const repositoryBaseUrl = repo?.html_url;
 
   const { handleFileClick, handleGitHubFileSelect } = useFileLoader({
@@ -140,22 +155,59 @@ export function Workspace({
   }, [productMode, sessionId]);
 
   useEffect(() => {
-    const runFinished = previousChatLoadingRef.current && !isLoading;
+    const wasLoading = previousChatLoadingRef.current;
+    const runStarted = !wasLoading && isLoading;
+    const runFinished = wasLoading && !isLoading;
     previousChatLoadingRef.current = isLoading;
+
+    if (runStarted) {
+      onSessionStatusChange?.("running");
+      return;
+    }
 
     if (!runFinished) {
       return;
     }
 
+    onSessionStatusChange?.(chatError ? "error" : "completed");
     void refetchGitStatus(true);
-  }, [isLoading, refetchGitStatus]);
+  }, [chatError, isLoading, onSessionStatusChange, refetchGitStatus]);
+
+  useEffect(() => {
+    if (isContextMismatch) {
+      return;
+    }
+
+    if (!isGitHubLoaded || !repo) {
+      return;
+    }
+
+    const currentWorkspaceBranch = status?.branch?.trim();
+    const currentGitHubContextBranch = branch?.trim();
+    if (!currentWorkspaceBranch || !currentGitHubContextBranch) {
+      return;
+    }
+    if (currentWorkspaceBranch === currentGitHubContextBranch) {
+      return;
+    }
+
+    switchBranch(currentWorkspaceBranch);
+  }, [branch, isContextMismatch, isGitHubLoaded, repo, status?.branch, switchBranch]);
 
   useEffect(() => {
     if (!sessionId || !activeRunId) {
       return;
     }
 
+    if (isLoading) {
+      return;
+    }
+
     if (!isGitHubLoaded) {
+      return;
+    }
+
+    if (isContextMismatch) {
       return;
     }
 
@@ -213,6 +265,8 @@ export function Workspace({
     void bootstrap();
   }, [
     activeRunId,
+    isLoading,
+    isContextMismatch,
     isGitHubLoaded,
     refetchGitStatus,
     repositoryBaseUrl,

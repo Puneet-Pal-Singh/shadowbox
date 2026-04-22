@@ -491,9 +491,9 @@ export class ProviderController {
           path: "/providers/validate",
           body: { providerId: credential.providerId, mode: request.mode },
         },
-          BYOKValidateResponseSchema,
-          correlationId,
-        );
+        BYOKValidateResponseSchema,
+        correlationId,
+      );
       const validated = await readProxyResponseJson<BYOKValidateResponse>(
         runtimeResponse,
         BYOKValidateResponseSchema,
@@ -1151,9 +1151,7 @@ async function normalizeByokRuntimeError(
   return withEngineHeaders(req, env, normalized, scope.runId);
 }
 
-async function parseProviderErrorBody(
-  response: Response,
-): Promise<{
+async function parseProviderErrorBody(response: Response): Promise<{
   code?: string;
   message?: string;
   retryable?: boolean;
@@ -1450,12 +1448,17 @@ async function loadConnectedCredentials(
   policy: ProviderProductPolicy,
 ): Promise<BYOKCredential[]> {
   const runtime = await fetchRuntimeConnections(req, env, scope, correlationId);
-  const metadata = await loadWorkspaceByokMetadata(req, env, scope, correlationId);
+  const metadata = await loadWorkspaceByokMetadata(
+    req,
+    env,
+    scope,
+    correlationId,
+  );
   const now = new Date().toISOString();
   const credentials: BYOKCredential[] = [];
 
   for (const connection of runtime.connections) {
-    if (connection.status === "disconnected") {
+    if (connection.status !== "connected") {
       continue;
     }
     if (!canUseProviderAtRuntime(policy, connection.providerId)) {
@@ -1902,7 +1905,12 @@ async function loadWorkspaceByokMetadata(
   scope: AuthorizedProviderScope,
   correlationId: string,
 ): Promise<WorkspaceByokMetadata> {
-  const preferences = await fetchRuntimePreferences(req, env, scope, correlationId);
+  const preferences = await fetchRuntimePreferences(
+    req,
+    env,
+    scope,
+    correlationId,
+  );
   return {
     credentialLabels: preferences.credentialLabels ?? {},
   };

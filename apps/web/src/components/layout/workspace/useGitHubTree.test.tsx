@@ -47,6 +47,10 @@ describe("useGitHubTree", () => {
       "main",
     );
     expect(result.current.isLoadingTree).toBe(false);
+    expect(result.current.isContextMismatch).toBe(false);
+    expect(result.current.repo?.full_name).toBe(
+      "Puneet-Pal-Singh/career-crew",
+    );
   });
 
   it("clears the tree and stays in loading mismatch mode for a different repository", async () => {
@@ -58,5 +62,7 @@ describe("useGitHubTree", () => {
 
     expect(mockGetRepositoryTree).not.toHaveBeenCalled();
     expect(result.current.isLoadingTree).toBe(true);
+    expect(result.current.isContextMismatch).toBe(true);
+    expect(result.current.repo).toBeNull();
   });
 });

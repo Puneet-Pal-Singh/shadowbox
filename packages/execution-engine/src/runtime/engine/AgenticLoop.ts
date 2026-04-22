@@ -25,6 +25,10 @@ import type {
   TaskResult,
 } from "../types.js";
 import { detectsMutation } from "./detectsMutation.js";
+import {
+  GitToolFailureClassifier,
+  shouldClassifyAsGitOrShellFailure,
+} from "./GitToolFailureClassifier.js";
 import { isGitWritePrompt } from "./WorkspaceBootstrapModePolicy.js";
 
 export interface AgenticLoopConfig {
@@ -105,6 +109,8 @@ export class AgenticLoopCancelledError extends Error {
   }
 }
 
+const gitToolFailureClassifier = new GitToolFailureClassifier();
+
 /**
  * AgenticLoop executes a bounded loop of LLM calls and tool execution
  * with explicit stop conditions and budget enforcement
@@ -156,6 +162,10 @@ export class AgenticLoop {
     const requiresMutation = requestRequiresMutation(initialMessages);
     const latestTurnRequiresMutation =
       latestTurnRequestsMutation(initialMessages);
+    const latestTurnExplicitCiLogRequest =
+      latestTurnRequestsCiLogs(initialMessages);
+    let encounteredCiLogsAuthorizationBoundary = false;
+    let attemptedCiLogsGhFallback = false;
     let stopReason: StopReason | null = null;
     let correctiveMutationRetryIssued = false;
 
@@ -221,6 +231,9 @@ export class AgenticLoop {
               completedMutatingToolCount: this.completedMutatingToolCount,
               completedReadOnlyToolCount: this.completedReadOnlyToolCount,
               correctiveRetryRequested: correctiveMutationRetryIssued,
+              explicitCiLogRequest: latestTurnExplicitCiLogRequest,
+              encounteredCiLogsAuthorizationBoundary,
+              attemptedCiLogsGhFallback,
             }),
             tools: isFinalSynthesisStep ? undefined : tools,
             model: context.modelId,
@@ -288,6 +301,9 @@ export class AgenticLoop {
         this.toolExecutionCount++;
         this.recordToolLifecycle(toolCall, "requested");
         await context.onToolRequested?.(toolCall);
+        if (isCiLogsGhFallbackToolCall(toolCall)) {
+          attemptedCiLogsGhFallback = true;
+        }
 
         if (await isCancellationRequested(context)) {
           stopReason = "cancelled";
@@ -420,11 +436,19 @@ export class AgenticLoop {
           } else {
             this.failedToolCount++;
             const toolError = result.error?.message || "Tool execution failed";
+            if (
+              isCiLogsAuthorizationBoundaryFailure(toolCall.toolName, toolError)
+            ) {
+              encounteredCiLogsAuthorizationBoundary = true;
+            }
+            const activityMetadata = extractToolActivityMetadata(
+              result.output?.metadata,
+            );
             this.recordToolLifecycle(
               toolCall,
               "failed",
               toolError,
-              extractToolActivityMetadata(result.output?.metadata),
+              activityMetadata,
             );
             await context.onToolFailed?.(toolCall, toolError, executionTimeMs);
             toolResults.push({
@@ -432,7 +456,11 @@ export class AgenticLoop {
               toolName: toolCall.toolName,
               result: null,
               error: toolError,
-              terminalError: isTerminalToolFailure(toolCall.toolName),
+              terminalError: isTerminalToolFailure({
+                toolName: toolCall.toolName,
+                error: toolError,
+                metadata: activityMetadata,
+              }),
             });
           }
         } catch (error) {
@@ -443,6 +471,11 @@ export class AgenticLoop {
           this.failedToolCount++;
           const errorMessage =
             error instanceof Error ? error.message : "Unknown error";
+          if (
+            isCiLogsAuthorizationBoundaryFailure(toolCall.toolName, errorMessage)
+          ) {
+            encounteredCiLogsAuthorizationBoundary = true;
+          }
           const executionTimeMs = 0;
           this.recordToolLifecycle(toolCall, "failed", errorMessage);
           await context.onToolFailed?.(toolCall, errorMessage, executionTimeMs);
@@ -455,7 +488,10 @@ export class AgenticLoop {
             toolName: toolCall.toolName,
             result: null,
             error: errorMessage,
-            terminalError: isTerminalToolFailure(toolCall.toolName),
+            terminalError: isTerminalToolFailure({
+              toolName: toolCall.toolName,
+              error: errorMessage,
+            }),
           });
         }
       }
@@ -686,14 +722,26 @@ function buildAgenticLoopSystemPrompt(input: {
   completedMutatingToolCount: number;
   completedReadOnlyToolCount: number;
   correctiveRetryRequested: boolean;
+  explicitCiLogRequest: boolean;
+  encounteredCiLogsAuthorizationBoundary: boolean;
+  attemptedCiLogsGhFallback: boolean;
 }): string {
   const sections = [
     "You are Shadowbox's autonomous build agent.",
     "Your job is to inspect the real workspace, decide which tools to use, and answer the user's request in clear natural language.",
     "Start with the real workspace before concluding anything. Never invent file contents, project structure, git state, or completed work.",
     "Tool strategy:",
-    "- Use the dedicated git tools for git status, diff, branch create/switch, staging, commit, push, and pull request creation. Do not compose git or GitHub workflows with bash unless the request truly requires a non-git shell command.",
-    "- Never use gh pr create through bash when git_create_pull_request can satisfy the request.",
+    "- Prefer typed git tools for repository work (status, diff, branch, stage, commit, push, PR) to keep actions structured and auditable.",
+    "- Use shell/bash for git only when the required step is not covered by typed git tools, or when the user explicitly asks for a shell command.",
+    "- Never run git config user.name or git config user.email through bash during agent flow. For commit identity issues, use git_commit with authorName and authorEmail (or rely on OAuth-backed identity).",
+    "- Use GitHub connector read tools for remote metadata (PRs, checks, reviews, issues). Prefer github_pr_list for discovering the current PR by branch, then github_pr_get/github_pr_checks_get/github_review_threads_get.",
+    "- For CI/debug requests, use github_pr_checks_get to identify failing checks and github_actions_job_logs_get to fetch failing job log tails before proposing fixes.",
+    "- If github_actions_job_logs_get returns 401/403, treat it as an authorization boundary and stop retrying the same logs request.",
+    "- Even when the user mentions gh, prefer github_* connector tools first. Use gh via bash only if the user explicitly asks for a concrete gh shell command.",
+    "- Do not probe for gh availability (for example gh --version) unless the user explicitly asked for gh shell commands.",
+    "- Do not invoke gh through bash unless the user explicitly asks to run a gh command, or a CI log connector request failed with 401/403 and you are attempting a bounded fallback.",
+    "- Never ask the user to type internal approval directives or magic command phrases. Ask them to use approval controls, or explain the required approval plainly.",
+    "- When a git shell command fails with a normal nonzero exit, inspect the error and choose the next bounded recovery step instead of stopping immediately.",
     "- A clean git status after a failed push or PR step often means the changes were already committed locally. Do not recreate files just because the working tree is clean.",
     "- When staging for a request, detect the changed paths and stage only those specific files. Never stage the whole workspace just to make commit or push succeed.",
     "- If git_push fails because the remote branch is ahead or non-fast-forward, do not rewrite files. Use git_pull to sync with a fast-forward-only pull, then retry git_push. If git_pull cannot fast-forward, stop and explain that manual branch resolution is required.",
@@ -701,12 +749,13 @@ function buildAgenticLoopSystemPrompt(input: {
     "- For vague component, page, route, or file questions, discover with list_files, glob, or grep before read_file.",
     "- Prefer narrowing search after one broad listing. Do not repeat the same missing path after a file-not-found error.",
     "- If a non-mutating tool returns no match or not found, keep exploring with different tools or paths instead of stopping.",
-    "- If a mutating tool fails, stop and explain what failed.",
+    "- If a file-edit mutation tool fails, stop and explain what failed.",
     "- git_commit messages must be a single-line conventional commit subject (for example: feat: add hero carousel).",
     "Answer quality:",
     "- After gathering enough evidence, answer the user directly in plain English.",
     "- Summarize tool results instead of echoing raw JSON or raw telemetry.",
     "- Reference the files or git facts you actually observed.",
+    "- Do not narrate internal self-talk, speculation loops, or hidden deliberation.",
   ];
 
   if (input.requiresMutation) {
@@ -722,6 +771,32 @@ function buildAgenticLoopSystemPrompt(input: {
 
   if (input.workspaceContext) {
     sections.push(`Workspace context:\n${input.workspaceContext}`);
+  }
+
+  if (input.explicitCiLogRequest) {
+    sections.push(
+      [
+        "CI logs request rule:",
+        "- The latest user request explicitly asked for CI/check logs from the remote run.",
+        "- Stay on remote log retrieval with github_pr_checks_get and github_actions_job_logs_get.",
+        "- Do not run or suggest local lint/test commands as a fallback unless the user explicitly asks for a local fallback.",
+        "- If logs are blocked by 401/403, report the authorization boundary and required reconnect/permissions step.",
+      ].join("\n"),
+    );
+
+    if (
+      input.encounteredCiLogsAuthorizationBoundary &&
+      !input.attemptedCiLogsGhFallback
+    ) {
+      sections.push(
+        [
+          "CI logs auth-boundary fallback:",
+          "- You already hit a 401/403 on github_actions_job_logs_get in this run.",
+          "- Attempt one bounded bash fallback via gh API for the same job logs before finalizing.",
+          "- If gh is missing or still unauthorized, stop retrying and clearly report that outcome.",
+        ].join("\n"),
+      );
+    }
   }
 
   if (
@@ -814,8 +889,20 @@ function stableSerialize(value: unknown): string {
   return JSON.stringify(value);
 }
 
-function isTerminalToolFailure(toolName: string): boolean {
-  return isMutatingGoldenFlowToolName(toolName);
+function isTerminalToolFailure(input: {
+  toolName: string;
+  error: string;
+  metadata?: ToolActivityMetadata;
+}): boolean {
+  if (shouldClassifyAsGitOrShellFailure(input)) {
+    return gitToolFailureClassifier.classify({
+      toolName: input.toolName,
+      message: input.error,
+      metadata: input.metadata,
+    }).terminal;
+  }
+
+  return isMutatingGoldenFlowToolName(input.toolName);
 }
 
 function hasEditMutationEvidence(toolName: string, metadata: unknown): boolean {
@@ -949,6 +1036,48 @@ function latestTurnRequestsMutation(initialMessages: CoreMessage[]): boolean {
     return false;
   }
   return detectsMutation(latestTurnText);
+}
+
+function latestTurnRequestsCiLogs(initialMessages: CoreMessage[]): boolean {
+  const latestUserMessage = [...initialMessages]
+    .reverse()
+    .find((message) => message.role === "user");
+  if (!latestUserMessage) {
+    return false;
+  }
+
+  const latestTurnText = extractTextParts(
+    latestUserMessage.content,
+  ).toLowerCase();
+
+  const asksForLogs = /\b(log|logs)\b/.test(latestTurnText);
+  const asksForCiContext = /\b(ci|check|checks|workflow|actions|job|run)\b/.test(
+    latestTurnText,
+  );
+  return asksForLogs && asksForCiContext;
+}
+
+function isCiLogsAuthorizationBoundaryFailure(
+  toolName: string,
+  errorMessage: string,
+): boolean {
+  if (toolName !== "github_actions_job_logs_get") {
+    return false;
+  }
+
+  return /\b(401|403)\b|unauthori[sz]ed|additional authorization|actions read access/i.test(
+    errorMessage,
+  );
+}
+
+function isCiLogsGhFallbackToolCall(toolCall: AgenticLoopToolCall): boolean {
+  if (toolCall.toolName !== "bash") {
+    return false;
+  }
+
+  const command =
+    typeof toolCall.args.command === "string" ? toolCall.args.command : "";
+  return /\bgh\b/i.test(command);
 }
 
 function extractTextParts(content: CoreMessage["content"]): string {

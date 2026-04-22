@@ -27,7 +27,15 @@ export function ActivityTurn({
 
   if (turn.isActiveTurn) {
     return (
-      <section className="space-y-2 py-1">
+      <section className="space-y-3 py-1">
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <span className="shrink-0 text-sm text-zinc-300">
+              {turn.elapsedLabel}
+            </span>
+          </div>
+          <div className="h-px w-full bg-zinc-800/80" />
+        </div>
         <div className="space-y-1">
           {turn.rows.map((row) => (
             <ActivityRow
@@ -46,17 +54,18 @@ export function ActivityTurn({
 
   return (
     <section className="space-y-3 py-1">
-      <div className="relative">
-        <div className="absolute left-0 right-0 top-1/2 border-t border-zinc-800/80" />
-        <button
-          type="button"
-          onClick={onToggleTurn}
-          className="relative mx-auto flex items-center gap-2 rounded-full bg-black px-4 py-1 text-sm text-zinc-400 transition hover:text-zinc-100"
-        >
-          <span>{turn.elapsedLabel}</span>
+      <button
+        type="button"
+        onClick={onToggleTurn}
+        aria-expanded={expanded}
+        className="w-full text-left text-sm text-zinc-400 transition hover:text-zinc-100"
+      >
+        <div className="flex items-center gap-2">
+          <span className="shrink-0">{turn.elapsedLabel}</span>
           <ChevronIcon expanded={expanded} />
-        </button>
-      </div>
+        </div>
+      </button>
+      <div className="h-px w-full bg-zinc-800/80" />
 
       {expanded ? (
         <div className="space-y-1">

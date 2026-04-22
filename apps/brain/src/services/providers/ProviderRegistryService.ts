@@ -234,10 +234,14 @@ function resolveLatencyTier(
   providerId: string,
   modelId: string,
 ): LLMExecutionLatencyTier {
+  const normalizedModelId = modelId.toLowerCase();
   if (providerId === "groq") {
     return "fast";
   }
-  if (providerId === "axis" || modelId.includes(":free")) {
+  if (providerId === "axis" || normalizedModelId.includes(":free")) {
+    return "slow";
+  }
+  if (isLikelySlowModel(normalizedModelId)) {
     return "slow";
   }
   return "standard";
@@ -257,4 +261,14 @@ function resolveReliabilityTier(
     return "experimental";
   }
   return "baseline";
+}
+
+function isLikelySlowModel(modelId: string): boolean {
+  if (modelId.includes("gemma") || modelId.includes("nemotron")) {
+    return true;
+  }
+
+  return /(?:^|[^0-9])(3[1-9]b|[4-9][0-9]b|[1-9][0-9]{2,}b)(?:$|[^0-9])/.test(
+    modelId,
+  );
 }

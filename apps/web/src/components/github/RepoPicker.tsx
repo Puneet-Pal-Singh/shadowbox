@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { GitBranch, Star, Github, Search, Check } from "lucide-react";
 import type { Repository, Branch } from "../../services/GitHubService";
 import * as GitHubService from "../../services/GitHubService";
+import { sortBranchesForRepoPicker } from "./sortBranchesForRepoPicker";
 
 interface RepoPickerProps {
   onRepoSelect: (repo: Repository, branch: string) => void;
@@ -62,7 +63,7 @@ export function RepoPicker({ onRepoSelect, onSkip }: RepoPickerProps) {
         repo.owner.login,
         repo.name,
       );
-      setBranches(branchList);
+      setBranches(sortBranchesForRepoPicker(branchList, repo.default_branch));
       setSelectedBranch(repo.default_branch);
     } catch (error) {
       console.error("Failed to load branches:", error);

@@ -98,6 +98,34 @@ const TOOL_PRESENTERS: Record<
     presentGitStatus(validateToolPresentationInput("git_status", input)),
   git_diff: (input) =>
     presentGitDiff(validateToolPresentationInput("git_diff", input)),
+  github_pr_list: (input) =>
+    presentGitHubPullRequestList(
+      validateToolPresentationInput("github_pr_list", input),
+    ),
+  github_pr_get: (input) =>
+    presentGitHubPullRequestGet(
+      validateToolPresentationInput("github_pr_get", input),
+    ),
+  github_pr_checks_get: (input) =>
+    presentGitHubPullRequestChecksGet(
+      validateToolPresentationInput("github_pr_checks_get", input),
+    ),
+  github_review_threads_get: (input) =>
+    presentGitHubReviewThreadsGet(
+      validateToolPresentationInput("github_review_threads_get", input),
+    ),
+  github_issue_get: (input) =>
+    presentGitHubIssueGet(
+      validateToolPresentationInput("github_issue_get", input),
+    ),
+  github_actions_run_get: (input) =>
+    presentGitHubActionsRunGet(
+      validateToolPresentationInput("github_actions_run_get", input),
+    ),
+  github_actions_job_logs_get: (input) =>
+    presentGitHubActionsJobLogsGet(
+      validateToolPresentationInput("github_actions_job_logs_get", input),
+    ),
 };
 
 function presentReadFile(
@@ -283,6 +311,78 @@ function presentGitDiff(
     summary: path
       ? `Checking repository changes for ${path}.`
       : "Checking repository changes in the workspace.",
+  };
+}
+
+function presentGitHubPullRequestList(
+  input: ToolPresentationInputByName["github_pr_list"],
+): ToolPresentation {
+  const branchSuffix = input.head ? ` for ${input.head}` : "";
+  const state = input.state ?? "open";
+  return {
+    description: `List ${state} PRs${branchSuffix}`,
+    displayText: `Loading ${state} PRs${branchSuffix}`,
+    summary: `Loading ${state} pull requests${branchSuffix} from ${input.owner}/${input.repo}.`,
+  };
+}
+
+function presentGitHubPullRequestGet(
+  input: ToolPresentationInputByName["github_pr_get"],
+): ToolPresentation {
+  return {
+    description: `Load PR #${input.number}`,
+    displayText: `Loading PR #${input.number}`,
+    summary: `Loading pull request #${input.number} from ${input.owner}/${input.repo}.`,
+  };
+}
+
+function presentGitHubPullRequestChecksGet(
+  input: ToolPresentationInputByName["github_pr_checks_get"],
+): ToolPresentation {
+  return {
+    description: `Load PR #${input.number} checks`,
+    displayText: `Loading checks for PR #${input.number}`,
+    summary: `Loading check runs for pull request #${input.number} from ${input.owner}/${input.repo}.`,
+  };
+}
+
+function presentGitHubReviewThreadsGet(
+  input: ToolPresentationInputByName["github_review_threads_get"],
+): ToolPresentation {
+  return {
+    description: `Load PR #${input.number} review threads`,
+    displayText: `Loading review threads for PR #${input.number}`,
+    summary: `Loading review thread metadata for pull request #${input.number} from ${input.owner}/${input.repo}.`,
+  };
+}
+
+function presentGitHubIssueGet(
+  input: ToolPresentationInputByName["github_issue_get"],
+): ToolPresentation {
+  return {
+    description: `Load issue #${input.number}`,
+    displayText: `Loading issue #${input.number}`,
+    summary: `Loading issue #${input.number} from ${input.owner}/${input.repo}.`,
+  };
+}
+
+function presentGitHubActionsRunGet(
+  input: ToolPresentationInputByName["github_actions_run_get"],
+): ToolPresentation {
+  return {
+    description: `Load Actions run #${input.actionsRunId}`,
+    displayText: `Loading Actions run #${input.actionsRunId}`,
+    summary: `Loading GitHub Actions run #${input.actionsRunId} from ${input.owner}/${input.repo}.`,
+  };
+}
+
+function presentGitHubActionsJobLogsGet(
+  input: ToolPresentationInputByName["github_actions_job_logs_get"],
+): ToolPresentation {
+  return {
+    description: `Load Actions job #${input.actionsJobId} logs`,
+    displayText: `Loading logs for job #${input.actionsJobId}`,
+    summary: `Loading GitHub Actions job logs for #${input.actionsJobId} from ${input.owner}/${input.repo}.`,
   };
 }
 

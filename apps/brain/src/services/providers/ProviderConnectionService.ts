@@ -3,9 +3,7 @@
  * Single Responsibility: Query provider connection status
  */
 
-import type {
-  ProviderConnection,
-} from "@repo/shared-types";
+import type { ProviderConnection, ProviderId } from "@repo/shared-types";
 import type { ProviderCredentialService } from "./ProviderCredentialService";
 import { ProviderRegistryService } from "./ProviderRegistryService";
 
@@ -28,38 +26,56 @@ export class ProviderConnectionService {
    * Get connection status for all providers
    */
   async getStatus(): Promise<ProviderConnection[]> {
-    const statuses: ProviderConnection[] = [];
-
-    for (const providerId of this.registryService.listProviderIds()) {
-      const isConnected = await this.credentialService.isConnected(providerId);
-
-      statuses.push({
-        providerId,
-        status: isConnected ? ("connected" as const) : ("disconnected" as const),
-        // Note: lastValidatedAt is read from credential store (connectedAt), not the query time
-        // For now, timestamp is set when status is queried. TODO: Store credential timestamp and read from cache.
-        lastValidatedAt: isConnected ? new Date().toISOString() : undefined,
-      });
-    }
-
-    return statuses;
+    return this.resolveConnections({ includeCapabilities: false });
   }
 
   async getConnections(): Promise<ProviderConnection[]> {
+    return this.resolveConnections({ includeCapabilities: true });
+  }
+
+  private async resolveConnections(input: {
+    includeCapabilities: boolean;
+  }): Promise<ProviderConnection[]> {
     const connections: ProviderConnection[] = [];
-
     for (const providerId of this.registryService.listProviderIds()) {
-      const isConnected = await this.credentialService.isConnected(providerId);
-      const capabilities = this.registryService.getProviderCapabilities(providerId);
+      connections.push(
+        await this.resolveProviderConnection(
+          providerId,
+          input.includeCapabilities,
+        ),
+      );
+    }
+    return connections;
+  }
 
-      connections.push({
+  private async resolveProviderConnection(
+    providerId: ProviderId,
+    includeCapabilities: boolean,
+  ): Promise<ProviderConnection> {
+    const capabilities = includeCapabilities
+      ? this.registryService.getProviderCapabilities(providerId)
+      : undefined;
+    try {
+      const isConnected = await this.credentialService.isConnected(providerId);
+      return {
         providerId,
         status: isConnected ? "connected" : "disconnected",
         lastValidatedAt: isConnected ? new Date().toISOString() : undefined,
         capabilities,
-      });
+      };
+    } catch (error) {
+      console.warn(
+        `[provider/connections] failed to read connection status for ${providerId}`,
+        error,
+      );
+      return {
+        providerId,
+        status: "failed",
+        errorCode: "PROVIDER_UNAVAILABLE",
+        errorMessage:
+          "Credential store is temporarily unavailable for this provider.",
+        capabilities,
+      };
     }
-
-    return connections;
   }
 }

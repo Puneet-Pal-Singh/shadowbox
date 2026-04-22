@@ -167,13 +167,8 @@ export function buildAgenticLoopFinalMessage(
   }
 
   return {
-    text: [
-      "Agentic loop completed without assistant synthesis output.",
-      `Stop reason: ${result.stopReason}`,
-      `Steps executed: ${result.stepsExecuted}`,
-      `Tools executed: ${result.toolExecutionCount}`,
-      `Failed tools: ${result.failedToolCount}`,
-    ].join("\n"),
+    text: buildMissingAssistantSynthesisSummary(result),
+    metadata: buildTaskModelNoActionMetadata(),
   };
 }
 
@@ -256,6 +251,32 @@ function buildFallbackLoopSummary(result: AgenticLoopResult): string {
 
   lines.push(getFallbackRetryHint(result.stopReason));
 
+  return lines.join("\n");
+}
+
+function buildMissingAssistantSynthesisSummary(
+  result: AgenticLoopResult,
+): string {
+  const completedTools = getLatestToolLifecycle(
+    result.toolLifecycle,
+    "completed",
+  );
+  const failedTools = getLatestToolLifecycle(result.toolLifecycle, "failed");
+  const lines = [
+    "I completed the tool loop, but I could not produce a final assistant answer for this run.",
+  ];
+
+  if (completedTools.length > 0) {
+    lines.push(describeCompletedToolWork(completedTools));
+  }
+
+  if (failedTools.length > 0) {
+    lines.push(describeFailedToolWork(failedTools));
+  }
+
+  lines.push(
+    "Retry the task. If this keeps happening, switch to a faster or more reliable model.",
+  );
   return lines.join("\n");
 }
 
@@ -804,9 +825,7 @@ function extractMissingPackageScriptFailure(
     /\bERR_PNPM_NO_SCRIPT\b[^"'\n]*["']?([^"'\n]+)["']?/i,
   );
   const scriptName =
-    missingScriptMatch?.[1]?.trim() ??
-    pnpmCodeMatch?.[1]?.trim() ??
-    null;
+    missingScriptMatch?.[1]?.trim() ?? pnpmCodeMatch?.[1]?.trim() ?? null;
 
   if (!scriptName) {
     return null;

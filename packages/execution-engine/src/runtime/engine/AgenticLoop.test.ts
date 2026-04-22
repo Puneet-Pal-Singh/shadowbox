@@ -496,6 +496,31 @@ describe("AgenticLoop - Bounded Agentic Tool Chaining", () => {
       expect(firstRequest.system).toContain("Branch: main");
     });
 
+    it("adds CI log guardrails when the latest user turn asks for CI logs", async () => {
+      vi.mocked(llmGateway.generateText!).mockResolvedValue({
+        text: "Done",
+        usage: { promptTokens: 10, completionTokens: 5 },
+      });
+
+      await loop.execute(
+        [{ role: "user", content: "fetch CI checks logs again and debug it" }],
+        {},
+        {
+          agentType: "coding",
+        },
+      );
+
+      expect(llmGateway.generateText).toHaveBeenCalledTimes(1);
+      const firstRequest = vi.mocked(llmGateway.generateText).mock
+        .calls[0]?.[0] as {
+        system?: string;
+      };
+      expect(firstRequest.system).toContain("CI logs request rule:");
+      expect(firstRequest.system).toContain(
+        "Do not run or suggest local lint/test commands as a fallback unless the user explicitly asks for a local fallback.",
+      );
+    });
+
     it("passes execution timing to tool lifecycle hooks", async () => {
       vi.mocked(llmGateway.generateText!)
         .mockResolvedValueOnce({
@@ -761,6 +786,63 @@ describe("AgenticLoop - Bounded Agentic Tool Chaining", () => {
         "started",
         "completed",
       ]);
+    });
+
+    it("continues after unauthorized GitHub Actions job log failures to allow final synthesis", async () => {
+      vi.mocked(llmGateway.generateText!)
+        .mockResolvedValueOnce({
+          text: "Loading CI logs.",
+          toolCalls: [
+            {
+              id: "tool-call-1",
+              toolName: "github_actions_job_logs_get",
+              args: {
+                owner: "acme",
+                repo: "career-crew",
+                actionsJobId: 12345,
+              },
+            },
+          ],
+          usage: { promptTokens: 10, completionTokens: 5 },
+        })
+        .mockResolvedValueOnce({
+          text: "I could not access CI logs due to authorization limits.",
+          toolCalls: [],
+          usage: { promptTokens: 12, completionTokens: 6 },
+        });
+
+      vi.mocked(executor.execute!).mockResolvedValue({
+        taskId: "tool-call-1",
+        status: "FAILED",
+        error: {
+          message:
+            "GitHub API error (401): Unauthorized to access actions job logs.",
+        },
+        completedAt: new Date(),
+      });
+
+      const result = await loop.execute(
+        [{ role: "user", content: "fetch CI logs" }],
+        {
+          github_actions_job_logs_get: {
+            description: "Fetch Actions job logs",
+          },
+        } as unknown as Record<string, import("ai").CoreTool>,
+        { agentType: "coding" },
+      );
+
+      expect(result.stopReason).toBe("llm_stop");
+      expect(result.toolExecutionCount).toBe(1);
+      expect(result.failedToolCount).toBe(1);
+      expect(llmGateway.generateText).toHaveBeenCalledTimes(2);
+      const secondRequest = vi.mocked(llmGateway.generateText).mock
+        .calls[1]?.[0] as {
+        system?: string;
+      };
+      expect(secondRequest.system).toContain("CI logs auth-boundary fallback:");
+      expect(secondRequest.system).toContain(
+        "Attempt one bounded bash fallback via gh API for the same job logs before finalizing.",
+      );
     });
 
     it("reserves the last step for synthesis instead of ending with a raw step-limit dump", async () => {

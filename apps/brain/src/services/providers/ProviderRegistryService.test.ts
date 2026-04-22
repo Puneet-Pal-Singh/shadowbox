@@ -28,6 +28,21 @@ describe("ProviderRegistryService execution profiles", () => {
     });
   });
 
+  it("classifies Gemma and large B-parameter models as slow latency tier", () => {
+    const gemmaProfile = service.getExecutionProfile("google", "gemma-4-31b-it");
+    const largeOpenRouterProfile = service.getExecutionProfile(
+      "openrouter",
+      "meta-llama/llama-3.1-70b-instruct",
+    );
+
+    expect(gemmaProfile).toMatchObject({
+      latencyTier: "slow",
+    });
+    expect(largeOpenRouterProfile).toMatchObject({
+      latencyTier: "slow",
+    });
+  });
+
   it("admits Axis free models to action and structured lanes when capabilities qualify", () => {
     const profile = service.getExecutionProfile(
       "axis",

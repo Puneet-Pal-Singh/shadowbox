@@ -71,6 +71,38 @@ export interface WorkspaceBootstrapResult {
   message?: string;
 }
 
+export interface RunWorkspaceBootstrapState {
+  requested: boolean;
+  ready: boolean;
+  status: WorkspaceBootstrapStatus | "skipped";
+  mode?: WorkspaceBootstrapMode;
+  blocked: boolean;
+  message?: string;
+  expectedMiss: boolean;
+  recordedAt: string;
+}
+
+export type GitTaskLane =
+  | "typed_git"
+  | "shell_git"
+  | "github_connector"
+  | "shell_gh";
+
+export type GitTaskClassification =
+  | "local_checkout"
+  | "local_mutation"
+  | "remote_metadata"
+  | "hybrid_pr_ci"
+  | "connector_gap";
+
+export interface RunGitTaskStrategyState {
+  classification: GitTaskClassification;
+  preferredLane: GitTaskLane;
+  fallbackLane?: GitTaskLane;
+  rationale: string;
+  recordedAt: string;
+}
+
 export interface WorkspaceBootstrapper {
   bootstrap(
     request: WorkspaceBootstrapRequest,
@@ -180,6 +212,8 @@ export interface RunManifest {
 export interface RunMetadata {
   prompt: string;
   actorUserId?: string;
+  workspaceBootstrap?: RunWorkspaceBootstrapState;
+  gitTaskStrategy?: RunGitTaskStrategyState;
   permissionContext?: {
     state: EffectivePermissionState;
     label: PermissionRuntimeLabel;

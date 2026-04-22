@@ -43,6 +43,34 @@ describe("ActivityFeedViewModel", () => {
     expect(viewModel.turns[0]?.defaultCollapsed).toBe(true);
   });
 
+  it("uses wall-clock time for active turn elapsed labels", () => {
+    const nowMs = Date.parse("2026-03-24T10:01:20.000Z");
+    const viewModel = buildActivityFeedViewModel(
+      {
+        runId: "run-live-elapsed",
+        sessionId: "session-live-elapsed",
+        status: "RUNNING",
+        items: [
+          {
+            id: "text-user",
+            runId: "run-live-elapsed",
+            sessionId: "session-live-elapsed",
+            turnId: "turn-1",
+            kind: ACTIVITY_PART_KINDS.TEXT,
+            createdAt: "2026-03-24T10:00:00.000Z",
+            updatedAt: "2026-03-24T10:00:00.000Z",
+            source: "brain",
+            role: "user",
+            content: "yo",
+          },
+        ],
+      },
+      nowMs,
+    );
+
+    expect(viewModel.turns[0]?.elapsedLabel).toBe("Working for 1m 20s");
+  });
+
   it("labels active read batches with specific progress copy", () => {
     const snapshot = createFeedSnapshot();
     const runningTool = snapshot.items[3];
@@ -670,7 +698,8 @@ describe("ActivityFeedViewModel", () => {
           updatedAt: "2026-03-24T10:00:02.000Z",
           source: "brain",
           label: "Reporting what changed",
-          summary: "Preparing the final user-facing response from the observed results.",
+          summary:
+            "Preparing the final user-facing response from the observed results.",
           phase: "synthesis",
           status: "completed",
         },
@@ -687,7 +716,8 @@ describe("ActivityFeedViewModel", () => {
         expect.objectContaining({
           kind: "reasoning",
           label: "Reporting what changed",
-          summary: "Preparing the final user-facing response from the observed results.",
+          summary:
+            "Preparing the final user-facing response from the observed results.",
         }),
       ]),
     );
@@ -785,6 +815,70 @@ describe("ActivityFeedViewModel", () => {
       expect(gitRow.details[0]).toContain("On branch main");
       expect(gitRow.details[0]).toContain("Working tree clean.");
     }
+  });
+
+  it("suppresses granted approvals from the transcript and summary chips", () => {
+    const viewModel = buildActivityFeedViewModel({
+      runId: "run-granted-approval",
+      sessionId: "session-granted-approval",
+      status: "COMPLETED",
+      items: [
+        {
+          id: "text-1",
+          runId: "run-granted-approval",
+          sessionId: "session-granted-approval",
+          turnId: "turn-1",
+          kind: ACTIVITY_PART_KINDS.TEXT,
+          createdAt: "2026-03-24T10:00:00.000Z",
+          updatedAt: "2026-03-24T10:00:00.000Z",
+          source: "brain",
+          role: "user",
+          content: "check status and continue",
+        },
+        {
+          id: "approval-1",
+          runId: "run-granted-approval",
+          sessionId: "session-granted-approval",
+          turnId: "turn-1",
+          kind: ACTIVITY_PART_KINDS.APPROVAL,
+          createdAt: "2026-03-24T10:00:00.500Z",
+          updatedAt: "2026-03-24T10:00:01.000Z",
+          source: "brain",
+          approvalType: "permission",
+          status: "granted",
+          summary: "Approval resolved",
+          details: "Decision: allow_once",
+        },
+        {
+          id: "tool-1",
+          runId: "run-granted-approval",
+          sessionId: "session-granted-approval",
+          turnId: "turn-1",
+          kind: ACTIVITY_PART_KINDS.TOOL,
+          createdAt: "2026-03-24T10:00:01.200Z",
+          updatedAt: "2026-03-24T10:00:01.500Z",
+          source: "brain",
+          toolId: "tool-1",
+          toolName: "bash",
+          status: "completed",
+          metadata: {
+            family: TOOL_ACTIVITY_FAMILIES.SHELL,
+            command: "git status --short",
+            origin: "agent_tool",
+            cwd: ".",
+            stdout: "",
+            outputTail: "",
+            exitCode: 0,
+            truncated: false,
+          },
+        },
+      ],
+    });
+
+    expect(viewModel.summary.approvalsLabel).toBeNull();
+    expect(
+      viewModel.turns[0]?.rows.some((row) => row.kind === "approval"),
+    ).toBe(false);
   });
 
   it("skips activity turns that are missing a canonical turn id", () => {

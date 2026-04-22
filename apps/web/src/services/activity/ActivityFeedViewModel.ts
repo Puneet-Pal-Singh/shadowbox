@@ -108,11 +108,40 @@ export interface ActivityFeedViewModel {
   turns: ActivityTurnViewModel[];
 }
 
+interface StaticActivityFeedSummaryViewModel {
+  toolCallsLabel: string;
+  approvalsLabel: string | null;
+  handoffLabel: string | null;
+  startedAt: string | null;
+  endedAt: string | null;
+  isActive: boolean;
+}
+
+interface StaticActivityTurnViewModel {
+  key: string;
+  userPrompt: string | null;
+  summaryLabel: string;
+  defaultCollapsed: boolean;
+  isActiveTurn: boolean;
+  hasVisibleRows: boolean;
+  rows: ActivityFeedRowViewModel[];
+  startedAt: string | null;
+  endedAt: string | null;
+}
+
+interface StaticActivityFeedViewModel {
+  summary: StaticActivityFeedSummaryViewModel;
+  turns: StaticActivityTurnViewModel[];
+}
+
 const LOW_SIGNAL_EXPLORATION_THRESHOLD = 2;
 const GENERIC_EXECUTION_REASONING_SUMMARIES = new Set([
   "Preparing the next concrete workspace action.",
   "Running the selected coding tools.",
   "Deciding whether to read, search, edit, run a command, or respond.",
+]);
+const GENERIC_PLANNING_REASONING_SUMMARIES = new Set([
+  "Preparing a safe execution plan for this request.",
 ]);
 const GENERIC_SYNTHESIS_REASONING_SUMMARIES = new Set([
   "Preparing the operational plan.",
@@ -121,14 +150,26 @@ const GENERIC_SYNTHESIS_REASONING_SUMMARIES = new Set([
 
 export function buildActivityFeedViewModel(
   feed: ActivityFeedSnapshot | null,
+  nowMs: number = Date.now(),
 ): ActivityFeedViewModel {
+  return withActivityFeedElapsedLabels(
+    buildStaticActivityFeedViewModel(feed),
+    nowMs,
+  );
+}
+
+export function buildStaticActivityFeedViewModel(
+  feed: ActivityFeedSnapshot | null,
+): StaticActivityFeedViewModel {
   if (!feed) {
     return {
       summary: {
-        elapsedLabel: "Waiting for activity",
         toolCallsLabel: "0 tool calls",
         approvalsLabel: null,
         handoffLabel: null,
+        startedAt: null,
+        endedAt: null,
+        isActive: false,
       },
       turns: [],
     };
@@ -137,7 +178,7 @@ export function buildActivityFeedViewModel(
   const turnGroups = groupItemsIntoTurns(feed.items);
   const lastTurnIndex = turnGroups.length - 1;
   return {
-    summary: buildFeedSummary(feed),
+    summary: buildStaticFeedSummary(feed),
     turns: turnGroups.flatMap((turn, index) => {
       const turnKey = resolveActivityTurnKey(turn.turnId, index);
       if (!turnKey) {
@@ -146,23 +187,60 @@ export function buildActivityFeedViewModel(
 
       const isActiveTurn = feed.status === "RUNNING" && index === lastTurnIndex;
       const rows = buildTurnRows(turn.items, isActiveTurn);
+      const startedAt = turn.items[0]?.createdAt ?? null;
+      const endedAt = turn.items[turn.items.length - 1]?.updatedAt ?? null;
       return [
         {
           key: turnKey,
           userPrompt: getTurnUserPrompt(turn.items),
-          elapsedLabel: formatDuration(
-            turn.items[0]?.createdAt ?? null,
-            turn.items[turn.items.length - 1]?.updatedAt ?? null,
-            isActiveTurn,
-          ),
           summaryLabel: buildTurnSummary(rows),
           defaultCollapsed: !isActiveTurn,
           isActiveTurn,
           hasVisibleRows: rows.length > 0,
           rows,
+          startedAt,
+          endedAt,
         },
       ];
     }),
+  };
+}
+
+export function withActivityFeedElapsedLabels(
+  viewModel: StaticActivityFeedViewModel,
+  nowMs: number = Date.now(),
+): ActivityFeedViewModel {
+  const summaryElapsedLabel = viewModel.summary.startedAt
+    ? formatDuration(
+        viewModel.summary.startedAt,
+        viewModel.summary.endedAt,
+        viewModel.summary.isActive,
+        nowMs,
+      )
+    : "Waiting for activity";
+
+  return {
+    summary: {
+      elapsedLabel: summaryElapsedLabel,
+      toolCallsLabel: viewModel.summary.toolCallsLabel,
+      approvalsLabel: viewModel.summary.approvalsLabel,
+      handoffLabel: viewModel.summary.handoffLabel,
+    },
+    turns: viewModel.turns.map((turn) => ({
+      key: turn.key,
+      userPrompt: turn.userPrompt,
+      elapsedLabel: formatDuration(
+        turn.startedAt,
+        turn.endedAt,
+        turn.isActiveTurn,
+        nowMs,
+      ),
+      summaryLabel: turn.summaryLabel,
+      defaultCollapsed: turn.defaultCollapsed,
+      isActiveTurn: turn.isActiveTurn,
+      hasVisibleRows: turn.hasVisibleRows,
+      rows: turn.rows,
+    })),
   };
 }
 
@@ -261,6 +339,10 @@ function buildTurnRows(
       continue;
     }
 
+    if (shouldSuppressApprovalRow(item)) {
+      continue;
+    }
+
     flushExploreGroup(rows, pendingExplore);
     pendingExplore = [];
     trailingThinkingRow = null;
@@ -286,7 +368,8 @@ function finalizeTurnRows(
   isActiveTurn: boolean,
 ): ActivityFeedRowViewModel[] {
   return rows.filter(
-    (row) => !isThinkingReasoningRow(row) || (isActiveTurn && row.status === "active"),
+    (row) =>
+      !isThinkingReasoningRow(row) || (isActiveTurn && row.status === "active"),
   );
 }
 
@@ -420,10 +503,15 @@ function createNonToolRow(item: Exclude<ActivityPart, ToolActivityPart>) {
 function isSuppressedReasoning(
   item: Extract<ActivityPart, { kind: typeof ACTIVITY_PART_KINDS.REASONING }>,
 ): boolean {
+  const normalizedSummary = normalizeReasoningSummary(item.summary, item.phase);
+  const authoredLabel = item.label.trim();
   return (
-    item.phase === "synthesis" &&
-    normalizeReasoningSummary(item.summary, item.phase) === "" &&
-    item.label.trim() === ""
+    (item.phase === "synthesis" &&
+      normalizedSummary === "" &&
+      authoredLabel === "") ||
+    (item.phase === "planning" &&
+      normalizedSummary === "" &&
+      (authoredLabel === "" || authoredLabel === "Planning next step"))
   );
 }
 
@@ -440,6 +528,10 @@ function normalizeReasoningSummary(
   }
 
   if (isGenericExecutionReasoningSummary(trimmed, phase)) {
+    return "";
+  }
+
+  if (isGenericPlanningReasoningSummary(trimmed, phase)) {
     return "";
   }
 
@@ -516,6 +608,12 @@ function shouldDisplayCommentaryRow(
   return true;
 }
 
+function shouldSuppressApprovalRow(item: ActivityPart): boolean {
+  return (
+    item.kind === ACTIVITY_PART_KINDS.APPROVAL && item.status === "granted"
+  );
+}
+
 function createToolRow(item: ToolActivityPart): ActivityToolRowViewModel {
   return {
     kind: "tool",
@@ -583,16 +681,20 @@ function buildExploreGroupCopy(
   };
 }
 
-function resolveExploreGroupTitle(input: {
-  hasRunningRows: boolean;
-}): string {
+function resolveExploreGroupTitle(input: { hasRunningRows: boolean }): string {
   return input.hasRunningRows ? "Exploring" : "Explored";
 }
 
-function summarizeExploreGroup(exploreRows: ActivityToolRowViewModel[]): string {
-  const listCount = exploreRows.filter((row) => row.toolName === "list_files").length;
+function summarizeExploreGroup(
+  exploreRows: ActivityToolRowViewModel[],
+): string {
+  const listCount = exploreRows.filter(
+    (row) => row.toolName === "list_files",
+  ).length;
   const fileCount = exploreRows.filter(
-    (row) => row.family === TOOL_ACTIVITY_FAMILIES.READ && row.toolName !== "list_files",
+    (row) =>
+      row.family === TOOL_ACTIVITY_FAMILIES.READ &&
+      row.toolName !== "list_files",
   ).length;
   const searchCount = exploreRows.filter(
     (row) => row.family === TOOL_ACTIVITY_FAMILIES.SEARCH,
@@ -603,7 +705,10 @@ function summarizeExploreGroup(exploreRows: ActivityToolRowViewModel[]): string 
     formatExploreCount(searchCount, "search"),
   ].filter(Boolean);
 
-  return parts.join(", ") || `${exploreRows.length} step${exploreRows.length === 1 ? "" : "s"}`;
+  return (
+    parts.join(", ") ||
+    `${exploreRows.length} step${exploreRows.length === 1 ? "" : "s"}`
+  );
 }
 
 function formatExploreCount(
@@ -633,6 +738,16 @@ function isGenericExecutionReasoningSummary(
   );
 }
 
+function isGenericPlanningReasoningSummary(
+  summary: string,
+  phase?: Extract<
+    ActivityPart,
+    { kind: typeof ACTIVITY_PART_KINDS.REASONING }
+  >["phase"],
+): boolean {
+  return phase === "planning" && GENERIC_PLANNING_REASONING_SUMMARIES.has(summary);
+}
+
 function isGenericSynthesisReasoningSummary(
   summary: string,
   phase?: Extract<
@@ -640,7 +755,9 @@ function isGenericSynthesisReasoningSummary(
     { kind: typeof ACTIVITY_PART_KINDS.REASONING }
   >["phase"],
 ): boolean {
-  return phase === "synthesis" && GENERIC_SYNTHESIS_REASONING_SUMMARIES.has(summary);
+  return (
+    phase === "synthesis" && GENERIC_SYNTHESIS_REASONING_SUMMARIES.has(summary)
+  );
 }
 
 function getToolTitle(item: ToolActivityPart): string {
@@ -715,7 +832,7 @@ function getToolSummary(item: ToolActivityPart): string {
           ? "Running"
           : item.status === "requested"
             ? "Queued"
-          : "";
+            : "";
     case TOOL_ACTIVITY_FAMILIES.EDIT:
       return `+${item.metadata.additions} / -${item.metadata.deletions}`;
     case TOOL_ACTIVITY_FAMILIES.READ:
@@ -737,7 +854,9 @@ function getToolDetails(item: ToolActivityPart): string[] {
         item.metadata.outputTail
           ? `${item.metadata.command ? "\n" : ""}${item.metadata.outputTail}`
           : "",
-        item.metadata.truncated ? "Output truncated to the latest shell tail." : "",
+        item.metadata.truncated
+          ? "Output truncated to the latest shell tail."
+          : "",
       ].filter(Boolean);
     case TOOL_ACTIVITY_FAMILIES.EDIT:
       return [item.metadata.diffPreview ?? ""].filter(Boolean);
@@ -751,24 +870,23 @@ function getToolDetails(item: ToolActivityPart): string[] {
   }
 }
 
-function buildFeedSummary(
+function buildStaticFeedSummary(
   feed: ActivityFeedSnapshot,
-): ActivityFeedSummaryViewModel {
+): StaticActivityFeedSummaryViewModel {
   const toolCount = feed.items.filter(
     (item) => item.kind === ACTIVITY_PART_KINDS.TOOL,
   ).length;
   const approvalCount = feed.items.filter(
-    (item) => item.kind === ACTIVITY_PART_KINDS.APPROVAL,
+    (item) =>
+      item.kind === ACTIVITY_PART_KINDS.APPROVAL && item.status !== "granted",
   ).length;
   const handoffCount = feed.items.filter(
     (item) => item.kind === ACTIVITY_PART_KINDS.HANDOFF,
   ).length;
   const startedAt = feed.items[0]?.createdAt ?? null;
   const endedAt = feed.items[feed.items.length - 1]?.updatedAt ?? null;
-  const elapsed = formatDuration(startedAt, endedAt);
 
   return {
-    elapsedLabel: elapsed,
     toolCallsLabel: `${toolCount} tool call${toolCount === 1 ? "" : "s"}`,
     approvalsLabel:
       approvalCount > 0
@@ -778,6 +896,9 @@ function buildFeedSummary(
       handoffCount > 0
         ? `${handoffCount} handoff${handoffCount === 1 ? "" : "s"}`
         : null,
+    startedAt,
+    endedAt,
+    isActive: feed.status === "RUNNING",
   };
 }
 
@@ -785,15 +906,27 @@ function formatDuration(
   startedAt: string | null,
   endedAt: string | null,
   isActive: boolean = false,
+  nowMs: number = Date.now(),
 ): string {
-  if (!startedAt || !endedAt) {
+  if (!startedAt) {
     return isActive ? "Working now" : "Started just now";
   }
-  const elapsedMs = Math.max(0, Date.parse(endedAt) - Date.parse(startedAt));
+
+  const startedAtMs = Date.parse(startedAt);
+  if (Number.isNaN(startedAtMs)) {
+    return isActive ? "Working now" : "Started just now";
+  }
+
+  const endedAtMs = isActive ? nowMs : Date.parse(endedAt ?? "");
+  if (Number.isNaN(endedAtMs)) {
+    return isActive ? "Working now" : "Started just now";
+  }
+
+  const elapsedMs = Math.max(0, endedAtMs - startedAtMs);
   if (elapsedMs < 1_000) {
-    return isActive ? "Working now" : "Started just now";
+    return isActive ? "Working for 1s" : "Started just now";
   }
-  const totalSeconds = Math.round(elapsedMs / 1_000);
+  const totalSeconds = Math.max(1, Math.floor(elapsedMs / 1_000));
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
   if (minutes === 0) {

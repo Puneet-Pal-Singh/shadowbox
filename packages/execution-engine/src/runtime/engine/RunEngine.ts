@@ -1,8 +1,5 @@
 import type { CoreMessage, CoreTool } from "ai";
-import {
-  RUN_WORKFLOW_STEPS,
-  type RunEvent,
-} from "@repo/shared-types";
+import { RUN_WORKFLOW_STEPS } from "@repo/shared-types";
 import { Run, RunRepository, RunStateMachine } from "../run/index.js";
 import { Task, TaskRepository } from "../task/index.js";
 import {
@@ -23,13 +20,8 @@ import { PlannerService } from "../planner/index.js";
 import { TaskScheduler, type TaskExecutor } from "../orchestration/index.js";
 import { DefaultTaskExecutor, AgentTaskExecutor } from "./TaskExecutor.js";
 import { AgenticLoop } from "./AgenticLoop.js";
-import { AgenticLoopCancelledError } from "./AgenticLoop.js";
-import { executeAgenticLoopTool } from "./AgenticLoopToolExecutor.js";
 import { buildAgenticLoopWorkspaceContext } from "./RunContinuationContext.js";
-import {
-  enforceGoldenFlowToolFloor,
-  isGoldenFlowToolName,
-} from "../contracts/CodingToolGateway.js";
+import { enforceGoldenFlowToolFloor } from "../contracts/CodingToolGateway.js";
 import type {
   RunInput,
   RunStatus,
@@ -51,12 +43,11 @@ import {
   type MemoryCoordinatorDependencies,
   type MemoryContext,
 } from "../memory/index.js";
-import {
-  PermissionApprovalStore,
-} from "./PermissionApprovalStore.js";
+import { PermissionApprovalStore } from "./PermissionApprovalStore.js";
 import {
   getPermissionPolicyMessage,
   getWorkspaceBootstrapMessage,
+  evaluateWorkspaceBootstrap,
   processPermissionDirectives as processPermissionDirectivesPolicy,
 } from "./RunPermissionWorkspacePolicy.js";
 import {
@@ -88,10 +79,10 @@ import {
   recordOrchestrationActivation,
   recordOrchestrationTerminal,
   recordPhaseSelectionSnapshot,
+  recordTurnModeDecision,
 } from "./RunMetadataPolicy.js";
 import { resolveRunPermissionContext } from "./RunPermissionContextPolicy.js";
 import { PermissionGateError } from "./PermissionGateError.js";
-import { evaluateToolPermission } from "./RunRiskyActionPolicy.js";
 import {
   buildApprovalDecisionMessage,
   extractApprovalDecision,
@@ -99,12 +90,7 @@ import {
 import { resetRecyclableRun } from "./RunRecyclableResetPolicy.js";
 import { applyReviewerPassIfEnabled } from "./RunReviewerPassPolicy.js";
 import { RunEventRecorder, RunEventRepository } from "../events/index.js";
-import { getToolPresentation } from "../lib/ToolPresentation.js";
 import { tryHandleTaskExecutionErrorPolicy } from "./RunTaskExecutionRecoveryPolicy.js";
-import {
-  ensureApprovalResolvedEventRecorded,
-  waitForApprovalDecision,
-} from "./RunApprovalWaitPolicy.js";
 import {
   resolveBudgetConfig,
   resolveUnknownPricingMode,
@@ -113,49 +99,27 @@ import {
   handleExecutionErrorPolicy,
   safeMemoryOperation as safeMemoryOperationPolicy,
 } from "./RunEngineReliabilityPolicy.js";
+import { GitHubTaskStrategy } from "./GitHubTaskStrategy.js";
+import { GitToolFailureClassifier } from "./GitToolFailureClassifier.js";
+import { describeWorkspaceBootstrapSummary } from "./RunWorkspaceBootstrapSummaryPolicy.js";
+import { resolveGitTaskStrategyPolicy } from "./RunGitTaskStrategyPolicy.js";
+import { buildAgenticLoopCallbacks } from "./RunAgenticLoopCallbacksPolicy.js";
+import type {
+  GitHubAuthAvailabilityChecker,
+  IRunEngine,
+  RunEngineDependencies,
+  RunEngineOptions,
+} from "./RunEngineTypes.js";
 
-export interface IRunEngine {
-  execute(
-    input: RunInput,
-    messages: CoreMessage[],
-    tools: Record<string, CoreTool>,
-  ): Promise<Response>;
-  getRunStatus(runId: string): Promise<RunStatus | null>;
-  cancel(runId: string): Promise<boolean>;
-}
-export interface RunEngineOptions {
-  env: RunEngineEnv;
-  sessionId: string;
-  runId: string;
-  userId?: string;
-  correlationId: string;
-  requestOrigin?: string;
-}
-export interface RunEngineEnv {
-  COST_FAIL_ON_UNSEEDED_PRICING?: string;
-  COST_UNKNOWN_PRICING_MODE?: string;
-  MAX_RUN_BUDGET?: string;
-  MAX_SESSION_BUDGET?: string;
-  APPROVAL_WAIT_TIMEOUT_MS?: string;
-  NODE_ENV?: string;
-  ALLOW_DEFAULT_EXECUTOR?: string;
-}
+export type {
+  IRunEngine,
+  RunEngineDependencies,
+  RunEngineEnv,
+  RunEngineOptions,
+} from "./RunEngineTypes.js";
 
-export interface RunEngineDependencies {
-  aiService?: LLMRuntimeAIService;
-  llmGateway?: ILLMGateway;
-  costLedger?: ICostLedger;
-  costTracker?: ICostTracker;
-  pricingRegistry?: IPricingRegistry;
-  pricingResolver?: IPricingResolver;
-  budgetManager?: IBudgetManager & BudgetPolicy;
-  planner?: PlannerService;
-  scheduler?: TaskScheduler;
-  memoryCoordinator?: MemoryCoordinator;
-  sessionMemoryClient?: MemoryCoordinatorDependencies["sessionMemoryClient"];
-  workspaceBootstrapper?: WorkspaceBootstrapper;
-  runEventListener?: (event: RunEvent) => Promise<void> | void;
-}
+const gitHubTaskStrategy = new GitHubTaskStrategy();
+const gitToolFailureClassifier = new GitToolFailureClassifier();
 
 export class RunEngine implements IRunEngine {
   private runRepo: RunRepository;
@@ -177,6 +141,7 @@ export class RunEngine implements IRunEngine {
   private readonly sessionCostsLoaded: Promise<void>;
   private workspaceBootstrapper?: WorkspaceBootstrapper;
   private permissionApprovalStore: PermissionApprovalStore;
+  private hasGitHubAuthChecker?: GitHubAuthAvailabilityChecker;
 
   constructor(
     ctx: RuntimeDurableObjectState,
@@ -285,6 +250,7 @@ export class RunEngine implements IRunEngine {
     }
 
     this.workspaceBootstrapper = dependencies.workspaceBootstrapper;
+    this.hasGitHubAuthChecker = dependencies.hasGitHubAuth;
     this.permissionApprovalStore = new PermissionApprovalStore(
       ctx,
       options.runId,
@@ -323,10 +289,11 @@ export class RunEngine implements IRunEngine {
       const approvalDecision = extractApprovalDecision(effectiveInput);
 
       if (approvalDecision) {
-        const decisionResult = await this.permissionApprovalStore.resolveDecision(
-          approvalDecision,
-          run.metadata.actorUserId ?? this.options.userId,
-        );
+        const decisionResult =
+          await this.permissionApprovalStore.resolveDecision(
+            approvalDecision,
+            run.metadata.actorUserId ?? this.options.userId,
+          );
         await this.runEventRecorder.recordApprovalResolved({
           requestId: decisionResult.request.requestId,
           decision: decisionResult.decision,
@@ -343,12 +310,16 @@ export class RunEngine implements IRunEngine {
           `approval decision resolved (${decisionResult.decision})`,
         );
         const decisionMessage = buildApprovalDecisionMessage(decisionResult);
-        return await this.completeRunWithAssistantMessage(run, decisionMessage, {
-          code: "APPROVAL_DECISION_RECORDED",
-          requestId: decisionResult.request.requestId,
-          decision: decisionResult.decision,
-          status: decisionResult.status,
-        });
+        return await this.completeRunWithAssistantMessage(
+          run,
+          decisionMessage,
+          {
+            code: "APPROVAL_DECISION_RECORDED",
+            requestId: decisionResult.request.requestId,
+            decision: decisionResult.decision,
+            status: decisionResult.status,
+          },
+        );
       }
 
       if (
@@ -408,19 +379,40 @@ export class RunEngine implements IRunEngine {
       }
 
       if (runMode === "build") {
-        const bootstrapMessage = await getWorkspaceBootstrapMessage(
+        const bootstrapEvaluation = await evaluateWorkspaceBootstrap(
           run.id,
           effectiveInput.prompt,
           effectiveInput.repositoryContext,
           this.workspaceBootstrapper,
         );
-        if (bootstrapMessage) {
-          console.log(
-            `[run/engine] Workspace bootstrap blocked action planning for run ${runId}`,
+        run.metadata.workspaceBootstrap = {
+          requested: bootstrapEvaluation.status !== "skipped",
+          ready: !bootstrapEvaluation.blocked,
+          status: bootstrapEvaluation.status,
+          mode: bootstrapEvaluation.mode,
+          blocked: bootstrapEvaluation.blocked,
+          message: bootstrapEvaluation.message ?? undefined,
+          expectedMiss: bootstrapEvaluation.expectedMiss,
+          recordedAt: new Date().toISOString(),
+        };
+        await this.runRepo.update(run);
+        if (bootstrapEvaluation.blocked) {
+          await this.runEventRecorder.recordRunProgress(
+            "planning",
+            "Workspace bootstrap",
+            describeWorkspaceBootstrapSummary(bootstrapEvaluation),
+            "completed",
           );
+        }
+
+        if (bootstrapEvaluation.message) {
+          const bootstrapLogLabel = bootstrapEvaluation.expectedMiss
+            ? "Workspace bootstrap expected miss blocked action planning"
+            : "Workspace bootstrap blocked action planning";
+          console.log(`[run/engine] ${bootstrapLogLabel} for run ${runId}`);
           return await this.completeRunWithAssistantMessage(
             run,
-            bootstrapMessage,
+            bootstrapEvaluation.message,
           );
         }
       }
@@ -512,6 +504,10 @@ export class RunEngine implements IRunEngine {
     run.transition("RUNNING");
     recordPhaseSelectionSnapshot(run, "execution");
     recordLifecycleStep(run, "TASK_EXECUTING", "agentic_loop");
+    run.metadata.gitTaskStrategy = await this.resolveGitTaskStrategy(
+      run,
+      input,
+    );
     await this.runEventRecorder.recordRunStatusChanged(
       previousStatus,
       run.status,
@@ -534,7 +530,15 @@ export class RunEngine implements IRunEngine {
       this.agent instanceof BaseAgent
         ? this.agent.getRuntimeExecutionService()
         : undefined;
-    let hasMutationEvidence = false;
+    const loopCallbacks = buildAgenticLoopCallbacks({
+      run,
+      directExecutionService,
+      runEventRecorder: this.runEventRecorder,
+      permissionApprovalStore: this.permissionApprovalStore,
+      runRepo: this.runRepo,
+      env: this.options.env,
+      runId: this.options.runId,
+    });
     try {
       const loopResult = await loop.execute(messages, tools, {
         agentType: run.agentType,
@@ -542,134 +546,18 @@ export class RunEngine implements IRunEngine {
           repositoryContext: input.repositoryContext,
           prompt: input.prompt,
           continuation: run.metadata.continuation,
+          workspaceBootstrap: run.metadata.workspaceBootstrap,
+          gitTaskStrategy: run.metadata.gitTaskStrategy,
         }),
         isRunCancelled: async () => {
           const currentRun = await this.runRepo.getById(run.id);
           return currentRun?.status === "CANCELLED";
         },
-        executeTool: directExecutionService
-          ? async (toolCall) => {
-              const toolPresentation = getToolPresentation(
-                toolCall.toolName,
-                toolCall.args,
-              );
-              if (!isGoldenFlowToolName(toolCall.toolName)) {
-                throw new Error(
-                  `Unsupported direct agentic tool: ${toolCall.toolName}`,
-                );
-              }
-              const permissionState =
-                run.metadata.permissionContext?.state ??
-                resolveRunPermissionContext(run.input).state;
-              const permissionResult = await evaluateToolPermission({
-                runId: run.id,
-                sessionId: run.sessionId,
-                origin: "agent",
-                productMode: permissionState.productMode,
-                workflowIntent: permissionState.workflowIntent,
-                toolName: toolCall.toolName,
-                toolArgs: toolCall.args,
-                hasMutationEvidence,
-                approvalStore: this.permissionApprovalStore,
-              });
-              if (permissionResult.kind === "ask") {
-                recordLifecycleStep(
-                  run,
-                  "APPROVAL_WAIT",
-                  "structured approval request emitted",
-                );
-                await this.runEventRecorder.recordApprovalRequested(
-                  permissionResult.request,
-                );
-                const approvalOutcome = await waitForApprovalDecision({
-                  request: permissionResult.request,
-                  env: this.options.env,
-                  runId: this.options.runId,
-                  runRepo: this.runRepo,
-                  permissionApprovalStore: this.permissionApprovalStore,
-                });
-                if (
-                  approvalOutcome.outcome === "approved" ||
-                  approvalOutcome.outcome === "denied" ||
-                  approvalOutcome.outcome === "aborted"
-                ) {
-                  await ensureApprovalResolvedEventRecorded({
-                    runEventRecorder: this.runEventRecorder,
-                    requestId: permissionResult.request.requestId,
-                    decision:
-                      approvalOutcome.decision ??
-                      (approvalOutcome.outcome === "approved"
-                        ? "allow_once"
-                        : approvalOutcome.outcome === "aborted"
-                          ? "abort"
-                          : "deny"),
-                    status:
-                      approvalOutcome.outcome === "approved"
-                        ? "approved"
-                        : approvalOutcome.outcome === "aborted"
-                          ? "aborted"
-                          : "denied",
-                  });
-                }
-                if (approvalOutcome.outcome === "approved") {
-                  // Continue with the original tool call after approval is granted.
-                } else if (approvalOutcome.outcome === "timed_out") {
-                  throw PermissionGateError.fromAsk(permissionResult.request);
-                } else if (approvalOutcome.outcome === "cancelled") {
-                  throw new AgenticLoopCancelledError(
-                    "Run was cancelled while waiting for approval.",
-                  );
-                } else if (approvalOutcome.outcome === "aborted") {
-                  throw PermissionGateError.fromDeny(
-                    "Approval request was aborted.",
-                  );
-                } else {
-                  throw PermissionGateError.fromDeny(
-                    "Approval request was denied.",
-                  );
-                }
-              }
-              if (permissionResult.kind === "deny") {
-                throw PermissionGateError.fromDeny(permissionResult.reason);
-              }
-              return executeAgenticLoopTool(directExecutionService, {
-                taskId: toolCall.id,
-                toolName: toolCall.toolName,
-                toolInput: {
-                  description: toolPresentation.description,
-                  displayText: toolPresentation.displayText,
-                  ...toolCall.args,
-                },
-                onOutputAppended: async (chunk) => {
-                  await this.runEventRecorder.recordToolOutputAppended(
-                    {
-                      id: toolCall.id,
-                      type: toolCall.toolName,
-                    },
-                    chunk,
-                  );
-                },
-              });
-            }
-          : undefined,
+        executeTool: loopCallbacks.executeTool,
         modelId: input.modelId,
         providerId: input.providerId,
         temperature: 0.2,
-        onToolRequested: async (toolCall) => {
-          const toolPresentation = getToolPresentation(
-            toolCall.toolName,
-            toolCall.args,
-          );
-          await this.runEventRecorder.recordToolRequested({
-            id: toolCall.id,
-            type: toolCall.toolName,
-            input: {
-              ...toolCall.args,
-              description: toolPresentation.description,
-              displayText: toolPresentation.displayText,
-            },
-          });
-        },
+        onToolRequested: loopCallbacks.onToolRequested,
         onProgress: async (progress) => {
           if (!progress) return;
           await this.runEventRecorder.recordRunProgress(
@@ -690,37 +578,15 @@ export class RunEngine implements IRunEngine {
             },
           );
         },
-        onToolStarted: async (toolCall) => {
-          await this.runEventRecorder.recordToolStarted({
-            id: toolCall.id,
-            type: toolCall.toolName,
-          });
-        },
-        onToolCompleted: async (toolCall, result, executionTimeMs) => {
-          if (toolCall.toolName === "write_file") hasMutationEvidence = true;
-          await this.runEventRecorder.recordToolCompleted(
-            {
-              id: toolCall.id,
-              type: toolCall.toolName,
-            },
-            result,
-            executionTimeMs,
-          );
-        },
-        onToolFailed: async (toolCall, error, executionTimeMs) => {
-          await this.runEventRecorder.recordToolFailed(
-            {
-              id: toolCall.id,
-              type: toolCall.toolName,
-            },
-            error,
-            executionTimeMs,
-          );
-        },
+        onToolStarted: loopCallbacks.onToolStarted,
+        onToolCompleted: loopCallbacks.onToolCompleted,
+        onToolFailed: loopCallbacks.onToolFailed,
       });
       recordAgenticLoopMetadata(run, loopResult);
       if (loopResult.stopReason === "cancelled") {
-        console.log(`[run/engine] Agentic loop observed cancellation for run ${run.id}`);
+        console.log(
+          `[run/engine] Agentic loop observed cancellation for run ${run.id}`,
+        );
         return createStreamResponse("");
       }
       const finalMessage = buildAgenticLoopFinalMessage(loopResult);
@@ -748,7 +614,9 @@ export class RunEngine implements IRunEngine {
         }
         const currentRun = await this.runRepo.getById(run.id);
         if (currentRun?.status === "CANCELLED") {
-          console.log(`[run/engine] Returning empty response for cancelled run ${run.id}`);
+          console.log(
+            `[run/engine] Returning empty response for cancelled run ${run.id}`,
+          );
           return createStreamResponse("");
         }
         const denialReason =
@@ -974,19 +842,67 @@ export class RunEngine implements IRunEngine {
     });
   }
 
-  private async processPermissionDirectives(prompt: string): Promise<string | null> {
-    return processPermissionDirectivesPolicy(prompt, this.permissionApprovalStore);
+  private async processPermissionDirectives(
+    prompt: string,
+  ): Promise<string | null> {
+    return processPermissionDirectivesPolicy(
+      prompt,
+      this.permissionApprovalStore,
+    );
   }
 
-  private async getPermissionPolicyMessage(prompt: string, repositoryContext?: RepositoryContext): Promise<string | null> {
-    return getPermissionPolicyMessage(prompt, repositoryContext, this.permissionApprovalStore);
+  private async getPermissionPolicyMessage(
+    prompt: string,
+    repositoryContext?: RepositoryContext,
+  ): Promise<string | null> {
+    return getPermissionPolicyMessage(
+      prompt,
+      repositoryContext,
+      this.permissionApprovalStore,
+    );
   }
+
   private async getWorkspaceBootstrapMessage(
     runId: string,
     prompt: string,
     repositoryContext?: RepositoryContext,
   ): Promise<string | null> {
-    return getWorkspaceBootstrapMessage(runId, prompt, repositoryContext, this.workspaceBootstrapper);
+    return getWorkspaceBootstrapMessage(
+      runId,
+      prompt,
+      repositoryContext,
+      this.workspaceBootstrapper,
+    );
+  }
+
+  private async resolveGitTaskStrategy(
+    run: Run,
+    input: RunInput,
+  ): Promise<Run["metadata"]["gitTaskStrategy"]> {
+    const hasGitHubAuth = await this.resolveGitHubAuthAvailability(input);
+    return resolveGitTaskStrategyPolicy({
+      run,
+      runInput: input,
+      hasGitHubAuth,
+      strategy: gitHubTaskStrategy,
+      classifier: gitToolFailureClassifier,
+    });
+  }
+
+  private async resolveGitHubAuthAvailability(
+    input: RunInput,
+  ): Promise<boolean> {
+    if (!this.hasGitHubAuthChecker) {
+      return false;
+    }
+    return Boolean(
+      await this.hasGitHubAuthChecker({
+        userId: this.options.userId,
+        runId: this.options.runId,
+        sessionId: this.options.sessionId,
+        runInput: input,
+      }),
+    );
   }
   private async handleExecutionError(
     runId: string,
@@ -1038,8 +954,8 @@ export class RunEngine implements IRunEngine {
       },
     });
   }
-
 }
+
 export class RunEngineError extends Error {
   constructor(message: string) {
     super(`[run/engine] ${message}`);

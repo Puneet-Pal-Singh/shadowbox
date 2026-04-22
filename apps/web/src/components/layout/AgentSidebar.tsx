@@ -40,9 +40,33 @@ const FILTER_OPTIONS: Array<{ value: TaskStatusFilter; label: string }> = [
   { value: "idle", label: "Idle" },
 ];
 
-function mapSessionStatus(status: AgentSession["status"]): SidebarTaskStatus {
+const COMPLETED_HIGHLIGHT_WINDOW_MS = 5 * 60 * 1000;
+
+function shouldHighlightCompleted(
+  session: AgentSession,
+  activeSessionId: string | null,
+): boolean {
+  if (session.id === activeSessionId) {
+    return false;
+  }
+  const updatedAtMs = new Date(session.updatedAt).getTime();
+  if (!Number.isFinite(updatedAtMs)) {
+    return false;
+  }
+  return Date.now() - updatedAtMs <= COMPLETED_HIGHLIGHT_WINDOW_MS;
+}
+
+function mapSessionStatus(
+  session: AgentSession,
+  activeSessionId: string | null,
+): SidebarTaskStatus {
+  const status = session.status;
   if (status === "running") return "running";
-  if (status === "completed") return "completed";
+  if (status === "completed") {
+    return shouldHighlightCompleted(session, activeSessionId)
+      ? "completed"
+      : "idle";
+  }
   if (status === "error") return "failed";
   return "idle";
 }
@@ -128,7 +152,7 @@ export function AgentSidebar({
             title: session.name,
             status: approvalStatesBySessionId[session.id]
               ? "needs_approval"
-              : mapSessionStatus(session.status),
+              : mapSessionStatus(session, activeSessionId),
             updatedAt: session.updatedAt,
             isActive: session.id === activeSessionId,
             metrics: approvalStatesBySessionId[session.id]

@@ -102,6 +102,46 @@ export function buildRuntimeDependencies(
       budgetManager,
       sessionMemoryClient,
       workspaceBootstrapper,
+      hasGitHubAuth: async ({ userId }) =>
+        hasGitHubTokenForUser(env, userId ?? payload.userId),
     },
   };
+}
+
+async function hasGitHubTokenForUser(
+  env: Env,
+  userId: string | undefined,
+): Promise<boolean> {
+  if (!userId) {
+    return false;
+  }
+
+  try {
+    const sessionData = await env.SESSIONS.get(`user_session:${userId}`);
+    if (!sessionData) {
+      return false;
+    }
+
+    const session = JSON.parse(sessionData) as { encryptedToken?: unknown };
+    return hasEncryptedTokenShape(session.encryptedToken);
+  } catch (error) {
+    console.warn(
+      `[runtime/deps] Failed to resolve GitHub auth availability: ${String(error)}`,
+    );
+    return false;
+  }
+}
+
+function hasEncryptedTokenShape(value: unknown): boolean {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const record = value as { ciphertext?: unknown; iv?: unknown };
+  return (
+    typeof record.ciphertext === "string" &&
+    record.ciphertext.length > 0 &&
+    typeof record.iv === "string" &&
+    record.iv.length > 0
+  );
 }
