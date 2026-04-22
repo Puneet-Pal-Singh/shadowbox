@@ -115,7 +115,11 @@ async function loadSessionClaims(
   let sessionData: string | null;
   try {
     sessionData = await env.SESSIONS.get(`user_session:${verifiedUserId}`);
-  } catch {
+  } catch (error) {
+    console.warn(
+      `[provider/auth-scope] ${correlationId}: session store read failed`,
+      error,
+    );
     throw new DomainError(
       "PROVIDER_UNAVAILABLE",
       "Session store is temporarily unavailable. Please retry.",

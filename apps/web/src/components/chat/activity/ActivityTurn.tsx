@@ -57,6 +57,7 @@ export function ActivityTurn({
       <button
         type="button"
         onClick={onToggleTurn}
+        aria-expanded={expanded}
         className="w-full text-left text-sm text-zinc-400 transition hover:text-zinc-100"
       >
         <div className="flex items-center gap-2">

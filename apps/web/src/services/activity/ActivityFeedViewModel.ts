@@ -108,6 +108,32 @@ export interface ActivityFeedViewModel {
   turns: ActivityTurnViewModel[];
 }
 
+interface StaticActivityFeedSummaryViewModel {
+  toolCallsLabel: string;
+  approvalsLabel: string | null;
+  handoffLabel: string | null;
+  startedAt: string | null;
+  endedAt: string | null;
+  isActive: boolean;
+}
+
+interface StaticActivityTurnViewModel {
+  key: string;
+  userPrompt: string | null;
+  summaryLabel: string;
+  defaultCollapsed: boolean;
+  isActiveTurn: boolean;
+  hasVisibleRows: boolean;
+  rows: ActivityFeedRowViewModel[];
+  startedAt: string | null;
+  endedAt: string | null;
+}
+
+interface StaticActivityFeedViewModel {
+  summary: StaticActivityFeedSummaryViewModel;
+  turns: StaticActivityTurnViewModel[];
+}
+
 const LOW_SIGNAL_EXPLORATION_THRESHOLD = 2;
 const GENERIC_EXECUTION_REASONING_SUMMARIES = new Set([
   "Preparing the next concrete workspace action.",
@@ -126,13 +152,24 @@ export function buildActivityFeedViewModel(
   feed: ActivityFeedSnapshot | null,
   nowMs: number = Date.now(),
 ): ActivityFeedViewModel {
+  return withActivityFeedElapsedLabels(
+    buildStaticActivityFeedViewModel(feed),
+    nowMs,
+  );
+}
+
+export function buildStaticActivityFeedViewModel(
+  feed: ActivityFeedSnapshot | null,
+): StaticActivityFeedViewModel {
   if (!feed) {
     return {
       summary: {
-        elapsedLabel: "Waiting for activity",
         toolCallsLabel: "0 tool calls",
         approvalsLabel: null,
         handoffLabel: null,
+        startedAt: null,
+        endedAt: null,
+        isActive: false,
       },
       turns: [],
     };
@@ -141,7 +178,7 @@ export function buildActivityFeedViewModel(
   const turnGroups = groupItemsIntoTurns(feed.items);
   const lastTurnIndex = turnGroups.length - 1;
   return {
-    summary: buildFeedSummary(feed, nowMs),
+    summary: buildStaticFeedSummary(feed),
     turns: turnGroups.flatMap((turn, index) => {
       const turnKey = resolveActivityTurnKey(turn.turnId, index);
       if (!turnKey) {
@@ -150,24 +187,60 @@ export function buildActivityFeedViewModel(
 
       const isActiveTurn = feed.status === "RUNNING" && index === lastTurnIndex;
       const rows = buildTurnRows(turn.items, isActiveTurn);
+      const startedAt = turn.items[0]?.createdAt ?? null;
+      const endedAt = turn.items[turn.items.length - 1]?.updatedAt ?? null;
       return [
         {
           key: turnKey,
           userPrompt: getTurnUserPrompt(turn.items),
-          elapsedLabel: formatDuration(
-            turn.items[0]?.createdAt ?? null,
-            turn.items[turn.items.length - 1]?.updatedAt ?? null,
-            isActiveTurn,
-            nowMs,
-          ),
           summaryLabel: buildTurnSummary(rows),
           defaultCollapsed: !isActiveTurn,
           isActiveTurn,
           hasVisibleRows: rows.length > 0,
           rows,
+          startedAt,
+          endedAt,
         },
       ];
     }),
+  };
+}
+
+export function withActivityFeedElapsedLabels(
+  viewModel: StaticActivityFeedViewModel,
+  nowMs: number = Date.now(),
+): ActivityFeedViewModel {
+  const summaryElapsedLabel = viewModel.summary.startedAt
+    ? formatDuration(
+        viewModel.summary.startedAt,
+        viewModel.summary.endedAt,
+        viewModel.summary.isActive,
+        nowMs,
+      )
+    : "Waiting for activity";
+
+  return {
+    summary: {
+      elapsedLabel: summaryElapsedLabel,
+      toolCallsLabel: viewModel.summary.toolCallsLabel,
+      approvalsLabel: viewModel.summary.approvalsLabel,
+      handoffLabel: viewModel.summary.handoffLabel,
+    },
+    turns: viewModel.turns.map((turn) => ({
+      key: turn.key,
+      userPrompt: turn.userPrompt,
+      elapsedLabel: formatDuration(
+        turn.startedAt,
+        turn.endedAt,
+        turn.isActiveTurn,
+        nowMs,
+      ),
+      summaryLabel: turn.summaryLabel,
+      defaultCollapsed: turn.defaultCollapsed,
+      isActiveTurn: turn.isActiveTurn,
+      hasVisibleRows: turn.hasVisibleRows,
+      rows: turn.rows,
+    })),
   };
 }
 
@@ -797,10 +870,9 @@ function getToolDetails(item: ToolActivityPart): string[] {
   }
 }
 
-function buildFeedSummary(
+function buildStaticFeedSummary(
   feed: ActivityFeedSnapshot,
-  nowMs: number,
-): ActivityFeedSummaryViewModel {
+): StaticActivityFeedSummaryViewModel {
   const toolCount = feed.items.filter(
     (item) => item.kind === ACTIVITY_PART_KINDS.TOOL,
   ).length;
@@ -813,10 +885,8 @@ function buildFeedSummary(
   ).length;
   const startedAt = feed.items[0]?.createdAt ?? null;
   const endedAt = feed.items[feed.items.length - 1]?.updatedAt ?? null;
-  const elapsed = formatDuration(startedAt, endedAt, feed.status === "RUNNING", nowMs);
 
   return {
-    elapsedLabel: elapsed,
     toolCallsLabel: `${toolCount} tool call${toolCount === 1 ? "" : "s"}`,
     approvalsLabel:
       approvalCount > 0
@@ -826,6 +896,9 @@ function buildFeedSummary(
       handoffCount > 0
         ? `${handoffCount} handoff${handoffCount === 1 ? "" : "s"}`
         : null,
+    startedAt,
+    endedAt,
+    isActive: feed.status === "RUNNING",
   };
 }
 

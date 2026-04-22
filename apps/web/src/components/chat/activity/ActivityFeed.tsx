@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ActivityFeedSnapshot } from "@repo/shared-types";
-import { buildActivityFeedViewModel } from "../../../services/activity/ActivityFeedViewModel.js";
+import {
+  buildStaticActivityFeedViewModel,
+  withActivityFeedElapsedLabels,
+} from "../../../services/activity/ActivityFeedViewModel.js";
 import { ActivityTurn } from "./ActivityTurn.js";
 
 interface ActivityFeedProps {
@@ -50,9 +53,13 @@ function ActivityFeedContent({
     };
   }, [isActiveRun]);
 
+  const staticViewModel = useMemo(
+    () => buildStaticActivityFeedViewModel(feed),
+    [feed],
+  );
   const viewModel = useMemo(
-    () => buildActivityFeedViewModel(feed, nowMs),
-    [feed, nowMs],
+    () => withActivityFeedElapsedLabels(staticViewModel, nowMs),
+    [staticViewModel, nowMs],
   );
   const [expandedTurns, setExpandedTurns] = useState<Record<string, boolean>>(
     {},

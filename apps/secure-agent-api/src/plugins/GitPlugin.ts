@@ -65,7 +65,7 @@ const SAFE_GIT_REF_REGEX = /^[A-Za-z0-9._/-]{1,200}$/;
 const CLONE_DESTINATION_NOT_EMPTY_PATTERN =
   /destination path .* already exists and is not an empty directory/i;
 const BRANCH_PATHSPEC_MISSING_PATTERN =
-  /pathspec .* did not match any file known to git/i;
+  /pathspec .* did not match any file(?:\(s\))? known to git/i;
 const MISSING_GIT_AUTHOR_ERROR =
   "Git commit author is not configured for this workspace commit request.";
 const WRITE_GIT_AUTHOR_ERROR =

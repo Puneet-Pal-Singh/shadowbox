@@ -2,40 +2,11 @@ import { useState, useEffect } from "react";
 import { GitBranch, Star, Github, Search, Check } from "lucide-react";
 import type { Repository, Branch } from "../../services/GitHubService";
 import * as GitHubService from "../../services/GitHubService";
+import { sortBranchesForRepoPicker } from "./sortBranchesForRepoPicker";
 
 interface RepoPickerProps {
   onRepoSelect: (repo: Repository, branch: string) => void;
   onSkip: () => void;
-}
-
-export function sortBranchesForRepoPicker(
-  branches: Branch[],
-  defaultBranch: string,
-): Branch[] {
-  const normalizedDefaultBranch = defaultBranch.trim();
-
-  return [...branches].sort((a, b) => {
-    const aIsDefault = a.name === normalizedDefaultBranch;
-    const bIsDefault = b.name === normalizedDefaultBranch;
-
-    if (aIsDefault && !bIsDefault) {
-      return -1;
-    }
-
-    if (!aIsDefault && bIsDefault) {
-      return 1;
-    }
-
-    if (a.protected && !b.protected) {
-      return -1;
-    }
-
-    if (!a.protected && b.protected) {
-      return 1;
-    }
-
-    return a.name.localeCompare(b.name);
-  });
 }
 
 export function RepoPicker({ onRepoSelect, onSkip }: RepoPickerProps) {

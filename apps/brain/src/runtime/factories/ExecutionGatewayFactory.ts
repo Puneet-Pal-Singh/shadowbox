@@ -123,11 +123,25 @@ async function hasGitHubTokenForUser(
     }
 
     const session = JSON.parse(sessionData) as { encryptedToken?: unknown };
-    return typeof session.encryptedToken === "string" && session.encryptedToken.length > 0;
+    return hasEncryptedTokenShape(session.encryptedToken);
   } catch (error) {
     console.warn(
-      `[runtime/deps] Failed to resolve GitHub auth availability for user ${userId}: ${String(error)}`,
+      `[runtime/deps] Failed to resolve GitHub auth availability: ${String(error)}`,
     );
     return false;
   }
+}
+
+function hasEncryptedTokenShape(value: unknown): boolean {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const record = value as { ciphertext?: unknown; iv?: unknown };
+  return (
+    typeof record.ciphertext === "string" &&
+    record.ciphertext.length > 0 &&
+    typeof record.iv === "string" &&
+    record.iv.length > 0
+  );
 }

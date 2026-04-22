@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Branch } from "../../services/GitHubService";
-import { sortBranchesForRepoPicker } from "./RepoPicker";
+import { sortBranchesForRepoPicker } from "./sortBranchesForRepoPicker";
 
 function createBranch(name: string, isProtected = false): Branch {
   return {

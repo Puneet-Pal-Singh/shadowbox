@@ -10,7 +10,8 @@ import {
 } from "lucide-react";
 import type { DiffContent, DiffHunk, DiffLine as DiffLineType } from "@repo/shared-types";
 import DiffLine from "./DiffLine";
-import { DiffCodeText, resolveDiffLanguage } from "./DiffCodeText";
+import { DiffCodeText } from "./DiffCodeText";
+import { resolveDiffLanguage } from "./resolveDiffLanguage";
 
 interface DiffViewerProps {
   diff: DiffContent;

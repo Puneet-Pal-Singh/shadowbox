@@ -824,7 +824,6 @@ async function executeGitHubReadTool(
   if (failure) {
     return buildFailureResult(taskId, failure, {
       activity: {
-        family: "generic",
         displayText: "Reading GitHub metadata",
         summary: `${toolName} failed`,
       },
@@ -833,7 +832,6 @@ async function executeGitHubReadTool(
 
   return buildSuccessResult(taskId, formatExecutionResult(result), {
     activity: {
-      family: "generic",
       displayText: "Reading GitHub metadata",
       summary: `${toolName} completed`,
     },
