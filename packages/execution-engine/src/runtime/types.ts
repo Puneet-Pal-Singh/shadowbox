@@ -86,6 +86,7 @@ export type GitTaskLane =
   | "typed_git"
   | "shell_git"
   | "github_connector"
+  | "github_cli"
   | "shell_gh";
 
 export type GitTaskClassification =

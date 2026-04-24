@@ -422,7 +422,7 @@ export class RunEngine implements IRunEngine {
           run,
           effectiveInput,
           messages,
-          enforceGoldenFlowToolFloor(tools),
+          enforceGoldenFlowToolFloor(tools, effectiveInput.metadata),
         );
       }
 

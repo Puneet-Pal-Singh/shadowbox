@@ -21,6 +21,7 @@ export interface GitHubUser {
   avatar: string;
   email: string | null;
   name: string | null;
+  githubScopes?: string[];
   commitIdentity?: GitCommitIdentityState;
 }
 

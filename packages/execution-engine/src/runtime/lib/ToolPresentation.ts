@@ -126,6 +126,22 @@ const TOOL_PRESENTERS: Record<
     presentGitHubActionsJobLogsGet(
       validateToolPresentationInput("github_actions_job_logs_get", input),
     ),
+  github_cli_pr_checks_get: (input) =>
+    presentGitHubCliPullRequestChecksGet(
+      validateToolPresentationInput("github_cli_pr_checks_get", input),
+    ),
+  github_cli_actions_run_get: (input) =>
+    presentGitHubCliActionsRunGet(
+      validateToolPresentationInput("github_cli_actions_run_get", input),
+    ),
+  github_cli_actions_job_logs_get: (input) =>
+    presentGitHubCliActionsJobLogsGet(
+      validateToolPresentationInput("github_cli_actions_job_logs_get", input),
+    ),
+  github_cli_pr_comment: (input) =>
+    presentGitHubCliPullRequestComment(
+      validateToolPresentationInput("github_cli_pr_comment", input),
+    ),
 };
 
 function presentReadFile(
@@ -383,6 +399,46 @@ function presentGitHubActionsJobLogsGet(
     description: `Load Actions job #${input.actionsJobId} logs`,
     displayText: `Loading logs for job #${input.actionsJobId}`,
     summary: `Loading GitHub Actions job logs for #${input.actionsJobId} from ${input.owner}/${input.repo}.`,
+  };
+}
+
+function presentGitHubCliPullRequestChecksGet(
+  input: ToolPresentationInputByName["github_cli_pr_checks_get"],
+): ToolPresentation {
+  return {
+    description: `Load PR #${input.number} checks (CLI lane)`,
+    displayText: `Loading checks for PR #${input.number} via CLI`,
+    summary: `Loading check runs for pull request #${input.number} from ${input.owner}/${input.repo} through the bounded GitHub CLI lane.`,
+  };
+}
+
+function presentGitHubCliActionsRunGet(
+  input: ToolPresentationInputByName["github_cli_actions_run_get"],
+): ToolPresentation {
+  return {
+    description: `Load Actions run #${input.actionsRunId} (CLI lane)`,
+    displayText: `Loading Actions run #${input.actionsRunId} via CLI`,
+    summary: `Loading GitHub Actions run #${input.actionsRunId} from ${input.owner}/${input.repo} through the bounded GitHub CLI lane.`,
+  };
+}
+
+function presentGitHubCliActionsJobLogsGet(
+  input: ToolPresentationInputByName["github_cli_actions_job_logs_get"],
+): ToolPresentation {
+  return {
+    description: `Load Actions job #${input.actionsJobId} logs (CLI lane)`,
+    displayText: `Loading logs for job #${input.actionsJobId} via CLI`,
+    summary: `Loading GitHub Actions job logs for #${input.actionsJobId} from ${input.owner}/${input.repo} through the bounded GitHub CLI lane.`,
+  };
+}
+
+function presentGitHubCliPullRequestComment(
+  input: ToolPresentationInputByName["github_cli_pr_comment"],
+): ToolPresentation {
+  return {
+    description: `Comment on PR #${input.number} (CLI lane)`,
+    displayText: `Posting PR #${input.number} comment via CLI`,
+    summary: `Posting a bounded GitHub CLI comment to pull request #${input.number} in ${input.owner}/${input.repo}.`,
   };
 }
 

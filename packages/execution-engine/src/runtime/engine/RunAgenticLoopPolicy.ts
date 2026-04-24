@@ -26,7 +26,7 @@ export function resolveAgenticLoopTools(
     return null;
   }
 
-  return enforceGoldenFlowToolFloor(incomingTools);
+  return enforceGoldenFlowToolFloor(incomingTools, metadata);
 }
 
 export function getAgenticLoopMaxSteps(

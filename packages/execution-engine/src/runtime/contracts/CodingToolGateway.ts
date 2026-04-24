@@ -28,12 +28,23 @@ export type GoldenFlowToolName =
   | "github_issue_get"
   | "github_actions_run_get"
   | "github_actions_job_logs_get"
+  | "github_cli_pr_checks_get"
+  | "github_cli_actions_run_get"
+  | "github_cli_actions_job_logs_get"
+  | "github_cli_pr_comment"
   | "glob"
   | "grep";
 
 export interface ToolGatewayRoute {
   toolName: GoldenFlowToolName;
-  plugin: "filesystem" | "node" | "git" | "github" | "bash" | "internal";
+  plugin:
+    | "filesystem"
+    | "node"
+    | "git"
+    | "github"
+    | "github_cli"
+    | "bash"
+    | "internal";
   action: string;
 }
 
@@ -189,6 +200,34 @@ const GITHUB_ACTIONS_JOB_LOGS_GET_TOOL_INPUT_SCHEMA = createToolInputSchema({
   tailLines: z.number().int().min(1).max(2_000).optional(),
 });
 
+const GITHUB_CLI_PR_CHECKS_GET_TOOL_INPUT_SCHEMA = createToolInputSchema({
+  owner: z.string().min(1).max(MAX_PATH_LENGTH),
+  repo: z.string().min(1).max(MAX_PATH_LENGTH),
+  number: z.number().int().positive(),
+});
+
+const GITHUB_CLI_ACTIONS_RUN_GET_TOOL_INPUT_SCHEMA = createToolInputSchema({
+  owner: z.string().min(1).max(MAX_PATH_LENGTH),
+  repo: z.string().min(1).max(MAX_PATH_LENGTH),
+  actionsRunId: z.number().int().positive(),
+});
+
+const GITHUB_CLI_ACTIONS_JOB_LOGS_GET_TOOL_INPUT_SCHEMA = createToolInputSchema(
+  {
+    owner: z.string().min(1).max(MAX_PATH_LENGTH),
+    repo: z.string().min(1).max(MAX_PATH_LENGTH),
+    actionsJobId: z.number().int().positive(),
+    tailLines: z.number().int().min(1).max(2_000).optional(),
+  },
+);
+
+const GITHUB_CLI_PR_COMMENT_TOOL_INPUT_SCHEMA = createToolInputSchema({
+  owner: z.string().min(1).max(MAX_PATH_LENGTH),
+  repo: z.string().min(1).max(MAX_PATH_LENGTH),
+  number: z.number().int().positive(),
+  body: z.string().min(1).max(MAX_WRITE_CONTENT_LENGTH),
+});
+
 const GLOB_TOOL_INPUT_SCHEMA = createToolInputSchema({
   pattern: z.string().min(1).max(MAX_PATTERN_LENGTH),
   path: z.string().min(1).max(MAX_PATH_LENGTH).optional(),
@@ -230,6 +269,16 @@ export type GoldenFlowToolInputByName = {
   github_actions_job_logs_get: z.infer<
     typeof GITHUB_ACTIONS_JOB_LOGS_GET_TOOL_INPUT_SCHEMA
   >;
+  github_cli_pr_checks_get: z.infer<
+    typeof GITHUB_CLI_PR_CHECKS_GET_TOOL_INPUT_SCHEMA
+  >;
+  github_cli_actions_run_get: z.infer<
+    typeof GITHUB_CLI_ACTIONS_RUN_GET_TOOL_INPUT_SCHEMA
+  >;
+  github_cli_actions_job_logs_get: z.infer<
+    typeof GITHUB_CLI_ACTIONS_JOB_LOGS_GET_TOOL_INPUT_SCHEMA
+  >;
+  github_cli_pr_comment: z.infer<typeof GITHUB_CLI_PR_COMMENT_TOOL_INPUT_SCHEMA>;
   glob: z.infer<typeof GLOB_TOOL_INPUT_SCHEMA>;
   grep: z.infer<typeof GREP_TOOL_INPUT_SCHEMA>;
 };
@@ -388,6 +437,44 @@ const GOLDEN_FLOW_TOOL_SPECS: Record<GoldenFlowToolName, GoldenFlowToolSpec> = {
       action: "actions_job_logs_get",
     },
   },
+  github_cli_pr_checks_get: {
+    description: "Get GitHub check runs through the bounded GitHub CLI lane.",
+    parameters: GITHUB_CLI_PR_CHECKS_GET_TOOL_INPUT_SCHEMA,
+    route: {
+      toolName: "github_cli_pr_checks_get",
+      plugin: "github_cli",
+      action: "pr_checks_get",
+    },
+  },
+  github_cli_actions_run_get: {
+    description:
+      "Get GitHub Actions workflow run metadata through the bounded GitHub CLI lane.",
+    parameters: GITHUB_CLI_ACTIONS_RUN_GET_TOOL_INPUT_SCHEMA,
+    route: {
+      toolName: "github_cli_actions_run_get",
+      plugin: "github_cli",
+      action: "actions_run_get",
+    },
+  },
+  github_cli_actions_job_logs_get: {
+    description:
+      "Get GitHub Actions workflow job logs through the bounded GitHub CLI lane.",
+    parameters: GITHUB_CLI_ACTIONS_JOB_LOGS_GET_TOOL_INPUT_SCHEMA,
+    route: {
+      toolName: "github_cli_actions_job_logs_get",
+      plugin: "github_cli",
+      action: "actions_job_logs_get",
+    },
+  },
+  github_cli_pr_comment: {
+    description: "Create a pull request comment through the bounded GitHub CLI lane.",
+    parameters: GITHUB_CLI_PR_COMMENT_TOOL_INPUT_SCHEMA,
+    route: {
+      toolName: "github_cli_pr_comment",
+      plugin: "github_cli",
+      action: "pr_comment",
+    },
+  },
   glob: {
     description: "Find files by glob pattern.",
     parameters: GLOB_TOOL_INPUT_SCHEMA,
@@ -429,6 +516,7 @@ export function isMutatingGoldenFlowToolName(toolName: string): boolean {
     "git_create_pull_request",
     "git_branch_create",
     "git_branch_switch",
+    "github_cli_pr_comment",
   ].includes(toolName);
 }
 
@@ -456,13 +544,21 @@ export function getGoldenFlowToolRegistry(): Record<string, CoreTool> {
 
 export function enforceGoldenFlowToolFloor(
   incomingTools: Record<string, CoreTool>,
+  metadata?: Record<string, unknown>,
 ): Record<string, CoreTool> {
-  const constrained = getGoldenFlowToolRegistry();
+  const defaults = getGoldenFlowToolRegistry();
+  const constrained: Record<string, CoreTool> = {};
+  const githubCliFlags = resolveGitHubCliFlags(metadata);
   for (const toolName of GOLDEN_FLOW_TOOL_NAMES) {
-    const incoming = incomingTools[toolName];
-    if (incoming) {
-      constrained[toolName] = incoming;
+    if (!isGoldenFlowToolEnabledByFlags(toolName, githubCliFlags)) {
+      continue;
     }
+    const incoming = incomingTools[toolName];
+    const fallback = defaults[toolName];
+    if (!fallback) {
+      continue;
+    }
+    constrained[toolName] = incoming ?? fallback;
   }
   return constrained;
 }
@@ -479,4 +575,51 @@ export function validateGoldenFlowToolInput<T extends GoldenFlowToolName>(
     throw new Error(`Invalid ${toolName} input. ${details}`);
   }
   return parsed.data as GoldenFlowToolInputByName[T];
+}
+
+interface GitHubCliLaneFlags {
+  laneEnabled: boolean;
+  ciEnabled: boolean;
+  prCommentEnabled: boolean;
+}
+
+function resolveGitHubCliFlags(
+  metadata: Record<string, unknown> | undefined,
+): GitHubCliLaneFlags {
+  const featureFlags =
+    metadata?.featureFlags && typeof metadata.featureFlags === "object"
+      ? (metadata.featureFlags as Record<string, unknown>)
+      : undefined;
+
+  const readBoolean = (value: unknown): boolean | undefined =>
+    typeof value === "boolean" ? value : undefined;
+
+  const laneEnabled = readBoolean(featureFlags?.ghCliLaneEnabled) ?? false;
+  const ciEnabled = readBoolean(featureFlags?.ghCliCiEnabled) ?? laneEnabled;
+  const prCommentEnabled =
+    readBoolean(featureFlags?.ghCliPrCommentEnabled) ?? false;
+  return {
+    laneEnabled,
+    ciEnabled,
+    prCommentEnabled,
+  };
+}
+
+function isGoldenFlowToolEnabledByFlags(
+  toolName: GoldenFlowToolName,
+  flags: GitHubCliLaneFlags,
+): boolean {
+  if (toolName === "github_cli_pr_comment") {
+    return flags.laneEnabled && flags.prCommentEnabled;
+  }
+
+  if (
+    toolName === "github_cli_pr_checks_get" ||
+    toolName === "github_cli_actions_run_get" ||
+    toolName === "github_cli_actions_job_logs_get"
+  ) {
+    return flags.laneEnabled && flags.ciEnabled;
+  }
+
+  return true;
 }

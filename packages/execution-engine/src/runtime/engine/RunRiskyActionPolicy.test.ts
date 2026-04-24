@@ -40,6 +40,24 @@ describe("RunRiskyActionPolicy", () => {
     expect(result.kind).toBe("allow");
   });
 
+  it("allows read-only github_cli metadata tools by default", async () => {
+    const store = new PermissionApprovalStore(new MockRuntimeState(), "run-risk-1c");
+
+    const result = await evaluateToolPermission({
+      runId: "run-risk-1c",
+      sessionId: "session-1",
+      origin: "agent",
+      productMode: "auto_for_safe",
+      workflowIntent: "explore",
+      toolName: "github_cli_actions_job_logs_get",
+      toolArgs: { owner: "acme", repo: "career-crew", actionsJobId: 901 },
+      hasMutationEvidence: false,
+      approvalStore: store,
+    });
+
+    expect(result.kind).toBe("allow");
+  });
+
   it("denies git commit until mutation evidence exists", async () => {
     const store = new PermissionApprovalStore(new MockRuntimeState(), "run-risk-2");
 
@@ -214,6 +232,43 @@ describe("RunRiskyActionPolicy", () => {
       throw new Error("Expected ask result");
     }
     expect(result.request.category).toBe("git_mutation");
+  });
+
+  it("maps github_cli_pr_comment to git_mutation approval with stable PR target fingerprint", async () => {
+    const store = new PermissionApprovalStore(new MockRuntimeState(), "run-risk-4dd");
+
+    const result = await evaluateToolPermission({
+      runId: "run-risk-4dd",
+      sessionId: "session-1",
+      origin: "agent",
+      productMode: "auto_for_safe",
+      workflowIntent: "ship",
+      toolName: "github_cli_pr_comment",
+      toolArgs: {
+        owner: "acme",
+        repo: "career-crew",
+        number: 228,
+        body: "Please rerun CI after rebase.",
+      },
+      hasMutationEvidence: true,
+      approvalStore: store,
+    });
+
+    expect(result.kind).toBe("ask");
+    if (result.kind !== "ask") {
+      throw new Error("Expected ask result");
+    }
+    expect(result.request.category).toBe("git_mutation");
+    expect(result.request.actionFingerprint).toBe(
+      "git_mutation:github_cli_pr_comment:acme/career-crew:pr:228",
+    );
+    expect(result.request.remoteTarget).toBe("acme/career-crew");
+    expect(result.request.availableDecisions).toEqual(
+      expect.arrayContaining(["allow_once", "allow_for_run", "deny"]),
+    );
+    expect(result.request.availableDecisions).toEqual(
+      expect.not.arrayContaining(["allow_persistent_rule"]),
+    );
   });
 
   it("allows file writes in auto_for_safe mode", async () => {

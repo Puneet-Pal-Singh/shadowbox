@@ -23,6 +23,9 @@ export enum FeatureFlagName {
   CHAT_EVENT_STREAM_V1 = "CHAT_EVENT_STREAM_V1",
   CHAT_AGENTIC_LOOP_V1 = "CHAT_AGENTIC_LOOP_V1",
   CHAT_REVIEWER_PASS_V1 = "CHAT_REVIEWER_PASS_V1",
+  GH_CLI_LANE_ENABLED = "GH_CLI_LANE_ENABLED",
+  GH_CLI_CI_ENABLED = "GH_CLI_CI_ENABLED",
+  GH_CLI_PR_COMMENT_ENABLED = "GH_CLI_PR_COMMENT_ENABLED",
 }
 
 /**
@@ -78,6 +81,24 @@ const FLAG_DEFINITIONS: Record<FeatureFlagName, FeatureFlagDef> = {
     description: "Enable generator->reviewer pass for synthesis",
     defaultValue: false,
     envVarName: "FEATURE_FLAG_CHAT_REVIEWER_PASS_V1",
+  },
+  [FeatureFlagName.GH_CLI_LANE_ENABLED]: {
+    name: FeatureFlagName.GH_CLI_LANE_ENABLED,
+    description: "Enable bounded GitHub CLI lane in the execution tool floor",
+    defaultValue: false,
+    envVarName: "FEATURE_FLAG_GH_CLI_LANE_ENABLED",
+  },
+  [FeatureFlagName.GH_CLI_CI_ENABLED]: {
+    name: FeatureFlagName.GH_CLI_CI_ENABLED,
+    description: "Enable bounded GitHub CLI CI read flows",
+    defaultValue: false,
+    envVarName: "FEATURE_FLAG_GH_CLI_CI_ENABLED",
+  },
+  [FeatureFlagName.GH_CLI_PR_COMMENT_ENABLED]: {
+    name: FeatureFlagName.GH_CLI_PR_COMMENT_ENABLED,
+    description: "Enable bounded GitHub CLI PR comment mutation",
+    defaultValue: false,
+    envVarName: "FEATURE_FLAG_GH_CLI_PR_COMMENT_ENABLED",
   },
 };
 

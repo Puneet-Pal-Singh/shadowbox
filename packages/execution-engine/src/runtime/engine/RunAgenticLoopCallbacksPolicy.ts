@@ -215,6 +215,9 @@ async function executeDirectToolCall(input: {
       description: toolPresentation.description,
       displayText: toolPresentation.displayText,
       ...input.toolCall.args,
+      __runtimeFeatureFlags: resolveRuntimeFeatureFlags(
+        input.run.input.metadata,
+      ),
     },
     onOutputAppended: async (chunk) => {
       await input.runEventRecorder.recordToolOutputAppended(
@@ -230,4 +233,31 @@ async function executeDirectToolCall(input: {
     input.setHasMutationEvidence(true);
   }
   return result;
+}
+
+function resolveRuntimeFeatureFlags(
+  metadata: Record<string, unknown> | undefined,
+): {
+  ghCliLaneEnabled: boolean;
+  ghCliCiEnabled: boolean;
+  ghCliPrCommentEnabled: boolean;
+} {
+  const featureFlags =
+    metadata?.featureFlags && typeof metadata.featureFlags === "object"
+      ? (metadata.featureFlags as Record<string, unknown>)
+      : undefined;
+
+  const readBoolean = (value: unknown): boolean | undefined =>
+    typeof value === "boolean" ? value : undefined;
+
+  const ghCliLaneEnabled = readBoolean(featureFlags?.ghCliLaneEnabled) ?? false;
+  const ghCliCiEnabled =
+    readBoolean(featureFlags?.ghCliCiEnabled) ?? ghCliLaneEnabled;
+  const ghCliPrCommentEnabled =
+    readBoolean(featureFlags?.ghCliPrCommentEnabled) ?? false;
+  return {
+    ghCliLaneEnabled,
+    ghCliCiEnabled,
+    ghCliPrCommentEnabled,
+  };
 }

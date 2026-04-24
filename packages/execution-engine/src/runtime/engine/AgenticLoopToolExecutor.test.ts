@@ -51,6 +51,120 @@ describe("AgenticLoopToolExecutor", () => {
     ]);
   });
 
+  it("executes github_cli_actions_job_logs_get through the bounded github_cli route", async () => {
+    const calls: Array<{
+      plugin: string;
+      action: string;
+      payload: Record<string, unknown>;
+    }> = [];
+    const executionService: RuntimeExecutionService = {
+      execute: async (plugin, action, payload) => {
+        calls.push({ plugin, action, payload });
+        return { output: "ok" };
+      },
+    };
+
+    const result = await executeAgenticLoopTool(executionService, {
+      taskId: "task-github-cli-1",
+      toolName: "github_cli_actions_job_logs_get",
+      toolInput: {
+        owner: "acme",
+        repo: "career-crew",
+        actionsJobId: 987654,
+        tailLines: 200,
+      },
+    });
+
+    expect(result.status).toBe("DONE");
+    expect(calls).toEqual([
+      {
+        plugin: "github_cli",
+        action: "actions_job_logs_get",
+        payload: {
+          owner: "acme",
+          repo: "career-crew",
+          actionsJobId: 987654,
+          tailLines: 200,
+          ghCliLaneEnabled: true,
+          ghCliCiEnabled: true,
+          ghCliPrCommentEnabled: true,
+        },
+      },
+    ]);
+  });
+
+  it("executes github_cli_pr_comment as a bounded GitHub mutation", async () => {
+    const calls: Array<{
+      plugin: string;
+      action: string;
+      payload: Record<string, unknown>;
+    }> = [];
+    const executionService: RuntimeExecutionService = {
+      execute: async (plugin, action, payload) => {
+        calls.push({ plugin, action, payload });
+        return { output: "ok" };
+      },
+    };
+
+    const result = await executeAgenticLoopTool(executionService, {
+      taskId: "task-github-cli-comment-1",
+      toolName: "github_cli_pr_comment",
+      toolInput: {
+        owner: "acme",
+        repo: "career-crew",
+        number: 228,
+        body: "Looks good to me.",
+      },
+    });
+
+    expect(result.status).toBe("DONE");
+    expect(calls).toEqual([
+      {
+        plugin: "github_cli",
+        action: "pr_comment",
+        payload: {
+          owner: "acme",
+          repo: "career-crew",
+          number: 228,
+          body: "Looks good to me.",
+          ghCliLaneEnabled: true,
+          ghCliCiEnabled: true,
+          ghCliPrCommentEnabled: true,
+        },
+      },
+    ]);
+  });
+
+  it("fails github_cli_pr_comment when the runtime feature flag disables PR comments", async () => {
+    let executeCallCount = 0;
+    const executionService: RuntimeExecutionService = {
+      execute: async () => {
+        executeCallCount += 1;
+        return { output: "ok" };
+      },
+    };
+
+    const result = await executeAgenticLoopTool(executionService, {
+      taskId: "task-github-cli-comment-2",
+      toolName: "github_cli_pr_comment",
+      toolInput: {
+        owner: "acme",
+        repo: "career-crew",
+        number: 228,
+        body: "Looks good to me.",
+        __runtimeFeatureFlags: {
+          ghCliLaneEnabled: true,
+          ghCliCiEnabled: true,
+          ghCliPrCommentEnabled: false,
+        },
+      },
+    });
+
+    expect(result.status).toBe("FAILED");
+    expect(result.error?.message).toContain("GH_CLI_PR_COMMENT_ENABLED");
+    expect(executeCallCount).toBe(0);
+  });
+
   it("blocks bash git config user identity commands and avoids execution", async () => {
     let executeCallCount = 0;
     const executionService: RuntimeExecutionService = {

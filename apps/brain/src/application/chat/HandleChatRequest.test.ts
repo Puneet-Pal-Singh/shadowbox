@@ -64,6 +64,9 @@ describe("HandleChatRequest", () => {
       featureFlags: {
         agenticLoopV1: false,
         reviewerPassV1: false,
+        ghCliLaneEnabled: false,
+        ghCliCiEnabled: false,
+        ghCliPrCommentEnabled: false,
       },
     });
     expect(result.executionPayload.input.repositoryContext).toEqual({
@@ -104,6 +107,34 @@ describe("HandleChatRequest", () => {
     expect(result.executionPayload.input.executionBackend).toBe("e2b");
     expect(result.executionPayload.input.harnessMode).toBe("delegated");
     expect(result.executionPayload.input.authMode).toBe("oauth");
+  });
+
+  it("propagates GitHub CLI feature flags into run metadata", async () => {
+    vi.spyOn(PersistenceService.prototype, "persistUserMessage").mockResolvedValue();
+
+    const useCase = new HandleChatRequest(
+      createEnv({
+        FEATURE_FLAG_GH_CLI_LANE_ENABLED: "true",
+        FEATURE_FLAG_GH_CLI_CI_ENABLED: "true",
+        FEATURE_FLAG_GH_CLI_PR_COMMENT_ENABLED: "true",
+      }),
+    );
+    const result = await useCase.execute({
+      sessionId: "session-1",
+      runId: "123e4567-e89b-42d3-a456-426614174000",
+      correlationId: "corr-gh-cli-flags",
+      agentType: "coding",
+      prompt: "inspect CI logs",
+      messages: [{ role: "user", content: "inspect CI logs" }],
+    });
+
+    expect(result.executionPayload.input.metadata?.featureFlags).toEqual({
+      agenticLoopV1: false,
+      reviewerPassV1: false,
+      ghCliLaneEnabled: true,
+      ghCliCiEnabled: true,
+      ghCliPrCommentEnabled: true,
+    });
   });
 
   it("passes explicit plan mode into execution payload", async () => {
@@ -166,6 +197,9 @@ describe("HandleChatRequest", () => {
       featureFlags: {
         agenticLoopV1: false,
         reviewerPassV1: false,
+        ghCliLaneEnabled: false,
+        ghCliCiEnabled: false,
+        ghCliPrCommentEnabled: false,
       },
       workflow: {
         entrypoint: undefined,
@@ -234,7 +268,7 @@ describe("HandleChatRequest", () => {
   });
 });
 
-function createEnv(): Env {
+function createEnv(overrides: Partial<Env> = {}): Env {
   return {
     AI: {} as Env["AI"],
     SECURE_API: {
@@ -248,5 +282,6 @@ function createEnv(): Env {
     FRONTEND_URL: "x",
     SESSIONS: {} as Env["SESSIONS"],
     RUN_ENGINE_RUNTIME: {} as Env["RUN_ENGINE_RUNTIME"],
+    ...overrides,
   };
 }

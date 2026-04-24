@@ -72,12 +72,20 @@ describe("ExecuteRunPayloadSchema tools validation", () => {
       featureFlags: {
         agenticLoopV1: true,
         reviewerPassV1: false,
+        ghCliLaneEnabled: true,
+        ghCliCiEnabled: true,
+        ghCliPrCommentEnabled: false,
       },
     };
 
     const result = ExecuteRunPayloadSchema.parse(payload);
     expect(result.input.metadata?.featureFlags?.agenticLoopV1).toBe(true);
     expect(result.input.metadata?.featureFlags?.reviewerPassV1).toBe(false);
+    expect(result.input.metadata?.featureFlags?.ghCliLaneEnabled).toBe(true);
+    expect(result.input.metadata?.featureFlags?.ghCliCiEnabled).toBe(true);
+    expect(result.input.metadata?.featureFlags?.ghCliPrCommentEnabled).toBe(
+      false,
+    );
   });
 
   it("accepts explicit plan mode", () => {

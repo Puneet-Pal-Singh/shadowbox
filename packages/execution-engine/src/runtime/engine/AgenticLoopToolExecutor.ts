@@ -27,6 +27,7 @@ type LineMatcherPatternSource =
 
 const GIT_COMMIT_IDENTITY_CONFIG_SEGMENT_PATTERN =
   /\bgit(?:\s+-C\s+\S+)?\s+config\b.*\buser\.(?:name|email)\b/i;
+const INTERNAL_RUNTIME_FEATURE_FLAGS_KEY = "__runtimeFeatureFlags";
 
 export async function executeAgenticLoopTool(
   executionService: RuntimeExecutionService,
@@ -159,6 +160,30 @@ export async function executeAgenticLoopTool(
       );
     case "github_actions_job_logs_get":
       return executeGitHubActionsJobLogsGetTool(
+        executionService,
+        input.taskId,
+        input.toolInput,
+      );
+    case "github_cli_pr_checks_get":
+      return executeGitHubCliPullRequestChecksGetTool(
+        executionService,
+        input.taskId,
+        input.toolInput,
+      );
+    case "github_cli_actions_run_get":
+      return executeGitHubCliActionsRunGetTool(
+        executionService,
+        input.taskId,
+        input.toolInput,
+      );
+    case "github_cli_actions_job_logs_get":
+      return executeGitHubCliActionsJobLogsGetTool(
+        executionService,
+        input.taskId,
+        input.toolInput,
+      );
+    case "github_cli_pr_comment":
+      return executeGitHubCliPullRequestCommentTool(
         executionService,
         input.taskId,
         input.toolInput,
@@ -806,6 +831,100 @@ async function executeGitHubActionsJobLogsGetTool(
   );
 }
 
+async function executeGitHubCliPullRequestChecksGetTool(
+  executionService: RuntimeExecutionService,
+  taskId: string,
+  taskInput: TaskInput,
+): Promise<TaskResult> {
+  const flags = readGitHubCliRuntimeFlags(taskInput);
+  const validatedInput = validateGoldenFlowToolInput(
+    "github_cli_pr_checks_get",
+    taskInput,
+  );
+  return executeGitHubCliReadTool(
+    executionService,
+    taskId,
+    "github_cli_pr_checks_get",
+    flags,
+    {
+      owner: validatedInput.owner.trim(),
+      repo: validatedInput.repo.trim(),
+      number: validatedInput.number,
+    },
+  );
+}
+
+async function executeGitHubCliActionsRunGetTool(
+  executionService: RuntimeExecutionService,
+  taskId: string,
+  taskInput: TaskInput,
+): Promise<TaskResult> {
+  const flags = readGitHubCliRuntimeFlags(taskInput);
+  const validatedInput = validateGoldenFlowToolInput(
+    "github_cli_actions_run_get",
+    taskInput,
+  );
+  return executeGitHubCliReadTool(
+    executionService,
+    taskId,
+    "github_cli_actions_run_get",
+    flags,
+    {
+      owner: validatedInput.owner.trim(),
+      repo: validatedInput.repo.trim(),
+      actionsRunId: validatedInput.actionsRunId,
+    },
+  );
+}
+
+async function executeGitHubCliActionsJobLogsGetTool(
+  executionService: RuntimeExecutionService,
+  taskId: string,
+  taskInput: TaskInput,
+): Promise<TaskResult> {
+  const flags = readGitHubCliRuntimeFlags(taskInput);
+  const validatedInput = validateGoldenFlowToolInput(
+    "github_cli_actions_job_logs_get",
+    taskInput,
+  );
+  return executeGitHubCliReadTool(
+    executionService,
+    taskId,
+    "github_cli_actions_job_logs_get",
+    flags,
+    {
+      owner: validatedInput.owner.trim(),
+      repo: validatedInput.repo.trim(),
+      actionsJobId: validatedInput.actionsJobId,
+      tailLines: validatedInput.tailLines,
+    },
+  );
+}
+
+async function executeGitHubCliPullRequestCommentTool(
+  executionService: RuntimeExecutionService,
+  taskId: string,
+  taskInput: TaskInput,
+): Promise<TaskResult> {
+  const flags = readGitHubCliRuntimeFlags(taskInput);
+  const validatedInput = validateGoldenFlowToolInput(
+    "github_cli_pr_comment",
+    taskInput,
+  );
+  return executeGitHubCliMutationTool(
+    executionService,
+    taskId,
+    "github_cli_pr_comment",
+    flags,
+    {
+      owner: validatedInput.owner.trim(),
+      repo: validatedInput.repo.trim(),
+      number: validatedInput.number,
+      body: validatedInput.body.trim(),
+    },
+  );
+}
+
 async function executeGitHubReadTool(
   executionService: RuntimeExecutionService,
   taskId: string,
@@ -833,6 +952,77 @@ async function executeGitHubReadTool(
   return buildSuccessResult(taskId, formatExecutionResult(result), {
     activity: {
       displayText: "Reading GitHub metadata",
+      summary: `${toolName} completed`,
+    },
+  });
+}
+
+async function executeGitHubCliReadTool(
+  executionService: RuntimeExecutionService,
+  taskId: string,
+  toolName:
+    | "github_cli_pr_checks_get"
+    | "github_cli_actions_run_get"
+    | "github_cli_actions_job_logs_get",
+  flags: GitHubCliRuntimeFlags,
+  payload: Record<string, unknown>,
+): Promise<TaskResult> {
+  const laneFailure = getDisabledGitHubCliToolFailure(toolName, flags);
+  if (laneFailure) {
+    return buildFailureResult(taskId, laneFailure);
+  }
+
+  const result = await executeGatewayPlugin(executionService, toolName, {
+    ...payload,
+    ...toGitHubCliFlagPayload(flags),
+  });
+  const failure = extractExecutionFailure(result);
+  if (failure) {
+    return buildFailureResult(taskId, failure, {
+      activity: {
+        displayText: "Reading GitHub metadata via CLI lane",
+        summary: `${toolName} failed`,
+      },
+    });
+  }
+
+  return buildSuccessResult(taskId, formatExecutionResult(result), {
+    activity: {
+      displayText: "Reading GitHub metadata via CLI lane",
+      summary: `${toolName} completed`,
+    },
+  });
+}
+
+async function executeGitHubCliMutationTool(
+  executionService: RuntimeExecutionService,
+  taskId: string,
+  toolName: "github_cli_pr_comment",
+  flags: GitHubCliRuntimeFlags,
+  payload: Record<string, unknown>,
+): Promise<TaskResult> {
+  const laneFailure = getDisabledGitHubCliToolFailure(toolName, flags);
+  if (laneFailure) {
+    return buildFailureResult(taskId, laneFailure);
+  }
+
+  const result = await executeGatewayPlugin(executionService, toolName, {
+    ...payload,
+    ...toGitHubCliFlagPayload(flags),
+  });
+  const failure = extractExecutionFailure(result);
+  if (failure) {
+    return buildFailureResult(taskId, failure, {
+      activity: {
+        displayText: "Writing GitHub metadata via CLI lane",
+        summary: `${toolName} failed`,
+      },
+    });
+  }
+
+  return buildSuccessResult(taskId, formatExecutionResult(result), {
+    activity: {
+      displayText: "Writing GitHub metadata via CLI lane",
       summary: `${toolName} completed`,
     },
   });
@@ -887,6 +1077,80 @@ async function executeGrepTool(
       ? matches.join("\n")
       : `No matches found for "${validatedInput.pattern}" from ${startPath}.`;
   return buildSuccessResult(taskId, output);
+}
+
+interface GitHubCliRuntimeFlags {
+  laneEnabled: boolean;
+  ciEnabled: boolean;
+  prCommentEnabled: boolean;
+}
+
+function readGitHubCliRuntimeFlags(taskInput: TaskInput): GitHubCliRuntimeFlags {
+  const rawFlags = taskInput[INTERNAL_RUNTIME_FEATURE_FLAGS_KEY];
+  if (!rawFlags || typeof rawFlags !== "object") {
+    return {
+      laneEnabled: true,
+      ciEnabled: true,
+      prCommentEnabled: true,
+    };
+  }
+
+  const flags = rawFlags as Record<string, unknown>;
+  const laneEnabled = readBoolean(flags.ghCliLaneEnabled) ?? true;
+  const ciEnabled = readBoolean(flags.ghCliCiEnabled) ?? laneEnabled;
+  const prCommentEnabled =
+    readBoolean(flags.ghCliPrCommentEnabled) ?? laneEnabled;
+  return {
+    laneEnabled,
+    ciEnabled,
+    prCommentEnabled,
+  };
+}
+
+function readBoolean(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
+}
+
+function getDisabledGitHubCliToolFailure(
+  toolName:
+    | "github_cli_pr_checks_get"
+    | "github_cli_actions_run_get"
+    | "github_cli_actions_job_logs_get"
+    | "github_cli_pr_comment",
+  flags: GitHubCliRuntimeFlags,
+): string | null {
+  if (!flags.laneEnabled) {
+    return "GitHub CLI lane is disabled by feature flag GH_CLI_LANE_ENABLED.";
+  }
+
+  if (
+    (toolName === "github_cli_pr_checks_get" ||
+      toolName === "github_cli_actions_run_get" ||
+      toolName === "github_cli_actions_job_logs_get") &&
+    !flags.ciEnabled
+  ) {
+    return "GitHub CLI CI lane is disabled by feature flag GH_CLI_CI_ENABLED.";
+  }
+
+  if (toolName === "github_cli_pr_comment" && !flags.prCommentEnabled) {
+    return "GitHub CLI PR comment mutation is disabled by feature flag GH_CLI_PR_COMMENT_ENABLED.";
+  }
+
+  return null;
+}
+
+function toGitHubCliFlagPayload(
+  flags: GitHubCliRuntimeFlags,
+): {
+  ghCliLaneEnabled: boolean;
+  ghCliCiEnabled: boolean;
+  ghCliPrCommentEnabled: boolean;
+} {
+  return {
+    ghCliLaneEnabled: flags.laneEnabled,
+    ghCliCiEnabled: flags.ciEnabled,
+    ghCliPrCommentEnabled: flags.prCommentEnabled,
+  };
 }
 
 async function executeGatewayPlugin(

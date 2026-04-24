@@ -39,9 +39,9 @@ export class GitHubTaskStrategy {
       return {
         classification: "remote_metadata",
         preferredLane: "github_connector",
-        fallbackLane: "shell_git",
+        fallbackLane: "github_cli",
         rationale:
-          "In plan mode, start with connector metadata to anchor the execution plan before local mutation steps.",
+          "In plan mode, start with connector metadata and keep the bounded GitHub CLI lane as parity fallback.",
       };
     }
 
@@ -63,9 +63,9 @@ export class GitHubTaskStrategy {
       return {
         classification: "remote_metadata",
         preferredLane: "github_connector",
-        fallbackLane: "shell_git",
+        fallbackLane: "github_cli",
         rationale:
-          "The previous attempt indicates missing git auth state; retry remote metadata through the connector lane first.",
+          "The previous attempt indicates missing auth state; retry connector metadata first, then bounded GitHub CLI parity if needed.",
       };
     }
 
@@ -77,9 +77,9 @@ export class GitHubTaskStrategy {
       return {
         classification: "remote_metadata",
         preferredLane: "github_connector",
-        fallbackLane: "shell_git",
+        fallbackLane: "github_cli",
         rationale:
-          "Shell dependencies were unavailable in the previous step, so connector metadata should be the primary lane.",
+          "Connector metadata remains primary when shell dependencies fail; bounded GitHub CLI stays as parity fallback.",
       };
     }
 
@@ -136,9 +136,9 @@ export class GitHubTaskStrategy {
     return {
       classification: "connector_gap",
       preferredLane: "github_connector",
-      fallbackLane: "shell_git",
+      fallbackLane: "github_cli",
       rationale:
-        "Remote metadata is needed but connector access appears limited; retry connector reads and continue with local shell git only for workspace steps.",
+        "Remote metadata is needed but connector access appears limited; use bounded GitHub CLI parity for remote reads while preserving local shell git for workspace steps.",
     };
   }
 
@@ -154,18 +154,18 @@ export class GitHubTaskStrategy {
       return {
         classification: "remote_metadata",
         preferredLane: "github_connector",
-        fallbackLane: "shell_git",
+        fallbackLane: "github_cli",
         rationale:
-          "Remote PR/issue/check metadata is connector-first when authenticated connector access is available.",
+          "Remote PR/issue/check metadata is connector-first when authenticated connector access is available, with bounded GitHub CLI parity fallback.",
       };
     }
 
     return {
       classification: "connector_gap",
       preferredLane: "github_connector",
-      fallbackLane: "shell_git",
+      fallbackLane: "github_cli",
       rationale:
-        "Connector metadata path is unavailable or explicitly bypassed; avoid gh shell commands and continue only with local shell git steps.",
+        "Connector metadata path is unavailable or explicitly bypassed; use bounded GitHub CLI parity instead of raw gh shell commands.",
     };
   }
 }

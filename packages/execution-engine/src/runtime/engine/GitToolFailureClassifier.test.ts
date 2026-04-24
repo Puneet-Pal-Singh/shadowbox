@@ -37,6 +37,19 @@ describe("GitToolFailureClassifier", () => {
     });
   });
 
+  it("classifies scope-boundary failures as terminal missing-scope state", () => {
+    expect(
+      classifier.classify({
+        toolName: "github_cli_actions_job_logs_get",
+        message:
+          "GitHub CLI request was forbidden (403) due to insufficient token scope or permissions.",
+      }),
+    ).toEqual({
+      kind: "missing_scope_state",
+      terminal: true,
+    });
+  });
+
   it("marks policy denials as terminal", () => {
     expect(
       classifier.classify({
@@ -100,6 +113,19 @@ describe("shouldClassifyAsGitOrShellFailure", () => {
           origin: "agent_tool",
           truncated: false,
         },
+      }),
+    ).toBe(true);
+  });
+
+  it("includes github and github_cli tool failures", () => {
+    expect(
+      shouldClassifyAsGitOrShellFailure({
+        toolName: "github_actions_job_logs_get",
+      }),
+    ).toBe(true);
+    expect(
+      shouldClassifyAsGitOrShellFailure({
+        toolName: "github_cli_pr_comment",
       }),
     ).toBe(true);
   });

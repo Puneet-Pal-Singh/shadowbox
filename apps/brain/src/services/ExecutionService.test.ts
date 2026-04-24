@@ -351,6 +351,119 @@ describe("ExecutionService", () => {
     });
   });
 
+  it("injects GitHub token for bounded github_cli actions", async () => {
+    const fetchMock = vi.fn<
+      Parameters<Env["SECURE_API"]["fetch"]>,
+      ReturnType<Env["SECURE_API"]["fetch"]>
+    >();
+
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            sessionId: "sess-github-cli",
+            token: "tok-github-cli",
+            expiresAt: Date.now() + 60_000,
+          }),
+          { status: 201, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            taskId: "task-github-cli",
+            status: "success",
+            output: '{"actionsJobId":1234}',
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+
+    const service = new ExecutionService(
+      {
+        SECURE_API: { fetch: fetchMock },
+        SESSIONS: {
+          get: vi.fn(async (key: string) =>
+            key === "user_session:user-789"
+              ? JSON.stringify({
+                  userId: "user-789",
+                  login: "puneet",
+                  avatar: "",
+                  email: "puneet@example.com",
+                  name: "Puneet Pal Singh",
+                  encryptedToken: "encrypted-token",
+                  createdAt: Date.now(),
+                })
+              : null,
+          ),
+        },
+      } as unknown as Env,
+      "session-github-cli",
+      "run-github-cli",
+      "user-789",
+    );
+
+    await service.execute("github_cli", "actions_job_logs_get", {
+      owner: "acme",
+      repo: "career-crew",
+      actionsJobId: 1234,
+    });
+
+    const [, executeInit] = fetchMock.mock.calls[1]!;
+    expect(JSON.parse(String(executeInit?.body))).toMatchObject({
+      action: "github_cli.execute",
+      params: {
+        action: "actions_job_logs_get",
+        runId: "run-github-cli",
+        owner: "acme",
+        repo: "career-crew",
+        actionsJobId: 1234,
+        token: "token:encrypted-token",
+      },
+    });
+  });
+
+  it("fails fast on persisted missing-scope boundary for GitHub Actions logs", async () => {
+    const fetchMock = vi.fn<
+      Parameters<Env["SECURE_API"]["fetch"]>,
+      ReturnType<Env["SECURE_API"]["fetch"]>
+    >();
+
+    const service = new ExecutionService(
+      {
+        SECURE_API: { fetch: fetchMock },
+        SESSIONS: {
+          get: vi.fn(async (key: string) =>
+            key === "user_session:user-790"
+              ? JSON.stringify({
+                  userId: "user-790",
+                  login: "puneet",
+                  avatar: "",
+                  email: "puneet@example.com",
+                  name: "Puneet Pal Singh",
+                  encryptedToken: "encrypted-token",
+                  githubScopes: ["read:user", "user:email"],
+                  createdAt: Date.now(),
+                })
+              : null,
+          ),
+        },
+      } as unknown as Env,
+      "session-github-cli-scope",
+      "run-github-cli-scope",
+      "user-790",
+    );
+
+    await expect(
+      service.execute("github_cli", "actions_job_logs_get", {
+        owner: "acme",
+        repo: "career-crew",
+        actionsJobId: 1234,
+      }),
+    ).rejects.toThrow("Missing GitHub OAuth scope");
+    expect(fetchMock).toHaveBeenCalledTimes(0);
+  });
+
   it("does not allow payload to override canonical action or runId", async () => {
     const fetchMock = vi.fn<
       Parameters<Env["SECURE_API"]["fetch"]>,

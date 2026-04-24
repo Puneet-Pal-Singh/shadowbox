@@ -4,6 +4,11 @@ import {
   sanitizeLogPayload,
   sanitizeUnknownError,
 } from "../core/security/LogSanitizer";
+import {
+  describeGitHubScopeBoundaryError,
+  parseGitHubScopeList,
+  resolveGitHubScopeBoundary,
+} from "./github/GitHubScopeMatrix";
 import { toCanonicalGitExecutionAction } from "../lib/gitExecutionActions";
 import type {
   CreatePullRequestFromRunPayload,
@@ -55,6 +60,11 @@ interface SecureExecutionLogEntry {
   level: "info" | "warn" | "error" | "debug";
   message: string;
   source?: "stdout" | "stderr";
+}
+
+interface GitHubAuthState {
+  token: string;
+  persistedScopes: string[] | null;
 }
 
 /**
@@ -156,6 +166,13 @@ export class ExecutionService {
    * Tokens are stored encrypted in KV storage
    */
   private async getGitHubToken(userId: string): Promise<string | null> {
+    const authState = await this.getGitHubAuthState(userId);
+    return authState?.token ?? null;
+  }
+
+  private async getGitHubAuthState(
+    userId: string,
+  ): Promise<GitHubAuthState | null> {
     try {
       const sessionData = await this.env.SESSIONS.get(`user_session:${userId}`);
       if (!sessionData) {
@@ -176,11 +193,15 @@ export class ExecutionService {
         session.encryptedToken,
         this.env.GITHUB_TOKEN_ENCRYPTION_KEY,
       );
+      const persistedScopes = parseGitHubScopeList(session.githubScopes);
 
       console.log(
         `[ExecutionService] Successfully retrieved GitHub token for user ${userId}`,
       );
-      return token;
+      return {
+        token,
+        persistedScopes,
+      };
     } catch (error) {
       console.error(
         `[ExecutionService] Failed to get GitHub token:`,
@@ -195,16 +216,28 @@ export class ExecutionService {
     action: string,
     payload: Record<string, unknown>,
   ): Promise<Record<string, unknown>> {
-    const shouldInjectGitHubToken = plugin === "git" || plugin === "github";
+    const shouldInjectGitHubToken =
+      plugin === "git" || plugin === "github" || plugin === "github_cli";
     if (!shouldInjectGitHubToken || !this.userId) {
       return payload;
     }
 
     const nextPayload = { ...payload };
-    const token = await this.getGitHubToken(this.userId);
-    if (token) {
-      nextPayload.token = token;
+    const authState = await this.getGitHubAuthState(this.userId);
+    if (authState?.token) {
+      nextPayload.token = authState.token;
       console.log(`[ExecutionService] Injected GitHub token for ${action}`);
+    }
+
+    const scopeBoundary = resolveGitHubScopeBoundary({
+      plugin,
+      action,
+      persistedScopes: authState?.persistedScopes ?? null,
+    });
+    if (scopeBoundary) {
+      throw new Error(
+        describeGitHubScopeBoundaryError(plugin, action, scopeBoundary),
+      );
     }
 
     if (plugin !== "git" || action !== "git_commit") {

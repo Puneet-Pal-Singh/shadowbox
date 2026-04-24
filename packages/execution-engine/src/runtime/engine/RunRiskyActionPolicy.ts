@@ -230,7 +230,10 @@ function classifyRiskAction(
     toolName === "github_review_threads_get" ||
     toolName === "github_issue_get" ||
     toolName === "github_actions_run_get" ||
-    toolName === "github_actions_job_logs_get"
+    toolName === "github_actions_job_logs_get" ||
+    toolName === "github_cli_pr_checks_get" ||
+    toolName === "github_cli_actions_run_get" ||
+    toolName === "github_cli_actions_job_logs_get"
   ) {
     return {
       category: RISKY_ACTION_CATEGORIES.FILESYSTEM_WRITE,
@@ -317,22 +320,28 @@ function classifyRiskAction(
     toolName === "git_pull" ||
     toolName === "git_create_pull_request" ||
     toolName === "git_branch_create" ||
-    toolName === "git_branch_switch"
+    toolName === "git_branch_switch" ||
+    toolName === "github_cli_pr_comment"
   ) {
     const gitAction = toGitAction(toolName);
     return {
       category: RISKY_ACTION_CATEGORIES.GIT_MUTATION,
       title: describeGitMutationTitle(toolName),
       reason:
-        "Git mutation actions can change repository history and should be explicitly confirmed.",
+        toolName === "github_cli_pr_comment"
+          ? "Posting a pull request comment mutates remote GitHub state and requires explicit confirmation."
+          : "Git mutation actions can change repository history and should be explicitly confirmed.",
       affectedPaths,
       remoteTarget: extractRemoteTarget(toolArgs),
       gitAction,
-      actionFingerprint: buildActionFingerprint({
-        category: RISKY_ACTION_CATEGORIES.GIT_MUTATION,
-        toolName,
-        toolArgs,
-      }),
+      actionFingerprint:
+        toolName === "github_cli_pr_comment"
+          ? buildGitHubPullRequestMutationFingerprint(toolArgs)
+          : buildActionFingerprint({
+              category: RISKY_ACTION_CATEGORIES.GIT_MUTATION,
+              toolName,
+              toolArgs,
+            }),
       safeByDefault: false,
       destructive: toolName === "git_push",
     };
@@ -720,6 +729,9 @@ function describeGitMutationTitle(toolName: GoldenFlowToolName): string {
   if (toolName === "git_branch_switch") {
     return "Shadowbox wants to switch branches";
   }
+  if (toolName === "github_cli_pr_comment") {
+    return "Shadowbox wants to comment on a pull request";
+  }
   return "Shadowbox wants to mutate git state";
 }
 
@@ -737,4 +749,18 @@ function extractRemoteTarget(
     return remote;
   }
   return undefined;
+}
+
+function buildGitHubPullRequestMutationFingerprint(
+  toolArgs: Record<string, unknown>,
+): string {
+  const owner = typeof toolArgs.owner === "string" ? toolArgs.owner.trim() : "";
+  const repo = typeof toolArgs.repo === "string" ? toolArgs.repo.trim() : "";
+  const number =
+    typeof toolArgs.number === "number" && Number.isFinite(toolArgs.number)
+      ? Math.trunc(toolArgs.number)
+      : null;
+  const target = owner && repo ? `${owner}/${repo}` : "unknown";
+  const prTarget = number && number > 0 ? `pr:${number}` : "pr:unknown";
+  return `${RISKY_ACTION_CATEGORIES.GIT_MUTATION}:github_cli_pr_comment:${target}:${prTarget}`;
 }

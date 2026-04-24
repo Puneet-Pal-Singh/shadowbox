@@ -841,7 +841,7 @@ describe("AgenticLoop - Bounded Agentic Tool Chaining", () => {
       };
       expect(secondRequest.system).toContain("CI logs auth-boundary fallback:");
       expect(secondRequest.system).toContain(
-        "Attempt one bounded bash fallback via gh API for the same job logs before finalizing.",
+        "Attempt one bounded github_cli_actions_job_logs_get fallback for the same job logs before finalizing.",
       );
     });
 
