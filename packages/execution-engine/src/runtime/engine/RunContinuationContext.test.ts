@@ -75,6 +75,100 @@ describe("RunContinuationContext", () => {
     });
   });
 
+  it("does not let a failed push target branch override the proven workspace branch", () => {
+    const run = new Run("run-1b", "session-1", "COMPLETED", "coding", {
+      agentType: "coding",
+      prompt: "push the branch",
+      sessionId: "session-1",
+      repositoryContext: {
+        owner: "acme",
+        repo: "career-crew",
+        branch: "main",
+      },
+    });
+    run.metadata.agenticLoop = {
+      enabled: true,
+      stopReason: "tool_error",
+      toolLifecycle: [
+        {
+          toolCallId: "tool-commit",
+          toolName: "git_commit",
+          status: "completed",
+          mutating: true,
+          recordedAt: new Date().toISOString(),
+          detail: "Changes committed",
+          metadata: {
+            family: "git",
+            displayText: "Creating git commit",
+            preview: "feat: add coming soon indicator",
+          },
+        },
+        {
+          toolCallId: "tool-push",
+          toolName: "git_push",
+          status: "failed",
+          mutating: true,
+          recordedAt: new Date().toISOString(),
+          detail: "error: src refspec style/redesign-footer does not match any",
+          metadata: {
+            family: "git",
+            displayText: "Pushing branch",
+            branch: "style/redesign-footer",
+            preview: "style/redesign-footer",
+          },
+        },
+      ],
+    };
+
+    const continuation = createRunContinuationState(run);
+    expect(continuation?.activeBranch).toBe("main");
+    expect(continuation?.hasTrustedGitCommitIdentity).toBe(false);
+  });
+
+  it("marks continuation commits as trusted only when git commit used OAuth-backed identity", () => {
+    const run = new Run("run-1c", "session-1", "COMPLETED", "coding", {
+      agentType: "coding",
+      prompt: "commit and push",
+      sessionId: "session-1",
+    });
+    run.metadata.agenticLoop = {
+      enabled: true,
+      stopReason: "tool_error",
+      toolLifecycle: [
+        {
+          toolCallId: "tool-commit",
+          toolName: "git_commit",
+          status: "completed",
+          mutating: true,
+          recordedAt: new Date().toISOString(),
+          detail: "Changes committed",
+          metadata: {
+            family: "git",
+            displayText: "Creating git commit",
+            commitIdentitySource: "github_profile",
+            commitIdentityVerified: true,
+          },
+        },
+        {
+          toolCallId: "tool-push",
+          toolName: "git_push",
+          status: "failed",
+          mutating: true,
+          recordedAt: new Date().toISOString(),
+          detail: "Push failed",
+          metadata: {
+            family: "git",
+            displayText: "Pushing branch",
+            branch: "feat/floating-hero-carousels",
+          },
+        },
+      ],
+    };
+
+    const continuation = createRunContinuationState(run);
+    expect(continuation?.hasTrustedGitCommitIdentity).toBe(true);
+  });
+
   it("adds explicit resume guidance for short continuation prompts", () => {
     const workspaceContext = buildAgenticLoopWorkspaceContext({
       repositoryContext: {
