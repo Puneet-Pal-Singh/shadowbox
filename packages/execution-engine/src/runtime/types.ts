@@ -295,6 +295,7 @@ export interface RunContinuationState {
     | "cancelled";
   completedFiles: string[];
   completedGitSteps: string[];
+  hasTrustedGitCommitIdentity?: boolean;
   activeBranch?: string;
   failedToolName?: string;
   failedToolDetail?: string;
