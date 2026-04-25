@@ -14,7 +14,7 @@ import type {
   CreatePullRequestFromRunPayload,
   GitStatusResponse,
 } from "@repo/shared-types";
-import { resolveCommitIdentityForStoredUserSession } from "./git/GitCommitIdentityService";
+import { resolveCommitIdentityForStoredOAuthSession } from "./git/GitCommitIdentityService";
 import {
   GIT_MUTATION_TIMEOUT_MS,
   GIT_STATUS_TIMEOUT_MS,
@@ -244,19 +244,11 @@ export class ExecutionService {
       return nextPayload;
     }
 
-    const authorName = readString(nextPayload.authorName);
-    const authorEmail = readString(nextPayload.authorEmail);
-    if (authorName && authorEmail) {
-      return nextPayload;
-    }
-
-    const commitIdentity = await resolveCommitIdentityForStoredUserSession(
+    delete nextPayload.authorName;
+    delete nextPayload.authorEmail;
+    const commitIdentity = await resolveCommitIdentityForStoredOAuthSession(
       this.env,
       this.userId,
-      {
-        authorName,
-        authorEmail,
-      },
     );
     if (!commitIdentity) {
       return nextPayload;
