@@ -1,5 +1,6 @@
 import type { RunMode } from "./run-mode.js";
 import type { EventSource } from "./run-events.js";
+import type { GitCommitIdentitySource } from "./git.js";
 
 export const ACTIVITY_PART_KINDS = {
   TEXT: "text",
@@ -170,6 +171,8 @@ export interface GitToolActivityMetadata {
   path?: string;
   count?: number;
   preview?: string;
+  commitIdentitySource?: GitCommitIdentitySource;
+  commitIdentityVerified?: boolean;
 }
 
 export interface GenericToolActivityMetadata {
