@@ -211,4 +211,165 @@ describe("RunTaskExecutionRecoveryPolicy", () => {
       "TASK_EXECUTION_TIMEOUT: Model timed out before choosing the next action.",
     );
   });
+
+  it("recovers provider retry exhaustion with a retryable provider-unavailable summary", async () => {
+    const run = new Run(
+      "run-1",
+      "session-1",
+      "RUNNING",
+      "coding",
+      {
+        agentType: "coding",
+        prompt: "check my open PR and CI checks",
+        sessionId: "session-1",
+        providerId: "google",
+        modelId: "gemma-4-31b-it",
+      },
+    );
+    const recordRunProgress = vi.fn(async () => undefined);
+    const completeRunWithRecoveredAssistantMessage = vi.fn(
+      async (
+        currentRun: Run,
+        text: string,
+        metadata?: Record<string, unknown>,
+        errorMetadata?: string,
+      ) =>
+        new Response(
+          JSON.stringify({ id: currentRun.id, text, metadata, errorMetadata }),
+        ),
+    );
+    const loop = {
+      getStats: () => ({
+        stopReason: "llm_stop" as const,
+        stepsExecuted: 3,
+        toolExecutionCount: 2,
+        failedToolCount: 0,
+        requiresMutation: false,
+        completedMutatingToolCount: 0,
+        completedReadOnlyToolCount: 2,
+        llmRetryCount: 0,
+        terminalLlmIssue: undefined,
+        toolLifecycle: [
+          {
+            toolCallId: "tool-1",
+            toolName: "git_status",
+            status: "completed" as const,
+            mutating: false,
+            recordedAt: "2026-04-24T00:00:00.000Z",
+          },
+        ],
+      }),
+    };
+    const providerError = Object.assign(
+      new Error("Failed after 3 attempts. Last error: Internal error encountered."),
+      {
+        name: "AI_RetryError",
+        cause: { statusCode: 500, message: "Internal error encountered." },
+      },
+    );
+
+    const response = await tryHandleTaskExecutionErrorPolicy({
+      run,
+      prompt: "check my open PR and CI checks",
+      loop: loop as never,
+      error: providerError,
+      deps: {
+        completeRunWithRecoveredAssistantMessage,
+        runEventRecorder: { recordRunProgress },
+      },
+    });
+
+    expect(response).toBeInstanceOf(Response);
+    expect(recordRunProgress).toHaveBeenCalledWith(
+      "execution",
+      "Recoverable provider interruption",
+      "The provider failed repeatedly before the next action could be produced.",
+      "completed",
+    );
+    expect(completeRunWithRecoveredAssistantMessage).toHaveBeenCalledWith(
+      run,
+      expect.stringContaining(
+        "The model provider became unavailable after repeated retries before the next action could be produced.",
+      ),
+      expect.objectContaining({
+        code: "PROVIDER_UNAVAILABLE",
+        retryable: true,
+        statusCode: 500,
+        providerId: "google",
+        modelId: "gemma-4-31b-it",
+      }),
+      expect.stringContaining("PROVIDER_UNAVAILABLE:"),
+    );
+  });
+
+  it("recovers network-connection-loss failures as provider unavailable", async () => {
+    const run = new Run("run-1", "session-1", "RUNNING", "coding", {
+      agentType: "coding",
+      prompt: "continue editing footer",
+      sessionId: "session-1",
+      providerId: "openrouter",
+      modelId: "inclusionai/ling-2.6-flash:free",
+    });
+    const recordRunProgress = vi.fn(async () => undefined);
+    const completeRunWithRecoveredAssistantMessage = vi.fn(
+      async (
+        currentRun: Run,
+        text: string,
+        metadata?: Record<string, unknown>,
+        errorMetadata?: string,
+      ) =>
+        new Response(
+          JSON.stringify({ id: currentRun.id, text, metadata, errorMetadata }),
+        ),
+    );
+    const loop = {
+      getStats: () => ({
+        stopReason: "llm_stop" as const,
+        stepsExecuted: 4,
+        toolExecutionCount: 3,
+        failedToolCount: 0,
+        requiresMutation: true,
+        completedMutatingToolCount: 1,
+        completedReadOnlyToolCount: 2,
+        llmRetryCount: 0,
+        terminalLlmIssue: undefined,
+        toolLifecycle: [
+          {
+            toolCallId: "tool-1",
+            toolName: "write_file",
+            status: "completed" as const,
+            mutating: true,
+            detail: "Updated src/components/layout/Footer.tsx",
+            recordedAt: "2026-04-25T00:00:00.000Z",
+          },
+        ],
+      }),
+    };
+
+    const response = await tryHandleTaskExecutionErrorPolicy({
+      run,
+      prompt: "continue editing footer",
+      loop: loop as never,
+      error: new Error("Network connection lost."),
+      deps: {
+        completeRunWithRecoveredAssistantMessage,
+        runEventRecorder: { recordRunProgress },
+      },
+    });
+
+    expect(response).toBeInstanceOf(Response);
+    expect(completeRunWithRecoveredAssistantMessage).toHaveBeenCalledWith(
+      run,
+      expect.stringContaining(
+        "The model provider became unavailable after repeated retries before the next action could be produced.",
+      ),
+      expect.objectContaining({
+        code: "PROVIDER_UNAVAILABLE",
+        retryable: true,
+        providerId: "openrouter",
+        modelId: "inclusionai/ling-2.6-flash:free",
+      }),
+      expect.stringContaining("signal=network connection lost."),
+    );
+  });
 });
