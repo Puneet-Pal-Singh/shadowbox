@@ -9,6 +9,7 @@ import {
   extractExecutionFailure,
   formatExecutionResult,
 } from "../agents/ResultFormatter.js";
+import type { GitCommitIdentitySource } from "@repo/shared-types";
 import { validateSafePath } from "../agents/validation.js";
 import {
   normalizeWorkspaceShellCommand,
@@ -455,9 +456,12 @@ async function executeGitCommitTool(
   if (failure) {
     return buildFailureResult(taskId, failure);
   }
+  const commitIdentityEvidence = readCommitIdentityEvidence(result);
   return buildSuccessResult(taskId, formatExecutionResult(result), {
     activity: buildGitActivityMetadata("Creating git commit", {
       preview: validatedInput.message.trim(),
+      commitIdentitySource: commitIdentityEvidence.source,
+      commitIdentityVerified: commitIdentityEvidence.verified,
     }),
   });
 }
@@ -1387,6 +1391,8 @@ function buildGitActivityMetadata(
     branch?: string;
     preview?: string;
     pluginLabel?: string;
+    commitIdentitySource?: GitCommitIdentitySource;
+    commitIdentityVerified?: boolean;
   } = {},
 ): Record<string, unknown> {
   return {
@@ -1395,7 +1401,54 @@ function buildGitActivityMetadata(
     pluginLabel: input.pluginLabel ?? "GitHub",
     branch: input.branch,
     preview: input.preview,
+    commitIdentitySource: input.commitIdentitySource,
+    commitIdentityVerified: input.commitIdentityVerified,
   };
+}
+
+function readCommitIdentityEvidence(result: unknown): {
+  source?: GitCommitIdentitySource;
+  verified?: boolean;
+} {
+  if (!isRecord(result)) {
+    return {};
+  }
+
+  const output = isRecord(result.output) ? result.output : null;
+  const commitIdentity =
+    output && isRecord(output.commitIdentity) ? output.commitIdentity : null;
+  if (!commitIdentity) {
+    return {};
+  }
+
+  const source = readGitCommitIdentitySource(commitIdentity.source);
+  const verified =
+    typeof commitIdentity.verified === "boolean"
+      ? commitIdentity.verified
+      : undefined;
+  return {
+    source,
+    verified,
+  };
+}
+
+function readGitCommitIdentitySource(
+  value: unknown,
+): GitCommitIdentitySource | undefined {
+  if (
+    value === "workspace_git_config" ||
+    value === "persisted_preference" ||
+    value === "github_profile" ||
+    value === "user_input"
+  ) {
+    return value;
+  }
+
+  return undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
 function createShellState(input: {
