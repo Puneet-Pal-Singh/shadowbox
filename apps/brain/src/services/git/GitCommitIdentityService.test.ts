@@ -4,6 +4,7 @@ import {
   CommitIdentityError,
   readCommitIdentityStateForUser,
   resolveCommitIdentityForCommit,
+  resolveCommitIdentityForStoredOAuthSession,
   resolveCommitIdentityForStoredUserSession,
 } from "./GitCommitIdentityService";
 
@@ -75,6 +76,45 @@ describe("GitCommitIdentityService", () => {
           reason: "missing_name",
         },
       },
+    });
+  });
+
+  it("resolves runtime commit identity from OAuth session even when a persisted preference exists", async () => {
+    const identity = await resolveCommitIdentityForStoredOAuthSession(
+      {
+        SESSIONS: {
+          get: async (key: string) => {
+            if (key === "user_session:user-1") {
+              return JSON.stringify({
+                userId: "user-1",
+                login: "puneet",
+                avatar: "",
+                email: "puneet@example.com",
+                name: "Puneet Pal Singh",
+                encryptedToken: "encrypted-token",
+                createdAt: Date.now(),
+              });
+            }
+            if (key === "git_commit_identity_preference:user-1") {
+              return JSON.stringify({
+                authorName: "Random User",
+                authorEmail: "random@example.com",
+                verified: false,
+                updatedAt: Date.now(),
+              });
+            }
+            return null;
+          },
+        },
+      } as unknown as Env,
+      "user-1",
+    );
+
+    expect(identity).toEqual({
+      authorName: "Puneet Pal Singh",
+      authorEmail: "puneet@example.com",
+      source: "github_profile",
+      verified: true,
     });
   });
 });
