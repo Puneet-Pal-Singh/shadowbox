@@ -51,6 +51,7 @@ export function buildAgenticLoopCallbacks(input: {
   runId: string;
 }): AgenticLoopCallbacks {
   let hasMutationEvidence = false;
+  const allowResumeGitPush = canResumeGitPushFromContinuation(input.run);
   return {
     executeTool: input.directExecutionService
       ? async (toolCall) =>
@@ -64,6 +65,7 @@ export function buildAgenticLoopCallbacks(input: {
             env: input.env,
             runId: input.runId,
             hasMutationEvidence,
+            allowResumeGitPush,
             setHasMutationEvidence: (value) => {
               hasMutationEvidence = value;
             },
@@ -126,6 +128,7 @@ async function executeDirectToolCall(input: {
   env: RunEngineEnv;
   runId: string;
   hasMutationEvidence: boolean;
+  allowResumeGitPush: boolean;
   setHasMutationEvidence: (value: boolean) => void;
 }): Promise<TaskResult> {
   const toolPresentation = getToolPresentation(
@@ -150,6 +153,7 @@ async function executeDirectToolCall(input: {
     toolName: input.toolCall.toolName,
     toolArgs: input.toolCall.args,
     hasMutationEvidence: input.hasMutationEvidence,
+    allowResumeGitPush: input.allowResumeGitPush,
     approvalStore: input.permissionApprovalStore,
   });
   if (permissionResult.kind === "ask") {
@@ -260,4 +264,19 @@ function resolveRuntimeFeatureFlags(
     ghCliCiEnabled,
     ghCliPrCommentEnabled,
   };
+}
+
+function canResumeGitPushFromContinuation(run: Run): boolean {
+  const continuation = run.metadata.continuation;
+  if (!continuation || continuation.failedToolName !== "git_push") {
+    return false;
+  }
+
+  if (!continuation.hasTrustedGitCommitIdentity) {
+    return false;
+  }
+
+  return continuation.completedGitSteps.some((step) =>
+    /^Commit created:/i.test(step.trim()),
+  );
 }
