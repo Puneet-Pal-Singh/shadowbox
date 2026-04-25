@@ -272,6 +272,77 @@ describe("ExecutionService", () => {
     });
   });
 
+  it("overrides model-provided git commit identity with OAuth session identity", async () => {
+    const fetchMock = vi.fn<
+      Parameters<Env["SECURE_API"]["fetch"]>,
+      ReturnType<Env["SECURE_API"]["fetch"]>
+    >();
+
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            sessionId: "sess-commit-oauth",
+            token: "tok-commit-oauth",
+            expiresAt: Date.now() + 60_000,
+          }),
+          { status: 201, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            taskId: "task-commit-oauth",
+            status: "success",
+            output: "ok",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+
+    const service = new ExecutionService(
+      {
+        SECURE_API: { fetch: fetchMock },
+        SESSIONS: {
+          get: vi.fn(async (key: string) =>
+            key === "user_session:user-commit-oauth"
+              ? JSON.stringify({
+                  userId: "user-commit-oauth",
+                  login: "puneet",
+                  avatar: "",
+                  email: "puneet@example.com",
+                  name: "Puneet Pal Singh",
+                  encryptedToken: "encrypted-token",
+                  createdAt: Date.now(),
+                })
+              : null,
+          ),
+        },
+      } as unknown as Env,
+      "session-commit-oauth",
+      "run-commit-oauth",
+      "user-commit-oauth",
+    );
+
+    await service.execute("git", "git_commit", {
+      message: "feat: add coming soon indicator to newsletter",
+      authorName: "Shubh",
+      authorEmail: "shubh@example.com",
+    });
+
+    const [, executeInit] = fetchMock.mock.calls[1]!;
+    expect(JSON.parse(String(executeInit?.body))).toMatchObject({
+      action: "git.execute",
+      params: {
+        action: "git_commit",
+        runId: "run-commit-oauth",
+        message: "feat: add coming soon indicator to newsletter",
+        authorName: "Puneet Pal Singh",
+        authorEmail: "puneet@example.com",
+      },
+    });
+  });
+
   it("injects GitHub token for github connector actions without commit identity fields", async () => {
     const fetchMock = vi.fn<
       Parameters<Env["SECURE_API"]["fetch"]>,
