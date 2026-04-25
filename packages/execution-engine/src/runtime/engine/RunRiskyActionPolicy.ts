@@ -57,6 +57,7 @@ export interface RiskyActionEvaluationInput {
   toolName: GoldenFlowToolName;
   toolArgs: Record<string, unknown>;
   hasMutationEvidence: boolean;
+  allowResumeGitPush?: boolean;
   approvalStore: PermissionApprovalStore;
 }
 
@@ -103,6 +104,7 @@ export async function evaluateToolPermission(
     classified,
     input.toolName,
     input.hasMutationEvidence,
+    Boolean(input.allowResumeGitPush),
   );
   if (mutationEvidenceDenial) {
     return mutationEvidenceDenial;
@@ -153,7 +155,12 @@ function getMutationEvidenceDenial(
   classified: ClassifiedRiskAction,
   toolName: GoldenFlowToolName,
   hasMutationEvidence: boolean,
+  allowResumeGitPush: boolean,
 ): PermissionDenyResult | null {
+  if (toolName === "git_push" && allowResumeGitPush) {
+    return null;
+  }
+
   if (requiresMutationEvidence(classified, toolName) && !hasMutationEvidence) {
     return {
       kind: "deny",
