@@ -37,7 +37,10 @@ export class ToolboxSessionService {
     try {
       const command = buildShellCommand(request);
       const result = await runWithTimeout(
-        this.adapter.execute(command),
+        this.adapter.execute(command, {
+          cwd: request.cwd,
+          env: request.env,
+        }),
         request.timeoutMs,
       );
       const status = result.exitCode === 0 ? "completed" : "failed";
@@ -119,13 +122,7 @@ function createSessionId(request: ToolboxSessionRequest): string {
 function buildShellCommand(request: ToolboxSessionRequest): string {
   const escapedCommand = escapeShellArg(request.command);
   const escapedArgs = (request.args ?? []).map((arg) => escapeShellArg(arg));
-  const commandExpr = [escapedCommand, ...escapedArgs].join(" ");
-
-  if (!request.cwd) {
-    return commandExpr;
-  }
-
-  return `cd ${escapeShellArg(request.cwd)} && ${commandExpr}`;
+  return [escapedCommand, ...escapedArgs].join(" ");
 }
 
 function escapeShellArg(value: string): string {
