@@ -767,7 +767,25 @@ function buildGitHubPullRequestMutationFingerprint(
     typeof toolArgs.number === "number" && Number.isFinite(toolArgs.number)
       ? Math.trunc(toolArgs.number)
       : null;
+  const body =
+    typeof toolArgs.body === "string"
+      ? normalizePullRequestCommentBody(toolArgs.body)
+      : "";
   const target = owner && repo ? `${owner}/${repo}` : "unknown";
   const prTarget = number && number > 0 ? `pr:${number}` : "pr:unknown";
-  return `${RISKY_ACTION_CATEGORIES.GIT_MUTATION}:github_cli_pr_comment:${target}:${prTarget}`;
+  const bodyDigest = `body:${hashPullRequestCommentBody(body)}`;
+  return `${RISKY_ACTION_CATEGORIES.GIT_MUTATION}:github_cli_pr_comment:${target}:${prTarget}:${bodyDigest}`;
+}
+
+function normalizePullRequestCommentBody(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function hashPullRequestCommentBody(value: string): string {
+  let hash = 5381;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash * 33) ^ value.charCodeAt(index);
+    hash >>>= 0;
+  }
+  return hash.toString(16).padStart(8, "0");
 }
