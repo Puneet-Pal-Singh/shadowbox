@@ -783,6 +783,48 @@ describe("ExecutionService", () => {
     errorSpy.mockRestore();
   });
 
+  it("downgrades transient local-dev-session git status errors to non-error logs", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const fetchMock = vi.fn<
+      Parameters<Env["SECURE_API"]["fetch"]>,
+      ReturnType<Env["SECURE_API"]["fetch"]>
+    >();
+
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        "Couldn't find a local dev session for the \"default\" entrypoint of service \"shadowbox-api\" to proxy to",
+        { status: 503, headers: { "Content-Type": "text/plain" } },
+      ),
+    );
+
+    const service = new ExecutionService(
+      {
+        SECURE_API: { fetch: fetchMock },
+      } as unknown as Env,
+      "session-status-local-dev",
+      "run-status-local-dev",
+    );
+
+    await expect(service.execute("git", "git_status", {})).rejects.toThrow(
+      /Couldn't find a local dev session/i,
+    );
+
+    expect(errorSpy).not.toHaveBeenCalledWith(
+      "[ExecutionService] Error:",
+      expect.anything(),
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      "[ExecutionService] git:git_status transient startup miss",
+      expect.objectContaining({
+        errorMessage: expect.stringMatching(/Couldn't find a local dev session/i),
+      }),
+    );
+
+    logSpy.mockRestore();
+    errorSpy.mockRestore();
+  });
+
   it("creates pull requests through the dedicated GitHub-backed execution path", async () => {
     vi.mocked(decryptToken).mockResolvedValue("github-token");
     const fetchMock = vi.fn<
