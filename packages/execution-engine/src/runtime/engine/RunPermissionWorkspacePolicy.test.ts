@@ -36,4 +36,31 @@ describe("RunPermissionWorkspacePolicy", () => {
       "Commit or stash those edits first, then retry the action.",
     );
   });
+
+  it("returns friendly guidance when bootstrap fails due to transient local dev session proxy misses", async () => {
+    const workspaceBootstrapper: WorkspaceBootstrapper = {
+      bootstrap: async () => ({
+        status: "sync-failed",
+        message:
+          "Couldn't find a local dev session for the \"default\" entrypoint of service \"shadowbox-api\" to proxy to",
+      }),
+    };
+
+    const evaluation = await evaluateWorkspaceBootstrap(
+      "run-2",
+      "continue",
+      {
+        owner: "sourcegraph",
+        repo: "shadowbox",
+        branch: "main",
+      },
+      workspaceBootstrapper,
+    );
+
+    expect(evaluation.blocked).toBe(true);
+    expect(evaluation.status).toBe("sync-failed");
+    expect(evaluation.message).toBe(
+      "I couldn't prepare the workspace for sourcegraph/shadowbox@main because the git service is temporarily unavailable. Please retry in a few seconds.",
+    );
+  });
 });
