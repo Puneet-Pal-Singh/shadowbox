@@ -199,6 +199,34 @@ describe("AgenticLoopToolExecutor", () => {
     expect(executeCallCount).toBe(0);
   });
 
+  it("fails github_cli_actions_job_logs_get when CI flag is missing even if lane is enabled", async () => {
+    let executeCallCount = 0;
+    const executionService: RuntimeExecutionService = {
+      execute: async () => {
+        executeCallCount += 1;
+        return { output: "ok" };
+      },
+    };
+
+    const result = await executeAgenticLoopTool(executionService, {
+      taskId: "task-github-cli-logs-ci-flag-missing",
+      toolName: "github_cli_actions_job_logs_get",
+      toolInput: {
+        owner: "acme",
+        repo: "career-crew",
+        actionsJobId: 987654,
+        __runtimeFeatureFlags: {
+          ghCliLaneEnabled: true,
+          ghCliPrCommentEnabled: true,
+        },
+      },
+    });
+
+    expect(result.status).toBe("FAILED");
+    expect(result.error?.message).toContain("GH_CLI_CI_ENABLED");
+    expect(executeCallCount).toBe(0);
+  });
+
   it("blocks bash git config user identity commands and avoids execution", async () => {
     let executeCallCount = 0;
     const executionService: RuntimeExecutionService = {
@@ -240,6 +268,31 @@ describe("AgenticLoopToolExecutor", () => {
       toolInput: {
         description: "Switch branch from bash",
         command: "git checkout style/redesign-footer -- src/components/layout/Footer.tsx",
+      },
+    });
+
+    expect(result.status).toBe("FAILED");
+    expect(result.error?.message).toContain(
+      "Do not run git commands through bash in agent flow",
+    );
+    expect(executeCallCount).toBe(0);
+  });
+
+  it("blocks chained git commands in bash and avoids execution", async () => {
+    let executeCallCount = 0;
+    const executionService: RuntimeExecutionService = {
+      execute: async () => {
+        executeCallCount += 1;
+        return { output: "ok" };
+      },
+    };
+
+    const result = await executeAgenticLoopTool(executionService, {
+      taskId: "task-3b",
+      toolName: "bash",
+      toolInput: {
+        description: "Run prep then git",
+        command: "pwd && git status --short",
       },
     });
 
