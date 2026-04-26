@@ -852,4 +852,33 @@ describe("RunAgenticLoopPolicy", () => {
     expect(output).not.toContain("The user said");
     expect(output).not.toContain("I should respond");
   });
+
+  it("removes multi-sentence internal planning preface before user-facing text", () => {
+    const result: AgenticLoopResult = {
+      stopReason: "llm_stop",
+      messages: [
+        { role: "user", content: "check my PR" },
+        {
+          role: "assistant",
+          content:
+            "The user wants me to check the PR. I need to inspect branch state first. First, I'll check git status. The current branch is main. Usually, PRs are on their own branches. Wait, I should switch branches. I found the requested issue and can fix it next.",
+        },
+      ],
+      toolExecutionCount: 0,
+      failedToolCount: 0,
+      stepsExecuted: 1,
+      requiresMutation: false,
+      completedMutatingToolCount: 0,
+      completedReadOnlyToolCount: 0,
+      toolLifecycle: [],
+    };
+
+    const output = buildAgenticLoopFinalOutput(result);
+
+    expect(output).toBe("I found the requested issue and can fix it next.");
+    expect(output).not.toContain("The user wants");
+    expect(output).not.toContain("I need to inspect");
+    expect(output).not.toContain("Usually, PRs");
+    expect(output).not.toContain("Wait, I should");
+  });
 });
