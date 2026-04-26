@@ -177,6 +177,17 @@ describe("CodingToolGateway", () => {
     expect(ciOnly.github_cli_actions_run_get).toBeDefined();
     expect(ciOnly.github_cli_actions_job_logs_get).toBeDefined();
     expect(ciOnly.github_cli_pr_comment).toBeUndefined();
+
+    const missingCiFlag = enforceGoldenFlowToolFloor({}, {
+      featureFlags: {
+        ghCliLaneEnabled: true,
+        ghCliPrCommentEnabled: true,
+      },
+    });
+    expect(missingCiFlag.github_cli_pr_checks_get).toBeUndefined();
+    expect(missingCiFlag.github_cli_actions_run_get).toBeUndefined();
+    expect(missingCiFlag.github_cli_actions_job_logs_get).toBeUndefined();
+    expect(missingCiFlag.github_cli_pr_comment).toBeDefined();
   });
 
   it("validates tool inputs against canonical schemas", () => {
