@@ -169,6 +169,37 @@ describe("RunContinuationContext", () => {
     expect(continuation?.hasTrustedGitCommitIdentity).toBe(true);
   });
 
+  it("does not trust continuation commits when OAuth identity is unverified", () => {
+    const run = new Run("run-1d", "session-1", "COMPLETED", "coding", {
+      agentType: "coding",
+      prompt: "commit and push",
+      sessionId: "session-1",
+    });
+    run.metadata.agenticLoop = {
+      enabled: true,
+      stopReason: "tool_error",
+      toolLifecycle: [
+        {
+          toolCallId: "tool-commit",
+          toolName: "git_commit",
+          status: "completed",
+          mutating: true,
+          recordedAt: new Date().toISOString(),
+          detail: "Changes committed",
+          metadata: {
+            family: "git",
+            displayText: "Creating git commit",
+            commitIdentitySource: "github_profile",
+            commitIdentityVerified: false,
+          },
+        },
+      ],
+    };
+
+    const continuation = createRunContinuationState(run);
+    expect(continuation?.hasTrustedGitCommitIdentity).toBe(false);
+  });
+
   it("adds explicit resume guidance for short continuation prompts", () => {
     const workspaceContext = buildAgenticLoopWorkspaceContext({
       repositoryContext: {
