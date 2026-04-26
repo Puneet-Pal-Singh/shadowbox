@@ -595,7 +595,7 @@ function resolveGitHubCliFlags(
     typeof value === "boolean" ? value : undefined;
 
   const laneEnabled = readBoolean(featureFlags?.ghCliLaneEnabled) ?? false;
-  const ciEnabled = readBoolean(featureFlags?.ghCliCiEnabled) ?? laneEnabled;
+  const ciEnabled = readBoolean(featureFlags?.ghCliCiEnabled) ?? false;
   const prCommentEnabled =
     readBoolean(featureFlags?.ghCliPrCommentEnabled) ?? false;
   return {
