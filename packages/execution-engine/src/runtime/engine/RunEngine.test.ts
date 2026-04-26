@@ -2871,6 +2871,156 @@ describe("RunEngine", () => {
     expect(pushCalls).toHaveLength(1);
   });
 
+  it("allows git_stage when git_status confirms existing local workspace changes", async () => {
+    const state = new MockRuntimeState();
+    const generateText = vi
+      .fn()
+      .mockResolvedValueOnce({
+        text: "I'll stage the pending footer change now.",
+        toolCalls: [
+          {
+            id: "git-stage-1",
+            toolName: "git_stage",
+            args: {
+              files: ["src/components/layout/Footer.tsx"],
+            },
+          },
+        ],
+        usage: {
+          provider: "mock",
+          model: "mock-model",
+          promptTokens: 6,
+          completionTokens: 6,
+          totalTokens: 12,
+        },
+      })
+      .mockResolvedValueOnce({
+        text: "Staging completed.",
+        toolCalls: [],
+        usage: {
+          provider: "mock",
+          model: "mock-model",
+          promptTokens: 4,
+          completionTokens: 4,
+          totalTokens: 8,
+        },
+      });
+
+    const llmGateway: ILLMGateway = {
+      generateText,
+      generateStructured: async () => ({
+        object: { tasks: [], metadata: { estimatedSteps: 1 } },
+        usage: {
+          provider: "mock",
+          model: "mock-model",
+          promptTokens: 1,
+          completionTokens: 1,
+          totalTokens: 2,
+        },
+      }),
+      generateStream: async () =>
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.close();
+          },
+        }),
+    };
+
+    const executionService: RuntimeExecutionService = {
+      execute: vi.fn(async (plugin: string, action: string) => {
+        if (plugin === "git" && action === "git_status") {
+          return {
+            success: true,
+            output: JSON.stringify({
+              branch: "style/redesign-footer",
+              hasStaged: false,
+              hasUnstaged: true,
+              files: [
+                {
+                  path: "src/components/layout/Footer.tsx",
+                  status: "M",
+                  staged: false,
+                },
+              ],
+            }),
+          };
+        }
+        if (plugin === "git" && action === "git_stage") {
+          return {
+            success: true,
+            output: "Staged src/components/layout/Footer.tsx",
+          };
+        }
+        return {
+          success: false,
+          error: `Unexpected route ${plugin}:${action}`,
+        };
+      }),
+    };
+
+    const runEngine = new RunEngine(
+      state,
+      {
+        env: {
+          NODE_ENV: "test",
+          APPROVAL_WAIT_TIMEOUT_MS: "5000",
+        } as unknown,
+        sessionId: "session-1",
+        runId: TEST_RUN_ID,
+        correlationId: "corr-git-stage-workspace-evidence",
+      },
+      new CodingAgent(llmGateway, executionService),
+      undefined,
+      { llmGateway },
+    );
+    const approvalStore = new PermissionApprovalStore(state, TEST_RUN_ID);
+
+    const responsePromise = runEngine.execute(
+      {
+        agentType: "coding",
+        prompt: "stage the footer changes",
+        sessionId: "session-1",
+        repositoryContext: { owner: "sourcegraph", repo: "shadowbox" },
+        metadata: { featureFlags: { agenticLoopV1: true } },
+      },
+      [{ role: "user", content: "stage the footer changes" }],
+      {},
+    );
+    const approvalResolutionPromise = (async () => {
+      for (let attempt = 0; attempt < 200; attempt += 1) {
+        const pending = await approvalStore.getPendingRequest();
+        if (pending) {
+          await approvalStore.resolveDecision({
+            kind: "allow_once",
+            requestId: pending.requestId,
+          });
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      throw new Error("Timed out waiting for git_stage approval request in test.");
+    })();
+
+    const response = await responsePromise;
+    await approvalResolutionPromise;
+
+    expect(response.status).toBe(200);
+    const output = await response.text();
+    expect(output).not.toContain(
+      "no successful file mutation has occurred in this run",
+    );
+
+    const executeSpy = executionService.execute as ReturnType<typeof vi.fn>;
+    const statusCallIndex = executeSpy.mock.calls.findIndex(
+      ([plugin, action]) => plugin === "git" && action === "git_status",
+    );
+    const stageCallIndex = executeSpy.mock.calls.findIndex(
+      ([plugin, action]) => plugin === "git" && action === "git_stage",
+    );
+    expect(statusCallIndex).toBeGreaterThanOrEqual(0);
+    expect(stageCallIndex).toBeGreaterThan(statusCallIndex);
+  });
+
   it("bootstraps recycled continuation turns onto the preserved active branch", async () => {
     const state = new MockRuntimeState();
     const workspaceBootstrapper = {
@@ -3133,6 +3283,18 @@ describe("RunEngine", () => {
       "The requested file was not found in the current workspace.",
     );
     expect(sanitized).toContain("[internal-url]");
+  });
+
+  it("strips leaked internal-style reasoning preface from user-facing output", () => {
+    const leaked =
+      'The user asked me to check PR #58. I need to inspect branch state first. First, I\'ll check git status. The current branch is main. Wait, I should switch branches. I found the issue in Footer.tsx.';
+
+    const sanitized = sanitizeUserFacingOutput(leaked);
+
+    expect(sanitized).toBe("I found the issue in Footer.tsx.");
+    expect(sanitized).not.toContain("The user asked");
+    expect(sanitized).not.toContain("I need to inspect");
+    expect(sanitized).not.toContain("Wait, I should");
   });
 
   it("marks CREATED runs as FAILED when execution error handling runs", async () => {
