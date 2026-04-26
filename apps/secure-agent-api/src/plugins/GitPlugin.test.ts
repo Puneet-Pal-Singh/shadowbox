@@ -313,4 +313,59 @@ describe("GitPlugin", () => {
     expect(result.success).toBe(false);
     expect(result.error).toBe("nothing to commit");
   });
+
+  it("rolls back user.name when writing user.email fails during identity hydration", async () => {
+    const runSafeCommandMock = vi.mocked(runSafeCommand);
+    runSafeCommandMock
+      .mockResolvedValueOnce({
+        exitCode: 0,
+        stdout: "",
+        stderr: "",
+      } satisfies SafeCommandResult)
+      .mockResolvedValueOnce({
+        exitCode: 0,
+        stdout: "Existing User",
+        stderr: "",
+      } satisfies SafeCommandResult)
+      .mockResolvedValueOnce({
+        exitCode: 0,
+        stdout: "existing@example.com",
+        stderr: "",
+      } satisfies SafeCommandResult)
+      .mockResolvedValueOnce({
+        exitCode: 0,
+        stdout: "",
+        stderr: "",
+      } satisfies SafeCommandResult)
+      .mockResolvedValueOnce({
+        exitCode: 1,
+        stdout: "",
+        stderr: "write failed",
+      } satisfies SafeCommandResult)
+      .mockResolvedValueOnce({
+        exitCode: 0,
+        stdout: "",
+        stderr: "",
+      } satisfies SafeCommandResult);
+
+    const plugin = new GitPlugin();
+    const result = await plugin.execute(asSandbox(), {
+      action: "git_commit",
+      runId: "run_git_commit_rollback_1",
+      message: "fix: test rollback path",
+      authorName: "OAuth User",
+      authorEmail: "oauth@example.com",
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBe(
+      "Git commit author could not be written to this workspace before committing.",
+    );
+    const rollbackArgs = (runSafeCommandMock.mock.calls[5]?.[1] as {
+      args?: string[];
+    }).args;
+    expect(rollbackArgs).toEqual(
+      expect.arrayContaining(["config", "user.name", "Existing User"]),
+    );
+  });
 });
