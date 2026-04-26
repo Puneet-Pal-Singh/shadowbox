@@ -8,6 +8,7 @@ import { FileExplorerHandle } from "../FileExplorer";
 import { ChatInterface } from "../chat/ChatInterface";
 import { RunContextProvider } from "../../hooks/useRunContext";
 import { useChat } from "../../hooks/useChat";
+import { useRunSummary } from "../../hooks/useRunSummary";
 import { cn } from "../../lib/utils";
 import { useGitStatus } from "../../hooks/useGitStatus";
 import { Resizer } from "../ui/Resizer";
@@ -112,10 +113,15 @@ export function Workspace({
     mode,
     productMode,
   );
+  const { summary: runSummary } = useRunSummary(activeRunId, true);
   const { status, refetch: refetchGitStatus } = useGitStatus(
     activeRunId,
     sessionId,
   );
+  const canonicalRunStatus = runSummary?.status?.trim().toUpperCase() ?? null;
+  const isCanonicalRunActive =
+    canonicalRunStatus === "RUNNING" || canonicalRunStatus === "CREATED";
+  const isRunLoading = isLoading || isCanonicalRunActive;
   const changesCount = status?.files?.length ?? 0;
   const repositoryOwner = repo?.owner?.login?.trim() ?? "";
   const repositoryName = repo?.name?.trim() ?? "";
@@ -156,22 +162,40 @@ export function Workspace({
 
   useEffect(() => {
     const wasLoading = previousChatLoadingRef.current;
-    const runStarted = !wasLoading && isLoading;
-    const runFinished = wasLoading && !isLoading;
     previousChatLoadingRef.current = isLoading;
 
-    if (runStarted) {
+    if (!wasLoading && isLoading) {
+      onSessionStatusChange?.("running");
+    }
+  }, [isLoading, onSessionStatusChange]);
+
+  const lastAppliedCanonicalStatusRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!canonicalRunStatus) {
+      return;
+    }
+
+    if (lastAppliedCanonicalStatusRef.current === canonicalRunStatus) {
+      return;
+    }
+    lastAppliedCanonicalStatusRef.current = canonicalRunStatus;
+
+    if (canonicalRunStatus === "RUNNING" || canonicalRunStatus === "CREATED") {
       onSessionStatusChange?.("running");
       return;
     }
 
-    if (!runFinished) {
+    if (canonicalRunStatus === "FAILED") {
+      onSessionStatusChange?.("error");
+      void refetchGitStatus(true);
       return;
     }
 
-    onSessionStatusChange?.(chatError ? "error" : "completed");
-    void refetchGitStatus(true);
-  }, [chatError, isLoading, onSessionStatusChange, refetchGitStatus]);
+    if (canonicalRunStatus === "COMPLETED" || canonicalRunStatus === "CANCELLED") {
+      onSessionStatusChange?.("completed");
+      void refetchGitStatus(true);
+    }
+  }, [canonicalRunStatus, onSessionStatusChange, refetchGitStatus]);
 
   useEffect(() => {
     if (isContextMismatch) {
@@ -199,7 +223,7 @@ export function Workspace({
       return;
     }
 
-    if (isLoading) {
+    if (isRunLoading) {
       return;
     }
 
@@ -265,7 +289,7 @@ export function Workspace({
     void bootstrap();
   }, [
     activeRunId,
-    isLoading,
+    isRunLoading,
     isContextMismatch,
     isGitHubLoaded,
     refetchGitStatus,
@@ -325,7 +349,7 @@ export function Workspace({
                 handleSubmit,
                 append,
                 stop,
-                isLoading,
+                isLoading: isRunLoading,
                 error: chatError,
                 debugEvents,
               }}
