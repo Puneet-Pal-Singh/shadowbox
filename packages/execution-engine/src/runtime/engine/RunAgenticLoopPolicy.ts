@@ -16,6 +16,11 @@ const LEAKED_INTERNAL_PREFACE_PATTERNS = [
   /^the user (said|asked|requested|wants)\b/i,
   /^this is (?:a|an)\b/i,
   /^i should\b/i,
+  /^i need to\b/i,
+  /^first,?\s+i(?:'ll| will| need to)\b/i,
+  /^(?:the )?current branch is\b/i,
+  /^usually,\s*prs?\b/i,
+  /^wait[,!\s]/i,
 ];
 
 export interface AssistantTurnOutput {
