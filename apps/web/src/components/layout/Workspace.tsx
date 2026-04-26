@@ -169,16 +169,27 @@ export function Workspace({
     }
   }, [isLoading, onSessionStatusChange]);
 
-  const lastAppliedCanonicalStatusRef = useRef<string | null>(null);
+  const lastAppliedCanonicalStatusRef = useRef<{
+    runId: string;
+    status: string;
+  } | null>(null);
   useEffect(() => {
     if (!canonicalRunStatus) {
       return;
     }
 
-    if (lastAppliedCanonicalStatusRef.current === canonicalRunStatus) {
+    const lastApplied = lastAppliedCanonicalStatusRef.current;
+    if (
+      lastApplied &&
+      lastApplied.runId === activeRunId &&
+      lastApplied.status === canonicalRunStatus
+    ) {
       return;
     }
-    lastAppliedCanonicalStatusRef.current = canonicalRunStatus;
+    lastAppliedCanonicalStatusRef.current = {
+      runId: activeRunId,
+      status: canonicalRunStatus,
+    };
 
     if (canonicalRunStatus === "RUNNING" || canonicalRunStatus === "CREATED") {
       onSessionStatusChange?.("running");
@@ -195,7 +206,7 @@ export function Workspace({
       onSessionStatusChange?.("completed");
       void refetchGitStatus(true);
     }
-  }, [canonicalRunStatus, onSessionStatusChange, refetchGitStatus]);
+  }, [activeRunId, canonicalRunStatus, onSessionStatusChange, refetchGitStatus]);
 
   useEffect(() => {
     if (isContextMismatch) {
