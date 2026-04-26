@@ -191,7 +191,32 @@ describe("AgenticLoopToolExecutor", () => {
     expect(executeCallCount).toBe(0);
   });
 
-  it("still routes ordinary bash commands through the bash gateway", async () => {
+  it("blocks generic git commands in bash and avoids execution", async () => {
+    let executeCallCount = 0;
+    const executionService: RuntimeExecutionService = {
+      execute: async () => {
+        executeCallCount += 1;
+        return { output: "ok" };
+      },
+    };
+
+    const result = await executeAgenticLoopTool(executionService, {
+      taskId: "task-3",
+      toolName: "bash",
+      toolInput: {
+        description: "Switch branch from bash",
+        command: "git checkout style/redesign-footer -- src/components/layout/Footer.tsx",
+      },
+    });
+
+    expect(result.status).toBe("FAILED");
+    expect(result.error?.message).toContain(
+      "Do not run git commands through bash in agent flow",
+    );
+    expect(executeCallCount).toBe(0);
+  });
+
+  it("still routes ordinary non-git bash commands through the bash gateway", async () => {
     const calls: Array<{
       plugin: string;
       action: string;
@@ -208,8 +233,8 @@ describe("AgenticLoopToolExecutor", () => {
       taskId: "task-3",
       toolName: "bash",
       toolInput: {
-        description: "Read git state",
-        command: "git status --short",
+        description: "Print state",
+        command: "echo hello",
       },
     });
 
@@ -219,8 +244,42 @@ describe("AgenticLoopToolExecutor", () => {
         plugin: "bash",
         action: "run",
         payload: {
-          command: "git status --short",
-          description: "Read git state",
+          command: "echo hello",
+          description: "Print state",
+        },
+      },
+    ]);
+  });
+
+  it("routes simple cat file reads through read_file instead of bash", async () => {
+    const calls: Array<{
+      plugin: string;
+      action: string;
+      payload: Record<string, unknown>;
+    }> = [];
+    const executionService: RuntimeExecutionService = {
+      execute: async (plugin, action, payload) => {
+        calls.push({ plugin, action, payload });
+        return { output: "file-content" };
+      },
+    };
+
+    const result = await executeAgenticLoopTool(executionService, {
+      taskId: "task-4",
+      toolName: "bash",
+      toolInput: {
+        description: "Read footer",
+        command: "cat src/components/layout/Footer.tsx",
+      },
+    });
+
+    expect(result.status).toBe("DONE");
+    expect(calls).toEqual([
+      {
+        plugin: "filesystem",
+        action: "read_file",
+        payload: {
+          path: "src/components/layout/Footer.tsx",
         },
       },
     ]);
