@@ -82,4 +82,25 @@ describe("GitHubTaskStrategy", () => {
     expect(decision.preferredLane).toBe("github_connector");
     expect(decision.fallbackLane).toBe("github_cli");
   });
+
+  it("keeps scope failures in a read-only metadata lane without fallback churn", () => {
+    const decision = strategy.decide({
+      userRequest: "check CI checks for PR 231",
+      runMode: "build",
+      repositoryReady: true,
+      hasGitHubAuth: true,
+      connectorAvailable: true,
+      currentFailure: {
+        kind: "missing_scope_state",
+        toolName: "github_cli_actions_run_get",
+      },
+    });
+
+    expect(decision).toEqual({
+      classification: "remote_metadata",
+      preferredLane: "github_connector",
+      rationale:
+        "The previous attempt failed due to missing GitHub OAuth scope; keep the current turn read-oriented and surface a reconnect-with-scopes recovery path instead of mutating lanes.",
+    });
+  });
 });
