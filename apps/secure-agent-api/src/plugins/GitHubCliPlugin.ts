@@ -441,38 +441,34 @@ export class GitHubCliPlugin implements IPlugin {
     });
     const workspaceRoot = getWorkspaceRoot(input.runId);
     const ghApiArgs = [
-      "gh",
       "api",
       "--method",
       method,
       ...(input.acceptHeader
         ? ["--header", `Accept: ${input.acceptHeader}`]
         : []),
-      "--repo",
-      extractRepoSlugFromEndpoint(input.endpoint),
       ...formatGhApiFields(input.fields),
       input.endpoint,
-    ];
-    const args = [
-      `GH_TOKEN=${input.token}`,
-      "GH_PROMPT_DISABLED=1",
-      "GH_NO_UPDATE_NOTIFIER=1",
-      ...ghApiArgs,
     ];
 
     const result = await runSafeCommand(
       sandbox,
       withToolboxCommandContext(
         {
-          command: "env",
-          args,
+          command: "gh",
+          args: ghApiArgs,
+          env: {
+            GH_TOKEN: input.token,
+            GH_PROMPT_DISABLED: "1",
+            GH_NO_UPDATE_NOTIFIER: "1",
+          },
           cwd: workspaceRoot,
           runId: input.runId,
         },
         input.toolboxContext,
         input.toolName,
       ),
-      ["env"],
+      ["gh"],
     );
 
     return {
@@ -647,17 +643,7 @@ function formatGhApiFields(
     if (!key.trim()) {
       continue;
     }
-    args.push("--field", `${key}=${value}`);
+    args.push("--raw-field", `${key}=${value}`);
   }
   return args;
-}
-
-function extractRepoSlugFromEndpoint(endpoint: string): string {
-  const match = endpoint.match(
-    /^\/repos\/([A-Za-z0-9._-]+)\/([A-Za-z0-9._-]+)\//,
-  );
-  if (!match?.[1] || !match[2]) {
-    throw new Error("GitHub endpoint is missing repository identity.");
-  }
-  return `${match[1]}/${match[2]}`;
 }
