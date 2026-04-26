@@ -788,6 +788,93 @@ describe("AgenticLoop - Bounded Agentic Tool Chaining", () => {
       ]);
     });
 
+    it("continues after a recoverable git_branch_switch failure so the model can recover", async () => {
+      vi.mocked(llmGateway.generateText!)
+        .mockResolvedValueOnce({
+          text: "Switching to the PR head branch first.",
+          toolCalls: [
+            {
+              id: "tool-call-1",
+              toolName: "git_branch_switch",
+              args: { branch: "style/redesign-footer" },
+            },
+          ],
+          usage: { promptTokens: 10, completionTokens: 5 },
+        })
+        .mockResolvedValueOnce({
+          text: "I'll apply the footer update now.",
+          toolCalls: [
+            {
+              id: "tool-call-2",
+              toolName: "write_file",
+              args: { path: "src/components/layout/Footer.tsx", content: "ok" },
+            },
+          ],
+          usage: { promptTokens: 12, completionTokens: 6 },
+        })
+        .mockResolvedValueOnce({
+          text: "Done.",
+          toolCalls: [],
+          usage: { promptTokens: 14, completionTokens: 7 },
+        });
+
+      vi.mocked(executor.execute!)
+        .mockResolvedValueOnce({
+          taskId: "tool-call-1",
+          status: "FAILED",
+          error: {
+            message:
+              "error: Your local changes to the following files would be overwritten by checkout:\n\tsrc/components/layout/Footer.tsx\nPlease commit your changes or stash them before you switch branches.\nAborting",
+          },
+          completedAt: new Date(),
+        })
+        .mockResolvedValueOnce({
+          taskId: "tool-call-2",
+          status: "DONE",
+          output: {
+            content: "Updated src/components/layout/Footer.tsx",
+            metadata: {
+              activity: {
+                family: "edit",
+                filePath: "src/components/layout/Footer.tsx",
+                additions: 5,
+                deletions: 2,
+              },
+            },
+          },
+          completedAt: new Date(),
+        });
+
+      const tools = {
+        git_branch_switch: {
+          description: "Switch branch",
+        },
+        write_file: {
+          description: "Write file",
+        },
+      } as unknown as Record<string, import("ai").CoreTool>;
+
+      const result = await loop.execute(
+        [{ role: "user", content: "apply PR comment fix" }],
+        tools,
+        { agentType: "coding" },
+      );
+
+      expect(result.stopReason).toBe("llm_stop");
+      expect(result.stepsExecuted).toBe(3);
+      expect(result.failedToolCount).toBe(1);
+      expect(result.completedMutatingToolCount).toBe(1);
+      expect(llmGateway.generateText).toHaveBeenCalledTimes(3);
+      expect(result.toolLifecycle.map((event) => event.status)).toEqual([
+        "requested",
+        "started",
+        "failed",
+        "requested",
+        "started",
+        "completed",
+      ]);
+    });
+
     it("continues after unauthorized GitHub Actions job log failures to allow final synthesis", async () => {
       vi.mocked(llmGateway.generateText!)
         .mockResolvedValueOnce({
