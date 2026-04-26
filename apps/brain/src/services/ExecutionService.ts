@@ -131,10 +131,20 @@ export class ExecutionService {
     } catch (error) {
       executionFinished = true;
       await logForwardingPromise;
-      console.error(
-        `[ExecutionService] Error:`,
-        sanitizeUnknownError(error),
-      );
+      if (isExpectedGitStatusExecutionError(plugin, executionAction, error)) {
+        console.log(
+          `[ExecutionService] ${plugin}:${executionAction} transient startup miss`,
+          sanitizeLogPayload({
+            errorMessage:
+              error instanceof Error ? error.message : String(error),
+          }),
+        );
+      } else {
+        console.error(
+          `[ExecutionService] Error:`,
+          sanitizeUnknownError(error),
+        );
+      }
       throw error;
     }
   }
@@ -675,7 +685,36 @@ function isExpectedGitStatusBootstrapFailure(
   }
 
   const message = result.error?.message ?? "";
-  return /not a git repository/i.test(message);
+  return isExpectedGitStatusMessage(message);
+}
+
+function isExpectedGitStatusExecutionError(
+  plugin: string,
+  action: string,
+  error: unknown,
+): boolean {
+  if (plugin !== "git" || action !== "git_status") {
+    return false;
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  return isExpectedGitStatusMessage(message);
+}
+
+function isExpectedGitStatusMessage(message: string): boolean {
+  return (
+    /not a git repository/i.test(message) ||
+    /sandboxerror:\s*http error!\s*status:\s*5\d\d/i.test(message) ||
+    /http error!\s*status:\s*5\d\d/i.test(message) ||
+    /failed with http 5\d\d/i.test(message) ||
+    /service unavailable/i.test(message) ||
+    /network connection lost/i.test(message) ||
+    /failed to fetch/i.test(message) ||
+    /timed out/i.test(message) ||
+    /econnrefused/i.test(message) ||
+    /upstream connect error/i.test(message) ||
+    /couldn't find a local dev session/i.test(message) ||
+    /entrypoint of service .* to proxy to/i.test(message)
+  );
 }
 
 function readString(value: unknown): string | undefined {
