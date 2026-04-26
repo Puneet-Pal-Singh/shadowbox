@@ -57,6 +57,111 @@ describe("WorkspaceBootstrapService", () => {
     });
   });
 
+  it("retries transient git status failures before continuing bootstrap", async () => {
+    const execute = vi
+      .fn()
+      .mockResolvedValueOnce({
+        success: false,
+        error: "SandboxError: HTTP error! status: 500",
+      })
+      .mockResolvedValueOnce({
+        success: true,
+        output: CLEAN_GIT_STATUS_OUTPUT,
+      })
+      .mockResolvedValueOnce({ success: true }) // fetch
+      .mockResolvedValueOnce({ success: true }) // switch
+      .mockResolvedValueOnce({ success: true }); // pull
+    const service = new WorkspaceBootstrapService({ execute }, 0);
+
+    const result = await service.bootstrap({
+      runId: "run-retry-status",
+      mode: "git_write",
+      repositoryContext: {
+        owner: "sourcegraph",
+        repo: "shadowbox",
+        branch: "main",
+      },
+    });
+
+    expect(result.status).toBe("ready");
+    expect(execute).toHaveBeenCalledTimes(5);
+    expect(execute).toHaveBeenNthCalledWith(1, "git", "git_status", {});
+    expect(execute).toHaveBeenNthCalledWith(2, "git", "git_status", {});
+    expect(execute).toHaveBeenNthCalledWith(3, "git", "git_fetch", {
+      remote: "origin",
+    });
+  });
+
+  it("retries local-dev-session proxy misses before continuing bootstrap", async () => {
+    const execute = vi
+      .fn()
+      .mockResolvedValueOnce({
+        success: false,
+        error:
+          "Couldn't find a local dev session for the \"default\" entrypoint of service \"shadowbox-api\" to proxy to",
+      })
+      .mockResolvedValueOnce({
+        success: true,
+        output: CLEAN_GIT_STATUS_OUTPUT,
+      })
+      .mockResolvedValueOnce({ success: true }) // fetch
+      .mockResolvedValueOnce({ success: true }) // switch
+      .mockResolvedValueOnce({ success: true }); // pull
+    const service = new WorkspaceBootstrapService({ execute }, 0);
+
+    const result = await service.bootstrap({
+      runId: "run-retry-local-dev-session",
+      mode: "git_write",
+      repositoryContext: {
+        owner: "sourcegraph",
+        repo: "shadowbox",
+        branch: "main",
+      },
+    });
+
+    expect(result.status).toBe("ready");
+    expect(execute).toHaveBeenCalledTimes(5);
+    expect(execute).toHaveBeenNthCalledWith(1, "git", "git_status", {});
+    expect(execute).toHaveBeenNthCalledWith(2, "git", "git_status", {});
+  });
+
+  it("returns friendly sync-failed guidance when transient status misses persist", async () => {
+    const execute = vi
+      .fn()
+      .mockResolvedValueOnce({
+        success: false,
+        error:
+          "Couldn't find a local dev session for the \"default\" entrypoint of service \"shadowbox-api\" to proxy to",
+      })
+      .mockResolvedValueOnce({
+        success: false,
+        error:
+          "Couldn't find a local dev session for the \"default\" entrypoint of service \"shadowbox-api\" to proxy to",
+      })
+      .mockResolvedValueOnce({
+        success: false,
+        error:
+          "Couldn't find a local dev session for the \"default\" entrypoint of service \"shadowbox-api\" to proxy to",
+      });
+    const service = new WorkspaceBootstrapService({ execute }, 0);
+
+    const result = await service.bootstrap({
+      runId: "run-sync-failed-local-dev-session",
+      mode: "git_write",
+      repositoryContext: {
+        owner: "sourcegraph",
+        repo: "shadowbox",
+        branch: "main",
+      },
+    });
+
+    expect(result.status).toBe("sync-failed");
+    expect(result.message).toBe(
+      "Git service is temporarily unavailable. Please retry in a few seconds.",
+    );
+    expect(execute).toHaveBeenCalledTimes(3);
+  });
+
   it("returns needs-auth on git authentication failures", async () => {
     const execute = vi.fn(async () => ({
       success: false,
