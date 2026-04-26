@@ -1118,7 +1118,7 @@ function readGitHubCliRuntimeFlags(taskInput: TaskInput): GitHubCliRuntimeFlags 
 
   const flags = rawFlags as Record<string, unknown>;
   const laneEnabled = readBoolean(flags.ghCliLaneEnabled) ?? false;
-  const ciEnabled = readBoolean(flags.ghCliCiEnabled) ?? laneEnabled;
+  const ciEnabled = readBoolean(flags.ghCliCiEnabled) ?? false;
   const prCommentEnabled =
     readBoolean(flags.ghCliPrCommentEnabled) ?? false;
   return {
@@ -1377,17 +1377,28 @@ function buildFailureResult(
 }
 
 function isGitCommitIdentityConfigShellCommand(command: string): boolean {
-  const commandSegments = command
-    .split(/&&|\|\||;|\|/)
-    .map((segment) => segment.trim())
-    .filter((segment) => segment.length > 0);
+  const commandSegments = splitShellCommandSegments(command);
   return commandSegments.some((segment) =>
     GIT_COMMIT_IDENTITY_CONFIG_SEGMENT_PATTERN.test(segment),
   );
 }
 
 function isGitShellCommand(command: string): boolean {
-  return /^git(?:\s|$)/i.test(command.trim());
+  const commandSegments = splitShellCommandSegments(command);
+  return commandSegments.some((segment) => {
+    const withoutEnvAssignments = segment.replace(
+      /^(?:[A-Za-z_][A-Za-z0-9_]*=(?:"[^"]*"|'[^']*'|[^\s]+)\s+)*/,
+      "",
+    );
+    return /^git(?:\s|$)/i.test(withoutEnvAssignments.trim());
+  });
+}
+
+function splitShellCommandSegments(command: string): string[] {
+  return command
+    .split(/&&|\|\||;|\|/)
+    .map((segment) => segment.trim())
+    .filter((segment) => segment.length > 0);
 }
 
 function buildWriteActivityMetadata(
