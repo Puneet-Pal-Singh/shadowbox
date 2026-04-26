@@ -305,6 +305,13 @@ async function executeBashTool(
     );
   }
 
+  if (isGitShellCommand(command)) {
+    return buildFailureResult(
+      taskId,
+      "Do not run git commands through bash in agent flow. Use dedicated git_* tools (git_status, git_diff, git_stage, git_commit, git_push, git_branch_switch, git_branch_create, git_pull, git_fetch) so approval, recovery, and branch-safety handling remain deterministic.",
+    );
+  }
+
   if (/^ls(\s|$)/i.test(command)) {
     const path = resolveWorkspaceRelativeShellPath(
       normalizedInput.cwd,
@@ -313,6 +320,16 @@ async function executeBashTool(
     validateSafePath(path);
     return executeListFilesTool(executionService, taskId, {
       description: "List files from shell shortcut",
+      path,
+    });
+  }
+
+  const catPath = extractPathFromCatCommand(command);
+  if (catPath) {
+    const path = resolveWorkspaceRelativeShellPath(normalizedInput.cwd, catPath);
+    validateSafePath(path);
+    return executeReadFileTool(executionService, taskId, {
+      description: "Read file from shell shortcut",
       path,
     });
   }
@@ -1369,6 +1386,10 @@ function isGitCommitIdentityConfigShellCommand(command: string): boolean {
   );
 }
 
+function isGitShellCommand(command: string): boolean {
+  return /^git(?:\s|$)/i.test(command.trim());
+}
+
 function buildWriteActivityMetadata(
   path: string,
   previousContent: string,
@@ -1606,6 +1627,25 @@ function extractDirectoryFromLsCommand(command: string): string {
     return segment;
   }
   return ".";
+}
+
+function extractPathFromCatCommand(command: string): string | null {
+  const trimmed = command.trim();
+  const match = trimmed.match(/^cat\s+(.+)$/i);
+  if (!match?.[1]) {
+    return null;
+  }
+
+  const argument = match[1].trim();
+  if (!argument || /[|;&><]/.test(argument) || /\s/.test(argument)) {
+    return null;
+  }
+
+  if (argument.startsWith("-")) {
+    return null;
+  }
+
+  return argument;
 }
 
 function parseDirectoryEntries(output: string): string[] {
