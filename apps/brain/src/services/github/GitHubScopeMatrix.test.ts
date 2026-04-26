@@ -35,12 +35,7 @@ describe("GitHubScopeMatrix", () => {
     });
     expect(boundary).toEqual({
       capability: "pr_comment_write",
-      requiredAnyOf: [
-        "repo",
-        "public_repo",
-        "pull_requests:write",
-        "pull_request:write",
-      ],
+      requiredAnyOf: ["repo", "public_repo"],
       grantedScopes: ["read:user", "user:email"],
       rationale: expect.stringContaining("Pull-request commenting"),
     });
