@@ -61,7 +61,7 @@ export function parseGitHubScopeList(raw: unknown): string[] | null {
 export function resolveGitHubScopeBoundary(
   input: ScopeBoundaryInput,
 ): GitHubScopeBoundary | null {
-  if (!input.persistedScopes) {
+  if (input.persistedScopes === null) {
     return null;
   }
 
