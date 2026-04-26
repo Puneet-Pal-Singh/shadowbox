@@ -771,6 +771,15 @@ export class GitPlugin implements IPlugin {
       "git.commit_author_email.write",
     );
     if (!writeEmailResult.success) {
+      await this.restoreGitConfigValue(
+        sandbox,
+        worktree,
+        "user.name",
+        existingAuthorName,
+        toolboxContext,
+        runId,
+        "git.commit_author_name.rollback",
+      );
       return {
         success: false,
         error: WRITE_GIT_AUTHOR_ERROR,
@@ -919,6 +928,41 @@ export class GitPlugin implements IPlugin {
       success: false,
       error: WRITE_GIT_AUTHOR_ERROR,
     };
+  }
+
+  private async restoreGitConfigValue(
+    sandbox: Sandbox,
+    worktree: string,
+    key: "user.name" | "user.email",
+    previousValue: string,
+    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
+    runId: string,
+    toolName: string,
+  ): Promise<void> {
+    if (previousValue.length > 0) {
+      await this.writeGitConfigValue(
+        sandbox,
+        worktree,
+        key,
+        previousValue,
+        toolboxContext,
+        runId,
+        toolName,
+      );
+      return;
+    }
+
+    await this.runToolboxCommand(
+      sandbox,
+      {
+        command: "git",
+        args: ["-C", worktree, "config", "--unset", key],
+        runId,
+      },
+      ["git"],
+      toolboxContext,
+      toolName,
+    );
   }
 
   private async push(
