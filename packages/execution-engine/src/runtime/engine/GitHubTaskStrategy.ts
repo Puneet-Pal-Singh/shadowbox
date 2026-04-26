@@ -56,6 +56,20 @@ export class GitHubTaskStrategy {
     }
 
     if (
+      input.currentFailure?.kind === "missing_scope_state" &&
+      wantsRemoteMetadata
+    ) {
+      return {
+        classification: "remote_metadata",
+        preferredLane: input.connectorAvailable
+          ? "github_connector"
+          : "github_cli",
+        rationale:
+          "The previous attempt failed due to missing GitHub OAuth scope; keep the current turn read-oriented and surface a reconnect-with-scopes recovery path instead of mutating lanes.",
+      };
+    }
+
+    if (
       input.currentFailure?.kind === "missing_auth_state" &&
       wantsRemoteMetadata &&
       input.connectorAvailable
