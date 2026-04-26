@@ -72,6 +72,11 @@ describe("AgenticLoopToolExecutor", () => {
         repo: "career-crew",
         actionsJobId: 987654,
         tailLines: 200,
+        __runtimeFeatureFlags: {
+          ghCliLaneEnabled: true,
+          ghCliCiEnabled: true,
+          ghCliPrCommentEnabled: true,
+        },
       },
     });
 
@@ -114,6 +119,11 @@ describe("AgenticLoopToolExecutor", () => {
         repo: "career-crew",
         number: 228,
         body: "Looks good to me.",
+        __runtimeFeatureFlags: {
+          ghCliLaneEnabled: true,
+          ghCliCiEnabled: true,
+          ghCliPrCommentEnabled: true,
+        },
       },
     });
 
@@ -162,6 +172,30 @@ describe("AgenticLoopToolExecutor", () => {
 
     expect(result.status).toBe("FAILED");
     expect(result.error?.message).toContain("GH_CLI_PR_COMMENT_ENABLED");
+    expect(executeCallCount).toBe(0);
+  });
+
+  it("fails github_cli_actions_job_logs_get when runtime flags are missing (fail-closed)", async () => {
+    let executeCallCount = 0;
+    const executionService: RuntimeExecutionService = {
+      execute: async () => {
+        executeCallCount += 1;
+        return { output: "ok" };
+      },
+    };
+
+    const result = await executeAgenticLoopTool(executionService, {
+      taskId: "task-github-cli-logs-flag-missing",
+      toolName: "github_cli_actions_job_logs_get",
+      toolInput: {
+        owner: "acme",
+        repo: "career-crew",
+        actionsJobId: 987654,
+      },
+    });
+
+    expect(result.status).toBe("FAILED");
+    expect(result.error?.message).toContain("GH_CLI_LANE_ENABLED");
     expect(executeCallCount).toBe(0);
   });
 
