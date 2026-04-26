@@ -73,6 +73,21 @@ const NO_TRACKING_PATTERNS = [/there is no tracking information/i];
 const CLONE_DESTINATION_NOT_EMPTY_PATTERNS = [
   /destination path .* already exists and is not an empty directory/i,
 ];
+const TRANSIENT_STATUS_FAILURE_PATTERNS = [
+  /sandboxerror:\s*http error!\s*status:\s*5\d\d/i,
+  /http error!\s*status:\s*5\d\d/i,
+  /failed with http 5\d\d/i,
+  /service unavailable/i,
+  /upstream connect error/i,
+  /econnrefused/i,
+  /timed out/i,
+  /failed to fetch/i,
+  /network connection lost/i,
+  /couldn't find a local dev session/i,
+  /entrypoint of service .* to proxy to/i,
+];
+const GIT_STATUS_MAX_ATTEMPTS = 3;
+const GIT_STATUS_RETRY_DELAY_MS = 250;
 const workspaceSyncCache = new Map<string, WorkspaceSyncCacheEntry>();
 const gitStatusOutputSchema = z.object({
   branch: z.string(),
@@ -156,7 +171,7 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
       return bootstrapResult;
     }
 
-    const statusResult = await this.executeGit("git_status", {}, request.runId);
+    const statusResult = await this.executeGitStatusWithRetry(request.runId);
     if (!statusResult.success) {
       const statusError = statusResult.error ?? "Unable to check git status.";
       if (!matchesAny(statusError, NOT_GIT_REPOSITORY_PATTERNS)) {
@@ -435,6 +450,26 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
     }
   }
 
+  private async executeGitStatusWithRetry(runId: string): Promise<GitPluginResult> {
+    let attempt = 1;
+    let statusResult = await this.executeGit("git_status", {}, runId);
+    while (
+      attempt < GIT_STATUS_MAX_ATTEMPTS &&
+      isRetryableGitStatusFailure(statusResult.error)
+    ) {
+      const nextAttempt = attempt + 1;
+      const delayMs = GIT_STATUS_RETRY_DELAY_MS * attempt;
+      console.warn(
+        `[workspace/bootstrap] run=${runId} retrying git_status after transient failure (attempt ${nextAttempt}/${GIT_STATUS_MAX_ATTEMPTS})`,
+      );
+      await sleep(delayMs);
+      statusResult = await this.executeGit("git_status", {}, runId);
+      attempt = nextAttempt;
+    }
+
+    return statusResult;
+  }
+
   private logBootstrapTiming(
     runId: string,
     result: WorkspaceBootstrapResult,
@@ -551,6 +586,20 @@ function mapGitFailure(error: string): WorkspaceBootstrapResult {
   };
 }
 
+function isRetryableGitStatusFailure(error: string | undefined): boolean {
+  if (!error) {
+    return false;
+  }
+  return matchesAny(error, TRANSIENT_STATUS_FAILURE_PATTERNS);
+}
+
+async function sleep(durationMs: number): Promise<void> {
+  if (durationMs <= 0) {
+    return;
+  }
+  await new Promise((resolve) => setTimeout(resolve, durationMs));
+}
+
 function normalizeRepositoryContext(
   repositoryContext: RepositoryContext,
 ): NormalizedRepositoryContext | null {
@@ -637,6 +686,9 @@ function sanitizeError(error: string): string {
   const trimmed = error.trim();
   if (matchesAny(trimmed, CLONE_DESTINATION_NOT_EMPTY_PATTERNS)) {
     return "Workspace initialization conflict: existing non-repository files blocked clone. Retry to reinitialize the workspace.";
+  }
+  if (matchesAny(trimmed, TRANSIENT_STATUS_FAILURE_PATTERNS)) {
+    return "Git service is temporarily unavailable. Please retry in a few seconds.";
   }
   return trimmed.length > 0
     ? trimmed
