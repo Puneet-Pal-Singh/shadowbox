@@ -13,21 +13,18 @@ import {
   recordRecoveredAgenticLoopMetadata,
 } from "./RunAgenticLoopPolicy.js";
 
-const PROVIDER_UNAVAILABLE_SIGNAL_TOKENS = [
-  "failed after 3 attempts",
-  "provider request failed",
-  "provider returned error",
-  "network connection lost",
-  "connection lost",
-  "service unavailable",
-  "internal error encountered",
-  "econnreset",
-  "etimedout",
-  "upstream",
-  "status code 500",
-  "status code 502",
-  "status code 503",
-  "status code 504",
+const PROVIDER_UNAVAILABLE_SIGNAL_PATTERNS = [
+  /failed after \d+ attempts?/i,
+  /provider request failed/i,
+  /provider returned error/i,
+  /network connection lost/i,
+  /connection lost/i,
+  /service unavailable/i,
+  /internal error encountered/i,
+  /econnreset/i,
+  /etimedout/i,
+  /upstream (?:connect|request|transport|service|network|timed? out|error|failure)/i,
+  /status code (?:500|502|503|504)/i,
 ];
 const MAX_ERROR_SIGNAL_LENGTH = 240;
 
@@ -236,8 +233,8 @@ function isRecoverableProviderUnavailable(error: unknown): boolean {
   }
 
   const signalText = getErrorSignalText(error);
-  return PROVIDER_UNAVAILABLE_SIGNAL_TOKENS.some((token) =>
-    signalText.includes(token),
+  return PROVIDER_UNAVAILABLE_SIGNAL_PATTERNS.some((pattern) =>
+    pattern.test(signalText),
   );
 }
 
