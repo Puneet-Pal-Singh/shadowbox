@@ -33,7 +33,7 @@ const ACTIONS_READ_REQUIREMENT: GitHubScopeRequirement = {
 
 const PR_COMMENT_WRITE_REQUIREMENT: GitHubScopeRequirement = {
   capability: "pr_comment_write",
-  requiredAnyOf: ["repo", "public_repo", "pull_requests:write", "pull_request:write"],
+  requiredAnyOf: ["repo", "public_repo"],
   rationale:
     "Pull-request commenting requires write permission for PR conversation surfaces.",
 };
