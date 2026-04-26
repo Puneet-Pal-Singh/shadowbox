@@ -194,6 +194,13 @@ function mapBootstrapResultToMessage(
   if (branchSwitchConflictMessage) {
     return branchSwitchConflictMessage;
   }
+  const transientBootstrapMessage = mapTransientBootstrapFailureMessage(
+    reason,
+    repoRef,
+  );
+  if (transientBootstrapMessage) {
+    return transientBootstrapMessage;
+  }
   return `I couldn't prepare the workspace for ${repoRef}. ${reason}`;
 }
 
@@ -209,6 +216,32 @@ function isExpectedBootstrapMiss(message: string | undefined): boolean {
     return false;
   }
   return /not a git repository/i.test(message);
+}
+
+function mapTransientBootstrapFailureMessage(
+  reason: string,
+  repoRef: string,
+): string | null {
+  if (!isTransientBootstrapFailure(reason)) {
+    return null;
+  }
+  return `I couldn't prepare the workspace for ${repoRef} because the git service is temporarily unavailable. Please retry in a few seconds.`;
+}
+
+function isTransientBootstrapFailure(reason: string): boolean {
+  return (
+    /network connection lost/i.test(reason) ||
+    /failed to fetch/i.test(reason) ||
+    /service unavailable/i.test(reason) ||
+    /timed out/i.test(reason) ||
+    /econnrefused/i.test(reason) ||
+    /upstream connect error/i.test(reason) ||
+    /sandboxerror:\s*http error!\s*status:\s*5\d\d/i.test(reason) ||
+    /http error!\s*status:\s*5\d\d/i.test(reason) ||
+    /failed with http 5\d\d/i.test(reason) ||
+    /couldn't find a local dev session/i.test(reason) ||
+    /entrypoint of service .* to proxy to/i.test(reason)
+  );
 }
 
 function mapBranchSwitchConflictMessage(input: {
