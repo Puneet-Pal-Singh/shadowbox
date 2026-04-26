@@ -279,7 +279,7 @@ describe("RunRiskyActionPolicy", () => {
     expect(result.request.category).toBe("git_mutation");
   });
 
-  it("maps github_cli_pr_comment to git_mutation approval with stable PR target fingerprint", async () => {
+  it("maps github_cli_pr_comment to git_mutation approval with PR-and-body fingerprint", async () => {
     const store = new PermissionApprovalStore(new MockRuntimeState(), "run-risk-4dd");
 
     const result = await evaluateToolPermission({
@@ -304,8 +304,8 @@ describe("RunRiskyActionPolicy", () => {
       throw new Error("Expected ask result");
     }
     expect(result.request.category).toBe("git_mutation");
-    expect(result.request.actionFingerprint).toBe(
-      "git_mutation:github_cli_pr_comment:acme/career-crew:pr:228",
+    expect(result.request.actionFingerprint).toMatch(
+      /^git_mutation:github_cli_pr_comment:acme\/career-crew:pr:228:body:[0-9a-f]{8}$/,
     );
     expect(result.request.remoteTarget).toBe("acme/career-crew");
     expect(result.request.availableDecisions).toEqual(
@@ -313,6 +313,54 @@ describe("RunRiskyActionPolicy", () => {
     );
     expect(result.request.availableDecisions).toEqual(
       expect.not.arrayContaining(["allow_persistent_rule"]),
+    );
+  });
+
+  it("produces different PR comment approval fingerprints for different bodies", async () => {
+    const firstStore = new PermissionApprovalStore(new MockRuntimeState(), "run-risk-4de-1");
+    const secondStore = new PermissionApprovalStore(new MockRuntimeState(), "run-risk-4de-2");
+
+    const first = await evaluateToolPermission({
+      runId: "run-risk-4de-1",
+      sessionId: "session-1",
+      origin: "agent",
+      productMode: "auto_for_safe",
+      workflowIntent: "ship",
+      toolName: "github_cli_pr_comment",
+      toolArgs: {
+        owner: "acme",
+        repo: "career-crew",
+        number: 228,
+        body: "Please rerun CI after rebase.",
+      },
+      hasMutationEvidence: true,
+      approvalStore: firstStore,
+    });
+    const second = await evaluateToolPermission({
+      runId: "run-risk-4de-2",
+      sessionId: "session-1",
+      origin: "agent",
+      productMode: "auto_for_safe",
+      workflowIntent: "ship",
+      toolName: "github_cli_pr_comment",
+      toolArgs: {
+        owner: "acme",
+        repo: "career-crew",
+        number: 228,
+        body: "LGTM, shipping now.",
+      },
+      hasMutationEvidence: true,
+      approvalStore: secondStore,
+    });
+
+    expect(first.kind).toBe("ask");
+    expect(second.kind).toBe("ask");
+    if (first.kind !== "ask" || second.kind !== "ask") {
+      throw new Error("Expected ask result");
+    }
+
+    expect(first.request.actionFingerprint).not.toBe(
+      second.request.actionFingerprint,
     );
   });
 
