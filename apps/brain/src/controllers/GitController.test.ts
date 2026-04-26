@@ -123,4 +123,122 @@ describe("GitController", () => {
       retryable: true,
     });
   });
+
+  it("retries transient git status failures and eventually succeeds", async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            sessionId: "sess-git-retry-1",
+            token: "tok-git-retry-1",
+            expiresAt: Date.now() + 60_000,
+          }),
+          { status: 201, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            error: "SandboxError: HTTP error! status: 500",
+          }),
+          { status: 500, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            sessionId: "sess-git-retry-2",
+            token: "tok-git-retry-2",
+            expiresAt: Date.now() + 60_000,
+          }),
+          { status: 201, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            taskId: "git-status-task-retry",
+            status: "success",
+            output: JSON.stringify({
+              files: [],
+              ahead: 0,
+              behind: 0,
+              branch: "main",
+              hasStaged: false,
+              hasUnstaged: false,
+              gitAvailable: true,
+            }),
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+
+    const response = await GitController.getStatus(
+      new Request("https://brain.local/api/git/status?runId=run-retry"),
+      {
+        SECURE_API: { fetch: fetchMock } as Env["SECURE_API"],
+        NODE_ENV: "test",
+      } as Env,
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      branch: "main",
+      gitAvailable: true,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it("retries local-dev-session proxy misses and eventually succeeds", async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          "Couldn't find a local dev session for the \"default\" entrypoint of service \"shadowbox-api\" to proxy to",
+          { status: 503, headers: { "Content-Type": "text/plain" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            sessionId: "sess-git-retry-local-dev",
+            token: "tok-git-retry-local-dev",
+            expiresAt: Date.now() + 60_000,
+          }),
+          { status: 201, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            taskId: "git-status-task-retry-local-dev",
+            status: "success",
+            output: JSON.stringify({
+              files: [],
+              ahead: 0,
+              behind: 0,
+              branch: "main",
+              hasStaged: false,
+              hasUnstaged: false,
+              gitAvailable: true,
+            }),
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+
+    const response = await GitController.getStatus(
+      new Request("https://brain.local/api/git/status?runId=run-retry-local-dev"),
+      {
+        SECURE_API: { fetch: fetchMock } as Env["SECURE_API"],
+        NODE_ENV: "test",
+      } as Env,
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      branch: "main",
+      gitAvailable: true,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
 });
