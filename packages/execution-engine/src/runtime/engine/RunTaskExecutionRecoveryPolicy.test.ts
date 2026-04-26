@@ -372,4 +372,42 @@ describe("RunTaskExecutionRecoveryPolicy", () => {
       expect.stringContaining("signal=network connection lost."),
     );
   });
+
+  it("does not classify unrelated 'upstream' wording as provider unavailable", async () => {
+    const run = new Run("run-2", "session-1", "RUNNING", "coding", {
+      agentType: "coding",
+      prompt: "summarize git divergence",
+      sessionId: "session-1",
+      providerId: "openrouter",
+      modelId: "inclusionai/ling-2.6-flash:free",
+    });
+
+    const response = await tryHandleTaskExecutionErrorPolicy({
+      run,
+      prompt: "summarize git divergence",
+      loop: {
+        getStats: () => ({
+          stopReason: "llm_stop" as const,
+          stepsExecuted: 1,
+          toolExecutionCount: 1,
+          failedToolCount: 1,
+          requiresMutation: false,
+          completedMutatingToolCount: 0,
+          completedReadOnlyToolCount: 1,
+          llmRetryCount: 0,
+          terminalLlmIssue: undefined,
+          toolLifecycle: [],
+        }),
+      } as never,
+      error: new Error("Your branch is behind upstream/main by 2 commits."),
+      deps: {
+        completeRunWithRecoveredAssistantMessage: vi.fn(async () => new Response()),
+        runEventRecorder: {
+          recordRunProgress: vi.fn(async () => undefined),
+        },
+      },
+    });
+
+    expect(response).toBeNull();
+  });
 });
