@@ -38,8 +38,7 @@ export function createRunContinuationState(
     .reverse()
     .find((event) => event.status === "failed");
   const hasTrustedGitCommitIdentity =
-    resolveLatestCompletedGitCommitIdentitySource(toolLifecycle) ===
-    "github_profile";
+    hasVerifiedGitHubProfileCommitIdentity(toolLifecycle);
 
   if (
     !run.metadata.prompt &&
@@ -322,9 +321,9 @@ function summarizeGitStep(
   return suffix ? `${label}: ${suffix}` : label;
 }
 
-function resolveLatestCompletedGitCommitIdentitySource(
+function hasVerifiedGitHubProfileCommitIdentity(
   toolLifecycle: AgenticLoopToolLifecycleEvent[],
-): string | undefined {
+): boolean {
   for (const event of [...toolLifecycle].reverse()) {
     if (event.status !== "completed" || event.toolName !== "git_commit") {
       continue;
@@ -332,10 +331,13 @@ function resolveLatestCompletedGitCommitIdentitySource(
     if (event.metadata?.family !== "git") {
       continue;
     }
-    return event.metadata.commitIdentitySource;
+    return (
+      event.metadata.commitIdentitySource === "github_profile" &&
+      event.metadata.commitIdentityVerified === true
+    );
   }
 
-  return undefined;
+  return false;
 }
 
 function resolveActiveBranch(run: Run): string | undefined {
