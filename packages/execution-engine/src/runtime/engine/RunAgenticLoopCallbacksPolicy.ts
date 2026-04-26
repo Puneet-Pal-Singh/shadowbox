@@ -1,4 +1,7 @@
-import { isGoldenFlowToolName } from "../contracts/CodingToolGateway.js";
+import {
+  isGoldenFlowToolName,
+  type GoldenFlowToolName,
+} from "../contracts/CodingToolGateway.js";
 import { executeAgenticLoopTool } from "./AgenticLoopToolExecutor.js";
 import { AgenticLoopCancelledError } from "./AgenticLoop.js";
 import { getToolPresentation } from "../lib/ToolPresentation.js";
@@ -141,6 +144,17 @@ async function executeDirectToolCall(input: {
     );
   }
 
+  const hasWorkspaceMutationEvidence =
+    !input.hasMutationEvidence &&
+    needsGitMutationEvidenceProbe(input.toolCall.toolName)
+      ? await detectWorkspaceMutationEvidence(input.directExecutionService)
+      : false;
+  const hasMutationEvidence =
+    input.hasMutationEvidence || hasWorkspaceMutationEvidence;
+  if (hasWorkspaceMutationEvidence) {
+    input.setHasMutationEvidence(true);
+  }
+
   const permissionState =
     input.run.metadata.permissionContext?.state ??
     resolveRunPermissionContext(input.run.input).state;
@@ -152,7 +166,7 @@ async function executeDirectToolCall(input: {
     workflowIntent: permissionState.workflowIntent,
     toolName: input.toolCall.toolName,
     toolArgs: input.toolCall.args,
-    hasMutationEvidence: input.hasMutationEvidence,
+    hasMutationEvidence,
     allowResumeGitPush: input.allowResumeGitPush,
     approvalStore: input.permissionApprovalStore,
   });
@@ -237,6 +251,64 @@ async function executeDirectToolCall(input: {
     input.setHasMutationEvidence(true);
   }
   return result;
+}
+
+function needsGitMutationEvidenceProbe(toolName: GoldenFlowToolName): boolean {
+  return (
+    toolName === "git_stage" ||
+    toolName === "git_commit" ||
+    toolName === "git_push"
+  );
+}
+
+async function detectWorkspaceMutationEvidence(
+  executionService: RuntimeExecutionService,
+): Promise<boolean> {
+  try {
+    const result = await executionService.execute("git", "git_status", {});
+    const payload = extractJsonOutputPayload(result);
+    if (!payload) {
+      return false;
+    }
+
+    const hasStaged = payload.hasStaged === true;
+    const hasUnstaged = payload.hasUnstaged === true;
+    const files = Array.isArray(payload.files) ? payload.files : [];
+    return hasStaged || hasUnstaged || files.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+function extractJsonOutputPayload(
+  value: unknown,
+): Record<string, unknown> | null {
+  const record = toRecord(value);
+  if (!record) {
+    return null;
+  }
+
+  if (record.success === false) {
+    return null;
+  }
+
+  const output = record.output;
+  if (typeof output !== "string" || output.trim().length === 0) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(output) as unknown;
+    return toRecord(parsed);
+  } catch {
+    return null;
+  }
+}
+
+function toRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null
+    ? (value as Record<string, unknown>)
+    : null;
 }
 
 function resolveRuntimeFeatureFlags(
