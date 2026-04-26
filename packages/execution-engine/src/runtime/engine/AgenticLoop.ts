@@ -247,10 +247,13 @@ export class AgenticLoop {
         throw error;
       }
 
+      const responseText =
+        typeof response.text === "string" ? response.text : "";
+
       // Add LLM response to messages
-      messages.push(buildAssistantMessage(response.text, response.toolCalls));
+      messages.push(buildAssistantMessage(responseText, response.toolCalls));
       if (response.toolCalls && response.toolCalls.length > 0) {
-        await context.onAssistantMessage?.(response.text);
+        await context.onAssistantMessage?.(responseText);
       }
 
       // Check if LLM requested tool calls
@@ -746,6 +749,8 @@ function buildAgenticLoopSystemPrompt(input: {
     "- When staging for a request, detect the changed paths and stage only those specific files. Never stage the whole workspace just to make commit or push succeed.",
     "- If git_push fails because the remote branch is ahead or non-fast-forward, do not rewrite files. Use git_pull to sync with a fast-forward-only pull, then retry git_push. If git_pull cannot fast-forward, stop and explain that manual branch resolution is required.",
     "- For repository or git status questions without a specific command, use git_status before answering.",
+    "- For PR-targeted edits, resolve the PR head branch and switch to that branch before any write_file mutation.",
+    "- If git_branch_switch reports checkout-overwrite conflicts, do not stop. Decide the next bounded recovery step (for example commit or stash on the current branch, then retry switching).",
     "- For vague component, page, route, or file questions, discover with list_files, glob, or grep before read_file.",
     "- Prefer narrowing search after one broad listing. Do not repeat the same missing path after a file-not-found error.",
     "- If a non-mutating tool returns no match or not found, keep exploring with different tools or paths instead of stopping.",
