@@ -139,6 +139,7 @@ describe("Workspace", () => {
     mockBootstrapGitWorkspace.mockReset();
     mockBootstrapGitWorkspace.mockResolvedValue({ status: "ready" });
     mockChatState.isLoading = false;
+    mockChatState.runId = "run-123";
     mockRunSummaryState.summary = null;
     mockGitHubTreeState.repo = null;
     mockGitHubTreeState.branch = "main";
@@ -199,6 +200,47 @@ describe("Workspace", () => {
 
     await waitFor(() => {
       expect(mockRefetchGitStatus).toHaveBeenCalledWith(true);
+    });
+    expect(onSessionStatusChange).toHaveBeenCalledWith("completed");
+  });
+
+  it("re-applies canonical terminal status side-effects when the active run changes", async () => {
+    const onSessionStatusChange = vi.fn();
+    const { rerender } = render(
+      <Workspace
+        sessionId="session-123"
+        runId="run-123"
+        repository="career-crew"
+        onSessionStatusChange={onSessionStatusChange}
+      />,
+    );
+
+    mockRunSummaryState.summary = { status: "COMPLETED" };
+    rerender(
+      <Workspace
+        sessionId="session-123"
+        runId="run-123"
+        repository="career-crew"
+        onSessionStatusChange={onSessionStatusChange}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(mockRefetchGitStatus).toHaveBeenCalledTimes(1);
+    });
+
+    mockChatState.runId = "run-456";
+    rerender(
+      <Workspace
+        sessionId="session-123"
+        runId="run-123"
+        repository="career-crew"
+        onSessionStatusChange={onSessionStatusChange}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(mockRefetchGitStatus).toHaveBeenCalledTimes(2);
     });
     expect(onSessionStatusChange).toHaveBeenCalledWith("completed");
   });
