@@ -1110,17 +1110,17 @@ function readGitHubCliRuntimeFlags(taskInput: TaskInput): GitHubCliRuntimeFlags 
   const rawFlags = taskInput[INTERNAL_RUNTIME_FEATURE_FLAGS_KEY];
   if (!rawFlags || typeof rawFlags !== "object") {
     return {
-      laneEnabled: true,
-      ciEnabled: true,
-      prCommentEnabled: true,
+      laneEnabled: false,
+      ciEnabled: false,
+      prCommentEnabled: false,
     };
   }
 
   const flags = rawFlags as Record<string, unknown>;
-  const laneEnabled = readBoolean(flags.ghCliLaneEnabled) ?? true;
+  const laneEnabled = readBoolean(flags.ghCliLaneEnabled) ?? false;
   const ciEnabled = readBoolean(flags.ghCliCiEnabled) ?? laneEnabled;
   const prCommentEnabled =
-    readBoolean(flags.ghCliPrCommentEnabled) ?? laneEnabled;
+    readBoolean(flags.ghCliPrCommentEnabled) ?? false;
   return {
     laneEnabled,
     ciEnabled,
