@@ -568,9 +568,13 @@ export class RunEngine implements IRunEngine {
           );
         },
         onAssistantMessage: async (content) => {
+          const sanitizedContent = sanitizeUserFacingOutput(content).trim();
+          if (!sanitizedContent) {
+            return;
+          }
           await this.runEventRecorder.recordMessageEmitted(
             "assistant",
-            content,
+            sanitizedContent,
             undefined,
             {
               phase: "commentary",
