@@ -27,6 +27,27 @@ describe("GitHubScopeMatrix", () => {
     expect(boundary).toBeNull();
   });
 
+  it("treats null scope state as unknown but enforces explicit empty scope lists", () => {
+    const nullBoundary = resolveGitHubScopeBoundary({
+      plugin: "github_cli",
+      action: "actions_job_logs_get",
+      persistedScopes: null,
+    });
+    expect(nullBoundary).toBeNull();
+
+    const emptyBoundary = resolveGitHubScopeBoundary({
+      plugin: "github_cli",
+      action: "actions_job_logs_get",
+      persistedScopes: [],
+    });
+    expect(emptyBoundary).toEqual({
+      capability: "actions_read_access",
+      requiredAnyOf: ["repo", "workflow", "actions:read"],
+      grantedScopes: [],
+      rationale: expect.stringContaining("Actions run and log retrieval"),
+    });
+  });
+
   it("returns deterministic boundary when persisted scopes miss required capability", () => {
     const boundary = resolveGitHubScopeBoundary({
       plugin: "github_cli",
