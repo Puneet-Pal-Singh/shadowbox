@@ -95,14 +95,22 @@ describe("GitHubCliPlugin", () => {
 
     const secondCallArgs = (runSafeCommandMock.mock.calls[1]?.[1] as {
       args?: string[];
+      env?: Record<string, string | undefined>;
     }).args;
     const thirdCallArgs = (runSafeCommandMock.mock.calls[2]?.[1] as {
       args?: string[];
+      env?: Record<string, string | undefined>;
     }).args;
+    const secondCallEnv = (runSafeCommandMock.mock.calls[1]?.[1] as {
+      args?: string[];
+      env?: Record<string, string | undefined>;
+    }).env;
     expect(secondCallArgs).toContain("/repos/acme/career-crew/pulls/228");
     expect(thirdCallArgs).toContain(
       "/repos/acme/career-crew/commits/abc1234def5678/check-runs",
     );
+    expect(secondCallArgs?.some((entry) => entry.includes("GH_TOKEN"))).toBe(false);
+    expect(secondCallEnv?.GH_TOKEN).toBe("ghp_test");
   });
 
   it("returns trailing actions job logs with bounded tail lines", async () => {
@@ -212,10 +220,18 @@ describe("GitHubCliPlugin", () => {
 
     const secondCallArgs = (runSafeCommandMock.mock.calls[1]?.[1] as {
       args?: string[];
+      env?: Record<string, string | undefined>;
     }).args;
+    const secondCallEnv = (runSafeCommandMock.mock.calls[1]?.[1] as {
+      args?: string[];
+      env?: Record<string, string | undefined>;
+    }).env;
     expect(secondCallArgs).toContain("POST");
     expect(secondCallArgs).toContain("/repos/acme/career-crew/issues/228/comments");
+    expect(secondCallArgs).toContain("--raw-field");
     expect(secondCallArgs).toContain("body=Looks good to me.");
+    expect(secondCallArgs?.some((entry) => entry.includes("GH_TOKEN"))).toBe(false);
+    expect(secondCallEnv?.GH_TOKEN).toBe("ghp_test");
   });
 
   it("denies pr_comment when the mutation flag is disabled", async () => {
