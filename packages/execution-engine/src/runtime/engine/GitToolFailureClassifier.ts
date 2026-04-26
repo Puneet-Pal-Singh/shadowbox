@@ -27,6 +27,8 @@ const BAD_REF_PATTERNS = [
   /src refspec .* does not match any/i,
   /unknown revision or path not in the working tree/i,
   /ambiguous argument/i,
+  /would be overwritten by checkout/i,
+  /please commit your changes or stash them before you switch branches/i,
 ];
 
 const MISSING_REPO_PATTERNS = [
@@ -64,6 +66,7 @@ const UNSUPPORTED_ENV_PATTERNS = [
 
 const POLICY_BLOCKED_PATTERNS = [
   /shadowbox wants to/i,
+  /shadowbox cannot continue/i,
   /blocked by policy/i,
   /approval required/i,
   /permission denied by policy/i,
@@ -142,6 +145,10 @@ export function shouldClassifyAsGitOrShellFailure(input: {
   toolName: string;
   metadata?: ToolActivityMetadata;
 }): boolean {
+  if (input.toolName === "git_branch_switch") {
+    return true;
+  }
+
   if (/^github(?:_cli)?_/.test(input.toolName)) {
     return true;
   }
