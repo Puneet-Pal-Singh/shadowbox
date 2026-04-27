@@ -20,6 +20,11 @@ interface ResolvedLimit {
   windowSeconds: number;
 }
 
+interface AdmissionDecision {
+  allowed: boolean;
+  retryAfterSeconds: number;
+}
+
 /**
  * RunAdmissionService
  * Single Responsibility: enforce launch-safety run admission guardrails.
@@ -56,25 +61,22 @@ export class RunAdmissionService {
     correlationId: string,
   ): Promise<void> {
     const limit = this.resolveLimit(input);
-    const key = this.buildWindowCounterKey(limit.bucket, input, limit.windowSeconds);
-    const currentCount = await this.readCounter(key);
+    const decision = await this.requestAdmission(limit, input);
 
-    if (currentCount >= limit.limit) {
+    if (!decision.allowed) {
       throw new DomainError(
         "RUN_SUBMISSION_RATE_LIMITED",
-        `Run submission rate limit reached. Retry in ${limit.windowSeconds}s.`,
+        `Run submission rate limit reached. Retry in ${decision.retryAfterSeconds}s.`,
         429,
         true,
         correlationId,
         {
           bucket: limit.bucket,
           limit: limit.limit,
-          retryAfterSeconds: limit.windowSeconds,
+          retryAfterSeconds: decision.retryAfterSeconds,
         },
       );
     }
-
-    await this.writeCounter(key, currentCount + 1, limit.windowSeconds);
   }
 
   private resolveLimit(input: RunAdmissionInput): ResolvedLimit {
@@ -116,35 +118,48 @@ export class RunAdmissionService {
     return true;
   }
 
-  private buildWindowCounterKey(
-    bucket: ResolvedLimit["bucket"],
+  private async requestAdmission(
+    limit: ResolvedLimit,
     input: RunAdmissionInput,
-    windowSeconds: number,
-  ): string {
+  ): Promise<AdmissionDecision> {
+    if (!this.env.RUN_ADMISSION_LIMITER) {
+      throw new Error("RUN_ADMISSION_LIMITER binding is unavailable");
+    }
+
     const scope = this.buildScope(input);
-    const windowBucket = Math.floor(Date.now() / (windowSeconds * 1000));
-    return `launch:${bucket}:v1:${scope}:${windowBucket}`;
+    const id = this.env.RUN_ADMISSION_LIMITER.idFromName(scope);
+    const stub = this.env.RUN_ADMISSION_LIMITER.get(id);
+    const response = await stub.fetch("https://run-admission-limiter/enforce", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        bucket: limit.bucket,
+        limit: limit.limit,
+        windowSeconds: limit.windowSeconds,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(
+        `RUN_ADMISSION_LIMITER request failed (${response.status}): ${errorText}`,
+      );
+    }
+
+    const body = (await response.json()) as unknown;
+    if (!isAdmissionDecision(body)) {
+      throw new Error("RUN_ADMISSION_LIMITER returned an invalid payload");
+    }
+
+    return body;
   }
 
   private buildScope(input: RunAdmissionInput): string {
     const userId = normalizeScopeValue(input.userId);
     const workspaceId = normalizeScopeValue(input.workspaceId);
     return `user:${userId}:workspace:${workspaceId}`;
-  }
-
-  private async readCounter(key: string): Promise<number> {
-    const raw = await this.env.SESSIONS.get(key);
-    return readPositiveInt(raw, 0);
-  }
-
-  private async writeCounter(
-    key: string,
-    value: number,
-    windowSeconds: number,
-  ): Promise<void> {
-    await this.env.SESSIONS.put(key, String(value), {
-      expirationTtl: windowSeconds + 5,
-    });
   }
 }
 
@@ -162,4 +177,18 @@ function readPositiveInt(value: string | undefined | null, fallback: number): nu
 function normalizeScopeValue(value: string | undefined): string {
   const normalized = value?.trim();
   return normalized && normalized.length > 0 ? normalized : "unknown";
+}
+
+function isAdmissionDecision(value: unknown): value is AdmissionDecision {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const candidate = value as Record<string, unknown>;
+  return (
+    typeof candidate.allowed === "boolean" &&
+    typeof candidate.retryAfterSeconds === "number" &&
+    Number.isFinite(candidate.retryAfterSeconds) &&
+    candidate.retryAfterSeconds >= 0
+  );
 }

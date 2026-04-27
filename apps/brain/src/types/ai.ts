@@ -74,6 +74,7 @@ export interface Env {
   // Durable Object binding for RunEngine runtime state
   RUN_ENGINE_RUNTIME: DurableObjectNamespace;
   RUN_ENGINE_AGENT?: DurableObjectNamespace;
+  RUN_ADMISSION_LIMITER?: DurableObjectNamespace;
 
   // Session Memory Runtime for cross-run memory storage (optional)
   SESSION_MEMORY_RUNTIME?: DurableObjectNamespace;

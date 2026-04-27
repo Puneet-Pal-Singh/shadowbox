@@ -11,9 +11,15 @@ import { Env } from "./types/ai";
 import { RunEngineRuntime } from "./runtime/RunEngineRuntime";
 import { RunEngineAgent } from "./runtime/RunEngineAgent";
 import { SessionMemoryRuntime } from "./runtime/SessionMemoryRuntime";
+import { RunAdmissionLimiter } from "./runtime/RunAdmissionLimiter";
 import { getBrainRuntimeHeaders } from "./core/observability/runtime";
 
-export { RunEngineRuntime, RunEngineAgent, SessionMemoryRuntime };
+export {
+  RunEngineRuntime,
+  RunEngineAgent,
+  SessionMemoryRuntime,
+  RunAdmissionLimiter,
+};
 
 /**
  * Route configuration type with HTTP method support
