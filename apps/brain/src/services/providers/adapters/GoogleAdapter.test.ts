@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { GoogleAdapter } from "./GoogleAdapter";
-import { LLMUnusableResponseError } from "@shadowbox/execution-engine/runtime/llm";
+import { LLMUnusableResponseError } from "@shadowbox/execution-engine/runtime";
 
 const mockGenerateText = vi.fn();
 const mockStreamText = vi.fn();
