@@ -37,6 +37,7 @@ import {
 } from "./chat-runtime-helpers";
 import { logErrorRateLimited } from "../lib/rate-limited-log";
 import { sanitizeUnknownError } from "../core/security/LogSanitizer";
+import { RunAdmissionService } from "../services/RunAdmissionService";
 
 const SerializableToolDefinitionSchema = z.object({
   description: z.string().optional(),
@@ -228,6 +229,7 @@ export class ChatController {
   ): Promise<Response> {
     const { body, correlationId, sessionId, runId, userId, workspaceId } =
       chatRequest;
+    const admissionService = new RunAdmissionService(env);
 
     const coreMessages: CoreMessage[] =
       body.messages! as unknown as CoreMessage[];
@@ -235,6 +237,16 @@ export class ChatController {
     const prompt = extractPromptFromMessages(coreMessages, correlationId);
 
     try {
+      await admissionService.enforce(
+        {
+          userId,
+          workspaceId,
+          mode: body.mode,
+          workflowIntent: body.workflowIntent,
+        },
+        correlationId,
+      );
+
       const executionStartedAt = Date.now();
       const useCase = new HandleChatRequest(env);
 

@@ -792,7 +792,7 @@ export function AgentSetup({
                     onSelect={syncCursorPosition}
                     onFocus={() => setIsInputFocused(true)}
                     onBlur={() => setIsInputFocused(false)}
-                    placeholder="Ask Shadowbox anything, @ to add files, / for commands"
+                    placeholder="Ask LegionCode anything, @ to add files, / for commands"
                     rows={1}
                     aria-controls={
                       shouldShowFilePicker ? filePickerListId : undefined

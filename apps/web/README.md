@@ -1,6 +1,6 @@
-# Shadowbox Web App
+# LegionCode Web App
 
-Frontend for the Shadowbox workspace experience.
+Frontend for the LegionCode public-alpha workspace experience.
 
 ## Stack
 
@@ -48,6 +48,14 @@ Expected environment variables:
 If values are not set in development, local defaults are used and warnings are emitted by `src/lib/platform-endpoints.ts`.
 Deploy builds fail fast when any of the required `VITE_*` endpoint variables are missing.
 
+## Launch Posture
+
+LegionCode is currently shipped as **Public Alpha**.
+
+Recommended public copy:
+
+> LegionCode is in public alpha. Expect rough edges, fast changes, and occasional breakage while the runtime is actively evolving.
+
 ## Cloudflare Pages Deploy
 
 The web app is configured for Cloudflare Pages in [wrangler.jsonc](./wrangler.jsonc). SPA deep-link fallback is handled by [public/_redirects](./public/_redirects).
@@ -66,6 +74,23 @@ export VITE_MUSCLE_BASE_URL="https://<secure-agent-api-staging-url>"
 export VITE_MUSCLE_WS_URL="wss://<secure-agent-api-staging-url>"
 pnpm --filter @shadowbox/web deploy:staging
 ```
+
+Production deploy flow (`legioncode.dev`):
+
+```bash
+export VITE_BRAIN_BASE_URL="https://brain.legioncode.dev"
+export VITE_MUSCLE_BASE_URL="https://api.legioncode.dev"
+export VITE_MUSCLE_WS_URL="wss://api.legioncode.dev"
+pnpm --filter @shadowbox/web build:deploy
+pnpm --filter @shadowbox/web exec wrangler pages deploy --branch main
+```
+
+Production domain/OAuth closure checklist:
+
+- Pages project/domain points to `https://legioncode.dev`
+- Brain `FRONTEND_URL` is `https://legioncode.dev`
+- Brain `GITHUB_REDIRECT_URI` is `https://brain.legioncode.dev/auth/github/callback`
+- Secure API `CORS_ALLOWED_ORIGINS` includes `https://legioncode.dev` (and optional staging origin only)
 
 Manual Pages deploy with an explicit branch label:
 

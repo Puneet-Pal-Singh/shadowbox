@@ -38,7 +38,7 @@ const IDLE_SWITCH_WARNING =
   "Changing models mid-conversation will degrade performance.";
 const WARNING_AUTO_DISMISS_MS = 4000;
 const BUILD_PLACEHOLDER =
-  "Ask Shadowbox anything, @ to add files, / for commands";
+  "Ask LegionCode anything, @ to add files, / for commands";
 const PLAN_PLACEHOLDER =
   "Inspect the codebase and outline a safe plan without executing changes";
 const WEB_PROVIDER_POLICY = resolveWebProviderProductPolicy();

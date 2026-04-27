@@ -50,7 +50,7 @@ function buildPlanArtifact(run: Run, plan: Plan): RunPlanArtifact {
     handoff: {
       targetMode: "build",
       summary:
-        "Switch to Build mode and send the handoff prompt below when you want Shadowbox to execute this plan.",
+        "Switch to Build mode and send the handoff prompt below when you want LegionCode to execute this plan.",
       prompt: buildPlanHandoffPrompt(run.input.prompt, tasks),
     },
   };

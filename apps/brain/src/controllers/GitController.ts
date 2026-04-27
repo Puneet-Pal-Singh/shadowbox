@@ -1090,7 +1090,7 @@ function mapGitControllerError(
         status: 400,
         code: "COMMIT_IDENTITY_REQUIRED",
         message:
-          "Commit author identity is required before Shadowbox can commit. Confirm your name and email, then retry.",
+          "Commit author identity is required before LegionCode can commit. Confirm your name and email, then retry.",
         retryable: false,
       };
     }
@@ -1100,7 +1100,7 @@ function mapGitControllerError(
         status: 500,
         code: "COMMIT_IDENTITY_WRITE_FAILED",
         message:
-          "Shadowbox could not write commit author identity into this workspace. Retry the commit or reconnect the workspace.",
+          "LegionCode could not write commit author identity into this workspace. Retry the commit or reconnect the workspace.",
         retryable: false,
       };
     }
@@ -1111,7 +1111,7 @@ function mapGitControllerError(
       status: 400,
       code: "BRANCH_CREATION_FAILED",
       message:
-        "Shadowbox could not create or switch to that branch. Try a different branch name or refresh the workspace.",
+        "LegionCode could not create or switch to that branch. Try a different branch name or refresh the workspace.",
       retryable: false,
       metadata: undefined,
     };
@@ -1122,7 +1122,7 @@ function mapGitControllerError(
       status: 500,
       code: "PUSH_FAILED",
       message:
-        "Shadowbox could not push this branch to GitHub. Reconnect GitHub or retry the push.",
+        "LegionCode could not push this branch to GitHub. Reconnect GitHub or retry the push.",
       retryable: false,
       metadata: undefined,
     };
@@ -1133,7 +1133,7 @@ function mapGitControllerError(
       status: 500,
       code: "PR_CREATION_FAILED",
       message:
-        "Shadowbox could not create a pull request from this workspace state. Refresh the repo binding or retry after a successful push.",
+        "LegionCode could not create a pull request from this workspace state. Refresh the repo binding or retry after a successful push.",
       retryable: false,
       metadata: undefined,
     };

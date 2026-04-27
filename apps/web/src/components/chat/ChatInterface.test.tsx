@@ -165,7 +165,7 @@ describe("ChatInterface", () => {
           runId: "run-approval",
           origin: "agent",
           category: "git_mutation",
-          title: "Shadowbox wants to commit repository changes",
+          title: "LegionCode wants to commit repository changes",
           reason: "Git mutation actions can change repository history.",
           actionFingerprint: "git_mutation:git_commit:{}",
           command: "git commit -m \"feat: update\"",
@@ -243,7 +243,7 @@ describe("ChatInterface", () => {
           runId: "run-stale-approval",
           origin: "agent",
           category: "shell_command",
-          title: "Shadowbox wants to run a shell command",
+          title: "LegionCode wants to run a shell command",
           reason:
             "Shell commands can change repository or environment state and should be confirmed.",
           actionFingerprint: "shell_command:bash:{\"command\":\"pnpm test\"}",
@@ -305,7 +305,7 @@ describe("ChatInterface", () => {
           runId: "run-labels",
           origin: "agent",
           category: "shell_command",
-          title: "Shadowbox wants to run a shell command",
+          title: "LegionCode wants to run a shell command",
           reason:
             "Shell commands can change repository or environment state and should be confirmed.",
           actionFingerprint: "shell_command:bash:{\"command\":\"pnpm test\"}",
@@ -362,7 +362,7 @@ describe("ChatInterface", () => {
           runId: "run-no-pending",
           origin: "agent",
           category: "shell_command",
-          title: "Shadowbox wants to run a shell command",
+          title: "LegionCode wants to run a shell command",
           reason:
             "Shell commands can change repository or environment state and should be confirmed.",
           actionFingerprint: "shell_command:bash:{\"command\":\"pnpm test\"}",
@@ -427,7 +427,7 @@ describe("ChatInterface", () => {
           runId: "run-active-no-summary-pending",
           origin: "agent",
           category: "shell_command",
-          title: "Shadowbox wants to run a shell command",
+          title: "LegionCode wants to run a shell command",
           reason:
             "Shell commands can change repository or environment state and should be confirmed.",
           actionFingerprint: "shell_command:bash:{\"command\":\"pnpm test\"}",

@@ -186,7 +186,7 @@ export function RepoPicker({ onRepoSelect, onSkip }: RepoPickerProps) {
           Connect Your Repository
         </h2>
         <p className="text-zinc-400 max-w-lg mx-auto">
-          Select a GitHub repository to start working with Shadowbox. You can
+          Select a GitHub repository to start working with LegionCode. You can
           also skip this step and connect later.
         </p>
       </div>

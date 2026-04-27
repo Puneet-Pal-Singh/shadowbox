@@ -54,7 +54,7 @@ export function useFileLoader({
             setSelectedFile({
               path,
               content:
-                "// [Shadowbox] This file is a binary and cannot be displayed in the text editor.",
+                "// [LegionCode] This file is a binary and cannot be displayed in the text editor.",
             });
           } else {
             setSelectedFile({ path, content: data.output });
