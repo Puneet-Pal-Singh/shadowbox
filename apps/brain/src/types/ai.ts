@@ -59,6 +59,11 @@ export interface Env {
   FEATURE_FLAG_GH_CLI_LANE_ENABLED?: "true" | "false" | "1" | "0";
   FEATURE_FLAG_GH_CLI_CI_ENABLED?: "true" | "false" | "1" | "0";
   FEATURE_FLAG_GH_CLI_PR_COMMENT_ENABLED?: "true" | "false" | "1" | "0";
+  LAUNCH_EMERGENCY_SHUTOFF_MODE?: "off" | "block_runs";
+  RUN_SUBMISSION_RATE_LIMIT_MAX?: string;
+  RUN_SUBMISSION_RATE_LIMIT_WINDOW_SECONDS?: string;
+  MUTATION_RUN_SUBMISSION_RATE_LIMIT_MAX?: string;
+  MUTATION_RUN_SUBMISSION_RATE_LIMIT_WINDOW_SECONDS?: string;
 
   // Service URLs (environment-driven, not hardcoded)
   MUSCLE_BASE_URL?: string;
