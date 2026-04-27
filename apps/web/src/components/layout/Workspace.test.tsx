@@ -33,7 +33,7 @@ const mockGitHubTreeState = vi.hoisted(() => ({
   isContextMismatch: false,
 }));
 const mockRunSummaryState = vi.hoisted(() => ({
-  summary: null as { status: string | null } | null,
+  summary: null as { runId: string; status: string | null } | null,
 }));
 const mockChatInterface = vi.hoisted(() =>
   vi.fn((props: unknown) => {
@@ -175,7 +175,7 @@ describe("Workspace", () => {
     expect(onSessionStatusChange).toHaveBeenCalledWith("running");
 
     mockChatState.isLoading = false;
-    mockRunSummaryState.summary = { status: "RUNNING" };
+    mockRunSummaryState.summary = { runId: "run-123", status: "RUNNING" };
     rerender(
       <Workspace
         sessionId="session-123"
@@ -188,7 +188,7 @@ describe("Workspace", () => {
     expect(onSessionStatusChange).not.toHaveBeenCalledWith("completed");
     expect(mockRefetchGitStatus).not.toHaveBeenCalled();
 
-    mockRunSummaryState.summary = { status: "COMPLETED" };
+    mockRunSummaryState.summary = { runId: "run-123", status: "COMPLETED" };
     rerender(
       <Workspace
         sessionId="session-123"
@@ -215,7 +215,7 @@ describe("Workspace", () => {
       />,
     );
 
-    mockRunSummaryState.summary = { status: "COMPLETED" };
+    mockRunSummaryState.summary = { runId: "run-123", status: "COMPLETED" };
     rerender(
       <Workspace
         sessionId="session-123"
@@ -239,10 +239,49 @@ describe("Workspace", () => {
       />,
     );
 
+    expect(mockRefetchGitStatus).toHaveBeenCalledTimes(1);
+
+    mockRunSummaryState.summary = { runId: "run-456", status: "COMPLETED" };
+    rerender(
+      <Workspace
+        sessionId="session-123"
+        runId="run-123"
+        repository="career-crew"
+        onSessionStatusChange={onSessionStatusChange}
+      />,
+    );
+
     await waitFor(() => {
       expect(mockRefetchGitStatus).toHaveBeenCalledTimes(2);
     });
     expect(onSessionStatusChange).toHaveBeenCalledWith("completed");
+  });
+
+  it("ignores stale run summary state from a different runId", async () => {
+    const onSessionStatusChange = vi.fn();
+    const { rerender } = render(
+      <Workspace
+        sessionId="session-123"
+        runId="run-123"
+        repository="career-crew"
+        onSessionStatusChange={onSessionStatusChange}
+      />,
+    );
+
+    mockRunSummaryState.summary = { runId: "run-old", status: "COMPLETED" };
+    rerender(
+      <Workspace
+        sessionId="session-123"
+        runId="run-123"
+        repository="career-crew"
+        onSessionStatusChange={onSessionStatusChange}
+      />,
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(mockRefetchGitStatus).not.toHaveBeenCalled();
+    expect(onSessionStatusChange).not.toHaveBeenCalledWith("completed");
+    expect(onSessionStatusChange).not.toHaveBeenCalledWith("error");
   });
 
   it("marks session as error when canonical run status fails", async () => {
@@ -267,7 +306,7 @@ describe("Workspace", () => {
     );
 
     mockChatState.isLoading = false;
-    mockRunSummaryState.summary = { status: "FAILED" };
+    mockRunSummaryState.summary = { runId: "run-123", status: "FAILED" };
     rerender(
       <Workspace
         sessionId="session-123"
@@ -382,7 +421,7 @@ describe("Workspace", () => {
   });
 
   it("keeps chat input in loading/stop mode when canonical run is still running", () => {
-    mockRunSummaryState.summary = { status: "RUNNING" };
+    mockRunSummaryState.summary = { runId: "run-123", status: "RUNNING" };
     mockChatState.isLoading = false;
 
     render(

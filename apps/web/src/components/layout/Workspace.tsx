@@ -118,7 +118,10 @@ export function Workspace({
     activeRunId,
     sessionId,
   );
-  const canonicalRunStatus = runSummary?.status?.trim().toUpperCase() ?? null;
+  const runSummaryMatchesActiveRun = runSummary?.runId === activeRunId;
+  const canonicalRunStatus = runSummaryMatchesActiveRun
+    ? runSummary.status?.trim().toUpperCase() ?? null
+    : null;
   const isCanonicalRunActive =
     canonicalRunStatus === "RUNNING" || canonicalRunStatus === "CREATED";
   const isRunLoading = isLoading || isCanonicalRunActive;
