@@ -1958,7 +1958,7 @@ describe("RunEngine", () => {
           "Files already changed in the workspace: src/components/landing/hero/FloatingCarousels.tsx",
         );
         expect(system).toContain(
-          "Last failed step: bash - Shadowbox wants to run a shell command",
+          "Last failed step: bash - LegionCode wants to run a shell command",
         );
         expect(system).toContain(
           "Prefer typed git tools for repository work (status, diff, branch, stage, commit, push, PR) to keep actions structured and auditable.",
@@ -2104,7 +2104,7 @@ describe("RunEngine", () => {
 
     expect(firstResponse.status).toBe(200);
     const firstOutput = await firstResponse.text();
-    expect(firstOutput).toContain("Shadowbox wants to run a shell command");
+    expect(firstOutput).toContain("LegionCode wants to run a shell command");
 
     const firstPersistedRun = await (
       runEngine as unknown as {
@@ -2118,7 +2118,7 @@ describe("RunEngine", () => {
         .find((event) => event.status === "failed");
     expect(failedShellEvent?.toolName).toBe("bash");
     expect(String(failedShellEvent?.detail ?? "")).toContain(
-      "Shadowbox wants to run a shell command",
+      "LegionCode wants to run a shell command",
     );
 
     const firstRunEvents = await new RunEventRepository(state).getByRun(
@@ -2168,7 +2168,7 @@ describe("RunEngine", () => {
 
     expect(secondResponse.status).toBe(200);
     expect(await secondResponse.text()).toContain(
-      "Shadowbox cannot continue with git stage/commit/push yet because no successful file mutation has occurred in this run.",
+      "LegionCode cannot continue with git stage/commit/push yet because no successful file mutation has occurred in this run.",
     );
 
     const executeSpy = executionService.execute as ReturnType<typeof vi.fn>;
@@ -2266,7 +2266,7 @@ describe("RunEngine", () => {
         expect(system).toContain("Continuation context:");
         expect(system).toContain("Previous request:");
         expect(system).toContain("Last failed step:");
-        expect(system).toContain("Shadowbox wants to create a branch");
+        expect(system).toContain("LegionCode wants to create a branch");
         expect(system).toContain(
           "Do not repeat successful inspection or rewrite already-updated files unless the current workspace proves the change is missing.",
         );
@@ -2403,7 +2403,7 @@ describe("RunEngine", () => {
 
     expect(firstResponse.status).toBe(200);
     const firstOutput = await firstResponse.text();
-    expect(firstOutput).toContain("Shadowbox wants to create a branch");
+    expect(firstOutput).toContain("LegionCode wants to create a branch");
 
     const secondResponse = await runEngine.execute(
       {
@@ -2508,7 +2508,7 @@ describe("RunEngine", () => {
         expect(system).toContain("Continuation context:");
         expect(system).toContain("Last failed step: git_push -");
         expect(system).toContain(
-          "Shadowbox cannot continue with git stage/commit/push yet because no successful file mutation has occurred in this run.",
+          "LegionCode cannot continue with git stage/commit/push yet because no successful file mutation has occurred in this run.",
         );
 
         return {
@@ -2635,7 +2635,7 @@ describe("RunEngine", () => {
     expect(firstResponse.status).toBe(200);
     const firstOutput = await firstResponse.text();
     expect(firstOutput).toContain(
-      "Shadowbox cannot continue with git stage/commit/push yet because no successful file mutation has occurred in this run.",
+      "LegionCode cannot continue with git stage/commit/push yet because no successful file mutation has occurred in this run.",
     );
 
     const secondResponse = await runEngine.execute(

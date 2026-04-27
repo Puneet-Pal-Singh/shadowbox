@@ -730,7 +730,7 @@ function buildAgenticLoopSystemPrompt(input: {
   attemptedCiLogsCliFallback: boolean;
 }): string {
   const sections = [
-    "You are Shadowbox's autonomous build agent.",
+    "You are LegionCode's autonomous build agent.",
     "Your job is to inspect the real workspace, decide which tools to use, and answer the user's request in clear natural language.",
     "Start with the real workspace before concluding anything. Never invent file contents, project structure, git state, or completed work.",
     "Tool strategy:",

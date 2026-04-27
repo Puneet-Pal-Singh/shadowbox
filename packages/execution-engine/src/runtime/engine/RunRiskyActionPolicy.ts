@@ -165,7 +165,7 @@ function getMutationEvidenceDenial(
     return {
       kind: "deny",
       reason:
-        "Shadowbox cannot continue with git stage/commit/push yet because no successful file mutation has occurred in this run.",
+        "LegionCode cannot continue with git stage/commit/push yet because no successful file mutation has occurred in this run.",
     };
   }
 
@@ -210,7 +210,7 @@ function classifyRiskAction(
   if (outsideWorkspace) {
     return {
       category: RISKY_ACTION_CATEGORIES.OUTSIDE_WORKSPACE,
-      title: "Shadowbox wants to operate outside the workspace",
+      title: "LegionCode wants to operate outside the workspace",
       reason:
         "This action targets a path outside the current workspace and requires explicit confirmation.",
       affectedPaths,
@@ -246,8 +246,8 @@ function classifyRiskAction(
       category: RISKY_ACTION_CATEGORIES.FILESYSTEM_WRITE,
       title:
         toolName.startsWith("github_")
-          ? "Shadowbox wants to inspect GitHub metadata"
-          : "Shadowbox wants to inspect repository state",
+          ? "LegionCode wants to inspect GitHub metadata"
+          : "LegionCode wants to inspect repository state",
       reason:
         toolName.startsWith("github_")
           ? "This is a read-only connector metadata action and is allowed under the current policy."
@@ -266,7 +266,7 @@ function classifyRiskAction(
   if (toolName === "write_file") {
     return {
       category: RISKY_ACTION_CATEGORIES.FILESYSTEM_WRITE,
-      title: "Shadowbox wants to edit files",
+      title: "LegionCode wants to edit files",
       reason:
         "This action mutates workspace files and should be confirmed based on your permission mode.",
       affectedPaths,
@@ -297,10 +297,10 @@ function classifyRiskAction(
     return {
       category,
       title: deployLike
-        ? "Shadowbox wants to run deployment or infrastructure changes"
+        ? "LegionCode wants to run deployment or infrastructure changes"
         : networkLike
-          ? "Shadowbox wants to run a networked shell command"
-          : "Shadowbox wants to run a shell command",
+          ? "LegionCode wants to run a networked shell command"
+          : "LegionCode wants to run a shell command",
       reason: destructive
         ? "This command appears destructive and needs explicit approval."
         : deployLike
@@ -356,7 +356,7 @@ function classifyRiskAction(
 
   return {
     category: RISKY_ACTION_CATEGORIES.FILESYSTEM_WRITE,
-    title: "Shadowbox wants to run a mutating action",
+    title: "LegionCode wants to run a mutating action",
     reason: "This action mutates workspace state and requires confirmation.",
     actionFingerprint: buildActionFingerprint({
       category: RISKY_ACTION_CATEGORIES.FILESYSTEM_WRITE,
@@ -515,7 +515,7 @@ function getApprovalTitle(
   classified: ClassifiedRiskAction,
 ): string {
   return category === RISKY_ACTION_CATEGORIES.DANGEROUS_RETRY
-    ? "Shadowbox paused repeated risky retries"
+    ? "LegionCode paused repeated risky retries"
     : classified.title;
 }
 
@@ -716,30 +716,30 @@ function toGitAction(
 
 function describeGitMutationTitle(toolName: GoldenFlowToolName): string {
   if (toolName === "git_stage") {
-    return "Shadowbox wants to stage repository changes";
+    return "LegionCode wants to stage repository changes";
   }
   if (toolName === "git_commit") {
-    return "Shadowbox wants to commit repository changes";
+    return "LegionCode wants to commit repository changes";
   }
   if (toolName === "git_push") {
-    return "Shadowbox wants to push repository changes";
+    return "LegionCode wants to push repository changes";
   }
   if (toolName === "git_pull") {
-    return "Shadowbox wants to pull from remote";
+    return "LegionCode wants to pull from remote";
   }
   if (toolName === "git_create_pull_request") {
-    return "Shadowbox wants to create a pull request";
+    return "LegionCode wants to create a pull request";
   }
   if (toolName === "git_branch_create") {
-    return "Shadowbox wants to create a branch";
+    return "LegionCode wants to create a branch";
   }
   if (toolName === "git_branch_switch") {
-    return "Shadowbox wants to switch branches";
+    return "LegionCode wants to switch branches";
   }
   if (toolName === "github_cli_pr_comment") {
-    return "Shadowbox wants to comment on a pull request";
+    return "LegionCode wants to comment on a pull request";
   }
-  return "Shadowbox wants to mutate git state";
+  return "LegionCode wants to mutate git state";
 }
 
 function extractRemoteTarget(

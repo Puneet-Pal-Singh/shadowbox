@@ -314,7 +314,7 @@ describe("ChatInputBar", () => {
     render(<Wrapper />);
 
     const textarea = screen.getByPlaceholderText(
-      "Ask Shadowbox anything, @ to add files, / for commands",
+      "Ask LegionCode anything, @ to add files, / for commands",
     ) as HTMLTextAreaElement;
 
     fireEvent.change(textarea, { target: { value: "@rea", selectionStart: 4 } });
@@ -355,7 +355,7 @@ describe("ChatInputBar", () => {
     render(<Wrapper />);
 
     const textarea = screen.getByPlaceholderText(
-      "Ask Shadowbox anything, @ to add files, / for commands",
+      "Ask LegionCode anything, @ to add files, / for commands",
     ) as HTMLTextAreaElement;
 
     fireEvent.change(textarea, { target: { value: "@jobd", selectionStart: 5 } });
@@ -383,7 +383,7 @@ describe("ChatInputBar", () => {
     );
 
     const textarea = screen.getByPlaceholderText(
-      "Ask Shadowbox anything, @ to add files, / for commands",
+      "Ask LegionCode anything, @ to add files, / for commands",
     ) as HTMLTextAreaElement;
 
     expect(textarea.value).toBe("and review @README.md");
@@ -411,7 +411,7 @@ describe("ChatInputBar", () => {
     render(<Wrapper />);
 
     const textarea = screen.getByPlaceholderText(
-      "Ask Shadowbox anything, @ to add files, / for commands",
+      "Ask LegionCode anything, @ to add files, / for commands",
     ) as HTMLTextAreaElement;
 
     fireEvent.change(textarea, { target: { value: "@", selectionStart: 1 } });
@@ -444,7 +444,7 @@ describe("ChatInputBar", () => {
     render(<Wrapper />);
 
     const textarea = screen.getByPlaceholderText(
-      "Ask Shadowbox anything, @ to add files, / for commands",
+      "Ask LegionCode anything, @ to add files, / for commands",
     ) as HTMLTextAreaElement;
 
     await act(async () => {

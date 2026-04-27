@@ -374,7 +374,7 @@ export function GitCommitDialog({ isOpen, onClose }: GitCommitDialogProps) {
                 <div className="text-xs text-zinc-500">
                   {resolvedCommitIdentity && !authorFormVisible
                     ? `Using ${formatCommitIdentitySource(resolvedCommitIdentity.source)}`
-                    : "Shadowbox needs a name and email for this commit"}
+                    : "LegionCode needs a name and email for this commit"}
                 </div>
               </div>
               {!requiresAuthorInput && resolvedCommitIdentity ? (
@@ -507,7 +507,7 @@ export function GitCommitDialog({ isOpen, onClose }: GitCommitDialogProps) {
                 </div>
                 <div className="text-xs text-zinc-500">
                   {currentBranch === defaultBranch
-                    ? `Current branch is ${defaultBranch}. Shadowbox will create a branch before pushing.`
+                    ? `Current branch is ${defaultBranch}. LegionCode will create a branch before pushing.`
                     : `Current branch is ${currentBranch}. You can keep it or push a new branch.`}
                 </div>
               </div>
@@ -616,7 +616,7 @@ function formatCommitIdentitySource(
     case "workspace_git_config":
       return "workspace git config";
     case "persisted_preference":
-      return "saved Shadowbox preference";
+      return "saved LegionCode preference";
     case "github_profile":
       return "your GitHub profile";
     case "user_input":
@@ -660,7 +660,7 @@ function buildSuggestedBranchName(
     return currentBranch;
   }
 
-  const slug = slugifyBranchSegment(message || "shadowbox-update");
+  const slug = slugifyBranchSegment(message || "legioncode-update");
   return `feat/${slug}`;
 }
 
@@ -671,7 +671,7 @@ function slugifyBranchSegment(value: string): string {
     .replace(/^-+|-+$/g, "")
     .slice(0, 48);
 
-  return normalized.length > 0 ? normalized : "shadowbox-update";
+  return normalized.length > 0 ? normalized : "legioncode-update";
 }
 
 function persistSessionBranch(

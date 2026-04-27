@@ -10,7 +10,7 @@ interface ThreadHeaderProps {
 
 export function ThreadHeader({
   title,
-  projectName = "shadowbox",
+  projectName = "LegionCode",
   onRun,
   onMore,
 }: ThreadHeaderProps) {

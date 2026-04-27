@@ -67,8 +67,11 @@ export function LoginScreen({ onLogin, onSkip }: LoginScreenProps) {
         </motion.div>
 
         {/* Title */}
+        <p className="mb-2 rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-amber-200">
+          Public Alpha
+        </p>
         <h1 className="text-3xl font-semibold text-white mb-3 text-center">
-          Welcome to Shadowbox
+          Welcome to LegionCode
         </h1>
 
         {/* Subtitle */}
@@ -118,6 +121,9 @@ export function LoginScreen({ onLogin, onSkip }: LoginScreenProps) {
 
         {/* Security Note */}
         <p className="mt-6 text-xs text-zinc-600 text-center">
+          LegionCode is in public alpha. Expect rapid changes and occasional
+          rough edges.
+          <br />
           Your GitHub token is encrypted and stored securely.
           <br />
           We only request minimal permissions needed.

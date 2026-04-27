@@ -677,7 +677,7 @@ function describeSingleFailedTool(
   }
 
   if (isMissingLocalPushRefFailure(event)) {
-    return "I couldn't finish the push because the local branch ref was missing in the resumed workspace. The recovery step should have re-opened the branch before pushing. Retry the step so Shadowbox re-syncs the workspace branch first, or finish the branch repair in your local terminal.";
+    return "I couldn't finish the push because the local branch ref was missing in the resumed workspace. The recovery step should have re-opened the branch before pushing. Retry the step so LegionCode re-syncs the workspace branch first, or finish the branch repair in your local terminal.";
   }
 
   if (isPullRequestShellFailure(event)) {

@@ -348,7 +348,7 @@ describe("ModelPickerPopover", () => {
       fireEvent.click(triggerButton);
 
       await waitFor(() => {
-        expect(screen.getByText("Shadowbox Axis")).toBeInTheDocument();
+        expect(screen.getByText("LegionCode Axis")).toBeInTheDocument();
         expect(screen.getByText("z-ai/glm-4.5-air:free")).toBeInTheDocument();
       });
     });
@@ -368,7 +368,7 @@ describe("ModelPickerPopover", () => {
       fireEvent.click(triggerButton);
 
       await waitFor(() => {
-        expect(screen.getByText("Shadowbox Axis")).toBeInTheDocument();
+        expect(screen.getByText("LegionCode Axis")).toBeInTheDocument();
         expect(screen.getByText("OpenAI")).toBeInTheDocument();
         expect(screen.getByText("Anthropic")).toBeInTheDocument();
         expect(screen.getByText("GPT-4")).toBeInTheDocument();

@@ -33,7 +33,7 @@ export function LockedShellCard({ onLogin }: LockedShellCardProps) {
           <InfoTile
             icon={Github}
             title="Pick your repository"
-            description="After sign-in, select the repo you want Shadowbox to work on."
+            description="After sign-in, select the repo you want LegionCode to work on."
           />
           <InfoTile
             icon={KeyRound}

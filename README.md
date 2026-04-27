@@ -1,6 +1,6 @@
-# Shadowbox
+# LegionCode
 
-Web-native, multi-agent coding workspace built on Cloudflare runtime primitives.
+A web-native coding-agent workspace built on a custom Cloudflare-native execution harness.
 
 ## Repository Layout
 

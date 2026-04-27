@@ -767,7 +767,7 @@ export function ModelPickerPopover({
                     <div className="border-b border-neutral-800/80">
                       <div className="sticky top-0 bg-neutral-900/95 px-3 py-2">
                         <h3 className="text-[10px] font-semibold text-neutral-500 uppercase tracking-wide">
-                          Shadowbox Axis
+                          LegionCode Axis
                         </h3>
                       </div>
                       <div className="py-1">

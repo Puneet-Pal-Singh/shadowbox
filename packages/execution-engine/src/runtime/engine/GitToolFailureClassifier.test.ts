@@ -67,7 +67,7 @@ describe("GitToolFailureClassifier", () => {
     expect(
       classifier.classify({
         toolName: "bash",
-        message: "Shadowbox wants to run a shell command that needs approval",
+        message: "LegionCode wants to run a shell command that needs approval",
       }),
     ).toEqual({
       kind: "policy_blocked",
@@ -80,7 +80,7 @@ describe("GitToolFailureClassifier", () => {
       classifier.classify({
         toolName: "git_push",
         message:
-          "Shadowbox cannot continue with git stage/commit/push yet because no successful file mutation has occurred in this run.",
+          "LegionCode cannot continue with git stage/commit/push yet because no successful file mutation has occurred in this run.",
       }),
     ).toEqual({
       kind: "policy_blocked",

@@ -218,8 +218,8 @@ export const BUILTIN_PROVIDERS: Record<string, ProviderRegistryEntry> = {
       endpoint: "https://openrouter.ai/api/v1/key",
       authMode: "bearer",
       headers: {
-        "HTTP-Referer": "https://shadowbox.dev",
-        "X-Title": "Shadowbox BYOK Live Validate",
+        "HTTP-Referer": "https://legioncode.dev",
+        "X-Title": "LegionCode BYOK Live Validate",
       },
     },
   },

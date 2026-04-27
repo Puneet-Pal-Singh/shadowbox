@@ -97,7 +97,7 @@ export async function resolveCommitIdentityForCommit(
 
   throw new CommitIdentityError(
     "COMMIT_IDENTITY_REQUIRED",
-    "Commit author identity is required before Shadowbox can commit. Confirm your name and email, then retry.",
+    "Commit author identity is required before LegionCode can commit. Confirm your name and email, then retry.",
     { commitIdentity: state },
   );
 }

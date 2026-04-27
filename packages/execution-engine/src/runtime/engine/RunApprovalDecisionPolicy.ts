@@ -50,7 +50,7 @@ export function buildApprovalDecisionMessage(
     }
   }
   if (decisionResult.status === "aborted") {
-    return "Approval request aborted. Shadowbox will stop this risky action path until you issue a new instruction.";
+    return "Approval request aborted. LegionCode will stop this risky action path until you issue a new instruction.";
   }
-  return "Approval denied. Shadowbox will keep this risky action blocked.";
+  return "Approval denied. LegionCode will keep this risky action blocked.";
 }

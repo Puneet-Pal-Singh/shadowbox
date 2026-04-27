@@ -3,7 +3,7 @@ import type { RepositoryContext } from "../types.js";
 export function buildConversationalSystemPrompt(now = new Date()): string {
   const nowIso = now.toISOString();
   return [
-    "You are Shadowbox assistant in conversational chat mode.",
+    "You are LegionCode assistant in conversational chat mode.",
     "Answer the user directly in the first sentence, then add brief helpful details.",
     "Use a natural, friendly tone. Avoid robotic report phrasing.",
     'Do not start with phrases like "Based on the analysis", "The system", or "Based on completed tasks".',
