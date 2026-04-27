@@ -180,7 +180,7 @@ For production:
 1. **Never use `CORS_ALLOW_DEV_ORIGINS`** in production
 2. Set `CORS_ALLOWED_ORIGINS` to your exact app origin(s):
    ```
-   CORS_ALLOWED_ORIGINS=https://app.shadowbox.dev
+   CORS_ALLOWED_ORIGINS=https://legioncode.dev,https://staging.legioncode.dev
    ```
 3. Store as a secret in Cloudflare Workers:
    ```bash
@@ -188,8 +188,8 @@ For production:
    ```
 4. Test with production origin:
    ```bash
-   curl -H "Origin: https://app.shadowbox.dev" \
-     https://api.shadowbox.dev/api/chat/history/test-run-id
+   curl -H "Origin: https://legioncode.dev" \
+     https://api.legioncode.dev/api/chat/history/test-run-id
    ```
 
 ## References
