@@ -1,4 +1,7 @@
-import { isGoldenFlowToolName } from "../contracts/CodingToolGateway.js";
+import {
+  isGoldenFlowToolName,
+  type GoldenFlowToolName,
+} from "../contracts/CodingToolGateway.js";
 import { executeAgenticLoopTool } from "./AgenticLoopToolExecutor.js";
 import { AgenticLoopCancelledError } from "./AgenticLoop.js";
 import { getToolPresentation } from "../lib/ToolPresentation.js";
@@ -51,6 +54,7 @@ export function buildAgenticLoopCallbacks(input: {
   runId: string;
 }): AgenticLoopCallbacks {
   let hasMutationEvidence = false;
+  const allowResumeGitPush = canResumeGitPushFromContinuation(input.run);
   return {
     executeTool: input.directExecutionService
       ? async (toolCall) =>
@@ -64,6 +68,7 @@ export function buildAgenticLoopCallbacks(input: {
             env: input.env,
             runId: input.runId,
             hasMutationEvidence,
+            allowResumeGitPush,
             setHasMutationEvidence: (value) => {
               hasMutationEvidence = value;
             },
@@ -126,6 +131,7 @@ async function executeDirectToolCall(input: {
   env: RunEngineEnv;
   runId: string;
   hasMutationEvidence: boolean;
+  allowResumeGitPush: boolean;
   setHasMutationEvidence: (value: boolean) => void;
 }): Promise<TaskResult> {
   const toolPresentation = getToolPresentation(
@@ -136,6 +142,17 @@ async function executeDirectToolCall(input: {
     throw new Error(
       `Unsupported direct agentic tool: ${input.toolCall.toolName}`,
     );
+  }
+
+  const hasWorkspaceMutationEvidence =
+    !input.hasMutationEvidence &&
+    needsGitMutationEvidenceProbe(input.toolCall.toolName)
+      ? await detectWorkspaceMutationEvidence(input.directExecutionService)
+      : false;
+  const hasMutationEvidence =
+    input.hasMutationEvidence || hasWorkspaceMutationEvidence;
+  if (hasWorkspaceMutationEvidence) {
+    input.setHasMutationEvidence(true);
   }
 
   const permissionState =
@@ -149,7 +166,8 @@ async function executeDirectToolCall(input: {
     workflowIntent: permissionState.workflowIntent,
     toolName: input.toolCall.toolName,
     toolArgs: input.toolCall.args,
-    hasMutationEvidence: input.hasMutationEvidence,
+    hasMutationEvidence,
+    allowResumeGitPush: input.allowResumeGitPush,
     approvalStore: input.permissionApprovalStore,
   });
   if (permissionResult.kind === "ask") {
@@ -215,6 +233,9 @@ async function executeDirectToolCall(input: {
       description: toolPresentation.description,
       displayText: toolPresentation.displayText,
       ...input.toolCall.args,
+      __runtimeFeatureFlags: resolveRuntimeFeatureFlags(
+        input.run.input.metadata,
+      ),
     },
     onOutputAppended: async (chunk) => {
       await input.runEventRecorder.recordToolOutputAppended(
@@ -230,4 +251,104 @@ async function executeDirectToolCall(input: {
     input.setHasMutationEvidence(true);
   }
   return result;
+}
+
+function needsGitMutationEvidenceProbe(toolName: GoldenFlowToolName): boolean {
+  return (
+    toolName === "git_stage" ||
+    toolName === "git_commit" ||
+    toolName === "git_push"
+  );
+}
+
+async function detectWorkspaceMutationEvidence(
+  executionService: RuntimeExecutionService,
+): Promise<boolean> {
+  try {
+    const result = await executionService.execute("git", "git_status", {});
+    const payload = extractJsonOutputPayload(result);
+    if (!payload) {
+      return false;
+    }
+
+    const hasStaged = payload.hasStaged === true;
+    const hasUnstaged = payload.hasUnstaged === true;
+    const files = Array.isArray(payload.files) ? payload.files : [];
+    return hasStaged || hasUnstaged || files.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+function extractJsonOutputPayload(
+  value: unknown,
+): Record<string, unknown> | null {
+  const record = toRecord(value);
+  if (!record) {
+    return null;
+  }
+
+  if (record.success === false) {
+    return null;
+  }
+
+  const output = record.output;
+  if (typeof output !== "string" || output.trim().length === 0) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(output) as unknown;
+    return toRecord(parsed);
+  } catch {
+    return null;
+  }
+}
+
+function toRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function resolveRuntimeFeatureFlags(
+  metadata: Record<string, unknown> | undefined,
+): {
+  ghCliLaneEnabled: boolean;
+  ghCliCiEnabled: boolean;
+  ghCliPrCommentEnabled: boolean;
+} {
+  const featureFlags =
+    metadata?.featureFlags && typeof metadata.featureFlags === "object"
+      ? (metadata.featureFlags as Record<string, unknown>)
+      : undefined;
+
+  const readBoolean = (value: unknown): boolean | undefined =>
+    typeof value === "boolean" ? value : undefined;
+
+  const ghCliLaneEnabled = readBoolean(featureFlags?.ghCliLaneEnabled) ?? false;
+  const ghCliCiEnabled =
+    readBoolean(featureFlags?.ghCliCiEnabled) ?? ghCliLaneEnabled;
+  const ghCliPrCommentEnabled =
+    readBoolean(featureFlags?.ghCliPrCommentEnabled) ?? false;
+  return {
+    ghCliLaneEnabled,
+    ghCliCiEnabled,
+    ghCliPrCommentEnabled,
+  };
+}
+
+function canResumeGitPushFromContinuation(run: Run): boolean {
+  const continuation = run.metadata.continuation;
+  if (!continuation || continuation.failedToolName !== "git_push") {
+    return false;
+  }
+
+  if (!continuation.hasTrustedGitCommitIdentity) {
+    return false;
+  }
+
+  return continuation.completedGitSteps.some((step) =>
+    /^Commit created:/i.test(step.trim()),
+  );
 }

@@ -1,28 +1,37 @@
 import { describe, expect, it } from "vitest";
-import type { ToolboxCommandExecutor } from "../contracts/ToolboxSession";
+import type {
+  ToolboxCommandExecutionOptions,
+  ToolboxCommandExecutor,
+} from "../contracts/ToolboxSession";
 import type { ToolboxEvent } from "../events/ToolboxEventFactory";
 import type { ToolboxEventPublisher } from "../events/ToolboxEventPublisher";
 import { ToolboxSessionService } from "../services/ToolboxSessionService";
 
 interface ExecutorMock extends ToolboxCommandExecutor {
   execCalls: string[];
+  optionsCalls: Array<ToolboxCommandExecutionOptions | undefined>;
 }
 
 function createExecutorMock(
   execImpl?: (
     command: string,
+    options?: ToolboxCommandExecutionOptions,
   ) => Promise<{ exitCode: number; stdout: string; stderr: string }>,
 ): ExecutorMock {
   const execCalls: string[] = [];
+  const optionsCalls: Array<ToolboxCommandExecutionOptions | undefined> = [];
   return {
     execCalls,
+    optionsCalls,
     execute: execImpl
-      ? async (command) => {
+      ? async (command, options) => {
           execCalls.push(command);
-          return execImpl(command);
+          optionsCalls.push(options);
+          return execImpl(command, options);
         }
-      : async (command) => {
+      : async (command, options) => {
           execCalls.push(command);
+          optionsCalls.push(options);
           return { exitCode: 0, stdout: "ok", stderr: "" };
         },
   };

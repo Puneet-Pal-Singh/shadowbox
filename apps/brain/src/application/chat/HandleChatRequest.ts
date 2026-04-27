@@ -195,6 +195,9 @@ export class HandleChatRequest {
             featureFlags: {
               agenticLoopV1: this.isAgenticLoopEnabled(),
               reviewerPassV1: this.isReviewerPassEnabled(),
+              ghCliLaneEnabled: this.isGitHubCliLaneEnabled(),
+              ghCliCiEnabled: this.isGitHubCliCiEnabled(),
+              ghCliPrCommentEnabled: this.isGitHubCliPrCommentEnabled(),
             },
             ...(input.productMode
               ? {
@@ -265,6 +268,21 @@ export class HandleChatRequest {
 
   private isAgenticLoopEnabled(): boolean {
     const raw = this.env.FEATURE_FLAG_CHAT_AGENTIC_LOOP_V1;
+    return raw === "1" || raw === "true";
+  }
+
+  private isGitHubCliLaneEnabled(): boolean {
+    const raw = this.env.FEATURE_FLAG_GH_CLI_LANE_ENABLED;
+    return raw === "1" || raw === "true";
+  }
+
+  private isGitHubCliCiEnabled(): boolean {
+    const raw = this.env.FEATURE_FLAG_GH_CLI_CI_ENABLED;
+    return raw === "1" || raw === "true";
+  }
+
+  private isGitHubCliPrCommentEnabled(): boolean {
+    const raw = this.env.FEATURE_FLAG_GH_CLI_PR_COMMENT_ENABLED;
     return raw === "1" || raw === "true";
   }
 }

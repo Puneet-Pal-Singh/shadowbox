@@ -37,6 +37,8 @@ export function createRunContinuationState(
   const failedEvent = [...toolLifecycle]
     .reverse()
     .find((event) => event.status === "failed");
+  const hasTrustedGitCommitIdentity =
+    hasVerifiedGitHubProfileCommitIdentity(toolLifecycle);
 
   if (
     !run.metadata.prompt &&
@@ -54,6 +56,7 @@ export function createRunContinuationState(
     previousStopReason: run.metadata.agenticLoop?.stopReason,
     completedFiles,
     completedGitSteps,
+    hasTrustedGitCommitIdentity,
     activeBranch: resolveActiveBranch(run),
     failedToolName: failedEvent?.toolName,
     failedToolDetail: failedEvent?.detail,
@@ -318,15 +321,36 @@ function summarizeGitStep(
   return suffix ? `${label}: ${suffix}` : label;
 }
 
+function hasVerifiedGitHubProfileCommitIdentity(
+  toolLifecycle: AgenticLoopToolLifecycleEvent[],
+): boolean {
+  for (const event of [...toolLifecycle].reverse()) {
+    if (event.status !== "completed" || event.toolName !== "git_commit") {
+      continue;
+    }
+    if (event.metadata?.family !== "git") {
+      continue;
+    }
+    return (
+      event.metadata.commitIdentitySource === "github_profile" &&
+      event.metadata.commitIdentityVerified === true
+    );
+  }
+
+  return false;
+}
+
 function resolveActiveBranch(run: Run): string | undefined {
   const toolLifecycle = run.metadata.agenticLoop?.toolLifecycle ?? [];
   for (const event of [...toolLifecycle].reverse()) {
+    if (event.status !== "completed") {
+      continue;
+    }
     const branch = readBranchFromLifecycleEvent(event);
     if (branch) {
       return branch;
     }
   }
-
   const repositoryBranch = run.input.repositoryContext?.branch?.trim();
   return repositoryBranch && repositoryBranch.length > 0
     ? repositoryBranch

@@ -272,6 +272,77 @@ describe("ExecutionService", () => {
     });
   });
 
+  it("overrides model-provided git commit identity with OAuth session identity", async () => {
+    const fetchMock = vi.fn<
+      Parameters<Env["SECURE_API"]["fetch"]>,
+      ReturnType<Env["SECURE_API"]["fetch"]>
+    >();
+
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            sessionId: "sess-commit-oauth",
+            token: "tok-commit-oauth",
+            expiresAt: Date.now() + 60_000,
+          }),
+          { status: 201, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            taskId: "task-commit-oauth",
+            status: "success",
+            output: "ok",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+
+    const service = new ExecutionService(
+      {
+        SECURE_API: { fetch: fetchMock },
+        SESSIONS: {
+          get: vi.fn(async (key: string) =>
+            key === "user_session:user-commit-oauth"
+              ? JSON.stringify({
+                  userId: "user-commit-oauth",
+                  login: "puneet",
+                  avatar: "",
+                  email: "puneet@example.com",
+                  name: "Puneet Pal Singh",
+                  encryptedToken: "encrypted-token",
+                  createdAt: Date.now(),
+                })
+              : null,
+          ),
+        },
+      } as unknown as Env,
+      "session-commit-oauth",
+      "run-commit-oauth",
+      "user-commit-oauth",
+    );
+
+    await service.execute("git", "git_commit", {
+      message: "feat: add coming soon indicator to newsletter",
+      authorName: "Shubh",
+      authorEmail: "shubh@example.com",
+    });
+
+    const [, executeInit] = fetchMock.mock.calls[1]!;
+    expect(JSON.parse(String(executeInit?.body))).toMatchObject({
+      action: "git.execute",
+      params: {
+        action: "git_commit",
+        runId: "run-commit-oauth",
+        message: "feat: add coming soon indicator to newsletter",
+        authorName: "Puneet Pal Singh",
+        authorEmail: "puneet@example.com",
+      },
+    });
+  });
+
   it("injects GitHub token for github connector actions without commit identity fields", async () => {
     const fetchMock = vi.fn<
       Parameters<Env["SECURE_API"]["fetch"]>,
@@ -349,6 +420,119 @@ describe("ExecutionService", () => {
         authorEmail: expect.any(String),
       },
     });
+  });
+
+  it("injects GitHub token for bounded github_cli actions", async () => {
+    const fetchMock = vi.fn<
+      Parameters<Env["SECURE_API"]["fetch"]>,
+      ReturnType<Env["SECURE_API"]["fetch"]>
+    >();
+
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            sessionId: "sess-github-cli",
+            token: "tok-github-cli",
+            expiresAt: Date.now() + 60_000,
+          }),
+          { status: 201, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            taskId: "task-github-cli",
+            status: "success",
+            output: '{"actionsJobId":1234}',
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+
+    const service = new ExecutionService(
+      {
+        SECURE_API: { fetch: fetchMock },
+        SESSIONS: {
+          get: vi.fn(async (key: string) =>
+            key === "user_session:user-789"
+              ? JSON.stringify({
+                  userId: "user-789",
+                  login: "puneet",
+                  avatar: "",
+                  email: "puneet@example.com",
+                  name: "Puneet Pal Singh",
+                  encryptedToken: "encrypted-token",
+                  createdAt: Date.now(),
+                })
+              : null,
+          ),
+        },
+      } as unknown as Env,
+      "session-github-cli",
+      "run-github-cli",
+      "user-789",
+    );
+
+    await service.execute("github_cli", "actions_job_logs_get", {
+      owner: "acme",
+      repo: "career-crew",
+      actionsJobId: 1234,
+    });
+
+    const [, executeInit] = fetchMock.mock.calls[1]!;
+    expect(JSON.parse(String(executeInit?.body))).toMatchObject({
+      action: "github_cli.execute",
+      params: {
+        action: "actions_job_logs_get",
+        runId: "run-github-cli",
+        owner: "acme",
+        repo: "career-crew",
+        actionsJobId: 1234,
+        token: "token:encrypted-token",
+      },
+    });
+  });
+
+  it("fails fast on persisted missing-scope boundary for GitHub Actions logs", async () => {
+    const fetchMock = vi.fn<
+      Parameters<Env["SECURE_API"]["fetch"]>,
+      ReturnType<Env["SECURE_API"]["fetch"]>
+    >();
+
+    const service = new ExecutionService(
+      {
+        SECURE_API: { fetch: fetchMock },
+        SESSIONS: {
+          get: vi.fn(async (key: string) =>
+            key === "user_session:user-790"
+              ? JSON.stringify({
+                  userId: "user-790",
+                  login: "puneet",
+                  avatar: "",
+                  email: "puneet@example.com",
+                  name: "Puneet Pal Singh",
+                  encryptedToken: "encrypted-token",
+                  githubScopes: ["read:user", "user:email"],
+                  createdAt: Date.now(),
+                })
+              : null,
+          ),
+        },
+      } as unknown as Env,
+      "session-github-cli-scope",
+      "run-github-cli-scope",
+      "user-790",
+    );
+
+    await expect(
+      service.execute("github_cli", "actions_job_logs_get", {
+        owner: "acme",
+        repo: "career-crew",
+        actionsJobId: 1234,
+      }),
+    ).rejects.toThrow("Missing GitHub OAuth scope");
+    expect(fetchMock).toHaveBeenCalledTimes(0);
   });
 
   it("does not allow payload to override canonical action or runId", async () => {
@@ -592,6 +776,48 @@ describe("ExecutionService", () => {
       expect.objectContaining({
         status: "failure",
         errorCode: "PLUGIN_EXECUTION_FAILED",
+      }),
+    );
+
+    logSpy.mockRestore();
+    errorSpy.mockRestore();
+  });
+
+  it("downgrades transient local-dev-session git status errors to non-error logs", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const fetchMock = vi.fn<
+      Parameters<Env["SECURE_API"]["fetch"]>,
+      ReturnType<Env["SECURE_API"]["fetch"]>
+    >();
+
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        "Couldn't find a local dev session for the \"default\" entrypoint of service \"shadowbox-api\" to proxy to",
+        { status: 503, headers: { "Content-Type": "text/plain" } },
+      ),
+    );
+
+    const service = new ExecutionService(
+      {
+        SECURE_API: { fetch: fetchMock },
+      } as unknown as Env,
+      "session-status-local-dev",
+      "run-status-local-dev",
+    );
+
+    await expect(service.execute("git", "git_status", {})).rejects.toThrow(
+      /Couldn't find a local dev session/i,
+    );
+
+    expect(errorSpy).not.toHaveBeenCalledWith(
+      "[ExecutionService] Error:",
+      expect.anything(),
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      "[ExecutionService] git:git_status transient startup miss",
+      expect.objectContaining({
+        errorMessage: expect.stringMatching(/Couldn't find a local dev session/i),
       }),
     );
 

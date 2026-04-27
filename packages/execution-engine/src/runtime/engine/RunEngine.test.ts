@@ -381,6 +381,85 @@ describe("RunEngine", () => {
     ).toBe(false);
   });
 
+  it("completes with recoverable guidance when provider retries are exhausted during task execution", async () => {
+    const state = new MockRuntimeState();
+    const retryFailure = Object.assign(
+      new Error("Failed after 3 attempts. Last error: Internal error encountered."),
+      {
+        name: "AI_RetryError",
+        cause: { statusCode: 500, message: "Internal error encountered." },
+      },
+    );
+    const llmGateway: ILLMGateway = {
+      generateText: vi.fn().mockRejectedValue(retryFailure),
+      generateStructured: async () => ({
+        object: { tasks: [], metadata: { estimatedSteps: 1 } },
+        usage: {
+          provider: "mock",
+          model: "mock-model",
+          promptTokens: 1,
+          completionTokens: 1,
+          totalTokens: 2,
+        },
+      }),
+      generateStream: async () =>
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.close();
+          },
+        }),
+    };
+    const runEngine = createRunEngineForRun({
+      state,
+      dependencies: { llmGateway },
+    });
+
+    const response = await runEngine.execute(
+      {
+        agentType: "coding",
+        prompt: "check my open PR and CI checks",
+        sessionId: "session-1",
+        providerId: "google",
+        modelId: "gemma-4-31b-it",
+      },
+      [{ role: "user", content: "check my open PR and CI checks" }],
+      {},
+    );
+
+    expect(response.status).toBe(200);
+    const output = await response.text();
+    expect(output).toContain(
+      "The model provider became unavailable after repeated retries before the next action could be produced.",
+    );
+    expect(output).toContain("Provider status code: 500.");
+
+    const persisted = await (
+      runEngine as unknown as {
+        getRun(runId: string): Promise<Run | null>;
+      }
+    ).getRun(TEST_RUN_ID);
+    expect(persisted?.status).toBe("COMPLETED");
+    expect(persisted?.metadata.error).toContain("PROVIDER_UNAVAILABLE:");
+
+    const events = await new RunEventRepository(state).getByRun(TEST_RUN_ID);
+    const assistantMessageEvent = [...events]
+      .reverse()
+      .find((event) => event.type === RUN_EVENT_TYPES.MESSAGE_EMITTED);
+    expect(assistantMessageEvent).toMatchObject({
+      type: RUN_EVENT_TYPES.MESSAGE_EMITTED,
+      payload: {
+        role: "assistant",
+        metadata: {
+          code: "PROVIDER_UNAVAILABLE",
+          retryable: true,
+        },
+      },
+    });
+    expect(
+      events.some((event) => event.type === RUN_EVENT_TYPES.RUN_FAILED),
+    ).toBe(false);
+  });
+
   it("keeps zero-action mutation runs on the normal completion path with TASK_MODEL_NO_ACTION", async () => {
     const state = new MockRuntimeState();
     const llmGateway: ILLMGateway = {
@@ -2595,6 +2674,353 @@ describe("RunEngine", () => {
     );
   });
 
+  it("keeps continuation push blocked when prior commit identity was not OAuth-backed", async () => {
+    const state = new MockRuntimeState();
+    const generateText = vi
+      .fn()
+      .mockResolvedValueOnce({
+        text: "I'll edit, commit, and push.",
+        toolCalls: [
+          {
+            id: "write-1",
+            toolName: "write_file",
+            args: {
+              path: "src/components/layout/Footer.tsx",
+              content: "updated footer content",
+            },
+          },
+          {
+            id: "git-commit-1",
+            toolName: "git_commit",
+            args: {
+              message: "feat: add coming soon indicator to newsletter subscription in footer",
+            },
+          },
+          {
+            id: "git-push-1",
+            toolName: "git_push",
+            args: {
+              branch: "style/redesign-footer",
+              remote: "origin",
+            },
+          },
+        ],
+        usage: {
+          provider: "mock",
+          model: "mock-model",
+          promptTokens: 8,
+          completionTokens: 8,
+          totalTokens: 16,
+        },
+      })
+      .mockResolvedValueOnce({
+        text: "I'll retry push now.",
+        toolCalls: [
+          {
+            id: "git-push-2",
+            toolName: "git_push",
+            args: {
+              branch: "style/redesign-footer",
+              remote: "origin",
+            },
+          },
+        ],
+        usage: {
+          provider: "mock",
+          model: "mock-model",
+          promptTokens: 5,
+          completionTokens: 5,
+          totalTokens: 10,
+        },
+      });
+
+    const llmGateway: ILLMGateway = {
+      generateText,
+      generateStructured: async () => ({
+        object: { tasks: [], metadata: { estimatedSteps: 1 } },
+        usage: {
+          provider: "mock",
+          model: "mock-model",
+          promptTokens: 1,
+          completionTokens: 1,
+          totalTokens: 2,
+        },
+      }),
+      generateStream: async () =>
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.close();
+          },
+        }),
+    };
+
+    const executionService: RuntimeExecutionService = {
+      execute: vi.fn(async (plugin: string, action: string) => {
+        if (plugin === "filesystem" && action === "read_file") {
+          return { success: false, error: "File not found" };
+        }
+        if (plugin === "filesystem" && action === "write_file") {
+          return { success: true, output: "File updated" };
+        }
+        if (plugin === "git" && action === "git_commit") {
+          return {
+            success: true,
+            output: {
+              content: "Changes committed",
+              commitIdentity: {
+                source: "user_input",
+                verified: false,
+              },
+            },
+          };
+        }
+        if (plugin === "git" && action === "git_push") {
+          return {
+            success: false,
+            error:
+              "error: src refspec style/redesign-footer does not match any\nerror: failed to push some refs",
+          };
+        }
+        return {
+          success: false,
+          error: `Unexpected route ${plugin}:${action}`,
+        };
+      }),
+    };
+
+    const runEngine = new RunEngine(
+      state,
+      {
+        env: {
+          NODE_ENV: "test",
+          APPROVAL_WAIT_TIMEOUT_MS: "5000",
+        } as unknown,
+        sessionId: "session-1",
+        runId: TEST_RUN_ID,
+        correlationId: "corr-untrusted-commit-resume-push",
+      },
+      new CodingAgent(llmGateway, executionService),
+      undefined,
+      { llmGateway },
+    );
+    const approvalStore = new PermissionApprovalStore(state, TEST_RUN_ID);
+
+    const firstResponsePromise = runEngine.execute(
+      {
+        agentType: "coding",
+        prompt: "update footer, commit, and push",
+        sessionId: "session-1",
+        repositoryContext: { owner: "sourcegraph", repo: "shadowbox" },
+        metadata: { featureFlags: { agenticLoopV1: true } },
+      },
+      [{ role: "user", content: "update footer, commit, and push" }],
+      {},
+    );
+    const approvalResolutionPromise = (async () => {
+      let approvalsResolved = 0;
+      for (let attempt = 0; attempt < 200 && approvalsResolved < 2; attempt += 1) {
+        const pending = await approvalStore.getPendingRequest();
+        if (pending) {
+          await approvalStore.resolveDecision({
+            kind: "allow_once",
+            requestId: pending.requestId,
+          });
+          approvalsResolved += 1;
+          continue;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+
+      if (approvalsResolved < 2) {
+        throw new Error(
+          "Timed out waiting for commit/push approval requests in test.",
+        );
+      }
+    })();
+
+    const firstResponse = await firstResponsePromise;
+    await approvalResolutionPromise;
+    expect(firstResponse.status).toBe(200);
+    await firstResponse.text();
+
+    const secondResponse = await runEngine.execute(
+      {
+        agentType: "coding",
+        prompt: "continue?",
+        sessionId: "session-1",
+        repositoryContext: { owner: "sourcegraph", repo: "shadowbox" },
+        metadata: { featureFlags: { agenticLoopV1: true } },
+      },
+      [
+        { role: "user", content: "update footer, commit, and push" },
+        { role: "assistant", content: "Push failed, retrying." },
+        { role: "user", content: "continue?" },
+      ],
+      {},
+    );
+
+    expect(secondResponse.status).toBe(200);
+    expect(await secondResponse.text()).toContain(
+      "no successful file mutation has occurred in this run",
+    );
+
+    const executeSpy = executionService.execute as ReturnType<typeof vi.fn>;
+    const pushCalls = executeSpy.mock.calls.filter(
+      ([plugin, action]) => plugin === "git" && action === "git_push",
+    );
+    expect(pushCalls).toHaveLength(1);
+  });
+
+  it("allows git_stage when git_status confirms existing local workspace changes", async () => {
+    const state = new MockRuntimeState();
+    const generateText = vi
+      .fn()
+      .mockResolvedValueOnce({
+        text: "I'll stage the pending footer change now.",
+        toolCalls: [
+          {
+            id: "git-stage-1",
+            toolName: "git_stage",
+            args: {
+              files: ["src/components/layout/Footer.tsx"],
+            },
+          },
+        ],
+        usage: {
+          provider: "mock",
+          model: "mock-model",
+          promptTokens: 6,
+          completionTokens: 6,
+          totalTokens: 12,
+        },
+      })
+      .mockResolvedValueOnce({
+        text: "Staging completed.",
+        toolCalls: [],
+        usage: {
+          provider: "mock",
+          model: "mock-model",
+          promptTokens: 4,
+          completionTokens: 4,
+          totalTokens: 8,
+        },
+      });
+
+    const llmGateway: ILLMGateway = {
+      generateText,
+      generateStructured: async () => ({
+        object: { tasks: [], metadata: { estimatedSteps: 1 } },
+        usage: {
+          provider: "mock",
+          model: "mock-model",
+          promptTokens: 1,
+          completionTokens: 1,
+          totalTokens: 2,
+        },
+      }),
+      generateStream: async () =>
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.close();
+          },
+        }),
+    };
+
+    const executionService: RuntimeExecutionService = {
+      execute: vi.fn(async (plugin: string, action: string) => {
+        if (plugin === "git" && action === "git_status") {
+          return {
+            success: true,
+            output: JSON.stringify({
+              branch: "style/redesign-footer",
+              hasStaged: false,
+              hasUnstaged: true,
+              files: [
+                {
+                  path: "src/components/layout/Footer.tsx",
+                  status: "M",
+                  staged: false,
+                },
+              ],
+            }),
+          };
+        }
+        if (plugin === "git" && action === "git_stage") {
+          return {
+            success: true,
+            output: "Staged src/components/layout/Footer.tsx",
+          };
+        }
+        return {
+          success: false,
+          error: `Unexpected route ${plugin}:${action}`,
+        };
+      }),
+    };
+
+    const runEngine = new RunEngine(
+      state,
+      {
+        env: {
+          NODE_ENV: "test",
+          APPROVAL_WAIT_TIMEOUT_MS: "5000",
+        } as unknown,
+        sessionId: "session-1",
+        runId: TEST_RUN_ID,
+        correlationId: "corr-git-stage-workspace-evidence",
+      },
+      new CodingAgent(llmGateway, executionService),
+      undefined,
+      { llmGateway },
+    );
+    const approvalStore = new PermissionApprovalStore(state, TEST_RUN_ID);
+
+    const responsePromise = runEngine.execute(
+      {
+        agentType: "coding",
+        prompt: "stage the footer changes",
+        sessionId: "session-1",
+        repositoryContext: { owner: "sourcegraph", repo: "shadowbox" },
+        metadata: { featureFlags: { agenticLoopV1: true } },
+      },
+      [{ role: "user", content: "stage the footer changes" }],
+      {},
+    );
+    const approvalResolutionPromise = (async () => {
+      for (let attempt = 0; attempt < 200; attempt += 1) {
+        const pending = await approvalStore.getPendingRequest();
+        if (pending) {
+          await approvalStore.resolveDecision({
+            kind: "allow_once",
+            requestId: pending.requestId,
+          });
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      throw new Error("Timed out waiting for git_stage approval request in test.");
+    })();
+
+    const response = await responsePromise;
+    await approvalResolutionPromise;
+
+    expect(response.status).toBe(200);
+    const output = await response.text();
+    expect(output).not.toContain(
+      "no successful file mutation has occurred in this run",
+    );
+
+    const executeSpy = executionService.execute as ReturnType<typeof vi.fn>;
+    const statusCallIndex = executeSpy.mock.calls.findIndex(
+      ([plugin, action]) => plugin === "git" && action === "git_status",
+    );
+    const stageCallIndex = executeSpy.mock.calls.findIndex(
+      ([plugin, action]) => plugin === "git" && action === "git_stage",
+    );
+    expect(statusCallIndex).toBeGreaterThanOrEqual(0);
+    expect(stageCallIndex).toBeGreaterThan(statusCallIndex);
+  });
+
   it("bootstraps recycled continuation turns onto the preserved active branch", async () => {
     const state = new MockRuntimeState();
     const workspaceBootstrapper = {
@@ -2857,6 +3283,18 @@ describe("RunEngine", () => {
       "The requested file was not found in the current workspace.",
     );
     expect(sanitized).toContain("[internal-url]");
+  });
+
+  it("strips leaked internal-style reasoning preface from user-facing output", () => {
+    const leaked =
+      'The user asked me to check PR #58. I need to inspect branch state first. First, I\'ll check git status. The current branch is main. Wait, I should switch branches. I found the issue in Footer.tsx.';
+
+    const sanitized = sanitizeUserFacingOutput(leaked);
+
+    expect(sanitized).toBe("I found the issue in Footer.tsx.");
+    expect(sanitized).not.toContain("The user asked");
+    expect(sanitized).not.toContain("I need to inspect");
+    expect(sanitized).not.toContain("Wait, I should");
   });
 
   it("marks CREATED runs as FAILED when execution error handling runs", async () => {

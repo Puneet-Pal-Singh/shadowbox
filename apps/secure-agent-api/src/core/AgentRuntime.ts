@@ -12,6 +12,7 @@ import { RedisPlugin } from "../plugins/RedisPlugin";
 import { FileSystemPlugin } from "../plugins/FileSystemPlugin";
 import { GitPlugin } from "../plugins/GitPlugin";
 import { GitHubPlugin } from "../plugins/GitHubPlugin";
+import { GitHubCliPlugin } from "../plugins/GitHubCliPlugin";
 import { BashPlugin } from "../plugins/BashPlugin";
 import { NodePlugin } from "../plugins/NodePlugin";
 import { RustPlugin } from "../plugins/RustPlugin";
@@ -71,6 +72,7 @@ export class AgentRuntime extends DurableObject {
       new FileSystemPlugin(),
       new GitPlugin(),
       new GitHubPlugin(),
+      new GitHubCliPlugin(),
       new BashPlugin(),
       new NodePlugin(),
       new RustPlugin(),

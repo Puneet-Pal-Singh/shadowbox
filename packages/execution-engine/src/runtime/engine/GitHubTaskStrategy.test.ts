@@ -33,7 +33,7 @@ describe("GitHubTaskStrategy", () => {
 
     expect(decision.classification).toBe("remote_metadata");
     expect(decision.preferredLane).toBe("github_connector");
-    expect(decision.fallbackLane).toBe("shell_git");
+    expect(decision.fallbackLane).toBe("github_cli");
   });
 
   it("classifies hybrid PR/CI tasks as connector-first with shell fallback", () => {
@@ -66,6 +66,7 @@ describe("GitHubTaskStrategy", () => {
 
     expect(decision.classification).toBe("connector_gap");
     expect(decision.preferredLane).toBe("github_connector");
+    expect(decision.fallbackLane).toBe("github_cli");
   });
 
   it("anchors remote planning turns on connector metadata", () => {
@@ -79,6 +80,27 @@ describe("GitHubTaskStrategy", () => {
 
     expect(decision.classification).toBe("remote_metadata");
     expect(decision.preferredLane).toBe("github_connector");
-    expect(decision.fallbackLane).toBe("shell_git");
+    expect(decision.fallbackLane).toBe("github_cli");
+  });
+
+  it("keeps scope failures in a read-only metadata lane without fallback churn", () => {
+    const decision = strategy.decide({
+      userRequest: "check CI checks for PR 231",
+      runMode: "build",
+      repositoryReady: true,
+      hasGitHubAuth: true,
+      connectorAvailable: true,
+      currentFailure: {
+        kind: "missing_scope_state",
+        toolName: "github_cli_actions_run_get",
+      },
+    });
+
+    expect(decision).toEqual({
+      classification: "remote_metadata",
+      preferredLane: "github_connector",
+      rationale:
+        "The previous attempt failed due to missing GitHub OAuth scope; keep the current turn read-oriented and surface a reconnect-with-scopes recovery path instead of mutating lanes.",
+    });
   });
 });

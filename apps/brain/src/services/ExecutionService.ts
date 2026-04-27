@@ -4,12 +4,17 @@ import {
   sanitizeLogPayload,
   sanitizeUnknownError,
 } from "../core/security/LogSanitizer";
+import {
+  describeGitHubScopeBoundaryError,
+  parseGitHubScopeList,
+  resolveGitHubScopeBoundary,
+} from "./github/GitHubScopeMatrix";
 import { toCanonicalGitExecutionAction } from "../lib/gitExecutionActions";
 import type {
   CreatePullRequestFromRunPayload,
   GitStatusResponse,
 } from "@repo/shared-types";
-import { resolveCommitIdentityForStoredUserSession } from "./git/GitCommitIdentityService";
+import { resolveCommitIdentityForStoredOAuthSession } from "./git/GitCommitIdentityService";
 import {
   GIT_MUTATION_TIMEOUT_MS,
   GIT_STATUS_TIMEOUT_MS,
@@ -55,6 +60,11 @@ interface SecureExecutionLogEntry {
   level: "info" | "warn" | "error" | "debug";
   message: string;
   source?: "stdout" | "stderr";
+}
+
+interface GitHubAuthState {
+  token: string;
+  persistedScopes: string[] | null;
 }
 
 /**
@@ -121,10 +131,20 @@ export class ExecutionService {
     } catch (error) {
       executionFinished = true;
       await logForwardingPromise;
-      console.error(
-        `[ExecutionService] Error:`,
-        sanitizeUnknownError(error),
-      );
+      if (isExpectedGitStatusExecutionError(plugin, executionAction, error)) {
+        console.log(
+          `[ExecutionService] ${plugin}:${executionAction} transient startup miss`,
+          sanitizeLogPayload({
+            errorMessage:
+              error instanceof Error ? error.message : String(error),
+          }),
+        );
+      } else {
+        console.error(
+          `[ExecutionService] Error:`,
+          sanitizeUnknownError(error),
+        );
+      }
       throw error;
     }
   }
@@ -156,6 +176,13 @@ export class ExecutionService {
    * Tokens are stored encrypted in KV storage
    */
   private async getGitHubToken(userId: string): Promise<string | null> {
+    const authState = await this.getGitHubAuthState(userId);
+    return authState?.token ?? null;
+  }
+
+  private async getGitHubAuthState(
+    userId: string,
+  ): Promise<GitHubAuthState | null> {
     try {
       const sessionData = await this.env.SESSIONS.get(`user_session:${userId}`);
       if (!sessionData) {
@@ -176,11 +203,15 @@ export class ExecutionService {
         session.encryptedToken,
         this.env.GITHUB_TOKEN_ENCRYPTION_KEY,
       );
+      const persistedScopes = parseGitHubScopeList(session.githubScopes);
 
       console.log(
         `[ExecutionService] Successfully retrieved GitHub token for user ${userId}`,
       );
-      return token;
+      return {
+        token,
+        persistedScopes,
+      };
     } catch (error) {
       console.error(
         `[ExecutionService] Failed to get GitHub token:`,
@@ -195,35 +226,39 @@ export class ExecutionService {
     action: string,
     payload: Record<string, unknown>,
   ): Promise<Record<string, unknown>> {
-    const shouldInjectGitHubToken = plugin === "git" || plugin === "github";
+    const shouldInjectGitHubToken =
+      plugin === "git" || plugin === "github" || plugin === "github_cli";
     if (!shouldInjectGitHubToken || !this.userId) {
       return payload;
     }
 
     const nextPayload = { ...payload };
-    const token = await this.getGitHubToken(this.userId);
-    if (token) {
-      nextPayload.token = token;
+    const authState = await this.getGitHubAuthState(this.userId);
+    if (authState?.token) {
+      nextPayload.token = authState.token;
       console.log(`[ExecutionService] Injected GitHub token for ${action}`);
+    }
+
+    const scopeBoundary = resolveGitHubScopeBoundary({
+      plugin,
+      action,
+      persistedScopes: authState?.persistedScopes ?? null,
+    });
+    if (scopeBoundary) {
+      throw new Error(
+        describeGitHubScopeBoundaryError(plugin, action, scopeBoundary),
+      );
     }
 
     if (plugin !== "git" || action !== "git_commit") {
       return nextPayload;
     }
 
-    const authorName = readString(nextPayload.authorName);
-    const authorEmail = readString(nextPayload.authorEmail);
-    if (authorName && authorEmail) {
-      return nextPayload;
-    }
-
-    const commitIdentity = await resolveCommitIdentityForStoredUserSession(
+    delete nextPayload.authorName;
+    delete nextPayload.authorEmail;
+    const commitIdentity = await resolveCommitIdentityForStoredOAuthSession(
       this.env,
       this.userId,
-      {
-        authorName,
-        authorEmail,
-      },
     );
     if (!commitIdentity) {
       return nextPayload;
@@ -650,7 +685,36 @@ function isExpectedGitStatusBootstrapFailure(
   }
 
   const message = result.error?.message ?? "";
-  return /not a git repository/i.test(message);
+  return isExpectedGitStatusMessage(message);
+}
+
+function isExpectedGitStatusExecutionError(
+  plugin: string,
+  action: string,
+  error: unknown,
+): boolean {
+  if (plugin !== "git" || action !== "git_status") {
+    return false;
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  return isExpectedGitStatusMessage(message);
+}
+
+function isExpectedGitStatusMessage(message: string): boolean {
+  return (
+    /not a git repository/i.test(message) ||
+    /sandboxerror:\s*http error!\s*status:\s*5\d\d/i.test(message) ||
+    /http error!\s*status:\s*5\d\d/i.test(message) ||
+    /failed with http 5\d\d/i.test(message) ||
+    /service unavailable/i.test(message) ||
+    /network connection lost/i.test(message) ||
+    /failed to fetch/i.test(message) ||
+    /timed out/i.test(message) ||
+    /econnrefused/i.test(message) ||
+    /upstream connect error/i.test(message) ||
+    /couldn't find a local dev session/i.test(message) ||
+    /entrypoint of service .* to proxy to/i.test(message)
+  );
 }
 
 function readString(value: unknown): string | undefined {

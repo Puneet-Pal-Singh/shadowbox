@@ -71,6 +71,10 @@ const MISSING_GIT_AUTHOR_ERROR =
 const WRITE_GIT_AUTHOR_ERROR =
   "Git commit author could not be written to this workspace before committing.";
 
+type CommitIdentityResolutionResult =
+  | { success: true; identity: GitCommitIdentity }
+  | { success: false; error: string };
+
 export class GitPlugin implements IPlugin {
   name = "git";
   tools = GitTools;
@@ -660,7 +664,10 @@ export class GitPlugin implements IPlugin {
       runId,
     );
     if (!commitIdentityResult.success) {
-      return commitIdentityResult;
+      return {
+        success: false,
+        error: commitIdentityResult.error,
+      };
     }
 
     const result = await this.runToolboxCommand(
@@ -675,7 +682,7 @@ export class GitPlugin implements IPlugin {
       "git.commit",
     );
 
-    return buildGitResult(result, "Changes committed");
+    return buildGitCommitResult(result, commitIdentityResult.identity);
   }
 
   private async ensureCommitIdentity(
@@ -686,7 +693,12 @@ export class GitPlugin implements IPlugin {
     token: string | undefined,
     toolboxContext: ReturnType<typeof readToolboxCommandContext>,
     runId: string,
-  ): Promise<PluginResult> {
+  ): Promise<CommitIdentityResolutionResult> {
+    const oauthIdentity = await this.resolveCommitIdentityFromToken(token);
+    const explicitIdentity = normalizeExplicitCommitIdentity(
+      authorName,
+      authorEmail,
+    );
     const existingAuthorName = await this.readGitConfigValue(
       sandbox,
       worktree,
@@ -703,21 +715,33 @@ export class GitPlugin implements IPlugin {
       runId,
       "git.commit_author_email.read",
     );
-    if (existingAuthorName.length > 0 && existingAuthorEmail.length > 0) {
-      return { success: true };
-    }
-
-    const fallbackIdentity =
-      !authorName || !authorEmail
-        ? await this.resolveCommitIdentityFromToken(token)
+    const existingIdentity =
+      existingAuthorName.length > 0 && existingAuthorEmail.length > 0
+        ? {
+            authorName: existingAuthorName,
+            authorEmail: existingAuthorEmail,
+            source: "workspace_git_config" as const,
+            verified: false,
+          }
         : null;
-    const effectiveAuthorName = authorName ?? fallbackIdentity?.authorName;
-    const effectiveAuthorEmail = authorEmail ?? fallbackIdentity?.authorEmail;
+    const preferredIdentity =
+      oauthIdentity ?? explicitIdentity ?? existingIdentity;
 
-    if (!effectiveAuthorName || !effectiveAuthorEmail) {
+    if (!preferredIdentity) {
       return {
         success: false,
         error: MISSING_GIT_AUTHOR_ERROR,
+      };
+    }
+
+    if (
+      existingIdentity &&
+      existingIdentity.authorName === preferredIdentity.authorName &&
+      existingIdentity.authorEmail === preferredIdentity.authorEmail
+    ) {
+      return {
+        success: true,
+        identity: preferredIdentity,
       };
     }
 
@@ -725,29 +749,47 @@ export class GitPlugin implements IPlugin {
       sandbox,
       worktree,
       "user.name",
-      effectiveAuthorName,
+      preferredIdentity.authorName,
       toolboxContext,
       runId,
       "git.commit_author_name.write",
     );
     if (!writeNameResult.success) {
-      return writeNameResult;
+      return {
+        success: false,
+        error: WRITE_GIT_AUTHOR_ERROR,
+      };
     }
 
     const writeEmailResult = await this.writeGitConfigValue(
       sandbox,
       worktree,
       "user.email",
-      effectiveAuthorEmail,
+      preferredIdentity.authorEmail,
       toolboxContext,
       runId,
       "git.commit_author_email.write",
     );
     if (!writeEmailResult.success) {
-      return writeEmailResult;
+      await this.restoreGitConfigValue(
+        sandbox,
+        worktree,
+        "user.name",
+        existingAuthorName,
+        toolboxContext,
+        runId,
+        "git.commit_author_name.rollback",
+      );
+      return {
+        success: false,
+        error: WRITE_GIT_AUTHOR_ERROR,
+      };
     }
 
-    return { success: true };
+    return {
+      success: true,
+      identity: preferredIdentity,
+    };
   }
 
   private async resolveCommitIdentityFromToken(
@@ -888,6 +930,41 @@ export class GitPlugin implements IPlugin {
     };
   }
 
+  private async restoreGitConfigValue(
+    sandbox: Sandbox,
+    worktree: string,
+    key: "user.name" | "user.email",
+    previousValue: string,
+    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
+    runId: string,
+    toolName: string,
+  ): Promise<void> {
+    if (previousValue.length > 0) {
+      await this.writeGitConfigValue(
+        sandbox,
+        worktree,
+        key,
+        previousValue,
+        toolboxContext,
+        runId,
+        toolName,
+      );
+      return;
+    }
+
+    await this.runToolboxCommand(
+      sandbox,
+      {
+        command: "git",
+        args: ["-C", worktree, "config", "--unset", key],
+        runId,
+      },
+      ["git"],
+      toolboxContext,
+      toolName,
+    );
+  }
+
   private async push(
     sandbox: Sandbox,
     worktree: string,
@@ -908,7 +985,7 @@ export class GitPlugin implements IPlugin {
     if (safeBranch) {
       args.push("-u");
       args.push(safeRemote);
-      args.push(safeBranch);
+      args.push(`HEAD:${safeBranch}`);
     } else {
       args.push(safeRemote);
     }
@@ -1205,6 +1282,23 @@ function normalizeFileList(files: string[] | undefined): string[] {
   return files.map((file) => validateRepoRelativePath(file));
 }
 
+function normalizeExplicitCommitIdentity(
+  authorName: string | undefined,
+  authorEmail: string | undefined,
+): GitCommitIdentity | null {
+  const normalizedAuthorName = authorName?.trim() ?? "";
+  const normalizedAuthorEmail = authorEmail?.trim() ?? "";
+  if (!normalizedAuthorName || !normalizedAuthorEmail) {
+    return null;
+  }
+  return {
+    authorName: normalizedAuthorName,
+    authorEmail: normalizedAuthorEmail,
+    source: "user_input",
+    verified: false,
+  };
+}
+
 function sanitizeRef(value: string, label: "branch" | "remote"): string {
   const normalized = value.trim();
   if (!SAFE_GIT_REF_REGEX.test(normalized)) {
@@ -1287,8 +1381,51 @@ function buildGitResult(
   return {
     success: result.exitCode === 0,
     output: result.exitCode === 0 ? successMessage : undefined,
-    error: result.exitCode === 0 ? undefined : result.stderr,
+    error:
+      result.exitCode === 0
+        ? undefined
+        : buildGitCommandFailureMessage(result),
   };
+}
+
+function buildGitCommitResult(
+  result: { exitCode: number; stdout: string; stderr: string },
+  identity: GitCommitIdentity,
+): PluginResult {
+  return {
+    success: result.exitCode === 0,
+    output:
+      result.exitCode === 0
+        ? {
+            content: "Changes committed",
+            commitIdentity: {
+              source: identity.source,
+              verified: identity.verified,
+            },
+          }
+        : undefined,
+    error:
+      result.exitCode === 0
+        ? undefined
+        : buildGitCommandFailureMessage(result),
+  };
+}
+
+function buildGitCommandFailureMessage(result: {
+  stdout: string;
+  stderr: string;
+}): string {
+  const stderr = result.stderr.trim();
+  if (stderr.length > 0) {
+    return stderr;
+  }
+
+  const stdout = result.stdout.trim();
+  if (stdout.length > 0) {
+    return stdout;
+  }
+
+  return "Git command failed.";
 }
 
 function readStringValue(value: unknown): string | null {

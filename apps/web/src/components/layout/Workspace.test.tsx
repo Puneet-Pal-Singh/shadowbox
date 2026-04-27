@@ -32,6 +32,9 @@ const mockGitHubTreeState = vi.hoisted(() => ({
   isGitHubLoaded: false,
   isContextMismatch: false,
 }));
+const mockRunSummaryState = vi.hoisted(() => ({
+  summary: null as { runId: string; status: string | null } | null,
+}));
 const mockChatInterface = vi.hoisted(() =>
   vi.fn((props: unknown) => {
     void props;
@@ -56,6 +59,10 @@ vi.mock("../../hooks/useGitStatus", () => ({
     },
     refetch: mockRefetchGitStatus,
   }),
+}));
+
+vi.mock("../../hooks/useRunSummary", () => ({
+  useRunSummary: () => mockRunSummaryState,
 }));
 
 vi.mock("../../hooks/useGitDiff", () => ({
@@ -132,6 +139,8 @@ describe("Workspace", () => {
     mockBootstrapGitWorkspace.mockReset();
     mockBootstrapGitWorkspace.mockResolvedValue({ status: "ready" });
     mockChatState.isLoading = false;
+    mockChatState.runId = "run-123";
+    mockRunSummaryState.summary = null;
     mockGitHubTreeState.repo = null;
     mockGitHubTreeState.branch = "main";
     mockGitHubTreeState.switchBranch.mockClear();
@@ -139,7 +148,7 @@ describe("Workspace", () => {
     mockGitHubTreeState.isContextMismatch = false;
   });
 
-  it("refreshes git status when a chat run finishes", async () => {
+  it("refreshes git status only when canonical run status reaches terminal", async () => {
     const onSessionStatusChange = vi.fn();
     const { rerender } = render(
       <Workspace
@@ -166,6 +175,20 @@ describe("Workspace", () => {
     expect(onSessionStatusChange).toHaveBeenCalledWith("running");
 
     mockChatState.isLoading = false;
+    mockRunSummaryState.summary = { runId: "run-123", status: "RUNNING" };
+    rerender(
+      <Workspace
+        sessionId="session-123"
+        runId="run-123"
+        repository="career-crew"
+        onSessionStatusChange={onSessionStatusChange}
+      />,
+    );
+
+    expect(onSessionStatusChange).not.toHaveBeenCalledWith("completed");
+    expect(mockRefetchGitStatus).not.toHaveBeenCalled();
+
+    mockRunSummaryState.summary = { runId: "run-123", status: "COMPLETED" };
     rerender(
       <Workspace
         sessionId="session-123"
@@ -181,7 +204,87 @@ describe("Workspace", () => {
     expect(onSessionStatusChange).toHaveBeenCalledWith("completed");
   });
 
-  it("marks session as error when a run finishes with chat error", async () => {
+  it("re-applies canonical terminal status side-effects when the active run changes", async () => {
+    const onSessionStatusChange = vi.fn();
+    const { rerender } = render(
+      <Workspace
+        sessionId="session-123"
+        runId="run-123"
+        repository="career-crew"
+        onSessionStatusChange={onSessionStatusChange}
+      />,
+    );
+
+    mockRunSummaryState.summary = { runId: "run-123", status: "COMPLETED" };
+    rerender(
+      <Workspace
+        sessionId="session-123"
+        runId="run-123"
+        repository="career-crew"
+        onSessionStatusChange={onSessionStatusChange}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(mockRefetchGitStatus).toHaveBeenCalledTimes(1);
+    });
+
+    mockChatState.runId = "run-456";
+    rerender(
+      <Workspace
+        sessionId="session-123"
+        runId="run-123"
+        repository="career-crew"
+        onSessionStatusChange={onSessionStatusChange}
+      />,
+    );
+
+    expect(mockRefetchGitStatus).toHaveBeenCalledTimes(1);
+
+    mockRunSummaryState.summary = { runId: "run-456", status: "COMPLETED" };
+    rerender(
+      <Workspace
+        sessionId="session-123"
+        runId="run-123"
+        repository="career-crew"
+        onSessionStatusChange={onSessionStatusChange}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(mockRefetchGitStatus).toHaveBeenCalledTimes(2);
+    });
+    expect(onSessionStatusChange).toHaveBeenCalledWith("completed");
+  });
+
+  it("ignores stale run summary state from a different runId", async () => {
+    const onSessionStatusChange = vi.fn();
+    const { rerender } = render(
+      <Workspace
+        sessionId="session-123"
+        runId="run-123"
+        repository="career-crew"
+        onSessionStatusChange={onSessionStatusChange}
+      />,
+    );
+
+    mockRunSummaryState.summary = { runId: "run-old", status: "COMPLETED" };
+    rerender(
+      <Workspace
+        sessionId="session-123"
+        runId="run-123"
+        repository="career-crew"
+        onSessionStatusChange={onSessionStatusChange}
+      />,
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(mockRefetchGitStatus).not.toHaveBeenCalled();
+    expect(onSessionStatusChange).not.toHaveBeenCalledWith("completed");
+    expect(onSessionStatusChange).not.toHaveBeenCalledWith("error");
+  });
+
+  it("marks session as error when canonical run status fails", async () => {
     const onSessionStatusChange = vi.fn();
     const { rerender } = render(
       <Workspace
@@ -203,7 +306,7 @@ describe("Workspace", () => {
     );
 
     mockChatState.isLoading = false;
-    mockChatState.error = "Model timeout";
+    mockRunSummaryState.summary = { runId: "run-123", status: "FAILED" };
     rerender(
       <Workspace
         sessionId="session-123"
@@ -216,8 +319,6 @@ describe("Workspace", () => {
     await waitFor(() => {
       expect(onSessionStatusChange).toHaveBeenCalledWith("error");
     });
-
-    mockChatState.error = null;
   });
 
   it("forces a fresh git status fetch after workspace bootstrap succeeds", async () => {
@@ -315,6 +416,27 @@ describe("Workspace", () => {
       expect.objectContaining({
         repoTree: [],
         isLoadingRepoTree: false,
+      }),
+    );
+  });
+
+  it("keeps chat input in loading/stop mode when canonical run is still running", () => {
+    mockRunSummaryState.summary = { runId: "run-123", status: "RUNNING" };
+    mockChatState.isLoading = false;
+
+    render(
+      <Workspace
+        sessionId="session-123"
+        runId="run-123"
+        repository="career-crew"
+      />,
+    );
+
+    expect(mockChatInterface).toHaveBeenCalledWith(
+      expect.objectContaining({
+        chatProps: expect.objectContaining({
+          isLoading: true,
+        }),
       }),
     );
   });

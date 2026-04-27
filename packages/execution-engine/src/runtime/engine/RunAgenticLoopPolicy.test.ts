@@ -796,4 +796,89 @@ describe("RunAgenticLoopPolicy", () => {
     );
     expect(output).not.toContain("<tool_call>");
   });
+
+  it("removes leaked internal-style preface and keeps only user-facing reply text", () => {
+    const result: AgenticLoopResult = {
+      stopReason: "llm_stop",
+      messages: [
+        { role: "user", content: "yo" },
+        {
+          role: "assistant",
+          content:
+            'The user said "yo". This is a greeting. I should respond politely and ask how I can help them with the repo. Yo! How can I help you today?',
+        },
+      ],
+      toolExecutionCount: 0,
+      failedToolCount: 0,
+      stepsExecuted: 1,
+      requiresMutation: false,
+      completedMutatingToolCount: 0,
+      completedReadOnlyToolCount: 0,
+      toolLifecycle: [],
+    };
+
+    const output = buildAgenticLoopFinalOutput(result);
+
+    expect(output).toBe("Yo! How can I help you today?");
+    expect(output).not.toContain("The user said");
+    expect(output).not.toContain("I should respond");
+  });
+
+  it("falls back to synthesized summary when leaked internal preface has no user-facing reply", () => {
+    const result: AgenticLoopResult = {
+      stopReason: "llm_stop",
+      messages: [
+        { role: "user", content: "yo" },
+        {
+          role: "assistant",
+          content:
+            'The user said "yo". This is a greeting. I should respond politely.',
+        },
+      ],
+      toolExecutionCount: 0,
+      failedToolCount: 0,
+      stepsExecuted: 1,
+      requiresMutation: false,
+      completedMutatingToolCount: 0,
+      completedReadOnlyToolCount: 0,
+      toolLifecycle: [],
+    };
+
+    const output = buildAgenticLoopFinalOutput(result);
+
+    expect(output).toContain(
+      "I completed the tool loop, but I could not produce a final assistant answer for this run.",
+    );
+    expect(output).not.toContain("The user said");
+    expect(output).not.toContain("I should respond");
+  });
+
+  it("removes multi-sentence internal planning preface before user-facing text", () => {
+    const result: AgenticLoopResult = {
+      stopReason: "llm_stop",
+      messages: [
+        { role: "user", content: "check my PR" },
+        {
+          role: "assistant",
+          content:
+            "The user wants me to check the PR. I need to inspect branch state first. First, I'll check git status. The current branch is main. Usually, PRs are on their own branches. Wait, I should switch branches. I found the requested issue and can fix it next.",
+        },
+      ],
+      toolExecutionCount: 0,
+      failedToolCount: 0,
+      stepsExecuted: 1,
+      requiresMutation: false,
+      completedMutatingToolCount: 0,
+      completedReadOnlyToolCount: 0,
+      toolLifecycle: [],
+    };
+
+    const output = buildAgenticLoopFinalOutput(result);
+
+    expect(output).toBe("I found the requested issue and can fix it next.");
+    expect(output).not.toContain("The user wants");
+    expect(output).not.toContain("I need to inspect");
+    expect(output).not.toContain("Usually, PRs");
+    expect(output).not.toContain("Wait, I should");
+  });
 });

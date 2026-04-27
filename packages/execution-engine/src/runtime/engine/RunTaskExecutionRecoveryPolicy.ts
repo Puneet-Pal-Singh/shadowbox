@@ -13,6 +13,21 @@ import {
   recordRecoveredAgenticLoopMetadata,
 } from "./RunAgenticLoopPolicy.js";
 
+const PROVIDER_UNAVAILABLE_SIGNAL_PATTERNS = [
+  /failed after \d+ attempts?/i,
+  /provider request failed/i,
+  /provider returned error/i,
+  /network connection lost/i,
+  /connection lost/i,
+  /service unavailable/i,
+  /internal error encountered/i,
+  /econnreset/i,
+  /etimedout/i,
+  /upstream (?:connect|request|transport|service|network|timed? out|error|failure)/i,
+  /status code (?:500|502|503|504)/i,
+];
+const MAX_ERROR_SIGNAL_LENGTH = 240;
+
 interface TaskExecutionRecoveryDependencies {
   completeRunWithRecoveredAssistantMessage: (
     run: Run,
@@ -47,6 +62,10 @@ export async function tryHandleTaskExecutionErrorPolicy(
 
   if (isTaskExecutionUnusableResponse(error)) {
     return handleUnusableResponseRecovery(input, error);
+  }
+
+  if (isRecoverableProviderUnavailable(error)) {
+    return handleProviderUnavailableRecovery(input);
   }
 
   return null;
@@ -135,6 +154,47 @@ async function handleUnusableResponseRecovery(
   );
 }
 
+async function handleProviderUnavailableRecovery(
+  input: Pick<
+    TaskExecutionRecoveryInput,
+    "run" | "prompt" | "loop" | "deps" | "error"
+  >,
+): Promise<Response> {
+  const { run, deps } = input;
+  const context = buildTaskExecutionRecoveryContext(input);
+  const details = buildProviderUnavailableDetails(
+    input.run,
+    input.error,
+    context,
+  );
+  const text = buildProviderUnavailableMessage({
+    requiresMutation: context.requiresMutation,
+    noFileChanged:
+      !context.requiresMutation ||
+      context.stats.completedMutatingToolCount === 0,
+    toolExecutionCount: context.stats.toolExecutionCount,
+    stepsExecuted: context.stats.stepsExecuted,
+    providerId: details.providerId,
+    modelId: details.modelId,
+    statusCode: details.statusCode,
+    lastCompletedAction: details.lastCompletedAction,
+  });
+
+  await deps.runEventRecorder.recordRunProgress(
+    RUN_WORKFLOW_STEPS.EXECUTION,
+    "Recoverable provider interruption",
+    "The provider failed repeatedly before the next action could be produced.",
+    "completed",
+  );
+
+  return deps.completeRunWithRecoveredAssistantMessage(
+    run,
+    text,
+    buildProviderUnavailableMetadata(details),
+    buildProviderUnavailableErrorMetadata(details),
+  );
+}
+
 function buildTaskExecutionRecoveryContext(
   input: Pick<TaskExecutionRecoveryInput, "prompt" | "loop">,
 ): TaskExecutionRecoveryContext {
@@ -160,6 +220,22 @@ function isTaskExecutionUnusableResponse(
   error: unknown,
 ): error is LLMUnusableResponseError {
   return error instanceof LLMUnusableResponseError;
+}
+
+function isRecoverableProviderUnavailable(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  const statusCodes = collectErrorStatusCodes(error);
+  if (statusCodes.some((statusCode) => statusCode >= 500 && statusCode < 600)) {
+    return true;
+  }
+
+  const signalText = getErrorSignalText(error);
+  return PROVIDER_UNAVAILABLE_SIGNAL_PATTERNS.some((pattern) =>
+    pattern.test(signalText),
+  );
 }
 
 function buildTaskExecutionTimeoutMessage(input: {
@@ -206,6 +282,46 @@ function buildTaskExecutionTimeoutMessage(input: {
   return lines.join("\n");
 }
 
+function buildProviderUnavailableMessage(input: {
+  requiresMutation: boolean;
+  noFileChanged: boolean;
+  toolExecutionCount: number;
+  stepsExecuted: number;
+  providerId: string | null;
+  modelId: string | null;
+  statusCode: number | null;
+  lastCompletedAction: string | null;
+}): string {
+  const lines = [
+    "The model provider became unavailable after repeated retries before the next action could be produced.",
+  ];
+  const modelLabel = formatModelLabel(input.providerId, input.modelId);
+  if (modelLabel) {
+    lines.push(`Active model: ${modelLabel}.`);
+  }
+  if (typeof input.statusCode === "number") {
+    lines.push(`Provider status code: ${input.statusCode}.`);
+  }
+  if (input.lastCompletedAction) {
+    lines.push(`Last completed action: ${input.lastCompletedAction}.`);
+  }
+  lines.push(
+    input.noFileChanged
+      ? "No file was changed before the provider interruption."
+      : "The run made partial progress before the provider interruption.",
+    `Execution stats so far: ${input.stepsExecuted} step(s), ${input.toolExecutionCount} tool call(s).`,
+  );
+  if (input.requiresMutation) {
+    lines.push(
+      "Retry with a specific file target, or switch to another provider/model and retry.",
+    );
+  } else {
+    lines.push("Retry the request, or switch to another provider/model.");
+  }
+
+  return lines.join("\n");
+}
+
 function buildTaskExecutionTimeoutMetadata(input: {
   timeoutMs: number | null;
   providerId: string | null;
@@ -224,6 +340,29 @@ function buildTaskExecutionTimeoutMetadata(input: {
       ? { lastCompletedAction: input.lastCompletedAction }
       : undefined),
     resumeHint: "Retry the task or switch to a faster or more reliable model.",
+    resumeActions: ["retry", "switch_model"],
+  };
+}
+
+function buildProviderUnavailableMetadata(input: {
+  providerId: string | null;
+  modelId: string | null;
+  statusCode: number | null;
+  lastCompletedAction: string | null;
+}): Record<string, unknown> {
+  return {
+    code: "PROVIDER_UNAVAILABLE",
+    retryable: true,
+    ...(input.providerId ? { providerId: input.providerId } : undefined),
+    ...(input.modelId ? { modelId: input.modelId } : undefined),
+    ...(typeof input.statusCode === "number"
+      ? { statusCode: input.statusCode }
+      : undefined),
+    ...(input.lastCompletedAction
+      ? { lastCompletedAction: input.lastCompletedAction }
+      : undefined),
+    resumeHint:
+      "Retry in a few seconds. If this repeats, switch provider/model and retry.",
     resumeActions: ["retry", "switch_model"],
   };
 }
@@ -257,6 +396,30 @@ function buildTaskTimeoutDetails(
   };
 }
 
+function buildProviderUnavailableDetails(
+  run: Run,
+  error: unknown,
+  context: TaskExecutionRecoveryContext,
+): {
+  providerId: string | null;
+  modelId: string | null;
+  statusCode: number | null;
+  lastCompletedAction: string | null;
+  signal: string;
+} {
+  return {
+    providerId: sanitizeOptionalString(
+      run.metadata.manifest?.providerId ?? run.input.providerId ?? null,
+    ),
+    modelId: sanitizeOptionalString(
+      run.metadata.manifest?.modelId ?? run.input.modelId ?? null,
+    ),
+    statusCode: resolveProviderStatusCode(error),
+    lastCompletedAction: describeLastCompletedAction(context.stats.toolLifecycle),
+    signal: getBoundedErrorSignal(error),
+  };
+}
+
 function resolveTaskTimeoutMs(error: unknown): number | null {
   if (error instanceof LLMTimeoutError) {
     return error.timeoutMs;
@@ -275,6 +438,54 @@ function resolveTaskTimeoutMs(error: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function resolveProviderStatusCode(error: unknown): number | null {
+  if (!(error instanceof Error)) {
+    return null;
+  }
+
+  const statusCodes = collectErrorStatusCodes(error);
+  return statusCodes[0] ?? null;
+}
+
+function collectErrorStatusCodes(error: Error): number[] {
+  const statusCodes: number[] = [];
+  let current: unknown = error;
+  let depth = 0;
+
+  while (current && depth < 6) {
+    if (current instanceof Error) {
+      const statusCode = readStatusCode(current);
+      if (statusCode !== null) {
+        statusCodes.push(statusCode);
+      }
+      current = (current as { cause?: unknown }).cause;
+      depth += 1;
+      continue;
+    }
+    if (typeof current === "object" && current !== null) {
+      const statusCode = readStatusCode(current);
+      if (statusCode !== null) {
+        statusCodes.push(statusCode);
+      }
+    }
+    break;
+  }
+
+  return statusCodes;
+}
+
+function readStatusCode(value: unknown): number | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const statusCode = (value as Record<string, unknown>).statusCode;
+  if (typeof statusCode !== "number" || !Number.isFinite(statusCode)) {
+    return null;
+  }
+  return statusCode;
+}
+
 function sanitizeOptionalString(value: unknown): string | null {
   if (typeof value !== "string") {
     return null;
@@ -282,6 +493,51 @@ function sanitizeOptionalString(value: unknown): string | null {
 
   const normalized = value.trim();
   return normalized.length > 0 ? normalized : null;
+}
+
+function getErrorSignalText(error: Error): string {
+  const segments: string[] = [];
+  let current: unknown = error;
+  let depth = 0;
+
+  while (current && depth < 6) {
+    if (current instanceof Error) {
+      segments.push(current.message ?? "");
+      current = (current as { cause?: unknown }).cause;
+      depth += 1;
+      continue;
+    }
+    if (typeof current === "string") {
+      segments.push(current);
+      break;
+    }
+    if (typeof current === "object" && current !== null) {
+      try {
+        segments.push(JSON.stringify(current));
+      } catch {
+        segments.push(String(current));
+      }
+      break;
+    }
+    segments.push(String(current));
+    break;
+  }
+
+  return segments.join(" | ").toLowerCase();
+}
+
+function getBoundedErrorSignal(error: unknown): string {
+  if (!(error instanceof Error)) {
+    return "unknown";
+  }
+  const signal = getErrorSignalText(error).replace(/\s+/g, " ").trim();
+  if (!signal) {
+    return "unknown";
+  }
+  if (signal.length <= MAX_ERROR_SIGNAL_LENGTH) {
+    return signal;
+  }
+  return `${signal.slice(0, MAX_ERROR_SIGNAL_LENGTH)}...`;
 }
 
 function formatModelLabel(
@@ -349,4 +605,26 @@ function buildUnusableResponseErrorMetadata(
       : ` finishReason=${finishReason}`;
 
   return `TASK_MODEL_NO_ACTION: Unusable model response after ${attempts} attempt(s). provider=${error.providerId} model=${error.modelId} anomaly=${error.anomalyCode}${suffix}`;
+}
+
+function buildProviderUnavailableErrorMetadata(input: {
+  providerId: string | null;
+  modelId: string | null;
+  statusCode: number | null;
+  signal: string;
+}): string {
+  const statusCodeSuffix =
+    typeof input.statusCode === "number"
+      ? ` statusCode=${input.statusCode}`
+      : "";
+  const providerSuffix =
+    input.providerId && input.modelId
+      ? ` provider=${input.providerId} model=${input.modelId}`
+      : input.providerId
+        ? ` provider=${input.providerId}`
+        : input.modelId
+          ? ` model=${input.modelId}`
+          : "";
+
+  return `PROVIDER_UNAVAILABLE: Provider request failed after retries.${providerSuffix}${statusCodeSuffix} signal=${input.signal}`;
 }

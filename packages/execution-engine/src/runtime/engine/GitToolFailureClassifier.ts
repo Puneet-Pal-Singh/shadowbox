@@ -5,6 +5,7 @@ export type GitToolFailureKind =
   | "bad_ref_or_checkout"
   | "missing_repo_state"
   | "missing_auth_state"
+  | "missing_scope_state"
   | "unsupported_environment"
   | "policy_blocked"
   | "runtime_fatal";
@@ -26,6 +27,8 @@ const BAD_REF_PATTERNS = [
   /src refspec .* does not match any/i,
   /unknown revision or path not in the working tree/i,
   /ambiguous argument/i,
+  /would be overwritten by checkout/i,
+  /please commit your changes or stash them before you switch branches/i,
 ];
 
 const MISSING_REPO_PATTERNS = [
@@ -40,9 +43,18 @@ const MISSING_AUTH_PATTERNS = [
   /could not read (username|password)/i,
   /permission denied \(publickey\)/i,
   /repository not found/i,
-  /\b(401|403)\b/,
+  /\b401\b/,
   /requires authentication/i,
   /gh auth/i,
+];
+
+const MISSING_SCOPE_PATTERNS = [
+  /\binsufficient[_\s-]?scopes?\b/i,
+  /resource not accessible by integration/i,
+  /requires additional authorization/i,
+  /actions read access/i,
+  /forbidden .* scope/i,
+  /insufficient token scope/i,
 ];
 
 const UNSUPPORTED_ENV_PATTERNS = [
@@ -54,6 +66,7 @@ const UNSUPPORTED_ENV_PATTERNS = [
 
 const POLICY_BLOCKED_PATTERNS = [
   /shadowbox wants to/i,
+  /shadowbox cannot continue/i,
   /blocked by policy/i,
   /approval required/i,
   /permission denied by policy/i,
@@ -107,6 +120,13 @@ export class GitToolFailureClassifier {
       };
     }
 
+    if (matchesAny(combinedText, MISSING_SCOPE_PATTERNS)) {
+      return {
+        kind: "missing_scope_state",
+        terminal: true,
+      };
+    }
+
     if (matchesAny(combinedText, UNSUPPORTED_ENV_PATTERNS)) {
       return {
         kind: "unsupported_environment",
@@ -125,6 +145,14 @@ export function shouldClassifyAsGitOrShellFailure(input: {
   toolName: string;
   metadata?: ToolActivityMetadata;
 }): boolean {
+  if (input.toolName === "git_branch_switch") {
+    return true;
+  }
+
+  if (/^github(?:_cli)?_/.test(input.toolName)) {
+    return true;
+  }
+
   if (input.toolName === "bash") {
     return true;
   }

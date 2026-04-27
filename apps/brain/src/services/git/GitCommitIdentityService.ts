@@ -127,6 +127,28 @@ export async function resolveCommitIdentityForStoredUserSession(
   );
 }
 
+export async function resolveCommitIdentityForStoredOAuthSession(
+  env: Env,
+  userId: string,
+): Promise<GitCommitIdentity | null> {
+  const sessionData = await env.SESSIONS.get(`user_session:${userId}`);
+  if (!sessionData) {
+    return null;
+  }
+
+  const session = parseUserSessionRecord(sessionData);
+  if (!session) {
+    return null;
+  }
+
+  const hydratedSession = await hydrateGitHubProfileDefaults(env, {
+    userId,
+    session,
+  });
+  const state = buildGitHubCommitIdentityState(hydratedSession);
+  return state.state === "ready" ? state.identity : null;
+}
+
 export async function resolveGitHubProfileIdentityFromOAuth(
   accessToken: string,
   user: GitHubUser,
@@ -257,10 +279,11 @@ async function hydrateGitHubProfileDefaults(
 }
 
 function hasHydratedGitHubProfile(session: UserSessionRecord): boolean {
+  const email = session.email?.trim() ?? "";
   return (
     resolveAuthorName(session.name, session.login).length > 0 &&
-    typeof session.email === "string" &&
-    session.email.trim().length > 0
+    email.length > 0 &&
+    !isGitHubNoreplyEmail(email)
   );
 }
 

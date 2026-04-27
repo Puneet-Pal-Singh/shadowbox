@@ -186,6 +186,21 @@ function mapBootstrapResultToMessage(
   const reason =
     bootstrapResult.message ??
     "Repository sync failed. Please confirm the branch exists and retry.";
+  const branchSwitchConflictMessage = mapBranchSwitchConflictMessage({
+    reason,
+    branch: repositoryContext.branch,
+    repoRef,
+  });
+  if (branchSwitchConflictMessage) {
+    return branchSwitchConflictMessage;
+  }
+  const transientBootstrapMessage = mapTransientBootstrapFailureMessage(
+    reason,
+    repoRef,
+  );
+  if (transientBootstrapMessage) {
+    return transientBootstrapMessage;
+  }
   return `I couldn't prepare the workspace for ${repoRef}. ${reason}`;
 }
 
@@ -201,4 +216,84 @@ function isExpectedBootstrapMiss(message: string | undefined): boolean {
     return false;
   }
   return /not a git repository/i.test(message);
+}
+
+function mapTransientBootstrapFailureMessage(
+  reason: string,
+  repoRef: string,
+): string | null {
+  if (!isTransientBootstrapFailure(reason)) {
+    return null;
+  }
+  return `I couldn't prepare the workspace for ${repoRef} because the git service is temporarily unavailable. Please retry in a few seconds.`;
+}
+
+function isTransientBootstrapFailure(reason: string): boolean {
+  return (
+    /network connection lost/i.test(reason) ||
+    /failed to fetch/i.test(reason) ||
+    /service unavailable/i.test(reason) ||
+    /timed out/i.test(reason) ||
+    /econnrefused/i.test(reason) ||
+    /upstream connect error/i.test(reason) ||
+    /sandboxerror:\s*http error!\s*status:\s*5\d\d/i.test(reason) ||
+    /http error!\s*status:\s*5\d\d/i.test(reason) ||
+    /failed with http 5\d\d/i.test(reason) ||
+    /couldn't find a local dev session/i.test(reason) ||
+    /entrypoint of service .* to proxy to/i.test(reason)
+  );
+}
+
+function mapBranchSwitchConflictMessage(input: {
+  reason: string;
+  branch?: string;
+  repoRef: string;
+}): string | null {
+  if (!/would be overwritten by checkout/i.test(input.reason)) {
+    return null;
+  }
+
+  const branch = input.branch?.trim();
+  const targetLabel =
+    branch && branch.length > 0 ? `\`${branch}\`` : "the selected branch";
+  const conflictedFiles = extractCheckoutConflictFiles(input.reason);
+  const conflictedFilesSummary =
+    conflictedFiles.length > 0
+      ? `Conflicting file(s): ${conflictedFiles.join(", ")}.`
+      : "Git reported local edits would be overwritten by checkout.";
+
+  return [
+    `I couldn't prepare the workspace for ${input.repoRef} because switching to ${targetLabel} would overwrite local changes.`,
+    conflictedFilesSummary,
+    "No local edits were discarded.",
+    "Commit or stash those edits first, then retry the action.",
+  ].join(" ");
+}
+
+function extractCheckoutConflictFiles(reason: string): string[] {
+  const normalized = reason.replace(/\\n/g, "\n");
+  const lines = normalized
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+
+  const checkoutIndex = lines.findIndex((line) =>
+    /would be overwritten by checkout:/i.test(line),
+  );
+  if (checkoutIndex === -1) {
+    return [];
+  }
+
+  const files: string[] = [];
+  for (const line of lines.slice(checkoutIndex + 1)) {
+    if (/^please commit your changes/i.test(line) || /^aborting$/i.test(line)) {
+      break;
+    }
+    const normalizedFile = line.replace(/^['"+\s\t]+|['"]+$/g, "").trim();
+    if (normalizedFile.length > 0) {
+      files.push(normalizedFile);
+    }
+  }
+
+  return files;
 }

@@ -11,6 +11,7 @@ export interface ToolboxSessionRequest {
   callId: string;
   command: string;
   args?: string[];
+  env?: Record<string, string | undefined>;
   cwd?: string;
   timeoutMs?: number;
 }
@@ -47,6 +48,14 @@ export interface ToolboxCommandResult {
   stderr: string;
 }
 
+export interface ToolboxCommandExecutionOptions {
+  cwd?: string;
+  env?: Record<string, string | undefined>;
+}
+
 export interface ToolboxCommandExecutor {
-  execute(command: string): Promise<ToolboxCommandResult>;
+  execute(
+    command: string,
+    options?: ToolboxCommandExecutionOptions,
+  ): Promise<ToolboxCommandResult>;
 }

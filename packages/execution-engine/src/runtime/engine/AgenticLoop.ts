@@ -165,7 +165,7 @@ export class AgenticLoop {
     const latestTurnExplicitCiLogRequest =
       latestTurnRequestsCiLogs(initialMessages);
     let encounteredCiLogsAuthorizationBoundary = false;
-    let attemptedCiLogsGhFallback = false;
+    let attemptedCiLogsCliFallback = false;
     let stopReason: StopReason | null = null;
     let correctiveMutationRetryIssued = false;
 
@@ -233,7 +233,7 @@ export class AgenticLoop {
               correctiveRetryRequested: correctiveMutationRetryIssued,
               explicitCiLogRequest: latestTurnExplicitCiLogRequest,
               encounteredCiLogsAuthorizationBoundary,
-              attemptedCiLogsGhFallback,
+              attemptedCiLogsCliFallback,
             }),
             tools: isFinalSynthesisStep ? undefined : tools,
             model: context.modelId,
@@ -247,10 +247,13 @@ export class AgenticLoop {
         throw error;
       }
 
+      const responseText =
+        typeof response.text === "string" ? response.text : "";
+
       // Add LLM response to messages
-      messages.push(buildAssistantMessage(response.text, response.toolCalls));
+      messages.push(buildAssistantMessage(responseText, response.toolCalls));
       if (response.toolCalls && response.toolCalls.length > 0) {
-        await context.onAssistantMessage?.(response.text);
+        await context.onAssistantMessage?.(responseText);
       }
 
       // Check if LLM requested tool calls
@@ -301,8 +304,8 @@ export class AgenticLoop {
         this.toolExecutionCount++;
         this.recordToolLifecycle(toolCall, "requested");
         await context.onToolRequested?.(toolCall);
-        if (isCiLogsGhFallbackToolCall(toolCall)) {
-          attemptedCiLogsGhFallback = true;
+        if (isCiLogsCliFallbackToolCall(toolCall)) {
+          attemptedCiLogsCliFallback = true;
         }
 
         if (await isCancellationRequested(context)) {
@@ -724,7 +727,7 @@ function buildAgenticLoopSystemPrompt(input: {
   correctiveRetryRequested: boolean;
   explicitCiLogRequest: boolean;
   encounteredCiLogsAuthorizationBoundary: boolean;
-  attemptedCiLogsGhFallback: boolean;
+  attemptedCiLogsCliFallback: boolean;
 }): string {
   const sections = [
     "You are Shadowbox's autonomous build agent.",
@@ -735,17 +738,19 @@ function buildAgenticLoopSystemPrompt(input: {
     "- Use shell/bash for git only when the required step is not covered by typed git tools, or when the user explicitly asks for a shell command.",
     "- Never run git config user.name or git config user.email through bash during agent flow. For commit identity issues, use git_commit with authorName and authorEmail (or rely on OAuth-backed identity).",
     "- Use GitHub connector read tools for remote metadata (PRs, checks, reviews, issues). Prefer github_pr_list for discovering the current PR by branch, then github_pr_get/github_pr_checks_get/github_review_threads_get.",
+    "- For pull-request note/comment requests, use github_cli_pr_comment through the bounded CLI lane instead of raw gh shell commands.",
     "- For CI/debug requests, use github_pr_checks_get to identify failing checks and github_actions_job_logs_get to fetch failing job log tails before proposing fixes.",
     "- If github_actions_job_logs_get returns 401/403, treat it as an authorization boundary and stop retrying the same logs request.",
-    "- Even when the user mentions gh, prefer github_* connector tools first. Use gh via bash only if the user explicitly asks for a concrete gh shell command.",
-    "- Do not probe for gh availability (for example gh --version) unless the user explicitly asked for gh shell commands.",
-    "- Do not invoke gh through bash unless the user explicitly asks to run a gh command, or a CI log connector request failed with 401/403 and you are attempting a bounded fallback.",
+    "- Prefer github_* connector tools first for GitHub metadata. Use the bounded github_cli_* tools as the parity lane when connector coverage or authorization is insufficient.",
+    "- Keep raw gh shell usage discouraged. Do not invoke gh through bash for autonomous GitHub tasks.",
     "- Never ask the user to type internal approval directives or magic command phrases. Ask them to use approval controls, or explain the required approval plainly.",
     "- When a git shell command fails with a normal nonzero exit, inspect the error and choose the next bounded recovery step instead of stopping immediately.",
     "- A clean git status after a failed push or PR step often means the changes were already committed locally. Do not recreate files just because the working tree is clean.",
     "- When staging for a request, detect the changed paths and stage only those specific files. Never stage the whole workspace just to make commit or push succeed.",
     "- If git_push fails because the remote branch is ahead or non-fast-forward, do not rewrite files. Use git_pull to sync with a fast-forward-only pull, then retry git_push. If git_pull cannot fast-forward, stop and explain that manual branch resolution is required.",
     "- For repository or git status questions without a specific command, use git_status before answering.",
+    "- For PR-targeted edits, resolve the PR head branch and switch to that branch before any write_file mutation.",
+    "- If git_branch_switch reports checkout-overwrite conflicts, do not stop. Decide the next bounded recovery step (for example commit or stash on the current branch, then retry switching).",
     "- For vague component, page, route, or file questions, discover with list_files, glob, or grep before read_file.",
     "- Prefer narrowing search after one broad listing. Do not repeat the same missing path after a file-not-found error.",
     "- If a non-mutating tool returns no match or not found, keep exploring with different tools or paths instead of stopping.",
@@ -786,14 +791,14 @@ function buildAgenticLoopSystemPrompt(input: {
 
     if (
       input.encounteredCiLogsAuthorizationBoundary &&
-      !input.attemptedCiLogsGhFallback
+      !input.attemptedCiLogsCliFallback
     ) {
       sections.push(
         [
           "CI logs auth-boundary fallback:",
           "- You already hit a 401/403 on github_actions_job_logs_get in this run.",
-          "- Attempt one bounded bash fallback via gh API for the same job logs before finalizing.",
-          "- If gh is missing or still unauthorized, stop retrying and clearly report that outcome.",
+          "- Attempt one bounded github_cli_actions_job_logs_get fallback for the same job logs before finalizing.",
+          "- If GitHub CLI is unavailable or still unauthorized, stop retrying and clearly report that outcome.",
         ].join("\n"),
       );
     }
@@ -1070,14 +1075,8 @@ function isCiLogsAuthorizationBoundaryFailure(
   );
 }
 
-function isCiLogsGhFallbackToolCall(toolCall: AgenticLoopToolCall): boolean {
-  if (toolCall.toolName !== "bash") {
-    return false;
-  }
-
-  const command =
-    typeof toolCall.args.command === "string" ? toolCall.args.command : "";
-  return /\bgh\b/i.test(command);
+function isCiLogsCliFallbackToolCall(toolCall: AgenticLoopToolCall): boolean {
+  return toolCall.toolName === "github_cli_actions_job_logs_get";
 }
 
 function extractTextParts(content: CoreMessage["content"]): string {

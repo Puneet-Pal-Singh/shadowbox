@@ -97,6 +97,8 @@ const bootstrapRequestsByWorkspace = new Map<
 >();
 const ERROR_LOG_WINDOW_MS = 30_000;
 const GIT_SESSION_TIMEOUT_MS = 10_000;
+const GIT_STATUS_MAX_ATTEMPTS = 3;
+const GIT_STATUS_RETRY_DELAY_MS = 250;
 type SecureApiFetch = Env["SECURE_API"]["fetch"];
 type SecureApiResponse = Awaited<ReturnType<SecureApiFetch>>;
 type SecureApiRequestInit = Parameters<SecureApiFetch>[1];
@@ -147,15 +149,7 @@ export class GitController {
       }
 
       const muscleSession = resolveMuscleSessionId(runId, sessionId);
-      const rawPayload = await executeGitViaCanonicalApi(
-        env,
-        muscleSession,
-        runId,
-        "status",
-        {},
-        MUSCLE_STATUS_TIMEOUT_MS,
-      );
-      const data = parseGitPayload<GitStatusResponse>(rawPayload, "status");
+      const data = await getCurrentGitStatus(env, muscleSession, runId);
 
       return corsJsonResponse(req, env, data);
     } catch (error) {
@@ -622,15 +616,67 @@ async function getCurrentGitStatus(
   muscleSession: string,
   runId: string,
 ): Promise<GitStatusResponse> {
-  const rawPayload = await executeGitViaCanonicalApi(
+  const rawPayload = await executeGitStatusViaCanonicalApiWithRetry(
     env,
     muscleSession,
     runId,
-    "status",
-    {},
-    MUSCLE_STATUS_TIMEOUT_MS,
   );
   return parseGitPayload<GitStatusResponse>(rawPayload, "status");
+}
+
+async function executeGitStatusViaCanonicalApiWithRetry(
+  env: Env,
+  muscleSession: string,
+  runId: string,
+): Promise<PluginSuccessPayload | PluginErrorPayload> {
+  for (let attempt = 1; attempt <= GIT_STATUS_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      const payload = await executeGitViaCanonicalApi(
+        env,
+        muscleSession,
+        runId,
+        "status",
+        {},
+        MUSCLE_STATUS_TIMEOUT_MS,
+      );
+      if (
+        attempt < GIT_STATUS_MAX_ATTEMPTS &&
+        shouldRetryGitStatusPayload(payload)
+      ) {
+        const delayMs = GIT_STATUS_RETRY_DELAY_MS * attempt;
+        logWarnRateLimited(
+          `GitController:getStatus:retry-payload:${runId}`,
+          `[GitController:getStatus] Retrying transient git status plugin failure (attempt ${attempt + 1}/${GIT_STATUS_MAX_ATTEMPTS})`,
+          undefined,
+          ERROR_LOG_WINDOW_MS,
+        );
+        await sleep(delayMs);
+        continue;
+      }
+      return payload;
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      if (
+        attempt >= GIT_STATUS_MAX_ATTEMPTS ||
+        !isTransientGitServiceError(errorMessage) ||
+        isGitExecutionContractError(errorMessage)
+      ) {
+        throw error;
+      }
+
+      const delayMs = GIT_STATUS_RETRY_DELAY_MS * attempt;
+      logWarnRateLimited(
+        `GitController:getStatus:retry-throw:${runId}`,
+        `[GitController:getStatus] Retrying transient git status error (attempt ${attempt + 1}/${GIT_STATUS_MAX_ATTEMPTS})`,
+        { error: sanitizeUnknownError(error) },
+        ERROR_LOG_WINDOW_MS,
+      );
+      await sleep(delayMs);
+    }
+  }
+
+  throw new Error("Git status retry loop terminated unexpectedly.");
 }
 
 async function getCurrentGitBranch(
@@ -830,6 +876,19 @@ function isPluginPayload(
 
 function isPluginErrorPayload(payload: unknown): payload is PluginErrorPayload {
   return isPluginPayload(payload) && payload.success === false;
+}
+
+function shouldRetryGitStatusPayload(
+  payload: PluginSuccessPayload | PluginErrorPayload,
+): boolean {
+  if (!isPluginErrorPayload(payload)) {
+    return false;
+  }
+  const errorMessage = readPluginErrorMessage(payload);
+  return (
+    isTransientGitServiceError(errorMessage) &&
+    !isGitExecutionContractError(errorMessage)
+  );
 }
 
 function readPluginErrorMessage(payload: PluginErrorPayload): string {
@@ -1137,7 +1196,9 @@ function isTransientGitServiceError(message: string): boolean {
     /upstream connect error/i.test(message) ||
     /sandboxerror:\s*http error!\s*status:\s*5\d\d/i.test(message) ||
     /http error!\s*status:\s*5\d\d/i.test(message) ||
-    /failed with http 5\d\d/i.test(message)
+    /failed with http 5\d\d/i.test(message) ||
+    /couldn't find a local dev session/i.test(message) ||
+    /entrypoint of service .* to proxy to/i.test(message)
   );
 }
 
@@ -1220,6 +1281,13 @@ async function fetchSecureApiWithTimeout(
       clearTimeout(timeout);
     }
   }
+}
+
+async function sleep(durationMs: number): Promise<void> {
+  if (durationMs <= 0) {
+    return;
+  }
+  await new Promise((resolve) => setTimeout(resolve, durationMs));
 }
 
 async function assertMuscleResponseOk(

@@ -27,6 +27,7 @@ describe("AuthService", () => {
               avatar: "https://example.com/avatar.png",
               email: "user@example.com",
               name: "Shadowbox User",
+              githubScopes: ["repo", "read:user", "user:email"],
               encryptedToken: {
                 ciphertext: "ciphertext",
                 iv: "iv",
@@ -41,6 +42,11 @@ describe("AuthService", () => {
     expect(result).not.toBeNull();
     expect(result?.userId).toBe("user-1");
     expect(result?.session.login).toBe("shadowbox-user");
+    expect(result?.session.githubScopes).toEqual([
+      "repo",
+      "read:user",
+      "user:email",
+    ]);
   });
 
   it("returns null for malformed persisted user sessions", async () => {
@@ -89,6 +95,42 @@ describe("AuthService", () => {
     await expect(resultPromise).rejects.toBeInstanceOf(
       SessionStoreUnavailableError,
     );
+  });
+
+  it("returns null when persisted githubScopes shape is invalid", async () => {
+    const secret = "test-secret";
+    const token = await createSignedSessionToken("user-1", secret);
+    const request = new Request("https://shadowbox.test", {
+      headers: {
+        Cookie: `shadowbox_session=${token}`,
+      },
+    });
+
+    const result = await getAuthenticatedUserSession(
+      request,
+      {
+        SESSION_SECRET: secret,
+        SESSIONS: {
+          get: async () =>
+            JSON.stringify({
+              userId: "user-1",
+              login: "shadowbox-user",
+              avatar: "https://example.com/avatar.png",
+              email: "user@example.com",
+              name: "Shadowbox User",
+              githubScopes: "repo",
+              encryptedToken: {
+                ciphertext: "ciphertext",
+                iv: "iv",
+                tag: "tag",
+              },
+              createdAt: Date.now(),
+            }),
+        },
+      } as unknown as Env,
+    );
+
+    expect(result).toBeNull();
   });
 });
 

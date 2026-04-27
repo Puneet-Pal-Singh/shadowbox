@@ -22,6 +22,7 @@ import {
   isSessionStoreUnavailableError,
   verifySessionToken,
 } from "../services/AuthService";
+import { parseGitHubScopeList } from "../services/github/GitHubScopeMatrix";
 import {
   readCommitIdentityStateForUser,
   resolveGitHubProfileIdentityFromOAuth,
@@ -177,6 +178,9 @@ export class AuthController {
       console.log("[auth/callback] exchanging code for token");
       const tokenResponse = await exchangeCodeForToken(code, config);
       console.log("[auth/callback] token received");
+      const grantedScopes = parseGitHubScopeList(
+        (tokenResponse as { scope?: unknown }).scope,
+      );
 
       // Fetch user details
       console.log("[auth/callback] fetching user details");
@@ -201,6 +205,7 @@ export class AuthController {
         avatar: user.avatar_url,
         email: commitIdentityDefaults.authorEmail,
         name: commitIdentityDefaults.authorName,
+        githubScopes: grantedScopes ?? undefined,
         encryptedToken,
         createdAt: Date.now(),
       };
@@ -264,6 +269,7 @@ export class AuthController {
           avatar: session.avatar,
           email: session.email,
           name: session.name ?? null,
+          githubScopes: session.githubScopes ?? [],
           commitIdentity,
         },
       });

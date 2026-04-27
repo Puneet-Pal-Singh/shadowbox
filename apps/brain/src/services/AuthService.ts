@@ -20,6 +20,7 @@ export interface UserSessionRecord {
   avatar: string;
   email: string | null;
   name?: string | null;
+  githubScopes?: string[];
   encryptedToken: EncryptedToken;
   createdAt: number;
   commitIdentity?: GitCommitIdentityState;
@@ -212,7 +213,10 @@ function isUserSessionRecord(value: unknown): value is UserSessionRecord {
     (record.email === null || typeof record.email === "string") &&
     (record.name === undefined ||
       record.name === null ||
-      typeof record.name === "string")
+      typeof record.name === "string") &&
+    (record.githubScopes === undefined ||
+      (Array.isArray(record.githubScopes) &&
+        record.githubScopes.every((entry) => typeof entry === "string")))
   );
 }
 

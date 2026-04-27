@@ -110,6 +110,15 @@ const GitToolMetadataSchema = z.object({
   path: z.string().optional(),
   count: z.number().int().min(0).optional(),
   preview: z.string().optional(),
+  commitIdentitySource: z
+    .enum([
+      "workspace_git_config",
+      "persisted_preference",
+      "github_profile",
+      "user_input",
+    ])
+    .optional(),
+  commitIdentityVerified: z.boolean().optional(),
 });
 
 const GenericToolMetadataSchema = z.object({

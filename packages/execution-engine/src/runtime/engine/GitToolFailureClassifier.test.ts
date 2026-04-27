@@ -25,6 +25,19 @@ describe("GitToolFailureClassifier", () => {
     });
   });
 
+  it("classifies checkout-overwrite conflicts as recoverable checkout failures", () => {
+    expect(
+      classifier.classify({
+        toolName: "git_branch_switch",
+        message:
+          "error: Your local changes to the following files would be overwritten by checkout:\n\tsrc/components/layout/Footer.tsx\nPlease commit your changes or stash them before you switch branches.\nAborting",
+      }),
+    ).toEqual({
+      kind: "bad_ref_or_checkout",
+      terminal: false,
+    });
+  });
+
   it("classifies auth failures as recoverable missing-auth state", () => {
     expect(
       classifier.classify({
@@ -37,11 +50,37 @@ describe("GitToolFailureClassifier", () => {
     });
   });
 
+  it("classifies scope-boundary failures as terminal missing-scope state", () => {
+    expect(
+      classifier.classify({
+        toolName: "github_cli_actions_job_logs_get",
+        message:
+          "GitHub CLI request was forbidden (403) due to insufficient token scope or permissions.",
+      }),
+    ).toEqual({
+      kind: "missing_scope_state",
+      terminal: true,
+    });
+  });
+
   it("marks policy denials as terminal", () => {
     expect(
       classifier.classify({
         toolName: "bash",
         message: "Shadowbox wants to run a shell command that needs approval",
+      }),
+    ).toEqual({
+      kind: "policy_blocked",
+      terminal: true,
+    });
+  });
+
+  it("marks 'cannot continue' policy guardrails as terminal", () => {
+    expect(
+      classifier.classify({
+        toolName: "git_push",
+        message:
+          "Shadowbox cannot continue with git stage/commit/push yet because no successful file mutation has occurred in this run.",
       }),
     ).toEqual({
       kind: "policy_blocked",
@@ -82,6 +121,14 @@ describe("GitToolFailureClassifier", () => {
 });
 
 describe("shouldClassifyAsGitOrShellFailure", () => {
+  it("includes branch-switch typed git failures", () => {
+    expect(
+      shouldClassifyAsGitOrShellFailure({
+        toolName: "git_branch_switch",
+      }),
+    ).toBe(true);
+  });
+
   it("includes bash tool failures", () => {
     expect(
       shouldClassifyAsGitOrShellFailure({
@@ -100,6 +147,19 @@ describe("shouldClassifyAsGitOrShellFailure", () => {
           origin: "agent_tool",
           truncated: false,
         },
+      }),
+    ).toBe(true);
+  });
+
+  it("includes github and github_cli tool failures", () => {
+    expect(
+      shouldClassifyAsGitOrShellFailure({
+        toolName: "github_actions_job_logs_get",
+      }),
+    ).toBe(true);
+    expect(
+      shouldClassifyAsGitOrShellFailure({
+        toolName: "github_cli_pr_comment",
       }),
     ).toBe(true);
   });

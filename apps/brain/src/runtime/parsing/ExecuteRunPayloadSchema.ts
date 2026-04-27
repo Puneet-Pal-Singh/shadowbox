@@ -93,6 +93,9 @@ export const ExecuteRunPayloadSchema = z.object({
             .object({
               agenticLoopV1: z.boolean().optional(),
               reviewerPassV1: z.boolean().optional(),
+              ghCliLaneEnabled: z.boolean().optional(),
+              ghCliCiEnabled: z.boolean().optional(),
+              ghCliPrCommentEnabled: z.boolean().optional(),
             })
             .optional(),
           permissionPolicy: z

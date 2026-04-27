@@ -40,6 +40,24 @@ describe("RunRiskyActionPolicy", () => {
     expect(result.kind).toBe("allow");
   });
 
+  it("allows read-only github_cli metadata tools by default", async () => {
+    const store = new PermissionApprovalStore(new MockRuntimeState(), "run-risk-1c");
+
+    const result = await evaluateToolPermission({
+      runId: "run-risk-1c",
+      sessionId: "session-1",
+      origin: "agent",
+      productMode: "auto_for_safe",
+      workflowIntent: "explore",
+      toolName: "github_cli_actions_job_logs_get",
+      toolArgs: { owner: "acme", repo: "career-crew", actionsJobId: 901 },
+      hasMutationEvidence: false,
+      approvalStore: store,
+    });
+
+    expect(result.kind).toBe("allow");
+  });
+
   it("denies git commit until mutation evidence exists", async () => {
     const store = new PermissionApprovalStore(new MockRuntimeState(), "run-risk-2");
 
@@ -60,6 +78,51 @@ describe("RunRiskyActionPolicy", () => {
       throw new Error("Expected deny result");
     }
     expect(result.reason).toContain("no successful file mutation");
+  });
+
+  it("denies git push without in-run mutation evidence unless continuation explicitly allows resume", async () => {
+    const store = new PermissionApprovalStore(new MockRuntimeState(), "run-risk-2a");
+
+    const result = await evaluateToolPermission({
+      runId: "run-risk-2a",
+      sessionId: "session-1",
+      origin: "agent",
+      productMode: "auto_for_safe",
+      workflowIntent: "ship",
+      toolName: "git_push",
+      toolArgs: { remote: "origin", branch: "feat/floating-hero-carousels" },
+      hasMutationEvidence: false,
+      approvalStore: store,
+    });
+
+    expect(result.kind).toBe("deny");
+    if (result.kind !== "deny") {
+      throw new Error("Expected deny result");
+    }
+    expect(result.reason).toContain("no successful file mutation");
+  });
+
+  it("allows git push resume when prior commit evidence exists in continuation", async () => {
+    const store = new PermissionApprovalStore(new MockRuntimeState(), "run-risk-2b");
+
+    const result = await evaluateToolPermission({
+      runId: "run-risk-2b",
+      sessionId: "session-1",
+      origin: "agent",
+      productMode: "auto_for_safe",
+      workflowIntent: "ship",
+      toolName: "git_push",
+      toolArgs: { remote: "origin", branch: "feat/floating-hero-carousels" },
+      hasMutationEvidence: false,
+      allowResumeGitPush: true,
+      approvalStore: store,
+    });
+
+    expect(result.kind).toBe("ask");
+    if (result.kind !== "ask") {
+      throw new Error("Expected ask result");
+    }
+    expect(result.request.category).toBe("git_mutation");
   });
 
   it("asks for git mutation approvals and offers persistent rule only when safe", async () => {
@@ -214,6 +277,91 @@ describe("RunRiskyActionPolicy", () => {
       throw new Error("Expected ask result");
     }
     expect(result.request.category).toBe("git_mutation");
+  });
+
+  it("maps github_cli_pr_comment to git_mutation approval with PR-and-body fingerprint", async () => {
+    const store = new PermissionApprovalStore(new MockRuntimeState(), "run-risk-4dd");
+
+    const result = await evaluateToolPermission({
+      runId: "run-risk-4dd",
+      sessionId: "session-1",
+      origin: "agent",
+      productMode: "auto_for_safe",
+      workflowIntent: "ship",
+      toolName: "github_cli_pr_comment",
+      toolArgs: {
+        owner: "acme",
+        repo: "career-crew",
+        number: 228,
+        body: "Please rerun CI after rebase.",
+      },
+      hasMutationEvidence: true,
+      approvalStore: store,
+    });
+
+    expect(result.kind).toBe("ask");
+    if (result.kind !== "ask") {
+      throw new Error("Expected ask result");
+    }
+    expect(result.request.category).toBe("git_mutation");
+    expect(result.request.actionFingerprint).toMatch(
+      /^git_mutation:github_cli_pr_comment:acme\/career-crew:pr:228:body:[0-9a-f]{8}$/,
+    );
+    expect(result.request.remoteTarget).toBe("acme/career-crew");
+    expect(result.request.availableDecisions).toEqual(
+      expect.arrayContaining(["allow_once", "allow_for_run", "deny"]),
+    );
+    expect(result.request.availableDecisions).toEqual(
+      expect.not.arrayContaining(["allow_persistent_rule"]),
+    );
+  });
+
+  it("produces different PR comment approval fingerprints for different bodies", async () => {
+    const firstStore = new PermissionApprovalStore(new MockRuntimeState(), "run-risk-4de-1");
+    const secondStore = new PermissionApprovalStore(new MockRuntimeState(), "run-risk-4de-2");
+
+    const first = await evaluateToolPermission({
+      runId: "run-risk-4de-1",
+      sessionId: "session-1",
+      origin: "agent",
+      productMode: "auto_for_safe",
+      workflowIntent: "ship",
+      toolName: "github_cli_pr_comment",
+      toolArgs: {
+        owner: "acme",
+        repo: "career-crew",
+        number: 228,
+        body: "Please rerun CI after rebase.",
+      },
+      hasMutationEvidence: true,
+      approvalStore: firstStore,
+    });
+    const second = await evaluateToolPermission({
+      runId: "run-risk-4de-2",
+      sessionId: "session-1",
+      origin: "agent",
+      productMode: "auto_for_safe",
+      workflowIntent: "ship",
+      toolName: "github_cli_pr_comment",
+      toolArgs: {
+        owner: "acme",
+        repo: "career-crew",
+        number: 228,
+        body: "LGTM, shipping now.",
+      },
+      hasMutationEvidence: true,
+      approvalStore: secondStore,
+    });
+
+    expect(first.kind).toBe("ask");
+    expect(second.kind).toBe("ask");
+    if (first.kind !== "ask" || second.kind !== "ask") {
+      throw new Error("Expected ask result");
+    }
+
+    expect(first.request.actionFingerprint).not.toBe(
+      second.request.actionFingerprint,
+    );
   });
 
   it("allows file writes in auto_for_safe mode", async () => {

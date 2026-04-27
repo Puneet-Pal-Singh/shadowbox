@@ -32,6 +32,10 @@ describe("CodingToolGateway", () => {
       "github_issue_get",
       "github_actions_run_get",
       "github_actions_job_logs_get",
+      "github_cli_pr_checks_get",
+      "github_cli_actions_run_get",
+      "github_cli_actions_job_logs_get",
+      "github_cli_pr_comment",
       "glob",
       "grep",
     ]);
@@ -81,6 +85,26 @@ describe("CodingToolGateway", () => {
       plugin: "github",
       action: "actions_job_logs_get",
     });
+    expect(getGoldenFlowToolRoute("github_cli_pr_checks_get")).toEqual({
+      toolName: "github_cli_pr_checks_get",
+      plugin: "github_cli",
+      action: "pr_checks_get",
+    });
+    expect(getGoldenFlowToolRoute("github_cli_actions_run_get")).toEqual({
+      toolName: "github_cli_actions_run_get",
+      plugin: "github_cli",
+      action: "actions_run_get",
+    });
+    expect(getGoldenFlowToolRoute("github_cli_actions_job_logs_get")).toEqual({
+      toolName: "github_cli_actions_job_logs_get",
+      plugin: "github_cli",
+      action: "actions_job_logs_get",
+    });
+    expect(getGoldenFlowToolRoute("github_cli_pr_comment")).toEqual({
+      toolName: "github_cli_pr_comment",
+      plugin: "github_cli",
+      action: "pr_comment",
+    });
     expect(getGoldenFlowToolRoute("git_pull")).toEqual({
       toolName: "git_pull",
       plugin: "git",
@@ -100,6 +124,7 @@ describe("CodingToolGateway", () => {
     expect(isMutatingGoldenFlowToolName("git_commit")).toBe(true);
     expect(isMutatingGoldenFlowToolName("git_pull")).toBe(true);
     expect(isMutatingGoldenFlowToolName("git_create_pull_request")).toBe(true);
+    expect(isMutatingGoldenFlowToolName("github_cli_pr_comment")).toBe(true);
     expect(isMutatingGoldenFlowToolName("github_pr_get")).toBe(false);
     expect(isMutatingGoldenFlowToolName("read_file")).toBe(false);
     expect(isMutatingGoldenFlowToolName("git_diff")).toBe(false);
@@ -115,11 +140,54 @@ describe("CodingToolGateway", () => {
         description: "unsupported",
         parameters: {},
       } as unknown as import("ai").CoreTool,
+    }, {
+      featureFlags: {
+        ghCliLaneEnabled: true,
+        ghCliCiEnabled: true,
+        ghCliPrCommentEnabled: true,
+      },
     });
 
     expect(filtered.read_file?.description).toBe("custom read");
     expect(Object.keys(filtered)).toEqual(getGoldenFlowToolNames());
     expect("web_search" in filtered).toBe(false);
+  });
+
+  it("applies GitHub CLI lane feature flags to the tool floor", () => {
+    const allDisabled = enforceGoldenFlowToolFloor({}, {
+      featureFlags: {
+        ghCliLaneEnabled: false,
+        ghCliCiEnabled: false,
+        ghCliPrCommentEnabled: false,
+      },
+    });
+    expect(allDisabled.github_cli_pr_checks_get).toBeUndefined();
+    expect(allDisabled.github_cli_actions_run_get).toBeUndefined();
+    expect(allDisabled.github_cli_actions_job_logs_get).toBeUndefined();
+    expect(allDisabled.github_cli_pr_comment).toBeUndefined();
+
+    const ciOnly = enforceGoldenFlowToolFloor({}, {
+      featureFlags: {
+        ghCliLaneEnabled: true,
+        ghCliCiEnabled: true,
+        ghCliPrCommentEnabled: false,
+      },
+    });
+    expect(ciOnly.github_cli_pr_checks_get).toBeDefined();
+    expect(ciOnly.github_cli_actions_run_get).toBeDefined();
+    expect(ciOnly.github_cli_actions_job_logs_get).toBeDefined();
+    expect(ciOnly.github_cli_pr_comment).toBeUndefined();
+
+    const missingCiFlag = enforceGoldenFlowToolFloor({}, {
+      featureFlags: {
+        ghCliLaneEnabled: true,
+        ghCliPrCommentEnabled: true,
+      },
+    });
+    expect(missingCiFlag.github_cli_pr_checks_get).toBeUndefined();
+    expect(missingCiFlag.github_cli_actions_run_get).toBeUndefined();
+    expect(missingCiFlag.github_cli_actions_job_logs_get).toBeUndefined();
+    expect(missingCiFlag.github_cli_pr_comment).toBeDefined();
   });
 
   it("validates tool inputs against canonical schemas", () => {

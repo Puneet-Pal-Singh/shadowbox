@@ -5,6 +5,7 @@ import { ToolboxSessionService } from "../../toolbox/services/ToolboxSessionServ
 export interface SafeCommandSpec {
   command: string;
   args?: string[];
+  env?: Record<string, string | undefined>;
   cwd?: string;
   runId?: string;
   toolName?: string;
@@ -39,6 +40,7 @@ export async function runSafeCommand(
       callId: spec.callId ?? createToolCallId(spec.command),
       command: spec.command,
       args: spec.args,
+      env: spec.env,
       cwd: spec.cwd,
       timeoutMs: spec.timeoutMs,
     },
