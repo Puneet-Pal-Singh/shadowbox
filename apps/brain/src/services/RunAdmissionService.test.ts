@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { DurableObjectId, Fetcher } from "@cloudflare/workers-types";
 import type { Env } from "../types/ai";
 import { RunAdmissionService } from "./RunAdmissionService";
 
@@ -146,6 +147,98 @@ describe("RunAdmissionService", () => {
       });
     }
   });
+
+  it("returns a typed error when limiter binding is unavailable", async () => {
+    const service = new RunAdmissionService({
+      ...createEnv({}),
+      RUN_ADMISSION_LIMITER: undefined,
+    } as Env);
+
+    await expect(
+      service.enforce(
+        {
+          userId: "user-missing-limiter",
+          workspaceId: "workspace-missing-limiter",
+          mode: "plan",
+          workflowIntent: "explore",
+        },
+        "corr-missing-limiter",
+      ),
+    ).rejects.toMatchObject({
+      code: "RUN_ADMISSION_LIMITER_UNAVAILABLE",
+      status: 503,
+      correlationId: "corr-missing-limiter",
+    });
+  });
+
+  it("returns a typed error when limiter response payload is invalid", async () => {
+    const service = new RunAdmissionService(
+      createEnv({
+        RUN_ADMISSION_LIMITER: createInvalidPayloadLimiterNamespace(),
+      }),
+    );
+
+    await expect(
+      service.enforce(
+        {
+          userId: "user-invalid-payload",
+          workspaceId: "workspace-invalid-payload",
+          mode: "plan",
+          workflowIntent: "explore",
+        },
+        "corr-invalid-payload",
+      ),
+    ).rejects.toMatchObject({
+      code: "RUN_ADMISSION_LIMITER_INVALID_RESPONSE",
+      status: 503,
+      correlationId: "corr-invalid-payload",
+    });
+  });
+
+  it("uses fingerprinted scope when user or workspace is unknown", async () => {
+    const service = new RunAdmissionService(
+      createEnv({
+        RUN_SUBMISSION_RATE_LIMIT_MAX: "1",
+        RUN_SUBMISSION_RATE_LIMIT_WINDOW_SECONDS: "60",
+      }),
+    );
+
+    await expect(
+      service.enforce(
+        {
+          mode: "plan",
+          workflowIntent: "explore",
+          clientFingerprint: "fp-a",
+        },
+        "corr-fp-a",
+      ),
+    ).resolves.toBeUndefined();
+
+    await expect(
+      service.enforce(
+        {
+          mode: "plan",
+          workflowIntent: "explore",
+          clientFingerprint: "fp-b",
+        },
+        "corr-fp-b",
+      ),
+    ).resolves.toBeUndefined();
+
+    await expect(
+      service.enforce(
+        {
+          mode: "plan",
+          workflowIntent: "explore",
+          clientFingerprint: "fp-a",
+        },
+        "corr-fp-a-2",
+      ),
+    ).rejects.toMatchObject({
+      code: "RUN_SUBMISSION_RATE_LIMITED",
+      status: 429,
+    });
+  });
 });
 
 function createEnv(overrides: Partial<Env>): Env {
@@ -258,6 +351,23 @@ function createMockRunAdmissionLimiterNamespace(): Env["RUN_ADMISSION_LIMITER"] 
             );
           });
         },
+      } as Fetcher;
+    },
+  } as unknown as Env["RUN_ADMISSION_LIMITER"];
+}
+
+function createInvalidPayloadLimiterNamespace(): Env["RUN_ADMISSION_LIMITER"] {
+  return {
+    idFromName(name: string) {
+      return { toString: () => name } as DurableObjectId;
+    },
+    get(_id: DurableObjectId) {
+      return {
+        fetch: async () =>
+          new Response(JSON.stringify({ allowed: "yes" }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
       } as Fetcher;
     },
   } as unknown as Env["RUN_ADMISSION_LIMITER"];

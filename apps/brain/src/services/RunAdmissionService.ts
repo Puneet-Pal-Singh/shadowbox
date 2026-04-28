@@ -10,6 +10,7 @@ const DEFAULT_MUTATION_RUN_SUBMISSION_WINDOW_SECONDS = 60;
 interface RunAdmissionInput {
   userId?: string;
   workspaceId?: string;
+  clientFingerprint?: string;
   mode?: RunMode;
   workflowIntent?: WorkflowIntent;
 }
@@ -61,7 +62,7 @@ export class RunAdmissionService {
     correlationId: string,
   ): Promise<void> {
     const limit = this.resolveLimit(input);
-    const decision = await this.requestAdmission(limit, input);
+    const decision = await this.requestAdmission(limit, input, correlationId);
 
     if (!decision.allowed) {
       throw new DomainError(
@@ -121,9 +122,16 @@ export class RunAdmissionService {
   private async requestAdmission(
     limit: ResolvedLimit,
     input: RunAdmissionInput,
+    correlationId: string,
   ): Promise<AdmissionDecision> {
     if (!this.env.RUN_ADMISSION_LIMITER) {
-      throw new Error("RUN_ADMISSION_LIMITER binding is unavailable");
+      throw new DomainError(
+        "RUN_ADMISSION_LIMITER_UNAVAILABLE",
+        "Run admission limiter is unavailable. Please retry shortly.",
+        503,
+        true,
+        correlationId,
+      );
     }
 
     const scope = this.buildScope(input);
@@ -143,14 +151,28 @@ export class RunAdmissionService {
 
     if (!response.ok) {
       const errorText = await response.text();
-      throw new Error(
-        `RUN_ADMISSION_LIMITER request failed (${response.status}): ${errorText}`,
+      throw new DomainError(
+        "RUN_ADMISSION_LIMITER_UNAVAILABLE",
+        `Run admission limiter request failed (${response.status}).`,
+        503,
+        true,
+        correlationId,
+        {
+          limiterStatus: response.status,
+          limiterError: errorText,
+        },
       );
     }
 
     const body = (await response.json()) as unknown;
     if (!isAdmissionDecision(body)) {
-      throw new Error("RUN_ADMISSION_LIMITER returned an invalid payload");
+      throw new DomainError(
+        "RUN_ADMISSION_LIMITER_INVALID_RESPONSE",
+        "Run admission limiter returned an invalid response.",
+        503,
+        true,
+        correlationId,
+      );
     }
 
     return body;
@@ -159,6 +181,10 @@ export class RunAdmissionService {
   private buildScope(input: RunAdmissionInput): string {
     const userId = normalizeScopeValue(input.userId);
     const workspaceId = normalizeScopeValue(input.workspaceId);
+    if (userId === "unknown" || workspaceId === "unknown") {
+      const fallbackFingerprint = normalizeScopeValue(input.clientFingerprint);
+      return `user:${userId}:workspace:${workspaceId}:fingerprint:${fallbackFingerprint}`;
+    }
     return `user:${userId}:workspace:${workspaceId}`;
   }
 }
