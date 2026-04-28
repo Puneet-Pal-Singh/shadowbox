@@ -142,8 +142,31 @@ function createEnv(runEngineRuntime: Env["RUN_ENGINE_RUNTIME"]): Env {
       },
     } as unknown as Env["SESSIONS"],
     RUN_ENGINE_RUNTIME: runEngineRuntime,
+    RUN_ADMISSION_LIMITER: createMockRunAdmissionLimiterNamespace(),
     FEATURE_FLAG_CLOUDFLARE_AGENTS_V1: "false",
   } as Env;
+}
+
+function createMockRunAdmissionLimiterNamespace(): Env["RUN_ADMISSION_LIMITER"] {
+  const fetch = vi.fn(async () => {
+    return new Response(
+      JSON.stringify({
+        allowed: true,
+        retryAfterSeconds: 0,
+      }),
+      {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      },
+    );
+  });
+  const get = vi.fn(() => ({ fetch }));
+  const idFromName = vi.fn(() => ({ toString: () => "mock-admission-id" }));
+
+  return {
+    idFromName,
+    get,
+  } as unknown as Env["RUN_ADMISSION_LIMITER"];
 }
 
 async function createSessionToken(

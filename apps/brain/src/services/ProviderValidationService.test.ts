@@ -195,8 +195,8 @@ describe("ProviderValidationService", () => {
       expect(result.errors).toHaveLength(0);
     });
 
-    it("accepts together, cerebras, mistral, and cohere as known BYOK providers", () => {
-      const providerIds = ["together", "cerebras", "mistral", "cohere"] as const;
+    it("accepts together, cerebras, and mistral as known BYOK providers", () => {
+      const providerIds = ["together", "cerebras", "mistral"] as const;
 
       for (const providerId of providerIds) {
         const result = ProviderValidationService.validate(
@@ -208,6 +208,19 @@ describe("ProviderValidationService", () => {
         expect(result.valid).toBe(true);
         expect(result.errors).toHaveLength(0);
       }
+    });
+
+    it("rejects cohere because the runtime lane is not wired yet", () => {
+      const result = ProviderValidationService.validate(
+        withSecurityConfig({
+          LLM_PROVIDER: "cohere",
+        }),
+      );
+
+      expect(result.valid).toBe(false);
+      expect(
+        result.errors.some((error) => error.code === "UNSUPPORTED_PROVIDER"),
+      ).toBe(true);
     });
   });
 

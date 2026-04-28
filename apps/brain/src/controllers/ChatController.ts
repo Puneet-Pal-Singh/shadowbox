@@ -241,6 +241,7 @@ export class ChatController {
         {
           userId,
           workspaceId,
+          clientFingerprint: buildAdmissionScopeFingerprint(req),
           mode: body.mode,
           workflowIntent: body.workflowIntent,
         },
@@ -314,4 +315,29 @@ function errorMessageKey(error: unknown): string {
     return error.message;
   }
   return "internal-server-error";
+}
+
+function buildAdmissionScopeFingerprint(request: Request): string {
+  const cfIp = request.headers.get("CF-Connecting-IP")?.trim() ?? "";
+  const forwarded = request.headers.get("X-Forwarded-For")?.trim() ?? "";
+  const userAgent = request.headers.get("User-Agent")?.trim().toLowerCase() ?? "";
+  const ip = firstForwardedIp(forwarded) || cfIp || "unknown-ip";
+  return hashScopeFingerprintSeed(`${ip}|${userAgent || "unknown-ua"}`);
+}
+
+function firstForwardedIp(forwarded: string): string {
+  if (forwarded.length === 0) {
+    return "";
+  }
+  const first = forwarded.split(",")[0]?.trim() ?? "";
+  return first;
+}
+
+function hashScopeFingerprintSeed(seed: string): string {
+  let hash = 2166136261;
+  for (let index = 0; index < seed.length; index += 1) {
+    hash ^= seed.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `fp-${(hash >>> 0).toString(36)}`;
 }

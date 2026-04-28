@@ -10,6 +10,7 @@ const DEFAULT_MUTATION_RUN_SUBMISSION_WINDOW_SECONDS = 60;
 interface RunAdmissionInput {
   userId?: string;
   workspaceId?: string;
+  clientFingerprint?: string;
   mode?: RunMode;
   workflowIntent?: WorkflowIntent;
 }
@@ -18,6 +19,11 @@ interface ResolvedLimit {
   bucket: "run_submission" | "mutation_run_submission";
   limit: number;
   windowSeconds: number;
+}
+
+interface AdmissionDecision {
+  allowed: boolean;
+  retryAfterSeconds: number;
 }
 
 /**
@@ -56,25 +62,22 @@ export class RunAdmissionService {
     correlationId: string,
   ): Promise<void> {
     const limit = this.resolveLimit(input);
-    const key = this.buildWindowCounterKey(limit.bucket, input, limit.windowSeconds);
-    const currentCount = await this.readCounter(key);
+    const decision = await this.requestAdmission(limit, input, correlationId);
 
-    if (currentCount >= limit.limit) {
+    if (!decision.allowed) {
       throw new DomainError(
         "RUN_SUBMISSION_RATE_LIMITED",
-        `Run submission rate limit reached. Retry in ${limit.windowSeconds}s.`,
+        `Run submission rate limit reached. Retry in ${decision.retryAfterSeconds}s.`,
         429,
         true,
         correlationId,
         {
           bucket: limit.bucket,
           limit: limit.limit,
-          retryAfterSeconds: limit.windowSeconds,
+          retryAfterSeconds: decision.retryAfterSeconds,
         },
       );
     }
-
-    await this.writeCounter(key, currentCount + 1, limit.windowSeconds);
   }
 
   private resolveLimit(input: RunAdmissionInput): ResolvedLimit {
@@ -116,35 +119,73 @@ export class RunAdmissionService {
     return true;
   }
 
-  private buildWindowCounterKey(
-    bucket: ResolvedLimit["bucket"],
+  private async requestAdmission(
+    limit: ResolvedLimit,
     input: RunAdmissionInput,
-    windowSeconds: number,
-  ): string {
+    correlationId: string,
+  ): Promise<AdmissionDecision> {
+    if (!this.env.RUN_ADMISSION_LIMITER) {
+      throw new DomainError(
+        "RUN_ADMISSION_LIMITER_UNAVAILABLE",
+        "Run admission limiter is unavailable. Please retry shortly.",
+        503,
+        true,
+        correlationId,
+      );
+    }
+
     const scope = this.buildScope(input);
-    const windowBucket = Math.floor(Date.now() / (windowSeconds * 1000));
-    return `launch:${bucket}:v1:${scope}:${windowBucket}`;
+    const id = this.env.RUN_ADMISSION_LIMITER.idFromName(scope);
+    const stub = this.env.RUN_ADMISSION_LIMITER.get(id);
+    const response = await stub.fetch("https://run-admission-limiter/enforce", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        bucket: limit.bucket,
+        limit: limit.limit,
+        windowSeconds: limit.windowSeconds,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new DomainError(
+        "RUN_ADMISSION_LIMITER_UNAVAILABLE",
+        `Run admission limiter request failed (${response.status}).`,
+        503,
+        true,
+        correlationId,
+        {
+          limiterStatus: response.status,
+          limiterError: errorText,
+        },
+      );
+    }
+
+    const body = (await response.json()) as unknown;
+    if (!isAdmissionDecision(body)) {
+      throw new DomainError(
+        "RUN_ADMISSION_LIMITER_INVALID_RESPONSE",
+        "Run admission limiter returned an invalid response.",
+        503,
+        true,
+        correlationId,
+      );
+    }
+
+    return body;
   }
 
   private buildScope(input: RunAdmissionInput): string {
     const userId = normalizeScopeValue(input.userId);
     const workspaceId = normalizeScopeValue(input.workspaceId);
+    if (userId === "unknown" || workspaceId === "unknown") {
+      const fallbackFingerprint = normalizeScopeValue(input.clientFingerprint);
+      return `user:${userId}:workspace:${workspaceId}:fingerprint:${fallbackFingerprint}`;
+    }
     return `user:${userId}:workspace:${workspaceId}`;
-  }
-
-  private async readCounter(key: string): Promise<number> {
-    const raw = await this.env.SESSIONS.get(key);
-    return readPositiveInt(raw, 0);
-  }
-
-  private async writeCounter(
-    key: string,
-    value: number,
-    windowSeconds: number,
-  ): Promise<void> {
-    await this.env.SESSIONS.put(key, String(value), {
-      expirationTtl: windowSeconds + 5,
-    });
   }
 }
 
@@ -162,4 +203,18 @@ function readPositiveInt(value: string | undefined | null, fallback: number): nu
 function normalizeScopeValue(value: string | undefined): string {
   const normalized = value?.trim();
   return normalized && normalized.length > 0 ? normalized : "unknown";
+}
+
+function isAdmissionDecision(value: unknown): value is AdmissionDecision {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const candidate = value as Record<string, unknown>;
+  return (
+    typeof candidate.allowed === "boolean" &&
+    typeof candidate.retryAfterSeconds === "number" &&
+    Number.isFinite(candidate.retryAfterSeconds) &&
+    candidate.retryAfterSeconds >= 0
+  );
 }

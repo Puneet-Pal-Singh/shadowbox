@@ -8,7 +8,7 @@ import type {
 } from "../base/ProviderAdapter";
 import { ProviderError } from "../base/ProviderAdapter";
 import type { LLMUsage } from "@shadowbox/execution-engine/runtime/cost";
-import { LLMUnusableResponseError } from "@shadowbox/execution-engine/runtime/llm";
+import { LLMUnusableResponseError } from "@shadowbox/execution-engine/runtime";
 
 interface GoogleAdapterConfig {
   apiKey: string;

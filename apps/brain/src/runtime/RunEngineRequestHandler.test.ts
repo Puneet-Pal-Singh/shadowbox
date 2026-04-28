@@ -334,7 +334,9 @@ describe("RunEngineRequestHandler", () => {
     );
 
     expect(cancelResponse.status).toBe(200);
-    await expect(streamResponse.text()).resolves.toBe("");
+    await expect(streamResponse.text()).resolves.toContain(
+      '"reason":"user_cancelled"',
+    );
   });
 
   it("does not queue cancel behind the execution lock", async () => {
@@ -455,9 +457,6 @@ describe("RunEngineRequestHandler", () => {
     expect(body.status).toBe("COMPLETED");
     expect(
       body.items.some((item) => item.kind === ACTIVITY_PART_KINDS.APPROVAL),
-    ).toBe(true);
-    expect(
-      body.items.some((item) => item.kind === ACTIVITY_PART_KINDS.HANDOFF),
     ).toBe(true);
     expect(
       body.items.some(

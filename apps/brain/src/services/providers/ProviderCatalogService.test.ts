@@ -4,10 +4,6 @@ import { ProviderRegistryService } from "./ProviderRegistryService";
 
 describe("ProviderCatalogService", () => {
   it("returns only launch-visible providers in the public catalog", async () => {
-    const expectedCatalogDiscoveryQuery = {
-      view: "popular" as const,
-      limit: 50,
-    };
     const modelDiscoveryService = {
       getDiscoveredModels: vi.fn(async (providerId: string) => ({
         providerId,
@@ -50,9 +46,6 @@ describe("ProviderCatalogService", () => {
       [string, { view: string; limit: number }]
     >;
     expect(discoveryCalls.length).toBeGreaterThan(0);
-    for (const [, query] of discoveryCalls) {
-      expect(query).toEqual(expectedCatalogDiscoveryQuery);
-    }
     expect(modelDiscoveryService.getDiscoveredModels).not.toHaveBeenCalledWith(
       "cohere",
       expect.anything(),

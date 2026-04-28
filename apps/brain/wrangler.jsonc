@@ -34,6 +34,10 @@
         "name": "SESSION_MEMORY_RUNTIME",
         "class_name": "SessionMemoryRuntime",
       },
+      {
+        "name": "RUN_ADMISSION_LIMITER",
+        "class_name": "RunAdmissionLimiter",
+      },
     ],
   },
 
@@ -49,6 +53,10 @@
     {
       "tag": "v3-run-engine-agent",
       "new_sqlite_classes": ["RunEngineAgent"],
+    },
+    {
+      "tag": "v4-run-admission-limiter",
+      "new_sqlite_classes": ["RunAdmissionLimiter"],
     },
   ],
 
