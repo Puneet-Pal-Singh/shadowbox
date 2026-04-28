@@ -69,19 +69,66 @@ describe("LaunchSafetyService", () => {
     const payload = (await second?.json()) as { code: string };
     expect(payload.code).toBe("ROUTE_RATE_LIMITED");
   });
+
+  it("maps limiter fetch exceptions to typed 503 response", async () => {
+    const response = await enforceLaunchSafetyForRoute(
+      new Request("https://secure.local/api/v1/session", {
+        method: "POST",
+        headers: {
+          "CF-Connecting-IP": "203.0.113.7",
+        },
+      }),
+      {
+        LAUNCH_RATE_LIMITER: createMockLimiterNamespace({ throwOnFetch: true }),
+      },
+      "session_create",
+    );
+
+    expect(response?.status).toBe(503);
+    const payload = (await response?.json()) as { code: string };
+    expect(payload.code).toBe("LAUNCH_RATE_LIMITER_FAILED");
+  });
+
+  it("uses CF-Connecting-IP as the primary scope key", async () => {
+    const scopes: string[] = [];
+    await enforceLaunchSafetyForRoute(
+      new Request("https://secure.local/api/v1/session", {
+        method: "POST",
+        headers: {
+          "CF-Connecting-IP": "198.51.100.10",
+          "X-Forwarded-For": "1.2.3.4, 5.6.7.8",
+        },
+      }),
+      {
+        LAUNCH_RATE_LIMITER: createMockLimiterNamespace({ scopes }),
+      },
+      "session_create",
+    );
+
+    expect(scopes).toHaveLength(1);
+    expect(scopes[0]).toContain("198.51.100.10");
+    expect(scopes[0]).not.toContain("1.2.3.4");
+  });
 });
 
-function createMockLimiterNamespace(): DurableObjectNamespace {
+function createMockLimiterNamespace(options?: {
+  throwOnFetch?: boolean;
+  scopes?: string[];
+}): DurableObjectNamespace {
   const stateByScope = new Map<string, Map<string, CounterState>>();
 
   return {
     idFromName(name: string) {
+      options?.scopes?.push(name);
       return { toString: () => name } as DurableObjectId;
     },
     get(id: DurableObjectId) {
       const scope = id.toString();
       return {
         fetch: async (_input: RequestInfo | URL, init?: RequestInit) => {
+          if (options?.throwOnFetch) {
+            throw new Error("limiter unavailable");
+          }
           if (!init?.body || typeof init.body !== "string") {
             return new Response("Invalid payload", { status: 400 });
           }

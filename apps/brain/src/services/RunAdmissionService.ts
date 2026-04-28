@@ -11,6 +11,7 @@ const DEFAULT_ACTIVE_EXPENSIVE_RUNS_PER_USER_MAX = 2;
 const DEFAULT_ACTIVE_EXPENSIVE_RUNS_PER_WORKSPACE_MAX = 3;
 const DEFAULT_ACTIVE_EXPENSIVE_RUNS_ANONYMOUS_MAX = 1;
 const DEFAULT_ACTIVE_EXPENSIVE_RUN_LEASE_TTL_SECONDS = 900;
+const CONCURRENCY_LIMITER_SCOPE = "launch:concurrency:shard:v1";
 
 interface RunAdmissionInput {
   userId?: string;
@@ -85,7 +86,7 @@ export class RunAdmissionService {
     }
 
     try {
-      await this.releaseConcurrencyLease(input, grant.leaseId, correlationId);
+      await this.releaseConcurrencyLease(grant.leaseId, correlationId);
     } catch (error) {
       console.warn(
         `[run/admission] ${correlationId}: failed to release concurrency lease`,
@@ -144,7 +145,6 @@ export class RunAdmissionService {
     const constraints = this.buildConcurrencyConstraints(input);
     const leaseId = this.createLeaseId();
     const decision = await this.acquireConcurrencyLease(
-      input,
       leaseId,
       constraints,
       correlationId,
@@ -266,13 +266,11 @@ export class RunAdmissionService {
   }
 
   private async acquireConcurrencyLease(
-    input: RunAdmissionInput,
     leaseId: string,
     constraints: ConcurrencyConstraint[],
     correlationId: string,
   ): Promise<ConcurrencyAcquireDecision> {
     const response = await this.requestLimiter(
-      input,
       "/acquire-concurrency",
       {
         leaseId,
@@ -297,12 +295,10 @@ export class RunAdmissionService {
   }
 
   private async releaseConcurrencyLease(
-    input: RunAdmissionInput,
     leaseId: string,
     correlationId: string,
   ): Promise<void> {
     const response = await this.requestLimiter(
-      input,
       "/release-concurrency",
       { leaseId },
       correlationId,
@@ -319,7 +315,6 @@ export class RunAdmissionService {
   }
 
   private async requestLimiter(
-    input: RunAdmissionInput,
     path: "/acquire-concurrency" | "/release-concurrency",
     body: Record<string, unknown>,
     correlationId: string,
@@ -334,8 +329,9 @@ export class RunAdmissionService {
       );
     }
 
-    const scope = this.buildScope(input);
-    const id = this.env.RUN_ADMISSION_LIMITER.idFromName(scope);
+    const id = this.env.RUN_ADMISSION_LIMITER.idFromName(
+      CONCURRENCY_LIMITER_SCOPE,
+    );
     const stub = this.env.RUN_ADMISSION_LIMITER.get(id);
     const response = await stub.fetch(`https://run-admission-limiter${path}`, {
       method: "POST",

@@ -62,22 +62,12 @@ export async function enforceLaunchSafetyForRoute(
   const id = limiterNamespace.idFromName(scopeId);
   const stub = limiterNamespace.get(id);
 
-  const limiterResponse = await stub.fetch(
-    "https://secure-api-launch-limiter/enforce",
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        routeClass,
-        limit: limitRule.limit,
-        windowSeconds: limitRule.windowSeconds,
-      }),
-    },
-  );
-
-  if (!limiterResponse.ok) {
+  const decision = await requestLimiterDecision(stub, {
+    routeClass,
+    limit: limitRule.limit,
+    windowSeconds: limitRule.windowSeconds,
+  });
+  if (decision === null) {
     return errorResponse(
       "Launch safety limiter request failed.",
       "LAUNCH_RATE_LIMITER_FAILED",
@@ -85,7 +75,6 @@ export async function enforceLaunchSafetyForRoute(
     );
   }
 
-  const decision = (await limiterResponse.json()) as unknown;
   if (!isRateLimitDecision(decision)) {
     return errorResponse(
       "Launch safety limiter returned an invalid response.",
@@ -171,10 +160,17 @@ function buildScopeId(
 
 function resolveClientIp(request: Request): string {
   const cfIp = request.headers.get("CF-Connecting-IP")?.trim() ?? "";
+  if (cfIp.length > 0) {
+    return cfIp;
+  }
+
   const forwarded = request.headers.get("X-Forwarded-For")?.trim() ?? "";
   const firstForwarded = forwarded.split(",")[0]?.trim() ?? "";
-  const resolvedIp = firstForwarded || cfIp;
-  return resolvedIp.length > 0 ? resolvedIp : "unknown-ip";
+  if (firstForwarded.length > 0) {
+    return firstForwarded;
+  }
+
+  return "unknown-ip";
 }
 
 function readPositiveInt(value: string | undefined, fallback: number): number {
@@ -202,4 +198,34 @@ function isRateLimitDecision(value: unknown): value is LaunchRateLimitDecision {
     Number.isFinite(candidate.retryAfterSeconds) &&
     candidate.retryAfterSeconds >= 0
   );
+}
+
+async function requestLimiterDecision(
+  limiter: { fetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response> },
+  payload: {
+    routeClass: RouteClass;
+    limit: number;
+    windowSeconds: number;
+  },
+): Promise<unknown | null> {
+  try {
+    const limiterResponse = await limiter.fetch(
+      "https://secure-api-launch-limiter/enforce",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      },
+    );
+
+    if (!limiterResponse.ok) {
+      return null;
+    }
+
+    return (await limiterResponse.json()) as unknown;
+  } catch {
+    return null;
+  }
 }

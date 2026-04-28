@@ -306,6 +306,46 @@ describe("RunAdmissionService", () => {
       ),
     ).resolves.toMatchObject({ leaseId: expect.any(String) });
   });
+
+  it("enforces user concurrency caps across workspace boundaries", async () => {
+    const service = new RunAdmissionService(
+      createEnv({
+        MUTATION_RUN_SUBMISSION_RATE_LIMIT_MAX: "10",
+        MUTATION_RUN_SUBMISSION_RATE_LIMIT_WINDOW_SECONDS: "60",
+        ACTIVE_EXPENSIVE_RUNS_PER_SESSION_MAX: "5",
+        ACTIVE_EXPENSIVE_RUNS_PER_USER_MAX: "1",
+        ACTIVE_EXPENSIVE_RUNS_PER_WORKSPACE_MAX: "5",
+      }),
+    );
+
+    const firstGrant = await service.enforce(
+      {
+        userId: "shared-user",
+        workspaceId: "workspace-a",
+        sessionId: "session-a",
+        mode: "build",
+        workflowIntent: "build",
+      },
+      "corr-cross-workspace-1",
+    );
+    expect(firstGrant.leaseId).toBeTypeOf("string");
+
+    await expect(
+      service.enforce(
+        {
+          userId: "shared-user",
+          workspaceId: "workspace-b",
+          sessionId: "session-b",
+          mode: "build",
+          workflowIntent: "build",
+        },
+        "corr-cross-workspace-2",
+      ),
+    ).rejects.toMatchObject({
+      code: "RUN_CONCURRENCY_LIMIT_REACHED",
+      status: 429,
+    });
+  });
 });
 
 function createEnv(overrides: Partial<Env>): Env {

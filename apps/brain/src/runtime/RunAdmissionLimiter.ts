@@ -163,23 +163,55 @@ export class RunAdmissionLimiter extends DurableObject {
     payload: AcquireConcurrencyRequest,
   ): Promise<AcquireConcurrencyResponse> {
     const now = Date.now();
+    const idempotentResult = await this.checkExistingLease(payload, now);
+    if (idempotentResult) {
+      return idempotentResult;
+    }
+
+    const bucketKeys = this.resolveConcurrencyBucketKeys(payload);
+    const blockedResult = await this.checkConcurrencyConstraints(
+      payload,
+      bucketKeys,
+      now,
+    );
+    if (blockedResult) {
+      return blockedResult;
+    }
+
+    await this.persistConcurrencyLease(payload, bucketKeys, now);
+    return this.createAllowedConcurrencyResponse(payload.leaseId);
+  }
+
+  private async checkExistingLease(
+    payload: AcquireConcurrencyRequest,
+    now: number,
+  ): Promise<AcquireConcurrencyResponse | null> {
     const existingLease = await this.readLease(payload.leaseId);
-    if (existingLease && existingLease.expiresAt > now) {
-      return {
-        allowed: true,
-        retryAfterSeconds: 0,
-        leaseId: payload.leaseId,
-      };
+    if (!existingLease) {
+      return null;
     }
 
-    if (existingLease && existingLease.expiresAt <= now) {
-      await this.releaseLease(payload.leaseId);
+    if (existingLease.expiresAt > now) {
+      return this.createAllowedConcurrencyResponse(payload.leaseId);
     }
 
-    const bucketKeys = payload.constraints.map((constraint) =>
+    await this.releaseLease(payload.leaseId);
+    return null;
+  }
+
+  private resolveConcurrencyBucketKeys(
+    payload: AcquireConcurrencyRequest,
+  ): string[] {
+    return payload.constraints.map((constraint) =>
       this.buildConcurrencyBucketKey(constraint.bucket, constraint.scopeKey),
     );
+  }
 
+  private async checkConcurrencyConstraints(
+    payload: AcquireConcurrencyRequest,
+    bucketKeys: string[],
+    now: number,
+  ): Promise<AcquireConcurrencyResponse | null> {
     for (let index = 0; index < payload.constraints.length; index += 1) {
       const constraint = payload.constraints[index]!;
       const bucketKey = bucketKeys[index]!;
@@ -190,7 +222,6 @@ export class RunAdmissionLimiter extends DurableObject {
           leaseIds: pruned.leaseIds,
         });
       }
-
       if (pruned.leaseIds.length >= constraint.limit) {
         return {
           allowed: false,
@@ -202,7 +233,14 @@ export class RunAdmissionLimiter extends DurableObject {
         };
       }
     }
+    return null;
+  }
 
+  private async persistConcurrencyLease(
+    payload: AcquireConcurrencyRequest,
+    bucketKeys: string[],
+    now: number,
+  ): Promise<void> {
     const leaseTtlMs = payload.leaseTtlSeconds * 1000;
     await this.writeLease(payload.leaseId, {
       expiresAt: now + leaseTtlMs,
@@ -211,17 +249,22 @@ export class RunAdmissionLimiter extends DurableObject {
 
     for (const bucketKey of bucketKeys) {
       const state = await this.readConcurrencyBucketState(bucketKey);
-      if (!state.leaseIds.includes(payload.leaseId)) {
-        await this.writeConcurrencyBucketState(bucketKey, {
-          leaseIds: [...state.leaseIds, payload.leaseId],
-        });
+      if (state.leaseIds.includes(payload.leaseId)) {
+        continue;
       }
+      await this.writeConcurrencyBucketState(bucketKey, {
+        leaseIds: [...state.leaseIds, payload.leaseId],
+      });
     }
+  }
 
+  private createAllowedConcurrencyResponse(
+    leaseId: string,
+  ): AcquireConcurrencyResponse {
     return {
       allowed: true,
       retryAfterSeconds: 0,
-      leaseId: payload.leaseId,
+      leaseId,
     };
   }
 
