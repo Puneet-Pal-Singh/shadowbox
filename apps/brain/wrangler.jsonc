@@ -4,6 +4,9 @@
   "main": "src/index.ts",
   "compatibility_date": "2025-05-06",
   "compatibility_flags": ["nodejs_compat"],
+  "limits": {
+    "cpu_ms": 20000
+  },
 
   // 1. Enable Cloudflare Workers AI (Free Tier Llama-3)
   "ai": {
@@ -73,10 +76,15 @@
   //
   // Launch safety knobs (optional):
   // LAUNCH_EMERGENCY_SHUTOFF_MODE=off | block_runs
-  // RUN_SUBMISSION_RATE_LIMIT_MAX=20
-  // RUN_SUBMISSION_RATE_LIMIT_WINDOW_SECONDS=60
-  // MUTATION_RUN_SUBMISSION_RATE_LIMIT_MAX=8
-  // MUTATION_RUN_SUBMISSION_RATE_LIMIT_WINDOW_SECONDS=60
+  // RUN_SUBMISSION_RATE_LIMIT_MAX=60
+  // RUN_SUBMISSION_RATE_LIMIT_WINDOW_SECONDS=600
+  // MUTATION_RUN_SUBMISSION_RATE_LIMIT_MAX=20
+  // MUTATION_RUN_SUBMISSION_RATE_LIMIT_WINDOW_SECONDS=600
+  // ACTIVE_EXPENSIVE_RUNS_PER_SESSION_MAX=1
+  // ACTIVE_EXPENSIVE_RUNS_PER_USER_MAX=2
+  // ACTIVE_EXPENSIVE_RUNS_PER_WORKSPACE_MAX=3
+  // ACTIVE_EXPENSIVE_RUNS_ANONYMOUS_MAX=1
+  // ACTIVE_EXPENSIVE_RUN_LEASE_TTL_SECONDS=900
   "vars": {
     // These should be set via wrangler secret put for production
     // GITHUB_CLIENT_SECRET

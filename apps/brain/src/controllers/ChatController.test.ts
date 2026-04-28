@@ -504,7 +504,19 @@ function createEnv(
 }
 
 function createMockRunAdmissionLimiterNamespace(): Env["RUN_ADMISSION_LIMITER"] {
-  const fetch = vi.fn(async () => {
+  const fetch = vi.fn(async (input: RequestInfo | URL) => {
+    const url =
+      input instanceof URL
+        ? input
+        : typeof input === "string"
+          ? new URL(input)
+          : new URL(input.url);
+    if (url.pathname === "/release-concurrency") {
+      return new Response(JSON.stringify({ released: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
     return new Response(
       JSON.stringify({
         allowed: true,

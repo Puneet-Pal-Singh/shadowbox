@@ -45,7 +45,7 @@ describe("RunAdmissionService", () => {
         },
         "corr-2",
       ),
-    ).resolves.toBeUndefined();
+    ).resolves.toEqual({});
     await expect(
       service.enforce(
         {
@@ -56,7 +56,7 @@ describe("RunAdmissionService", () => {
         },
         "corr-2",
       ),
-    ).resolves.toBeUndefined();
+    ).resolves.toEqual({});
     await expect(
       service.enforce(
         {
@@ -81,22 +81,24 @@ describe("RunAdmissionService", () => {
       }),
     );
 
+    const firstGrant = await service.enforce(
+      {
+        userId: "user-3",
+        workspaceId: "workspace-3",
+        sessionId: "session-3",
+        mode: "build",
+        workflowIntent: "build",
+      },
+      "corr-3",
+    );
+    expect(firstGrant.leaseId).toBeTypeOf("string");
+
     await expect(
       service.enforce(
         {
           userId: "user-3",
           workspaceId: "workspace-3",
-          mode: "build",
-          workflowIntent: "build",
-        },
-        "corr-3",
-      ),
-    ).resolves.toBeUndefined();
-    await expect(
-      service.enforce(
-        {
-          userId: "user-3",
-          workspaceId: "workspace-3",
+          sessionId: "session-3",
           mode: "build",
           workflowIntent: "build",
         },
@@ -131,7 +133,7 @@ describe("RunAdmissionService", () => {
     );
 
     const accepted = attempts.filter(
-      (attempt): attempt is PromiseFulfilledResult<void> =>
+      (attempt): attempt is PromiseFulfilledResult<{ leaseId?: string }> =>
         attempt.status === "fulfilled",
     );
     const rejected = attempts.filter(
@@ -212,7 +214,7 @@ describe("RunAdmissionService", () => {
         },
         "corr-fp-a",
       ),
-    ).resolves.toBeUndefined();
+    ).resolves.toEqual({});
 
     await expect(
       service.enforce(
@@ -223,7 +225,7 @@ describe("RunAdmissionService", () => {
         },
         "corr-fp-b",
       ),
-    ).resolves.toBeUndefined();
+    ).resolves.toEqual({});
 
     await expect(
       service.enforce(
@@ -236,6 +238,111 @@ describe("RunAdmissionService", () => {
       ),
     ).rejects.toMatchObject({
       code: "RUN_SUBMISSION_RATE_LIMITED",
+      status: 429,
+    });
+  });
+
+  it("enforces active expensive run concurrency and allows release", async () => {
+    const service = new RunAdmissionService(
+      createEnv({
+        MUTATION_RUN_SUBMISSION_RATE_LIMIT_MAX: "10",
+        MUTATION_RUN_SUBMISSION_RATE_LIMIT_WINDOW_SECONDS: "60",
+        ACTIVE_EXPENSIVE_RUNS_PER_SESSION_MAX: "1",
+        ACTIVE_EXPENSIVE_RUNS_PER_USER_MAX: "2",
+        ACTIVE_EXPENSIVE_RUNS_PER_WORKSPACE_MAX: "3",
+      }),
+    );
+
+    const firstGrant = await service.enforce(
+      {
+        userId: "user-concurrency",
+        workspaceId: "workspace-concurrency",
+        sessionId: "session-concurrency",
+        mode: "build",
+        workflowIntent: "build",
+      },
+      "corr-concurrency-1",
+    );
+    expect(firstGrant.leaseId).toBeTypeOf("string");
+
+    await expect(
+      service.enforce(
+        {
+          userId: "user-concurrency",
+          workspaceId: "workspace-concurrency",
+          sessionId: "session-concurrency",
+          mode: "build",
+          workflowIntent: "build",
+        },
+        "corr-concurrency-2",
+      ),
+    ).rejects.toMatchObject({
+      code: "RUN_CONCURRENCY_LIMIT_REACHED",
+      status: 429,
+    });
+
+    await service.release(
+      firstGrant,
+      {
+        userId: "user-concurrency",
+        workspaceId: "workspace-concurrency",
+        sessionId: "session-concurrency",
+        mode: "build",
+        workflowIntent: "build",
+      },
+      "corr-concurrency-release",
+    );
+
+    await expect(
+      service.enforce(
+        {
+          userId: "user-concurrency",
+          workspaceId: "workspace-concurrency",
+          sessionId: "session-concurrency",
+          mode: "build",
+          workflowIntent: "build",
+        },
+        "corr-concurrency-3",
+      ),
+    ).resolves.toMatchObject({ leaseId: expect.any(String) });
+  });
+
+  it("enforces user concurrency caps across workspace boundaries", async () => {
+    const service = new RunAdmissionService(
+      createEnv({
+        MUTATION_RUN_SUBMISSION_RATE_LIMIT_MAX: "10",
+        MUTATION_RUN_SUBMISSION_RATE_LIMIT_WINDOW_SECONDS: "60",
+        ACTIVE_EXPENSIVE_RUNS_PER_SESSION_MAX: "5",
+        ACTIVE_EXPENSIVE_RUNS_PER_USER_MAX: "1",
+        ACTIVE_EXPENSIVE_RUNS_PER_WORKSPACE_MAX: "5",
+      }),
+    );
+
+    const firstGrant = await service.enforce(
+      {
+        userId: "shared-user",
+        workspaceId: "workspace-a",
+        sessionId: "session-a",
+        mode: "build",
+        workflowIntent: "build",
+      },
+      "corr-cross-workspace-1",
+    );
+    expect(firstGrant.leaseId).toBeTypeOf("string");
+
+    await expect(
+      service.enforce(
+        {
+          userId: "shared-user",
+          workspaceId: "workspace-b",
+          sessionId: "session-b",
+          mode: "build",
+          workflowIntent: "build",
+        },
+        "corr-cross-workspace-2",
+      ),
+    ).rejects.toMatchObject({
+      code: "RUN_CONCURRENCY_LIMIT_REACHED",
       status: 429,
     });
   });
@@ -261,6 +368,8 @@ function createMockKvNamespace(): Env["SESSIONS"] {
 
 function createMockRunAdmissionLimiterNamespace(): Env["RUN_ADMISSION_LIMITER"] {
   const stateByScope = new Map<string, Map<string, CounterState>>();
+  const concurrencyByScope = new Map<string, Map<string, Set<string>>>();
+  const leaseKeysByScope = new Map<string, Map<string, string[]>>();
   const queueByScope = new Map<string, Promise<void>>();
 
   const withScopeLock = async <T>(
@@ -293,31 +402,56 @@ function createMockRunAdmissionLimiterNamespace(): Env["RUN_ADMISSION_LIMITER"] 
     get(id: DurableObjectId) {
       const scope = id.toString();
       return {
-        fetch: async (_input: RequestInfo | URL, init?: RequestInit) => {
+        fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
           if (!init?.body || typeof init.body !== "string") {
             return new Response("Invalid payload", { status: 400 });
           }
-
-          const payload = JSON.parse(init.body) as {
-            bucket: string;
-            limit: number;
-            windowSeconds: number;
-          };
+          const url = toUrl(input);
 
           return withScopeLock(scope, async () => {
-            const windowMs = payload.windowSeconds * 1000;
-            const now = Date.now();
-            const activeWindow = Math.floor(now / windowMs);
-            const counters =
-              stateByScope.get(scope) ?? new Map<string, CounterState>();
-            stateByScope.set(scope, counters);
+            if (url.pathname === "/enforce") {
+              const payload = JSON.parse(init.body) as {
+                bucket: string;
+                limit: number;
+                windowSeconds: number;
+              };
+              const windowMs = payload.windowSeconds * 1000;
+              const now = Date.now();
+              const activeWindow = Math.floor(now / windowMs);
+              const counters =
+                stateByScope.get(scope) ?? new Map<string, CounterState>();
+              stateByScope.set(scope, counters);
 
-            const current = counters.get(payload.bucket);
-            if (!current || current.windowBucket !== activeWindow) {
+              const current = counters.get(payload.bucket);
+              if (!current || current.windowBucket !== activeWindow) {
+                counters.set(payload.bucket, {
+                  windowBucket: activeWindow,
+                  count: 1,
+                });
+                return new Response(
+                  JSON.stringify({ allowed: true, retryAfterSeconds: 0 }),
+                  {
+                    status: 200,
+                    headers: { "Content-Type": "application/json" },
+                  },
+                );
+              }
+
+              if (current.count >= payload.limit) {
+                return new Response(
+                  JSON.stringify({ allowed: false, retryAfterSeconds: 1 }),
+                  {
+                    status: 200,
+                    headers: { "Content-Type": "application/json" },
+                  },
+                );
+              }
+
               counters.set(payload.bucket, {
-                windowBucket: activeWindow,
-                count: 1,
+                windowBucket: current.windowBucket,
+                count: current.count + 1,
               });
+
               return new Response(
                 JSON.stringify({ allowed: true, retryAfterSeconds: 0 }),
                 {
@@ -327,9 +461,71 @@ function createMockRunAdmissionLimiterNamespace(): Env["RUN_ADMISSION_LIMITER"] 
               );
             }
 
-            if (current.count >= payload.limit) {
+            if (url.pathname === "/acquire-concurrency") {
+              const payload = JSON.parse(init.body) as {
+                leaseId: string;
+                constraints: Array<{
+                  bucket: string;
+                  scopeKey: string;
+                  limit: number;
+                }>;
+              };
+              const scopeBuckets =
+                concurrencyByScope.get(scope) ?? new Map<string, Set<string>>();
+              concurrencyByScope.set(scope, scopeBuckets);
+              const scopeLeases =
+                leaseKeysByScope.get(scope) ?? new Map<string, string[]>();
+              leaseKeysByScope.set(scope, scopeLeases);
+
+              const existingLeaseKeys = scopeLeases.get(payload.leaseId);
+              if (existingLeaseKeys) {
+                return new Response(
+                  JSON.stringify({
+                    allowed: true,
+                    retryAfterSeconds: 0,
+                    leaseId: payload.leaseId,
+                  }),
+                  {
+                    status: 200,
+                    headers: { "Content-Type": "application/json" },
+                  },
+                );
+              }
+
+              for (const constraint of payload.constraints) {
+                const key = `${constraint.bucket}:${constraint.scopeKey}`;
+                const leaseIds = scopeBuckets.get(key) ?? new Set<string>();
+                if (leaseIds.size >= constraint.limit) {
+                  return new Response(
+                    JSON.stringify({
+                      allowed: false,
+                      retryAfterSeconds: 1,
+                      blockedBucket: constraint.bucket,
+                    }),
+                    {
+                      status: 200,
+                      headers: { "Content-Type": "application/json" },
+                    },
+                  );
+                }
+              }
+
+              const acquiredKeys: string[] = [];
+              for (const constraint of payload.constraints) {
+                const key = `${constraint.bucket}:${constraint.scopeKey}`;
+                const leaseIds = scopeBuckets.get(key) ?? new Set<string>();
+                leaseIds.add(payload.leaseId);
+                scopeBuckets.set(key, leaseIds);
+                acquiredKeys.push(key);
+              }
+              scopeLeases.set(payload.leaseId, acquiredKeys);
+
               return new Response(
-                JSON.stringify({ allowed: false, retryAfterSeconds: 1 }),
+                JSON.stringify({
+                  allowed: true,
+                  retryAfterSeconds: 0,
+                  leaseId: payload.leaseId,
+                }),
                 {
                   status: 200,
                   headers: { "Content-Type": "application/json" },
@@ -337,17 +533,38 @@ function createMockRunAdmissionLimiterNamespace(): Env["RUN_ADMISSION_LIMITER"] 
               );
             }
 
-            counters.set(payload.bucket, {
-              windowBucket: current.windowBucket,
-              count: current.count + 1,
-            });
+            if (url.pathname === "/release-concurrency") {
+              const payload = JSON.parse(init.body) as { leaseId: string };
+              const scopeBuckets =
+                concurrencyByScope.get(scope) ?? new Map<string, Set<string>>();
+              const scopeLeases =
+                leaseKeysByScope.get(scope) ?? new Map<string, string[]>();
+              const leaseKeys = scopeLeases.get(payload.leaseId) ?? [];
+              for (const leaseKey of leaseKeys) {
+                const leaseIds = scopeBuckets.get(leaseKey);
+                if (!leaseIds) {
+                  continue;
+                }
+                leaseIds.delete(payload.leaseId);
+                if (leaseIds.size === 0) {
+                  scopeBuckets.delete(leaseKey);
+                } else {
+                  scopeBuckets.set(leaseKey, leaseIds);
+                }
+              }
+              scopeLeases.delete(payload.leaseId);
+              return new Response(
+                JSON.stringify({ released: true }),
+                {
+                  status: 200,
+                  headers: { "Content-Type": "application/json" },
+                },
+              );
+            }
 
             return new Response(
-              JSON.stringify({ allowed: true, retryAfterSeconds: 0 }),
-              {
-                status: 200,
-                headers: { "Content-Type": "application/json" },
-              },
+              JSON.stringify({ error: "Unsupported path" }),
+              { status: 404, headers: { "Content-Type": "application/json" } },
             );
           });
         },
@@ -376,4 +593,14 @@ function createInvalidPayloadLimiterNamespace(): Env["RUN_ADMISSION_LIMITER"] {
 interface CounterState {
   windowBucket: number;
   count: number;
+}
+
+function toUrl(input: RequestInfo | URL): URL {
+  if (input instanceof URL) {
+    return input;
+  }
+  if (typeof input === "string") {
+    return new URL(input);
+  }
+  return new URL(input.url);
 }

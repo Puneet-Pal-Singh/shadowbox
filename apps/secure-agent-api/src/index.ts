@@ -125,6 +125,7 @@
 // apps/secure-agent-api/src/index.ts
 import { AgentRuntime } from "./core/AgentRuntime";
 import { Sandbox } from "@cloudflare/sandbox";
+import { LaunchRateLimiter } from "./runtime/LaunchRateLimiter";
 import {
   handleCreateSession,
   handleExecuteTask,
@@ -145,8 +146,9 @@ import {
   errorResponse,
 } from "./schemas/http-api";
 import { composeRuntime } from "./factories/RuntimeCompositionFactory";
+import { enforceLaunchSafetyForRoute } from "./services/LaunchSafetyService";
 
-export { Sandbox, AgentRuntime, composeRuntime };
+export { Sandbox, AgentRuntime, LaunchRateLimiter, composeRuntime };
 
 /**
  * SRP: Separate Environment definition
@@ -158,6 +160,15 @@ export interface Env {
   CORS_ALLOWED_ORIGINS?: string;
   CORS_ALLOW_DEV_ORIGINS?: "true" | "false";
   RUNTIME_GIT_SHA?: string;
+  LAUNCH_RATE_LIMITER?: DurableObjectNamespace;
+  LAUNCH_EMERGENCY_SHUTOFF_MODE?: "off" | "block_session_and_execute" | "block_all";
+  LAUNCH_RATE_LIMIT_REQUIRED?: "true" | "false";
+  SESSION_CREATE_RATE_LIMIT_AUTH_MAX?: string;
+  SESSION_CREATE_RATE_LIMIT_ANON_MAX?: string;
+  SESSION_CREATE_RATE_LIMIT_WINDOW_SECONDS?: string;
+  EXECUTE_TASK_RATE_LIMIT_AUTH_MAX?: string;
+  EXECUTE_TASK_RATE_LIMIT_ANON_MAX?: string;
+  EXECUTE_TASK_RATE_LIMIT_WINDOW_SECONDS?: string;
 }
 
 /**
@@ -215,12 +226,30 @@ export default {
         request.method === "POST"
       ) {
         // NEW: HTTP API Routes for CloudSandboxExecutor Integration
-        response = await handleCreateSession(request, stub);
+        const safetyResponse = await enforceLaunchSafetyForRoute(
+          request,
+          env,
+          "session_create",
+        );
+        if (safetyResponse) {
+          response = safetyResponse;
+        } else {
+          response = await handleCreateSession(request, stub);
+        }
       } else if (
         url.pathname === "/api/v1/execute" &&
         request.method === "POST"
       ) {
-        response = await handleExecuteTask(request, stub);
+        const safetyResponse = await enforceLaunchSafetyForRoute(
+          request,
+          env,
+          "execute_task",
+        );
+        if (safetyResponse) {
+          response = safetyResponse;
+        } else {
+          response = await handleExecuteTask(request, stub);
+        }
       } else if (url.pathname === "/api/v1/logs" && request.method === "GET") {
         response = await handleStreamLogs(
           request,
