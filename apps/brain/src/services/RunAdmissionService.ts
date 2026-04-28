@@ -2,14 +2,20 @@ import type { RunMode, WorkflowIntent } from "@repo/shared-types";
 import { DomainError } from "../domain/errors";
 import type { Env } from "../types/ai";
 
-const DEFAULT_RUN_SUBMISSION_LIMIT = 20;
-const DEFAULT_RUN_SUBMISSION_WINDOW_SECONDS = 60;
-const DEFAULT_MUTATION_RUN_SUBMISSION_LIMIT = 8;
-const DEFAULT_MUTATION_RUN_SUBMISSION_WINDOW_SECONDS = 60;
+const DEFAULT_RUN_SUBMISSION_LIMIT = 60;
+const DEFAULT_RUN_SUBMISSION_WINDOW_SECONDS = 600;
+const DEFAULT_MUTATION_RUN_SUBMISSION_LIMIT = 20;
+const DEFAULT_MUTATION_RUN_SUBMISSION_WINDOW_SECONDS = 600;
+const DEFAULT_ACTIVE_EXPENSIVE_RUNS_PER_SESSION_MAX = 1;
+const DEFAULT_ACTIVE_EXPENSIVE_RUNS_PER_USER_MAX = 2;
+const DEFAULT_ACTIVE_EXPENSIVE_RUNS_PER_WORKSPACE_MAX = 3;
+const DEFAULT_ACTIVE_EXPENSIVE_RUNS_ANONYMOUS_MAX = 1;
+const DEFAULT_ACTIVE_EXPENSIVE_RUN_LEASE_TTL_SECONDS = 900;
 
 interface RunAdmissionInput {
   userId?: string;
   workspaceId?: string;
+  sessionId?: string;
   clientFingerprint?: string;
   mode?: RunMode;
   workflowIntent?: WorkflowIntent;
@@ -21,9 +27,35 @@ interface ResolvedLimit {
   windowSeconds: number;
 }
 
-interface AdmissionDecision {
+interface RateLimitDecision {
   allowed: boolean;
   retryAfterSeconds: number;
+}
+
+type ConcurrencyBucket =
+  | "concurrent_expensive_run_session"
+  | "concurrent_expensive_run_user"
+  | "concurrent_expensive_run_workspace";
+
+interface ConcurrencyConstraint {
+  bucket: ConcurrencyBucket;
+  scopeKey: string;
+  limit: number;
+}
+
+interface ConcurrencyAcquireDecision {
+  allowed: boolean;
+  retryAfterSeconds: number;
+  leaseId?: string;
+  blockedBucket?: ConcurrencyBucket;
+}
+
+interface ConcurrencyReleaseDecision {
+  released: boolean;
+}
+
+export interface RunAdmissionGrant {
+  leaseId?: string;
 }
 
 /**
@@ -36,9 +68,30 @@ export class RunAdmissionService {
   async enforce(
     input: RunAdmissionInput,
     correlationId: string,
-  ): Promise<void> {
+  ): Promise<RunAdmissionGrant> {
     this.enforceEmergencyShutoff(correlationId);
     await this.enforceRateLimit(input, correlationId);
+    const leaseId = await this.enforceConcurrency(input, correlationId);
+    return leaseId ? { leaseId } : {};
+  }
+
+  async release(
+    grant: RunAdmissionGrant | undefined,
+    input: RunAdmissionInput,
+    correlationId: string,
+  ): Promise<void> {
+    if (!grant?.leaseId) {
+      return;
+    }
+
+    try {
+      await this.releaseConcurrencyLease(input, grant.leaseId, correlationId);
+    } catch (error) {
+      console.warn(
+        `[run/admission] ${correlationId}: failed to release concurrency lease`,
+        error,
+      );
+    }
   }
 
   private enforceEmergencyShutoff(correlationId: string): void {
@@ -78,6 +131,40 @@ export class RunAdmissionService {
         },
       );
     }
+  }
+
+  private async enforceConcurrency(
+    input: RunAdmissionInput,
+    correlationId: string,
+  ): Promise<string | undefined> {
+    if (!this.isMutationCapable(input)) {
+      return undefined;
+    }
+
+    const constraints = this.buildConcurrencyConstraints(input);
+    const leaseId = this.createLeaseId();
+    const decision = await this.acquireConcurrencyLease(
+      input,
+      leaseId,
+      constraints,
+      correlationId,
+    );
+
+    if (!decision.allowed) {
+      throw new DomainError(
+        "RUN_CONCURRENCY_LIMIT_REACHED",
+        `Too many active expensive runs. Retry in ${decision.retryAfterSeconds}s.`,
+        429,
+        true,
+        correlationId,
+        {
+          retryAfterSeconds: decision.retryAfterSeconds,
+          blockedBucket: decision.blockedBucket,
+        },
+      );
+    }
+
+    return decision.leaseId ?? leaseId;
   }
 
   private resolveLimit(input: RunAdmissionInput): ResolvedLimit {
@@ -123,7 +210,7 @@ export class RunAdmissionService {
     limit: ResolvedLimit,
     input: RunAdmissionInput,
     correlationId: string,
-  ): Promise<AdmissionDecision> {
+  ): Promise<RateLimitDecision> {
     if (!this.env.RUN_ADMISSION_LIMITER) {
       throw new DomainError(
         "RUN_ADMISSION_LIMITER_UNAVAILABLE",
@@ -178,6 +265,158 @@ export class RunAdmissionService {
     return body;
   }
 
+  private async acquireConcurrencyLease(
+    input: RunAdmissionInput,
+    leaseId: string,
+    constraints: ConcurrencyConstraint[],
+    correlationId: string,
+  ): Promise<ConcurrencyAcquireDecision> {
+    const response = await this.requestLimiter(
+      input,
+      "/acquire-concurrency",
+      {
+        leaseId,
+        leaseTtlSeconds: readPositiveInt(
+          this.env.ACTIVE_EXPENSIVE_RUN_LEASE_TTL_SECONDS,
+          DEFAULT_ACTIVE_EXPENSIVE_RUN_LEASE_TTL_SECONDS,
+        ),
+        constraints,
+      },
+      correlationId,
+    );
+    if (!isConcurrencyAcquireDecision(response)) {
+      throw new DomainError(
+        "RUN_ADMISSION_LIMITER_INVALID_RESPONSE",
+        "Run admission limiter returned an invalid concurrency response.",
+        503,
+        true,
+        correlationId,
+      );
+    }
+    return response;
+  }
+
+  private async releaseConcurrencyLease(
+    input: RunAdmissionInput,
+    leaseId: string,
+    correlationId: string,
+  ): Promise<void> {
+    const response = await this.requestLimiter(
+      input,
+      "/release-concurrency",
+      { leaseId },
+      correlationId,
+    );
+    if (!isConcurrencyReleaseDecision(response)) {
+      throw new DomainError(
+        "RUN_ADMISSION_LIMITER_INVALID_RESPONSE",
+        "Run admission limiter returned an invalid release response.",
+        503,
+        true,
+        correlationId,
+      );
+    }
+  }
+
+  private async requestLimiter(
+    input: RunAdmissionInput,
+    path: "/acquire-concurrency" | "/release-concurrency",
+    body: Record<string, unknown>,
+    correlationId: string,
+  ): Promise<unknown> {
+    if (!this.env.RUN_ADMISSION_LIMITER) {
+      throw new DomainError(
+        "RUN_ADMISSION_LIMITER_UNAVAILABLE",
+        "Run admission limiter is unavailable. Please retry shortly.",
+        503,
+        true,
+        correlationId,
+      );
+    }
+
+    const scope = this.buildScope(input);
+    const id = this.env.RUN_ADMISSION_LIMITER.idFromName(scope);
+    const stub = this.env.RUN_ADMISSION_LIMITER.get(id);
+    const response = await stub.fetch(`https://run-admission-limiter${path}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new DomainError(
+        "RUN_ADMISSION_LIMITER_UNAVAILABLE",
+        `Run admission limiter request failed (${response.status}).`,
+        503,
+        true,
+        correlationId,
+        {
+          limiterStatus: response.status,
+          limiterError: errorText,
+        },
+      );
+    }
+
+    return (await response.json()) as unknown;
+  }
+
+  private buildConcurrencyConstraints(
+    input: RunAdmissionInput,
+  ): ConcurrencyConstraint[] {
+    const sessionScope = normalizeScopeValue(input.sessionId);
+    const userScope = normalizeScopeValue(input.userId);
+    const workspaceScope = normalizeScopeValue(input.workspaceId);
+    const fallbackScope = normalizeScopeValue(input.clientFingerprint);
+    const anonymous = userScope === "unknown" || workspaceScope === "unknown";
+    const anonymousLimit = readPositiveInt(
+      this.env.ACTIVE_EXPENSIVE_RUNS_ANONYMOUS_MAX,
+      DEFAULT_ACTIVE_EXPENSIVE_RUNS_ANONYMOUS_MAX,
+    );
+
+    return [
+      {
+        bucket: "concurrent_expensive_run_session",
+        scopeKey:
+          sessionScope === "unknown"
+            ? `session-fingerprint:${fallbackScope}`
+            : `session:${sessionScope}`,
+        limit: readPositiveInt(
+          this.env.ACTIVE_EXPENSIVE_RUNS_PER_SESSION_MAX,
+          DEFAULT_ACTIVE_EXPENSIVE_RUNS_PER_SESSION_MAX,
+        ),
+      },
+      {
+        bucket: "concurrent_expensive_run_user",
+        scopeKey:
+          userScope === "unknown"
+            ? `user-fingerprint:${fallbackScope}`
+            : `user:${userScope}`,
+        limit: anonymous
+          ? anonymousLimit
+          : readPositiveInt(
+              this.env.ACTIVE_EXPENSIVE_RUNS_PER_USER_MAX,
+              DEFAULT_ACTIVE_EXPENSIVE_RUNS_PER_USER_MAX,
+            ),
+      },
+      {
+        bucket: "concurrent_expensive_run_workspace",
+        scopeKey:
+          workspaceScope === "unknown"
+            ? `workspace-fingerprint:${fallbackScope}`
+            : `workspace:${workspaceScope}`,
+        limit: anonymous
+          ? anonymousLimit
+          : readPositiveInt(
+              this.env.ACTIVE_EXPENSIVE_RUNS_PER_WORKSPACE_MAX,
+              DEFAULT_ACTIVE_EXPENSIVE_RUNS_PER_WORKSPACE_MAX,
+            ),
+      },
+    ];
+  }
+
   private buildScope(input: RunAdmissionInput): string {
     const userId = normalizeScopeValue(input.userId);
     const workspaceId = normalizeScopeValue(input.workspaceId);
@@ -186,6 +425,15 @@ export class RunAdmissionService {
       return `user:${userId}:workspace:${workspaceId}:fingerprint:${fallbackFingerprint}`;
     }
     return `user:${userId}:workspace:${workspaceId}`;
+  }
+
+  private createLeaseId(): string {
+    const randomBytes = new Uint8Array(8);
+    crypto.getRandomValues(randomBytes);
+    const suffix = Array.from(randomBytes)
+      .map((value) => value.toString(16).padStart(2, "0"))
+      .join("");
+    return `lease_${Date.now()}_${suffix}`;
   }
 }
 
@@ -205,7 +453,7 @@ function normalizeScopeValue(value: string | undefined): string {
   return normalized && normalized.length > 0 ? normalized : "unknown";
 }
 
-function isAdmissionDecision(value: unknown): value is AdmissionDecision {
+function isAdmissionDecision(value: unknown): value is RateLimitDecision {
   if (!value || typeof value !== "object") {
     return false;
   }
@@ -217,4 +465,33 @@ function isAdmissionDecision(value: unknown): value is AdmissionDecision {
     Number.isFinite(candidate.retryAfterSeconds) &&
     candidate.retryAfterSeconds >= 0
   );
+}
+
+function isConcurrencyAcquireDecision(
+  value: unknown,
+): value is ConcurrencyAcquireDecision {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  const leaseId = candidate.leaseId;
+  const blockedBucket = candidate.blockedBucket;
+  return (
+    typeof candidate.allowed === "boolean" &&
+    typeof candidate.retryAfterSeconds === "number" &&
+    Number.isFinite(candidate.retryAfterSeconds) &&
+    candidate.retryAfterSeconds >= 0 &&
+    (leaseId === undefined || typeof leaseId === "string") &&
+    (blockedBucket === undefined || typeof blockedBucket === "string")
+  );
+}
+
+function isConcurrencyReleaseDecision(
+  value: unknown,
+): value is ConcurrencyReleaseDecision {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  return typeof candidate.released === "boolean";
 }

@@ -230,23 +230,25 @@ export class ChatController {
     const { body, correlationId, sessionId, runId, userId, workspaceId } =
       chatRequest;
     const admissionService = new RunAdmissionService(env);
+    let admissionGrant: Awaited<
+      ReturnType<RunAdmissionService["enforce"]>
+    > | undefined;
 
     const coreMessages: CoreMessage[] =
       body.messages! as unknown as CoreMessage[];
 
     const prompt = extractPromptFromMessages(coreMessages, correlationId);
+    const admissionInput = {
+      userId,
+      workspaceId,
+      sessionId,
+      clientFingerprint: buildAdmissionScopeFingerprint(req),
+      mode: body.mode,
+      workflowIntent: body.workflowIntent,
+    };
 
     try {
-      await admissionService.enforce(
-        {
-          userId,
-          workspaceId,
-          clientFingerprint: buildAdmissionScopeFingerprint(req),
-          mode: body.mode,
-          workflowIntent: body.workflowIntent,
-        },
-        correlationId,
-      );
+      admissionGrant = await admissionService.enforce(admissionInput, correlationId);
 
       const executionStartedAt = Date.now();
       const useCase = new HandleChatRequest(env);
@@ -305,6 +307,8 @@ export class ChatController {
         error,
       );
       throw error;
+    } finally {
+      await admissionService.release(admissionGrant, admissionInput, correlationId);
     }
   }
 
