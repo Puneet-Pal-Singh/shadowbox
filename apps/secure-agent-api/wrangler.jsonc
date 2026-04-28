@@ -7,6 +7,9 @@
 	"name": "shadowbox-api",
 	"main": "src/index.ts",
 	"compatibility_date": "2025-05-06",
+	"limits": {
+		"cpu_ms": 60000
+	},
 	"compatibility_flags": [
 		"nodejs_compat"
 	],
@@ -30,6 +33,10 @@
 			{
 				"name": "Sandbox",
 				"class_name": "Sandbox"
+			},
+			{
+				"name": "LAUNCH_RATE_LIMITER",
+				"class_name": "LaunchRateLimiter"
 			}
 		]
 	},
@@ -37,6 +44,10 @@
 		{
 			"tag": "v3", // Increment tag
 			"new_sqlite_classes": ["AgentRuntime", "Sandbox"]
+		},
+		{
+			"tag": "v4-launch-rate-limiter",
+			"new_sqlite_classes": ["LaunchRateLimiter"]
 		}
 	],
 	"r2_buckets": [
@@ -67,6 +78,13 @@
 	 * CORS Configuration:
 	 * - CORS_ALLOWED_ORIGINS: Comma-separated list of allowed origins for production
 	 * - CORS_ALLOW_DEV_ORIGINS: Set to "true" to allow localhost/127.0.0.1/::1 in development
+	 * - LAUNCH_EMERGENCY_SHUTOFF_MODE: off | block_session_and_execute | block_all
+	 * - SESSION_CREATE_RATE_LIMIT_AUTH_MAX: default 20 (10-min window)
+	 * - SESSION_CREATE_RATE_LIMIT_ANON_MAX: default 10 (10-min window)
+	 * - SESSION_CREATE_RATE_LIMIT_WINDOW_SECONDS: default 600
+	 * - EXECUTE_TASK_RATE_LIMIT_AUTH_MAX: default 120 (10-min window)
+	 * - EXECUTE_TASK_RATE_LIMIT_ANON_MAX: default 20 (10-min window)
+	 * - EXECUTE_TASK_RATE_LIMIT_WINDOW_SECONDS: default 600
 	 *
 	 * Production example (LegionCode launch):
 	 * - CORS_ALLOWED_ORIGINS=https://legioncode.dev,https://staging.legioncode.dev
