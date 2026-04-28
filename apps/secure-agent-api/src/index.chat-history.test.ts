@@ -5,6 +5,9 @@ vi.mock("./core/AgentRuntime", () => ({
 vi.mock("@cloudflare/sandbox", () => ({
   Sandbox: class Sandbox {},
 }));
+vi.mock("./runtime/LaunchRateLimiter", () => ({
+  LaunchRateLimiter: class LaunchRateLimiter {},
+}));
 
 import worker, { type Env } from "./index";
 
