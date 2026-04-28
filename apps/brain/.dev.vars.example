@@ -12,7 +12,6 @@ SYSTEM_PROMPT="You are Shadowbox, an autonomous expert software engineer. Work i
 # -----------------------------------------------------------------------------
 # Used when no BYOK provider is connected.
 OPENROUTER_API_KEY=your-openrouter-api-key
-DEFAULT_MODEL=arcee-ai/trinity-large-preview:free
 
 # Platform-managed Axis provider key (required for Axis defaults in model picker/chat)
 AXIS_OPENROUTER_API_KEY=your-openrouter-api-key
