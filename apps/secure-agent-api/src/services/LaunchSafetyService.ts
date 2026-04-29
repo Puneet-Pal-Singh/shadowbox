@@ -208,7 +208,10 @@ function isInternalServiceBindingRequest(request: Request): boolean {
   try {
     const url = new URL(request.url);
     return url.hostname === "internal";
-  } catch {
+  } catch (error) {
+    console.warn("[launch-safety/internal-request] failed to parse request URL", {
+      error: error instanceof Error ? error.message : String(error),
+    });
     return false;
   }
 }

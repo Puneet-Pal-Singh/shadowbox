@@ -485,9 +485,13 @@ function AppContent() {
     !showOnboardingOverlay &&
     !isPreparingSetupShell;
   const onboardingWasShownRef = useRef(false);
+  useEffect(() => {
+    onboardingWasShownRef.current = false;
+  }, [user?.id]);
 
   useEffect(() => {
     if (!shouldOfferOnboardingOverlay) {
+      onboardingWasShownRef.current = false;
       window.setTimeout(() => {
         setIsOnboardingReopened(false);
       }, 0);

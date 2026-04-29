@@ -49,11 +49,6 @@ interface BranchAvailability {
   remoteExists: boolean;
 }
 
-interface InFlightBootstrapEntry {
-  key: string;
-  promise: Promise<WorkspaceBootstrapResult>;
-}
-
 const SAFE_REPOSITORY_SEGMENT_REGEX = /^[A-Za-z0-9._-]{1,100}$/;
 const SAFE_BRANCH_REGEX = /^[A-Za-z0-9._/-]{1,200}$/;
 const DEFAULT_SYNC_TTL_MS = 2 * 60 * 1000;
@@ -94,7 +89,7 @@ const TRANSIENT_STATUS_FAILURE_PATTERNS = [
 const GIT_STATUS_MAX_ATTEMPTS = 3;
 const GIT_STATUS_RETRY_DELAY_MS = 250;
 const workspaceSyncCache = new Map<string, WorkspaceSyncCacheEntry>();
-const bootstrapInFlightByRun = new Map<string, InFlightBootstrapEntry>();
+const bootstrapInFlight = new Map<string, Promise<WorkspaceBootstrapResult>>();
 const gitStatusOutputSchema = z.object({
   branch: z.string(),
   files: z.array(z.unknown()),
@@ -128,23 +123,19 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
   async bootstrap(
     request: WorkspaceBootstrapRequest,
   ): Promise<WorkspaceBootstrapResult> {
-    const runKey = request.runId.trim();
     const inFlightKey = buildBootstrapInFlightKey(request);
-    const existingEntry = bootstrapInFlightByRun.get(runKey);
-    if (existingEntry && existingEntry.key === inFlightKey) {
-      return existingEntry.promise;
+    const existingRequest = bootstrapInFlight.get(inFlightKey);
+    if (existingRequest) {
+      return existingRequest;
     }
 
     const bootstrapRequest = this.bootstrapUncoalesced(request);
-    bootstrapInFlightByRun.set(runKey, {
-      key: inFlightKey,
-      promise: bootstrapRequest,
-    });
+    bootstrapInFlight.set(inFlightKey, bootstrapRequest);
     try {
       return await bootstrapRequest;
     } finally {
-      if (bootstrapInFlightByRun.get(runKey)?.promise === bootstrapRequest) {
-        bootstrapInFlightByRun.delete(runKey);
+      if (bootstrapInFlight.get(inFlightKey) === bootstrapRequest) {
+        bootstrapInFlight.delete(inFlightKey);
       }
     }
   }
@@ -516,12 +507,13 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
 }
 
 function buildBootstrapInFlightKey(request: WorkspaceBootstrapRequest): string {
+  const runId = request.runId.trim();
   const context = request.repositoryContext;
   const owner = context.owner?.trim() ?? "";
   const repo = context.repo?.trim() ?? "";
   const branch = context.branch?.trim() ?? "";
   const baseUrl = context.baseUrl?.trim() ?? "";
-  return [owner, repo, branch, baseUrl, request.mode].join(":");
+  return [runId, owner, repo, branch, baseUrl, request.mode].join(":");
 }
 
 function buildWorkspaceSyncCacheKey(

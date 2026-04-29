@@ -443,6 +443,63 @@ describe("WorkspaceBootstrapService", () => {
     expect(gitWriteResult.status).toBe("ready");
   });
 
+  it("preserves key-specific coalescing under mixed-key contention", async () => {
+    let releaseStatusCheck: (() => void) | null = null;
+    const statusGate = new Promise<void>((resolve) => {
+      releaseStatusCheck = resolve;
+    });
+    const execute = vi.fn(
+      async (_plugin: string, action: string, _payload: Record<string, unknown>) => {
+        if (action === "git_status") {
+          await statusGate;
+          return {
+            success: true,
+            output: CLEAN_GIT_STATUS_OUTPUT,
+          };
+        }
+        return { success: true };
+      },
+    );
+    const service = new WorkspaceBootstrapService({ execute }, 0);
+
+    const mutationRequest = {
+      runId: "run-mixed-key",
+      mode: "mutation",
+      repositoryContext: {
+        owner: "sourcegraph",
+        repo: "shadowbox",
+        branch: "main",
+      },
+    } as const;
+    const gitWriteRequest = {
+      runId: "run-mixed-key",
+      mode: "git_write",
+      repositoryContext: {
+        owner: "sourcegraph",
+        repo: "shadowbox",
+        branch: "main",
+      },
+    } as const;
+
+    const firstMutation = service.bootstrap(mutationRequest);
+    const firstGitWrite = service.bootstrap(gitWriteRequest);
+    const secondMutation = service.bootstrap(mutationRequest);
+
+    await Promise.resolve();
+    // We should have one status call per unique key, not a third duplicate for mutation.
+    expect(execute).toHaveBeenCalledTimes(2);
+    releaseStatusCheck?.();
+
+    const [mutationResultA, gitWriteResult, mutationResultB] = await Promise.all([
+      firstMutation,
+      firstGitWrite,
+      secondMutation,
+    ]);
+    expect(mutationResultA.status).toBe("ready");
+    expect(gitWriteResult.status).toBe("ready");
+    expect(mutationResultB.status).toBe("ready");
+  });
+
   it("skips fetch and pull when the existing workspace has local changes", async () => {
     const execute = vi.fn().mockResolvedValueOnce({
       success: true,
