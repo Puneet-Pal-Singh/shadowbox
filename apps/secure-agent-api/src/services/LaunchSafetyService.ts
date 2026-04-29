@@ -36,6 +36,10 @@ export async function enforceLaunchSafetyForRoute(
   env: LaunchSafetyEnv,
   routeClass: RouteClass,
 ): Promise<Response | null> {
+  if (isInternalServiceBindingRequest(request)) {
+    return null;
+  }
+
   if (isEmergencyModeActive(env)) {
     return errorResponse(
       "LegionCode runtime is temporarily in maintenance mode. Please retry shortly.",
@@ -198,6 +202,18 @@ function isRateLimitDecision(value: unknown): value is LaunchRateLimitDecision {
     Number.isFinite(candidate.retryAfterSeconds) &&
     candidate.retryAfterSeconds >= 0
   );
+}
+
+function isInternalServiceBindingRequest(request: Request): boolean {
+  try {
+    const url = new URL(request.url);
+    return url.hostname === "internal";
+  } catch (error) {
+    console.warn("[launch-safety/internal-request] failed to parse request URL", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return false;
+  }
 }
 
 async function requestLimiterDecision(

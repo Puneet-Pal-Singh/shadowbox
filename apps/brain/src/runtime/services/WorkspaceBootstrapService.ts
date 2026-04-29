@@ -89,6 +89,7 @@ const TRANSIENT_STATUS_FAILURE_PATTERNS = [
 const GIT_STATUS_MAX_ATTEMPTS = 3;
 const GIT_STATUS_RETRY_DELAY_MS = 250;
 const workspaceSyncCache = new Map<string, WorkspaceSyncCacheEntry>();
+const bootstrapInFlight = new Map<string, Promise<WorkspaceBootstrapResult>>();
 const gitStatusOutputSchema = z.object({
   branch: z.string(),
   files: z.array(z.unknown()),
@@ -120,6 +121,26 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
   }
 
   async bootstrap(
+    request: WorkspaceBootstrapRequest,
+  ): Promise<WorkspaceBootstrapResult> {
+    const inFlightKey = buildBootstrapInFlightKey(request);
+    const existingRequest = bootstrapInFlight.get(inFlightKey);
+    if (existingRequest) {
+      return existingRequest;
+    }
+
+    const bootstrapRequest = this.bootstrapUncoalesced(request);
+    bootstrapInFlight.set(inFlightKey, bootstrapRequest);
+    try {
+      return await bootstrapRequest;
+    } finally {
+      if (bootstrapInFlight.get(inFlightKey) === bootstrapRequest) {
+        bootstrapInFlight.delete(inFlightKey);
+      }
+    }
+  }
+
+  private async bootstrapUncoalesced(
     request: WorkspaceBootstrapRequest,
   ): Promise<WorkspaceBootstrapResult> {
     const bootstrapStartedAt = Date.now();
@@ -207,6 +228,7 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
               normalized.branch,
               request.runId,
               bootstrapMode,
+              true,
             );
             this.logBootstrapTiming(
               request.runId,
@@ -240,6 +262,7 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
         normalized.branch,
         request.runId,
         bootstrapMode,
+        true,
       );
       this.logBootstrapTiming(
         request.runId,
@@ -290,6 +313,7 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
       normalized.branch,
       request.runId,
       bootstrapMode,
+      false,
     );
     this.logBootstrapTiming(request.runId, bootstrapResult, bootstrapStartedAt);
     return bootstrapResult;
@@ -300,9 +324,10 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
     branch: string,
     runId: string,
     mode: WorkspaceBootstrapMode,
+    clonedDuringBootstrap: boolean,
   ): Promise<WorkspaceBootstrapResult> {
-    const shouldFetch = mode !== "read_only";
-    const shouldPull = mode === "git_write";
+    const shouldFetch = mode !== "read_only" && !clonedDuringBootstrap;
+    const shouldPull = mode === "git_write" && !clonedDuringBootstrap;
     let branchExistsOnRemote: boolean | null = null;
 
     if (shouldFetch) {
@@ -479,6 +504,16 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
       `[workspace/bootstrap/timing] run=${runId} status=${result.status} elapsedMs=${Date.now() - startedAt}`,
     );
   }
+}
+
+function buildBootstrapInFlightKey(request: WorkspaceBootstrapRequest): string {
+  const runId = request.runId.trim();
+  const context = request.repositoryContext;
+  const owner = context.owner?.trim() ?? "";
+  const repo = context.repo?.trim() ?? "";
+  const branch = context.branch?.trim() ?? "";
+  const baseUrl = context.baseUrl?.trim() ?? "";
+  return [runId, owner, repo, branch, baseUrl, request.mode].join(":");
 }
 
 function buildWorkspaceSyncCacheKey(

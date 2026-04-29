@@ -141,4 +141,42 @@ describe("AgentSidebar", () => {
 
     expect(screen.getByTestId("task-status-idle")).toBeInTheDocument();
   });
+
+  it("orders tasks by recent activity regardless of status", () => {
+    render(
+      <AgentSidebar
+        sessions={[
+          createSession({
+            id: "session-old-running",
+            name: "Old running",
+            status: "running",
+            updatedAt: "2026-04-14T12:00:00.000Z",
+          }),
+          createSession({
+            id: "session-mid-idle",
+            name: "Mid idle",
+            status: "idle",
+            updatedAt: "2026-04-14T12:05:00.000Z",
+          }),
+          createSession({
+            id: "session-new-completed",
+            name: "New completed",
+            status: "completed",
+            updatedAt: "2026-04-14T12:10:00.000Z",
+          }),
+        ]}
+        repositories={["shadowbox/shadowbox"]}
+        activeSessionId="session-old-running"
+        onSelect={vi.fn()}
+        onCreate={vi.fn()}
+        onRemove={vi.fn()}
+        onAddRepository={vi.fn()}
+      />,
+    );
+
+    const taskRows = screen.getAllByRole("option");
+    expect(taskRows[0]).toHaveTextContent("New completed");
+    expect(taskRows[1]).toHaveTextContent("Mid idle");
+    expect(taskRows[2]).toHaveTextContent("Old running");
+  });
 });

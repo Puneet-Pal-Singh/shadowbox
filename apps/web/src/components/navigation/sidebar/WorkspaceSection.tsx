@@ -3,7 +3,7 @@ import { ChevronDown, Edit2, Folder, MoreHorizontal, Plus, Trash2 } from "lucide
 import { useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "../../../lib/utils";
 import { TaskList } from "./TaskList";
-import type { SidebarTaskItem, SidebarTaskStatus } from "./types";
+import type { SidebarTaskItem } from "./types";
 
 interface WorkspaceSectionProps {
   workspaceName: string;
@@ -16,23 +16,12 @@ interface WorkspaceSectionProps {
   initiallyExpanded?: boolean;
 }
 
-const STATUS_PRIORITY: Record<SidebarTaskStatus, number> = {
-  running: 0,
-  needs_approval: 1,
-  idle: 2,
-  failed: 3,
-  completed: 4,
-};
-
-function byStatusAndRecency(a: SidebarTaskItem, b: SidebarTaskItem): number {
-  const byStatus = STATUS_PRIORITY[a.status] - STATUS_PRIORITY[b.status];
-  if (byStatus !== 0) return byStatus;
-
+function byRecentActivity(a: SidebarTaskItem, b: SidebarTaskItem): number {
   return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
 }
 
 function sortTasks(tasks: SidebarTaskItem[]): SidebarTaskItem[] {
-  return [...tasks].sort(byStatusAndRecency);
+  return [...tasks].sort(byRecentActivity);
 }
 
 export function WorkspaceSection({

@@ -17,6 +17,24 @@ describe("LaunchSafetyService", () => {
     expect(response?.status).toBe(503);
   });
 
+  it("skips launch safety checks for internal service binding requests", async () => {
+    const scopes: string[] = [];
+    const response = await enforceLaunchSafetyForRoute(
+      new Request("http://internal/api/v1/session", {
+        method: "POST",
+      }),
+      {
+        LAUNCH_EMERGENCY_SHUTOFF_MODE: "block_session_and_execute",
+        LAUNCH_RATE_LIMIT_REQUIRED: "true",
+        LAUNCH_RATE_LIMITER: createMockLimiterNamespace({ scopes }),
+      },
+      "session_create",
+    );
+
+    expect(response).toBeNull();
+    expect(scopes).toHaveLength(0);
+  });
+
   it("returns 503 when limiter is required but unavailable", async () => {
     const response = await enforceLaunchSafetyForRoute(
       new Request("https://secure.local/api/v1/session", {
