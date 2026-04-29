@@ -91,7 +91,7 @@ type GitBootstrapRequestBody = z.infer<typeof GitBootstrapRequestBodySchema>;
 type GitBootstrapResult = Awaited<
   ReturnType<WorkspaceBootstrapService["bootstrap"]>
 >;
-const bootstrapRequestsByWorkspace = new Map<
+const bootstrapRequestsByRun = new Map<
   string,
   Promise<GitBootstrapResult>
 >();
@@ -468,8 +468,7 @@ export class GitController {
       }
 
       const muscleSession = resolveMuscleSessionId(normalizedRunId, sessionId);
-      const workspaceKey = `${muscleSession}:${normalizedRunId}`;
-      const existingRequest = bootstrapRequestsByWorkspace.get(workspaceKey);
+      const existingRequest = bootstrapRequestsByRun.get(normalizedRunId);
       if (existingRequest) {
         const result = await existingRequest;
         return corsJsonResponse(req, env, result);
@@ -482,7 +481,7 @@ export class GitController {
       );
       const bootstrapRequest = bootstrapper.bootstrap({
         runId: normalizedRunId,
-        mode: "git_write",
+        mode: "mutation",
         repositoryContext: {
           owner,
           repo,
@@ -490,16 +489,14 @@ export class GitController {
           baseUrl,
         },
       });
-      bootstrapRequestsByWorkspace.set(workspaceKey, bootstrapRequest);
+      bootstrapRequestsByRun.set(normalizedRunId, bootstrapRequest);
 
       let result: GitBootstrapResult;
       try {
         result = await bootstrapRequest;
       } finally {
-        if (
-          bootstrapRequestsByWorkspace.get(workspaceKey) === bootstrapRequest
-        ) {
-          bootstrapRequestsByWorkspace.delete(workspaceKey);
+        if (bootstrapRequestsByRun.get(normalizedRunId) === bootstrapRequest) {
+          bootstrapRequestsByRun.delete(normalizedRunId);
         }
       }
 
