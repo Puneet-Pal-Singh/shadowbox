@@ -122,23 +122,37 @@ function AppContent() {
   const [isOnboardingReopened, setIsOnboardingReopened] =
     useState<boolean>(false);
   useEffect(() => {
+    let cancelled = false;
     try {
       const key = buildOnboardingSeenKey(user?.id ?? null);
-      setHasSeenOnboarding(localStorage.getItem(key) === "true");
+      const nextValue = localStorage.getItem(key) === "true";
+      window.setTimeout(() => {
+        if (cancelled) {
+          return;
+        }
+        setHasSeenOnboarding(nextValue);
+      }, 0);
     } catch (error) {
       console.warn("[App] Failed to hydrate onboarding seen state:", error);
-      setHasSeenOnboarding(false);
+      window.setTimeout(() => {
+        if (cancelled) {
+          return;
+        }
+        setHasSeenOnboarding(false);
+      }, 0);
     }
+    return () => {
+      cancelled = true;
+    };
   }, [user?.id]);
   const persistOnboardingSeen = useCallback(() => {
-    setHasSeenOnboarding(true);
     try {
       const key = buildOnboardingSeenKey(user?.id ?? null);
       localStorage.setItem(key, "true");
     } catch (error) {
       console.warn("[App] Failed to persist onboarding seen state:", error);
     }
-  }, [user?.id]);
+  }, [user]);
   const lastSyncedGitHubSessionIdRef = useRef<string | null>(null);
 
   const activeSession = sessions.find((s) => s.id === activeSessionId) || null;
@@ -474,7 +488,9 @@ function AppContent() {
 
   useEffect(() => {
     if (!shouldOfferOnboardingOverlay) {
-      setIsOnboardingReopened(false);
+      window.setTimeout(() => {
+        setIsOnboardingReopened(false);
+      }, 0);
     }
   }, [shouldOfferOnboardingOverlay]);
 
@@ -526,6 +542,7 @@ function AppContent() {
   const handleDismissOnboardingOverlay = () => {
     setIsOnboardingOverlayDelayElapsed(false);
     setIsOnboardingReopened(false);
+    setHasSeenOnboarding(true);
     persistOnboardingSeen();
   };
 
