@@ -26,11 +26,11 @@ import { LockedShellCard } from "./components/startup/LockedShellCard";
 import type { SetupSessionState } from "./types/session";
 import { StartupOnboardingOverlay } from "./components/onboarding/StartupOnboardingOverlay";
 
-function buildOnboardingDismissedKey(userId: string | null): string {
+function buildOnboardingSeenKey(userId: string | null): string {
   if (!userId) {
-    return "shadowbox:startup-onboarding:dismissed-state:anonymous";
+    return "shadowbox:startup-onboarding:seen:anonymous";
   }
-  return `shadowbox:startup-onboarding:dismissed-state:${userId}`;
+  return `shadowbox:startup-onboarding:seen:${userId}`;
 }
 
 const TERMINAL_RUN_STATUSES = new Set(["COMPLETED", "FAILED", "CANCELLED"]);
@@ -110,20 +110,37 @@ function AppContent() {
   const [openProviderDialogSignal, setOpenProviderDialogSignal] = useState(0);
   const [isOnboardingOverlayDelayElapsed, setIsOnboardingOverlayDelayElapsed] =
     useState(false);
-  const [dismissedOnboardingStateKey, setDismissedOnboardingStateKey] =
-    useState<string | null>(() => {
-      try {
-        const key = buildOnboardingDismissedKey(user?.id ?? null);
-        return localStorage.getItem(key);
-      } catch (error) {
-        console.warn("[App] Failed to read onboarding dismissal state:", error);
-        return null;
-      }
-    });
+  const [hasSeenOnboarding, setHasSeenOnboarding] = useState<boolean>(() => {
+    try {
+      const key = buildOnboardingSeenKey(user?.id ?? null);
+      return localStorage.getItem(key) === "true";
+    } catch (error) {
+      console.warn("[App] Failed to read onboarding seen state:", error);
+      return false;
+    }
+  });
+  const [isOnboardingReopened, setIsOnboardingReopened] =
+    useState<boolean>(false);
+  useEffect(() => {
+    try {
+      const key = buildOnboardingSeenKey(user?.id ?? null);
+      setHasSeenOnboarding(localStorage.getItem(key) === "true");
+    } catch (error) {
+      console.warn("[App] Failed to hydrate onboarding seen state:", error);
+      setHasSeenOnboarding(false);
+    }
+  }, [user?.id]);
+  const persistOnboardingSeen = useCallback(() => {
+    setHasSeenOnboarding(true);
+    try {
+      const key = buildOnboardingSeenKey(user?.id ?? null);
+      localStorage.setItem(key, "true");
+    } catch (error) {
+      console.warn("[App] Failed to persist onboarding seen state:", error);
+    }
+  }, [user?.id]);
   const lastSyncedGitHubSessionIdRef = useRef<string | null>(null);
 
-  // Get active session for workspace rendering
-  // Use memoized activeSession to avoid unnecessary re-renders
   const activeSession = sessions.find((s) => s.id === activeSessionId) || null;
   const setupSession = useMemo<SetupSessionState | null>(() => {
     if (!isAuthenticated || sessions.length > 0) {
@@ -443,21 +460,36 @@ function AppContent() {
   const isOnboardingComplete = hasProviderConnection && hasRepoContext;
   const shouldOfferOnboardingOverlay =
     isAuthenticated && isStartupSetupVisible && !isOnboardingComplete;
-  const onboardingStateKey = `${shellStartupState}:${hasRepoContext ? "repo-yes" : "repo-no"}:${hasProviderConnection ? "provider-yes" : "provider-no"}`;
-  const isOnboardingDismissed =
-    dismissedOnboardingStateKey === onboardingStateKey;
   const showOnboardingOverlay =
     shouldOfferOnboardingOverlay &&
-    !isOnboardingDismissed &&
-    isOnboardingOverlayDelayElapsed &&
-    !isPreparingSetupShell;
+    !isPreparingSetupShell &&
+    ((isOnboardingReopened && isOnboardingOverlayDelayElapsed) ||
+      (!hasSeenOnboarding && isOnboardingOverlayDelayElapsed));
   const showOnboardingReopenButton =
     shouldOfferOnboardingOverlay &&
-    isOnboardingDismissed &&
+    hasSeenOnboarding &&
+    !showOnboardingOverlay &&
     !isPreparingSetupShell;
+  const onboardingWasShownRef = useRef(false);
 
   useEffect(() => {
-    if (!shouldOfferOnboardingOverlay || isOnboardingDismissed) {
+    if (!shouldOfferOnboardingOverlay) {
+      setIsOnboardingReopened(false);
+    }
+  }, [shouldOfferOnboardingOverlay]);
+
+  useEffect(() => {
+    if (!showOnboardingOverlay || onboardingWasShownRef.current) {
+      return;
+    }
+    onboardingWasShownRef.current = true;
+    if (!hasSeenOnboarding) {
+      persistOnboardingSeen();
+    }
+  }, [hasSeenOnboarding, persistOnboardingSeen, showOnboardingOverlay]);
+
+  useEffect(() => {
+    if (!shouldOfferOnboardingOverlay) {
       return;
     }
 
@@ -472,30 +504,7 @@ function AppContent() {
     return () => {
       window.clearTimeout(timeoutId);
     };
-  }, [
-    isOnboardingDismissed,
-    isOnboardingOverlayDelayElapsed,
-    shouldOfferOnboardingOverlay,
-  ]);
-
-  useEffect(() => {
-    if (!isOnboardingComplete) {
-      return;
-    }
-
-    const key = buildOnboardingDismissedKey(user?.id ?? null);
-    const timeoutId = window.setTimeout(() => {
-      setDismissedOnboardingStateKey(null);
-    }, 0);
-    try {
-      localStorage.removeItem(key);
-    } catch (error) {
-      console.warn("[App] Failed to clear onboarding dismissal state:", error);
-    }
-    return () => {
-      window.clearTimeout(timeoutId);
-    };
-  }, [isOnboardingComplete, user?.id]);
+  }, [isOnboardingOverlayDelayElapsed, shouldOfferOnboardingOverlay]);
 
   // Get active session name for the header
   const taskTitle = activeSession?.name;
@@ -515,30 +524,16 @@ function AppContent() {
   };
 
   const handleDismissOnboardingOverlay = () => {
-    const key = buildOnboardingDismissedKey(user?.id ?? null);
-    setDismissedOnboardingStateKey(onboardingStateKey);
     setIsOnboardingOverlayDelayElapsed(false);
-    try {
-      localStorage.setItem(key, onboardingStateKey);
-    } catch (error) {
-      console.warn(
-        "[App] Failed to persist onboarding dismissal state:",
-        error,
-      );
-    }
+    setIsOnboardingReopened(false);
+    persistOnboardingSeen();
   };
 
   const handleReopenOnboardingOverlay = () => {
-    const key = buildOnboardingDismissedKey(user?.id ?? null);
-    setDismissedOnboardingStateKey(null);
+    setIsOnboardingReopened(true);
     setIsOnboardingOverlayDelayElapsed(true);
-    try {
-      localStorage.removeItem(key);
-    } catch (error) {
-      console.warn("[App] Failed to reopen onboarding state:", error);
-    }
+    onboardingWasShownRef.current = true;
   };
-
   const handleNewTask = (repositoryName?: string) => {
     if (!isAuthenticated) {
       login();
