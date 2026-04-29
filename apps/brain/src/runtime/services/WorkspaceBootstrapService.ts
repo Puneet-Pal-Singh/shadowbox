@@ -49,6 +49,11 @@ interface BranchAvailability {
   remoteExists: boolean;
 }
 
+interface InFlightBootstrapEntry {
+  key: string;
+  promise: Promise<WorkspaceBootstrapResult>;
+}
+
 const SAFE_REPOSITORY_SEGMENT_REGEX = /^[A-Za-z0-9._-]{1,100}$/;
 const SAFE_BRANCH_REGEX = /^[A-Za-z0-9._/-]{1,200}$/;
 const DEFAULT_SYNC_TTL_MS = 2 * 60 * 1000;
@@ -89,6 +94,7 @@ const TRANSIENT_STATUS_FAILURE_PATTERNS = [
 const GIT_STATUS_MAX_ATTEMPTS = 3;
 const GIT_STATUS_RETRY_DELAY_MS = 250;
 const workspaceSyncCache = new Map<string, WorkspaceSyncCacheEntry>();
+const bootstrapInFlightByRun = new Map<string, InFlightBootstrapEntry>();
 const gitStatusOutputSchema = z.object({
   branch: z.string(),
   files: z.array(z.unknown()),
@@ -120,6 +126,30 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
   }
 
   async bootstrap(
+    request: WorkspaceBootstrapRequest,
+  ): Promise<WorkspaceBootstrapResult> {
+    const runKey = request.runId.trim();
+    const inFlightKey = buildBootstrapInFlightKey(request);
+    const existingEntry = bootstrapInFlightByRun.get(runKey);
+    if (existingEntry && existingEntry.key === inFlightKey) {
+      return existingEntry.promise;
+    }
+
+    const bootstrapRequest = this.bootstrapUncoalesced(request);
+    bootstrapInFlightByRun.set(runKey, {
+      key: inFlightKey,
+      promise: bootstrapRequest,
+    });
+    try {
+      return await bootstrapRequest;
+    } finally {
+      if (bootstrapInFlightByRun.get(runKey)?.promise === bootstrapRequest) {
+        bootstrapInFlightByRun.delete(runKey);
+      }
+    }
+  }
+
+  private async bootstrapUncoalesced(
     request: WorkspaceBootstrapRequest,
   ): Promise<WorkspaceBootstrapResult> {
     const bootstrapStartedAt = Date.now();
@@ -207,6 +237,7 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
               normalized.branch,
               request.runId,
               bootstrapMode,
+              true,
             );
             this.logBootstrapTiming(
               request.runId,
@@ -240,6 +271,7 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
         normalized.branch,
         request.runId,
         bootstrapMode,
+        true,
       );
       this.logBootstrapTiming(
         request.runId,
@@ -290,6 +322,7 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
       normalized.branch,
       request.runId,
       bootstrapMode,
+      false,
     );
     this.logBootstrapTiming(request.runId, bootstrapResult, bootstrapStartedAt);
     return bootstrapResult;
@@ -300,9 +333,10 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
     branch: string,
     runId: string,
     mode: WorkspaceBootstrapMode,
+    clonedDuringBootstrap: boolean,
   ): Promise<WorkspaceBootstrapResult> {
-    const shouldFetch = mode !== "read_only";
-    const shouldPull = mode === "git_write";
+    const shouldFetch = mode !== "read_only" && !clonedDuringBootstrap;
+    const shouldPull = mode === "git_write" && !clonedDuringBootstrap;
     let branchExistsOnRemote: boolean | null = null;
 
     if (shouldFetch) {
@@ -479,6 +513,15 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
       `[workspace/bootstrap/timing] run=${runId} status=${result.status} elapsedMs=${Date.now() - startedAt}`,
     );
   }
+}
+
+function buildBootstrapInFlightKey(request: WorkspaceBootstrapRequest): string {
+  const context = request.repositoryContext;
+  const owner = context.owner?.trim() ?? "";
+  const repo = context.repo?.trim() ?? "";
+  const branch = context.branch?.trim() ?? "";
+  const baseUrl = context.baseUrl?.trim() ?? "";
+  return [owner, repo, branch, baseUrl, request.mode].join(":");
 }
 
 function buildWorkspaceSyncCacheKey(
