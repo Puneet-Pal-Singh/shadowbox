@@ -67,13 +67,14 @@ export class RunAdmissionService {
   constructor(private readonly env: Env) {}
 
   async enforce(
-    input: RunAdmissionInput,
+    _input: RunAdmissionInput,
     correlationId: string,
   ): Promise<RunAdmissionGrant> {
     this.enforceEmergencyShutoff(correlationId);
-    await this.enforceRateLimit(input, correlationId);
-    const leaseId = await this.enforceConcurrency(input, correlationId);
-    return leaseId ? { leaseId } : {};
+    // Keep helper methods linked for easy re-enable in a future policy pass.
+    void this.enforceRateLimit;
+    void this.enforceConcurrency;
+    return {};
   }
 
   async release(
@@ -431,6 +432,7 @@ export class RunAdmissionService {
       .join("");
     return `lease_${Date.now()}_${suffix}`;
   }
+
 }
 
 function readPositiveInt(value: string | undefined | null, fallback: number): number {
@@ -448,6 +450,7 @@ function normalizeScopeValue(value: string | undefined): string {
   const normalized = value?.trim();
   return normalized && normalized.length > 0 ? normalized : "unknown";
 }
+
 
 function isAdmissionDecision(value: unknown): value is RateLimitDecision {
   if (!value || typeof value !== "object") {
