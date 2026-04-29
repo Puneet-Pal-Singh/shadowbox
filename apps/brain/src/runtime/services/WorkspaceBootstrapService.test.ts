@@ -35,8 +35,6 @@ describe("WorkspaceBootstrapService", () => {
         error: "fatal: not a git repository",
       })
       .mockResolvedValueOnce({ success: true })
-      .mockResolvedValueOnce({ success: true })
-      .mockResolvedValueOnce({ success: true })
       .mockResolvedValueOnce({ success: true });
     const service = new WorkspaceBootstrapService({ execute }, 0);
 
@@ -55,6 +53,10 @@ describe("WorkspaceBootstrapService", () => {
     expect(execute).toHaveBeenNthCalledWith(2, "git", "git_clone", {
       url: "https://github.com/sourcegraph/shadowbox.git",
     });
+    expect(execute).toHaveBeenNthCalledWith(3, "git", "git_branch_switch", {
+      branch: "dev",
+    });
+    expect(execute).toHaveBeenCalledTimes(3);
   });
 
   it("retries transient git status failures before continuing bootstrap", async () => {
@@ -194,9 +196,7 @@ describe("WorkspaceBootstrapService", () => {
           "fatal: destination path '/home/sandbox/runs/run-1' already exists and is not an empty directory.",
       })
       .mockResolvedValueOnce({ success: true }) // forced clone
-      .mockResolvedValueOnce({ success: true }) // fetch
-      .mockResolvedValueOnce({ success: true }) // switch
-      .mockResolvedValueOnce({ success: true }); // pull
+      .mockResolvedValueOnce({ success: true }); // switch
     const service = new WorkspaceBootstrapService({ execute }, 0);
 
     const result = await service.bootstrap({
@@ -217,6 +217,10 @@ describe("WorkspaceBootstrapService", () => {
       url: "https://github.com/sourcegraph/shadowbox.git",
       replaceExisting: true,
     });
+    expect(execute).toHaveBeenNthCalledWith(4, "git", "git_branch_switch", {
+      branch: "dev",
+    });
+    expect(execute).toHaveBeenCalledTimes(4);
   });
 
   it("returns a friendly sync failure when replace clone still fails", async () => {
@@ -331,6 +335,112 @@ describe("WorkspaceBootstrapService", () => {
       remote: "origin",
       branch: "dev",
     });
+  });
+
+  it("coalesces concurrent bootstrap calls for the same run", async () => {
+    let releaseStatusCheck: (() => void) | null = null;
+    const statusGate = new Promise<void>((resolve) => {
+      releaseStatusCheck = resolve;
+    });
+    const execute = vi.fn(
+      async (_plugin: string, action: string, _payload: Record<string, unknown>) => {
+        if (action === "git_status") {
+          await statusGate;
+          return {
+            success: true,
+            output: CLEAN_GIT_STATUS_OUTPUT,
+          };
+        }
+        return { success: true };
+      },
+    );
+    const service = new WorkspaceBootstrapService({ execute }, 0);
+    const request = {
+      runId: "run-concurrent-collapse",
+      mode: "git_write",
+      repositoryContext: {
+        owner: "sourcegraph",
+        repo: "shadowbox",
+        branch: "main",
+      },
+    } as const;
+
+    const firstBootstrap = service.bootstrap(request);
+    const secondBootstrap = service.bootstrap(request);
+    await Promise.resolve();
+    expect(execute).toHaveBeenCalledTimes(1);
+
+    releaseStatusCheck?.();
+    const [firstResult, secondResult] = await Promise.all([
+      firstBootstrap,
+      secondBootstrap,
+    ]);
+
+    expect(firstResult.status).toBe("ready");
+    expect(secondResult.status).toBe("ready");
+    expect(execute).toHaveBeenCalledTimes(4);
+    expect(execute).toHaveBeenNthCalledWith(1, "git", "git_status", {});
+    expect(execute).toHaveBeenNthCalledWith(2, "git", "git_fetch", {
+      remote: "origin",
+    });
+    expect(execute).toHaveBeenNthCalledWith(3, "git", "git_branch_switch", {
+      branch: "main",
+    });
+    expect(execute).toHaveBeenNthCalledWith(4, "git", "git_pull", {
+      remote: "origin",
+      branch: "main",
+    });
+  });
+
+  it("does not coalesce bootstrap calls when mode differs for the same run", async () => {
+    let releaseStatusCheck: (() => void) | null = null;
+    const statusGate = new Promise<void>((resolve) => {
+      releaseStatusCheck = resolve;
+    });
+    const execute = vi.fn(
+      async (_plugin: string, action: string, _payload: Record<string, unknown>) => {
+        if (action === "git_status") {
+          await statusGate;
+          return {
+            success: true,
+            output: CLEAN_GIT_STATUS_OUTPUT,
+          };
+        }
+        return { success: true };
+      },
+    );
+    const service = new WorkspaceBootstrapService({ execute }, 0);
+
+    const mutationBootstrap = service.bootstrap({
+      runId: "run-mode-split",
+      mode: "mutation",
+      repositoryContext: {
+        owner: "sourcegraph",
+        repo: "shadowbox",
+        branch: "main",
+      },
+    });
+    const gitWriteBootstrap = service.bootstrap({
+      runId: "run-mode-split",
+      mode: "git_write",
+      repositoryContext: {
+        owner: "sourcegraph",
+        repo: "shadowbox",
+        branch: "main",
+      },
+    });
+
+    await Promise.resolve();
+    // Two independent bootstrap flows should both reach git_status.
+    expect(execute).toHaveBeenCalledTimes(2);
+    releaseStatusCheck?.();
+
+    const [mutationResult, gitWriteResult] = await Promise.all([
+      mutationBootstrap,
+      gitWriteBootstrap,
+    ]);
+    expect(mutationResult.status).toBe("ready");
+    expect(gitWriteResult.status).toBe("ready");
   });
 
   it("skips fetch and pull when the existing workspace has local changes", async () => {
