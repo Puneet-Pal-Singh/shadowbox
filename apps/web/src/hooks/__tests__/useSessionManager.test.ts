@@ -231,6 +231,27 @@ describe("useSessionManager", () => {
       expect(session?.status).toBe("running");
     });
 
+    it("should not update updatedAt for no-op updates", () => {
+      const { result } = renderHook(() => useSessionManager());
+
+      let sessionId = "";
+      act(() => {
+        sessionId = result.current.createSession("Task", "repo");
+      });
+
+      const original = result.current.sessions.find((s: AgentSession) => s.id === sessionId);
+      expect(original).toBeDefined();
+
+      act(() => {
+        result.current.updateSession(sessionId, { status: original!.status });
+      });
+
+      const afterNoOp = result.current.sessions.find(
+        (s: AgentSession) => s.id === sessionId,
+      );
+      expect(afterNoOp?.updatedAt).toBe(original?.updatedAt);
+    });
+
     it("should reject invalid session updates", () => {
       const { result } = renderHook(() => useSessionManager());
 
