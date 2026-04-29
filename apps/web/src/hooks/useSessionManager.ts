@@ -23,6 +23,14 @@ function createSessionsMap(
   return Object.fromEntries(sessions.map((session) => [session.id, session]));
 }
 
+function hasSessionUpdates(
+  session: AgentSession,
+  updates: Partial<Omit<AgentSession, "id">>,
+): boolean {
+  const keys = Object.keys(updates) as Array<keyof Omit<AgentSession, "id">>;
+  return keys.some((key) => updates[key] !== undefined && session[key] !== updates[key]);
+}
+
 export function useSessionManager() {
   const [sessions, setSessions] = useState<AgentSession[]>(() => {
     const sessionsMap = SessionStateService.loadSessions();
@@ -201,7 +209,10 @@ export function useSessionManager() {
       setSessions((prev) =>
         prev.map((s) => {
           if (s.id !== id) return s;
-          // Merge updates and always refresh updatedAt
+          if (!hasSessionUpdates(s, updates)) {
+            return s;
+          }
+          // Merge updates and refresh updatedAt only when values actually changed
           const updated: AgentSession = {
             ...s,
             ...updates,
