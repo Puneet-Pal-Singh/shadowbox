@@ -29,6 +29,7 @@ describe("AgentSidebar", () => {
         onCreate={vi.fn()}
         onRemove={vi.fn()}
         onAddRepository={vi.fn()}
+        onOpenSettings={vi.fn()}
       />,
     );
 
@@ -50,6 +51,7 @@ describe("AgentSidebar", () => {
         onCreate={vi.fn()}
         onRemove={vi.fn()}
         onAddRepository={vi.fn()}
+        onOpenSettings={vi.fn()}
       />,
     );
 
@@ -67,6 +69,7 @@ describe("AgentSidebar", () => {
         onCreate={vi.fn()}
         onRemove={vi.fn()}
         onAddRepository={vi.fn()}
+        onOpenSettings={vi.fn()}
       />,
     );
 
@@ -91,6 +94,7 @@ describe("AgentSidebar", () => {
         onCreate={vi.fn()}
         onRemove={vi.fn()}
         onAddRepository={vi.fn()}
+        onOpenSettings={vi.fn()}
       />,
     );
 
@@ -112,6 +116,7 @@ describe("AgentSidebar", () => {
         onCreate={vi.fn()}
         onRemove={vi.fn()}
         onAddRepository={vi.fn()}
+        onOpenSettings={vi.fn()}
       />,
     );
 
@@ -136,6 +141,7 @@ describe("AgentSidebar", () => {
         onCreate={vi.fn()}
         onRemove={vi.fn()}
         onAddRepository={vi.fn()}
+        onOpenSettings={vi.fn()}
       />,
     );
 
@@ -171,6 +177,7 @@ describe("AgentSidebar", () => {
         onCreate={vi.fn()}
         onRemove={vi.fn()}
         onAddRepository={vi.fn()}
+        onOpenSettings={vi.fn()}
       />,
     );
 
@@ -178,5 +185,25 @@ describe("AgentSidebar", () => {
     expect(taskRows[0]).toHaveTextContent("New completed");
     expect(taskRows[1]).toHaveTextContent("Mid idle");
     expect(taskRows[2]).toHaveTextContent("Old running");
+  });
+
+  it("opens settings from the footer action", () => {
+    const onOpenSettings = vi.fn();
+
+    render(
+      <AgentSidebar
+        sessions={[createSession()]}
+        repositories={["shadowbox/shadowbox"]}
+        activeSessionId="session-1"
+        onSelect={vi.fn()}
+        onCreate={vi.fn()}
+        onRemove={vi.fn()}
+        onAddRepository={vi.fn()}
+        onOpenSettings={onOpenSettings}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    expect(onOpenSettings).toHaveBeenCalledTimes(1);
   });
 });
