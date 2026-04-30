@@ -71,6 +71,7 @@ export function recordAgenticLoopMetadata(
     toolExecutionCount: result.toolExecutionCount,
     failedToolCount: result.failedToolCount,
     requiresMutation: result.requiresMutation,
+    currentTurnIntent: result.currentTurnIntent,
     completedMutatingToolCount: result.completedMutatingToolCount,
     completedReadOnlyToolCount: result.completedReadOnlyToolCount,
     recoveryCode: deriveAgenticLoopRecoveryCode(result),
@@ -89,6 +90,7 @@ export function recordRecoveredAgenticLoopMetadata(
     toolExecutionCount: number;
     failedToolCount: number;
     requiresMutation: boolean;
+    currentTurnIntent?: AgenticLoopResult["currentTurnIntent"];
     completedMutatingToolCount: number;
     completedReadOnlyToolCount: number;
     llmRetryCount: number;
@@ -104,6 +106,7 @@ export function recordRecoveredAgenticLoopMetadata(
     toolExecutionCount: input.toolExecutionCount,
     failedToolCount: input.failedToolCount,
     requiresMutation: input.requiresMutation,
+    currentTurnIntent: input.currentTurnIntent,
     completedMutatingToolCount: input.completedMutatingToolCount,
     completedReadOnlyToolCount: input.completedReadOnlyToolCount,
     recoveryCode: input.recoveryCode,
@@ -121,12 +124,13 @@ export function buildAgenticLoopFinalOutput(result: AgenticLoopResult): string {
 export function buildAgenticLoopFinalMessage(
   result: AgenticLoopResult,
 ): AssistantTurnOutput {
+  const mutationScopedTurn = isMutationScopedTurn(result);
   const assistantText = getLastAssistantText(result.messages);
 
-  if (isZeroActionMutationModelIssue(result)) {
+  if (isZeroActionMutationModelIssue(result, mutationScopedTurn)) {
     return {
       text: buildTaskModelNoActionSummary({
-        requiresMutation: result.requiresMutation,
+        requiresMutation: mutationScopedTurn,
         toolLifecycle: result.toolLifecycle,
       }),
       metadata: buildTaskModelNoActionMetadata(),
@@ -134,21 +138,21 @@ export function buildAgenticLoopFinalMessage(
   }
 
   if (
-    result.requiresMutation &&
+    mutationScopedTurn &&
     result.completedMutatingToolCount === 0 &&
     shouldPreserveAssistantText(assistantText)
   ) {
     return { text: assistantText! };
   }
 
-  if (result.requiresMutation && result.completedMutatingToolCount === 0) {
+  if (mutationScopedTurn && result.completedMutatingToolCount === 0) {
     return {
       text: buildIncompleteMutationSummary(result),
       metadata: buildIncompleteMutationMetadata(),
     };
   }
 
-  if (result.requiresMutation && result.completedMutatingToolCount > 0) {
+  if (mutationScopedTurn && result.completedMutatingToolCount > 0) {
     const groundedMutationSummary = buildCompletedMutationSummary(result);
     if (groundedMutationSummary) {
       if (result.stopReason === "tool_error") {
@@ -529,27 +533,31 @@ function buildToolExecutionFailedMetadata(
 function deriveAgenticLoopRecoveryCode(
   result: AgenticLoopResult,
 ): "INCOMPLETE_MUTATION" | typeof TASK_MODEL_NO_ACTION_CODE | undefined {
-  if (isZeroActionMutationModelIssue(result)) {
+  const mutationScopedTurn = isMutationScopedTurn(result);
+  if (isZeroActionMutationModelIssue(result, mutationScopedTurn)) {
     return TASK_MODEL_NO_ACTION_CODE;
   }
 
   if (
-    result.requiresMutation &&
+    mutationScopedTurn &&
     result.completedMutatingToolCount === 0 &&
     shouldPreserveAssistantText(getLastAssistantText(result.messages))
   ) {
     return undefined;
   }
 
-  if (result.requiresMutation && result.completedMutatingToolCount === 0) {
+  if (mutationScopedTurn && result.completedMutatingToolCount === 0) {
     return INCOMPLETE_MUTATION_CODE;
   }
 
   return undefined;
 }
 
-function isZeroActionMutationModelIssue(result: AgenticLoopResult): boolean {
-  if (!result.requiresMutation) {
+function isZeroActionMutationModelIssue(
+  result: AgenticLoopResult,
+  mutationScopedTurn: boolean,
+): boolean {
+  if (!mutationScopedTurn) {
     return false;
   }
 
@@ -561,6 +569,14 @@ function isZeroActionMutationModelIssue(result: AgenticLoopResult): boolean {
   }
 
   return !shouldPreserveAssistantText(getLastAssistantText(result.messages));
+}
+
+function isMutationScopedTurn(result: AgenticLoopResult): boolean {
+  if (result.currentTurnIntent) {
+    return result.currentTurnIntent !== "read_only";
+  }
+
+  return result.requiresMutation;
 }
 
 function shouldPreserveAssistantText(text: string | null): boolean {
