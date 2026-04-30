@@ -143,6 +143,12 @@ export function buildAgenticLoopWorkspaceContext(input: {
       );
     }
 
+    if (isLocalDiffScopeDecisionFailure(continuation)) {
+      lines.push(
+        "Local diff scope decision is still required. Ask the user once which exact files or target scope should be staged/committed/pushed before continuing git mutations.",
+      );
+    }
+
     lines.push(
       "Do not repeat successful inspection or rewrite already-updated files unless the current workspace proves the change is missing.",
     );
@@ -281,6 +287,22 @@ function isNonFastForwardPushFailure(
   const detail = continuation.failedToolDetail ?? "";
   return /non-fast-forward|tip of your current branch is behind|newer commits|already committed locally/i.test(
     detail,
+  );
+}
+
+function isLocalDiffScopeDecisionFailure(
+  continuation: RunContinuationState,
+): boolean {
+  if (
+    continuation.failedToolName !== "git_stage" &&
+    continuation.failedToolName !== "git_commit" &&
+    continuation.failedToolName !== "git_push"
+  ) {
+    return false;
+  }
+
+  return /scope decision|diff scope|which files|target scope/i.test(
+    continuation.failedToolDetail ?? "",
   );
 }
 
