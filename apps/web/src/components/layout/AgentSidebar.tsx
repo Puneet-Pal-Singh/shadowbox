@@ -1,4 +1,4 @@
-import { Check, FolderPlus, ListFilter, Search } from "lucide-react";
+import { Check, FolderPlus, ListFilter, Search, Settings } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AgentSession } from "../../hooks/useSessionManager";
 import {
@@ -20,6 +20,7 @@ interface AgentSidebarProps {
   onRenameRepository?: (oldName: string, newName: string) => void;
   onClose?: () => void;
   onAddRepository: () => void;
+  onOpenSettings: () => void;
   width?: number;
 }
 
@@ -108,6 +109,7 @@ export function AgentSidebar({
   onRenameRepository,
   onClose,
   onAddRepository,
+  onOpenSettings,
   width = 280,
 }: AgentSidebarProps) {
   const [searchQuery, setSearchQuery] = useState("");
@@ -267,14 +269,24 @@ export function AgentSidebar({
   );
 
   const footer = (
-    <button
-      type="button"
-      onClick={onAddRepository}
-      className="inline-flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs font-medium text-zinc-400 transition-colors hover:bg-zinc-900 hover:text-zinc-200"
-    >
-      <FolderPlus size={13} className="text-zinc-500" />
-      Add repository
-    </button>
+    <div className="space-y-1.5">
+      <button
+        type="button"
+        onClick={onAddRepository}
+        className="inline-flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs font-medium text-zinc-400 transition-colors hover:bg-zinc-900 hover:text-zinc-200"
+      >
+        <FolderPlus size={13} className="text-zinc-500" />
+        Add repository
+      </button>
+      <button
+        type="button"
+        onClick={onOpenSettings}
+        className="inline-flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs font-medium text-zinc-400 transition-colors hover:bg-zinc-900 hover:text-zinc-200"
+      >
+        <Settings size={13} className="text-zinc-500" />
+        Settings
+      </button>
+    </div>
   );
 
   return (
