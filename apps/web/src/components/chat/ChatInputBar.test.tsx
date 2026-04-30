@@ -240,7 +240,7 @@ describe("ChatInputBar", () => {
     });
   });
 
-  it("surfaces a build/plan mode toggle and emits changes", () => {
+  it("surfaces plan mode controls inside the composer options menu", () => {
     const onModeChange = vi.fn();
 
     render(
@@ -254,7 +254,8 @@ describe("ChatInputBar", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("tab", { name: "Plan" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open composer options" }));
+    fireEvent.click(screen.getByRole("switch", { name: "Toggle plan mode" }));
 
     expect(onModeChange).toHaveBeenCalledWith("plan");
   });
@@ -450,7 +451,10 @@ describe("ChatInputBar", () => {
     await act(async () => {
       textarea.focus();
       textarea.setSelectionRange(14, 14);
-      fireEvent.click(screen.getByTitle("Add files"));
+      fireEvent.click(screen.getByRole("button", { name: "Open composer options" }));
+      fireEvent.click(
+        await screen.findByRole("menuitem", { name: "Add photos & files" }),
+      );
       await new Promise<void>((resolve) => {
         window.requestAnimationFrame(() => resolve());
       });

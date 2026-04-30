@@ -57,7 +57,9 @@ export function SettingsDialog({
   } = useProviderStore(runId);
 
   const [activeSection, setActiveSection] = useState<SettingsSection>(initialSection);
-  const [connectView, setConnectView] = useState<ConnectView>("overview");
+  const [connectView, setConnectView] = useState<ConnectView>(
+    initialSection === "connect" ? "connect" : "overview",
+  );
   const [connectError, setConnectError] = useState<string | null>(null);
   const [connectSuccess, setConnectSuccess] = useState<string | null>(null);
   const [selectedProviderIdForConnect, setSelectedProviderIdForConnect] =
@@ -74,8 +76,10 @@ export function SettingsDialog({
       return;
     }
     setActiveSection(initialSection);
-    setConnectView(initialSection === "connect" ? "overview" : connectView);
-  }, [initialSection, isOpen, connectView]);
+    setConnectView(initialSection === "connect" ? "connect" : "overview");
+    setConnectError(null);
+    setConnectSuccess(null);
+  }, [initialSection, isOpen]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -175,6 +179,17 @@ export function SettingsDialog({
     setConnectView("connect");
   }, []);
 
+  const handleSectionSelect = useCallback((section: SettingsSection): void => {
+    setActiveSection(section);
+    if (section === "connect") {
+      setConnectView("connect");
+      setConnectError(null);
+      setConnectSuccess(null);
+      return;
+    }
+    setConnectView("overview");
+  }, []);
+
   const showDisconnectToast = useCallback((providerName: string): void => {
     const toastId = Date.now() + Math.floor(Math.random() * 1000);
     setDisconnectToasts((previous) => [...previous, { id: toastId, providerName }]);
@@ -250,7 +265,7 @@ export function SettingsDialog({
           role="dialog"
           aria-modal="true"
           aria-labelledby="settings-dialog-title"
-          className="relative flex h-[82vh] w-full max-w-6xl overflow-hidden rounded-2xl border border-zinc-800 bg-[#0f1013] text-zinc-100 shadow-[0_25px_80px_rgba(0,0,0,0.65)]"
+          className="relative flex h-[82vh] w-full max-w-6xl overflow-hidden rounded-2xl border border-zinc-800 bg-[#0f1013] font-sans text-zinc-100 shadow-[0_25px_80px_rgba(0,0,0,0.65)]"
           onClick={(event) => event.stopPropagation()}
         >
           <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(circle_at_top,_rgba(59,130,246,0.08),_transparent_45%),linear-gradient(120deg,_rgba(255,255,255,0.02),_transparent_55%)]" />
@@ -264,7 +279,7 @@ export function SettingsDialog({
                   { id: "general", label: "General", icon: <Settings2 size={16} /> },
                 ]}
                 activeSection={activeSection}
-                onSelect={setActiveSection}
+                onSelect={handleSectionSelect}
               />
               <SettingsNavSection
                 label="Server"
@@ -273,17 +288,14 @@ export function SettingsDialog({
                   { id: "models", label: "Models", icon: <Sparkles size={16} /> },
                 ]}
                 activeSection={activeSection}
-                onSelect={setActiveSection}
+                onSelect={handleSectionSelect}
               />
             </nav>
-            <div className="mt-auto border-t border-zinc-800/70 pt-3 text-xs text-zinc-500">
-              Shadowbox Web
-            </div>
           </aside>
 
           <section className="relative z-10 flex min-w-0 flex-1 flex-col">
             <header className="flex items-center justify-between border-b border-zinc-800/80 px-6 py-4">
-              <h2 id="settings-dialog-title" className="text-2xl font-semibold tracking-tight text-zinc-100">
+              <h2 id="settings-dialog-title" className="text-xl font-semibold tracking-tight text-zinc-100">
                 {activeSection === "general"
                   ? "General"
                   : activeSection === "connect"
@@ -408,7 +420,7 @@ function SettingsNavSection({
             }`}
           >
             <span className="text-zinc-500">{item.icon}</span>
-            <span className="text-xl leading-none">{item.label}</span>
+            <span className="text-base font-medium leading-none">{item.label}</span>
           </button>
         ))}
       </div>
@@ -451,7 +463,7 @@ function SettingCard({
     <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/40 px-5 py-4">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <p className="text-xl font-medium text-zinc-100">{title}</p>
+          <p className="text-base font-medium text-zinc-100">{title}</p>
           <p className="mt-1 text-sm text-zinc-400">{description}</p>
         </div>
         <span className="rounded-md border border-zinc-700 px-2 py-1 text-xs text-zinc-300">
@@ -524,7 +536,7 @@ function SettingsConnectPanel({
   return (
     <div className="space-y-6">
       <section>
-        <h3 className="mb-3 text-xl font-medium text-zinc-100">Connected providers</h3>
+        <h3 className="mb-3 text-lg font-medium text-zinc-100">Connected providers</h3>
         <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/35">
           {connectedProviders.length === 0 ? (
             <div className="px-4 py-6 text-sm text-zinc-400">No provider keys connected yet.</div>
@@ -537,7 +549,7 @@ function SettingsConnectPanel({
                 }`}
               >
                 <div>
-                  <p className="text-2xl font-medium text-zinc-100">{provider.displayName}</p>
+                  <p className="text-lg font-medium text-zinc-100">{provider.displayName}</p>
                   <span className="mt-1 inline-block rounded-md border border-zinc-700 bg-zinc-900 px-2 py-0.5 text-xs text-zinc-300">
                     API key
                   </span>
@@ -559,7 +571,7 @@ function SettingsConnectPanel({
       </section>
 
       <section>
-        <h3 className="mb-3 text-xl font-medium text-zinc-100">Popular providers</h3>
+        <h3 className="mb-3 text-lg font-medium text-zinc-100">Popular providers</h3>
         <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/35">
           {availableProviders.length === 0 ? (
             <div className="px-4 py-6 text-sm text-zinc-400">All available providers are already connected.</div>
@@ -572,7 +584,7 @@ function SettingsConnectPanel({
                 }`}
               >
                 <div>
-                  <p className="text-2xl font-medium text-zinc-100">{provider.displayName}</p>
+                  <p className="text-lg font-medium text-zinc-100">{provider.displayName}</p>
                   <p className="mt-1 text-sm text-zinc-400">
                     {provider.keyFormat?.description ?? "Connect using your API key"}
                   </p>

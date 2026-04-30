@@ -33,9 +33,17 @@ describe("SettingsDialog", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Connect" }));
     expect(screen.getByRole("heading", { name: "Providers" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Connect Provider" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Models" }));
     expect(screen.getByRole("heading", { name: "Models" })).toBeInTheDocument();
+  });
+
+  it("opens directly to connect-provider flow when initial section is connect", () => {
+    render(<SettingsDialog isOpen={true} onClose={vi.fn()} initialSection="connect" />);
+
+    expect(screen.getByRole("heading", { name: "Providers" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Connect Provider" })).toBeInTheDocument();
   });
 
   it("calls onClose when close button is clicked", () => {

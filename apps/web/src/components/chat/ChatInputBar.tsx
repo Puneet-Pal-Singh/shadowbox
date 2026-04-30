@@ -1,7 +1,6 @@
 import { useRef, useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import {
-  Plus,
   ArrowUp,
   Square,
   X,
@@ -21,7 +20,7 @@ import {
 import { useProviderStore } from "../../hooks/useProviderStore.js";
 import { findCredentialByProviderId } from "../../lib/provider-helpers.js";
 import { ProviderDialog, ModelPickerPopover } from "../provider/index.js";
-import { ChatModeToggle } from "./ChatModeToggle.js";
+import { ChatComposerPlusMenu } from "./ChatComposerPlusMenu.js";
 import {
   applyFileMention,
   filterFileMentionCandidates,
@@ -565,24 +564,12 @@ export function ChatInputBar({
           <div className="flex items-center justify-between mt-2 pt-2">
             {/* Left: Add button + Model picker */}
             <div className="flex items-center gap-1.5">
-              <ChatModeToggle
+              <ChatComposerPlusMenu
                 mode={mode}
-                onModeChange={(nextMode) => onModeChange?.(nextMode)}
                 disabled={isLoading}
+                onModeChange={onModeChange}
+                onAddFiles={insertMentionTrigger}
               />
-
-              <div className="h-3.5 w-px bg-zinc-800" />
-
-              <motion.button
-                type="button"
-                onClick={insertMentionTrigger}
-                whileHover={{ scale: 1.1 }}
-                whileTap={{ scale: 0.9 }}
-                className="p-1 text-zinc-500 hover:text-zinc-300 transition-colors"
-                title="Add files"
-              >
-                <Plus size={16} />
-              </motion.button>
 
               <div className="h-3.5 w-px bg-zinc-800" />
 

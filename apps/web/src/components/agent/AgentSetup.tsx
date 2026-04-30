@@ -13,7 +13,6 @@ import {
   FileText,
   Info,
   GitPullRequest,
-  Plus,
   Mic,
   ArrowUp,
   Paperclip,
@@ -41,7 +40,7 @@ import { Resizer } from "../ui/Resizer";
 import { useGitStatus } from "../../hooks/useGitStatus";
 import { useGitDiff } from "../../hooks/useGitDiff";
 import type { FileExplorerHandle } from "../FileExplorer";
-import { ChatModeToggle } from "../chat/ChatModeToggle.js";
+import { ChatComposerPlusMenu } from "../chat/ChatComposerPlusMenu.js";
 import { PermissionModeControl } from "../chat/PermissionModeControl.js";
 import {
   applyFileMention,
@@ -792,22 +791,11 @@ export function AgentSetup({
                   <div className="flex items-center justify-between mt-2 pt-2">
                     {/* Left: Add button + Model picker */}
                     <div className="flex items-center gap-1.5">
-                      <ChatModeToggle
+                      <ChatComposerPlusMenu
                         mode={mode}
-                        onModeChange={(nextMode) => onModeChange?.(nextMode)}
+                        onModeChange={onModeChange}
+                        onAddFiles={insertMentionTrigger}
                       />
-
-                      <div className="h-3.5 w-px bg-zinc-800" />
-
-                      <motion.button
-                        type="button"
-                        {...hoverScaleSmall}
-                        onClick={insertMentionTrigger}
-                        className="p-1 text-zinc-500 hover:text-zinc-300 transition-colors duration-150"
-                        title="Add files"
-                      >
-                        <Plus size={16} />
-                      </motion.button>
 
                       <div className="h-3.5 w-px bg-zinc-800" />
 

@@ -16,7 +16,7 @@ export function SidebarShell({
   children,
   footer,
   onClose,
-  version = "v1.0.0",
+  version,
 }: SidebarShellProps) {
   return (
     <aside
@@ -44,7 +44,11 @@ export function SidebarShell({
       <div className="flex-1 overflow-y-auto px-4 py-3">{children}</div>
 
       {footer ? <div className="border-t border-[#1a1a1a] px-4 py-2">{footer}</div> : null}
-      <div className="border-t border-[#1a1a1a] px-4 py-2 text-[10px] text-zinc-600">{version}</div>
+      {version ? (
+        <div className="border-t border-[#1a1a1a] px-4 py-2 text-[10px] text-zinc-600">
+          {version}
+        </div>
+      ) : null}
     </aside>
   );
 }
