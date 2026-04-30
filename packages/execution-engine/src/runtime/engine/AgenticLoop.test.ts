@@ -76,6 +76,27 @@ describe("AgenticLoop - Bounded Agentic Tool Chaining", () => {
       expect(result.stepsExecuted).toBe(1);
     });
 
+    it("keeps CI inspection read-only even when earlier turns asked for mutation", async () => {
+      vi.mocked(llmGateway.generateText!).mockResolvedValue({
+        text: "CI checks are currently green.",
+        usage: { promptTokens: 11, completionTokens: 6 },
+      });
+
+      const result = await loop.execute(
+        [
+          { role: "user", content: "edit the footer and push it" },
+          { role: "assistant", content: "I can do that." },
+          { role: "user", content: "check CI checks passed or not" },
+        ],
+        {},
+        { agentType: "coding" },
+      );
+
+      expect(result.stopReason).toBe("llm_stop");
+      expect(result.requiresMutation).toBe(false);
+      expect(result.currentTurnIntent).toBe("read_only");
+    });
+
     it("stops with incomplete_mutation after one corrective retry when an edit request never reaches a mutating tool", async () => {
       vi.mocked(llmGateway.generateText!)
         .mockResolvedValueOnce({
