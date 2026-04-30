@@ -172,7 +172,18 @@ async function executeDirectToolCall(input: {
     : {
         hasMutationEvidence: false,
         changedFiles: [] as string[],
+        probeFailed: false,
+        probeError: undefined,
       };
+  if (
+    shouldProbeWorkspaceState &&
+    workspaceMutationProbe.probeFailed &&
+    !input.hasMutationEvidence
+  ) {
+    throw PermissionGateError.fromDeny(
+      buildMutationProbeFailureMessage(workspaceMutationProbe.probeError),
+    );
+  }
   const hasWorkspaceMutationEvidence =
     !input.hasMutationEvidence && workspaceMutationProbe.hasMutationEvidence;
   const hasMutationEvidence =
@@ -303,7 +314,12 @@ function needsGitMutationEvidenceProbe(toolName: GoldenFlowToolName): boolean {
 
 async function detectWorkspaceMutationEvidence(
   executionService: RuntimeExecutionService,
-): Promise<{ hasMutationEvidence: boolean; changedFiles: string[] }> {
+): Promise<{
+  hasMutationEvidence: boolean;
+  changedFiles: string[];
+  probeFailed: boolean;
+  probeError?: string;
+}> {
   try {
     const result = await executionService.execute("git", "git_status", {});
     const payload = extractJsonOutputPayload(result);
@@ -311,6 +327,7 @@ async function detectWorkspaceMutationEvidence(
       return {
         hasMutationEvidence: false,
         changedFiles: [],
+        probeFailed: false,
       };
     }
 
@@ -333,11 +350,19 @@ async function detectWorkspaceMutationEvidence(
     return {
       hasMutationEvidence: hasStaged || hasUnstaged || files.length > 0,
       changedFiles,
+      probeFailed: false,
     };
-  } catch {
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : String(error);
+    console.warn(
+      `[agentic-loop/callbacks] git_status mutation probe failed: ${errorMessage}`,
+    );
     return {
       hasMutationEvidence: false,
       changedFiles: [],
+      probeFailed: true,
+      probeError: errorMessage,
     };
   }
 }
@@ -414,6 +439,19 @@ function buildLocalDiffScopePrompt(
     `Detected changed files: ${changedPreview}.`,
     "Tell me exactly which files or target scope to use, then I will continue.",
   ].join(" ");
+}
+
+function buildMutationProbeFailureMessage(probeError: string | undefined): string {
+  const detail = probeError
+    ? ` git_status failed with: ${probeError}.`
+    : "";
+  return [
+    "I couldn't verify local workspace changes before staging/committing/pushing.",
+    detail,
+    "Retry the request so I can re-check git status, or provide explicit file scope.",
+  ]
+    .join(" ")
+    .trim();
 }
 
 function extractJsonOutputPayload(
