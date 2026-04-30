@@ -55,9 +55,13 @@ export function ConnectProviderChooser({
   showTitle = true,
   initialSelectedProviderId,
 }: ConnectProviderChooserProps): React.ReactElement {
-  const [view, setView] = useState<"providers" | "credentials">("providers");
+  const [view, setView] = useState<"providers" | "credentials">(
+    initialSelectedProviderId ? "credentials" : "providers",
+  );
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedProviderId, setSelectedProviderId] = useState<string | null>(null);
+  const [selectedProviderId, setSelectedProviderId] = useState<string | null>(
+    initialSelectedProviderId ?? null,
+  );
   const [apiSecret, setApiSecret] = useState("");
   const searchInputRef = useRef<HTMLInputElement>(null);
 
@@ -130,15 +134,6 @@ export function ConnectProviderChooser({
       searchInputRef.current.focus();
     }
   }, [view]);
-
-  useEffect(() => {
-    if (!initialSelectedProviderId) {
-      return;
-    }
-    setSelectedProviderId(initialSelectedProviderId);
-    setView("credentials");
-    setApiSecret("");
-  }, [initialSelectedProviderId]);
 
   const errorRecovery = error ? getProviderRecoveryAdvice(error) : null;
   const searchLabelClassName =
