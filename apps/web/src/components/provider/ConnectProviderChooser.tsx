@@ -30,6 +30,7 @@ export interface ConnectProviderChooserProps {
   onErrorClear?: () => void;
   presentation?: "card" | "plain";
   showTitle?: boolean;
+  initialSelectedProviderId?: string;
 }
 
 /**
@@ -52,6 +53,7 @@ export function ConnectProviderChooser({
   onErrorClear,
   presentation = "card",
   showTitle = true,
+  initialSelectedProviderId,
 }: ConnectProviderChooserProps): React.ReactElement {
   const [view, setView] = useState<"providers" | "credentials">("providers");
   const [searchQuery, setSearchQuery] = useState("");
@@ -128,6 +130,15 @@ export function ConnectProviderChooser({
       searchInputRef.current.focus();
     }
   }, [view]);
+
+  useEffect(() => {
+    if (!initialSelectedProviderId) {
+      return;
+    }
+    setSelectedProviderId(initialSelectedProviderId);
+    setView("credentials");
+    setApiSecret("");
+  }, [initialSelectedProviderId]);
 
   const errorRecovery = error ? getProviderRecoveryAdvice(error) : null;
   const searchLabelClassName =
