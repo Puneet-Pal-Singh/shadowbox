@@ -273,17 +273,17 @@ export function AgentSidebar({
       <button
         type="button"
         onClick={onAddRepository}
-        className="inline-flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs font-medium text-zinc-400 transition-colors hover:bg-zinc-900 hover:text-zinc-200"
+        className="inline-flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium text-zinc-300 transition-colors hover:bg-zinc-900 hover:text-zinc-100"
       >
-        <FolderPlus size={13} className="text-zinc-500" />
+        <FolderPlus size={15} className="text-zinc-400" />
         Add repository
       </button>
       <button
         type="button"
         onClick={onOpenSettings}
-        className="inline-flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs font-medium text-zinc-400 transition-colors hover:bg-zinc-900 hover:text-zinc-200"
+        className="inline-flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium text-zinc-300 transition-colors hover:bg-zinc-900 hover:text-zinc-100"
       >
-        <Settings size={13} className="text-zinc-500" />
+        <Settings size={15} className="text-zinc-400" />
         Settings
       </button>
     </div>

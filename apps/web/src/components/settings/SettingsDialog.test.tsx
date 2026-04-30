@@ -13,7 +13,14 @@ describe("SettingsDialog", () => {
     mockUseProviderStore.mockReturnValue({
       status: "ready",
       error: null,
-      catalog: [],
+      catalog: [
+        {
+          providerId: "openai",
+          displayName: "OpenAI",
+          authModes: ["api_key"],
+          launchStage: "supported",
+        },
+      ],
       credentials: [],
       connectCredential: vi.fn(async () => undefined),
       disconnectCredential: vi.fn(async () => undefined),
@@ -33,7 +40,7 @@ describe("SettingsDialog", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Connect" }));
     expect(screen.getByRole("heading", { name: "Providers" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Connect Provider" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Connected providers" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Models" }));
     expect(screen.getByRole("heading", { name: "Models" })).toBeInTheDocument();
@@ -43,6 +50,14 @@ describe("SettingsDialog", () => {
     render(<SettingsDialog isOpen={true} onClose={vi.fn()} initialSection="connect" />);
 
     expect(screen.getByRole("heading", { name: "Providers" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Connected providers" })).toBeInTheDocument();
+  });
+
+  it("opens connect api-key input when provider connect is clicked", () => {
+    render(<SettingsDialog isOpen={true} onClose={vi.fn()} initialSection="connect" />);
+
+    const connectButtons = screen.getAllByRole("button", { name: "Connect" });
+    fireEvent.click(connectButtons[connectButtons.length - 1]!);
     expect(screen.getByRole("heading", { name: "Connect Provider" })).toBeInTheDocument();
   });
 

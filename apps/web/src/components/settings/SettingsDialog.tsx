@@ -57,9 +57,7 @@ export function SettingsDialog({
   } = useProviderStore(runId);
 
   const [activeSection, setActiveSection] = useState<SettingsSection>(initialSection);
-  const [connectView, setConnectView] = useState<ConnectView>(
-    initialSection === "connect" ? "connect" : "overview",
-  );
+  const [connectView, setConnectView] = useState<ConnectView>("overview");
   const [connectError, setConnectError] = useState<string | null>(null);
   const [connectSuccess, setConnectSuccess] = useState<string | null>(null);
   const [selectedProviderIdForConnect, setSelectedProviderIdForConnect] =
@@ -76,7 +74,7 @@ export function SettingsDialog({
       return;
     }
     setActiveSection(initialSection);
-    setConnectView(initialSection === "connect" ? "connect" : "overview");
+    setConnectView("overview");
     setConnectError(null);
     setConnectSuccess(null);
   }, [initialSection, isOpen]);
@@ -181,13 +179,9 @@ export function SettingsDialog({
 
   const handleSectionSelect = useCallback((section: SettingsSection): void => {
     setActiveSection(section);
-    if (section === "connect") {
-      setConnectView("connect");
-      setConnectError(null);
-      setConnectSuccess(null);
-      return;
-    }
     setConnectView("overview");
+    setConnectError(null);
+    setConnectSuccess(null);
   }, []);
 
   const showDisconnectToast = useCallback((providerName: string): void => {

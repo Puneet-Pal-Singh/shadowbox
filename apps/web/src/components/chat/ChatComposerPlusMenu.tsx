@@ -69,7 +69,7 @@ export function ChatComposerPlusMenu({
       {isOpen ? (
         <div
           role="menu"
-          className="absolute bottom-full left-0 z-40 mb-2 w-64 rounded-2xl border border-zinc-700/70 bg-[#222226]/95 p-2 shadow-[0_16px_44px_rgba(0,0,0,0.55)] backdrop-blur-sm"
+          className="absolute bottom-full left-0 z-40 mb-2 w-64 rounded-xl border border-zinc-800 bg-[#171717] p-2 shadow-[0_8px_24px_rgba(0,0,0,0.22)]"
         >
           <button
             type="button"
@@ -78,17 +78,17 @@ export function ChatComposerPlusMenu({
               onAddFiles();
               setIsOpen(false);
             }}
-            className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm text-zinc-100 transition hover:bg-zinc-800/70"
+            className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-[13px] text-zinc-200 transition-colors hover:bg-zinc-800/70 hover:text-zinc-100"
           >
-            <Paperclip size={17} className="text-zinc-300" />
+            <Paperclip size={16} className="text-zinc-400" />
             Add photos & files
           </button>
 
-          <div className="my-2 h-px bg-zinc-700/70" />
+          <div className="my-2 h-px bg-zinc-800" />
 
-          <div className="flex items-center justify-between gap-2 rounded-xl px-3 py-2">
-            <div className="flex items-center gap-3 text-sm text-zinc-100">
-              <Sparkles size={17} className="text-zinc-300" />
+          <div className="flex items-center justify-between gap-2 rounded-lg px-3 py-2">
+            <div className="flex items-center gap-3 text-[13px] text-zinc-200">
+              <Sparkles size={16} className="text-zinc-400" />
               <span>Plan mode</span>
             </div>
             <button
@@ -104,13 +104,13 @@ export function ChatComposerPlusMenu({
                 onModeChange(isPlanMode ? "build" : "plan");
               }}
               className={[
-                "relative inline-flex h-7 w-12 items-center rounded-full border transition",
+                "relative inline-flex h-7 w-12 items-center rounded-full border transition-colors",
                 isPlanMode
-                  ? "border-emerald-500/80 bg-emerald-500/30"
+                  ? "border-emerald-500/70 bg-emerald-500/20"
                   : "border-zinc-700 bg-zinc-800/80",
                 disabled || !onModeChange
                   ? "cursor-not-allowed opacity-60"
-                  : "hover:border-zinc-500",
+                  : "hover:border-zinc-500/90",
               ].join(" ")}
             >
               <span
