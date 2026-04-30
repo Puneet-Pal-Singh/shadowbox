@@ -10,7 +10,7 @@ const BROAD_CHANGE_SCOPE_PATTERN =
 const REVIEW_INSPECT_PATTERN =
   /\b(ci|checks?|review comments?|pull request|pr\b|workflow|actions|logs?)\b/i;
 const PUBLISH_MUTATION_PATTERN =
-  /\b(stage|commit|push|publish|open pr|create pr|branch|checkout|merge|rebase|cherry-pick)\b/i;
+  /\b(stage|commit|push|publish|(?:open|create)\s+pr|create\s+branch|checkout|merge|rebase|cherry-pick)\b/i;
 const CONTINUATION_PROMPT_PATTERN =
   /^\s*(?:continue|continue\?|go on|resume|retry|try again|finish (?:it|that)|do it|same repo|pick up where you left off)\b/i;
 const FILE_PATH_MENTION_PATTERN =
@@ -175,7 +175,7 @@ function extractTextParts(content: CoreMessage["content"]): string {
 
 function normalizePaths(paths: string[]): string[] {
   const normalized = paths
-    .map((path) => path.trim().replace(/\\\\/g, "/"))
+    .map((path) => path.trim().replace(/\\+/g, "/"))
     .filter((path) => path.length > 0);
   return [...new Set(normalized)];
 }
