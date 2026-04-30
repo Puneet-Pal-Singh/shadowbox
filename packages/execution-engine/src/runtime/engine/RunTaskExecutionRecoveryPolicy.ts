@@ -6,12 +6,16 @@ import {
   LLMUnusableResponseError,
 } from "../llm/LLMGateway.js";
 import type { AgenticLoop } from "./AgenticLoop.js";
-import { detectsMutation } from "./detectsMutation.js";
 import {
   buildTaskModelNoActionMetadata,
   buildTaskModelNoActionSummary,
   recordRecoveredAgenticLoopMetadata,
 } from "./RunAgenticLoopPolicy.js";
+import {
+  classifyCurrentTurnIntent,
+  requiresMutationForIntent,
+  type CurrentTurnIntent,
+} from "./RunCurrentTurnIntent.js";
 
 const PROVIDER_UNAVAILABLE_SIGNAL_PATTERNS = [
   /failed after \d+ attempts?/i,
@@ -49,6 +53,7 @@ interface TaskExecutionRecoveryInput {
 interface TaskExecutionRecoveryContext {
   stats: ReturnType<AgenticLoop["getStats"]>;
   requiresMutation: boolean;
+  currentTurnIntent: CurrentTurnIntent;
 }
 
 export async function tryHandleTaskExecutionErrorPolicy(
@@ -128,6 +133,7 @@ async function handleUnusableResponseRecovery(
     toolExecutionCount: context.stats.toolExecutionCount,
     failedToolCount: context.stats.failedToolCount,
     requiresMutation: context.requiresMutation,
+    currentTurnIntent: context.currentTurnIntent,
     completedMutatingToolCount: context.stats.completedMutatingToolCount,
     completedReadOnlyToolCount: context.stats.completedReadOnlyToolCount,
     llmRetryCount: context.stats.llmRetryCount,
@@ -198,9 +204,11 @@ async function handleProviderUnavailableRecovery(
 function buildTaskExecutionRecoveryContext(
   input: Pick<TaskExecutionRecoveryInput, "prompt" | "loop">,
 ): TaskExecutionRecoveryContext {
+  const currentTurnIntent = classifyCurrentTurnIntent(input.prompt);
   return {
     stats: input.loop.getStats(),
-    requiresMutation: detectsMutation(input.prompt),
+    requiresMutation: requiresMutationForIntent(currentTurnIntent),
+    currentTurnIntent,
   };
 }
 
