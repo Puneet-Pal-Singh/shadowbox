@@ -24,12 +24,15 @@ import type {
   AgenticLoopToolLifecycleEvent,
   TaskResult,
 } from "../types.js";
-import { detectsMutation } from "./detectsMutation.js";
 import {
   GitToolFailureClassifier,
   shouldClassifyAsGitOrShellFailure,
 } from "./GitToolFailureClassifier.js";
-import { isGitWritePrompt } from "./WorkspaceBootstrapModePolicy.js";
+import {
+  classifyCurrentTurnIntentFromMessages,
+  requiresMutationForIntent,
+  type CurrentTurnIntent,
+} from "./RunCurrentTurnIntent.js";
 
 export interface AgenticLoopConfig {
   maxSteps: number;
@@ -68,6 +71,7 @@ export interface AgenticLoopResult {
   failedToolCount: number;
   stepsExecuted: number;
   requiresMutation: boolean;
+  currentTurnIntent?: CurrentTurnIntent;
   completedMutatingToolCount: number;
   completedReadOnlyToolCount: number;
   llmRetryCount?: number;
@@ -124,7 +128,6 @@ export class AgenticLoop {
   private failedToolCount: number = 0;
   private completedMutatingToolCount: number = 0;
   private completedReadOnlyToolCount: number = 0;
-  private completedEditMutationCount: number = 0;
   private llmRetryCount: number = 0;
   private terminalLlmIssue?: AgenticLoopTerminalLlmIssue;
   private toolLifecycle: AgenticLoopToolLifecycleEvent[] = [];
@@ -159,9 +162,9 @@ export class AgenticLoop {
   ): Promise<AgenticLoopResult> {
     this.reset();
     const messages: CoreMessage[] = [...initialMessages];
-    const requiresMutation = requestRequiresMutation(initialMessages);
-    const latestTurnRequiresMutation =
-      latestTurnRequestsMutation(initialMessages);
+    const currentTurnIntent =
+      classifyCurrentTurnIntentFromMessages(initialMessages);
+    const requiresMutation = requiresMutationForIntent(currentTurnIntent);
     const latestTurnExplicitCiLogRequest =
       latestTurnRequestsCiLogs(initialMessages);
     let encounteredCiLogsAuthorizationBoundary = false;
@@ -333,25 +336,6 @@ export class AgenticLoop {
           continue;
         }
 
-        const gitWriteGuardMessage = this.getGitWriteGuardMessage(
-          toolCall.toolName,
-          requiresMutation,
-          latestTurnRequiresMutation,
-        );
-        if (gitWriteGuardMessage) {
-          this.failedToolCount++;
-          this.recordToolLifecycle(toolCall, "failed", gitWriteGuardMessage);
-          await context.onToolFailed?.(toolCall, gitWriteGuardMessage, 0);
-          toolResults.push({
-            toolId: toolCall.id,
-            toolName: toolCall.toolName,
-            result: null,
-            error: gitWriteGuardMessage,
-            terminalError: true,
-          });
-          continue;
-        }
-
         // Check budget before tool execution
         try {
           if (await this.isRunOverBudget()) {
@@ -411,14 +395,6 @@ export class AgenticLoop {
               this.completedReadOnlyToolFingerprints.add(
                 buildReadOnlyToolFingerprint(toolCall),
               );
-            }
-            if (
-              hasEditMutationEvidence(
-                toolCall.toolName,
-                result.output?.metadata,
-              )
-            ) {
-              this.completedEditMutationCount++;
             }
             this.recordToolLifecycle(
               toolCall,
@@ -537,6 +513,7 @@ export class AgenticLoop {
       failedToolCount: this.failedToolCount,
       stepsExecuted: this.stepsExecuted,
       requiresMutation,
+      currentTurnIntent,
       completedMutatingToolCount: this.completedMutatingToolCount,
       completedReadOnlyToolCount: this.completedReadOnlyToolCount,
       llmRetryCount: this.llmRetryCount,
@@ -572,7 +549,6 @@ export class AgenticLoop {
     this.failedToolCount = 0;
     this.completedMutatingToolCount = 0;
     this.completedReadOnlyToolCount = 0;
-    this.completedEditMutationCount = 0;
     this.llmRetryCount = 0;
     this.terminalLlmIssue = undefined;
     this.toolLifecycle = [];
@@ -698,24 +674,6 @@ export class AgenticLoop {
     return `Skipped duplicate ${toolCall.toolName} call because the same request already completed in this run. Choose a different tool or proceed with the edit.`;
   }
 
-  private getGitWriteGuardMessage(
-    toolName: string,
-    requiresMutation: boolean,
-    latestTurnRequiresMutation: boolean,
-  ): string | null {
-    if (!requiresMutation || !latestTurnRequiresMutation) {
-      return null;
-    }
-
-    if (
-      (toolName === "git_stage" || toolName === "git_commit") &&
-      this.completedEditMutationCount === 0
-    ) {
-      return "I can't continue to staging or commit yet because no file edit succeeded in this run. I should complete a concrete file update first.";
-    }
-
-    return null;
-  }
 }
 
 function buildAgenticLoopSystemPrompt(input: {
@@ -910,23 +868,6 @@ function isTerminalToolFailure(input: {
   return isMutatingGoldenFlowToolName(input.toolName);
 }
 
-function hasEditMutationEvidence(toolName: string, metadata: unknown): boolean {
-  if (toolName === "write_file") {
-    return true;
-  }
-
-  if (!metadata || typeof metadata !== "object") {
-    return false;
-  }
-
-  const activity = (metadata as Record<string, unknown>).activity;
-  if (!activity || typeof activity !== "object") {
-    return false;
-  }
-
-  return (activity as Record<string, unknown>).family === "edit";
-}
-
 function buildAssistantMessage(
   text: string,
   toolCalls: AgenticLoopToolCall[] | undefined,
@@ -1014,33 +955,6 @@ function extractToolActivityMetadata(
   const activity = (metadata as Record<string, unknown>).activity;
   const parsed = safeParseToolActivityMetadata(activity);
   return parsed.success ? parsed.data : undefined;
-}
-
-function requestRequiresMutation(initialMessages: CoreMessage[]): boolean {
-  const userText = initialMessages
-    .filter((message) => message.role === "user")
-    .map((message) => extractTextParts(message.content))
-    .join("\n")
-    .toLowerCase();
-
-  return detectsMutation(userText);
-}
-
-function latestTurnRequestsMutation(initialMessages: CoreMessage[]): boolean {
-  const latestUserMessage = [...initialMessages]
-    .reverse()
-    .find((message) => message.role === "user");
-  if (!latestUserMessage) {
-    return false;
-  }
-
-  const latestTurnText = extractTextParts(
-    latestUserMessage.content,
-  ).toLowerCase();
-  if (isGitWritePrompt(latestTurnText)) {
-    return false;
-  }
-  return detectsMutation(latestTurnText);
 }
 
 function latestTurnRequestsCiLogs(initialMessages: CoreMessage[]): boolean {
