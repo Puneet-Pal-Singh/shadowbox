@@ -42,6 +42,10 @@ const PRIMARY_APPROVAL_DECISIONS: ApprovalDecisionKind[] = [
   "allow_for_run",
   "deny",
 ];
+const PLAN_MODE_RECOVERY_SENTINELS = [
+  "I couldn't generate a valid structured plan for this turn",
+  "Planning timed out before I could build safe executable tasks",
+];
 const RunSummaryPendingApprovalSchema = z.object({
   pendingApproval: ApprovalRequestSchema.nullish(),
 });
@@ -145,6 +149,7 @@ export function ChatInterface({
     string | null
   >(null);
   const [activityNowMs, setActivityNowMs] = useState(() => Date.now());
+  const lastAutoSwitchedPlanFailureMessageIdRef = useRef<string | null>(null);
   const { providerModels } = useProviderStore(runId);
 
   const messageMetadataById = useMemo(() => {
@@ -219,6 +224,38 @@ export function ChatInterface({
 
     void submitPlanHandoff();
   }, [append, handleInputChangeWrapper, isLoading, mode, pendingPlanPrompt]);
+
+  useEffect(() => {
+    if (mode !== "plan" || !onModeChange) {
+      return;
+    }
+
+    const latestAssistantMessage = [...messages]
+      .reverse()
+      .find((message) => message.role === "assistant");
+    if (!latestAssistantMessage || !latestAssistantMessage.content) {
+      return;
+    }
+    if (
+      lastAutoSwitchedPlanFailureMessageIdRef.current ===
+      latestAssistantMessage.id
+    ) {
+      return;
+    }
+
+    const isRecoverablePlannerFailure = PLAN_MODE_RECOVERY_SENTINELS.some(
+      (sentinel) => latestAssistantMessage.content.includes(sentinel),
+    );
+    if (!isRecoverablePlannerFailure) {
+      return;
+    }
+
+    lastAutoSwitchedPlanFailureMessageIdRef.current = latestAssistantMessage.id;
+    console.warn(
+      `[chat/interface] Auto-switching runId=${runId} from plan to build after planner recovery output.`,
+    );
+    onModeChange("build");
+  }, [messages, mode, onModeChange, runId]);
 
   const handleUsePlanInBuild = () => {
     const handoffPrompt = summary?.planArtifact?.handoff?.prompt?.trim();

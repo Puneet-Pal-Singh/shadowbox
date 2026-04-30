@@ -655,6 +655,45 @@ describe("ChatInterface", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("auto-switches back to build mode after recoverable planner failures in plan mode", () => {
+    const onModeChange = vi.fn();
+
+    render(
+      <ChatInterface
+        chatProps={{
+          messages: [
+            {
+              id: "user-1",
+              role: "user",
+              content: "hey",
+            },
+            {
+              id: "assistant-1",
+              role: "assistant",
+              content:
+                "I couldn't generate a valid structured plan for this turn, so I stopped before running tools.",
+            },
+          ],
+          runId: "run-1",
+          input: "",
+          handleInputChange: vi.fn(),
+          handleSubmit: vi.fn(),
+          append: vi.fn(),
+          stop: vi.fn(),
+          isLoading: false,
+          error: null,
+          debugEvents: [],
+        }}
+        sessionId="session-1"
+        mode="plan"
+        onModeChange={onModeChange}
+      />,
+    );
+
+    expect(onModeChange).toHaveBeenCalledWith("build");
+    expect(onModeChange).toHaveBeenCalledTimes(1);
+  });
+
   it("passes the active repository through to the chat input bar", () => {
     render(
       <ChatInterface
