@@ -207,6 +207,31 @@ describe("RunAgenticLoopPolicy", () => {
     expect(output).not.toContain("I'll update the file now.");
   });
 
+  it("does not emit incomplete-mutation copy for read-only current turn intent", () => {
+    const result: AgenticLoopResult = {
+      stopReason: "llm_stop",
+      messages: [
+        { role: "user", content: "check ci checks passed or not" },
+        {
+          role: "assistant",
+          content: "CI checks are still running on the latest commit.",
+        },
+      ],
+      toolExecutionCount: 0,
+      failedToolCount: 0,
+      stepsExecuted: 1,
+      requiresMutation: true,
+      currentTurnIntent: "read_only",
+      completedMutatingToolCount: 0,
+      completedReadOnlyToolCount: 0,
+      toolLifecycle: [],
+    };
+
+    const output = buildAgenticLoopFinalOutput(result);
+    expect(output).toBe("CI checks are still running on the latest commit.");
+    expect(output).not.toContain("did not complete the requested change");
+  });
+
   it("explains missing sandbox cwd failures without dumping raw tool telemetry", () => {
     const result: AgenticLoopResult = {
       stopReason: "tool_error",
