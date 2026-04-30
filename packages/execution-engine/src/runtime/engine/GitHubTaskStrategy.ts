@@ -1,5 +1,6 @@
 import type { GitToolFailureKind } from "./GitToolFailureClassifier.js";
 import type { GitTaskClassification, GitTaskLane } from "../types.js";
+import { detectsMutation } from "./detectsMutation.js";
 
 export interface GitTaskStrategyInput {
   userRequest: string;
@@ -116,10 +117,10 @@ export class GitHubTaskStrategy {
 
     return {
       classification,
-      preferredLane: "github_connector",
-      fallbackLane: "github_cli",
+      preferredLane: "github_cli",
+      fallbackLane: "github_connector",
       rationale:
-        "Remote inspection is required but connector access may be constrained; use connector-first with bounded GitHub CLI parity fallback.",
+        "Remote inspection is required but connector access may be constrained; use bounded GitHub CLI first and keep connector as a fallback lane.",
     };
   }
 }
@@ -157,13 +158,11 @@ function hasPrInspectionIntent(userRequest: string): boolean {
 }
 
 function hasFixMutationIntent(userRequest: string): boolean {
-  return /\b(fix|patch|edit|update|rewrite|refactor|implement|change)\b/.test(
-    userRequest,
-  );
+  return detectsMutation(userRequest) && !hasPublishMutationIntent(userRequest);
 }
 
 function hasPublishMutationIntent(userRequest: string): boolean {
-  return /\b(stage|commit|push|publish|open pr|create pr|branch|checkout|merge|rebase|cherry-pick)\b/.test(
+  return /\b(stage|commit|push|publish|(?:open|create)\s+pr|create\s+branch|checkout|merge|rebase|cherry-pick)\b/.test(
     userRequest,
   );
 }
