@@ -3,7 +3,6 @@ import { ChatMessage } from "./ChatMessage";
 import { ChatInputBar } from "./ChatInputBar";
 import { ChatBranchSelector } from "./ChatBranchSelector";
 import { PermissionModeControl } from "./PermissionModeControl";
-import { ProviderDialog } from "../provider/ProviderDialog";
 import type { Message } from "@ai-sdk/react";
 import {
   ApprovalRequestSchema,
@@ -23,7 +22,7 @@ import { useRunEvents } from "../../hooks/useRunEvents.js";
 import { useRunActivityFeed } from "../../hooks/useRunActivityFeed.js";
 import { getProviderRecoveryAdvice } from "../../lib/provider-recovery";
 import { useProviderStore } from "../../hooks/useProviderStore.js";
-import { resolveWebProviderProductPolicy } from "../../lib/provider-product-policy";
+import { dispatchOpenSettingsDialog } from "../../lib/settings-dialog-events.js";
 import {
   buildChatMessageMetadata,
   buildConversationTurns,
@@ -37,7 +36,6 @@ import { dispatchRunSummaryRefresh } from "../../lib/run-summary-events.js";
 
 // Flip to true when you want to temporarily inspect the legacy workflow debug UI.
 const SHOW_WORKFLOW_DEBUG_PANEL = false;
-const WEB_PROVIDER_POLICY = resolveWebProviderProductPolicy();
 const TERMINAL_RUN_STATUSES = new Set(["COMPLETED", "FAILED", "CANCELLED"]);
 const PRIMARY_APPROVAL_DECISIONS: ApprovalDecisionKind[] = [
   "allow_once",
@@ -140,16 +138,6 @@ export function ChatInterface({
   const { feed } = useRunActivityFeed(runId);
   const showDebugPanel =
     import.meta.env.VITE_ENABLE_CHAT_DEBUG_PANEL === "true";
-  const [showProviderDialog, setShowProviderDialog] = useState(false);
-  const [providerDialogInitialTab, setProviderDialogInitialTab] = useState<
-    "connected" | "available" | "preferences" | "session" | undefined
-  >(undefined);
-  const [providerDialogInitialView, setProviderDialogInitialView] = useState<
-    "default" | "manage-models"
-  >("default");
-  const [providerDialogVariant, setProviderDialogVariant] = useState<
-    "full" | "connect-only" | "manage-models-only"
-  >("full");
   const [approvalBusyDecision, setApprovalBusyDecision] =
     useState<ApprovalDecisionKind | null>(null);
   const [approvalError, setApprovalError] = useState<string | null>(null);
@@ -326,22 +314,9 @@ export function ChatInterface({
   );
 
   const recoveryAdvice = getProviderRecoveryAdvice(error);
-  const isProductionProviderSurface =
-    WEB_PROVIDER_POLICY.environment === "production";
   const openProviderRecoverySurface = useCallback(() => {
-    if (isProductionProviderSurface) {
-      // Production keeps recovery on the newer connect-only setup flow.
-      // The full tabbed settings shell remains debug-oriented for non-prod.
-      setProviderDialogInitialTab("available");
-      setProviderDialogInitialView("default");
-      setProviderDialogVariant("connect-only");
-    } else {
-      setProviderDialogInitialTab("session");
-      setProviderDialogInitialView("default");
-      setProviderDialogVariant("full");
-    }
-    setShowProviderDialog(true);
-  }, [isProductionProviderSurface]);
+    dispatchOpenSettingsDialog("connect");
+  }, []);
   const activeInlineTurn = activityViewModel.turns.find(
     (turn) => turn.hasVisibleRows && !turn.defaultCollapsed,
   );
@@ -621,19 +596,6 @@ export function ChatInterface({
           </div>
         </div>
       </div>
-      <ProviderDialog
-        isOpen={showProviderDialog}
-        onClose={() => {
-          setShowProviderDialog(false);
-          setProviderDialogInitialTab(undefined);
-          setProviderDialogInitialView("default");
-          setProviderDialogVariant("full");
-        }}
-        mode="composer"
-        initialTab={providerDialogInitialTab}
-        initialView={providerDialogInitialView}
-        variant={providerDialogVariant}
-      />
     </div>
   );
 }
