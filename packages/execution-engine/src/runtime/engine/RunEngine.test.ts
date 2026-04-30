@@ -1579,7 +1579,7 @@ describe("RunEngine", () => {
       blocked: false,
     });
     expect(persisted?.metadata.gitTaskStrategy).toMatchObject({
-      classification: "local_mutation",
+      classification: "mutate_fix",
       preferredLane: "shell_git",
       fallbackLane: "typed_git",
     });
@@ -1632,6 +1632,63 @@ describe("RunEngine", () => {
     expect(await response.text()).toContain("Longer budget applied.");
     expect(generateText).toHaveBeenCalled();
     expect(generateStructured).not.toHaveBeenCalled();
+  });
+
+  it("keeps CI inspection read-only after prior mutation turns", async () => {
+    const generateText = vi.fn(async () => ({
+      text: "CI checks passed on the latest run.",
+      usage: {
+        provider: "mock",
+        model: "mock-model",
+        promptTokens: 3,
+        completionTokens: 4,
+        totalTokens: 7,
+      },
+    }));
+    const llmGateway: ILLMGateway = {
+      generateText,
+      generateStructured: async () => ({
+        object: { tasks: [], metadata: { estimatedSteps: 1 } },
+        usage: {
+          provider: "mock",
+          model: "mock-model",
+          promptTokens: 1,
+          completionTokens: 1,
+          totalTokens: 2,
+        },
+      }),
+      generateStream: async () =>
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.close();
+          },
+        }),
+    };
+    const runEngine = createRunEngine({ llmGateway });
+
+    const response = await runEngine.execute(
+      {
+        agentType: "coding",
+        prompt: "check ci checks passed or not",
+        sessionId: "session-1",
+        metadata: {
+          featureFlags: {
+            agenticLoopV1: true,
+          },
+        },
+      },
+      [
+        { role: "user", content: "edit footer and push it" },
+        { role: "assistant", content: "I can do that." },
+        { role: "user", content: "check ci checks passed or not" },
+      ],
+      {},
+    );
+
+    expect(response.status).toBe(200);
+    const output = await response.text();
+    expect(output).toContain("CI checks passed on the latest run.");
+    expect(output).not.toContain("did not complete the requested change");
   });
 
   it("completes the golden-flow tool roundtrip in one agentic run", async () => {
@@ -2656,7 +2713,7 @@ describe("RunEngine", () => {
 
     expect(secondResponse.status).toBe(200);
     expect(await secondResponse.text()).toContain(
-      "I still need file mutation evidence before stage/commit/push actions.",
+      "The model did not return a usable next action for this edit request.",
     );
 
     const executeSpy = executionService.execute as ReturnType<typeof vi.fn>;
@@ -2811,31 +2868,38 @@ describe("RunEngine", () => {
         prompt: "update footer, commit, and push",
         sessionId: "session-1",
         repositoryContext: { owner: "sourcegraph", repo: "shadowbox" },
-        metadata: { featureFlags: { agenticLoopV1: true } },
+        metadata: {
+          featureFlags: { agenticLoopV1: true },
+          permissionPolicy: { productMode: "full_agent" },
+        },
       },
       [{ role: "user", content: "update footer, commit, and push" }],
       {},
     );
     const approvalResolutionPromise = (async () => {
-      let approvalsResolved = 0;
-      for (let attempt = 0; attempt < 200 && approvalsResolved < 2; attempt += 1) {
+      for (let attempt = 0; attempt < 300; attempt += 1) {
         const pending = await approvalStore.getPendingRequest();
         if (pending) {
           await approvalStore.resolveDecision({
             kind: "allow_once",
             requestId: pending.requestId,
           });
-          approvalsResolved += 1;
           continue;
         }
+
+        const status = await runEngine.getRunStatus(TEST_RUN_ID);
+        if (
+          status === "COMPLETED" ||
+          status === "FAILED" ||
+          status === "CANCELLED"
+        ) {
+          return;
+        }
+
         await new Promise((resolve) => setTimeout(resolve, 20));
       }
 
-      if (approvalsResolved < 2) {
-        throw new Error(
-          "Timed out waiting for commit/push approval requests in test.",
-        );
-      }
+      throw new Error("Timed out resolving pending approval requests in test.");
     })();
 
     const firstResponse = await firstResponsePromise;
@@ -3019,6 +3083,119 @@ describe("RunEngine", () => {
     );
     expect(statusCallIndex).toBeGreaterThanOrEqual(0);
     expect(stageCallIndex).toBeGreaterThan(statusCallIndex);
+  });
+
+  it("asks for scope when git mutation request does not match local diff", async () => {
+    const state = new MockRuntimeState();
+    const generateText = vi
+      .fn()
+      .mockResolvedValueOnce({
+        text: "I'll stage the footer change now.",
+        toolCalls: [
+          {
+            id: "git-stage-1",
+            toolName: "git_stage",
+            args: {
+              files: ["src/components/layout/Footer.tsx"],
+            },
+          },
+        ],
+        usage: {
+          provider: "mock",
+          model: "mock-model",
+          promptTokens: 6,
+          completionTokens: 6,
+          totalTokens: 12,
+        },
+      });
+
+    const llmGateway: ILLMGateway = {
+      generateText,
+      generateStructured: async () => ({
+        object: { tasks: [], metadata: { estimatedSteps: 1 } },
+        usage: {
+          provider: "mock",
+          model: "mock-model",
+          promptTokens: 1,
+          completionTokens: 1,
+          totalTokens: 2,
+        },
+      }),
+      generateStream: async () =>
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.close();
+          },
+        }),
+    };
+
+    const executionService: RuntimeExecutionService = {
+      execute: vi.fn(async (plugin: string, action: string) => {
+        if (plugin === "git" && action === "git_status") {
+          return {
+            success: true,
+            output: JSON.stringify({
+              branch: "style/redesign-footer",
+              hasStaged: false,
+              hasUnstaged: true,
+              files: [
+                {
+                  path: "README.md",
+                  status: "M",
+                  staged: false,
+                },
+              ],
+            }),
+          };
+        }
+
+        return {
+          success: false,
+          error: `Unexpected route ${plugin}:${action}`,
+        };
+      }),
+    };
+
+    const runEngine = new RunEngine(
+      state,
+      {
+        env: {
+          NODE_ENV: "test",
+          APPROVAL_WAIT_TIMEOUT_MS: "2000",
+        } as unknown,
+        sessionId: "session-1",
+        runId: TEST_RUN_ID,
+        correlationId: "corr-git-stage-scope-mismatch",
+      },
+      new CodingAgent(llmGateway, executionService),
+      undefined,
+      { llmGateway },
+    );
+
+    const response = await runEngine.execute(
+      {
+        agentType: "coding",
+        prompt: "stage the footer changes",
+        sessionId: "session-1",
+        repositoryContext: { owner: "sourcegraph", repo: "shadowbox" },
+        metadata: { featureFlags: { agenticLoopV1: true } },
+      },
+      [{ role: "user", content: "stage the footer changes" }],
+      {},
+    );
+
+    expect(response.status).toBe(200);
+    const output = await response.text();
+    expect(output).toContain("scope decision");
+    expect(output).toContain("Detected changed files: README.md");
+
+    const executeSpy = executionService.execute as ReturnType<typeof vi.fn>;
+    expect(executeSpy).not.toHaveBeenCalledWith(
+      "git",
+      "git_stage",
+      expect.anything(),
+      undefined,
+    );
   });
 
   it("bootstraps recycled continuation turns onto the preserved active branch", async () => {

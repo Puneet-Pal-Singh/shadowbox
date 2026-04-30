@@ -80,6 +80,32 @@ describe("RunRiskyActionPolicy", () => {
     expect(result.reason).toContain("no successful file mutation");
   });
 
+  it("bypasses mutation evidence denials on read-only turns", async () => {
+    const store = new PermissionApprovalStore(
+      new MockRuntimeState(),
+      "run-risk-2-read-only",
+    );
+
+    const result = await evaluateToolPermission({
+      runId: "run-risk-2-read-only",
+      sessionId: "session-1",
+      origin: "agent",
+      productMode: "auto_for_safe",
+      workflowIntent: "explore",
+      toolName: "git_commit",
+      toolArgs: { message: "feat: test" },
+      currentTurnIntent: "read_only",
+      hasMutationEvidence: false,
+      approvalStore: store,
+    });
+
+    expect(result.kind).toBe("ask");
+    if (result.kind !== "ask") {
+      throw new Error("Expected ask result");
+    }
+    expect(result.request.category).toBe("git_mutation");
+  });
+
   it("denies git push without in-run mutation evidence unless continuation explicitly allows resume", async () => {
     const store = new PermissionApprovalStore(new MockRuntimeState(), "run-risk-2a");
 

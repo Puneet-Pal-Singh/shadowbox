@@ -90,11 +90,11 @@ export type GitTaskLane =
   | "shell_gh";
 
 export type GitTaskClassification =
-  | "local_checkout"
-  | "local_mutation"
-  | "remote_metadata"
-  | "hybrid_pr_ci"
-  | "connector_gap";
+  | "inspect_ci"
+  | "inspect_pr"
+  | "inspect_review"
+  | "mutate_fix"
+  | "mutate_publish";
 
 export interface RunGitTaskStrategyState {
   classification: GitTaskClassification;
@@ -243,6 +243,7 @@ export interface RunMetadata {
     toolExecutionCount?: number;
     failedToolCount?: number;
     requiresMutation?: boolean;
+    currentTurnIntent?: "read_only" | "mutation" | "mixed";
     completedMutatingToolCount?: number;
     completedReadOnlyToolCount?: number;
     recoveryCode?: "INCOMPLETE_MUTATION" | "TASK_MODEL_NO_ACTION";

@@ -321,11 +321,11 @@ describe("RunContinuationContext", () => {
         recordedAt: new Date().toISOString(),
       },
       gitTaskStrategy: {
-        classification: "hybrid_pr_ci",
+        classification: "mutate_fix",
         preferredLane: "github_connector",
         fallbackLane: "shell_git",
         rationale:
-          "Hybrid PR/CI flow should start with connector metadata and continue with shell-first local repair.",
+          "Inspect checks first, then continue with mutation-capable local repair.",
         recordedAt: new Date().toISOString(),
       },
     });
@@ -334,8 +334,30 @@ describe("RunContinuationContext", () => {
       "Workspace bootstrap state: ready (status=ready, mode=git_write).",
     );
     expect(workspaceContext).toContain(
-      "Git/GitHub strategy hint: hybrid_pr_ci -> github_connector (fallback: shell_git).",
+      "Git/GitHub strategy hint: mutate_fix -> github_connector (fallback: shell_git).",
     );
     expect(workspaceContext).toContain("Strategy rationale:");
+  });
+
+  it("does not re-ask for diff scope when continuation prompt provides explicit scope", () => {
+    const workspaceContext = buildAgenticLoopWorkspaceContext({
+      prompt: "continue with README.md only",
+      continuation: {
+        previousPrompt: "commit and push",
+        previousStopReason: "tool_error",
+        previousOutput: "Scope clarification required.",
+        completedFiles: [],
+        completedGitSteps: [],
+        failedToolName: "git_stage",
+        failedToolDetail:
+          "Before staging/committing/pushing, I need one scope decision because the current local diff scope is ambiguous.",
+        recordedAt: new Date().toISOString(),
+      },
+    });
+
+    expect(workspaceContext).toContain("Continuation context:");
+    expect(workspaceContext).not.toContain(
+      "Local diff scope decision is still required.",
+    );
   });
 });

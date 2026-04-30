@@ -21,6 +21,13 @@ import type { RunEngineEnv } from "./RunEngineTypes.js";
 import {
   recordLifecycleStep,
 } from "./RunMetadataPolicy.js";
+import {
+  classifyCurrentTurnIntent,
+  classifyLocalDiffRelevance,
+  requiresMutationForIntent,
+  type CurrentTurnIntent,
+  type LocalDiffRelevance,
+} from "./RunCurrentTurnIntent.js";
 
 interface AgenticLoopToolCall {
   id: string;
@@ -54,6 +61,9 @@ export function buildAgenticLoopCallbacks(input: {
   runId: string;
 }): AgenticLoopCallbacks {
   let hasMutationEvidence = false;
+  let scopeDecisionRequested = false;
+  const currentTurnIntent = classifyCurrentTurnIntent(input.run.input.prompt);
+  const mutationScopedTurn = requiresMutationForIntent(currentTurnIntent);
   const allowResumeGitPush = canResumeGitPushFromContinuation(input.run);
   return {
     executeTool: input.directExecutionService
@@ -68,9 +78,15 @@ export function buildAgenticLoopCallbacks(input: {
             env: input.env,
             runId: input.runId,
             hasMutationEvidence,
+            currentTurnIntent,
+            mutationScopedTurn,
+            scopeDecisionRequested,
             allowResumeGitPush,
             setHasMutationEvidence: (value) => {
               hasMutationEvidence = value;
+            },
+            setScopeDecisionRequested: (value) => {
+              scopeDecisionRequested = value;
             },
           })
       : undefined,
@@ -131,8 +147,12 @@ async function executeDirectToolCall(input: {
   env: RunEngineEnv;
   runId: string;
   hasMutationEvidence: boolean;
+  currentTurnIntent: CurrentTurnIntent;
+  mutationScopedTurn: boolean;
+  scopeDecisionRequested: boolean;
   allowResumeGitPush: boolean;
   setHasMutationEvidence: (value: boolean) => void;
+  setScopeDecisionRequested: (value: boolean) => void;
 }): Promise<TaskResult> {
   const toolPresentation = getToolPresentation(
     input.toolCall.toolName,
@@ -144,15 +164,45 @@ async function executeDirectToolCall(input: {
     );
   }
 
+  const shouldProbeWorkspaceState = needsGitMutationEvidenceProbe(
+    input.toolCall.toolName,
+  );
+  const workspaceMutationProbe = shouldProbeWorkspaceState
+    ? await detectWorkspaceMutationEvidence(input.directExecutionService)
+    : {
+        hasMutationEvidence: false,
+        changedFiles: [] as string[],
+        probeFailed: false,
+        probeError: undefined,
+      };
+  if (
+    shouldProbeWorkspaceState &&
+    workspaceMutationProbe.probeFailed &&
+    !input.hasMutationEvidence
+  ) {
+    throw PermissionGateError.fromDeny(
+      buildMutationProbeFailureMessage(workspaceMutationProbe.probeError),
+    );
+  }
   const hasWorkspaceMutationEvidence =
-    !input.hasMutationEvidence &&
-    needsGitMutationEvidenceProbe(input.toolCall.toolName)
-      ? await detectWorkspaceMutationEvidence(input.directExecutionService)
-      : false;
+    !input.hasMutationEvidence && workspaceMutationProbe.hasMutationEvidence;
   const hasMutationEvidence =
     input.hasMutationEvidence || hasWorkspaceMutationEvidence;
   if (hasWorkspaceMutationEvidence) {
     input.setHasMutationEvidence(true);
+  }
+
+  const diffRelevanceDenial = resolveLocalDiffScopeDenial({
+    toolName: input.toolCall.toolName,
+    toolArgs: input.toolCall.args,
+    prompt: input.run.input.prompt,
+    mutationScopedTurn: input.mutationScopedTurn,
+    scopeDecisionRequested: input.scopeDecisionRequested,
+    changedFiles: workspaceMutationProbe.changedFiles,
+  });
+  if (diffRelevanceDenial) {
+    input.setScopeDecisionRequested(true);
+    throw PermissionGateError.fromDeny(diffRelevanceDenial);
   }
 
   const permissionState =
@@ -166,6 +216,7 @@ async function executeDirectToolCall(input: {
     workflowIntent: permissionState.workflowIntent,
     toolName: input.toolCall.toolName,
     toolArgs: input.toolCall.args,
+    currentTurnIntent: input.currentTurnIntent,
     hasMutationEvidence,
     allowResumeGitPush: input.allowResumeGitPush,
     approvalStore: input.permissionApprovalStore,
@@ -263,21 +314,144 @@ function needsGitMutationEvidenceProbe(toolName: GoldenFlowToolName): boolean {
 
 async function detectWorkspaceMutationEvidence(
   executionService: RuntimeExecutionService,
-): Promise<boolean> {
+): Promise<{
+  hasMutationEvidence: boolean;
+  changedFiles: string[];
+  probeFailed: boolean;
+  probeError?: string;
+}> {
   try {
     const result = await executionService.execute("git", "git_status", {});
     const payload = extractJsonOutputPayload(result);
     if (!payload) {
-      return false;
+      return {
+        hasMutationEvidence: false,
+        changedFiles: [],
+        probeFailed: false,
+      };
     }
 
     const hasStaged = payload.hasStaged === true;
     const hasUnstaged = payload.hasUnstaged === true;
     const files = Array.isArray(payload.files) ? payload.files : [];
-    return hasStaged || hasUnstaged || files.length > 0;
-  } catch {
-    return false;
+    const changedFiles = files
+      .map((file) => {
+        if (typeof file === "string") {
+          return file.trim();
+        }
+
+        const record = toRecord(file);
+        return record && typeof record.path === "string"
+          ? record.path.trim()
+          : "";
+      })
+      .filter((filePath): filePath is string => filePath.length > 0);
+
+    return {
+      hasMutationEvidence: hasStaged || hasUnstaged || files.length > 0,
+      changedFiles,
+      probeFailed: false,
+    };
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : String(error);
+    console.warn(
+      `[agentic-loop/callbacks] git_status mutation probe failed: ${errorMessage}`,
+    );
+    return {
+      hasMutationEvidence: false,
+      changedFiles: [],
+      probeFailed: true,
+      probeError: errorMessage,
+    };
   }
+}
+
+function resolveLocalDiffScopeDenial(input: {
+  toolName: GoldenFlowToolName;
+  toolArgs: Record<string, unknown>;
+  prompt: string;
+  mutationScopedTurn: boolean;
+  scopeDecisionRequested: boolean;
+  changedFiles: string[];
+}): string | null {
+  if (!input.mutationScopedTurn || input.scopeDecisionRequested) {
+    return null;
+  }
+
+  if (!needsGitMutationEvidenceProbe(input.toolName)) {
+    return null;
+  }
+
+  if (input.changedFiles.length === 0) {
+    return null;
+  }
+
+  const relevance = classifyLocalDiffRelevance({
+    prompt: input.prompt,
+    changedFiles: input.changedFiles,
+    requestedFiles: extractRequestedFilesFromGitArgs(
+      input.toolName,
+      input.toolArgs,
+    ),
+  });
+  if (relevance === "relevant") {
+    return null;
+  }
+
+  return buildLocalDiffScopePrompt(relevance, input.changedFiles);
+}
+
+function extractRequestedFilesFromGitArgs(
+  toolName: GoldenFlowToolName,
+  toolArgs: Record<string, unknown>,
+): string[] {
+  if (toolName !== "git_stage") {
+    return [];
+  }
+
+  const files = toolArgs.files;
+  if (!Array.isArray(files)) {
+    return [];
+  }
+
+  return files
+    .filter((value): value is string => typeof value === "string")
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0);
+}
+
+function buildLocalDiffScopePrompt(
+  relevance: LocalDiffRelevance,
+  changedFiles: string[],
+): string {
+  const changedPreview =
+    changedFiles.length === 0
+      ? "none detected"
+      : changedFiles.slice(0, 6).join(", ");
+  const reason =
+    relevance === "unrelated"
+      ? "the current local diff appears unrelated to this request"
+      : "the current local diff scope is ambiguous for this request";
+
+  return [
+    `Before staging/committing/pushing, I need one scope decision because ${reason}.`,
+    `Detected changed files: ${changedPreview}.`,
+    "Tell me exactly which files or target scope to use, then I will continue.",
+  ].join(" ");
+}
+
+function buildMutationProbeFailureMessage(probeError: string | undefined): string {
+  const detail = probeError
+    ? ` git_status failed with: ${probeError}.`
+    : "";
+  return [
+    "I couldn't verify local workspace changes before staging/committing/pushing.",
+    detail,
+    "Retry the request so I can re-check git status, or provide explicit file scope.",
+  ]
+    .join(" ")
+    .trim();
 }
 
 function extractJsonOutputPayload(
