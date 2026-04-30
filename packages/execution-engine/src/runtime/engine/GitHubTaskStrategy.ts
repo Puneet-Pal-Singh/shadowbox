@@ -1,8 +1,5 @@
 import type { GitToolFailureKind } from "./GitToolFailureClassifier.js";
-import type {
-  GitTaskClassification,
-  GitTaskLane,
-} from "../types.js";
+import type { GitTaskClassification, GitTaskLane } from "../types.js";
 
 export interface GitTaskStrategyInput {
   userRequest: string;
@@ -28,170 +25,145 @@ export interface GitTaskStrategyDecision {
 export class GitHubTaskStrategy {
   decide(input: GitTaskStrategyInput): GitTaskStrategyDecision {
     const userRequest = input.userRequest.toLowerCase();
-    const inPlanMode = input.runMode === "plan";
-    const wantsRemoteMetadata = hasRemoteMetadataIntent(userRequest);
-    const wantsLocalWork = hasLocalWorkspaceIntent(userRequest);
-    const mentionsConnectorGap = /\bconnector gap\b|\bgh cli\b/.test(
-      userRequest,
-    );
+    const inspectClassification = resolveInspectClassification(userRequest);
+    const wantsPublishMutation = hasPublishMutationIntent(userRequest);
+    const wantsFixMutation = hasFixMutationIntent(userRequest);
 
-    if (inPlanMode && wantsRemoteMetadata && input.connectorAvailable) {
+    if (inspectClassification && hasInspectRecoveryFailure(input.currentFailure)) {
+      return this.buildInspectDecision(
+        input,
+        inspectClassification,
+        "The previous attempt failed on remote metadata access. Keep this turn in inspect-only mode and avoid mutation lanes until the user explicitly asks to fix or publish.",
+      );
+    }
+
+    if (
+      input.runMode === "plan" &&
+      inspectClassification &&
+      !wantsPublishMutation &&
+      !wantsFixMutation
+    ) {
+      return this.buildInspectDecision(
+        input,
+        inspectClassification,
+        "Plan-mode inspection should stay read-only and connector-first for CI/PR evidence gathering.",
+      );
+    }
+
+    if (wantsPublishMutation) {
       return {
-        classification: "remote_metadata",
-        preferredLane: "github_connector",
-        fallbackLane: "github_cli",
+        classification: "mutate_publish",
+        preferredLane: "shell_git",
+        fallbackLane: "typed_git",
         rationale:
-          "In plan mode, start with connector metadata and keep the bounded GitHub CLI lane as parity fallback.",
+          "The request explicitly asks for publish-oriented git mutations (stage/commit/push/branch/PR), so route through mutation lanes.",
       };
+    }
+
+    if (wantsFixMutation) {
+      return {
+        classification: "mutate_fix",
+        preferredLane: "shell_git",
+        fallbackLane: "typed_git",
+        rationale:
+          "The request asks for code changes or fixes, so keep a mutation-capable local lane.",
+      };
+    }
+
+    if (inspectClassification) {
+      return this.buildInspectDecision(
+        input,
+        inspectClassification,
+        "This request is inspection-only for CI/PR/review state, so keep it read-only.",
+      );
     }
 
     if (!input.repositoryReady && hasCheckoutIntent(userRequest)) {
       return {
-        classification: "local_checkout",
+        classification: "mutate_publish",
         preferredLane: "shell_git",
         fallbackLane: "typed_git",
         rationale:
-          "Repository bootstrap is not fully ready yet; shell-first checkout and diagnostics keep recovery flexible.",
-      };
-    }
-
-    if (
-      input.currentFailure?.kind === "missing_scope_state" &&
-      wantsRemoteMetadata
-    ) {
-      return {
-        classification: "remote_metadata",
-        preferredLane: input.connectorAvailable
-          ? "github_connector"
-          : "github_cli",
-        rationale:
-          "The previous attempt failed due to missing GitHub OAuth scope; keep the current turn read-oriented and surface a reconnect-with-scopes recovery path instead of mutating lanes.",
-      };
-    }
-
-    if (
-      input.currentFailure?.kind === "missing_auth_state" &&
-      wantsRemoteMetadata &&
-      input.connectorAvailable
-    ) {
-      return {
-        classification: "remote_metadata",
-        preferredLane: "github_connector",
-        fallbackLane: "github_cli",
-        rationale:
-          "The previous attempt indicates missing auth state; retry connector metadata first, then bounded GitHub CLI parity if needed.",
-      };
-    }
-
-    if (
-      input.currentFailure?.kind === "unsupported_environment" &&
-      wantsRemoteMetadata &&
-      input.connectorAvailable
-    ) {
-      return {
-        classification: "remote_metadata",
-        preferredLane: "github_connector",
-        fallbackLane: "github_cli",
-        rationale:
-          "Connector metadata remains primary when shell dependencies fail; bounded GitHub CLI stays as parity fallback.",
-      };
-    }
-
-    if (wantsRemoteMetadata && wantsLocalWork) {
-      return this.resolveHybridDecision(input);
-    }
-
-    if (wantsRemoteMetadata) {
-      return this.resolveRemoteDecision(input, mentionsConnectorGap);
-    }
-
-    if (shouldPreferTypedGitAccelerator(userRequest)) {
-      return {
-        classification: "local_mutation",
-        preferredLane: "typed_git",
-        fallbackLane: "shell_git",
-        rationale:
-          "Request matches a high-signal structured git action; typed git is an accelerator with shell fallback.",
-      };
-    }
-
-    if (hasCheckoutIntent(userRequest)) {
-      return {
-        classification: "local_checkout",
-        preferredLane: "shell_git",
-        fallbackLane: "typed_git",
-        rationale:
-          "Checkout and branch state tasks should stay shell-first for flexible local recovery.",
+          "Repository bootstrap is incomplete and checkout work is needed, so use shell-first git mutation recovery.",
       };
     }
 
     return {
-      classification: "local_mutation",
+      classification: "mutate_fix",
       preferredLane: "shell_git",
       fallbackLane: "typed_git",
       rationale:
-        "Local repository work defaults to shell-first; typed git stays as an optional accelerator.",
+        "Defaulting to local mutation-capable workflow when the request is not clearly inspect-only.",
     };
   }
 
-  private resolveHybridDecision(
+  private buildInspectDecision(
     input: GitTaskStrategyInput,
+    classification: Extract<
+      GitTaskClassification,
+      "inspect_ci" | "inspect_pr" | "inspect_review"
+    >,
+    rationale: string,
   ): GitTaskStrategyDecision {
     if (input.connectorAvailable && input.hasGitHubAuth) {
       return {
-        classification: "hybrid_pr_ci",
-        preferredLane: "github_connector",
-        fallbackLane: "shell_git",
-        rationale:
-          "Hybrid PR/CI flow should start with connector metadata and continue with shell-first local repair.",
-      };
-    }
-
-    return {
-      classification: "connector_gap",
-      preferredLane: "github_connector",
-      fallbackLane: "github_cli",
-      rationale:
-        "Remote metadata is needed but connector access appears limited; use bounded GitHub CLI parity for remote reads while preserving local shell git for workspace steps.",
-    };
-  }
-
-  private resolveRemoteDecision(
-    input: GitTaskStrategyInput,
-    mentionsConnectorGap: boolean,
-  ): GitTaskStrategyDecision {
-    if (
-      !mentionsConnectorGap &&
-      input.connectorAvailable &&
-      input.hasGitHubAuth
-    ) {
-      return {
-        classification: "remote_metadata",
+        classification,
         preferredLane: "github_connector",
         fallbackLane: "github_cli",
-        rationale:
-          "Remote PR/issue/check metadata is connector-first when authenticated connector access is available, with bounded GitHub CLI parity fallback.",
+        rationale,
       };
     }
 
     return {
-      classification: "connector_gap",
+      classification,
       preferredLane: "github_connector",
       fallbackLane: "github_cli",
       rationale:
-        "Connector metadata path is unavailable or explicitly bypassed; use bounded GitHub CLI parity instead of raw gh shell commands.",
+        "Remote inspection is required but connector access may be constrained; use connector-first with bounded GitHub CLI parity fallback.",
     };
   }
 }
 
-function hasRemoteMetadataIntent(userRequest: string): boolean {
-  return /\b(pr|pull request|review|checks?|ci|actions|workflow run|issue)\b/.test(
+function resolveInspectClassification(
+  userRequest: string,
+): Extract<GitTaskClassification, "inspect_ci" | "inspect_pr" | "inspect_review"> | null {
+  if (hasReviewInspectionIntent(userRequest)) {
+    return "inspect_review";
+  }
+
+  if (hasCiInspectionIntent(userRequest)) {
+    return "inspect_ci";
+  }
+
+  if (hasPrInspectionIntent(userRequest)) {
+    return "inspect_pr";
+  }
+
+  return null;
+}
+
+function hasCiInspectionIntent(userRequest: string): boolean {
+  return /\b(ci|checks?|workflow|actions|job|run|logs?)\b/.test(userRequest);
+}
+
+function hasReviewInspectionIntent(userRequest: string): boolean {
+  return /\b(review comments?|review threads?|requested changes?|code review)\b/.test(
     userRequest,
   );
 }
 
-function hasLocalWorkspaceIntent(userRequest: string): boolean {
-  return /\b(checkout|commit|push|pull|rebase|cherry-pick|diff|staged?|branch|fix|patch|tests?)\b/.test(
+function hasPrInspectionIntent(userRequest: string): boolean {
+  return /\b(pr|pull request|pull-requests?)\b/.test(userRequest);
+}
+
+function hasFixMutationIntent(userRequest: string): boolean {
+  return /\b(fix|patch|edit|update|rewrite|refactor|implement|change)\b/.test(
+    userRequest,
+  );
+}
+
+function hasPublishMutationIntent(userRequest: string): boolean {
+  return /\b(stage|commit|push|publish|open pr|create pr|branch|checkout|merge|rebase|cherry-pick)\b/.test(
     userRequest,
   );
 }
@@ -202,8 +174,22 @@ function hasCheckoutIntent(userRequest: string): boolean {
   );
 }
 
-function shouldPreferTypedGitAccelerator(userRequest: string): boolean {
-  return /\b(stage|commit|push|git status|git diff)\b/.test(
-    userRequest,
+function hasInspectRecoveryFailure(
+  currentFailure:
+    | {
+        kind: GitToolFailureKind;
+        toolName: string;
+      }
+    | null
+    | undefined,
+): boolean {
+  if (!currentFailure) {
+    return false;
+  }
+
+  return (
+    currentFailure.kind === "missing_scope_state" ||
+    currentFailure.kind === "missing_auth_state" ||
+    currentFailure.kind === "unsupported_environment"
   );
 }
