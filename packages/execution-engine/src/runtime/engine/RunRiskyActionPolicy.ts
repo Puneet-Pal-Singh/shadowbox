@@ -11,6 +11,10 @@ import {
 } from "@repo/shared-types";
 import type { GoldenFlowToolName } from "../contracts/CodingToolGateway.js";
 import { PermissionApprovalStore } from "./PermissionApprovalStore.js";
+import {
+  requiresMutationForIntent,
+  type CurrentTurnIntent,
+} from "./RunCurrentTurnIntent.js";
 
 const SHELL_NETWORK_PATTERN =
   /\b(curl|wget|npm\s+install|pnpm\s+add|yarn\s+add|pip\s+install)\b/i;
@@ -56,6 +60,7 @@ export interface RiskyActionEvaluationInput {
   workflowIntent: WorkflowIntent;
   toolName: GoldenFlowToolName;
   toolArgs: Record<string, unknown>;
+  currentTurnIntent?: CurrentTurnIntent;
   hasMutationEvidence: boolean;
   allowResumeGitPush?: boolean;
   approvalStore: PermissionApprovalStore;
@@ -103,6 +108,7 @@ export async function evaluateToolPermission(
   const mutationEvidenceDenial = getMutationEvidenceDenial(
     classified,
     input.toolName,
+    input.currentTurnIntent,
     input.hasMutationEvidence,
     Boolean(input.allowResumeGitPush),
   );
@@ -142,7 +148,15 @@ export function mapPermissionGateToEvaluationResult(
 function requiresMutationEvidence(
   classified: ClassifiedRiskAction,
   toolName: GoldenFlowToolName,
+  currentTurnIntent: CurrentTurnIntent | undefined,
 ): boolean {
+  const mutationScopedTurn = currentTurnIntent
+    ? requiresMutationForIntent(currentTurnIntent)
+    : true;
+  if (!mutationScopedTurn) {
+    return false;
+  }
+
   return (
     classified.category === RISKY_ACTION_CATEGORIES.GIT_MUTATION &&
     (toolName === "git_stage" ||
@@ -154,6 +168,7 @@ function requiresMutationEvidence(
 function getMutationEvidenceDenial(
   classified: ClassifiedRiskAction,
   toolName: GoldenFlowToolName,
+  currentTurnIntent: CurrentTurnIntent | undefined,
   hasMutationEvidence: boolean,
   allowResumeGitPush: boolean,
 ): PermissionDenyResult | null {
@@ -161,7 +176,10 @@ function getMutationEvidenceDenial(
     return null;
   }
 
-  if (requiresMutationEvidence(classified, toolName) && !hasMutationEvidence) {
+  if (
+    requiresMutationEvidence(classified, toolName, currentTurnIntent) &&
+    !hasMutationEvidence
+  ) {
     return {
       kind: "deny",
       reason:
