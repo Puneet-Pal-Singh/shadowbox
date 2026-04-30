@@ -338,4 +338,26 @@ describe("RunContinuationContext", () => {
     );
     expect(workspaceContext).toContain("Strategy rationale:");
   });
+
+  it("does not re-ask for diff scope when continuation prompt provides explicit scope", () => {
+    const workspaceContext = buildAgenticLoopWorkspaceContext({
+      prompt: "continue with README.md only",
+      continuation: {
+        previousPrompt: "commit and push",
+        previousStopReason: "tool_error",
+        previousOutput: "Scope clarification required.",
+        completedFiles: [],
+        completedGitSteps: [],
+        failedToolName: "git_stage",
+        failedToolDetail:
+          "Before staging/committing/pushing, I need one scope decision because the current local diff scope is ambiguous.",
+        recordedAt: new Date().toISOString(),
+      },
+    });
+
+    expect(workspaceContext).toContain("Continuation context:");
+    expect(workspaceContext).not.toContain(
+      "Local diff scope decision is still required.",
+    );
+  });
 });
