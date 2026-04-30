@@ -27,7 +27,7 @@ import {
 } from "../../lib/animations";
 import { useGitHub } from "../github/GitHubContextProvider";
 import { ChatBranchSelector } from "../chat/ChatBranchSelector";
-import { ProviderDialog, ModelPickerPopover } from "../provider";
+import { ModelPickerPopover } from "../provider";
 import { useProviderStore } from "../../hooks/useProviderStore.js";
 import { useRunContext } from "../../hooks/useRunContext.js";
 import { findCredentialByProviderId } from "../../lib/provider-helpers.js";
@@ -55,6 +55,7 @@ import {
 } from "../../lib/provider-model-bootstrap-loading.js";
 import { useSessionProductMode } from "./hooks/useSessionProductMode";
 import { useSelectedProviderModelHydration } from "./hooks/useSelectedProviderModelHydration";
+import { dispatchOpenSettingsDialog } from "../../lib/settings-dialog-events.js";
 
 interface AgentSetupProps {
   sessionId: string;
@@ -63,7 +64,6 @@ interface AgentSetupProps {
   onModeChange?: (mode: RunMode) => void;
   requiresRepository?: boolean;
   showOnboardingHighlights?: boolean;
-  openProviderDialogSignal?: number;
   onStart: (config: {
     repo: string;
     branch: string;
@@ -133,7 +133,6 @@ export function AgentSetup({
   onModeChange,
   requiresRepository = false,
   showOnboardingHighlights = false,
-  openProviderDialogSignal = 0,
   onStart,
   onRepoClick,
 }: AgentSetupProps) {
@@ -151,16 +150,6 @@ export function AgentSetup({
     string | null
   >(null);
   const [hoveredCard, setHoveredCard] = useState<number | null>(null);
-  const [showProviderDialog, setShowProviderDialog] = useState(false);
-  const [providerDialogInitialTab, setProviderDialogInitialTab] = useState<
-    "connected" | "available" | "preferences" | "session" | undefined
-  >(undefined);
-  const [providerDialogInitialView, setProviderDialogInitialView] = useState<
-    "default" | "manage-models"
-  >("default");
-  const [providerDialogVariant, setProviderDialogVariant] = useState<
-    "full" | "connect-only" | "manage-models-only"
-  >("full");
   const [isGitReviewOpen, setIsGitReviewOpen] = useState(false);
   const {
     catalog,
@@ -205,7 +194,6 @@ export function AgentSetup({
     });
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const explorerRef = useRef<FileExplorerHandle>(null);
-  const previousProviderDialogSignalRef = useRef(openProviderDialogSignal);
   const workspaceBootstrapKeyRef = useRef<string | null>(null);
   const workspaceBootstrapInFlightRef = useRef<string | null>(null);
   const activeRunId = runId ?? "";
@@ -326,18 +314,6 @@ export function AgentSetup({
     selectedModelView,
     selectedProviderId,
   ]);
-
-  useEffect(() => {
-    if (openProviderDialogSignal === previousProviderDialogSignalRef.current) {
-      return;
-    }
-
-    previousProviderDialogSignalRef.current = openProviderDialogSignal;
-    setProviderDialogInitialTab("available");
-    setProviderDialogInitialView("default");
-    setProviderDialogVariant("connect-only");
-    setShowProviderDialog(true);
-  }, [openProviderDialogSignal]);
 
   useEffect(() => {
     const owner = repo?.owner?.login?.trim();
@@ -868,10 +844,7 @@ export function AgentSetup({
                               providerId,
                             );
                             if (!credential) {
-                              setProviderDialogInitialTab("available");
-                              setProviderDialogInitialView("default");
-                              setProviderDialogVariant("connect-only");
-                              setShowProviderDialog(true);
+                              dispatchOpenSettingsDialog("connect");
                               return;
                             }
                             await applySessionSelection({
@@ -888,16 +861,10 @@ export function AgentSetup({
                             refreshProviderModels
                           }
                           onConnectProvider={() => {
-                            setProviderDialogInitialTab("available");
-                            setProviderDialogInitialView("default");
-                            setProviderDialogVariant("connect-only");
-                            setShowProviderDialog(true);
+                            dispatchOpenSettingsDialog("connect");
                           }}
                           onManageModels={() => {
-                            setProviderDialogInitialTab("connected");
-                            setProviderDialogInitialView("manage-models");
-                            setProviderDialogVariant("manage-models-only");
-                            setShowProviderDialog(true);
+                            dispatchOpenSettingsDialog("models");
                           }}
                           isLoading={isModelPickerLoading}
                           isHydratingVisibleModels={
@@ -971,10 +938,7 @@ export function AgentSetup({
                   <button
                     type="button"
                     onClick={() => {
-                      setProviderDialogInitialTab("available");
-                      setProviderDialogInitialView("default");
-                      setProviderDialogVariant("connect-only");
-                      setShowProviderDialog(true);
+                      dispatchOpenSettingsDialog("connect");
                     }}
                     className="ml-1 text-cyan-300 hover:text-cyan-200 underline-offset-2 hover:underline"
                   >
@@ -1060,19 +1024,6 @@ export function AgentSetup({
           key={`${activeRunId}:${isGitReviewOpen ? "open" : "closed"}:review`}
         />
 
-        <ProviderDialog
-          isOpen={showProviderDialog}
-          onClose={() => {
-            setShowProviderDialog(false);
-            setProviderDialogInitialTab(undefined);
-            setProviderDialogInitialView("default");
-            setProviderDialogVariant("full");
-          }}
-          mode="composer"
-          initialTab={providerDialogInitialTab}
-          initialView={providerDialogInitialView}
-          variant={providerDialogVariant}
-        />
       </motion.div>
     </GitReviewProvider>
   );
