@@ -20,7 +20,7 @@ import {
 } from "@repo/shared-types";
 import { useProviderStore } from "../../hooks/useProviderStore.js";
 import { findCredentialByProviderId } from "../../lib/provider-helpers.js";
-import { ProviderDialog, ModelPickerPopover } from "../provider/index.js";
+import { ModelPickerPopover } from "../provider/index.js";
 import { ChatModeToggle } from "./ChatModeToggle.js";
 import {
   applyFileMention,
@@ -33,6 +33,7 @@ import {
   isProviderModelBootstrapLoading,
   isProviderVisibleModelHydrationPending,
 } from "../../lib/provider-model-bootstrap-loading.js";
+import { dispatchOpenSettingsDialog } from "../../lib/settings-dialog-events.js";
 
 const IDLE_SWITCH_WARNING =
   "Changing models mid-conversation will degrade performance.";
@@ -86,16 +87,6 @@ export function ChatInputBar({
   const [mentionNavigationKey, setMentionNavigationKey] = useState<string | null>(
     null,
   );
-  const [showProviderDialog, setShowProviderDialog] = useState(false);
-  const [providerDialogInitialTab, setProviderDialogInitialTab] = useState<
-    "connected" | "available" | "preferences" | "session" | undefined
-  >(undefined);
-  const [providerDialogInitialView, setProviderDialogInitialView] = useState<
-    "default" | "manage-models"
-  >("default");
-  const [providerDialogVariant, setProviderDialogVariant] = useState<
-    "full" | "connect-only" | "manage-models-only"
-  >("full");
   const {
     catalog,
     credentials,
@@ -548,10 +539,7 @@ export function ChatInputBar({
               <button
                 type="button"
                 onClick={() => {
-                  setProviderDialogInitialTab("available");
-                  setProviderDialogInitialView("default");
-                  setProviderDialogVariant("connect-only");
-                  setShowProviderDialog(true);
+                  dispatchOpenSettingsDialog("connect");
                 }}
                 className="ml-1 text-cyan-300 hover:text-cyan-200 underline-offset-2 hover:underline"
               >
@@ -618,10 +606,7 @@ export function ChatInputBar({
                     providerId,
                   );
                   if (!credential) {
-                    setProviderDialogInitialTab("available");
-                    setProviderDialogInitialView("default");
-                    setProviderDialogVariant("connect-only");
-                    setShowProviderDialog(true);
+                    dispatchOpenSettingsDialog("connect");
                     return;
                   }
                   await applySessionSelection({
@@ -638,16 +623,10 @@ export function ChatInputBar({
                 onLoadMoreSelectedProviderModels={loadMoreProviderModels}
                 onRefreshSelectedProviderModels={refreshProviderModels}
                 onConnectProvider={() => {
-                  setProviderDialogInitialTab("available");
-                  setProviderDialogInitialView("default");
-                  setProviderDialogVariant("connect-only");
-                  setShowProviderDialog(true);
+                  dispatchOpenSettingsDialog("connect");
                 }}
                 onManageModels={() => {
-                  setProviderDialogInitialTab("connected");
-                  setProviderDialogInitialView("manage-models");
-                  setProviderDialogVariant("manage-models-only");
-                  setShowProviderDialog(true);
+                  dispatchOpenSettingsDialog("models");
                 }}
                 isLoading={isModelPickerLoading}
                 isHydratingVisibleModels={isSelectedProviderModelHydrationPending}
@@ -690,19 +669,6 @@ export function ChatInputBar({
           </div>
         </div>
       </form>
-      <ProviderDialog
-        isOpen={showProviderDialog}
-        onClose={() => {
-          setShowProviderDialog(false);
-          setProviderDialogInitialTab(undefined);
-          setProviderDialogInitialView("default");
-          setProviderDialogVariant("full");
-        }}
-        mode="composer"
-        initialTab={providerDialogInitialTab}
-        initialView={providerDialogInitialView}
-        variant={providerDialogVariant}
-      />
     </>
   );
 }
