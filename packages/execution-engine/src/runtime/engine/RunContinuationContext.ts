@@ -143,7 +143,10 @@ export function buildAgenticLoopWorkspaceContext(input: {
       );
     }
 
-    if (isLocalDiffScopeDecisionFailure(continuation)) {
+    if (
+      isLocalDiffScopeDecisionFailure(continuation) &&
+      !hasExplicitScopeResponse(input.prompt)
+    ) {
       lines.push(
         "Local diff scope decision is still required. Ask the user once which exact files or target scope should be staged/committed/pushed before continuing git mutations.",
       );
@@ -304,6 +307,10 @@ function isLocalDiffScopeDecisionFailure(
   return /scope decision|diff scope|which files|target scope/i.test(
     continuation.failedToolDetail ?? "",
   );
+}
+
+function hasExplicitScopeResponse(prompt: string): boolean {
+  return /\b(files?|scope|only|just|stage|commit|push)\b/i.test(prompt);
 }
 
 function summarizeCompletedGitStep(
