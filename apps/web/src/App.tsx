@@ -25,6 +25,11 @@ import { doesSessionContextMatchRepository } from "./lib/repository-context-matc
 import { LockedShellCard } from "./components/startup/LockedShellCard";
 import type { SetupSessionState } from "./types/session";
 import { StartupOnboardingOverlay } from "./components/onboarding/StartupOnboardingOverlay";
+import { SettingsDialog } from "./components/settings/SettingsDialog";
+import {
+  subscribeToOpenSettingsDialog,
+  type SettingsSection,
+} from "./lib/settings-dialog-events";
 
 function buildOnboardingSeenKey(userId: string | null): string {
   if (!userId) {
@@ -107,7 +112,9 @@ function AppContent() {
   const [gitReviewIntent, setGitReviewIntent] = useState<"review" | "commit">(
     "review",
   );
-  const [openProviderDialogSignal, setOpenProviderDialogSignal] = useState(0);
+  const [isSettingsDialogOpen, setIsSettingsDialogOpen] = useState(false);
+  const [settingsInitialSection, setSettingsInitialSection] =
+    useState<SettingsSection>("general");
   const [isOnboardingOverlayDelayElapsed, setIsOnboardingOverlayDelayElapsed] =
     useState(false);
   const [hasSeenOnboarding, setHasSeenOnboarding] = useState<boolean>(() => {
@@ -154,6 +161,11 @@ function AppContent() {
     }
   }, [user]);
   const lastSyncedGitHubSessionIdRef = useRef<string | null>(null);
+
+  const openSettingsDialog = useCallback((section: SettingsSection = "general") => {
+    setSettingsInitialSection(section);
+    setIsSettingsDialogOpen(true);
+  }, []);
 
   const activeSession = sessions.find((s) => s.id === activeSessionId) || null;
   const setupSession = useMemo<SetupSessionState | null>(() => {
@@ -540,8 +552,14 @@ function AppContent() {
   };
 
   const handleOpenProviderSetup = () => {
-    setOpenProviderDialogSignal((value) => value + 1);
+    openSettingsDialog("connect");
   };
+
+  useEffect(() => {
+    return subscribeToOpenSettingsDialog((section) => {
+      openSettingsDialog(section);
+    });
+  }, [openSettingsDialog]);
 
   const handleDismissOnboardingOverlay = () => {
     setIsOnboardingOverlayDelayElapsed(false);
@@ -712,6 +730,7 @@ function AppContent() {
             onRenameRepository={renameRepository}
             onClose={handleToggleSidebar}
             onAddRepository={handleOpenRepositoryPicker}
+            onOpenSettings={() => openSettingsDialog("general")}
             width={sidebarWidth}
           />
           <Resizer
@@ -776,7 +795,6 @@ function AppContent() {
                     }
                     isRightSidebarOpen={isRightSidebarOpen}
                     showOnboardingHighlights={showOnboardingOverlay}
-                    openProviderDialogSignal={openProviderDialogSignal}
                     onRepoClick={handleOpenRepositoryPicker}
                     onStart={(config) => {
                       const name =
@@ -818,7 +836,6 @@ function AppContent() {
                     isRightSidebarOpen={isRightSidebarOpen}
                     requiresRepository
                     showOnboardingHighlights={showOnboardingOverlay}
-                    openProviderDialogSignal={openProviderDialogSignal}
                     onRepoClick={handleOpenRepositoryPicker}
                     onStart={() => {
                       handleOpenRepositoryPicker();
@@ -917,6 +934,13 @@ function AppContent() {
               />
             </div>
           ) : null}
+
+          <SettingsDialog
+            isOpen={isSettingsDialogOpen}
+            runId={isAuthenticated ? providerScopeRunId : undefined}
+            initialSection={settingsInitialSection}
+            onClose={() => setIsSettingsDialogOpen(false)}
+          />
         </div>
       </div>
     </div>
