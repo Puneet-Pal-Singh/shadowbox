@@ -522,7 +522,7 @@ describe("Workspace", () => {
       />,
     );
 
-    const lastCall = mockChatInterface.mock.calls.at(-1);
+    const lastCall = mockChatInterface.mock.calls[mockChatInterface.mock.calls.length - 1];
     expect(lastCall).toBeDefined();
     const props = lastCall?.[0] as {
       chatProps: { stop: () => void };
