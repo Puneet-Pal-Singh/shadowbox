@@ -857,6 +857,7 @@ function AppContent() {
                   runId={activeSession?.activeRunId || ""}
                   repository={activeSession?.repository || ""}
                   mode={activeSession?.mode}
+                  isSessionRunning={activeSession?.status === "running"}
                   onModeChange={(mode) =>
                     updateSession(activeSessionId, { mode })
                   }

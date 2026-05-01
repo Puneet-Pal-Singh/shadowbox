@@ -134,6 +134,28 @@ describe("ChatInputBar", () => {
     vi.useRealTimers();
   });
 
+  it("shows a stop action when a selected run can still be cancelled", () => {
+    const onStop = vi.fn();
+    const onSubmit = vi.fn();
+
+    render(
+      <ChatInputBar
+        input=""
+        onChange={vi.fn()}
+        onSubmit={onSubmit}
+        onStop={onStop}
+        canStop
+        isLoading={false}
+        sessionId="session-1"
+      />,
+    );
+
+    fireEvent.click(screen.getByLabelText("Stop generation"));
+
+    expect(onStop).toHaveBeenCalledTimes(1);
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
   describe("idle switch warning", () => {
     it("does not show warning on initial render", () => {
       render(

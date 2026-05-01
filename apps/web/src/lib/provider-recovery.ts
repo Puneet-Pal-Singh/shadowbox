@@ -5,7 +5,7 @@ export interface ProviderRecoveryAdvice {
   recoveryTarget: ProviderRecoveryTarget;
 }
 
-export type ProviderRecoveryTarget = "connect" | "models" | "general";
+export type ProviderRecoveryTarget = "auth" | "connect" | "models" | "general";
 
 export function getProviderRecoveryAdvice(
   rawMessage: string | null | undefined,
@@ -37,11 +37,11 @@ export function getProviderRecoveryAdvice(
   if (containsPersistenceScopeMismatch(message)) {
     return {
       message:
-        "Provider persistence requires an authenticated user/workspace scope.",
-      actionLabel: "Re-authenticate",
+        "Your login session is missing or expired.",
+      actionLabel: "Log in again",
       remediation:
-        "Sign in again, verify workspace access, and avoid private/incognito mode when expecting persistent provider defaults.",
-      recoveryTarget: "general",
+        "Sign in again to refresh your app session. New chats and provider calls cannot run until authentication is restored.",
+      recoveryTarget: "auth",
     };
   }
 
@@ -127,6 +127,7 @@ function containsPlanningError(message: string): boolean {
 function containsPersistenceScopeMismatch(message: string): boolean {
   return (
     message.includes("Unauthorized: missing or invalid authentication") ||
+    message.includes("Your session is missing or expired") ||
     message.includes("Missing required X-Run-Id header") ||
     message.includes("MISSING_RUN_ID") ||
     message.includes("AUTH_FAILED")

@@ -136,10 +136,12 @@ describe("Workspace", () => {
   beforeEach(() => {
     mockChatInterface.mockClear();
     mockRefetchGitStatus.mockClear();
+    mockChatState.stop.mockClear();
     mockBootstrapGitWorkspace.mockReset();
     mockBootstrapGitWorkspace.mockResolvedValue({ status: "ready" });
     mockChatState.isLoading = false;
     mockChatState.runId = "run-123";
+    mockChatState.error = null;
     mockRunSummaryState.summary = null;
     mockGitHubTreeState.repo = null;
     mockGitHubTreeState.branch = "main";
@@ -321,6 +323,46 @@ describe("Workspace", () => {
     });
   });
 
+  it("marks session as error when chat fails before a canonical run starts", async () => {
+    const onSessionStatusChange = vi.fn();
+    const { rerender } = render(
+      <Workspace
+        sessionId="session-123"
+        runId="run-123"
+        repository="career-crew"
+        onSessionStatusChange={onSessionStatusChange}
+      />,
+    );
+
+    mockChatState.isLoading = true;
+    rerender(
+      <Workspace
+        sessionId="session-123"
+        runId="run-123"
+        repository="career-crew"
+        onSessionStatusChange={onSessionStatusChange}
+      />,
+    );
+
+    expect(onSessionStatusChange).toHaveBeenCalledWith("running");
+
+    mockChatState.isLoading = false;
+    mockChatState.error = "Session service is temporarily unavailable.";
+    mockRunSummaryState.summary = null;
+    rerender(
+      <Workspace
+        sessionId="session-123"
+        runId="run-123"
+        repository="career-crew"
+        onSessionStatusChange={onSessionStatusChange}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(onSessionStatusChange).toHaveBeenCalledWith("error");
+    });
+  });
+
   it("forces a fresh git status fetch after workspace bootstrap succeeds", async () => {
     mockGitHubTreeState.repo = {
       owner: { login: "Puneet-Pal-Singh" },
@@ -435,9 +477,60 @@ describe("Workspace", () => {
     expect(mockChatInterface).toHaveBeenCalledWith(
       expect.objectContaining({
         chatProps: expect.objectContaining({
+          canStop: true,
           isLoading: true,
         }),
       }),
     );
+  });
+
+  it("keeps the stop button available when local session state is still running", () => {
+    mockChatState.isLoading = false;
+    mockRunSummaryState.summary = null;
+
+    render(
+      <Workspace
+        sessionId="session-123"
+        runId="run-123"
+        repository="career-crew"
+        isSessionRunning
+      />,
+    );
+
+    expect(mockChatInterface).toHaveBeenCalledWith(
+      expect.objectContaining({
+        chatProps: expect.objectContaining({
+          canStop: true,
+          isLoading: false,
+        }),
+      }),
+    );
+  });
+
+  it("clears local running status when the user stops a stuck session", () => {
+    const onSessionStatusChange = vi.fn();
+    mockChatState.isLoading = false;
+    mockRunSummaryState.summary = null;
+
+    render(
+      <Workspace
+        sessionId="session-123"
+        runId="run-123"
+        repository="career-crew"
+        isSessionRunning
+        onSessionStatusChange={onSessionStatusChange}
+      />,
+    );
+
+    const lastCall = mockChatInterface.mock.calls.at(-1);
+    expect(lastCall).toBeDefined();
+    const props = lastCall?.[0] as {
+      chatProps: { stop: () => void };
+    };
+
+    props.chatProps.stop();
+
+    expect(mockChatState.stop).toHaveBeenCalled();
+    expect(onSessionStatusChange).toHaveBeenCalledWith("completed");
   });
 });

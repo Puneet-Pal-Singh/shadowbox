@@ -41,8 +41,17 @@ describe("provider recovery advice", () => {
     const advice = getProviderRecoveryAdvice(
       "Unauthorized: missing or invalid authentication.",
     );
-    expect(advice.actionLabel).toBe("Re-authenticate");
-    expect(advice.message).toContain("authenticated");
+    expect(advice.actionLabel).toBe("Log in again");
+    expect(advice.message).toContain("login session");
+    expect(advice.recoveryTarget).toBe("auth");
+  });
+
+  it("maps normalized expired app-session messages to login recovery", () => {
+    const advice = getProviderRecoveryAdvice(
+      "Your session is missing or expired. Log in again and retry.",
+    );
+    expect(advice.actionLabel).toBe("Log in again");
+    expect(advice.recoveryTarget).toBe("auth");
   });
 
   it("returns default advice for unknown errors", () => {

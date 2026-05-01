@@ -21,6 +21,7 @@ import { useRunSummary } from "../../hooks/useRunSummary.js";
 import { useRunEvents } from "../../hooks/useRunEvents.js";
 import { useRunActivityFeed } from "../../hooks/useRunActivityFeed.js";
 import { getProviderRecoveryAdvice } from "../../lib/provider-recovery";
+import { useAuth } from "../../contexts/AuthContext";
 import { useProviderStore } from "../../hooks/useProviderStore.js";
 import { dispatchOpenSettingsDialog } from "../../lib/settings-dialog-events.js";
 import {
@@ -49,6 +50,7 @@ const PLAN_MODE_RECOVERY_SENTINELS = [
 const RunSummaryPendingApprovalSchema = z.object({
   pendingApproval: ApprovalRequestSchema.nullish(),
 });
+type ComposerLayout = "docked" | "hero";
 
 function ChatErrorNotice({
   message,
@@ -76,6 +78,99 @@ function ChatErrorNotice({
   );
 }
 
+function ApprovalPanel({
+  pendingApproval,
+  displayedApprovalDecisions,
+  approvalBusyDecision,
+  approvalError,
+  resolveApprovalDecision,
+  approvalDecisionButtonClassName,
+  formatApprovalDecisionLabel,
+  buildApprovalPromptTitle,
+}: {
+  pendingApproval: ApprovalRequest;
+  displayedApprovalDecisions: ApprovalDecisionKind[];
+  approvalBusyDecision: ApprovalDecisionKind | null;
+  approvalError: string | null;
+  resolveApprovalDecision: (decision: ApprovalDecisionKind) => Promise<void>;
+  approvalDecisionButtonClassName: (decision: ApprovalDecisionKind) => string;
+  formatApprovalDecisionLabel: (decision: ApprovalDecisionKind) => string;
+  buildApprovalPromptTitle: (pendingApproval: ApprovalRequest) => string;
+}) {
+  return (
+    <div className="mb-2 overflow-hidden rounded-2xl border border-zinc-700/80 bg-[linear-gradient(180deg,#18181b_0%,#151518_55%,#141418_100%)] text-zinc-100 shadow-[0_8px_26px_rgba(0,0,0,0.34)]">
+      <div className="border-b border-zinc-800/90 px-4 py-2">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-300">
+          Pending approval
+          <span className="ml-2 text-[12px] font-medium normal-case tracking-normal text-zinc-400">
+            Command approval requested
+          </span>
+        </p>
+      </div>
+      <div className="p-4">
+        <p className="text-[clamp(1.1rem,1.35vw,1.45rem)] font-semibold leading-tight text-zinc-100">
+          {buildApprovalPromptTitle(pendingApproval)}
+        </p>
+        {pendingApproval.command ? (
+          <p className="mt-3 rounded-lg border border-zinc-700 bg-black/35 px-3 py-2 font-mono text-[13px] text-zinc-100">
+            {pendingApproval.command}
+          </p>
+        ) : (
+          <p className="mt-2 text-sm text-zinc-300">{pendingApproval.reason}</p>
+        )}
+      </div>
+      <div className="border-t border-zinc-800/90 px-4 pb-4 pt-3">
+        <div className="flex flex-wrap gap-2">
+          {displayedApprovalDecisions.map((decision) => (
+            <button
+              key={decision}
+              type="button"
+              disabled={approvalBusyDecision !== null}
+              onClick={() => void resolveApprovalDecision(decision)}
+              className={approvalDecisionButtonClassName(decision)}
+            >
+              {formatApprovalDecisionLabel(decision)}
+            </button>
+          ))}
+        </div>
+        {approvalError ? (
+          <p className="mt-3 text-xs text-red-300">{approvalError}</p>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function ComposerSecondaryControls({
+  layout,
+  permissionMode,
+  onPermissionModeChange,
+  isLoading,
+}: {
+  layout: ComposerLayout;
+  permissionMode?: ProductMode;
+  onPermissionModeChange?: (mode: ProductMode) => void;
+  isLoading: boolean;
+}) {
+  return (
+    <div
+      className={
+        layout === "hero"
+          ? "mt-2 flex items-center gap-2 pl-2"
+          : "mt-1 flex items-center gap-2 pl-6"
+      }
+    >
+      <ChatBranchSelector />
+      <PermissionModeControl
+        value={permissionMode ?? PRODUCT_MODES.AUTO_FOR_SAFE}
+        onChange={(nextMode) => onPermissionModeChange?.(nextMode)}
+        disabled={isLoading || !onPermissionModeChange}
+        appearance="ghost"
+      />
+    </div>
+  );
+}
+
 interface ChatInterfaceProps {
   chatProps: {
     messages: Message[];
@@ -85,6 +180,7 @@ interface ChatInterfaceProps {
     handleSubmit: () => void;
     append: (message: { role: "user"; content: string }) => Promise<void>;
     stop: () => void;
+    canStop?: boolean;
     isLoading: boolean;
     error?: string | null;
     debugEvents?: ChatDebugEvent[];
@@ -122,6 +218,7 @@ export function ChatInterface({
     handleSubmit,
     append,
     stop,
+    canStop,
     isLoading,
     error,
     debugEvents = [],
@@ -151,6 +248,7 @@ export function ChatInterface({
   const [activityNowMs, setActivityNowMs] = useState(() => Date.now());
   const lastAutoSwitchedPlanFailureKeyRef = useRef<string | null>(null);
   const { providerModels } = useProviderStore(runId);
+  const { login, refreshSession } = useAuth();
 
   const messageMetadataById = useMemo(() => {
     return buildChatMessageMetadata(
@@ -350,8 +448,19 @@ export function ChatInterface({
 
   const recoveryAdvice = getProviderRecoveryAdvice(error);
   const openProviderRecoverySurface = useCallback(() => {
+    if (recoveryAdvice.recoveryTarget === "auth") {
+      login();
+      return;
+    }
     dispatchOpenSettingsDialog(recoveryAdvice.recoveryTarget);
-  }, [recoveryAdvice.recoveryTarget]);
+  }, [login, recoveryAdvice.recoveryTarget]);
+
+  useEffect(() => {
+    if (recoveryAdvice.recoveryTarget !== "auth") {
+      return;
+    }
+    void refreshSession();
+  }, [recoveryAdvice.recoveryTarget, refreshSession]);
   const activeInlineTurn = activityViewModel.turns.find(
     (turn) => turn.hasVisibleRows && !turn.defaultCollapsed,
   );
@@ -464,7 +573,7 @@ export function ChatInterface({
       onUsePlanInBuild={planHandoffAction}
     />
   );
-  const renderComposerControls = (layout: "docked" | "hero") => (
+  const renderComposerControls = (layout: ComposerLayout) => (
     <>
       {error && (
         <div className={layout === "hero" ? "mb-4" : "mb-4"}>
@@ -477,46 +586,16 @@ export function ChatInterface({
         </div>
       )}
       {pendingApproval ? (
-        <div className="mb-2 overflow-hidden rounded-2xl border border-zinc-700/80 bg-[linear-gradient(180deg,#18181b_0%,#151518_55%,#141418_100%)] text-zinc-100 shadow-[0_8px_26px_rgba(0,0,0,0.34)]">
-          <div className="border-b border-zinc-800/90 px-4 py-2">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-300">
-              Pending approval
-              <span className="ml-2 text-[12px] font-medium normal-case tracking-normal text-zinc-400">
-                Command approval requested
-              </span>
-            </p>
-          </div>
-          <div className="p-4">
-            <p className="text-[clamp(1.1rem,1.35vw,1.45rem)] font-semibold leading-tight text-zinc-100">
-              {buildApprovalPromptTitle(pendingApproval)}
-            </p>
-            {pendingApproval.command ? (
-              <p className="mt-3 rounded-lg border border-zinc-700 bg-black/35 px-3 py-2 font-mono text-[13px] text-zinc-100">
-                {pendingApproval.command}
-              </p>
-            ) : (
-              <p className="mt-2 text-sm text-zinc-300">{pendingApproval.reason}</p>
-            )}
-          </div>
-          <div className="border-t border-zinc-800/90 px-4 pb-4 pt-3">
-            <div className="flex flex-wrap gap-2">
-              {displayedApprovalDecisions.map((decision) => (
-                <button
-                  key={decision}
-                  type="button"
-                  disabled={approvalBusyDecision !== null}
-                  onClick={() => void resolveApprovalDecision(decision)}
-                  className={approvalDecisionButtonClassName(decision)}
-                >
-                  {formatApprovalDecisionLabel(decision)}
-                </button>
-              ))}
-            </div>
-            {approvalError ? (
-              <p className="mt-3 text-xs text-red-300">{approvalError}</p>
-            ) : null}
-          </div>
-        </div>
+        <ApprovalPanel
+          pendingApproval={pendingApproval}
+          displayedApprovalDecisions={displayedApprovalDecisions}
+          approvalBusyDecision={approvalBusyDecision}
+          approvalError={approvalError}
+          resolveApprovalDecision={resolveApprovalDecision}
+          approvalDecisionButtonClassName={approvalDecisionButtonClassName}
+          formatApprovalDecisionLabel={formatApprovalDecisionLabel}
+          buildApprovalPromptTitle={buildApprovalPromptTitle}
+        />
       ) : null}
       {pendingApproval ? null : (
         <ChatInputBar
@@ -524,6 +603,7 @@ export function ChatInterface({
           onChange={handleInputChangeWrapper}
           onSubmit={handleSubmit}
           onStop={stop}
+          canStop={canStop ?? isLoading}
           isLoading={isLoading}
           sessionId={sessionId}
           mode={mode}
@@ -535,21 +615,12 @@ export function ChatInterface({
           layout={layout}
         />
       )}
-      <div
-        className={
-          layout === "hero"
-            ? "mt-2 flex items-center gap-2 pl-2"
-            : "mt-1 flex items-center gap-2 pl-6"
-        }
-      >
-        <ChatBranchSelector />
-        <PermissionModeControl
-          value={permissionMode ?? PRODUCT_MODES.AUTO_FOR_SAFE}
-          onChange={(nextMode) => onPermissionModeChange?.(nextMode)}
-          disabled={isLoading || !onPermissionModeChange}
-          appearance="ghost"
-        />
-      </div>
+      <ComposerSecondaryControls
+        layout={layout}
+        permissionMode={permissionMode}
+        onPermissionModeChange={onPermissionModeChange}
+        isLoading={isLoading}
+      />
     </>
   );
 

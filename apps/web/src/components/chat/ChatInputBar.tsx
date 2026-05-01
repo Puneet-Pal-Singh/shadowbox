@@ -47,6 +47,7 @@ interface ChatInputBarProps {
   onChange: (value: string) => void;
   onSubmit: () => void;
   onStop?: () => void;
+  canStop?: boolean;
   isLoading?: boolean;
   placeholder?: string;
   sessionId: string;
@@ -64,6 +65,7 @@ export function ChatInputBar({
   onChange,
   onSubmit,
   onStop,
+  canStop = false,
   isLoading = false,
   placeholder,
   sessionId,
@@ -122,6 +124,7 @@ export function ChatInputBar({
     applySessionSelection,
   } = useProviderStore();
   const hasInput = input.trim().length > 0;
+  const shouldShowStop = canStop && onStop !== undefined;
   const effectivePlaceholder =
     placeholder ?? (mode === "plan" ? PLAN_PLACEHOLDER : BUILD_PLACEHOLDER);
   const suggestionEntries = useMemo(
@@ -261,7 +264,7 @@ export function ChatInputBar({
 
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      if (isLoading) {
+      if (isLoading || shouldShowStop) {
         return;
       }
       onSubmit();
@@ -572,7 +575,7 @@ export function ChatInputBar({
             <div className="flex items-center gap-1.5">
               <ChatComposerPlusMenu
                 mode={mode}
-                disabled={isLoading}
+                disabled={isLoading || shouldShowStop}
                 onModeChange={onModeChange}
                 onAddFiles={insertMentionTrigger}
               />
@@ -662,14 +665,15 @@ export function ChatInputBar({
             <div className="flex items-center gap-1.5">
               <motion.button
                 type="button"
-                onClick={isLoading ? onStop : onSubmit}
-                disabled={isLoading ? !onStop : !input.trim()}
+                onClick={shouldShowStop ? onStop : onSubmit}
+                disabled={shouldShowStop ? false : !input.trim()}
+                aria-label={shouldShowStop ? "Stop generation" : "Send message"}
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
                 className={`
                   p-1.5 rounded-full transition-all
                   ${
-                    isLoading
+                    shouldShowStop
                       ? "bg-white text-black hover:bg-zinc-200"
                       : input.trim()
                         ? "bg-white text-black hover:bg-zinc-200"
@@ -677,7 +681,7 @@ export function ChatInputBar({
                   }
                 `}
               >
-                {isLoading ? <Square size={14} /> : <ArrowUp size={16} />}
+                {shouldShowStop ? <Square size={14} /> : <ArrowUp size={16} />}
               </motion.button>
             </div>
           </div>
