@@ -35,6 +35,8 @@ import {
 
 const IDLE_SWITCH_WARNING =
   "Changing models mid-conversation will degrade performance.";
+const ACTIVE_RUN_SWITCH_WARNING =
+  "Stop the current run before changing mode or model.";
 const WARNING_AUTO_DISMISS_MS = 4000;
 const BUILD_PLACEHOLDER =
   "Ask LegionCode anything, @ to add files, / for commands";
@@ -81,8 +83,10 @@ export function ChatInputBar({
   const [isFocused, setIsFocused] = useState(false);
   const [cursorPosition, setCursorPosition] = useState(0);
   const [highlightedFileIndex, setHighlightedFileIndex] = useState(0);
-  const [idleSwitchWarning, setIdleSwitchWarning] = useState(false);
-  const [idleSwitchWarningTick, setIdleSwitchWarningTick] = useState(0);
+  const [switchWarningMessage, setSwitchWarningMessage] = useState<string | null>(
+    null,
+  );
+  const [switchWarningTick, setSwitchWarningTick] = useState(0);
   const [dismissedMentionKey, setDismissedMentionKey] = useState<string | null>(
     null,
   );
@@ -125,6 +129,7 @@ export function ChatInputBar({
   } = useProviderStore();
   const hasInput = input.trim().length > 0;
   const shouldShowStop = canStop && onStop !== undefined;
+  const isComposerActiveRun = isLoading || canStop || shouldShowStop;
   const effectivePlaceholder =
     placeholder ?? (mode === "plan" ? PLAN_PLACEHOLDER : BUILD_PLACEHOLDER);
   const suggestionEntries = useMemo(
@@ -264,7 +269,7 @@ export function ChatInputBar({
 
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      if (isLoading || shouldShowStop) {
+      if (isComposerActiveRun) {
         return;
       }
       onSubmit();
@@ -318,18 +323,38 @@ export function ChatInputBar({
   ]);
 
   useEffect(() => {
-    if (!idleSwitchWarning) {
+    if (!switchWarningMessage) {
       return;
     }
 
     const timeoutId = window.setTimeout(() => {
-      setIdleSwitchWarning(false);
+      setSwitchWarningMessage(null);
     }, WARNING_AUTO_DISMISS_MS);
 
     return () => {
       window.clearTimeout(timeoutId);
     };
-  }, [idleSwitchWarning, idleSwitchWarningTick]);
+  }, [switchWarningMessage, switchWarningTick]);
+
+  const showSwitchWarning = (message: string) => {
+    setSwitchWarningMessage(message);
+    setSwitchWarningTick((value) => value + 1);
+  };
+
+  const guardActiveRunSwitch = () => {
+    if (!isComposerActiveRun) {
+      return false;
+    }
+    showSwitchWarning(ACTIVE_RUN_SWITCH_WARNING);
+    return true;
+  };
+
+  const handleModeChange = (nextMode: RunMode) => {
+    if (guardActiveRunSwitch()) {
+      return;
+    }
+    onModeChange?.(nextMode);
+  };
 
   const selectSuggestedFile = (filePath: string) => {
     if (!activeMention) {
@@ -393,7 +418,7 @@ export function ChatInputBar({
 
   return (
     <>
-      {idleSwitchWarning ? (
+      {switchWarningMessage ? (
         <motion.div
           initial={{ opacity: 0, y: -12, scale: 0.98 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -406,10 +431,10 @@ export function ChatInputBar({
             role="status"
             className="ui-surface-popover flex items-center gap-3 px-4 py-2 text-sm text-zinc-100"
           >
-            <span>{IDLE_SWITCH_WARNING}</span>
+            <span>{switchWarningMessage}</span>
             <button
               type="button"
-              onClick={() => setIdleSwitchWarning(false)}
+              onClick={() => setSwitchWarningMessage(null)}
               className="rounded p-0.5 text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
               aria-label="Dismiss model switch warning"
             >
@@ -539,7 +564,7 @@ export function ChatInputBar({
                 {onModeChange ? (
                   <button
                     type="button"
-                    onClick={() => onModeChange("build")}
+                    onClick={() => handleModeChange("build")}
                     className="rounded-full border border-cyan-700/70 px-2.5 py-1 font-medium text-cyan-100 transition hover:border-cyan-500 hover:bg-cyan-900/40"
                   >
                     Switch to Build
@@ -575,8 +600,8 @@ export function ChatInputBar({
             <div className="flex items-center gap-1.5">
               <ChatComposerPlusMenu
                 mode={mode}
-                disabled={isLoading || shouldShowStop}
-                onModeChange={onModeChange}
+                disabled={isComposerActiveRun}
+                onModeChange={handleModeChange}
                 onAddFiles={insertMentionTrigger}
               />
 
@@ -609,6 +634,9 @@ export function ChatInputBar({
                   refreshingModelsForProviderId === selectedProviderId
                 }
                 onSelectModel={async (providerId, modelId) => {
+                  if (guardActiveRunSwitch()) {
+                    return;
+                  }
                   const credential = findCredentialByProviderId(
                     credentials,
                     providerId,
@@ -625,9 +653,8 @@ export function ChatInputBar({
                     credentialId: credential.credentialId,
                     modelId,
                   });
-                  if (hasMessages && !isLoading) {
-                    setIdleSwitchWarning(true);
-                    setIdleSwitchWarningTick((value) => value + 1);
+                  if (hasMessages && !isComposerActiveRun) {
+                    showSwitchWarning(IDLE_SWITCH_WARNING);
                   }
                 }}
                 onSelectModelView={setModelView}
