@@ -341,9 +341,9 @@ export function Workspace({
         isReviewOpen={isGitReviewOpen}
         onReviewOpenChange={(open) => onGitReviewOpenChange?.(open)}
       >
-        <div className="flex-1 flex bg-black overflow-hidden relative">
+        <div className="ui-center-surface flex-1 flex overflow-hidden relative">
         {/* Chat Area */}
-        <main className="flex-1 flex flex-col min-w-0 bg-black relative">
+        <main className="ui-center-surface flex-1 flex flex-col min-w-0 relative">
           {isHydrating ? (
             <div className="flex-1 flex items-center justify-center bg-background">
               <div className="flex flex-col items-center gap-4">
