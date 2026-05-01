@@ -92,7 +92,7 @@ export function GitReviewDialog({
   const stagedCount = stagedFiles.size;
 
   return (
-    <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/80 px-6 py-8 backdrop-blur-sm">
+    <div className="ui-overlay fixed inset-0 z-[120] flex items-center justify-center px-6 py-8">
       <button
         type="button"
         className="absolute inset-0 cursor-default"
@@ -105,9 +105,9 @@ export function GitReviewDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby={dialogTitleId}
-        className="relative flex h-full max-h-[88vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-zinc-800 bg-[#09090b] shadow-2xl shadow-black/50"
+        className="ui-surface-modal relative flex h-full max-h-[88vh] w-full max-w-6xl flex-col overflow-hidden"
       >
-        <div className="flex items-center justify-between border-b border-zinc-800 bg-zinc-950/80 px-5 py-4">
+        <div className="flex items-center justify-between border-b ui-muted-divider bg-zinc-950/70 px-5 py-4">
           <div className="min-w-0">
             <div
               id={dialogTitleId}
