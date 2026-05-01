@@ -648,14 +648,14 @@ export function ChatInputBar({
                     setShowProviderDialog(true);
                     return;
                   }
+                  if (hasMessages && !isComposerActiveRun) {
+                    showSwitchWarning(IDLE_SWITCH_WARNING);
+                  }
                   await applySessionSelection({
                     providerId,
                     credentialId: credential.credentialId,
                     modelId,
                   });
-                  if (hasMessages && !isComposerActiveRun) {
-                    showSwitchWarning(IDLE_SWITCH_WARNING);
-                  }
                 }}
                 onSelectModelView={setModelView}
                 onLoadMoreSelectedProviderModels={loadMoreProviderModels}

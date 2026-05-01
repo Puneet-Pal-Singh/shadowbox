@@ -7,6 +7,8 @@ import * as providerHelpersModule from "../../lib/provider-helpers.js";
 
 const IDLE_SWITCH_WARNING =
   "Changing models mid-conversation will degrade performance.";
+const ACTIVE_RUN_SWITCH_WARNING =
+  "Stop the current run before changing mode or model.";
 
 describe("ChatInputBar", () => {
   type UseProviderStoreResult = ReturnType<
@@ -259,6 +261,28 @@ describe("ChatInputBar", () => {
       );
 
       expect(screen.queryByText(IDLE_SWITCH_WARNING)).toBeNull();
+    });
+
+    it("blocks model selection when an open picker becomes stoppable", async () => {
+      const baseProps = {
+        input: "",
+        onChange: vi.fn(),
+        onSubmit: vi.fn(),
+        sessionId: "session-1",
+        hasMessages: true,
+      };
+      const { rerender } = render(<ChatInputBar {...baseProps} />);
+
+      fireEvent.click(screen.getByLabelText("Open model picker"));
+      const modelOption = await screen.findByText("GPT-4o");
+
+      rerender(<ChatInputBar {...baseProps} onStop={vi.fn()} canStop />);
+      fireEvent.click(modelOption);
+
+      await waitFor(() => {
+        expect(screen.getByText(ACTIVE_RUN_SWITCH_WARNING)).toBeTruthy();
+      });
+      expect(mockStore.applySessionSelection).not.toHaveBeenCalled();
     });
   });
 
