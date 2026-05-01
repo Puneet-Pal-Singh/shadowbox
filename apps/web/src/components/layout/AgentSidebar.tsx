@@ -198,7 +198,7 @@ export function AgentSidebar({
           value={searchQuery}
           onChange={(event) => setSearchQuery(event.target.value)}
           placeholder="Search tasks and workspaces"
-          className="h-8 w-full rounded-lg border border-zinc-700/40 bg-zinc-900/30 pl-7 pr-2 text-xs text-zinc-300 outline-none transition-colors placeholder:text-zinc-600 focus:border-zinc-600/60"
+          className="ui-input h-8 w-full pl-7 pr-2 text-xs text-zinc-300"
           aria-label="Search tasks"
         />
       </div>
@@ -237,7 +237,7 @@ export function AgentSidebar({
             {isFilterMenuOpen ? (
               <div
                 role="menu"
-                className="absolute right-0 top-8 z-30 w-48 rounded-xl border border-zinc-700 bg-zinc-900/95 p-2 shadow-2xl"
+                className="ui-surface-popover absolute right-0 top-8 z-30 w-48 p-2"
               >
                 <div className="px-1 pb-1 text-xs font-medium text-zinc-400">
                   Show
