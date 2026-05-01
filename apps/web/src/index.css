@@ -139,6 +139,42 @@
     @apply hover:bg-surface/50 hover:border-border/50;
   }
 
+  .ui-overlay {
+    @apply bg-black/78 backdrop-blur-sm;
+  }
+
+  .ui-center-surface {
+    @apply bg-black text-zinc-100;
+  }
+
+  .ui-sidebar-surface {
+    @apply border-[#1a1a1a] bg-[#0c0c0e] text-zinc-100;
+  }
+
+  .ui-surface-modal {
+    @apply rounded-2xl border border-zinc-800 bg-[#0f1013]/95 text-zinc-100 shadow-[0_28px_90px_rgba(0,0,0,0.62)];
+  }
+
+  .ui-surface-popover {
+    @apply rounded-xl border border-zinc-800 bg-[#171717]/95 text-zinc-100 shadow-[0_12px_30px_rgba(0,0,0,0.38)] backdrop-blur-md;
+  }
+
+  .ui-surface-section {
+    @apply rounded-xl border border-zinc-800 bg-zinc-900/35;
+  }
+
+  .ui-control-surface {
+    @apply rounded-xl border border-zinc-800 bg-[#171717];
+  }
+
+  .ui-input {
+    @apply rounded-lg border border-zinc-700 bg-zinc-900/80 text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-zinc-600 focus:ring-1 focus:ring-blue-500;
+  }
+
+  .ui-muted-divider {
+    @apply border-zinc-800/80;
+  }
+
   /* Animation utilities */
   .animate-pulse-slow {
     animation: pulse-slow 3s ease-in-out infinite;
