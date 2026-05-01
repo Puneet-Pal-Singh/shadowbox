@@ -94,11 +94,12 @@
   },
 
   // 4. KV Namespace for Session Storage
+  // Keep local dev on Miniflare KV. Remote KV makes localhost auth depend on
+  // Cloudflare API reads and can intermittently fail concurrent chat requests.
   "kv_namespaces": [
     {
       "binding": "SESSIONS",
       "id": "ca477f3e873a47a7bbfd58734cc460c2",
-      "remote": true,
     },
   ],
 
