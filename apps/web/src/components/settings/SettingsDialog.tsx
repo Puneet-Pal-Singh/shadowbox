@@ -74,7 +74,10 @@ export function SettingsDialog({
       return;
     }
     setActiveSection(initialSection);
-    setConnectView("overview");
+    if (initialSection === "connect") {
+      setConnectView("overview");
+      setSelectedProviderIdForConnect(null);
+    }
     setConnectError(null);
     setConnectSuccess(null);
   }, [initialSection, isOpen]);
@@ -180,8 +183,14 @@ export function SettingsDialog({
   const handleSectionSelect = useCallback((section: SettingsSection): void => {
     setActiveSection(section);
     setConnectView("overview");
+    setSelectedProviderIdForConnect(null);
     setConnectError(null);
     setConnectSuccess(null);
+  }, []);
+
+  const handleBackToConnectOverview = useCallback((): void => {
+    setConnectView("overview");
+    setSelectedProviderIdForConnect(null);
   }, []);
 
   const showDisconnectToast = useCallback((providerName: string): void => {
@@ -246,7 +255,7 @@ export function SettingsDialog({
   return (
     <>
       <div
-        className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-3 backdrop-blur-[1px]"
+        className="ui-overlay fixed inset-0 z-50 flex items-center justify-center p-3"
         role="presentation"
         onClick={(event) => {
           if (event.target === event.currentTarget) {
@@ -259,12 +268,10 @@ export function SettingsDialog({
           role="dialog"
           aria-modal="true"
           aria-labelledby="settings-dialog-title"
-          className="relative flex h-[82vh] w-full max-w-6xl overflow-hidden rounded-2xl border border-zinc-800 bg-[#0f1013] font-sans text-zinc-100 shadow-[0_25px_80px_rgba(0,0,0,0.65)]"
+          className="ui-surface-modal relative flex h-[82vh] w-full max-w-6xl overflow-hidden font-sans"
           onClick={(event) => event.stopPropagation()}
         >
-          <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(circle_at_top,_rgba(59,130,246,0.08),_transparent_45%),linear-gradient(120deg,_rgba(255,255,255,0.02),_transparent_55%)]" />
-
-          <aside className="relative z-10 flex w-72 shrink-0 flex-col border-r border-zinc-800/80 bg-black/25 px-5 py-5">
+          <aside className="ui-sidebar-surface relative z-10 flex w-72 shrink-0 flex-col border-r px-5 py-5">
             <div className="mb-4 text-sm font-semibold text-zinc-200">Settings</div>
             <nav className="space-y-5">
               <SettingsNavSection
@@ -288,7 +295,7 @@ export function SettingsDialog({
           </aside>
 
           <section className="relative z-10 flex min-w-0 flex-1 flex-col">
-            <header className="flex items-center justify-between border-b border-zinc-800/80 px-6 py-4">
+            <header className="flex items-center justify-between border-b ui-muted-divider px-6 py-4">
               <h2 id="settings-dialog-title" className="text-xl font-semibold tracking-tight text-zinc-100">
                 {activeSection === "general"
                   ? "General"
@@ -329,7 +336,7 @@ export function SettingsDialog({
                   isConnecting={isConnecting}
                   selectedProviderIdForConnect={selectedProviderIdForConnect}
                   onOpenConnectView={openConnectView}
-                  onBackToOverview={() => setConnectView("overview")}
+                  onBackToOverview={handleBackToConnectOverview}
                   onConnect={handleConnect}
                   onDisconnect={handleDisconnect}
                   onClearConnectError={() => setConnectError(null)}
@@ -454,7 +461,7 @@ function SettingCard({
   right: string;
 }): React.ReactElement {
   return (
-    <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/40 px-5 py-4">
+    <div className="ui-surface-section px-5 py-4">
       <div className="flex items-center justify-between gap-3">
         <div>
           <p className="text-base font-medium text-zinc-100">{title}</p>
@@ -501,7 +508,7 @@ function SettingsConnectPanel({
 }): React.ReactElement {
   if (connectView === "connect") {
     return (
-      <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/35 p-4">
+      <div className="ui-surface-section p-4">
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-base font-semibold text-zinc-100">Connect Provider</h3>
           <button
@@ -513,6 +520,7 @@ function SettingsConnectPanel({
           </button>
         </div>
         <ConnectProviderChooser
+          key={selectedProviderIdForConnect ?? "provider-list"}
           catalog={catalog}
           error={connectError}
           success={connectSuccess}
@@ -531,7 +539,7 @@ function SettingsConnectPanel({
     <div className="space-y-6">
       <section>
         <h3 className="mb-3 text-lg font-medium text-zinc-100">Connected providers</h3>
-        <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/35">
+        <div className="ui-surface-section">
           {connectedProviders.length === 0 ? (
             <div className="px-4 py-6 text-sm text-zinc-400">No provider keys connected yet.</div>
           ) : (
@@ -566,7 +574,7 @@ function SettingsConnectPanel({
 
       <section>
         <h3 className="mb-3 text-lg font-medium text-zinc-100">Popular providers</h3>
-        <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/35">
+        <div className="ui-surface-section">
           {availableProviders.length === 0 ? (
             <div className="px-4 py-6 text-sm text-zinc-400">All available providers are already connected.</div>
           ) : (
@@ -657,12 +665,12 @@ function SettingsModelsPanel({
           placeholder="Search models"
           value={searchQuery}
           onChange={(event) => setSearchQuery(event.target.value)}
-          className="h-10 w-full rounded-lg border border-zinc-700 bg-zinc-900/80 px-3 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="ui-input h-10 w-full px-3 text-sm"
         />
       </div>
 
       {filteredGroups.length === 0 ? (
-        <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/35 px-4 py-8 text-center text-sm text-zinc-400">
+        <div className="ui-surface-section px-4 py-8 text-center text-sm text-zinc-400">
           {searchQuery ? "No models match your search" : "No providers connected"}
         </div>
       ) : (
@@ -678,7 +686,7 @@ function SettingsModelsPanel({
             return (
               <section
                 key={group.providerId}
-                className="rounded-xl border border-zinc-800/80 bg-zinc-900/35"
+                className="ui-surface-section"
               >
                 <div className="flex items-center justify-between px-4 py-3">
                   <div>
