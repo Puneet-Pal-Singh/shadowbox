@@ -2,7 +2,10 @@ export interface ProviderRecoveryAdvice {
   message: string;
   actionLabel: string;
   remediation: string;
+  recoveryTarget: ProviderRecoveryTarget;
 }
+
+export type ProviderRecoveryTarget = "connect" | "models" | "general";
 
 export function getProviderRecoveryAdvice(
   rawMessage: string | null | undefined,
@@ -16,6 +19,7 @@ export function getProviderRecoveryAdvice(
       actionLabel: "Wait or Stop Current Run",
       remediation:
         "Wait for the current run to finish (or stop it), then retry with your new model selection.",
+      recoveryTarget: "models",
     };
   }
 
@@ -26,6 +30,7 @@ export function getProviderRecoveryAdvice(
       actionLabel: "Open Provider Setup",
       remediation:
         "Connect or validate a provider key, then retry your chat request. In private/incognito mode, cookies and storage can reset provider persistence.",
+      recoveryTarget: "connect",
     };
   }
 
@@ -36,6 +41,7 @@ export function getProviderRecoveryAdvice(
       actionLabel: "Re-authenticate",
       remediation:
         "Sign in again, verify workspace access, and avoid private/incognito mode when expecting persistent provider defaults.",
+      recoveryTarget: "general",
     };
   }
 
@@ -46,6 +52,7 @@ export function getProviderRecoveryAdvice(
       actionLabel: "Review Session Selection",
       remediation:
         "Choose a connected provider + credential in Provider Settings and retry.",
+      recoveryTarget: "models",
     };
   }
 
@@ -55,6 +62,7 @@ export function getProviderRecoveryAdvice(
       actionLabel: "Switch Provider",
       remediation:
         "Switch to another connected provider or retry after rate limits reset.",
+      recoveryTarget: "models",
     };
   }
 
@@ -65,6 +73,7 @@ export function getProviderRecoveryAdvice(
       actionLabel: "Retry with Specific Task",
       remediation:
         "Use a concrete file path or command (for example `read README.md` or `run pnpm test`). If this repeats, switch to a model with stronger structured-output support.",
+      recoveryTarget: "models",
     };
   }
 
@@ -73,6 +82,7 @@ export function getProviderRecoveryAdvice(
     actionLabel: "Open Provider Setup",
     remediation:
       "Review provider status, reconnect credentials if needed, and retry.",
+    recoveryTarget: "connect",
   };
 }
 

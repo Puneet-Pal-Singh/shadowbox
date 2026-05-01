@@ -149,7 +149,7 @@ export function ChatInterface({
     string | null
   >(null);
   const [activityNowMs, setActivityNowMs] = useState(() => Date.now());
-  const lastAutoSwitchedPlanFailureMessageIdRef = useRef<string | null>(null);
+  const lastAutoSwitchedPlanFailureKeyRef = useRef<string | null>(null);
   const { providerModels } = useProviderStore(runId);
 
   const messageMetadataById = useMemo(() => {
@@ -236,10 +236,8 @@ export function ChatInterface({
     if (!latestAssistantMessage || !latestAssistantMessage.content) {
       return;
     }
-    if (
-      lastAutoSwitchedPlanFailureMessageIdRef.current ===
-      latestAssistantMessage.id
-    ) {
+    const latestAssistantMessageKey = `${runId}:${latestAssistantMessage.id}`;
+    if (lastAutoSwitchedPlanFailureKeyRef.current === latestAssistantMessageKey) {
       return;
     }
 
@@ -250,7 +248,7 @@ export function ChatInterface({
       return;
     }
 
-    lastAutoSwitchedPlanFailureMessageIdRef.current = latestAssistantMessage.id;
+    lastAutoSwitchedPlanFailureKeyRef.current = latestAssistantMessageKey;
     console.warn(
       `[chat/interface] Auto-switching runId=${runId} from plan to build after planner recovery output.`,
     );
@@ -352,8 +350,8 @@ export function ChatInterface({
 
   const recoveryAdvice = getProviderRecoveryAdvice(error);
   const openProviderRecoverySurface = useCallback(() => {
-    dispatchOpenSettingsDialog("connect");
-  }, []);
+    dispatchOpenSettingsDialog(recoveryAdvice.recoveryTarget);
+  }, [recoveryAdvice.recoveryTarget]);
   const activeInlineTurn = activityViewModel.turns.find(
     (turn) => turn.hasVisibleRows && !turn.defaultCollapsed,
   );
@@ -423,6 +421,18 @@ export function ChatInterface({
     () => buildChatEntries(conversationTurns, activityViewModel.turns),
     [activityViewModel.turns, conversationTurns],
   );
+  const hasUserMessage = useMemo(
+    () =>
+      messages.some(
+        (message) =>
+          message.role === "user" &&
+          typeof message.content === "string" &&
+          message.content.trim().length > 0,
+      ),
+    [messages],
+  );
+  const showHeroComposer =
+    !hasUserMessage && !isLoading && !pendingApproval;
   const activityScrollSignal = useMemo(
     () =>
       activityViewModel.turns
@@ -454,6 +464,94 @@ export function ChatInterface({
       onUsePlanInBuild={planHandoffAction}
     />
   );
+  const renderComposerControls = (layout: "docked" | "hero") => (
+    <>
+      {error && (
+        <div className={layout === "hero" ? "mb-4" : "mb-4"}>
+          <ChatErrorNotice
+            message={recoveryAdvice.message}
+            remediation={recoveryAdvice.remediation}
+            actionLabel={recoveryAdvice.actionLabel}
+            onOpenProviders={openProviderRecoverySurface}
+          />
+        </div>
+      )}
+      {pendingApproval ? (
+        <div className="mb-2 overflow-hidden rounded-2xl border border-zinc-700/80 bg-[linear-gradient(180deg,#18181b_0%,#151518_55%,#141418_100%)] text-zinc-100 shadow-[0_8px_26px_rgba(0,0,0,0.34)]">
+          <div className="border-b border-zinc-800/90 px-4 py-2">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-300">
+              Pending approval
+              <span className="ml-2 text-[12px] font-medium normal-case tracking-normal text-zinc-400">
+                Command approval requested
+              </span>
+            </p>
+          </div>
+          <div className="p-4">
+            <p className="text-[clamp(1.1rem,1.35vw,1.45rem)] font-semibold leading-tight text-zinc-100">
+              {buildApprovalPromptTitle(pendingApproval)}
+            </p>
+            {pendingApproval.command ? (
+              <p className="mt-3 rounded-lg border border-zinc-700 bg-black/35 px-3 py-2 font-mono text-[13px] text-zinc-100">
+                {pendingApproval.command}
+              </p>
+            ) : (
+              <p className="mt-2 text-sm text-zinc-300">{pendingApproval.reason}</p>
+            )}
+          </div>
+          <div className="border-t border-zinc-800/90 px-4 pb-4 pt-3">
+            <div className="flex flex-wrap gap-2">
+              {displayedApprovalDecisions.map((decision) => (
+                <button
+                  key={decision}
+                  type="button"
+                  disabled={approvalBusyDecision !== null}
+                  onClick={() => void resolveApprovalDecision(decision)}
+                  className={approvalDecisionButtonClassName(decision)}
+                >
+                  {formatApprovalDecisionLabel(decision)}
+                </button>
+              ))}
+            </div>
+            {approvalError ? (
+              <p className="mt-3 text-xs text-red-300">{approvalError}</p>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+      {pendingApproval ? null : (
+        <ChatInputBar
+          input={input}
+          onChange={handleInputChangeWrapper}
+          onSubmit={handleSubmit}
+          onStop={stop}
+          isLoading={isLoading}
+          sessionId={sessionId}
+          mode={mode}
+          onModeChange={onModeChange}
+          hasMessages={messages.length > 0}
+          onModelSelect={onModelSelect}
+          repoTree={repoTree}
+          isLoadingRepoTree={isLoadingRepoTree}
+          layout={layout}
+        />
+      )}
+      <div
+        className={
+          layout === "hero"
+            ? "mt-2 flex items-center gap-2 pl-2"
+            : "mt-1 flex items-center gap-2 pl-6"
+        }
+      >
+        <ChatBranchSelector />
+        <PermissionModeControl
+          value={permissionMode ?? PRODUCT_MODES.AUTO_FOR_SAFE}
+          onChange={(nextMode) => onPermissionModeChange?.(nextMode)}
+          disabled={isLoading || !onPermissionModeChange}
+          appearance="ghost"
+        />
+      </div>
+    </>
+  );
 
   // Auto-scroll to bottom on new messages and live activity updates.
   useEffect(() => {
@@ -467,172 +565,108 @@ export function ChatInterface({
     <div className="flex flex-col h-full bg-black">
       {/* Scrollable Messages Container - Centered with max-width */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 py-4">
-        <div className="max-w-4xl mx-auto space-y-6">
-          {showDebugPanel && (
-            <div className="rounded border border-cyan-800/60 bg-cyan-950/20">
-              <div className="px-3 py-2 border-b border-cyan-800/40 text-cyan-200 text-xs font-semibold uppercase tracking-wider">
-                Debug Trace (Client)
-              </div>
-              <div className="max-h-56 overflow-y-auto p-3 space-y-3">
-                {debugEvents.length === 0 ? (
-                  <div className="text-xs text-cyan-300/70">
-                    Waiting for first request...
-                  </div>
-                ) : (
-                  debugEvents.map((event) => (
-                    <div
-                      key={event.id}
-                      className="rounded border border-cyan-900/60 bg-black/50 p-2"
-                    >
-                      <div className="flex items-center justify-between gap-2 mb-2">
-                        <span className="text-[11px] font-semibold uppercase tracking-wider text-cyan-300">
-                          {event.phase}
-                        </span>
-                        <span className="text-[11px] text-zinc-400">
-                          {new Date(event.timestamp).toLocaleTimeString()}
-                        </span>
-                      </div>
-                      <div className="text-xs text-cyan-100 mb-2">
-                        {event.summary}
-                      </div>
-                      <pre className="text-[11px] text-zinc-200 whitespace-pre-wrap break-all overflow-x-auto">
-                        {formatDebugPayload(event.payload)}
-                      </pre>
+        {showHeroComposer ? (
+          <div className="mx-auto flex min-h-full w-full max-w-4xl items-center justify-center py-8">
+            <div className="w-full">
+              <h1 className="mb-8 text-center text-5xl font-semibold tracking-tight text-zinc-100">
+                What should we build?
+              </h1>
+              {renderComposerControls("hero")}
+            </div>
+          </div>
+        ) : (
+          <div className="max-w-4xl mx-auto space-y-6">
+            {showDebugPanel && (
+              <div className="rounded border border-cyan-800/60 bg-cyan-950/20">
+                <div className="px-3 py-2 border-b border-cyan-800/40 text-cyan-200 text-xs font-semibold uppercase tracking-wider">
+                  Debug Trace (Client)
+                </div>
+                <div className="max-h-56 overflow-y-auto p-3 space-y-3">
+                  {debugEvents.length === 0 ? (
+                    <div className="text-xs text-cyan-300/70">
+                      Waiting for first request...
                     </div>
-                  ))
-                )}
+                  ) : (
+                    debugEvents.map((event) => (
+                      <div
+                        key={event.id}
+                        className="rounded border border-cyan-900/60 bg-black/50 p-2"
+                      >
+                        <div className="flex items-center justify-between gap-2 mb-2">
+                          <span className="text-[11px] font-semibold uppercase tracking-wider text-cyan-300">
+                            {event.phase}
+                          </span>
+                          <span className="text-[11px] text-zinc-400">
+                            {new Date(event.timestamp).toLocaleTimeString()}
+                          </span>
+                        </div>
+                        <div className="text-xs text-cyan-100 mb-2">
+                          {event.summary}
+                        </div>
+                        <pre className="text-[11px] text-zinc-200 whitespace-pre-wrap break-all overflow-x-auto">
+                          {formatDebugPayload(event.payload)}
+                        </pre>
+                      </div>
+                    ))
+                  )}
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {chatEntries.map((entry) =>
-            entry.kind === "message" ? (
-              <ChatMessage
-                key={entry.message.id}
-                message={entry.message}
-                metadata={messageMetadataById[entry.message.id]}
-                onArtifactOpen={onArtifactOpen}
-              />
-            ) : (
-              renderActivityTurn(entry.turn)
-            ),
-          )}
-
-          {/* Loading indicator */}
-          {isLoading && !activeInlineTurn && (
-            <div className="py-2 text-sm font-medium text-zinc-500">
-              <span className="bg-[linear-gradient(90deg,rgba(113,113,122,0.9)_0%,rgba(228,228,231,0.95)_45%,rgba(113,113,122,0.9)_100%)] bg-[length:220%_100%] bg-clip-text text-transparent animate-shimmer">
-                Thinking
-              </span>
-            </div>
-          )}
-
-          {SHOW_WORKFLOW_DEBUG_PANEL ? (
-            <details className="rounded-2xl border border-zinc-800/80 bg-zinc-950/60 px-4 py-3">
-              <summary className="cursor-pointer text-xs font-medium uppercase tracking-[0.2em] text-zinc-500">
-                Workflow Debug
-              </summary>
-              <div className="mt-4">
-                <WorkflowTimeline
-                  events={events}
-                  summary={summary}
-                  isLoading={isLoading}
-                  onJumpToLatest={() => {
-                    scrollRef.current?.scrollTo({
-                      top: scrollRef.current.scrollHeight,
-                      behavior: "smooth",
-                    });
-                  }}
+            {chatEntries.map((entry) =>
+              entry.kind === "message" ? (
+                <ChatMessage
+                  key={entry.message.id}
+                  message={entry.message}
+                  metadata={messageMetadataById[entry.message.id]}
+                  onArtifactOpen={onArtifactOpen}
                 />
+              ) : (
+                renderActivityTurn(entry.turn)
+              ),
+            )}
+
+            {/* Loading indicator */}
+            {isLoading && !activeInlineTurn && (
+              <div className="py-2 text-sm font-medium text-zinc-500">
+                <span className="bg-[linear-gradient(90deg,rgba(113,113,122,0.9)_0%,rgba(228,228,231,0.95)_45%,rgba(113,113,122,0.9)_100%)] bg-[length:220%_100%] bg-clip-text text-transparent animate-shimmer">
+                  Thinking
+                </span>
               </div>
-            </details>
-          ) : null}
-        </div>
+            )}
+
+            {SHOW_WORKFLOW_DEBUG_PANEL ? (
+              <details className="rounded-2xl border border-zinc-800/80 bg-zinc-950/60 px-4 py-3">
+                <summary className="cursor-pointer text-xs font-medium uppercase tracking-[0.2em] text-zinc-500">
+                  Workflow Debug
+                </summary>
+                <div className="mt-4">
+                  <WorkflowTimeline
+                    events={events}
+                    summary={summary}
+                    isLoading={isLoading}
+                    onJumpToLatest={() => {
+                      scrollRef.current?.scrollTo({
+                        top: scrollRef.current.scrollHeight,
+                        behavior: "smooth",
+                      });
+                    }}
+                  />
+                </div>
+              </details>
+            ) : null}
+          </div>
+        )}
       </div>
 
       {/* Input Area - Centered */}
-      <div className="px-6 pb-4">
+      {showHeroComposer ? null : (
+        <div className="px-6 pb-4">
         <div className="max-w-4xl mx-auto">
-          {error && (
-            <div className="mb-4">
-              <ChatErrorNotice
-                message={recoveryAdvice.message}
-                remediation={recoveryAdvice.remediation}
-                actionLabel={recoveryAdvice.actionLabel}
-                onOpenProviders={openProviderRecoverySurface}
-              />
-            </div>
-          )}
-          {pendingApproval ? (
-            <div className="mb-2 overflow-hidden rounded-2xl border border-zinc-700/80 bg-[linear-gradient(180deg,#18181b_0%,#151518_55%,#141418_100%)] text-zinc-100 shadow-[0_8px_26px_rgba(0,0,0,0.34)]">
-              <div className="border-b border-zinc-800/90 px-4 py-2">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-300">
-                  Pending approval
-                  <span className="ml-2 text-[12px] font-medium normal-case tracking-normal text-zinc-400">
-                    Command approval requested
-                  </span>
-                </p>
-              </div>
-              <div className="p-4">
-                <p className="text-[clamp(1.1rem,1.35vw,1.45rem)] font-semibold leading-tight text-zinc-100">
-                  {buildApprovalPromptTitle(pendingApproval)}
-                </p>
-                {pendingApproval.command ? (
-                  <p className="mt-3 rounded-lg border border-zinc-700 bg-black/35 px-3 py-2 font-mono text-[13px] text-zinc-100">
-                    {pendingApproval.command}
-                  </p>
-                ) : (
-                  <p className="mt-2 text-sm text-zinc-300">
-                    {pendingApproval.reason}
-                  </p>
-                )}
-              </div>
-              <div className="border-t border-zinc-800/90 px-4 pb-4 pt-3">
-                <div className="flex flex-wrap gap-2">
-                  {displayedApprovalDecisions.map((decision) => (
-                    <button
-                      key={decision}
-                      type="button"
-                      disabled={approvalBusyDecision !== null}
-                      onClick={() => void resolveApprovalDecision(decision)}
-                      className={approvalDecisionButtonClassName(decision)}
-                    >
-                      {formatApprovalDecisionLabel(decision)}
-                    </button>
-                  ))}
-                </div>
-                {approvalError ? (
-                  <p className="mt-3 text-xs text-red-300">{approvalError}</p>
-                ) : null}
-              </div>
-            </div>
-          ) : null}
-          {pendingApproval ? null : (
-            <ChatInputBar
-              input={input}
-              onChange={handleInputChangeWrapper}
-              onSubmit={handleSubmit}
-              onStop={stop}
-              isLoading={isLoading}
-              sessionId={sessionId}
-              mode={mode}
-              onModeChange={onModeChange}
-              hasMessages={messages.length > 0}
-              onModelSelect={onModelSelect}
-              repoTree={repoTree}
-              isLoadingRepoTree={isLoadingRepoTree}
-            />
-          )}
-          <div className="mt-1 flex items-center gap-2 pl-6">
-            <ChatBranchSelector />
-            <PermissionModeControl
-              value={permissionMode ?? PRODUCT_MODES.AUTO_FOR_SAFE}
-              onChange={(nextMode) => onPermissionModeChange?.(nextMode)}
-              disabled={isLoading || !onPermissionModeChange}
-            />
-          </div>
+          {renderComposerControls("docked")}
         </div>
       </div>
+      )}
     </div>
   );
 }
