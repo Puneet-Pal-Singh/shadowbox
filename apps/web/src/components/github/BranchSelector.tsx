@@ -147,9 +147,7 @@ export function BranchSelector({
             transition={{ duration: 0.15, ease: [0.23, 1, 0.32, 1] }}
             className={cn(
               "absolute left-0 bottom-full mb-2 z-50",
-              "w-72 rounded-xl overflow-hidden",
-              "bg-[#1a1a1a] border border-zinc-800",
-              "shadow-2xl shadow-black/50",
+              "ui-surface-popover w-72 overflow-hidden",
             )}
           >
             {/* Header */}
@@ -160,7 +158,7 @@ export function BranchSelector({
             </div>
 
             {/* Search */}
-            <div className="p-2 border-b border-zinc-800">
+            <div className="p-2 border-b ui-muted-divider">
               <div className="relative">
                 <Search
                   size={14}
@@ -172,10 +170,7 @@ export function BranchSelector({
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder="Find a branch..."
                   className={cn(
-                    "w-full pl-9 pr-3 py-2 rounded-lg",
-                    "bg-zinc-900/50 text-sm text-zinc-200 placeholder-zinc-600",
-                    "border border-zinc-800 focus:border-zinc-600",
-                    "focus:outline-none focus:ring-1 focus:ring-zinc-600",
+                    "ui-input w-full pl-9 pr-3 py-2 text-sm",
                   )}
                   autoFocus
                 />
@@ -236,7 +231,7 @@ export function BranchSelector({
             </div>
 
             {/* Footer */}
-            <div className="px-3 py-2 border-t border-zinc-800 bg-zinc-900/30">
+            <div className="px-3 py-2 border-t ui-muted-divider bg-zinc-900/30">
               <span className="text-xs text-zinc-600">
                 {branches.length} branches total
               </span>
