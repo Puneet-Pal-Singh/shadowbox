@@ -56,6 +56,7 @@ interface ChatInputBarProps {
   onModelSelect?: (providerId: ProviderId, modelId: string) => void;
   repoTree?: Array<{ path: string; type: string; sha: string }>;
   isLoadingRepoTree?: boolean;
+  layout?: "docked" | "hero";
 }
 
 export function ChatInputBar({
@@ -72,6 +73,7 @@ export function ChatInputBar({
   onModelSelect,
   repoTree = [],
   isLoadingRepoTree = false,
+  layout = "docked",
 }: ChatInputBarProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [isFocused, setIsFocused] = useState(false);
@@ -399,7 +401,7 @@ export function ChatInputBar({
         >
           <div
             role="status"
-            className="flex items-center gap-3 rounded-2xl border border-zinc-700 bg-zinc-900/95 px-4 py-2 text-sm text-zinc-100 shadow-2xl backdrop-blur-sm"
+            className="ui-surface-popover flex items-center gap-3 px-4 py-2 text-sm text-zinc-100"
           >
             <span>{IDLE_SWITCH_WARNING}</span>
             <button
@@ -419,10 +421,14 @@ export function ChatInputBar({
           e.preventDefault();
           onSubmit();
         }}
-        className="relative w-full max-w-4xl mx-auto px-4 pb-3"
+        className={
+          layout === "hero"
+            ? "relative w-full max-w-4xl mx-auto"
+            : "relative w-full max-w-4xl mx-auto px-4 pb-3"
+        }
       >
         {shouldShowFilePicker ? (
-          <div className="absolute inset-x-5 bottom-full z-30 mb-2 overflow-hidden rounded-[1.05rem] border border-zinc-800 bg-[#171717] shadow-[0_8px_24px_rgba(0,0,0,0.22)]">
+          <div className="ui-surface-popover absolute inset-x-5 bottom-full z-30 mb-2 overflow-hidden">
             <div
               id={filePickerListId}
               role="listbox"
@@ -488,7 +494,7 @@ export function ChatInputBar({
 
         <div
           className={`
-            bg-[#171717] rounded-xl p-3
+            ui-control-surface p-3
             transition-all duration-200
             ${isFocused ? "shadow-lg shadow-black/20" : ""}
           `}
@@ -542,7 +548,7 @@ export function ChatInputBar({
 
           {WEB_PROVIDER_POLICY.isByokFirstProduction &&
           credentials.length === 0 ? (
-            <div className="mt-3 rounded-xl border border-zinc-800 bg-zinc-900/60 px-3 py-2 text-xs text-zinc-300">
+            <div className="ui-control-surface mt-3 px-3 py-2 text-xs text-zinc-300">
               Connect a BYOK provider to pick a model before sending prompts.
               <button
                 type="button"
@@ -571,7 +577,7 @@ export function ChatInputBar({
                 onAddFiles={insertMentionTrigger}
               />
 
-              <div className="h-3.5 w-px bg-zinc-800" />
+              <div className="h-3.5 w-px bg-zinc-700/80" />
 
               <ModelPickerPopover
                 catalog={catalog}
