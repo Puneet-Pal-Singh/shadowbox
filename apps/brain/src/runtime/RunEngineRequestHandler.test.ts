@@ -7,6 +7,7 @@ import {
 import {
   PermissionApprovalStore,
   Run,
+  RunEventRecorder,
   RunEventRepository,
   RunRepository,
   type RuntimeDurableObjectState,
@@ -577,6 +578,59 @@ describe("RunEngineRequestHandler", () => {
           event.payload.label === "Approval decision ignored",
       ),
     ).toBe(true);
+  });
+
+  it("keeps approval error mapping when progress telemetry fails", async () => {
+    const ctx = new MockDurableObjectState();
+    const runtimeState = tagRuntimeStateSemantics(ctx, "do");
+    const runRepo = new RunRepository(runtimeState);
+    const runId = "123e4567-e89b-42d3-a456-426614174335";
+    await runRepo.create(
+      new Run(runId, "session-1", "RUNNING", "coding", {
+        agentType: "coding",
+        prompt: "commit changes",
+        sessionId: "session-1",
+      }),
+    );
+
+    const recordRunProgressSpy = vi
+      .spyOn(RunEventRecorder.prototype, "recordRunProgress")
+      .mockRejectedValueOnce(new Error("event persistence unavailable"));
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    try {
+      const handler = new RunEngineRequestHandler(
+        ctx as unknown as DurableObjectState,
+        {} as Env,
+        async (operation) => operation(),
+      );
+
+      const response = await handler.handleApprovalRequest(
+        new Request("https://brain.local/approval", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            runId,
+            requestId: "missing",
+            decision: "deny",
+          }),
+        }),
+      );
+
+      expect(response.status).toBe(409);
+      const body = (await response.json()) as { error: string };
+      expect(body.error).toContain("No pending approval request");
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining(
+          "[run/approval] failed to record ignored approval decision:",
+        ),
+      );
+    } finally {
+      recordRunProgressSpy.mockRestore();
+      warnSpy.mockRestore();
+    }
   });
 });
 
