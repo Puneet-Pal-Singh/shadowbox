@@ -615,6 +615,50 @@ describe("ModelPickerPopover", () => {
       });
     });
 
+    it("closes popover immediately when selection persistence fails", async () => {
+      const onSelectModel = vi.fn(async () => {
+        throw new Error("D1 unavailable");
+      });
+      const consoleErrorSpy = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+
+      try {
+        render(
+          <ModelPickerPopover
+            {...defaultProps}
+            onSelectModel={onSelectModel}
+            selectedProviderId={null}
+            selectedModelId={null}
+          />,
+        );
+
+        fireEvent.click(
+          screen.getByRole("button", { name: /open model picker/i }),
+        );
+
+        const gpt4Button = await screen.findByText("GPT-4");
+        const modelButton = gpt4Button.closest("button");
+
+        fireEvent.click(modelButton!);
+
+        await waitFor(() => {
+          expect(
+            screen.queryByTestId("model-picker-popover"),
+          ).not.toBeInTheDocument();
+        });
+        await waitFor(() => {
+          expect(onSelectModel).toHaveBeenCalledWith("openai", "gpt-4");
+        });
+        expect(consoleErrorSpy).toHaveBeenCalledWith(
+          "[model-picker/select] Failed to persist model selection:",
+          expect.any(Error),
+        );
+      } finally {
+        consoleErrorSpy.mockRestore();
+      }
+    });
+
     it("resets search query after selection", async () => {
       render(
         <ModelPickerPopover

@@ -7,6 +7,8 @@ import * as providerHelpersModule from "../../lib/provider-helpers.js";
 
 const IDLE_SWITCH_WARNING =
   "Changing models mid-conversation will degrade performance.";
+const ACTIVE_RUN_SWITCH_WARNING =
+  "Stop the current run before changing mode or model.";
 
 describe("ChatInputBar", () => {
   type UseProviderStoreResult = ReturnType<
@@ -134,6 +136,28 @@ describe("ChatInputBar", () => {
     vi.useRealTimers();
   });
 
+  it("shows a stop action when a selected run can still be cancelled", () => {
+    const onStop = vi.fn();
+    const onSubmit = vi.fn();
+
+    render(
+      <ChatInputBar
+        input=""
+        onChange={vi.fn()}
+        onSubmit={onSubmit}
+        onStop={onStop}
+        canStop
+        isLoading={false}
+        sessionId="session-1"
+      />,
+    );
+
+    fireEvent.click(screen.getByLabelText("Stop generation"));
+
+    expect(onStop).toHaveBeenCalledTimes(1);
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
   describe("idle switch warning", () => {
     it("does not show warning on initial render", () => {
       render(
@@ -238,9 +262,31 @@ describe("ChatInputBar", () => {
 
       expect(screen.queryByText(IDLE_SWITCH_WARNING)).toBeNull();
     });
+
+    it("blocks model selection when an open picker becomes stoppable", async () => {
+      const baseProps = {
+        input: "",
+        onChange: vi.fn(),
+        onSubmit: vi.fn(),
+        sessionId: "session-1",
+        hasMessages: true,
+      };
+      const { rerender } = render(<ChatInputBar {...baseProps} />);
+
+      fireEvent.click(screen.getByLabelText("Open model picker"));
+      const modelOption = await screen.findByText("GPT-4o");
+
+      rerender(<ChatInputBar {...baseProps} onStop={vi.fn()} canStop />);
+      fireEvent.click(modelOption);
+
+      await waitFor(() => {
+        expect(screen.getByText(ACTIVE_RUN_SWITCH_WARNING)).toBeTruthy();
+      });
+      expect(mockStore.applySessionSelection).not.toHaveBeenCalled();
+    });
   });
 
-  it("surfaces a build/plan mode toggle and emits changes", () => {
+  it("surfaces plan mode controls inside the composer options menu", () => {
     const onModeChange = vi.fn();
 
     render(
@@ -254,7 +300,8 @@ describe("ChatInputBar", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("tab", { name: "Plan" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open composer options" }));
+    fireEvent.click(screen.getByRole("switch", { name: "Toggle plan mode" }));
 
     expect(onModeChange).toHaveBeenCalledWith("plan");
   });
@@ -450,7 +497,10 @@ describe("ChatInputBar", () => {
     await act(async () => {
       textarea.focus();
       textarea.setSelectionRange(14, 14);
-      fireEvent.click(screen.getByTitle("Add files"));
+      fireEvent.click(screen.getByRole("button", { name: "Open composer options" }));
+      fireEvent.click(
+        await screen.findByRole("menuitem", { name: "Add photos & files" }),
+      );
       await new Promise<void>((resolve) => {
         window.requestAnimationFrame(() => resolve());
       });

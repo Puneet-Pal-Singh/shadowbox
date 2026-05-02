@@ -2,9 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import {
   Check,
   ChevronDown,
-  Lock,
-  LockOpen,
-  PencilLine,
+  Hand,
+  ShieldAlert,
+  ShieldCheck,
   type LucideIcon,
 } from "lucide-react";
 import { PRODUCT_MODES, type ProductMode } from "@repo/shared-types";
@@ -14,6 +14,8 @@ interface PermissionModeControlProps {
   value: ProductMode;
   onChange: (mode: ProductMode) => void;
   disabled?: boolean;
+  appearance?: "pill" | "ghost";
+  showIcon?: boolean;
 }
 
 interface PermissionModeOption {
@@ -30,28 +32,28 @@ const PERMISSION_MODE_OPTIONS: PermissionModeOption[] = [
     label: "Supervised",
     shortLabel: "Supervised",
     description: "Ask before commands and file changes.",
-    Icon: Lock,
+    Icon: Hand,
   },
   {
     value: PRODUCT_MODES.AUTO_FOR_SAFE,
     label: "Auto-accept edits",
     shortLabel: "Auto edits",
     description: "Auto-approve edits, ask before risky actions.",
-    Icon: PencilLine,
+    Icon: ShieldCheck,
   },
   {
     value: PRODUCT_MODES.AUTO_FOR_SAME_REPO,
     label: "Auto same repo",
     shortLabel: "Auto repo",
     description: "Auto-run safe actions when they stay inside this repository.",
-    Icon: PencilLine,
+    Icon: ShieldCheck,
   },
   {
     value: PRODUCT_MODES.FULL_AGENT,
     label: "Full access",
     shortLabel: "Full access",
     description: "Allow commands and edits without prompts.",
-    Icon: LockOpen,
+    Icon: ShieldAlert,
   },
 ];
 
@@ -59,12 +61,15 @@ export function PermissionModeControl({
   value,
   onChange,
   disabled = false,
+  appearance = "pill",
+  showIcon = true,
 }: PermissionModeControlProps) {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const selectedOption = resolvePermissionModeOption(value);
   const SelectedIcon = selectedOption.Icon;
   const isMenuOpen = isOpen && !disabled;
+  const isFullAccess = selectedOption.value === PRODUCT_MODES.FULL_AGENT;
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -92,8 +97,14 @@ export function PermissionModeControl({
         }}
         disabled={disabled}
         className={cn(
-          "inline-flex items-center gap-1.5 rounded-full border border-zinc-700/70 bg-zinc-900/80 px-2.5 py-1 text-xs font-medium text-zinc-300 transition",
-          "hover:border-zinc-500/70 hover:bg-zinc-800/70 hover:text-zinc-100",
+          appearance === "ghost"
+            ? "inline-flex items-center gap-2 rounded-md px-2 py-1 text-xs font-medium transition-all duration-200 text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800/50"
+            : "inline-flex items-center gap-1.5 rounded-full border border-zinc-700/70 bg-zinc-900/80 px-2.5 py-1 text-xs font-medium text-zinc-300 transition",
+          appearance === "pill" &&
+            "hover:border-zinc-500/70 hover:bg-zinc-800/70 hover:text-zinc-100",
+          appearance === "ghost" &&
+            isFullAccess &&
+            "text-orange-400 hover:text-orange-300",
           disabled && "cursor-not-allowed opacity-60 hover:border-zinc-700/70",
         )}
         aria-haspopup="menu"
@@ -101,12 +112,18 @@ export function PermissionModeControl({
         aria-label="Permission mode"
         data-testid="permission-mode-control"
       >
-        <SelectedIcon size={14} className="text-zinc-400" />
+        {showIcon ? (
+          <SelectedIcon
+            size={14}
+            className={cn(isFullAccess ? "text-orange-400" : "text-zinc-400")}
+          />
+        ) : null}
         <span>{selectedOption.shortLabel}</span>
         <ChevronDown
           size={14}
           className={cn(
             "text-zinc-400 transition-transform",
+            appearance === "ghost" && isFullAccess && "text-orange-400",
             isMenuOpen && "rotate-180",
           )}
         />
@@ -115,7 +132,7 @@ export function PermissionModeControl({
       {isMenuOpen ? (
         <div
           role="menu"
-          className="absolute bottom-full left-0 z-40 mb-2 w-[19rem] rounded-3xl border border-zinc-700/80 bg-zinc-900/95 p-2 shadow-2xl"
+          className="ui-surface-popover absolute bottom-full left-0 z-40 mb-2 w-[19rem] p-2"
           data-testid="permission-mode-menu"
         >
           {PERMISSION_MODE_OPTIONS.map((option) => {

@@ -43,9 +43,9 @@ export function ArtifactView({ isOpen, onClose, title, content, language }: Arti
   };
 
   return (
-    <div className="flex flex-col h-full bg-[#1e1e1e]">
+    <div className="flex h-full flex-col bg-black">
       {/* Header */}
-      <div className="h-14 border-b border-border flex items-center justify-between px-4 bg-zinc-900/50 backdrop-blur shrink-0">
+      <div className="h-14 shrink-0 border-b border-zinc-800 bg-black/90 px-4 backdrop-blur flex items-center justify-between">
         <div className="flex items-center gap-2 text-sm font-medium text-zinc-200">
           <Code2 size={16} className="text-emerald-500" />
           <span className="font-mono text-xs truncate max-w-50">{title}</span>

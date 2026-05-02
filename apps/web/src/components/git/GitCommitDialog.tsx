@@ -291,7 +291,7 @@ export function GitCommitDialog({ isOpen, onClose }: GitCommitDialogProps) {
   };
 
   return (
-    <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/72 px-4 py-4 backdrop-blur-sm sm:px-6 sm:py-6">
+    <div className="ui-overlay absolute inset-0 z-30 flex items-center justify-center px-4 py-4 sm:px-6 sm:py-6">
       <button
         type="button"
         className="absolute inset-0"
@@ -299,7 +299,7 @@ export function GitCommitDialog({ isOpen, onClose }: GitCommitDialogProps) {
         onClick={onClose}
       />
 
-      <div className="relative flex max-h-full w-full max-w-xl flex-col overflow-hidden rounded-[24px] border border-zinc-800 bg-[#131316] shadow-2xl shadow-black/60">
+      <div className="ui-surface-modal relative flex max-h-full w-full max-w-xl flex-col overflow-hidden">
         <div className="flex items-start justify-between px-6 py-5">
           <div className="space-y-3">
             <h2 className="text-[1.8rem] font-semibold tracking-tight text-white">
@@ -339,7 +339,7 @@ export function GitCommitDialog({ isOpen, onClose }: GitCommitDialogProps) {
         </div>
 
         <div className="min-h-0 space-y-5 overflow-y-auto border-t border-zinc-800 px-6 py-5">
-          <div className="flex items-center justify-between rounded-2xl border border-zinc-800 bg-[#0d0d10] px-4 py-3.5">
+          <div className="ui-surface-section flex items-center justify-between px-4 py-3.5">
             <div>
               <div className="text-base font-medium text-white">
                 Include unstaged
@@ -353,7 +353,7 @@ export function GitCommitDialog({ isOpen, onClose }: GitCommitDialogProps) {
               role="switch"
               aria-checked={includeUnstaged}
               onClick={() => setIncludeUnstaged((previous) => !previous)}
-              className={`relative inline-flex h-8 w-14 items-center rounded-full transition-colors ${
+              className={`relative inline-flex h-8 w-14 items-center rounded-full border border-zinc-700 transition-colors ${
                 includeUnstaged ? "bg-blue-500" : "bg-zinc-700"
               }`}
             >
@@ -395,7 +395,7 @@ export function GitCommitDialog({ isOpen, onClose }: GitCommitDialogProps) {
             </div>
 
             {resolvedCommitIdentity && !authorFormVisible ? (
-              <div className="rounded-[18px] border border-zinc-800 bg-[#09090b] px-4 py-3 text-sm text-zinc-200">
+              <div className="ui-surface-section px-4 py-3 text-sm text-zinc-200">
                 <div className="font-medium text-white">
                   {resolvedCommitIdentity.authorName}
                 </div>
@@ -413,7 +413,7 @@ export function GitCommitDialog({ isOpen, onClose }: GitCommitDialogProps) {
                     value={authorName}
                     onChange={(event) => setAuthorName(event.target.value)}
                     placeholder="Your name"
-                    className="w-full rounded-[18px] border border-zinc-800 bg-[#09090b] px-4 py-3 text-sm text-zinc-100 placeholder:text-zinc-500 focus:border-zinc-600 focus:outline-none"
+                    className="ui-input w-full px-4 py-3 text-sm"
                   />
                 </label>
                 <label className="space-y-2">
@@ -424,7 +424,7 @@ export function GitCommitDialog({ isOpen, onClose }: GitCommitDialogProps) {
                     value={authorEmail}
                     onChange={(event) => setAuthorEmail(event.target.value)}
                     placeholder="name@example.com"
-                    className="w-full rounded-[18px] border border-zinc-800 bg-[#09090b] px-4 py-3 text-sm text-zinc-100 placeholder:text-zinc-500 focus:border-zinc-600 focus:outline-none"
+                    className="ui-input w-full px-4 py-3 text-sm"
                   />
                 </label>
               </div>
@@ -446,13 +446,13 @@ export function GitCommitDialog({ isOpen, onClose }: GitCommitDialogProps) {
               value={commitMessage}
               onChange={(event) => setCommitMessage(event.target.value)}
               placeholder="Leave blank to autogenerate a commit message"
-              className="min-h-28 w-full rounded-[18px] border border-zinc-800 bg-[#09090b] px-4 py-3 text-sm text-zinc-100 placeholder:text-zinc-500 focus:border-zinc-600 focus:outline-none"
+              className="ui-input min-h-28 w-full px-4 py-3 text-sm"
             />
           </div>
 
-          <div className="space-y-3 rounded-[20px] border border-zinc-800 bg-[#0d0d10] p-3.5">
+          <div className="ui-surface-section space-y-3 p-3.5">
             <div className="text-base font-medium text-white">Next steps</div>
-            <div className="overflow-hidden rounded-[16px] border border-zinc-800">
+            <div className="overflow-hidden rounded-xl border border-zinc-800">
               {stepOptions.map((option, index) => {
                 const Icon = option.icon;
                 const isActive = nextStep === option.id;
@@ -500,7 +500,7 @@ export function GitCommitDialog({ isOpen, onClose }: GitCommitDialogProps) {
           </div>
 
           {requiresBranchInput ? (
-            <div className="space-y-3 rounded-[20px] border border-zinc-800 bg-[#0d0d10] p-3.5">
+            <div className="ui-surface-section space-y-3 p-3.5">
               <div>
                 <div className="text-base font-medium text-white">
                   Branch target
@@ -519,14 +519,14 @@ export function GitCommitDialog({ isOpen, onClose }: GitCommitDialogProps) {
                   value={branchName}
                   onChange={(event) => setBranchName(event.target.value)}
                   placeholder="feat/my-change"
-                  className="w-full rounded-[18px] border border-zinc-800 bg-[#09090b] px-4 py-3 text-sm text-zinc-100 placeholder:text-zinc-500 focus:border-zinc-600 focus:outline-none"
+                  className="ui-input w-full px-4 py-3 text-sm"
                 />
               </label>
             </div>
           ) : null}
 
           {requiresPullRequestInput ? (
-            <div className="space-y-3 rounded-[20px] border border-zinc-800 bg-[#0d0d10] p-3.5">
+            <div className="ui-surface-section space-y-3 p-3.5">
               <div>
                 <div className="text-base font-medium text-white">
                   Pull request
@@ -545,7 +545,7 @@ export function GitCommitDialog({ isOpen, onClose }: GitCommitDialogProps) {
                   value={pullRequestTitle}
                   onChange={(event) => setPullRequestTitle(event.target.value)}
                   placeholder="Describe the change"
-                  className="w-full rounded-[18px] border border-zinc-800 bg-[#09090b] px-4 py-3 text-sm text-zinc-100 placeholder:text-zinc-500 focus:border-zinc-600 focus:outline-none"
+                  className="ui-input w-full px-4 py-3 text-sm"
                 />
               </label>
               <label className="space-y-2">
@@ -555,7 +555,7 @@ export function GitCommitDialog({ isOpen, onClose }: GitCommitDialogProps) {
                 <textarea
                   value={pullRequestBody}
                   onChange={(event) => setPullRequestBody(event.target.value)}
-                  className="min-h-28 w-full rounded-[18px] border border-zinc-800 bg-[#09090b] px-4 py-3 text-sm text-zinc-100 placeholder:text-zinc-500 focus:border-zinc-600 focus:outline-none"
+                  className="ui-input min-h-28 w-full px-4 py-3 text-sm"
                 />
               </label>
             </div>

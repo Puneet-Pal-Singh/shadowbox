@@ -23,7 +23,7 @@ export function SidebarHeader({
   const expandDisabled = activeTab !== "changes";
 
   return (
-    <div className="h-10 border-b border-zinc-800 flex items-center justify-between px-3 bg-black shrink-0">
+    <div className="h-10 border-b ui-muted-divider flex items-center justify-between px-3 bg-transparent shrink-0">
       <div className="flex gap-4 h-full">
         {isViewingContent ? (
           <button

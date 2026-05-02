@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState } from "react";
+import { useRef, useEffect, useState, useCallback } from "react";
 import {
   type ProductMode,
   type RunMode,
@@ -32,6 +32,7 @@ interface WorkspaceProps {
   repository: string;
   mode?: RunMode;
   onModeChange?: (mode: RunMode) => void;
+  isSessionRunning?: boolean;
   onSessionStatusChange?: (status: SessionStatus) => void;
   onPendingApprovalStateChange?: (hasPendingApproval: boolean) => void;
   isRightSidebarOpen?: boolean;
@@ -47,6 +48,7 @@ export function Workspace({
   repository,
   mode = "build",
   onModeChange,
+  isSessionRunning = false,
   onSessionStatusChange,
   onPendingApprovalStateChange,
   isRightSidebarOpen = false,
@@ -125,6 +127,7 @@ export function Workspace({
   const isCanonicalRunActive =
     canonicalRunStatus === "RUNNING" || canonicalRunStatus === "CREATED";
   const isRunLoading = isLoading || isCanonicalRunActive;
+  const canStopRun = isRunLoading || isSessionRunning;
   const changesCount = status?.files?.length ?? 0;
   const repositoryOwner = repo?.owner?.login?.trim() ?? "";
   const repositoryName = repo?.name?.trim() ?? "";
@@ -143,6 +146,11 @@ export function Workspace({
     setIsViewingContent,
     setSelectedFile,
   });
+
+  const handleStopRun = useCallback(() => {
+    stop();
+    onSessionStatusChange?.("completed");
+  }, [onSessionStatusChange, stop]);
 
   useEffect(() => {
     // Persist runId to localStorage scoped by sessionId for cross-tab/refreshes persistence
@@ -175,6 +183,10 @@ export function Workspace({
   const lastAppliedCanonicalStatusRef = useRef<{
     runId: string;
     status: string;
+  } | null>(null);
+  const lastAppliedChatErrorRef = useRef<{
+    runId: string;
+    error: string;
   } | null>(null);
   useEffect(() => {
     if (!canonicalRunStatus) {
@@ -210,6 +222,33 @@ export function Workspace({
       void refetchGitStatus(true);
     }
   }, [activeRunId, canonicalRunStatus, onSessionStatusChange, refetchGitStatus]);
+
+  useEffect(() => {
+    if (!chatError || isLoading || isCanonicalRunActive) {
+      return;
+    }
+
+    const lastApplied = lastAppliedChatErrorRef.current;
+    if (
+      lastApplied &&
+      lastApplied.runId === activeRunId &&
+      lastApplied.error === chatError
+    ) {
+      return;
+    }
+
+    lastAppliedChatErrorRef.current = {
+      runId: activeRunId,
+      error: chatError,
+    };
+    onSessionStatusChange?.("error");
+  }, [
+    activeRunId,
+    chatError,
+    isCanonicalRunActive,
+    isLoading,
+    onSessionStatusChange,
+  ]);
 
   useEffect(() => {
     if (isContextMismatch) {
@@ -341,9 +380,9 @@ export function Workspace({
         isReviewOpen={isGitReviewOpen}
         onReviewOpenChange={(open) => onGitReviewOpenChange?.(open)}
       >
-        <div className="flex-1 flex bg-black overflow-hidden relative">
+        <div className="ui-center-surface flex-1 flex overflow-hidden relative">
         {/* Chat Area */}
-        <main className="flex-1 flex flex-col min-w-0 bg-black relative">
+        <main className="ui-center-surface flex-1 flex flex-col min-w-0 relative">
           {isHydrating ? (
             <div className="flex-1 flex items-center justify-center bg-background">
               <div className="flex flex-col items-center gap-4">
@@ -362,7 +401,8 @@ export function Workspace({
                 handleInputChange,
                 handleSubmit,
                 append,
-                stop,
+                stop: handleStopRun,
+                canStop: canStopRun,
                 isLoading: isRunLoading,
                 error: chatError,
                 debugEvents,

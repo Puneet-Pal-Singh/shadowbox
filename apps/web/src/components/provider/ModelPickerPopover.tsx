@@ -421,10 +421,12 @@ export function ModelPickerPopover({
     modelId: string,
   ): Promise<void> => {
     setSelectingModelId(modelId);
+    setIsOpen(false);
+    setSearchQuery("");
     try {
       await onSelectModel(providerId, modelId);
-      setIsOpen(false);
-      setSearchQuery("");
+    } catch (error) {
+      console.error("[model-picker/select] Failed to persist model selection:", error);
     } finally {
       setSelectingModelId(null);
     }

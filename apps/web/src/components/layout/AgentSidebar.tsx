@@ -1,4 +1,4 @@
-import { Check, FolderPlus, ListFilter, Search } from "lucide-react";
+import { Check, FolderPlus, ListFilter, Search, Settings } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AgentSession } from "../../hooks/useSessionManager";
 import {
@@ -20,6 +20,7 @@ interface AgentSidebarProps {
   onRenameRepository?: (oldName: string, newName: string) => void;
   onClose?: () => void;
   onAddRepository: () => void;
+  onOpenSettings: () => void;
   width?: number;
 }
 
@@ -108,6 +109,7 @@ export function AgentSidebar({
   onRenameRepository,
   onClose,
   onAddRepository,
+  onOpenSettings,
   width = 280,
 }: AgentSidebarProps) {
   const [searchQuery, setSearchQuery] = useState("");
@@ -196,7 +198,7 @@ export function AgentSidebar({
           value={searchQuery}
           onChange={(event) => setSearchQuery(event.target.value)}
           placeholder="Search tasks and workspaces"
-          className="h-8 w-full rounded-lg border border-zinc-700/40 bg-zinc-900/30 pl-7 pr-2 text-xs text-zinc-300 outline-none transition-colors placeholder:text-zinc-600 focus:border-zinc-600/60"
+          className="ui-input h-8 w-full pl-7 pr-2 text-xs text-zinc-300"
           aria-label="Search tasks"
         />
       </div>
@@ -235,7 +237,7 @@ export function AgentSidebar({
             {isFilterMenuOpen ? (
               <div
                 role="menu"
-                className="absolute right-0 top-8 z-30 w-48 rounded-xl border border-zinc-700 bg-zinc-900/95 p-2 shadow-2xl"
+                className="ui-surface-popover absolute right-0 top-8 z-30 w-48 p-2"
               >
                 <div className="px-1 pb-1 text-xs font-medium text-zinc-400">
                   Show
@@ -267,14 +269,24 @@ export function AgentSidebar({
   );
 
   const footer = (
-    <button
-      type="button"
-      onClick={onAddRepository}
-      className="inline-flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs font-medium text-zinc-400 transition-colors hover:bg-zinc-900 hover:text-zinc-200"
-    >
-      <FolderPlus size={13} className="text-zinc-500" />
-      Add repository
-    </button>
+    <div className="space-y-1.5">
+      <button
+        type="button"
+        onClick={onAddRepository}
+        className="inline-flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium text-zinc-300 transition-colors hover:bg-zinc-900 hover:text-zinc-100"
+      >
+        <FolderPlus size={15} className="text-zinc-400" />
+        Add repository
+      </button>
+      <button
+        type="button"
+        onClick={onOpenSettings}
+        className="inline-flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium text-zinc-300 transition-colors hover:bg-zinc-900 hover:text-zinc-100"
+      >
+        <Settings size={15} className="text-zinc-400" />
+        Settings
+      </button>
+    </div>
   );
 
   return (

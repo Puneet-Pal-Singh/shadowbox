@@ -1,7 +1,6 @@
 import { useRef, useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import {
-  Plus,
   ArrowUp,
   Square,
   X,
@@ -21,7 +20,7 @@ import {
 import { useProviderStore } from "../../hooks/useProviderStore.js";
 import { findCredentialByProviderId } from "../../lib/provider-helpers.js";
 import { ProviderDialog, ModelPickerPopover } from "../provider/index.js";
-import { ChatModeToggle } from "./ChatModeToggle.js";
+import { ChatComposerPlusMenu } from "./ChatComposerPlusMenu.js";
 import {
   applyFileMention,
   filterFileMentionCandidates,
@@ -36,6 +35,8 @@ import {
 
 const IDLE_SWITCH_WARNING =
   "Changing models mid-conversation will degrade performance.";
+const ACTIVE_RUN_SWITCH_WARNING =
+  "Stop the current run before changing mode or model.";
 const WARNING_AUTO_DISMISS_MS = 4000;
 const BUILD_PLACEHOLDER =
   "Ask LegionCode anything, @ to add files, / for commands";
@@ -48,6 +49,7 @@ interface ChatInputBarProps {
   onChange: (value: string) => void;
   onSubmit: () => void;
   onStop?: () => void;
+  canStop?: boolean;
   isLoading?: boolean;
   placeholder?: string;
   sessionId: string;
@@ -57,6 +59,7 @@ interface ChatInputBarProps {
   onModelSelect?: (providerId: ProviderId, modelId: string) => void;
   repoTree?: Array<{ path: string; type: string; sha: string }>;
   isLoadingRepoTree?: boolean;
+  layout?: "docked" | "hero";
 }
 
 export function ChatInputBar({
@@ -64,6 +67,7 @@ export function ChatInputBar({
   onChange,
   onSubmit,
   onStop,
+  canStop = false,
   isLoading = false,
   placeholder,
   sessionId,
@@ -73,13 +77,16 @@ export function ChatInputBar({
   onModelSelect,
   repoTree = [],
   isLoadingRepoTree = false,
+  layout = "docked",
 }: ChatInputBarProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [isFocused, setIsFocused] = useState(false);
   const [cursorPosition, setCursorPosition] = useState(0);
   const [highlightedFileIndex, setHighlightedFileIndex] = useState(0);
-  const [idleSwitchWarning, setIdleSwitchWarning] = useState(false);
-  const [idleSwitchWarningTick, setIdleSwitchWarningTick] = useState(0);
+  const [switchWarningMessage, setSwitchWarningMessage] = useState<string | null>(
+    null,
+  );
+  const [switchWarningTick, setSwitchWarningTick] = useState(0);
   const [dismissedMentionKey, setDismissedMentionKey] = useState<string | null>(
     null,
   );
@@ -121,6 +128,8 @@ export function ChatInputBar({
     applySessionSelection,
   } = useProviderStore();
   const hasInput = input.trim().length > 0;
+  const shouldShowStop = canStop && onStop !== undefined;
+  const isComposerActiveRun = isLoading || canStop || shouldShowStop;
   const effectivePlaceholder =
     placeholder ?? (mode === "plan" ? PLAN_PLACEHOLDER : BUILD_PLACEHOLDER);
   const suggestionEntries = useMemo(
@@ -260,7 +269,7 @@ export function ChatInputBar({
 
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      if (isLoading) {
+      if (isComposerActiveRun) {
         return;
       }
       onSubmit();
@@ -314,18 +323,38 @@ export function ChatInputBar({
   ]);
 
   useEffect(() => {
-    if (!idleSwitchWarning) {
+    if (!switchWarningMessage) {
       return;
     }
 
     const timeoutId = window.setTimeout(() => {
-      setIdleSwitchWarning(false);
+      setSwitchWarningMessage(null);
     }, WARNING_AUTO_DISMISS_MS);
 
     return () => {
       window.clearTimeout(timeoutId);
     };
-  }, [idleSwitchWarning, idleSwitchWarningTick]);
+  }, [switchWarningMessage, switchWarningTick]);
+
+  const showSwitchWarning = (message: string) => {
+    setSwitchWarningMessage(message);
+    setSwitchWarningTick((value) => value + 1);
+  };
+
+  const guardActiveRunSwitch = () => {
+    if (!isComposerActiveRun) {
+      return false;
+    }
+    showSwitchWarning(ACTIVE_RUN_SWITCH_WARNING);
+    return true;
+  };
+
+  const handleModeChange = (nextMode: RunMode) => {
+    if (guardActiveRunSwitch()) {
+      return;
+    }
+    onModeChange?.(nextMode);
+  };
 
   const selectSuggestedFile = (filePath: string) => {
     if (!activeMention) {
@@ -389,7 +418,7 @@ export function ChatInputBar({
 
   return (
     <>
-      {idleSwitchWarning ? (
+      {switchWarningMessage ? (
         <motion.div
           initial={{ opacity: 0, y: -12, scale: 0.98 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -400,12 +429,12 @@ export function ChatInputBar({
         >
           <div
             role="status"
-            className="flex items-center gap-3 rounded-2xl border border-zinc-700 bg-zinc-900/95 px-4 py-2 text-sm text-zinc-100 shadow-2xl backdrop-blur-sm"
+            className="ui-surface-popover flex items-center gap-3 px-4 py-2 text-sm text-zinc-100"
           >
-            <span>{IDLE_SWITCH_WARNING}</span>
+            <span>{switchWarningMessage}</span>
             <button
               type="button"
-              onClick={() => setIdleSwitchWarning(false)}
+              onClick={() => setSwitchWarningMessage(null)}
               className="rounded p-0.5 text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
               aria-label="Dismiss model switch warning"
             >
@@ -420,10 +449,14 @@ export function ChatInputBar({
           e.preventDefault();
           onSubmit();
         }}
-        className="relative w-full max-w-4xl mx-auto px-4 pb-3"
+        className={
+          layout === "hero"
+            ? "relative w-full max-w-4xl mx-auto"
+            : "relative w-full max-w-4xl mx-auto px-4 pb-3"
+        }
       >
         {shouldShowFilePicker ? (
-          <div className="absolute inset-x-5 bottom-full z-30 mb-2 overflow-hidden rounded-[1.05rem] border border-zinc-800 bg-[#171717] shadow-[0_8px_24px_rgba(0,0,0,0.22)]">
+          <div className="ui-surface-popover absolute inset-x-5 bottom-full z-30 mb-2 overflow-hidden">
             <div
               id={filePickerListId}
               role="listbox"
@@ -489,7 +522,7 @@ export function ChatInputBar({
 
         <div
           className={`
-            bg-[#171717] rounded-xl p-3
+            ui-control-surface p-3
             transition-all duration-200
             ${isFocused ? "shadow-lg shadow-black/20" : ""}
           `}
@@ -531,7 +564,7 @@ export function ChatInputBar({
                 {onModeChange ? (
                   <button
                     type="button"
-                    onClick={() => onModeChange("build")}
+                    onClick={() => handleModeChange("build")}
                     className="rounded-full border border-cyan-700/70 px-2.5 py-1 font-medium text-cyan-100 transition hover:border-cyan-500 hover:bg-cyan-900/40"
                   >
                     Switch to Build
@@ -543,7 +576,7 @@ export function ChatInputBar({
 
           {WEB_PROVIDER_POLICY.isByokFirstProduction &&
           credentials.length === 0 ? (
-            <div className="mt-3 rounded-xl border border-zinc-800 bg-zinc-900/60 px-3 py-2 text-xs text-zinc-300">
+            <div className="ui-control-surface mt-3 px-3 py-2 text-xs text-zinc-300">
               Connect a BYOK provider to pick a model before sending prompts.
               <button
                 type="button"
@@ -565,26 +598,14 @@ export function ChatInputBar({
           <div className="flex items-center justify-between mt-2 pt-2">
             {/* Left: Add button + Model picker */}
             <div className="flex items-center gap-1.5">
-              <ChatModeToggle
+              <ChatComposerPlusMenu
                 mode={mode}
-                onModeChange={(nextMode) => onModeChange?.(nextMode)}
-                disabled={isLoading}
+                disabled={isComposerActiveRun}
+                onModeChange={handleModeChange}
+                onAddFiles={insertMentionTrigger}
               />
 
-              <div className="h-3.5 w-px bg-zinc-800" />
-
-              <motion.button
-                type="button"
-                onClick={insertMentionTrigger}
-                whileHover={{ scale: 1.1 }}
-                whileTap={{ scale: 0.9 }}
-                className="p-1 text-zinc-500 hover:text-zinc-300 transition-colors"
-                title="Add files"
-              >
-                <Plus size={16} />
-              </motion.button>
-
-              <div className="h-3.5 w-px bg-zinc-800" />
+              <div className="h-3.5 w-px bg-zinc-700/80" />
 
               <ModelPickerPopover
                 catalog={catalog}
@@ -613,6 +634,9 @@ export function ChatInputBar({
                   refreshingModelsForProviderId === selectedProviderId
                 }
                 onSelectModel={async (providerId, modelId) => {
+                  if (guardActiveRunSwitch()) {
+                    return;
+                  }
                   const credential = findCredentialByProviderId(
                     credentials,
                     providerId,
@@ -624,15 +648,14 @@ export function ChatInputBar({
                     setShowProviderDialog(true);
                     return;
                   }
+                  if (hasMessages && !isComposerActiveRun) {
+                    showSwitchWarning(IDLE_SWITCH_WARNING);
+                  }
                   await applySessionSelection({
                     providerId,
                     credentialId: credential.credentialId,
                     modelId,
                   });
-                  if (hasMessages && !isLoading) {
-                    setIdleSwitchWarning(true);
-                    setIdleSwitchWarningTick((value) => value + 1);
-                  }
                 }}
                 onSelectModelView={setModelView}
                 onLoadMoreSelectedProviderModels={loadMoreProviderModels}
@@ -669,14 +692,15 @@ export function ChatInputBar({
             <div className="flex items-center gap-1.5">
               <motion.button
                 type="button"
-                onClick={isLoading ? onStop : onSubmit}
-                disabled={isLoading ? !onStop : !input.trim()}
+                onClick={shouldShowStop ? onStop : onSubmit}
+                disabled={shouldShowStop ? false : !input.trim()}
+                aria-label={shouldShowStop ? "Stop generation" : "Send message"}
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
                 className={`
                   p-1.5 rounded-full transition-all
                   ${
-                    isLoading
+                    shouldShowStop
                       ? "bg-white text-black hover:bg-zinc-200"
                       : input.trim()
                         ? "bg-white text-black hover:bg-zinc-200"
@@ -684,7 +708,7 @@ export function ChatInputBar({
                   }
                 `}
               >
-                {isLoading ? <Square size={14} /> : <ArrowUp size={16} />}
+                {shouldShowStop ? <Square size={14} /> : <ArrowUp size={16} />}
               </motion.button>
             </div>
           </div>

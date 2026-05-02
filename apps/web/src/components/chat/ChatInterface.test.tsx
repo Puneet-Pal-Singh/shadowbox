@@ -11,6 +11,8 @@ const mockChatInputBar = vi.hoisted(() =>
     return <div data-testid="chat-input-bar" />;
   }),
 );
+const mockLogin = vi.hoisted(() => vi.fn());
+const mockRefreshSession = vi.hoisted(() => vi.fn(async () => undefined));
 
 vi.mock("./ChatInputBar.js", () => ({
   ChatInputBar: (props: unknown) => mockChatInputBar(props),
@@ -40,6 +42,17 @@ vi.mock("../../hooks/useProviderStore.js", () => ({
   useProviderStore: vi.fn(() => ({ providerModels: {} })),
 }));
 
+vi.mock("../../contexts/AuthContext.js", () => ({
+  useAuth: () => ({
+    isAuthenticated: true,
+    user: null,
+    isLoading: false,
+    login: mockLogin,
+    logout: vi.fn(),
+    refreshSession: mockRefreshSession,
+  }),
+}));
+
 const mockDispatchRunSummaryRefresh = vi.fn();
 vi.mock("../../lib/run-summary-events.js", () => ({
   RUN_SUMMARY_REFRESH_EVENT: "shadowbox:run-summary:refresh",
@@ -55,6 +68,8 @@ describe("ChatInterface", () => {
   beforeEach(() => {
     vi.unstubAllGlobals();
     mockChatInputBar.mockClear();
+    mockLogin.mockClear();
+    mockRefreshSession.mockClear();
     mockDispatchRunSummaryRefresh.mockReset();
     vi.mocked(useRunEvents).mockReturnValue({ events: [] });
     Object.defineProperty(HTMLElement.prototype, "scrollTo", {
@@ -655,6 +670,45 @@ describe("ChatInterface", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("auto-switches back to build mode after recoverable planner failures in plan mode", () => {
+    const onModeChange = vi.fn();
+
+    render(
+      <ChatInterface
+        chatProps={{
+          messages: [
+            {
+              id: "user-1",
+              role: "user",
+              content: "hey",
+            },
+            {
+              id: "assistant-1",
+              role: "assistant",
+              content:
+                "I couldn't generate a valid structured plan for this turn, so I stopped before running tools.",
+            },
+          ],
+          runId: "run-1",
+          input: "",
+          handleInputChange: vi.fn(),
+          handleSubmit: vi.fn(),
+          append: vi.fn(),
+          stop: vi.fn(),
+          isLoading: false,
+          error: null,
+          debugEvents: [],
+        }}
+        sessionId="session-1"
+        mode="plan"
+        onModeChange={onModeChange}
+      />,
+    );
+
+    expect(onModeChange).toHaveBeenCalledWith("build");
+    expect(onModeChange).toHaveBeenCalledTimes(1);
+  });
+
   it("passes the active repository through to the chat input bar", () => {
     render(
       <ChatInterface
@@ -716,6 +770,42 @@ describe("ChatInterface", () => {
       screen.getByText("Switch to another connected provider or retry after rate limits reset."),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Switch Provider" })).toBeInTheDocument();
+  });
+
+  it("routes expired app-session recovery to login instead of provider setup", async () => {
+    render(
+      <ChatInterface
+        chatProps={{
+          messages: [
+            {
+              id: "user-1",
+              role: "user",
+              content: "yoyo",
+            },
+          ],
+          runId: "run-1",
+          input: "",
+          handleInputChange: vi.fn(),
+          handleSubmit: vi.fn(),
+          append: vi.fn(),
+          stop: vi.fn(),
+          isLoading: false,
+          error: "Your session is missing or expired. Log in again and retry.",
+          debugEvents: [],
+        }}
+        sessionId="session-1"
+        mode="build"
+      />,
+    );
+
+    expect(screen.getByText("Your login session is missing or expired.")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(mockRefreshSession).toHaveBeenCalledTimes(1);
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Log in again" }));
+
+    expect(mockLogin).toHaveBeenCalledTimes(1);
   });
 
   it("keeps each workflow turn attached to its matching user query", () => {

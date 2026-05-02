@@ -30,6 +30,7 @@ export interface ConnectProviderChooserProps {
   onErrorClear?: () => void;
   presentation?: "card" | "plain";
   showTitle?: boolean;
+  initialSelectedProviderId?: string;
 }
 
 /**
@@ -52,13 +53,8 @@ export function ConnectProviderChooser({
   onErrorClear,
   presentation = "card",
   showTitle = true,
+  initialSelectedProviderId,
 }: ConnectProviderChooserProps): React.ReactElement {
-  const [view, setView] = useState<"providers" | "credentials">("providers");
-  const [searchQuery, setSearchQuery] = useState("");
-  const [selectedProviderId, setSelectedProviderId] = useState<string | null>(null);
-  const [apiSecret, setApiSecret] = useState("");
-  const searchInputRef = useRef<HTMLInputElement>(null);
-
   const providerOptions = useMemo((): ProviderOption[] => {
     return catalog
       .filter(
@@ -73,6 +69,22 @@ export function ConnectProviderChooser({
         displayName: entry.displayName,
       }));
   }, [catalog]);
+  const initialProviderId =
+    initialSelectedProviderId &&
+    providerOptions.some(
+      (option) => option.entry.providerId === initialSelectedProviderId,
+    )
+      ? initialSelectedProviderId
+      : null;
+  const [view, setView] = useState<"providers" | "credentials">(
+    initialProviderId ? "credentials" : "providers",
+  );
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedProviderId, setSelectedProviderId] = useState<string | null>(
+    initialProviderId,
+  );
+  const [apiSecret, setApiSecret] = useState("");
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   const filteredProviders = useMemo((): ProviderOption[] => {
     if (!searchQuery.trim()) {
@@ -91,14 +103,14 @@ export function ConnectProviderChooser({
     ? catalog.find((provider) => provider.providerId === selectedProviderId)
     : null;
 
-  const handleSelectProvider = (providerId: string): void => {
+  const handleSelectProvider = React.useCallback((providerId: string): void => {
     setSelectedProviderId(providerId);
     setView("credentials");
     setApiSecret("");
     if (onErrorClear) {
       onErrorClear();
     }
-  };
+  }, [onErrorClear]);
 
   const handleBackToProviders = (): void => {
     setView("providers");

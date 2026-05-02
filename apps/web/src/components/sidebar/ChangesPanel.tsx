@@ -54,7 +54,7 @@ export function ChangesPanel({
   if (statusLoading && !status) {
     return (
       <div
-        className={`flex items-center justify-center h-full bg-black ${className}`}
+        className={`flex items-center justify-center h-full bg-transparent ${className}`}
       >
         <LoaderCircle className="animate-spin text-zinc-400" size={24} />
       </div>
@@ -63,7 +63,7 @@ export function ChangesPanel({
 
   if (statusError) {
     return (
-      <div className={`p-4 text-red-400 text-sm bg-black ${className}`}>
+      <div className={`p-4 text-red-400 text-sm bg-transparent ${className}`}>
         Error: {statusError}
       </div>
     );
@@ -71,7 +71,7 @@ export function ChangesPanel({
 
   if (!gitAvailable) {
     return (
-      <div className={`p-4 text-zinc-400 text-sm bg-black ${className}`}>
+      <div className={`p-4 text-zinc-400 text-sm bg-transparent ${className}`}>
         Git is not available for this workspace yet. Connect or initialize a
         repository to use source control actions.
       </div>
@@ -79,10 +79,10 @@ export function ChangesPanel({
   }
 
   return (
-    <div className={`flex flex-col h-full gap-4 p-4 bg-black ${className}`}>
+    <div className={`flex flex-col h-full gap-4 p-4 bg-transparent ${className}`}>
       <div className="flex-1 flex gap-4 min-h-0 overflow-hidden">
         <div
-          className={`flex flex-col bg-black rounded-lg border border-zinc-800 overflow-y-auto scrollbar-hide ${
+          className={`ui-surface-section flex flex-col overflow-y-auto scrollbar-hide ${
             mode === "sidebar" ? "w-full" : "w-80"
           }`}
         >
@@ -98,7 +98,7 @@ export function ChangesPanel({
         </div>
 
         {mode === "modal" && (
-          <div className="flex-1 flex flex-col overflow-hidden bg-zinc-900/30 rounded-lg border border-zinc-800">
+          <div className="ui-surface-section flex-1 flex flex-col overflow-hidden">
             {selectedFile && diff ? (
               <DiffViewer
                 key={`${diff.oldPath}:${diff.newPath}:${diff.hunks.length}`}

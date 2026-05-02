@@ -7,23 +7,15 @@ import { motion } from "framer-motion";
 import {
   ChevronDown,
   Cloud,
-  Gamepad2,
   Folder,
   FileCode2,
   FileText,
   Info,
-  GitPullRequest,
-  Plus,
-  Mic,
   ArrowUp,
-  Paperclip,
   TerminalSquare,
 } from "lucide-react";
 import {
-  staggerContainer,
-  staggerItem,
   slideUp,
-  hoverScaleSmall,
 } from "../../lib/animations";
 import { useGitHub } from "../github/GitHubContextProvider";
 import { ChatBranchSelector } from "../chat/ChatBranchSelector";
@@ -41,7 +33,7 @@ import { Resizer } from "../ui/Resizer";
 import { useGitStatus } from "../../hooks/useGitStatus";
 import { useGitDiff } from "../../hooks/useGitDiff";
 import type { FileExplorerHandle } from "../FileExplorer";
-import { ChatModeToggle } from "../chat/ChatModeToggle.js";
+import { ChatComposerPlusMenu } from "../chat/ChatComposerPlusMenu.js";
 import { PermissionModeControl } from "../chat/PermissionModeControl.js";
 import {
   applyFileMention,
@@ -63,7 +55,6 @@ interface AgentSetupProps {
   onModeChange?: (mode: RunMode) => void;
   requiresRepository?: boolean;
   showOnboardingHighlights?: boolean;
-  openProviderDialogSignal?: number;
   onStart: (config: {
     repo: string;
     branch: string;
@@ -72,30 +63,6 @@ interface AgentSetupProps {
   }) => void;
   onRepoClick?: () => void;
 }
-
-interface SuggestedAction {
-  icon: React.ElementType;
-  title: string;
-  gradient: string;
-}
-
-const SUGGESTED_ACTIONS: SuggestedAction[] = [
-  {
-    icon: Gamepad2,
-    title: "Build a classic Snake game in this repo.",
-    gradient: "from-blue-500/10 to-purple-500/10",
-  },
-  {
-    icon: FileText,
-    title: "Create a one-page $pdf that summarizes this app.",
-    gradient: "from-emerald-500/10 to-teal-500/10",
-  },
-  {
-    icon: GitPullRequest,
-    title: "Summarize last week's PRs by teammate and theme.",
-    gradient: "from-orange-500/10 to-red-500/10",
-  },
-];
 
 interface SetupSidebarHeaderProps {
   isViewingContent: boolean;
@@ -133,7 +100,6 @@ export function AgentSetup({
   onModeChange,
   requiresRepository = false,
   showOnboardingHighlights = false,
-  openProviderDialogSignal = 0,
   onStart,
   onRepoClick,
 }: AgentSetupProps) {
@@ -150,7 +116,6 @@ export function AgentSetup({
   const [mentionNavigationKey, setMentionNavigationKey] = useState<
     string | null
   >(null);
-  const [hoveredCard, setHoveredCard] = useState<number | null>(null);
   const [showProviderDialog, setShowProviderDialog] = useState(false);
   const [providerDialogInitialTab, setProviderDialogInitialTab] = useState<
     "connected" | "available" | "preferences" | "session" | undefined
@@ -205,7 +170,6 @@ export function AgentSetup({
     });
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const explorerRef = useRef<FileExplorerHandle>(null);
-  const previousProviderDialogSignalRef = useRef(openProviderDialogSignal);
   const workspaceBootstrapKeyRef = useRef<string | null>(null);
   const workspaceBootstrapInFlightRef = useRef<string | null>(null);
   const activeRunId = runId ?? "";
@@ -328,18 +292,6 @@ export function AgentSetup({
   ]);
 
   useEffect(() => {
-    if (openProviderDialogSignal === previousProviderDialogSignalRef.current) {
-      return;
-    }
-
-    previousProviderDialogSignalRef.current = openProviderDialogSignal;
-    setProviderDialogInitialTab("available");
-    setProviderDialogInitialView("default");
-    setProviderDialogVariant("connect-only");
-    setShowProviderDialog(true);
-  }, [openProviderDialogSignal]);
-
-  useEffect(() => {
     const owner = repo?.owner?.login?.trim();
     const name = repo?.name?.trim();
     const targetBranch = (branch || repo?.default_branch || "main").trim();
@@ -436,10 +388,6 @@ export function AgentSetup({
         mode,
       });
     }
-  };
-
-  const handleSuggestedAction = (title: string) => {
-    setTask(title);
   };
 
   const handleTaskChange = (value: string, nextCursorPosition?: number) => {
@@ -547,6 +495,268 @@ export function AgentSetup({
 
   const repoName =
     repo?.name || (requiresRepository ? "Connect repository" : "New Project");
+  const renderSetupComposer = (placement: "hero" | "docked") => (
+    <motion.div
+      className={placement === "hero" ? "w-full max-w-4xl" : "max-w-4xl mx-auto"}
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.4, duration: 0.4 }}
+    >
+      <form
+        onSubmit={handleSubmit}
+        className={placement === "hero" ? "relative" : "relative px-4 pb-3"}
+      >
+        {shouldShowFilePicker ? (
+          <div className="absolute inset-x-0 bottom-full z-30 mb-2 overflow-hidden rounded-[1.05rem] border border-zinc-800 bg-[#171717] shadow-[0_8px_24px_rgba(0,0,0,0.22)]">
+            <div
+              id={filePickerListId}
+              role="listbox"
+              aria-label="Repository files"
+              className="max-h-[19rem] overflow-y-auto p-2"
+            >
+              {isLoadingTree ? (
+                <div className="px-3 py-4 text-[11px] text-zinc-500">
+                  Loading repository files...
+                </div>
+              ) : suggestedEntries.length === 0 ? (
+                <div className="px-3 py-4 text-[11px] text-zinc-500">
+                  No files match{" "}
+                  <span className="font-medium text-zinc-200">
+                    @{activeMention?.query ?? ""}
+                  </span>
+                </div>
+              ) : (
+                suggestedEntries.map((entry, index) => {
+                  const lastSlashIndex = entry.path.lastIndexOf("/");
+                  const directory =
+                    lastSlashIndex >= 0
+                      ? entry.path.slice(0, lastSlashIndex)
+                      : "";
+                  const Icon = getSuggestionIcon(entry.path, entry.type);
+
+                  return (
+                    <button
+                      key={entry.path}
+                      id={`${filePickerListId}-option-${index}`}
+                      type="button"
+                      role="option"
+                      aria-selected={index === highlightedSuggestionIndex}
+                      onMouseDown={(event) => {
+                        event.preventDefault();
+                        selectSuggestedFile(entry.path);
+                      }}
+                      className={`flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left transition-colors ${
+                        index === highlightedSuggestionIndex
+                          ? "bg-[#2b2b2d] text-white"
+                          : "text-zinc-300 hover:bg-white/[0.04]"
+                      }`}
+                    >
+                      <Icon
+                        size={14}
+                        className={getSuggestionIconClass(entry.path, entry.type)}
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-[13px] font-medium">
+                          {entry.path}
+                        </div>
+                        {directory ? (
+                          <div className="truncate text-[11px] text-zinc-500">
+                            {directory}
+                          </div>
+                        ) : null}
+                      </div>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        ) : null}
+        <motion.div
+          className={`
+            ui-control-surface relative z-10 p-3
+            transition-all duration-200
+            ${isInputFocused ? "shadow-lg shadow-black/20" : ""}
+          `}
+          animate={{
+            boxShadow: isInputFocused
+              ? "0 4px 20px rgba(0, 0, 0, 0.3)"
+              : "0 0 0 0px rgba(0, 0, 0, 0)",
+          }}
+        >
+          <textarea
+            ref={textareaRef}
+            value={task}
+            onChange={(e) =>
+              handleTaskChange(
+                e.target.value,
+                e.currentTarget.selectionStart ?? e.target.value.length,
+              )
+            }
+            onKeyDown={handleTaskKeyDown}
+            onClick={syncCursorPosition}
+            onKeyUp={syncCursorPosition}
+            onSelect={syncCursorPosition}
+            onFocus={() => setIsInputFocused(true)}
+            onBlur={() => setIsInputFocused(false)}
+            placeholder="Ask LegionCode anything, @ to add files, / for commands"
+            rows={1}
+            aria-controls={shouldShowFilePicker ? filePickerListId : undefined}
+            aria-expanded={shouldShowFilePicker}
+            aria-activedescendant={activeSuggestionId}
+            className={`w-full bg-transparent text-sm text-white placeholder-zinc-500 focus:outline-none resize-none overflow-hidden min-h-[20px] ${hasTask ? "max-h-[200px]" : "max-h-[400px]"}`}
+            style={{ lineHeight: "1.5" }}
+          />
+
+          <div className="mt-2 flex items-center justify-between pt-2">
+            <div className="flex items-center gap-1.5">
+              <ChatComposerPlusMenu
+                mode={mode}
+                onModeChange={onModeChange}
+                onAddFiles={insertMentionTrigger}
+              />
+
+              <div className="h-3.5 w-px bg-zinc-800" />
+
+              <div
+                data-onboarding-target="setup-provider"
+                className={
+                  showOnboardingHighlights
+                    ? "rounded-md ring-2 ring-cyan-500/70 ring-offset-2 ring-offset-black"
+                    : undefined
+                }
+              >
+                <ModelPickerPopover
+                  catalog={catalog}
+                  credentials={credentials}
+                  providerModels={providerModels}
+                  visibleModelIds={visibleModelIds}
+                  selectedProviderId={selectedProviderId}
+                  selectedModelId={selectedModelId}
+                  selectedModelView={selectedModelView}
+                  selectedProviderMetadata={
+                    selectedProviderId
+                      ? (providerModelsMetadata[selectedProviderId] ?? null)
+                      : null
+                  }
+                  hasMoreSelectedProviderModels={
+                    selectedProviderId
+                      ? (providerModelsPage[selectedProviderId]?.hasMore ?? false)
+                      : false
+                  }
+                  isLoadingMoreSelectedProviderModels={
+                    selectedProviderId !== null &&
+                    loadingModelsForProviderId === selectedProviderId
+                  }
+                  isRefreshingSelectedProviderModels={
+                    selectedProviderId !== null &&
+                    refreshingModelsForProviderId === selectedProviderId
+                  }
+                  onSelectModel={async (providerId, modelId) => {
+                    const credential = findCredentialByProviderId(
+                      credentials,
+                      providerId,
+                    );
+                    if (!credential) {
+                      setProviderDialogInitialTab("available");
+                      setProviderDialogInitialView("default");
+                      setProviderDialogVariant("connect-only");
+                      setShowProviderDialog(true);
+                      return;
+                    }
+                    await applySessionSelection({
+                      providerId,
+                      credentialId: credential.credentialId,
+                      modelId,
+                    });
+                  }}
+                  onSelectModelView={setModelView}
+                  onLoadMoreSelectedProviderModels={loadMoreProviderModels}
+                  onRefreshSelectedProviderModels={refreshProviderModels}
+                  onConnectProvider={() => {
+                    setProviderDialogInitialTab("available");
+                    setProviderDialogInitialView("default");
+                    setProviderDialogVariant("connect-only");
+                    setShowProviderDialog(true);
+                  }}
+                  onManageModels={() => {
+                    setProviderDialogInitialTab("connected");
+                    setProviderDialogInitialView("manage-models");
+                    setProviderDialogVariant("manage-models-only");
+                    setShowProviderDialog(true);
+                  }}
+                  isLoading={isModelPickerLoading}
+                  isHydratingVisibleModels={isSelectedProviderModelHydrationPending}
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <motion.button
+                type="submit"
+                disabled={!canStart}
+                whileHover={{ scale: canStart ? 1.05 : 1 }}
+                whileTap={{ scale: canStart ? 0.95 : 1 }}
+                className={`
+                  p-1.5 rounded-full transition-all duration-200
+                  ${
+                    canStart
+                      ? "bg-white text-black hover:bg-zinc-100 shadow-lg shadow-white/10"
+                      : "bg-zinc-800 text-zinc-600 cursor-not-allowed"
+                  }
+                `}
+                title={
+                  requiresRepository && !hasRepositoryContext
+                    ? "Connect a repository to start"
+                    : undefined
+                }
+              >
+                <ArrowUp size={16} />
+                </motion.button>
+            </div>
+          </div>
+        </motion.div>
+
+        <div className="relative -mt-1 px-0.5">
+          <div className="rounded-b-xl border-x border-b border-zinc-800/90 bg-[#101114] px-3 pb-2 pt-3">
+            <div className="flex items-center gap-2">
+              <ChatBranchSelector />
+              <div className="h-4 w-px bg-zinc-800/80" />
+              <PermissionModeControl
+                value={productMode}
+                onChange={setProductMode}
+                appearance="ghost"
+              />
+            </div>
+          </div>
+        </div>
+      </form>
+      {requiresRepository && !hasRepositoryContext ? (
+        <div className="mt-2 pl-2 text-xs text-zinc-500">
+          Connect a repository before starting a repo-backed task. You can still
+          add your provider key now.
+        </div>
+      ) : null}
+      {credentials.length === 0 ? (
+        <div className="mt-2 pl-2 text-xs text-zinc-500">
+          BYOK provider required before model selection.
+          <button
+            type="button"
+            onClick={() => {
+              setProviderDialogInitialTab("available");
+              setProviderDialogInitialView("default");
+              setProviderDialogVariant("connect-only");
+              setShowProviderDialog(true);
+            }}
+            className="ml-1 text-cyan-300 hover:text-cyan-200 underline-offset-2 hover:underline"
+          >
+            Connect provider
+          </button>
+          .
+        </div>
+      ) : null}
+    </motion.div>
+  );
 
   return (
     <GitReviewProvider
@@ -626,364 +836,7 @@ export function AgentSetup({
               </motion.button>
             </motion.div>
 
-            {/* Suggestion Cards - Hidden when typing */}
-            <motion.div
-              className={`flex gap-2 w-full max-w-3xl mb-6 ${task.trim() ? "hidden" : ""}`}
-              variants={staggerContainer}
-              initial="initial"
-              animate="animate"
-            >
-              {SUGGESTED_ACTIONS.map((action, idx) => {
-                const Icon = action.icon;
-                const isHovered = hoveredCard === idx;
-
-                return (
-                  <motion.button
-                    key={idx}
-                    type="button"
-                    variants={staggerItem}
-                    onClick={() => handleSuggestedAction(action.title)}
-                    onMouseEnter={() => setHoveredCard(idx)}
-                    onMouseLeave={() => setHoveredCard(null)}
-                    whileHover={{ scale: 1.02, y: -2 }}
-                    whileTap={{ scale: 0.98 }}
-                    className={`
-                  flex-1 flex flex-col gap-2 p-3 
-                  bg-[#171717] border rounded-lg text-left 
-                  transition-all duration-200 group relative overflow-hidden
-                  ${isHovered ? "border-[#404040]" : "border-[#262626]"}
-                `}
-                  >
-                    {/* Gradient overlay on hover */}
-                    <motion.div
-                      className={`absolute inset-0 bg-gradient-to-br ${action.gradient} opacity-0 group-hover:opacity-100 transition-opacity duration-300`}
-                      initial={false}
-                      animate={{ opacity: isHovered ? 0.5 : 0 }}
-                    />
-
-                    <div className="relative z-10">
-                      <div
-                        className={`
-                    w-6 h-6 flex items-center justify-center rounded-md 
-                    bg-zinc-800/50 text-zinc-400 
-                    group-hover:text-zinc-300 group-hover:bg-zinc-800 
-                    transition-all duration-200
-                  `}
-                      >
-                        <Icon size={14} />
-                      </div>
-                      <p className="text-xs text-zinc-200 leading-snug mt-2 group-hover:text-white transition-colors duration-200">
-                        {action.title}
-                      </p>
-                    </div>
-                  </motion.button>
-                );
-              })}
-            </motion.div>
-          </div>
-
-          {/* Input Area - Bottom */}
-          <div className="w-full px-6 pb-4">
-            <motion.div
-              className="max-w-4xl mx-auto"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.4, duration: 0.4 }}
-            >
-              <form onSubmit={handleSubmit} className="relative px-4 pb-3">
-                {shouldShowFilePicker ? (
-                  <div className="absolute inset-x-4 bottom-full z-30 mb-2 overflow-hidden rounded-[1.05rem] border border-zinc-800 bg-[#171717] shadow-[0_8px_24px_rgba(0,0,0,0.22)]">
-                    <div
-                      id={filePickerListId}
-                      role="listbox"
-                      aria-label="Repository files"
-                      className="max-h-[19rem] overflow-y-auto p-2"
-                    >
-                      {isLoadingTree ? (
-                        <div className="px-3 py-4 text-[11px] text-zinc-500">
-                          Loading repository files...
-                        </div>
-                      ) : suggestedEntries.length === 0 ? (
-                        <div className="px-3 py-4 text-[11px] text-zinc-500">
-                          No files match{" "}
-                          <span className="font-medium text-zinc-200">
-                            @{activeMention?.query ?? ""}
-                          </span>
-                        </div>
-                      ) : (
-                        suggestedEntries.map((entry, index) => {
-                          const lastSlashIndex = entry.path.lastIndexOf("/");
-                          const directory =
-                            lastSlashIndex >= 0
-                              ? entry.path.slice(0, lastSlashIndex)
-                              : "";
-                          const Icon = getSuggestionIcon(
-                            entry.path,
-                            entry.type,
-                          );
-
-                          return (
-                            <button
-                              key={entry.path}
-                              id={`${filePickerListId}-option-${index}`}
-                              type="button"
-                              role="option"
-                              aria-selected={
-                                index === highlightedSuggestionIndex
-                              }
-                              onMouseDown={(event) => {
-                                event.preventDefault();
-                                selectSuggestedFile(entry.path);
-                              }}
-                              className={`flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left transition-colors ${
-                                index === highlightedSuggestionIndex
-                                  ? "bg-[#2b2b2d] text-white"
-                                  : "text-zinc-300 hover:bg-white/[0.04]"
-                              }`}
-                            >
-                              <Icon
-                                size={14}
-                                className={getSuggestionIconClass(
-                                  entry.path,
-                                  entry.type,
-                                )}
-                              />
-                              <div className="min-w-0 flex-1">
-                                <div className="truncate text-[13px] font-medium">
-                                  {entry.path}
-                                </div>
-                                {directory ? (
-                                  <div className="truncate text-[11px] text-zinc-500">
-                                    {directory}
-                                  </div>
-                                ) : null}
-                              </div>
-                            </button>
-                          );
-                        })
-                      )}
-                    </div>
-                  </div>
-                ) : null}
-                <motion.div
-                  className={`
-                bg-[#171717] rounded-xl p-3
-                transition-all duration-200
-                ${isInputFocused ? "shadow-lg shadow-black/20" : ""}
-              `}
-                  animate={{
-                    boxShadow: isInputFocused
-                      ? "0 4px 20px rgba(0, 0, 0, 0.3)"
-                      : "0 0 0 0px rgba(0, 0, 0, 0)",
-                  }}
-                >
-                  <textarea
-                    ref={textareaRef}
-                    value={task}
-                    onChange={(e) =>
-                      handleTaskChange(
-                        e.target.value,
-                        e.currentTarget.selectionStart ?? e.target.value.length,
-                      )
-                    }
-                    onKeyDown={handleTaskKeyDown}
-                    onClick={syncCursorPosition}
-                    onKeyUp={syncCursorPosition}
-                    onSelect={syncCursorPosition}
-                    onFocus={() => setIsInputFocused(true)}
-                    onBlur={() => setIsInputFocused(false)}
-                    placeholder="Ask LegionCode anything, @ to add files, / for commands"
-                    rows={1}
-                    aria-controls={
-                      shouldShowFilePicker ? filePickerListId : undefined
-                    }
-                    aria-expanded={shouldShowFilePicker}
-                    aria-activedescendant={activeSuggestionId}
-                    className={`w-full bg-transparent text-sm text-white placeholder-zinc-500 focus:outline-none resize-none overflow-hidden min-h-[20px] ${hasTask ? "max-h-[200px]" : "max-h-[400px]"}`}
-                    style={{ lineHeight: "1.5" }}
-                  />
-
-                  {/* Toolbar */}
-                  <div className="flex items-center justify-between mt-2 pt-2">
-                    {/* Left: Add button + Model picker */}
-                    <div className="flex items-center gap-1.5">
-                      <ChatModeToggle
-                        mode={mode}
-                        onModeChange={(nextMode) => onModeChange?.(nextMode)}
-                      />
-
-                      <div className="h-3.5 w-px bg-zinc-800" />
-
-                      <motion.button
-                        type="button"
-                        {...hoverScaleSmall}
-                        onClick={insertMentionTrigger}
-                        className="p-1 text-zinc-500 hover:text-zinc-300 transition-colors duration-150"
-                        title="Add files"
-                      >
-                        <Plus size={16} />
-                      </motion.button>
-
-                      <div className="h-3.5 w-px bg-zinc-800" />
-
-                      <div
-                        data-onboarding-target="setup-provider"
-                        className={
-                          showOnboardingHighlights
-                            ? "rounded-md ring-2 ring-cyan-500/70 ring-offset-2 ring-offset-black"
-                            : undefined
-                        }
-                      >
-                        <ModelPickerPopover
-                          catalog={catalog}
-                          credentials={credentials}
-                          providerModels={providerModels}
-                          visibleModelIds={visibleModelIds}
-                          selectedProviderId={selectedProviderId}
-                          selectedModelId={selectedModelId}
-                          selectedModelView={selectedModelView}
-                          selectedProviderMetadata={
-                            selectedProviderId
-                              ? (providerModelsMetadata[selectedProviderId] ??
-                                null)
-                              : null
-                          }
-                          hasMoreSelectedProviderModels={
-                            selectedProviderId
-                              ? (providerModelsPage[selectedProviderId]
-                                  ?.hasMore ?? false)
-                              : false
-                          }
-                          isLoadingMoreSelectedProviderModels={
-                            selectedProviderId !== null &&
-                            loadingModelsForProviderId === selectedProviderId
-                          }
-                          isRefreshingSelectedProviderModels={
-                            selectedProviderId !== null &&
-                            refreshingModelsForProviderId === selectedProviderId
-                          }
-                          onSelectModel={async (providerId, modelId) => {
-                            const credential = findCredentialByProviderId(
-                              credentials,
-                              providerId,
-                            );
-                            if (!credential) {
-                              setProviderDialogInitialTab("available");
-                              setProviderDialogInitialView("default");
-                              setProviderDialogVariant("connect-only");
-                              setShowProviderDialog(true);
-                              return;
-                            }
-                            await applySessionSelection({
-                              providerId,
-                              credentialId: credential.credentialId,
-                              modelId,
-                            });
-                          }}
-                          onSelectModelView={setModelView}
-                          onLoadMoreSelectedProviderModels={
-                            loadMoreProviderModels
-                          }
-                          onRefreshSelectedProviderModels={
-                            refreshProviderModels
-                          }
-                          onConnectProvider={() => {
-                            setProviderDialogInitialTab("available");
-                            setProviderDialogInitialView("default");
-                            setProviderDialogVariant("connect-only");
-                            setShowProviderDialog(true);
-                          }}
-                          onManageModels={() => {
-                            setProviderDialogInitialTab("connected");
-                            setProviderDialogInitialView("manage-models");
-                            setProviderDialogVariant("manage-models-only");
-                            setShowProviderDialog(true);
-                          }}
-                          isLoading={isModelPickerLoading}
-                          isHydratingVisibleModels={
-                            isSelectedProviderModelHydrationPending
-                          }
-                        />
-                      </div>
-                    </div>
-
-                    {/* Right: Attachment, Mic, Send */}
-                    <div className="flex items-center gap-1.5">
-                      <motion.button
-                        type="button"
-                        {...hoverScaleSmall}
-                        className="p-1 text-zinc-500 hover:text-zinc-300 transition-colors duration-150"
-                        title="Attach file"
-                      >
-                        <Paperclip size={16} />
-                      </motion.button>
-
-                      <motion.button
-                        type="button"
-                        {...hoverScaleSmall}
-                        className="p-1 text-zinc-500 hover:text-zinc-300 transition-colors duration-150"
-                        title="Voice input"
-                      >
-                        <Mic size={16} />
-                      </motion.button>
-
-                      <motion.button
-                        type="submit"
-                        disabled={!canStart}
-                        whileHover={{ scale: canStart ? 1.05 : 1 }}
-                        whileTap={{ scale: canStart ? 0.95 : 1 }}
-                        className={`
-                      p-1.5 rounded-full transition-all duration-200
-                      ${
-                        canStart
-                          ? "bg-white text-black hover:bg-zinc-100 shadow-lg shadow-white/10"
-                          : "bg-zinc-800 text-zinc-600 cursor-not-allowed"
-                      }
-                    `}
-                        title={
-                          requiresRepository && !hasRepositoryContext
-                            ? "Connect a repository to start"
-                            : undefined
-                        }
-                      >
-                        <ArrowUp size={16} />
-                      </motion.button>
-                    </div>
-                  </div>
-                </motion.div>
-              </form>
-              <div className="mt-1 flex items-center gap-2 pl-6">
-                <ChatBranchSelector />
-                <PermissionModeControl
-                  value={productMode}
-                  onChange={setProductMode}
-                />
-              </div>
-              {requiresRepository && !hasRepositoryContext ? (
-                <div className="pl-6 mt-2 text-xs text-zinc-500">
-                  Connect a repository before starting a repo-backed task. You
-                  can still add your provider key now.
-                </div>
-              ) : null}
-              {credentials.length === 0 ? (
-                <div className="pl-6 mt-2 text-xs text-zinc-500">
-                  BYOK provider required before model selection.
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setProviderDialogInitialTab("available");
-                      setProviderDialogInitialView("default");
-                      setProviderDialogVariant("connect-only");
-                      setShowProviderDialog(true);
-                    }}
-                    className="ml-1 text-cyan-300 hover:text-cyan-200 underline-offset-2 hover:underline"
-                  >
-                    Connect provider
-                  </button>
-                  .
-                </div>
-              ) : null}
-            </motion.div>
+            <div className="mb-6 w-full max-w-4xl">{renderSetupComposer("hero")}</div>
           </div>
         </main>
 
@@ -1073,6 +926,7 @@ export function AgentSetup({
           initialView={providerDialogInitialView}
           variant={providerDialogVariant}
         />
+
       </motion.div>
     </GitReviewProvider>
   );
