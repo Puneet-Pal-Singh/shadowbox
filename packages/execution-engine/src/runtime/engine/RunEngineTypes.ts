@@ -49,6 +49,7 @@ export interface RunEngineEnv {
   MAX_RUN_BUDGET?: string;
   MAX_SESSION_BUDGET?: string;
   APPROVAL_WAIT_TIMEOUT_MS?: string;
+  FEATURE_FLAG_FINAL_SUMMARY_CONTRACT_V1?: string;
   NODE_ENV?: string;
   ALLOW_DEFAULT_EXECUTOR?: string;
 }

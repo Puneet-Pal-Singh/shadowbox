@@ -1,8 +1,10 @@
 import type { Run } from "../run/index.js";
+import { RUN_TERMINAL_STATES } from "@repo/shared-types";
 import type { RunRepository } from "../run/index.js";
 import type { RunEventRecorder } from "../events/index.js";
 import { recordLifecycleStep, recordOrchestrationTerminal } from "./RunMetadataPolicy.js";
 import { transitionRunToFailed } from "./RunStatusPolicy.js";
+import { buildFinalSummaryFrame } from "./FinalSummaryBuilder.js";
 
 export async function handleExecutionErrorPolicy(input: {
   runId: string;
@@ -20,7 +22,16 @@ export async function handleExecutionErrorPolicy(input: {
       recordLifecycleStep(run, "TERMINAL", "status=FAILED");
       recordOrchestrationTerminal(run);
       run.metadata.error = errorMessage;
+      run.metadata.terminalState = RUN_TERMINAL_STATES.FAILED_RUNTIME;
       await input.runRepo.update(run);
+      await input.runEventRecorder.recordMessageEmitted(
+        "assistant",
+        buildFinalSummaryFrame({
+          terminalState: RUN_TERMINAL_STATES.FAILED_RUNTIME,
+          detail: errorMessage,
+        }),
+        { terminalState: RUN_TERMINAL_STATES.FAILED_RUNTIME },
+      );
       if (run.status === "FAILED") {
         await input.runEventRecorder.recordRunFailed(
           errorMessage,

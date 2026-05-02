@@ -1,5 +1,5 @@
 import type { CoreMessage, CoreTool } from "ai";
-import { RUN_WORKFLOW_STEPS } from "@repo/shared-types";
+import { RUN_TERMINAL_STATES, RUN_WORKFLOW_STEPS } from "@repo/shared-types";
 import { Run, RunRepository, RunStateMachine } from "../run/index.js";
 import { Task, TaskRepository } from "../task/index.js";
 import {
@@ -104,6 +104,16 @@ import { GitToolFailureClassifier } from "./GitToolFailureClassifier.js";
 import { describeWorkspaceBootstrapSummary } from "./RunWorkspaceBootstrapSummaryPolicy.js";
 import { resolveGitTaskStrategyPolicy } from "./RunGitTaskStrategyPolicy.js";
 import { buildAgenticLoopCallbacks } from "./RunAgenticLoopCallbacksPolicy.js";
+import {
+  buildFinalSummaryFrame,
+  isFinalSummaryContractEnabled,
+  resolveNextStepFromSummaryText,
+  resolveSummaryReason,
+} from "./FinalSummaryBuilder.js";
+import {
+  resolveLoopTerminalState,
+  shouldUseDeterministicTerminalSummary,
+} from "./RunTerminalStatePolicy.js";
 import type {
   GitHubAuthAvailabilityChecker,
   IRunEngine,
@@ -285,6 +295,10 @@ export class RunEngine implements IRunEngine {
       );
       recordLifecycleStep(run, "CONTEXT_PREPARED");
       const effectiveInput = run.input;
+      const finalSummaryContractEnabled = isFinalSummaryContractEnabled(
+        effectiveInput.metadata,
+        this.options.env.FEATURE_FLAG_FINAL_SUMMARY_CONTRACT_V1,
+      );
       const runMode = run.metadata.manifest?.mode ?? "build";
       const approvalDecision = extractApprovalDecision(effectiveInput);
 
@@ -309,7 +323,15 @@ export class RunEngine implements IRunEngine {
           "APPROVAL_WAIT",
           `approval decision resolved (${decisionResult.decision})`,
         );
-        const decisionMessage = buildApprovalDecisionMessage(decisionResult);
+        const decisionMessage = finalSummaryContractEnabled
+          ? buildFinalSummaryFrame({
+              terminalState:
+                decisionResult.status === "approved"
+                  ? RUN_TERMINAL_STATES.APPROVAL_RESOLVED
+                  : RUN_TERMINAL_STATES.APPROVAL_DENIED,
+              detail: buildApprovalDecisionMessage(decisionResult),
+            })
+          : buildApprovalDecisionMessage(decisionResult);
         return await this.completeRunWithAssistantMessage(
           run,
           decisionMessage,
@@ -318,6 +340,10 @@ export class RunEngine implements IRunEngine {
             requestId: decisionResult.request.requestId,
             decision: decisionResult.decision,
             status: decisionResult.status,
+            terminalState:
+              decisionResult.status === "approved"
+                ? RUN_TERMINAL_STATES.APPROVAL_RESOLVED
+                : RUN_TERMINAL_STATES.APPROVAL_DENIED,
           },
         );
       }
@@ -367,10 +393,17 @@ export class RunEngine implements IRunEngine {
           console.log(
             `[run/engine] Permission check blocked action planning for run ${runId}`,
           );
-          return await this.completeRunWithAssistantMessage(
-            run,
-            permissionMessage,
-          );
+          const message = finalSummaryContractEnabled
+            ? buildFinalSummaryFrame({
+                terminalState: RUN_TERMINAL_STATES.APPROVAL_REQUIRED,
+                detail: permissionMessage,
+                nextStep:
+                  "Choose an approval action to continue, or deny to stop this path.",
+              })
+            : permissionMessage;
+          return await this.completeRunWithAssistantMessage(run, message, {
+            terminalState: RUN_TERMINAL_STATES.APPROVAL_REQUIRED,
+          });
         }
       } else {
         console.log(
@@ -423,6 +456,7 @@ export class RunEngine implements IRunEngine {
           effectiveInput,
           messages,
           enforceGoldenFlowToolFloor(tools, effectiveInput.metadata),
+          finalSummaryContractEnabled,
         );
       }
 
@@ -498,6 +532,7 @@ export class RunEngine implements IRunEngine {
     input: RunInput,
     messages: CoreMessage[],
     tools: Record<string, CoreTool>,
+    finalSummaryContractEnabled: boolean,
   ): Promise<Response> {
     console.log(`[run/engine] Agentic loop execution active for run ${run.id}`);
     const previousStatus = run.status;
@@ -594,26 +629,54 @@ export class RunEngine implements IRunEngine {
         return createStreamResponse("");
       }
       const finalMessage = buildAgenticLoopFinalMessage(loopResult);
+      const terminalState = resolveLoopTerminalState({
+        loopResult,
+        metadata: finalMessage.metadata,
+      });
       const finalOutput = finalMessage.metadata
-        ? finalMessage.text
+        ? finalSummaryContractEnabled &&
+          shouldUseDeterministicTerminalSummary(terminalState)
+          ? buildFinalSummaryFrame({
+              terminalState,
+              detail: resolveSummaryReason(finalMessage.text),
+              nextStep:
+                (typeof finalMessage.metadata.resumeHint === "string"
+                  ? finalMessage.metadata.resumeHint
+                  : undefined) ??
+                resolveNextStepFromSummaryText(finalMessage.text),
+            })
+          : finalMessage.text
         : await applyReviewerPassIfEnabled({
             run,
             originalPrompt: input.prompt,
             synthesisOutput: sanitizeUserFacingOutput(finalMessage.text),
             llmGateway: this.llmGateway,
           });
+      const mergedMetadata: Record<string, unknown> = {
+        ...(finalMessage.metadata ?? {}),
+        terminalState,
+      };
       return this.completeRunWithAssistantMessage(
         run,
         finalOutput,
-        finalMessage.metadata,
+        mergedMetadata,
       );
     } catch (error) {
       if (error instanceof PermissionGateError) {
         const gateResult = error.gateResult;
         if (gateResult.kind === "ask") {
-          return this.completeRunWithAssistantMessage(run, error.message, {
+          const message = finalSummaryContractEnabled
+            ? buildFinalSummaryFrame({
+                terminalState: RUN_TERMINAL_STATES.APPROVAL_REQUIRED,
+                detail: error.message,
+                nextStep:
+                  "Choose an approval action to continue, or deny to stop this path.",
+              })
+            : error.message;
+          return this.completeRunWithAssistantMessage(run, message, {
             code: "APPROVAL_REQUIRED",
             approvalRequest: gateResult.request,
+            terminalState: RUN_TERMINAL_STATES.APPROVAL_REQUIRED,
           });
         }
         const currentRun = await this.runRepo.getById(run.id);
@@ -625,9 +688,18 @@ export class RunEngine implements IRunEngine {
         }
         const denialReason =
           gateResult.kind === "deny" ? gateResult.reason : error.message;
-        return this.completeRunWithAssistantMessage(run, error.message, {
+        const message = finalSummaryContractEnabled
+          ? buildFinalSummaryFrame({
+              terminalState: RUN_TERMINAL_STATES.APPROVAL_DENIED,
+              detail: denialReason,
+              nextStep:
+                "If you want to proceed, allow the action in a new approval decision.",
+            })
+          : error.message;
+        return this.completeRunWithAssistantMessage(run, message, {
           code: "PERMISSION_DENIED",
           reason: denialReason,
+          terminalState: RUN_TERMINAL_STATES.APPROVAL_DENIED,
         });
       }
       const recoveryResponse = await this.tryHandleTaskExecutionError(
@@ -702,6 +774,22 @@ export class RunEngine implements IRunEngine {
       RUN_WORKFLOW_STEPS.EXECUTION,
       "user_cancelled",
     );
+    if (
+      isFinalSummaryContractEnabled(
+        run.input.metadata,
+        this.options.env.FEATURE_FLAG_FINAL_SUMMARY_CONTRACT_V1,
+      )
+    ) {
+      await this.runEventRecorder.recordMessageEmitted(
+        "assistant",
+        buildFinalSummaryFrame({
+          terminalState: RUN_TERMINAL_STATES.INTERRUPTED,
+          detail: "The run was cancelled before execution could finish.",
+          nextStep: "Resubmit the request when you want me to continue.",
+        }),
+        { terminalState: RUN_TERMINAL_STATES.INTERRUPTED },
+      );
+    }
     const tasks = await this.taskRepo.getByRun(runId);
     for (const task of tasks) {
       if (["PENDING", "READY", "RUNNING"].includes(task.status)) {

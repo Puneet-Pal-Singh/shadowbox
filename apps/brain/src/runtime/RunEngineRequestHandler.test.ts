@@ -568,6 +568,15 @@ describe("RunEngineRequestHandler", () => {
     );
 
     expect(response.status).toBe(409);
+    const eventRepo = new RunEventRepository(runtimeState);
+    const events = await eventRepo.getByRun(runId);
+    expect(
+      events.some(
+        (event) =>
+          event.type === RUN_EVENT_TYPES.RUN_PROGRESS &&
+          event.payload.label === "Approval decision ignored",
+      ),
+    ).toBe(true);
   });
 });
 
