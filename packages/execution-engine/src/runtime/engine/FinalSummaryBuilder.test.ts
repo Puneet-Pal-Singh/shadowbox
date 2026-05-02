@@ -56,4 +56,16 @@ describe("FinalSummaryBuilder", () => {
       "Retry the failed step after listing available scripts.",
     );
   });
+
+  it("extracts framed next-step lines from deterministic final summaries", () => {
+    const summaryText = [
+      "Outcome: I could not finish because a required tool step failed.",
+      "What happened: A shell step failed because the test script is missing.",
+      "What you can do next: Retry the failed step after listing available scripts.",
+    ].join("\n");
+
+    expect(resolveNextStepFromSummaryText(summaryText)).toBe(
+      "Retry the failed step after listing available scripts.",
+    );
+  });
 });
