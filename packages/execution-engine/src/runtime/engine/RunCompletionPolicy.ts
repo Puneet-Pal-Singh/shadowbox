@@ -1,5 +1,7 @@
 import type { CoreMessage } from "ai";
-import { RUN_WORKFLOW_STEPS } from "@repo/shared-types";
+import { RUN_TERMINAL_STATES, RUN_WORKFLOW_STEPS } from "@repo/shared-types";
+import { RunTerminalStateSchema } from "@repo/shared-types";
+import type { RunTerminalState } from "@repo/shared-types";
 import type { MemoryCoordinator } from "../memory/index.js";
 import type { Run, RunRepository } from "../run/index.js";
 import type { RunEventRecorder } from "../events/index.js";
@@ -60,6 +62,8 @@ export async function completeRunWithAssistantMessage(params: {
 }): Promise<Response> {
   const { run, text, metadata, deps } = params;
   const sanitizedText = sanitizeUserFacingOutput(text);
+  const terminalState =
+    parseTerminalState(metadata) ?? RUN_TERMINAL_STATES.COMPLETED;
   recordLifecycleStep(run, "SYNTHESIS");
   await deps.runEventRecorder.recordRunStatusChanged(
     run.status,
@@ -71,7 +75,11 @@ export async function completeRunWithAssistantMessage(params: {
   transitionRunToCompleted(run, run.id);
   recordLifecycleStep(run, "TERMINAL", "status=COMPLETED");
   recordOrchestrationTerminal(run);
-  run.output = { content: sanitizedText };
+  run.output = {
+    content: sanitizedText,
+    finalSummary: sanitizedText,
+  };
+  run.metadata.terminalState = terminalState;
   await deps.runRepo.update(run);
   await deps.runEventRecorder.recordMessageEmitted(
     "assistant",
@@ -97,6 +105,8 @@ export async function completeRunWithRecoveredAssistantMessage(params: {
 }): Promise<Response> {
   const { run, text, plannerError, metadata, errorMetadata, deps } = params;
   const sanitizedText = sanitizeUserFacingOutput(text);
+  const terminalState =
+    parseTerminalState(metadata) ?? RUN_TERMINAL_STATES.COMPLETED_WITH_WARNINGS;
   recordLifecycleStep(run, "SYNTHESIS", "planning_recovery");
   await deps.runEventRecorder.recordRunStatusChanged(
     run.status,
@@ -113,7 +123,11 @@ export async function completeRunWithRecoveredAssistantMessage(params: {
   }
   recordLifecycleStep(run, "TERMINAL", "status=COMPLETED:recoverable");
   recordOrchestrationTerminal(run);
-  run.output = { content: sanitizedText };
+  run.output = {
+    content: sanitizedText,
+    finalSummary: sanitizedText,
+  };
+  run.metadata.terminalState = terminalState;
   await deps.runRepo.update(run);
   await deps.runEventRecorder.recordMessageEmitted(
     "assistant",
@@ -255,4 +269,15 @@ function getBoundedDiagnosticDetail(error: unknown): string {
   }
 
   return `${normalized.slice(0, PLANNER_DIAGNOSTIC_MAX_LENGTH)}...`;
+}
+
+function parseTerminalState(
+  metadata: Record<string, unknown> | undefined,
+): RunTerminalState | undefined {
+  const state = metadata?.terminalState;
+  if (typeof state !== "string") {
+    return undefined;
+  }
+  const parsed = RunTerminalStateSchema.safeParse(state);
+  return parsed.success ? parsed.data : undefined;
 }

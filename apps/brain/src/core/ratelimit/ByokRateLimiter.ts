@@ -11,8 +11,8 @@
  * Usage:
  *   const limiter = new ByokRateLimiter();
  *   const allowed = await limiter.checkLimit('connect', userId, workspaceId);
- *   if (!allowed) {
- *     return { error: 'Rate limit exceeded' };
+ *   if (!allowed.allowed) {
+ *     // Return typed BYOKError: createBYOKError('RATE_LIMIT_EXCEEDED', 'Rate limit exceeded', { retryAfterMs: allowed.retryAfterMs })
  *   }
  */
 

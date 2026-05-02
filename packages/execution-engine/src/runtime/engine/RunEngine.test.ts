@@ -987,6 +987,142 @@ describe("RunEngine", () => {
     expect(approvalResolvedIndex).toBeLessThan(firstToolTerminalIndex);
   });
 
+  it("formats approval-denied completion with terminal summary contract when enabled", async () => {
+    const state = new MockRuntimeState();
+    const runEngine = new RunEngine(
+      state,
+      {
+        env: {
+          NODE_ENV: "test",
+          FEATURE_FLAG_FINAL_SUMMARY_CONTRACT_V1: "true",
+        } as unknown,
+        sessionId: "session-1",
+        runId: TEST_RUN_ID,
+      },
+      undefined,
+      undefined,
+      { llmGateway: createMockLLMGateway() },
+    );
+    const approvalStore = new PermissionApprovalStore(state, TEST_RUN_ID);
+    await approvalStore.setPendingRequest({
+      requestId: "req-deny-1",
+      runId: TEST_RUN_ID,
+      origin: "agent",
+      category: "shell_command",
+      title: "Run tests",
+      reason: "This command can execute shell mutations.",
+      command: "pnpm test",
+      actionFingerprint: "shell:pnpm test",
+      availableDecisions: ["deny", "allow_once"],
+      createdAt: "2026-03-24T10:00:00.000Z",
+    });
+
+    const response = await runEngine.execute(
+      {
+        agentType: "coding",
+        prompt: "deny that command",
+        sessionId: "session-1",
+        metadata: {
+          permissionDecision: { kind: "deny", requestId: "req-deny-1" },
+        },
+      },
+      [{ role: "user", content: "deny that command" }],
+      {},
+    );
+
+    expect(response.status).toBe(200);
+    const text = await response.text();
+    expect(text).toContain(
+      "Outcome: I could not continue because approval was denied.",
+    );
+    expect(text).toContain("What happened:");
+    expect(text).toContain("What you can do next:");
+
+    const persisted = await new RunRepository(state).getById(TEST_RUN_ID);
+    expect(persisted?.metadata.terminalState).toBe("approval_denied");
+  });
+
+  it("uses deterministic failed-tool final summary contract when enabled", async () => {
+    const state = new MockRuntimeState();
+    const executionService: RuntimeExecutionService = {
+      execute: vi.fn(async () => ({
+        success: false,
+        error:
+          'npm error Missing script: "test" npm error To see a list of scripts, run: npm run',
+      })),
+    };
+    const llmGateway: ILLMGateway = {
+      generateText: vi.fn().mockResolvedValue({
+        text: "I'll run tests now.",
+        toolCalls: [
+          {
+            id: "bash-contract-1",
+            toolName: "bash",
+            args: { command: "pnpm test", cwd: "." },
+          },
+        ],
+        usage: {
+          provider: "mock",
+          model: "mock-model",
+          promptTokens: 4,
+          completionTokens: 8,
+          totalTokens: 12,
+        },
+      }),
+      generateStructured: async () => ({
+        object: { tasks: [], metadata: { estimatedSteps: 1 } },
+        usage: {
+          provider: "mock",
+          model: "mock-model",
+          promptTokens: 1,
+          completionTokens: 1,
+          totalTokens: 2,
+        },
+      }),
+      generateStream: async () =>
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.close();
+          },
+        }),
+    };
+    const runEngine = new RunEngine(
+      state,
+      {
+        env: {
+          NODE_ENV: "test",
+          FEATURE_FLAG_FINAL_SUMMARY_CONTRACT_V1: "true",
+        } as unknown,
+        sessionId: "session-1",
+        runId: TEST_RUN_ID,
+      },
+      new CodingAgent(llmGateway, executionService),
+      undefined,
+      { llmGateway },
+    );
+
+    const response = await runEngine.execute(
+      {
+        agentType: "coding",
+        prompt: "run tests",
+        sessionId: "session-1",
+      },
+      [{ role: "user", content: "run tests" }],
+      {},
+    );
+
+    expect(response.status).toBe(200);
+    const text = await response.text();
+    expect(text).toContain(
+      "Outcome: I could not finish because a required tool step failed.",
+    );
+    expect(text).toContain("What happened:");
+    expect(text).toContain("What you can do next:");
+
+    const persisted = await new RunRepository(state).getById(TEST_RUN_ID);
+    expect(persisted?.metadata.terminalState).toBe("failed_tool");
+  });
+
   it("keeps a run cancelled when approval waiting is interrupted by user cancellation", async () => {
     const state = new MockRuntimeState();
     const executionService: RuntimeExecutionService = {
@@ -1097,6 +1233,49 @@ describe("RunEngine", () => {
     expect(
       events.some((event) => event.type === RUN_EVENT_TYPES.RUN_COMPLETED),
     ).toBe(false);
+  });
+
+  it("records interrupted terminal summary message on cancel when contract is enabled", async () => {
+    const state = new MockRuntimeState();
+    const runId = "f462a003-5c36-4c86-a95d-367b92bf4701";
+    const runtimeRunRepo = new RunRepository(state);
+    await runtimeRunRepo.create(
+      new Run(runId, "session-1", "RUNNING", "coding", {
+        agentType: "coding",
+        prompt: "cancel me",
+        sessionId: "session-1",
+      }),
+    );
+    const runEngine = new RunEngine(
+      state,
+      {
+        env: {
+          NODE_ENV: "test",
+          FEATURE_FLAG_FINAL_SUMMARY_CONTRACT_V1: "true",
+        } as unknown,
+        sessionId: "session-1",
+        runId,
+      },
+      undefined,
+      undefined,
+      { llmGateway: createMockLLMGateway() },
+    );
+
+    const cancelled = await runEngine.cancel(runId);
+
+    expect(cancelled).toBe(true);
+    const events = await new RunEventRepository(state).getByRun(runId);
+    const assistantSummary = events.find(
+      (event) =>
+        event.type === RUN_EVENT_TYPES.MESSAGE_EMITTED &&
+        event.payload.role === "assistant",
+    );
+    expect(assistantSummary?.payload.content).toContain(
+      "Outcome: The run was interrupted before it completed.",
+    );
+    expect(assistantSummary?.payload.metadata).toMatchObject({
+      terminalState: "interrupted",
+    });
   });
 
   it("keeps build mode running when planner would fail, because planner is inactive", async () => {

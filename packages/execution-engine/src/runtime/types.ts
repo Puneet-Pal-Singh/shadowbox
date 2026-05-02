@@ -2,6 +2,7 @@ import type {
   EffectivePermissionState,
   PermissionRuntimeLabel,
   RunMode,
+  RunTerminalState,
   ToolActivityMetadata,
   WorkflowIntentResolverInput,
 } from "@repo/shared-types";
@@ -273,6 +274,7 @@ export interface RunMetadata {
   completedAt?: string;
   error?: string;
   startedAt?: string;
+  terminalState?: RunTerminalState;
 }
 
 export interface RunOrchestrationTelemetry {

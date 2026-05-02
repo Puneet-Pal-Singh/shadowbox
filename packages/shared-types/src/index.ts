@@ -90,6 +90,11 @@ export type {
 // Run status types
 export { RUN_STATUSES } from "./run-status.js";
 export type { RunStatus } from "./run-status.js";
+export {
+  RUN_TERMINAL_STATES,
+  RunTerminalStateSchema,
+  type RunTerminalState,
+} from "./run-terminal-state.js";
 
 // Explicit build/plan mode contract
 export { RunModeSchema, DEFAULT_RUN_MODE, type RunMode } from "./run-mode.js";
