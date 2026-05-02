@@ -9,16 +9,15 @@ export function resolveLoopTerminalState(input: {
     return RUN_TERMINAL_STATES.INTERRUPTED;
   }
 
-  if (input.loopResult.stopReason === "tool_error") {
-    return RUN_TERMINAL_STATES.FAILED_TOOL;
-  }
-
   const code =
     typeof input.metadata?.code === "string"
       ? input.metadata.code
       : undefined;
   if (code === "PERMISSION_DENIED") {
     return RUN_TERMINAL_STATES.FAILED_POLICY;
+  }
+  if (input.loopResult.stopReason === "tool_error") {
+    return RUN_TERMINAL_STATES.FAILED_TOOL;
   }
   if (
     code === "INCOMPLETE_MUTATION" ||
