@@ -2,6 +2,12 @@
 
 A web-native coding-agent workspace built on a custom Cloudflare-native execution harness.
 
+## Launch Posture
+
+LegionCode is currently in **Public Alpha**.
+
+> LegionCode is in public alpha. Expect rough edges, fast changes, and occasional breakage while the harness is actively evolving.
+
 ## Repository Layout
 
 ```text
