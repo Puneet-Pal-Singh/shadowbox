@@ -434,7 +434,7 @@ function SettingsGeneralPanel(): React.ReactElement {
     <div className="space-y-4">
       <SettingCard
         title="Theme"
-        description="Shadowbox currently ships a single dark theme tuned for terminal-first workflows."
+        description="LegionCode currently ships a single dark theme tuned for terminal-first workflows."
         right="Dark"
       />
       <SettingCard
