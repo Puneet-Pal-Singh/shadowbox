@@ -575,8 +575,8 @@ export function ChatInterface({
   );
   const renderComposerControls = (layout: ComposerLayout) => (
     <>
-      {error && (
-        <div className={layout === "hero" ? "mb-4" : "mb-4"}>
+      {error ? (
+        <div className="mb-4">
           <ChatErrorNotice
             message={recoveryAdvice.message}
             remediation={recoveryAdvice.remediation}
@@ -584,7 +584,7 @@ export function ChatInterface({
             onOpenProviders={openProviderRecoverySurface}
           />
         </div>
-      )}
+      ) : null}
       {pendingApproval ? (
         <ApprovalPanel
           pendingApproval={pendingApproval}
@@ -596,8 +596,7 @@ export function ChatInterface({
           formatApprovalDecisionLabel={formatApprovalDecisionLabel}
           buildApprovalPromptTitle={buildApprovalPromptTitle}
         />
-      ) : null}
-      {pendingApproval ? null : (
+      ) : (
         <ChatInputBar
           input={input}
           onChange={handleInputChangeWrapper}
