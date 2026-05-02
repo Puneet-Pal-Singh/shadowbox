@@ -46,7 +46,7 @@ export function resolveNextStepFromSummaryText(summaryText: string): string | un
     .map((line) => line.trim())
     .filter((line) => line.length > 0);
   const candidate = [...lines].reverse().find((line) => isActionableLine(line));
-  return candidate;
+  return candidate ? stripNextStepFramePrefix(candidate) : undefined;
 }
 
 export function resolveSummaryReason(summaryText: string): string {
@@ -128,9 +128,14 @@ function normalizeSummaryLine(value: string | undefined): string {
 }
 
 function isActionableLine(value: string): boolean {
+  const normalized = stripNextStepFramePrefix(value);
   return /^(retry|run|re-run|resubmit|switch|choose|tell|use|allow|deny|fix|adjust)\b/i.test(
-    value.trim(),
+    normalized,
   );
+}
+
+function stripNextStepFramePrefix(value: string): string {
+  return value.replace(/^what you can do next:\s*/i, "").trim();
 }
 
 function readBooleanLike(value: unknown): boolean {
