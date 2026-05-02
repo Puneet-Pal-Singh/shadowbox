@@ -39,7 +39,7 @@ export function useChatHydration(
       );
 
       if (result.error) {
-        console.error("🧬 [Shadowbox] Hydration failed:", result.error);
+        console.error("🧬 [LegionCode] Hydration failed:", result.error);
       } else if (result.messages.length > 0) {
         setMessages(result.messages);
       }

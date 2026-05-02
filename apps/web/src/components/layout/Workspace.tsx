@@ -359,11 +359,11 @@ export function Workspace({
 
     const savedPath = localStorage.getItem("shadowbox_last_viewed_path");
     console.log(
-      `🧬 [Shadowbox] Restoration Check: isViewing=${isViewingContent}, path=${savedPath}, selectedFile=${!!selectedFile}`,
+      `🧬 [LegionCode] Restoration Check: isViewing=${isViewingContent}, path=${savedPath}, selectedFile=${!!selectedFile}`,
     );
 
     if (isViewingContent && savedPath && !selectedFile && !selectedDiff) {
-      console.log(`🧬 [Shadowbox] Restoring last viewed file: ${savedPath}`);
+      console.log(`🧬 [LegionCode] Restoring last viewed file: ${savedPath}`);
       handleFileClick(savedPath);
     }
   }, [

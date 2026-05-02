@@ -161,7 +161,7 @@ export function useChatCore(
         },
       });
       if (shouldLogStreamError(lastLoggedStreamErrorRef.current, message)) {
-        console.error("🧬 [Shadowbox] Chat Stream Error:", message);
+        console.error("🧬 [LegionCode] Chat Stream Error:", message);
         lastLoggedStreamErrorRef.current = {
           message,
           timestamp: Date.now(),
