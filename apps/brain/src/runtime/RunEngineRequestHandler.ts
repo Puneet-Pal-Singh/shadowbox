@@ -368,12 +368,18 @@ export class RunEngineRequestHandler {
         error instanceof Error
           ? error.message
           : "Unable to resolve approval decision";
-      await runEventRecorder.recordRunProgress(
-        RUN_WORKFLOW_STEPS.EXECUTION,
-        "Approval decision ignored",
-        message,
-        "completed",
-      );
+      try {
+        await runEventRecorder.recordRunProgress(
+          RUN_WORKFLOW_STEPS.EXECUTION,
+          "Approval decision ignored",
+          message,
+          "completed",
+        );
+      } catch (recordError) {
+        console.warn(
+          `[run/approval] failed to record ignored approval decision: ${sanitizeUnknownError(recordError)}`,
+        );
+      }
       const status =
         message.includes("No pending approval request")
           ? 409
