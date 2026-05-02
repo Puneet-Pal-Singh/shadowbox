@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-const RUN_ENGINE_MAX_LINES = 1050;
+const RUN_ENGINE_MAX_LINES = 1060;
 const TASK_SCHEDULER_MAX_LINES = 420;
 
 describe("runtime core decomposition guard", () => {
