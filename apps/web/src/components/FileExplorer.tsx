@@ -64,7 +64,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(
           return items;
         }
       } catch (e) {
-        console.error("🧬 [Shadowbox] Explorer Error:", e);
+        console.error("🧬 [LegionCode] Explorer Error:", e);
       }
       return [];
     }, [sessionId, runId]);
@@ -86,7 +86,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(
           await refresh();
         } catch (err) {
           if (isMounted) {
-            console.error("🧬 [Shadowbox] Failed to initial refresh file tree:", err);
+            console.error("🧬 [LegionCode] Failed to initial refresh file tree:", err);
           }
         }
       };
