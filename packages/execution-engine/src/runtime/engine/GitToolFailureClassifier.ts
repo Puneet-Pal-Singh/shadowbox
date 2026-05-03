@@ -67,8 +67,6 @@ const UNSUPPORTED_ENV_PATTERNS = [
 const POLICY_BLOCKED_PATTERNS = [
   /legioncode wants to/i,
   /legioncode cannot continue/i,
-  /shadowbox wants to/i,
-  /shadowbox cannot continue/i,
   /blocked by policy/i,
   /approval required/i,
   /permission denied by policy/i,

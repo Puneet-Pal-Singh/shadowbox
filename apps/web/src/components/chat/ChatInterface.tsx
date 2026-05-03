@@ -841,9 +841,7 @@ function buildApprovalPromptTitle(pendingApproval: ApprovalRequest): string {
     return title;
   }
 
-  const wantsToMatch = title.match(
-    /^(?:legioncode|shadowbox|codex)\s+wants\s+to\s+(.+)$/i,
-  );
+  const wantsToMatch = title.match(/^(?:legioncode)\s+wants\s+to\s+(.+)$/i);
   if (wantsToMatch?.[1]) {
     return `Do you want me to ${wantsToMatch[1]}?`;
   }
